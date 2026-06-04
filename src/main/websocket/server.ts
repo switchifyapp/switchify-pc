@@ -1,3 +1,5 @@
+import type { IncomingMessage } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import {
   createAckResponse,
@@ -9,7 +11,12 @@ import {
   type PairingStartRequest,
   type ProtocolResponse
 } from '../../shared/protocol';
-import { DEFAULT_WS_PORT, type PcServerStatus, type PcServerStatusListener } from '../../shared/server-status';
+import {
+  DEFAULT_WS_PORT,
+  type PcConnectedClient,
+  type PcServerStatus,
+  type PcServerStatusListener
+} from '../../shared/server-status';
 import type { CommandAuthValidator } from '../pairing/auth';
 import type { PairingManager } from '../pairing/pairing-manager';
 
@@ -23,7 +30,7 @@ export type PcWebSocketServerOptions = {
 
 export class PcWebSocketServer {
   private server: WebSocketServer | null = null;
-  private readonly clients = new Set<WebSocket>();
+  private readonly clients = new Map<WebSocket, PcConnectedClient>();
   private readonly pendingPairingDeviceNames = new Map<string, string>();
   private status: PcServerStatus;
 
@@ -32,13 +39,17 @@ export class PcWebSocketServer {
       state: 'stopped',
       port: options.port ?? DEFAULT_WS_PORT,
       connectedClientCount: 0,
+      connectedClients: [],
       lastSeenAt: null,
       lastError: null
     };
   }
 
   getStatus(): PcServerStatus {
-    return { ...this.status };
+    return {
+      ...this.status,
+      connectedClients: this.status.connectedClients.map((client) => ({ ...client }))
+    };
   }
 
   async start(): Promise<PcServerStatus> {
@@ -60,7 +71,7 @@ export class PcWebSocketServer {
         this.setStatus({ state: 'error', lastError: error.message });
         reject(error);
       });
-      server.on('connection', (client) => this.handleConnection(client));
+      server.on('connection', (client, request) => this.handleConnection(client, request));
     });
 
     return this.getStatus();
@@ -69,11 +80,11 @@ export class PcWebSocketServer {
   async stop(): Promise<PcServerStatus> {
     const server = this.server;
     if (!server) {
-      this.setStatus({ state: 'stopped', connectedClientCount: 0 });
+      this.setStatus({ state: 'stopped', connectedClientCount: 0, connectedClients: [] });
       return this.getStatus();
     }
 
-    for (const client of this.clients) {
+    for (const client of this.clients.keys()) {
       client.close();
     }
     this.clients.clear();
@@ -87,12 +98,27 @@ export class PcWebSocketServer {
     });
 
     this.server = null;
-    this.setStatus({ state: 'stopped', connectedClientCount: 0 });
+    this.setStatus({ state: 'stopped', connectedClientCount: 0, connectedClients: [] });
     return this.getStatus();
   }
 
-  private handleConnection(client: WebSocket): void {
-    this.clients.add(client);
+  disconnectClients(): PcServerStatus {
+    for (const client of this.clients.keys()) {
+      client.close();
+    }
+    this.clients.clear();
+    this.updateClientStatus();
+    return this.getStatus();
+  }
+
+  private handleConnection(client: WebSocket, request: IncomingMessage): void {
+    this.clients.set(client, {
+      id: randomUUID(),
+      deviceId: null,
+      remoteAddress: request.socket.remoteAddress ?? null,
+      connectedAt: Date.now(),
+      lastSeenAt: null
+    });
     this.updateClientStatus();
 
     client.on('message', (data) => {
@@ -131,6 +157,7 @@ export class PcWebSocketServer {
     }
 
     await this.options.onCommand?.(authResult.command);
+    this.markClientSeen(client, authResult.command.deviceId);
     this.setStatus({ lastSeenAt: Date.now(), lastError: null });
     sendResponse(client, createAckResponse(message.id));
   }
@@ -176,7 +203,22 @@ export class PcWebSocketServer {
   }
 
   private updateClientStatus(): void {
-    this.setStatus({ connectedClientCount: this.clients.size });
+    this.setStatus({
+      connectedClientCount: this.clients.size,
+      connectedClients: [...this.clients.values()].map((client) => ({ ...client }))
+    });
+  }
+
+  private markClientSeen(client: WebSocket, deviceId: string): void {
+    const existing = this.clients.get(client);
+    if (!existing) return;
+
+    this.clients.set(client, {
+      ...existing,
+      deviceId,
+      lastSeenAt: Date.now()
+    });
+    this.updateClientStatus();
   }
 
   private setStatus(update: Partial<PcServerStatus>): void {

@@ -1,13 +1,16 @@
 export {};
 
-import type { PcServerStatus } from '../shared/server-status';
+import type { ConnectionDetails, PairingSessionView, PcServerStatus } from '../shared/server-status';
 
 declare global {
   interface Window {
     switchifyPc: {
       appName: string;
-      status: string;
       getServerStatus: () => Promise<PcServerStatus>;
+      getPairingSession: () => Promise<PairingSessionView | null>;
+      createPairingSession: () => Promise<PairingSessionView>;
+      getConnectionDetails: () => Promise<ConnectionDetails>;
+      disconnectClients: () => Promise<PcServerStatus>;
     };
   }
 }

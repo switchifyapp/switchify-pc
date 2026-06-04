@@ -116,10 +116,40 @@ describe('PcWebSocketServer', () => {
 
     const client = await connect(server.getStatus().port);
     expect(server.getStatus().connectedClientCount).toBe(1);
+    expect(server.getStatus().connectedClients).toHaveLength(1);
 
     await closeClient(client);
     await waitFor(() => server.getStatus().connectedClientCount === 0);
     expect(server.getStatus().connectedClientCount).toBe(0);
+    expect(server.getStatus().connectedClients).toHaveLength(0);
+  });
+
+  it('records authenticated device ids in connected client status', async () => {
+    const server = createServer();
+    activeServers.push(server);
+    await server.start();
+    const client = await connect(server.getStatus().port);
+
+    await sendAndReceive(client, createPingCommand());
+
+    expect(server.getStatus().connectedClients[0]).toMatchObject({
+      deviceId: 'android-1'
+    });
+    client.close();
+  });
+
+  it('disconnects active clients without stopping the server', async () => {
+    const server = createServer();
+    activeServers.push(server);
+    await server.start();
+    const client = await connect(server.getStatus().port);
+
+    const status = server.disconnectClients();
+
+    expect(status.state).toBe('listening');
+    expect(status.connectedClientCount).toBe(0);
+    expect(status.connectedClients).toHaveLength(0);
+    await waitFor(() => client.readyState === WebSocket.CLOSED);
   });
 });
 

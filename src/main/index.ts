@@ -4,10 +4,13 @@ import { CommandAuthValidator } from './pairing/auth';
 import { JsonPairingStore } from './pairing/pairing-store';
 import { PairingManager } from './pairing/pairing-manager';
 import { registerServerIpc } from './server-ipc';
+import { createSwitchifyTray, type SwitchifyTray } from './tray';
 import { PcWebSocketServer } from './websocket/server';
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 let pcServer: PcWebSocketServer | null = null;
+let mainWindow: BrowserWindow | null = null;
+let tray: SwitchifyTray | null = null;
 let isQuitting = false;
 
 function createMainWindow(): BrowserWindow {
@@ -31,6 +34,18 @@ function createMainWindow(): BrowserWindow {
     window.show();
   });
 
+  window.on('close', (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+    window.hide();
+  });
+
+  window.on('closed', () => {
+    if (mainWindow === window) {
+      mainWindow = null;
+    }
+  });
+
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
@@ -40,37 +55,68 @@ function createMainWindow(): BrowserWindow {
   return window;
 }
 
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = createMainWindow();
+    return;
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function quitApp(): void {
+  app.quit();
+}
+
 app.whenReady().then(() => {
   const pairingStore = new JsonPairingStore(join(app.getPath('userData'), 'pairing-state.json'));
   const pairingManager = new PairingManager(pairingStore);
   pcServer = new PcWebSocketServer({
     pairingManager,
-    authValidator: new CommandAuthValidator(pairingStore)
+    authValidator: new CommandAuthValidator(pairingStore),
+    onStatusChange: () => tray?.update()
   });
-  registerServerIpc(pcServer);
+  registerServerIpc(pcServer, pairingManager);
   void pcServer.start();
 
-  createMainWindow();
+  mainWindow = createMainWindow();
+  tray = createSwitchifyTray({
+    getStatus: () =>
+      pcServer?.getStatus() ?? {
+        state: 'stopped',
+        port: 0,
+        connectedClientCount: 0,
+        connectedClients: [],
+        lastSeenAt: null,
+        lastError: null
+      },
+    showWindow: showMainWindow,
+    disconnectClients: () => {
+      pcServer?.disconnectClients();
+      tray?.update();
+    },
+    quit: quitApp
+  });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
-    }
+    showMainWindow();
   });
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+app.on('window-all-closed', () => {});
 
 app.on('before-quit', (event) => {
   if (!pcServer || isQuitting) return;
 
   event.preventDefault();
+  isQuitting = true;
+  tray?.destroy();
+  tray = null;
   void pcServer.stop().finally(() => {
-    isQuitting = true;
     app.quit();
   });
 });
