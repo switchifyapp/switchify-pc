@@ -41,6 +41,7 @@
     "vitest": "^4.1.8"
   },
   "dependencies": {
+    "@nut-tree-fork/libnut-win32": "^2.7.5",
     "ws": "^8.21.0"
   }
 }
