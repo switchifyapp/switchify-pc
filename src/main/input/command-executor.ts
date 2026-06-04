@@ -13,9 +13,28 @@ export type CommandExecutionResult =
   | { ok: false; code: 'unsupported_command' | 'unsafe_payload' | 'adapter_failure'; message: string };
 
 export class DesktopCommandExecutor {
+  private pointerMoveQueue: Promise<void> = Promise.resolve();
+
   constructor(private readonly adapter: DesktopInputAdapter) {}
 
   async execute(command: CommandRequest): Promise<CommandExecutionResult> {
+    if (command.type === 'mouse.move') {
+      return this.enqueuePointerMove(command);
+    }
+
+    return this.executeNow(command);
+  }
+
+  private async enqueuePointerMove(command: CommandRequest & { type: 'mouse.move' }): Promise<CommandExecutionResult> {
+    const result = this.pointerMoveQueue.then(() => this.executeNow(command));
+    this.pointerMoveQueue = result.then(
+      () => undefined,
+      () => undefined
+    );
+    return result;
+  }
+
+  private async executeNow(command: CommandRequest): Promise<CommandExecutionResult> {
     try {
       switch (command.type) {
         case 'mouse.move':
