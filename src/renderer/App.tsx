@@ -1,4 +1,6 @@
 import type { ReactElement } from 'react';
+import { useEffect, useState } from 'react';
+import type { PcServerStatus } from '../shared/server-status';
 
 const features = [
   'Local network pairing will appear here.',
@@ -8,6 +10,25 @@ const features = [
 
 export function App(): ReactElement {
   const bridge = window.switchifyPc;
+  const [serverStatus, setServerStatus] = useState<PcServerStatus | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async (): Promise<void> => {
+      const status = await bridge.getServerStatus();
+      if (!cancelled) setServerStatus(status);
+    };
+
+    void refresh();
+    const interval = window.setInterval(() => {
+      void refresh();
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [bridge]);
 
   return (
     <main className="app-shell">
@@ -23,7 +44,7 @@ export function App(): ReactElement {
           <span className="status-dot" />
           <div>
             <div className="status-label">Server status</div>
-            <div className="status-value">Not started.</div>
+            <div className="status-value">{formatServerStatus(serverStatus)}</div>
           </div>
         </div>
 
@@ -35,4 +56,13 @@ export function App(): ReactElement {
       </section>
     </main>
   );
+}
+
+function formatServerStatus(status: PcServerStatus | null): string {
+  if (!status) return 'Loading.';
+  if (status.state === 'listening') {
+    return `Listening on port ${status.port}. ${status.connectedClientCount} connected.`;
+  }
+  if (status.state === 'error') return status.lastError ?? 'Server error.';
+  return `${status.state}.`;
 }

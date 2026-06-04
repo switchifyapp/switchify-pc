@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createAckResponse,
   createErrorResponse,
+  createPairingCompleteResponse,
   parseProtocolRequest,
   PROTOCOL_VERSION,
   validateProtocolRequest,
@@ -141,6 +142,16 @@ describe('protocol response validation', () => {
         message: 'Payload rejected.'
       }
     });
+    expect(validateProtocolResponse(response)).toMatchObject({ ok: true });
+  });
+
+  it('creates and validates pairing complete responses', () => {
+    const response = createPairingCompleteResponse('pairing-1', {
+      desktopId: 'desktop-1',
+      deviceId: 'android-1',
+      token: 'paired-token'
+    });
+
     expect(validateProtocolResponse(response)).toMatchObject({ ok: true });
   });
 
