@@ -10,9 +10,21 @@ type RecordedCall = { method: keyof DesktopInputAdapter; args: unknown[] };
 class FakeInputAdapter implements DesktopInputAdapter {
   readonly calls: RecordedCall[] = [];
   failNext: Error | null = null;
+  activeMouseMoves = 0;
+  maxActiveMouseMoves = 0;
+  mouseMoveDelayMs = 0;
 
   async moveMouseBy(delta: { dx: number; dy: number }): Promise<void> {
-    this.record('moveMouseBy', [delta]);
+    this.activeMouseMoves += 1;
+    this.maxActiveMouseMoves = Math.max(this.maxActiveMouseMoves, this.activeMouseMoves);
+    try {
+      if (this.mouseMoveDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, this.mouseMoveDelayMs));
+      }
+      this.record('moveMouseBy', [delta]);
+    } finally {
+      this.activeMouseMoves -= 1;
+    }
   }
 
   async clickMouse(button: 'left' | 'right' | 'middle'): Promise<void> {
@@ -121,6 +133,24 @@ describe('DesktopCommandExecutor', () => {
       code: 'adapter_failure',
       message: 'Native input failed.'
     });
+  });
+
+  it('serializes repeated pointer movement commands', async () => {
+    const { adapter, executor } = createExecutor();
+    adapter.mouseMoveDelayMs = 10;
+
+    await Promise.all([
+      executor.execute(command('mouse.move', { dx: 1, dy: 0 })),
+      executor.execute(command('mouse.move', { dx: 2, dy: 0 })),
+      executor.execute(command('mouse.move', { dx: 3, dy: 0 }))
+    ]);
+
+    expect(adapter.maxActiveMouseMoves).toBe(1);
+    expect(adapter.calls).toEqual([
+      { method: 'moveMouseBy', args: [{ dx: 1, dy: 0 }] },
+      { method: 'moveMouseBy', args: [{ dx: 2, dy: 0 }] },
+      { method: 'moveMouseBy', args: [{ dx: 3, dy: 0 }] }
+    ]);
   });
 });
 

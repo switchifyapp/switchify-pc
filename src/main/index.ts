@@ -1,5 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import { join } from 'node:path';
+import { DesktopCommandExecutor } from './input/command-executor';
+import { LibnutWin32InputAdapter } from './input/libnut-win32-adapter';
 import { CommandAuthValidator } from './pairing/auth';
 import { JsonPairingStore } from './pairing/pairing-store';
 import { PairingManager } from './pairing/pairing-manager';
@@ -75,10 +77,12 @@ function quitApp(): void {
 app.whenReady().then(() => {
   const pairingStore = new JsonPairingStore(join(app.getPath('userData'), 'pairing-state.json'));
   const pairingManager = new PairingManager(pairingStore);
+  const commandExecutor = new DesktopCommandExecutor(new LibnutWin32InputAdapter());
   pcServer = new PcWebSocketServer({
     pairingManager,
     authValidator: new CommandAuthValidator(pairingStore),
-    onStatusChange: () => tray?.update()
+    onStatusChange: () => tray?.update(),
+    onCommand: (command) => commandExecutor.execute(command)
   });
   registerServerIpc(pcServer, pairingManager);
   void pcServer.start();

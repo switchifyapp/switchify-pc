@@ -9,6 +9,7 @@ import {
   type CommandRequest,
   type PairingCompleteRequest,
   type PairingStartRequest,
+  type ProtocolErrorCode,
   type ProtocolResponse
 } from '../../shared/protocol';
 import {
@@ -25,8 +26,14 @@ export type PcWebSocketServerOptions = {
   pairingManager: PairingManager;
   authValidator: CommandAuthValidator;
   onStatusChange?: PcServerStatusListener;
-  onCommand?: (command: CommandRequest) => Promise<void> | void;
+  onCommand?: (command: CommandRequest) => Promise<CommandHandlerResult> | CommandHandlerResult;
 };
+
+export type CommandHandlerResult =
+  | { ok: true }
+  | { ok: false; code: 'unsupported_command' | 'unsafe_payload' | 'adapter_failure'; message: string };
+
+type CommandHandlerFailureCode = Extract<CommandHandlerResult, { ok: false }>['code'];
 
 export class PcWebSocketServer {
   private server: WebSocketServer | null = null;
@@ -156,7 +163,16 @@ export class PcWebSocketServer {
       return;
     }
 
-    await this.options.onCommand?.(authResult.command);
+    const commandResult = await this.executeCommand(authResult.command);
+    if (!commandResult.ok) {
+      this.setStatus({ lastError: commandResult.message });
+      sendResponse(
+        client,
+        createErrorResponse(message.id, toProtocolCommandErrorCode(commandResult.code), commandResult.message)
+      );
+      return;
+    }
+
     this.markClientSeen(client, authResult.command.deviceId);
     this.setStatus({ lastSeenAt: Date.now(), lastError: null });
     sendResponse(client, createAckResponse(message.id));
@@ -221,10 +237,28 @@ export class PcWebSocketServer {
     this.updateClientStatus();
   }
 
+  private async executeCommand(command: CommandRequest): Promise<CommandHandlerResult> {
+    try {
+      return (await this.options.onCommand?.(command)) ?? { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        code: 'adapter_failure',
+        message: error instanceof Error ? error.message : 'Command execution failed.'
+      };
+    }
+  }
+
   private setStatus(update: Partial<PcServerStatus>): void {
     this.status = { ...this.status, ...update };
     this.options.onStatusChange?.(this.getStatus());
   }
+}
+
+function toProtocolCommandErrorCode(code: CommandHandlerFailureCode): ProtocolErrorCode {
+  if (code === 'unsafe_payload') return 'invalid_payload';
+  if (code === 'unsupported_command') return 'invalid_type';
+  return 'command_failed';
 }
 
 function sendResponse(client: WebSocket, response: ProtocolResponse): void {

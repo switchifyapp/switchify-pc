@@ -12,7 +12,8 @@ export type ProtocolErrorCode =
   | 'invalid_version'
   | 'invalid_type'
   | 'invalid_payload'
-  | 'invalid_auth';
+  | 'invalid_auth'
+  | 'command_failed';
 
 export type MouseButton = 'left' | 'right' | 'middle';
 

@@ -40,6 +40,46 @@ describe('PcWebSocketServer', () => {
     client.close();
   });
 
+  it('routes authenticated commands to the command handler before acking', async () => {
+    const handled: PingCommand[] = [];
+    const server = createServer({
+      onCommand: (command) => {
+        handled.push(command as PingCommand);
+        return { ok: true };
+      }
+    });
+    activeServers.push(server);
+    await server.start();
+    const client = await connect(server.getStatus().port);
+    const command = createPingCommand();
+
+    const response = await sendAndReceive(client, command);
+
+    expect(response).toMatchObject({ type: 'ack', id: command.id, ok: true });
+    expect(handled).toEqual([command]);
+    client.close();
+  });
+
+  it('returns structured command errors when the handler fails', async () => {
+    const server = createServer({
+      onCommand: () => ({ ok: false, code: 'adapter_failure', message: 'Native input failed.' })
+    });
+    activeServers.push(server);
+    await server.start();
+    const client = await connect(server.getStatus().port);
+
+    const response = await sendAndReceive(client, createPingCommand());
+
+    expect(response).toMatchObject({
+      type: 'error',
+      ok: false,
+      error: { code: 'command_failed', message: 'Native input failed.' }
+    });
+    expect(server.getStatus().lastSeenAt).toBeNull();
+    expect(server.getStatus().lastError).toBe('Native input failed.');
+    client.close();
+  });
+
   it('returns structured errors for invalid auth without crashing', async () => {
     const server = createServer();
     activeServers.push(server);
@@ -153,7 +193,7 @@ describe('PcWebSocketServer', () => {
   });
 });
 
-function createServer(): PcWebSocketServer {
+function createServer(overrides: Partial<ConstructorParameters<typeof PcWebSocketServer>[0]> = {}): PcWebSocketServer {
   const store = new MemoryPairingStore({
     desktopId: 'desktop-1',
     pairedDevices: [
@@ -169,7 +209,8 @@ function createServer(): PcWebSocketServer {
   return new PcWebSocketServer({
     port: 0,
     pairingManager: new PairingManager(store, () => now),
-    authValidator: new CommandAuthValidator(store, () => now)
+    authValidator: new CommandAuthValidator(store, () => now),
+    ...overrides
   });
 }
 
