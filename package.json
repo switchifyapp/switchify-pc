@@ -1,0 +1,40 @@
+{
+  "name": "switchify-pc",
+  "version": "0.1.0",
+  "description": "Desktop companion app for Switchify Android.",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "node scripts/dev.cjs",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json"
+  },
+  "keywords": [
+    "electron",
+    "switchify",
+    "accessibility",
+    "desktop-control"
+  ],
+  "author": "Owen McGirr",
+  "license": "AGPL-3.0-or-later",
+  "type": "commonjs",
+  "homepage": "https://github.com/switchifyapp/switchify-pc#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/switchifyapp/switchify-pc.git"
+  },
+  "bugs": {
+    "url": "https://github.com/switchifyapp/switchify-pc/issues"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^39.8.10",
+    "electron-vite": "^5.0.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.3"
+  }
+}
