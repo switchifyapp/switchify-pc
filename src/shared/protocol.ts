@@ -126,7 +126,20 @@ export type ErrorResponse = {
   };
 };
 
-export type ProtocolResponse = AckResponse | ErrorResponse;
+export type PairingCompleteResponse = {
+  version: typeof PROTOCOL_VERSION;
+  id: string;
+  type: 'pairing.complete';
+  ok: true;
+  payload: {
+    desktopId: string;
+    deviceId: string;
+    token: string;
+  };
+  error: null;
+};
+
+export type ProtocolResponse = AckResponse | ErrorResponse | PairingCompleteResponse;
 
 export type ValidationResult<T> =
   | { ok: true; value: T }
@@ -238,6 +251,21 @@ export function validateProtocolResponse(value: unknown): ValidationResult<Proto
     return { ok: true, value: value as ErrorResponse };
   }
 
+  if (value.type === 'pairing.complete') {
+    if (!isNonEmptyString(value.id)) return invalid('invalid_message', 'Pairing response id is required.');
+    if (value.ok !== true || value.error !== null || !isRecord(value.payload)) {
+      return invalid('invalid_message', 'Pairing response is malformed.');
+    }
+    if (
+      !isNonEmptyString(value.payload.desktopId) ||
+      !isNonEmptyString(value.payload.deviceId) ||
+      !isNonEmptyString(value.payload.token)
+    ) {
+      return invalid('invalid_payload', 'Pairing response payload is invalid.');
+    }
+    return { ok: true, value: value as PairingCompleteResponse };
+  }
+
   return invalid('invalid_type', 'Unsupported response type.');
 }
 
@@ -267,6 +295,20 @@ export function createErrorResponse(
       message: message.slice(0, MAX_ERROR_MESSAGE_LENGTH),
       ...(detail ? { detail } : {})
     }
+  };
+}
+
+export function createPairingCompleteResponse(
+  id: string,
+  payload: PairingCompleteResponse['payload']
+): PairingCompleteResponse {
+  return {
+    version: PROTOCOL_VERSION,
+    id,
+    type: 'pairing.complete',
+    ok: true,
+    payload,
+    error: null
   };
 }
 

@@ -1,7 +1,14 @@
 import { app, BrowserWindow } from 'electron';
 import { join } from 'node:path';
+import { CommandAuthValidator } from './pairing/auth';
+import { JsonPairingStore } from './pairing/pairing-store';
+import { PairingManager } from './pairing/pairing-manager';
+import { registerServerIpc } from './server-ipc';
+import { PcWebSocketServer } from './websocket/server';
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
+let pcServer: PcWebSocketServer | null = null;
+let isQuitting = false;
 
 function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -34,6 +41,15 @@ function createMainWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
+  const pairingStore = new JsonPairingStore(join(app.getPath('userData'), 'pairing-state.json'));
+  const pairingManager = new PairingManager(pairingStore);
+  pcServer = new PcWebSocketServer({
+    pairingManager,
+    authValidator: new CommandAuthValidator(pairingStore)
+  });
+  registerServerIpc(pcServer);
+  void pcServer.start();
+
   createMainWindow();
 
   app.on('activate', () => {
@@ -47,4 +63,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', (event) => {
+  if (!pcServer || isQuitting) return;
+
+  event.preventDefault();
+  void pcServer.stop().finally(() => {
+    isQuitting = true;
+    app.quit();
+  });
 });
