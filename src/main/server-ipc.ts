@@ -7,6 +7,7 @@ import {
   SERVER_STATUS_CHANNEL
 } from '../shared/ipc-channels';
 import type { ConnectionDetails, PairingSessionView } from '../shared/server-status';
+import { getConnectionCandidates } from './network-addresses';
 import type { PairingManager } from './pairing/pairing-manager';
 import type { PcWebSocketServer } from './websocket/server';
 
@@ -20,9 +21,11 @@ export function registerServerIpc(server: PcWebSocketServer, pairingManager: Pai
   ipcMain.handle(GET_CONNECTION_DETAILS_CHANNEL, async () => {
     const status = server.getStatus();
     const session = pairingManager.getActivePairingSession();
+    const websocketUrls = getConnectionCandidates(status.port).map((candidate) => candidate.websocketUrl);
     return {
       desktopId: await pairingManager.getDesktopId(),
-      websocketUrl: `ws://127.0.0.1:${status.port}`,
+      websocketUrl: websocketUrls[0] ?? `ws://127.0.0.1:${status.port}`,
+      websocketUrls,
       pairingCode: session?.pairingCode ?? null,
       pairingNonce: session?.pairingNonce ?? null,
       expiresAt: session?.expiresAt ?? null
