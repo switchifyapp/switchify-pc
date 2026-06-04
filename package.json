@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node scripts/dev.cjs",
     "build": "electron-vite build",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "test": "vitest run"
   },
   "keywords": [
     "electron",
@@ -35,6 +36,7 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "typescript": "^6.0.3",
-    "vite": "^7.3.3"
+    "vite": "^7.3.3",
+    "vitest": "^4.1.8"
   }
 }
