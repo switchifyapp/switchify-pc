@@ -1,0 +1,23 @@
+appId: app.switchify.pc
+productName: Switchify PC
+copyright: Copyright © 2026 Owen McGirr
+
+directories:
+  output: dist
+  buildResources: assets
+
+files:
+  - out/**/*
+  - package.json
+
+asar: true
+asarUnpack:
+  - node_modules/@nut-tree-fork/libnut-win32/**/*
+
+win:
+  icon: assets/icon.ico
+  signAndEditExecutable: false
+  target:
+    - target: dir
+      arch:
+        - x64

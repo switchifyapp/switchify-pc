@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node scripts/dev.cjs",
     "build": "electron-vite build",
+    "package:win": "npm run build && electron-builder --win --x64",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run"
   },
@@ -33,6 +34,7 @@
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^39.8.10",
+    "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
