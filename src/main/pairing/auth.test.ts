@@ -60,16 +60,19 @@ describe('CommandAuthValidator', () => {
   });
 
   it('rejects invalid auth proofs', async () => {
-    const validator = new CommandAuthValidator(createStore(), () => now);
+    const store = createStore();
+    const validator = new CommandAuthValidator(store, () => now);
 
     await expect(validator.validate(createCommand({ auth: 'bad-proof' }))).resolves.toEqual({
       ok: false,
       reason: 'invalid_auth'
     });
+    expect((await store.load()).pairedDevices[0].lastSeenAt).toBeNull();
   });
 
   it('rejects expired timestamps', async () => {
-    const validator = new CommandAuthValidator(createStore(), () => now);
+    const store = createStore();
+    const validator = new CommandAuthValidator(store, () => now);
 
     await expect(
       validator.validate(createCommand({ timestamp: now - COMMAND_TIMESTAMP_TOLERANCE_MS - 1 }))
@@ -77,6 +80,7 @@ describe('CommandAuthValidator', () => {
       ok: false,
       reason: 'expired_timestamp'
     });
+    expect((await store.load()).pairedDevices[0].lastSeenAt).toBeNull();
   });
 
   it('rejects duplicate request ids inside the replay cache window', async () => {
