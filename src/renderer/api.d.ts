@@ -1,6 +1,6 @@
 export {};
 
-import type { ConnectionDetails, PairingSessionView, PcServerStatus } from '../shared/server-status';
+import type { ConnectionDetails, PairedDeviceView, PairingSessionView, PcServerStatus } from '../shared/server-status';
 
 declare global {
   interface Window {
@@ -10,6 +10,7 @@ declare global {
       getPairingSession: () => Promise<PairingSessionView | null>;
       createPairingSession: () => Promise<PairingSessionView>;
       getConnectionDetails: () => Promise<ConnectionDetails>;
+      getPairedDevices: () => Promise<PairedDeviceView[]>;
       disconnectClients: () => Promise<PcServerStatus>;
     };
   }

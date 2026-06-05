@@ -84,7 +84,7 @@ app.whenReady().then(() => {
     onStatusChange: () => tray?.update(),
     onCommand: (command) => commandExecutor.execute(command)
   });
-  registerServerIpc(pcServer, pairingManager);
+  registerServerIpc(pcServer, pairingManager, pairingStore);
   void pcServer.start();
 
   mainWindow = createMainWindow();

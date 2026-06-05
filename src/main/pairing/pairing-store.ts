@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import type { PairedDeviceView } from '../../shared/server-status';
 
 export type PairedDevice = {
   deviceId: string;
@@ -68,6 +69,15 @@ export function createEmptyPairingState(): PairingState {
 
 export function findPairedDevice(state: PairingState, deviceId: string): PairedDevice | null {
   return state.pairedDevices.find((device) => device.deviceId === deviceId) ?? null;
+}
+
+export function toPairedDeviceViews(state: PairingState): PairedDeviceView[] {
+  return state.pairedDevices.map((device) => ({
+    deviceId: device.deviceId,
+    deviceName: device.deviceName,
+    pairedAt: device.pairedAt,
+    lastSeenAt: device.lastSeenAt
+  }));
 }
 
 export function upsertPairedDevice(state: PairingState, device: PairedDevice): PairingState {
