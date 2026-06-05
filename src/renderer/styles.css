@@ -190,6 +190,38 @@ h2 {
   font-size: 0.9rem;
 }
 
+.connection-url-list {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.connection-url-list li {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.25fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid #e1e5da;
+  border-radius: 6px;
+  padding: 9px 10px;
+  background: #fbfcf8;
+}
+
+.connection-url-list span {
+  color: #5d6559;
+  font-size: 0.82rem;
+}
+
+.connection-url-list strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #20231f;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
 .device-list {
   display: grid;
   gap: 10px;
@@ -255,6 +287,11 @@ h2 {
   }
 
   .meta-item {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
+  .connection-url-list li {
     grid-template-columns: 1fr;
     gap: 3px;
   }

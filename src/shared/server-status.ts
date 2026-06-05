@@ -29,6 +29,7 @@ export type PairingSessionView = {
 export type ConnectionDetails = {
   desktopId: string;
   websocketUrl: string;
+  websocketUrls: string[];
   pairingCode: string | null;
   pairingNonce: string | null;
   expiresAt: number | null;

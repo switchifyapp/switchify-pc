@@ -60,6 +60,7 @@ export function App(): ReactElement {
       {
         desktopId: connectionDetails.desktopId,
         websocketUrl: connectionDetails.websocketUrl,
+        websocketUrls: connectionDetails.websocketUrls,
         pairingCode: connectionDetails.pairingCode,
         pairingNonce: connectionDetails.pairingNonce,
         expiresAt: connectionDetails.expiresAt
@@ -109,9 +110,10 @@ export function App(): ReactElement {
           </div>
           <div className="meta-grid">
             <MetaItem label="Desktop id" value={connectionDetails?.desktopId ?? 'Loading.'} />
-            <MetaItem label="Server address" value={connectionDetails?.websocketUrl ?? 'Loading.'} />
+            <MetaItem label="Android address" value={connectionDetails?.websocketUrl ?? 'Loading.'} />
             <MetaItem label="Expires" value={formatExpiry(pairingSession?.expiresAt ?? null)} />
           </div>
+          <ConnectionUrlList urls={connectionDetails?.websocketUrls ?? []} primaryUrl={connectionDetails?.websocketUrl ?? null} />
           <div className="copy-row">
             <button type="button" onClick={copyConnectionDetails} disabled={!connectionPayload}>
               Copy connection details
@@ -177,6 +179,21 @@ function DeviceList({ clients }: { clients: PcConnectedClient[] }): ReactElement
   );
 }
 
+function ConnectionUrlList({ urls, primaryUrl }: { urls: string[]; primaryUrl: string | null }): ReactElement | null {
+  if (urls.length === 0) return null;
+
+  return (
+    <ul className="connection-url-list" aria-label="Connection addresses">
+      {urls.map((url) => (
+        <li key={url}>
+          <span>{url === primaryUrl ? 'Primary' : isLoopbackUrl(url) ? 'Local test' : 'Alternate'}</span>
+          <strong>{url}</strong>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function formatServerStatus(status: PcServerStatus | null): string {
   if (!status) return 'Loading...';
   if (status.state === 'listening') return `Listening on port ${status.port}`;
@@ -205,4 +222,8 @@ function formatCopyState(state: CopyState): string {
   if (state === 'copied') return 'Copied.';
   if (state === 'failed') return 'Copy failed.';
   return '';
+}
+
+function isLoopbackUrl(url: string): boolean {
+  return url.includes('://127.0.0.1:') || url.includes('://localhost:');
 }
