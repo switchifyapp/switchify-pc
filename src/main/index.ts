@@ -1,5 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import { join } from 'node:path';
+import { CursorOverlay } from './cursor-overlay';
+import { registerCursorOverlayIpc } from './cursor-overlay-ipc';
 import { DesktopCommandExecutor } from './input/command-executor';
 import { LibnutWin32InputAdapter } from './input/libnut-win32-adapter';
 import { CommandAuthValidator } from './pairing/auth';
@@ -13,6 +15,7 @@ const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 let pcServer: PcWebSocketServer | null = null;
 let mainWindow: BrowserWindow | null = null;
 let tray: SwitchifyTray | null = null;
+let cursorOverlay: CursorOverlay | null = null;
 let isQuitting = false;
 
 function createMainWindow(): BrowserWindow {
@@ -77,7 +80,11 @@ function quitApp(): void {
 app.whenReady().then(() => {
   const pairingStore = new JsonPairingStore(join(app.getPath('userData'), 'pairing-state.json'));
   const pairingManager = new PairingManager(pairingStore);
-  const commandExecutor = new DesktopCommandExecutor(new LibnutWin32InputAdapter());
+  const inputAdapter = new LibnutWin32InputAdapter();
+  cursorOverlay = new CursorOverlay({
+    getCursorPosition: () => inputAdapter.getMousePosition()
+  });
+  const commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay);
   pcServer = new PcWebSocketServer({
     pairingManager,
     authValidator: new CommandAuthValidator(pairingStore),
@@ -85,6 +92,7 @@ app.whenReady().then(() => {
     onCommand: (command) => commandExecutor.execute(command)
   });
   registerServerIpc(pcServer, pairingManager, pairingStore);
+  registerCursorOverlayIpc(cursorOverlay);
   void pcServer.start();
 
   mainWindow = createMainWindow();
@@ -120,6 +128,8 @@ app.on('before-quit', (event) => {
   isQuitting = true;
   tray?.destroy();
   tray = null;
+  cursorOverlay?.destroy();
+  cursorOverlay = null;
   void pcServer.stop().finally(() => {
     app.quit();
   });

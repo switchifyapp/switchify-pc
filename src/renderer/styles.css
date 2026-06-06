@@ -298,6 +298,20 @@ p {
   font-size: 0.9rem;
 }
 
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #3f493b;
+  font-size: 0.92rem;
+}
+
+.checkbox-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: #2f6f38;
+}
+
 .connection-url-list,
 .technical-list {
   display: grid;

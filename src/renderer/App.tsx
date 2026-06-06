@@ -23,6 +23,7 @@ export function App(): ReactElement {
   const [copyState, setCopyState] = useState<CopyState>('idle');
   const [isRefreshingPairing, setIsRefreshingPairing] = useState(false);
   const [showPairingWhileConnected, setShowPairingWhileConnected] = useState(false);
+  const [cursorOverlayEnabled, setCursorOverlayEnabled] = useState(true);
 
   const refresh = useCallback(async (): Promise<void> => {
     const [status, session, details, devices] = await Promise.all([
@@ -56,6 +57,10 @@ export function App(): ReactElement {
   useEffect(() => {
     let cancelled = false;
     const load = async (): Promise<void> => {
+      const overlayEnabled = await bridge.getCursorOverlayEnabled();
+      if (!cancelled) {
+        setCursorOverlayEnabled(overlayEnabled);
+      }
       await refresh();
       if (cancelled) return;
       const session = await bridge.getPairingSession();
@@ -74,6 +79,13 @@ export function App(): ReactElement {
       window.clearInterval(interval);
     };
   }, [bridge, refresh, refreshPairingCode]);
+
+  const toggleCursorOverlay = useCallback(
+    async (enabled: boolean): Promise<void> => {
+      setCursorOverlayEnabled(await bridge.setCursorOverlayEnabled(enabled));
+    },
+    [bridge]
+  );
 
   useEffect(() => {
     if (!serverStatus?.connectedClientCount) {
@@ -164,8 +176,10 @@ export function App(): ReactElement {
           connectedClients={serverStatus?.connectedClients ?? []}
           connectionPayload={connectionPayload}
           copyState={copyState}
+          cursorOverlayEnabled={cursorOverlayEnabled}
           onCopy={copyConnectionDetails}
           onDisconnect={disconnectClients}
+          onToggleCursorOverlay={toggleCursorOverlay}
         />
       </section>
     </main>
@@ -383,8 +397,10 @@ function TroubleshootingDetails({
   connectedClients,
   connectionPayload,
   copyState,
+  cursorOverlayEnabled,
   onCopy,
-  onDisconnect
+  onDisconnect,
+  onToggleCursorOverlay
 }: {
   serverStatus: PcServerStatus | null;
   connectionDetails: ConnectionDetails | null;
@@ -393,8 +409,10 @@ function TroubleshootingDetails({
   connectedClients: PcConnectedClient[];
   connectionPayload: string;
   copyState: CopyState;
+  cursorOverlayEnabled: boolean;
   onCopy: () => Promise<void>;
   onDisconnect: () => Promise<void>;
+  onToggleCursorOverlay: (enabled: boolean) => Promise<void>;
 }): ReactElement {
   return (
     <details className="troubleshooting-panel">
@@ -412,6 +430,16 @@ function TroubleshootingDetails({
           <button type="button" onClick={() => void onDisconnect()} disabled={connectedClients.length === 0}>
             Disconnect phone
           </button>
+        </TroubleshootingSection>
+        <TroubleshootingSection title="Cursor highlight">
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={cursorOverlayEnabled}
+              onChange={(event) => void onToggleCursorOverlay(event.currentTarget.checked)}
+            />
+            <span>Show cursor highlight when the phone moves the mouse</span>
+          </label>
         </TroubleshootingSection>
         <TroubleshootingSection title="Saved phones">
           <PairedDeviceList devices={pairedDevices} />

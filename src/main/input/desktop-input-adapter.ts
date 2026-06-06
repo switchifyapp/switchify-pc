@@ -1,6 +1,7 @@
 import type { KeyboardKey, MediaAction, MouseButton, ShortcutKey } from '../../shared/protocol';
 
 export type DesktopInputAdapter = {
+  getMousePosition(): { x: number; y: number };
   moveMouseBy(delta: { dx: number; dy: number }): Promise<void>;
   clickMouse(button: MouseButton): Promise<void>;
   doubleClickMouse(button: MouseButton): Promise<void>;

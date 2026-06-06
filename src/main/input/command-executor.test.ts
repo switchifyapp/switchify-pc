@@ -7,12 +7,24 @@ import { DesktopCommandExecutor } from './command-executor';
 
 type RecordedCall = { method: keyof DesktopInputAdapter; args: unknown[] };
 
+class FakeCursorOverlay {
+  readonly events: Array<'move' | 'click'> = [];
+
+  show(event: 'move' | 'click'): void {
+    this.events.push(event);
+  }
+}
+
 class FakeInputAdapter implements DesktopInputAdapter {
   readonly calls: RecordedCall[] = [];
   failNext: Error | null = null;
   activeMouseMoves = 0;
   maxActiveMouseMoves = 0;
   mouseMoveDelayMs = 0;
+
+  getMousePosition(): { x: number; y: number } {
+    return { x: 100, y: 200 };
+  }
 
   async moveMouseBy(delta: { dx: number; dy: number }): Promise<void> {
     this.activeMouseMoves += 1;
@@ -67,7 +79,7 @@ class FakeInputAdapter implements DesktopInputAdapter {
 
 describe('DesktopCommandExecutor', () => {
   it('maps mouse commands to the adapter', async () => {
-    const { adapter, executor } = createExecutor();
+    const { adapter, executor, overlay } = createExecutor();
 
     await executor.execute(command('mouse.move', { dx: 10, dy: -4 }));
     await executor.execute(command('mouse.click', { button: 'left' }));
@@ -82,6 +94,7 @@ describe('DesktopCommandExecutor', () => {
       { method: 'clickMouse', args: ['right'] },
       { method: 'scrollMouse', args: [{ dx: 0, dy: -3 }] }
     ]);
+    expect(overlay.events).toEqual(['move', 'click', 'click', 'click']);
   });
 
   it('maps keyboard, text, media, and ping commands', async () => {
@@ -103,7 +116,7 @@ describe('DesktopCommandExecutor', () => {
   });
 
   it('rejects unsafe movement, scroll, shortcut, and text values', async () => {
-    const { adapter, executor } = createExecutor();
+    const { adapter, executor, overlay } = createExecutor();
 
     await expect(executor.execute(command('mouse.move', { dx: 501, dy: 0 }))).resolves.toMatchObject({
       ok: false,
@@ -122,10 +135,11 @@ describe('DesktopCommandExecutor', () => {
       code: 'unsafe_payload'
     });
     expect(adapter.calls).toHaveLength(0);
+    expect(overlay.events).toHaveLength(0);
   });
 
   it('converts adapter errors into structured failures', async () => {
-    const { adapter, executor } = createExecutor();
+    const { adapter, executor, overlay } = createExecutor();
     adapter.failNext = new DesktopInputError('adapter_failure', 'Native input failed.');
 
     await expect(executor.execute(command('mouse.click', { button: 'left' }))).resolves.toEqual({
@@ -133,6 +147,7 @@ describe('DesktopCommandExecutor', () => {
       code: 'adapter_failure',
       message: 'Native input failed.'
     });
+    expect(overlay.events).toHaveLength(0);
   });
 
   it('serializes repeated pointer movement commands', async () => {
@@ -154,9 +169,10 @@ describe('DesktopCommandExecutor', () => {
   });
 });
 
-function createExecutor(): { adapter: FakeInputAdapter; executor: DesktopCommandExecutor } {
+function createExecutor(): { adapter: FakeInputAdapter; overlay: FakeCursorOverlay; executor: DesktopCommandExecutor } {
   const adapter = new FakeInputAdapter();
-  return { adapter, executor: new DesktopCommandExecutor(adapter) };
+  const overlay = new FakeCursorOverlay();
+  return { adapter, overlay, executor: new DesktopCommandExecutor(adapter, overlay) };
 }
 
 function command<TType extends CommandRequest['type']>(

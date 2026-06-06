@@ -11,8 +11,13 @@ import type { DesktopInputAdapter } from './desktop-input-adapter';
 import { DesktopInputError } from './desktop-input-adapter';
 
 export class LibnutWin32InputAdapter implements DesktopInputAdapter {
-  async moveMouseBy(delta: { dx: number; dy: number }): Promise<void> {
+  getMousePosition(): { x: number; y: number } {
     const current = getMousePos();
+    return { x: current.x, y: current.y };
+  }
+
+  async moveMouseBy(delta: { dx: number; dy: number }): Promise<void> {
+    const current = this.getMousePosition();
     moveMouse(current.x + delta.dx, current.y + delta.dy);
   }
 
