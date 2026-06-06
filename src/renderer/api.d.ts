@@ -12,6 +12,8 @@ declare global {
       getConnectionDetails: () => Promise<ConnectionDetails>;
       getPairedDevices: () => Promise<PairedDeviceView[]>;
       disconnectClients: () => Promise<PcServerStatus>;
+      getCursorOverlayEnabled: () => Promise<boolean>;
+      setCursorOverlayEnabled: (enabled: boolean) => Promise<boolean>;
     };
   }
 }

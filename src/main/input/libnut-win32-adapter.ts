@@ -16,8 +16,13 @@ type PointerScaleProvider = (position: Point) => number;
 export class LibnutWin32InputAdapter implements DesktopInputAdapter {
   constructor(private readonly getPointerScale: PointerScaleProvider = () => 1) {}
 
-  async moveMouseBy(delta: { dx: number; dy: number }): Promise<void> {
+  getMousePosition(): { x: number; y: number } {
     const current = getMousePos();
+    return { x: current.x, y: current.y };
+  }
+
+  async moveMouseBy(delta: { dx: number; dy: number }): Promise<void> {
+    const current = this.getMousePosition();
     const scale = this.getPointerScale(current);
     const target = calculateScaledMouseTarget(current, delta, scale);
     moveMouse(target.x, target.y);

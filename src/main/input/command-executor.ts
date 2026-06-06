@@ -12,10 +12,17 @@ export type CommandExecutionResult =
   | { ok: true }
   | { ok: false; code: 'unsupported_command' | 'unsafe_payload' | 'adapter_failure'; message: string };
 
+export type CursorOverlayNotifier = {
+  show(event: 'move' | 'click'): void;
+};
+
 export class DesktopCommandExecutor {
   private pointerMoveQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly adapter: DesktopInputAdapter) {}
+  constructor(
+    private readonly adapter: DesktopInputAdapter,
+    private readonly cursorOverlay?: CursorOverlayNotifier
+  ) {}
 
   async execute(command: CommandRequest): Promise<CommandExecutionResult> {
     if (command.type === 'mouse.move') {
@@ -41,15 +48,19 @@ export class DesktopCommandExecutor {
           assertBoundedNumber(command.payload.dx, MAX_POINTER_DELTA, 'dx');
           assertBoundedNumber(command.payload.dy, MAX_POINTER_DELTA, 'dy');
           await this.adapter.moveMouseBy(command.payload);
+          this.cursorOverlay?.show('move');
           return { ok: true };
         case 'mouse.click':
           await this.adapter.clickMouse(command.payload.button);
+          this.cursorOverlay?.show('click');
           return { ok: true };
         case 'mouse.doubleClick':
           await this.adapter.doubleClickMouse(command.payload.button);
+          this.cursorOverlay?.show('click');
           return { ok: true };
         case 'mouse.rightClick':
           await this.adapter.clickMouse('right');
+          this.cursorOverlay?.show('click');
           return { ok: true };
         case 'mouse.scroll':
           assertBoundedNumber(command.payload.dx, MAX_SCROLL_DELTA, 'dx');
