@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, screen } from 'electron';
 import { join } from 'node:path';
 import { CursorOverlay } from './cursor-overlay';
 import { registerCursorOverlayIpc } from './cursor-overlay-ipc';
@@ -80,7 +80,7 @@ function quitApp(): void {
 app.whenReady().then(() => {
   const pairingStore = new JsonPairingStore(join(app.getPath('userData'), 'pairing-state.json'));
   const pairingManager = new PairingManager(pairingStore);
-  const inputAdapter = new LibnutWin32InputAdapter();
+  const inputAdapter = new LibnutWin32InputAdapter((position) => screen.getDisplayNearestPoint(position).scaleFactor);
   cursorOverlay = new CursorOverlay({
     getCursorPosition: () => inputAdapter.getMousePosition()
   });

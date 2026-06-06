@@ -10,7 +10,12 @@ import type { KeyboardKey, MediaAction, MouseButton, ShortcutKey } from '../../s
 import type { DesktopInputAdapter } from './desktop-input-adapter';
 import { DesktopInputError } from './desktop-input-adapter';
 
+type Point = { x: number; y: number };
+type PointerScaleProvider = (position: Point) => number;
+
 export class LibnutWin32InputAdapter implements DesktopInputAdapter {
+  constructor(private readonly getPointerScale: PointerScaleProvider = () => 1) {}
+
   getMousePosition(): { x: number; y: number } {
     const current = getMousePos();
     return { x: current.x, y: current.y };
@@ -18,7 +23,9 @@ export class LibnutWin32InputAdapter implements DesktopInputAdapter {
 
   async moveMouseBy(delta: { dx: number; dy: number }): Promise<void> {
     const current = this.getMousePosition();
-    moveMouse(current.x + delta.dx, current.y + delta.dy);
+    const scale = this.getPointerScale(current);
+    const target = calculateScaledMouseTarget(current, delta, scale);
+    moveMouse(target.x, target.y);
   }
 
   async clickMouse(button: MouseButton): Promise<void> {
@@ -54,6 +61,18 @@ export class LibnutWin32InputAdapter implements DesktopInputAdapter {
   async mediaControl(action: MediaAction): Promise<void> {
     keyTap(toLibnutMediaKey(action));
   }
+}
+
+export function calculateScaledMouseTarget(
+  current: Point,
+  delta: { dx: number; dy: number },
+  scale: number
+): Point {
+  const effectiveScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  return {
+    x: Math.round(current.x + delta.dx * effectiveScale),
+    y: Math.round(current.y + delta.dy * effectiveScale)
+  };
 }
 
 function toLibnutMouseButton(button: MouseButton): string {
