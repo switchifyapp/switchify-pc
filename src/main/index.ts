@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, screen } from 'electron';
 import { join } from 'node:path';
 import { DesktopCommandExecutor } from './input/command-executor';
 import { LibnutWin32InputAdapter } from './input/libnut-win32-adapter';
@@ -77,7 +77,8 @@ function quitApp(): void {
 app.whenReady().then(() => {
   const pairingStore = new JsonPairingStore(join(app.getPath('userData'), 'pairing-state.json'));
   const pairingManager = new PairingManager(pairingStore);
-  const commandExecutor = new DesktopCommandExecutor(new LibnutWin32InputAdapter());
+  const inputAdapter = new LibnutWin32InputAdapter((position) => screen.getDisplayNearestPoint(position).scaleFactor);
+  const commandExecutor = new DesktopCommandExecutor(inputAdapter);
   pcServer = new PcWebSocketServer({
     pairingManager,
     authValidator: new CommandAuthValidator(pairingStore),
