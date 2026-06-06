@@ -1,5 +1,7 @@
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import QRCode from 'qrcode';
+import { createPairingQrPayload } from '../shared/pairing-qr';
 import type {
   ConnectionDetails,
   PairedDeviceView,
@@ -16,6 +18,7 @@ export function App(): ReactElement {
   const [pairingSession, setPairingSession] = useState<PairingSessionView | null>(null);
   const [connectionDetails, setConnectionDetails] = useState<ConnectionDetails | null>(null);
   const [pairedDevices, setPairedDevices] = useState<PairedDeviceView[]>([]);
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<CopyState>('idle');
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -63,21 +66,49 @@ export function App(): ReactElement {
     };
   }, [bridge, refresh, refreshPairingCode]);
 
+  const effectiveConnectionDetails = useMemo<ConnectionDetails | null>(() => {
+    if (!connectionDetails) return null;
+    return {
+      ...connectionDetails,
+      pairingCode: pairingSession?.pairingCode ?? connectionDetails.pairingCode,
+      pairingNonce: pairingSession?.pairingNonce ?? connectionDetails.pairingNonce,
+      expiresAt: pairingSession?.expiresAt ?? connectionDetails.expiresAt
+    };
+  }, [connectionDetails, pairingSession]);
+
   const connectionPayload = useMemo(() => {
-    if (!connectionDetails) return '';
-    return JSON.stringify(
-      {
-        desktopId: connectionDetails.desktopId,
-        websocketUrl: connectionDetails.websocketUrl,
-        websocketUrls: connectionDetails.websocketUrls,
-        pairingCode: connectionDetails.pairingCode,
-        pairingNonce: connectionDetails.pairingNonce,
-        expiresAt: connectionDetails.expiresAt
-      },
-      null,
-      2
-    );
-  }, [connectionDetails]);
+    const details = effectiveConnectionDetails;
+    if (!details) return '';
+    const payload = createPairingQrPayload(details);
+    if (!payload) return '';
+    return JSON.stringify(payload, null, 2);
+  }, [effectiveConnectionDetails]);
+
+  const pairingQrPayload = useMemo(() => createPairingQrPayload(effectiveConnectionDetails), [effectiveConnectionDetails]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!pairingQrPayload) {
+      setQrCodeUrl(null);
+      return;
+    }
+
+    QRCode.toDataURL(JSON.stringify(pairingQrPayload), {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 240
+    })
+      .then((url) => {
+        if (!cancelled) setQrCodeUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setQrCodeUrl(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pairingQrPayload]);
 
   const copyConnectionDetails = useCallback(async (): Promise<void> => {
     if (!connectionPayload) return;
@@ -116,6 +147,14 @@ export function App(): ReactElement {
 
           <div className="pairing-code" aria-label="Current pairing code">
             {pairingSession?.pairingCode ?? '------'}
+          </div>
+          <div className="qr-panel" aria-label="Scan to pair">
+            <h3>Scan to pair</h3>
+            {qrCodeUrl ? (
+              <img src={qrCodeUrl} alt="Switchify PC pairing QR code" />
+            ) : (
+              <div className="qr-placeholder">Preparing QR code.</div>
+            )}
           </div>
           <div className="meta-grid">
             <MetaItem label="Desktop id" value={connectionDetails?.desktopId ?? 'Loading.'} />

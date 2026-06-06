@@ -153,6 +153,40 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+.qr-panel {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.qr-panel h3 {
+  margin: 0;
+  font-size: 0.98rem;
+  letter-spacing: 0;
+}
+
+.qr-panel img,
+.qr-placeholder {
+  width: min(240px, 100%);
+  aspect-ratio: 1;
+  border: 1px solid #d9dfd1;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.qr-panel img {
+  display: block;
+  padding: 8px;
+}
+
+.qr-placeholder {
+  display: grid;
+  place-items: center;
+  color: #5d6559;
+  text-align: center;
+}
+
 .meta-grid {
   display: grid;
   gap: 10px;
