@@ -2,9 +2,12 @@ import { app, BrowserWindow, screen } from 'electron';
 import { join } from 'node:path';
 import { CursorOverlay } from './cursor-overlay';
 import { registerCursorOverlayIpc } from './cursor-overlay-ipc';
+import { MdnsAdvertiser } from './discovery/mdns-advertiser';
 import { DesktopCommandExecutor } from './input/command-executor';
 import { LibnutWin32InputAdapter } from './input/libnut-win32-adapter';
 import { CommandAuthValidator } from './pairing/auth';
+import { PairingApprovalManager } from './pairing/pairing-approval-manager';
+import { registerPairingApprovalIpc } from './pairing/pairing-approval-ipc';
 import { JsonPairingStore } from './pairing/pairing-store';
 import { PairingManager } from './pairing/pairing-manager';
 import { registerServerIpc } from './server-ipc';
@@ -16,6 +19,7 @@ let pcServer: PcWebSocketServer | null = null;
 let mainWindow: BrowserWindow | null = null;
 let tray: SwitchifyTray | null = null;
 let cursorOverlay: CursorOverlay | null = null;
+let mdnsAdvertiser: MdnsAdvertiser | null = null;
 let isQuitting = false;
 
 function createMainWindow(): BrowserWindow {
@@ -80,19 +84,29 @@ function quitApp(): void {
 app.whenReady().then(() => {
   const pairingStore = new JsonPairingStore(join(app.getPath('userData'), 'pairing-state.json'));
   const pairingManager = new PairingManager(pairingStore);
+  const pairingApprovalManager = new PairingApprovalManager(pairingStore);
   const inputAdapter = new LibnutWin32InputAdapter((position) => screen.getDisplayNearestPoint(position).scaleFactor);
   cursorOverlay = new CursorOverlay({
     getCursorPosition: () => inputAdapter.getMousePosition()
   });
+  mdnsAdvertiser = new MdnsAdvertiser({
+    getDesktopId: () => pairingManager.getDesktopId(),
+    getPort: () => pcServer?.getStatus().port ?? 0
+  });
   const commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay);
   pcServer = new PcWebSocketServer({
     pairingManager,
+    pairingApprovalManager,
     authValidator: new CommandAuthValidator(pairingStore),
-    onStatusChange: () => tray?.update(),
+    onStatusChange: (status) => {
+      tray?.update();
+      void syncMdnsAdvertiser(status.state === 'listening');
+    },
     onCommand: (command) => commandExecutor.execute(command)
   });
   registerServerIpc(pcServer, pairingManager, pairingStore);
   registerCursorOverlayIpc(cursorOverlay);
+  registerPairingApprovalIpc(pcServer);
   void pcServer.start();
 
   mainWindow = createMainWindow();
@@ -128,9 +142,26 @@ app.on('before-quit', (event) => {
   isQuitting = true;
   tray?.destroy();
   tray = null;
+  const advertiser = mdnsAdvertiser;
+  mdnsAdvertiser = null;
   cursorOverlay?.destroy();
   cursorOverlay = null;
-  void pcServer.stop().finally(() => {
+  void Promise.all([advertiser?.stop(), pcServer.stop()]).finally(() => {
     app.quit();
   });
 });
+
+async function syncMdnsAdvertiser(shouldRun: boolean): Promise<void> {
+  const advertiser = mdnsAdvertiser;
+  if (!advertiser) return;
+
+  try {
+    if (shouldRun && !advertiser.isRunning()) {
+      await advertiser.start();
+    } else if (!shouldRun && advertiser.isRunning()) {
+      await advertiser.stop();
+    }
+  } catch (error) {
+    console.error('Switchify discovery failed.', error);
+  }
+}

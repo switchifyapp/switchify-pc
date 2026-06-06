@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import { deriveDesktopUiState, type DesktopUiState } from '../shared/desktop-ui-state';
 import { createPairingQrPayload } from '../shared/pairing-qr';
+import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
 import type {
   ConnectionDetails,
   PairedDeviceView,
@@ -19,6 +20,7 @@ export function App(): ReactElement {
   const [pairingSession, setPairingSession] = useState<PairingSessionView | null>(null);
   const [connectionDetails, setConnectionDetails] = useState<ConnectionDetails | null>(null);
   const [pairedDevices, setPairedDevices] = useState<PairedDeviceView[]>([]);
+  const [pendingPairingRequests, setPendingPairingRequests] = useState<PendingPairingApprovalView[]>([]);
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<CopyState>('idle');
   const [isRefreshingPairing, setIsRefreshingPairing] = useState(false);
@@ -26,16 +28,18 @@ export function App(): ReactElement {
   const [cursorOverlayEnabled, setCursorOverlayEnabled] = useState(true);
 
   const refresh = useCallback(async (): Promise<void> => {
-    const [status, session, details, devices] = await Promise.all([
+    const [status, session, details, devices, requests] = await Promise.all([
       bridge.getServerStatus(),
       bridge.getPairingSession(),
       bridge.getConnectionDetails(),
-      bridge.getPairedDevices()
+      bridge.getPairedDevices(),
+      bridge.getPendingPairingRequests()
     ]);
     setServerStatus(status);
     setPairingSession(session);
     setConnectionDetails(details);
     setPairedDevices(devices);
+    setPendingPairingRequests(requests);
   }, [bridge]);
 
   const refreshPairingCode = useCallback(async (): Promise<void> => {
@@ -151,10 +155,20 @@ export function App(): ReactElement {
     await refreshPairingCode();
   }, [refreshPairingCode]);
 
+  const respondToPairingRequest = useCallback(
+    async (requestId: string, decision: PairingApprovalDecision): Promise<void> => {
+      await bridge.respondToPairingRequest(requestId, decision);
+      await refresh();
+    },
+    [bridge, refresh]
+  );
+
   return (
     <main className="app-shell">
       <section className="setup-card" aria-label="Switchify PC setup">
         <StatusHeader state={uiState} appName={bridge.appName} />
+
+        <PairingApprovalRequests requests={pendingPairingRequests} onRespond={respondToPairingRequest} />
 
         <PrimaryContent
           state={uiState}
@@ -174,6 +188,7 @@ export function App(): ReactElement {
           pairingSession={pairingSession}
           pairedDevices={pairedDevices}
           connectedClients={serverStatus?.connectedClients ?? []}
+          pendingPairingRequests={pendingPairingRequests}
           connectionPayload={connectionPayload}
           copyState={copyState}
           cursorOverlayEnabled={cursorOverlayEnabled}
@@ -183,6 +198,56 @@ export function App(): ReactElement {
         />
       </section>
     </main>
+  );
+}
+
+function PairingApprovalRequests({
+  requests,
+  onRespond
+}: {
+  requests: PendingPairingApprovalView[];
+  onRespond: (requestId: string, decision: PairingApprovalDecision) => Promise<void>;
+}): ReactElement | null {
+  if (requests.length === 0) return null;
+
+  const sortedRequests = [...requests].sort((a, b) => b.requestedAt - a.requestedAt);
+
+  return (
+    <section className="approval-panel" aria-label="Phone connection requests">
+      <div className="approval-panel-header">
+        <div>
+          <h2>{sortedRequests[0].deviceName} wants to connect</h2>
+          <p>Only accept if this is your phone.</p>
+        </div>
+        <div className="approval-actions">
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => void onRespond(sortedRequests[0].requestId, 'accept')}
+          >
+            Accept
+          </button>
+          <button type="button" onClick={() => void onRespond(sortedRequests[0].requestId, 'reject')}>
+            Not now
+          </button>
+        </div>
+      </div>
+      {sortedRequests.length > 1 ? (
+        <ul className="approval-list">
+          {sortedRequests.slice(1).map((request) => (
+            <li key={request.requestId}>
+              <span>{request.deviceName}</span>
+              <button type="button" onClick={() => void onRespond(request.requestId, 'accept')}>
+                Accept
+              </button>
+              <button type="button" onClick={() => void onRespond(request.requestId, 'reject')}>
+                Not now
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 
@@ -395,6 +460,7 @@ function TroubleshootingDetails({
   pairingSession,
   pairedDevices,
   connectedClients,
+  pendingPairingRequests,
   connectionPayload,
   copyState,
   cursorOverlayEnabled,
@@ -407,6 +473,7 @@ function TroubleshootingDetails({
   pairingSession: PairingSessionView | null;
   pairedDevices: PairedDeviceView[];
   connectedClients: PcConnectedClient[];
+  pendingPairingRequests: PendingPairingApprovalView[];
   connectionPayload: string;
   copyState: CopyState;
   cursorOverlayEnabled: boolean;
@@ -431,6 +498,9 @@ function TroubleshootingDetails({
             Disconnect phone
           </button>
         </TroubleshootingSection>
+        <TroubleshootingSection title="Pending requests">
+          <PendingRequestList requests={pendingPairingRequests} />
+        </TroubleshootingSection>
         <TroubleshootingSection title="Cursor highlight">
           <label className="checkbox-row">
             <input
@@ -454,6 +524,25 @@ function TroubleshootingDetails({
         </TroubleshootingSection>
       </div>
     </details>
+  );
+}
+
+function PendingRequestList({ requests }: { requests: PendingPairingApprovalView[] }): ReactElement {
+  if (requests.length === 0) {
+    return <div className="empty-state">No pending requests.</div>;
+  }
+
+  return (
+    <ul className="technical-list">
+      {requests.map((request) => (
+        <li key={request.requestId}>
+          <strong>{request.deviceName}</strong>
+          <span>{request.remoteAddress ?? 'Unknown address'}</span>
+          <span>Requested {formatTimestamp(request.requestedAt)}</span>
+          <span>Expires {formatTimestamp(request.expiresAt)}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
