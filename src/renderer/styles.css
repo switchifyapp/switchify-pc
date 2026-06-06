@@ -256,6 +256,13 @@ h2 {
   font-size: 0.84rem;
 }
 
+.device-times {
+  display: grid;
+  gap: 3px;
+  min-width: 130px;
+  text-align: right;
+}
+
 .empty-state {
   display: grid;
   place-items: center;
@@ -294,6 +301,16 @@ h2 {
   .connection-url-list li {
     grid-template-columns: 1fr;
     gap: 3px;
+  }
+
+  .device-list li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .device-times {
+    min-width: 0;
+    text-align: left;
   }
 
   .status-pill {

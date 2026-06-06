@@ -1,6 +1,12 @@
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ConnectionDetails, PairingSessionView, PcConnectedClient, PcServerStatus } from '../shared/server-status';
+import type {
+  ConnectionDetails,
+  PairedDeviceView,
+  PairingSessionView,
+  PcConnectedClient,
+  PcServerStatus
+} from '../shared/server-status';
 
 type CopyState = 'idle' | 'copied' | 'failed';
 
@@ -9,17 +15,20 @@ export function App(): ReactElement {
   const [serverStatus, setServerStatus] = useState<PcServerStatus | null>(null);
   const [pairingSession, setPairingSession] = useState<PairingSessionView | null>(null);
   const [connectionDetails, setConnectionDetails] = useState<ConnectionDetails | null>(null);
+  const [pairedDevices, setPairedDevices] = useState<PairedDeviceView[]>([]);
   const [copyState, setCopyState] = useState<CopyState>('idle');
 
   const refresh = useCallback(async (): Promise<void> => {
-    const [status, session, details] = await Promise.all([
+    const [status, session, details, devices] = await Promise.all([
       bridge.getServerStatus(),
       bridge.getPairingSession(),
-      bridge.getConnectionDetails()
+      bridge.getConnectionDetails(),
+      bridge.getPairedDevices()
     ]);
     setServerStatus(status);
     setPairingSession(session);
     setConnectionDetails(details);
+    setPairedDevices(devices);
   }, [bridge]);
 
   const refreshPairingCode = useCallback(async (): Promise<void> => {
@@ -135,6 +144,16 @@ export function App(): ReactElement {
           <DeviceList clients={serverStatus?.connectedClients ?? []} />
         </section>
 
+        <section className="panel" aria-labelledby="paired-title">
+          <div className="panel-heading">
+            <div>
+              <p className="section-label">Pairings</p>
+              <h2 id="paired-title">Saved devices</h2>
+            </div>
+          </div>
+          <PairedDeviceList devices={pairedDevices} />
+        </section>
+
         <section className="panel details-panel" aria-labelledby="details-title">
           <p className="section-label">Server</p>
           <h2 id="details-title">Status</h2>
@@ -156,6 +175,29 @@ function MetaItem({ label, value }: { label: string; value: string }): ReactElem
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
+  );
+}
+
+function PairedDeviceList({ devices }: { devices: PairedDeviceView[] }): ReactElement {
+  if (devices.length === 0) {
+    return <div className="empty-state">No devices paired.</div>;
+  }
+
+  return (
+    <ul className="device-list">
+      {devices.map((device) => (
+        <li key={device.deviceId}>
+          <div>
+            <strong>{device.deviceName}</strong>
+            <span>{device.deviceId}</span>
+          </div>
+          <div className="device-times">
+            <span>Paired {formatTimestamp(device.pairedAt)}</span>
+            <span>Last seen {formatTimestamp(device.lastSeenAt)}</span>
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 

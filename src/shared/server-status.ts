@@ -34,3 +34,10 @@ export type ConnectionDetails = {
   pairingNonce: string | null;
   expiresAt: number | null;
 };
+
+export type PairedDeviceView = {
+  deviceId: string;
+  deviceName: string;
+  pairedAt: number;
+  lastSeenAt: number | null;
+};
