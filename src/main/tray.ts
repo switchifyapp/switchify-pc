@@ -18,15 +18,14 @@ export function createSwitchifyTray(options: SwitchifyTrayOptions): SwitchifyTra
 
   const update = (): void => {
     const status = options.getStatus();
-    tray.setToolTip(`Switchify PC - ${formatStatus(status)}`);
+    tray.setToolTip(`Switchify PC - ${formatTooltipStatus(status)}`);
     tray.setContextMenu(
       Menu.buildFromTemplate([
-        { label: 'Show window', click: options.showWindow },
-        { label: formatStatus(status), enabled: false },
-        { label: `Connected devices: ${status.connectedClientCount}`, enabled: false },
+        { label: 'Open Switchify PC', click: options.showWindow },
+        { label: formatMenuStatus(status), enabled: false },
         { type: 'separator' },
         {
-          label: 'Disconnect all',
+          label: 'Disconnect phone',
           enabled: status.connectedClientCount > 0,
           click: options.disconnectClients
         },
@@ -52,8 +51,18 @@ function createTrayIcon(): NativeImage {
   return image;
 }
 
-function formatStatus(status: PcServerStatus): string {
-  if (status.state === 'listening') return `Listening on port ${status.port}`;
-  if (status.state === 'error') return 'Server error';
-  return `${status.state.charAt(0).toUpperCase()}${status.state.slice(1)}`;
+function formatTooltipStatus(status: PcServerStatus): string {
+  if (status.connectedClientCount > 0) return 'phone connected';
+  if (status.state === 'listening') return 'ready';
+  if (status.state === 'error') return 'needs attention';
+  if (status.state === 'starting') return 'starting';
+  return 'not running';
+}
+
+function formatMenuStatus(status: PcServerStatus): string {
+  if (status.connectedClientCount > 0) return 'Phone connected';
+  if (status.state === 'listening') return 'Ready to connect';
+  if (status.state === 'error') return 'Needs attention';
+  if (status.state === 'starting') return 'Starting...';
+  return 'Not running';
 }
