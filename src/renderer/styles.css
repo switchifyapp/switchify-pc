@@ -161,6 +161,55 @@ p {
   text-align: center;
 }
 
+.approval-panel {
+  display: grid;
+  gap: 12px;
+  margin: -8px 0 24px;
+  border: 1px solid #bed7b9;
+  border-radius: 8px;
+  padding: 16px;
+  background: #f4fbf1;
+}
+
+.approval-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.approval-panel h2 {
+  font-size: 1.15rem;
+}
+
+.approval-actions,
+.approval-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.approval-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.approval-list li {
+  justify-content: flex-end;
+  border-top: 1px solid #d8e6d2;
+  padding-top: 10px;
+}
+
+.approval-list span {
+  margin-right: auto;
+  color: #3f493b;
+  font-weight: 700;
+}
+
 .pairing-state {
   justify-items: center;
 }
@@ -372,6 +421,7 @@ p {
   }
 
   .setup-header,
+  .approval-panel-header,
   .action-row,
   .copy-row {
     align-items: stretch;

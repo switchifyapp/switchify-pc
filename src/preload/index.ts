@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
 import type { ConnectionDetails, PairedDeviceView, PairingSessionView, PcServerStatus } from '../shared/server-status';
 import {
   CREATE_PAIRING_SESSION_CHANNEL,
@@ -7,6 +8,8 @@ import {
   GET_CONNECTION_DETAILS_CHANNEL,
   GET_PAIRED_DEVICES_CHANNEL,
   GET_PAIRING_SESSION_CHANNEL,
+  GET_PENDING_PAIRING_REQUESTS_CHANNEL,
+  RESPOND_TO_PAIRING_REQUEST_CHANNEL,
   SERVER_STATUS_CHANNEL,
   SET_CURSOR_OVERLAY_ENABLED_CHANNEL
 } from '../shared/ipc-channels';
@@ -21,5 +24,9 @@ contextBridge.exposeInMainWorld('switchifyPc', {
   disconnectClients: (): Promise<PcServerStatus> => ipcRenderer.invoke(DISCONNECT_CLIENTS_CHANNEL),
   getCursorOverlayEnabled: (): Promise<boolean> => ipcRenderer.invoke(GET_CURSOR_OVERLAY_ENABLED_CHANNEL),
   setCursorOverlayEnabled: (enabled: boolean): Promise<boolean> =>
-    ipcRenderer.invoke(SET_CURSOR_OVERLAY_ENABLED_CHANNEL, enabled)
+    ipcRenderer.invoke(SET_CURSOR_OVERLAY_ENABLED_CHANNEL, enabled),
+  getPendingPairingRequests: (): Promise<PendingPairingApprovalView[]> =>
+    ipcRenderer.invoke(GET_PENDING_PAIRING_REQUESTS_CHANNEL),
+  respondToPairingRequest: (requestId: string, decision: PairingApprovalDecision): Promise<{ ok: boolean; reason?: string }> =>
+    ipcRenderer.invoke(RESPOND_TO_PAIRING_REQUEST_CHANNEL, requestId, decision)
 });

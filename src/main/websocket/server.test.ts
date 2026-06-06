@@ -1,7 +1,8 @@
-import { WebSocket } from 'ws';
+import { WebSocket, type RawData } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
-import { PROTOCOL_VERSION, validateProtocolResponse, type PingCommand } from '../../shared/protocol';
+import { PROTOCOL_VERSION, validateProtocolResponse, type PairingCompleteResponse, type PingCommand } from '../../shared/protocol';
 import { createCommandAuthProof, CommandAuthValidator } from '../pairing/auth';
+import { PairingApprovalManager, PAIRING_APPROVAL_REQUEST_TTL_MS } from '../pairing/pairing-approval-manager';
 import { PairingManager } from '../pairing/pairing-manager';
 import { MemoryPairingStore } from '../pairing/pairing-store';
 import { PcWebSocketServer } from './server';
@@ -149,6 +150,132 @@ describe('PcWebSocketServer', () => {
     client.close();
   });
 
+  it('keeps pairing approval requests pending until accepted', async () => {
+    const store = new MemoryPairingStore({ desktopId: 'desktop-1', pairedDevices: [] });
+    const approvalManager = new PairingApprovalManager(store, () => now);
+    const server = createServer({
+      pairingManager: new PairingManager(store, () => now),
+      pairingApprovalManager: approvalManager,
+      authValidator: new CommandAuthValidator(store, () => now)
+    });
+    activeServers.push(server);
+    await server.start();
+    const client = await connect(server.getStatus().port);
+    const request = createPairingApprovalRequest();
+
+    client.send(JSON.stringify(request));
+
+    await expect(receiveWithin(client, 25)).resolves.toBeNull();
+    expect(server.getPendingPairingRequests()).toHaveLength(1);
+
+    await expect(server.respondToPairingRequest(request.id, 'accept')).resolves.toEqual({ ok: true });
+    const response = await receive(client);
+
+    expect(response).toMatchObject({
+      type: 'pairing.complete',
+      ok: true,
+      payload: {
+        desktopId: 'desktop-1',
+        deviceId: 'android-smoke-1'
+      }
+    });
+    expect(server.getPendingPairingRequests()).toHaveLength(0);
+    client.close();
+  });
+
+  it('rejects pending pairing approval requests with a structured error', async () => {
+    const store = new MemoryPairingStore({ desktopId: 'desktop-1', pairedDevices: [] });
+    const approvalManager = new PairingApprovalManager(store, () => now);
+    const server = createServer({
+      pairingManager: new PairingManager(store, () => now),
+      pairingApprovalManager: approvalManager,
+      authValidator: new CommandAuthValidator(store, () => now)
+    });
+    activeServers.push(server);
+    await server.start();
+    const client = await connect(server.getStatus().port);
+    const request = createPairingApprovalRequest();
+    client.send(JSON.stringify(request));
+    await waitFor(() => server.getPendingPairingRequests().length === 1);
+
+    await expect(server.respondToPairingRequest(request.id, 'reject')).resolves.toEqual({ ok: true });
+    const response = await receive(client);
+
+    expect(response).toMatchObject({
+      type: 'error',
+      ok: false,
+      error: { code: 'invalid_auth', message: 'pairing_rejected' }
+    });
+    await waitFor(() => client.readyState === WebSocket.CLOSED);
+  });
+
+  it('expires pending pairing approval requests with a structured error', async () => {
+    let currentTime = now;
+    const store = new MemoryPairingStore({ desktopId: 'desktop-1', pairedDevices: [] });
+    const approvalManager = new PairingApprovalManager(store, () => currentTime);
+    const server = createServer({
+      pairingManager: new PairingManager(store, () => currentTime),
+      pairingApprovalManager: approvalManager,
+      authValidator: new CommandAuthValidator(store, () => currentTime)
+    });
+    activeServers.push(server);
+    await server.start();
+    const client = await connect(server.getStatus().port);
+    const request = createPairingApprovalRequest();
+    client.send(JSON.stringify(request));
+    await waitFor(() => server.getPendingPairingRequests().length === 1);
+    currentTime += PAIRING_APPROVAL_REQUEST_TTL_MS + 1;
+
+    server.getPendingPairingRequests();
+    const response = await receive(client);
+
+    expect(response).toMatchObject({
+      type: 'error',
+      ok: false,
+      error: { code: 'invalid_auth', message: 'pairing_request_expired' }
+    });
+    await waitFor(() => client.readyState === WebSocket.CLOSED);
+  });
+
+  it('accepts authenticated ping after PC-approved pairing', async () => {
+    const store = new MemoryPairingStore({ desktopId: 'desktop-1', pairedDevices: [] });
+    const approvalManager = new PairingApprovalManager(store, () => now);
+    const server = createServer({
+      pairingManager: new PairingManager(store, () => now),
+      pairingApprovalManager: approvalManager,
+      authValidator: new CommandAuthValidator(store, () => now)
+    });
+    activeServers.push(server);
+    await server.start();
+    const client = await connect(server.getStatus().port);
+    const request = createPairingApprovalRequest();
+    client.send(JSON.stringify(request));
+    await waitFor(() => server.getPendingPairingRequests().length === 1);
+    await server.respondToPairingRequest(request.id, 'accept');
+    const pairingResponse = (await receive(client)) as PairingCompleteResponse;
+    const ping = createPingCommand({
+      id: 'approved-ping-1',
+      deviceId: 'android-smoke-1',
+      auth: createCommandAuthProof(
+        {
+          version: PROTOCOL_VERSION,
+          id: 'approved-ping-1',
+          deviceId: 'android-smoke-1',
+          timestamp: now,
+          type: 'connection.ping',
+          payload: {},
+          auth: ''
+        },
+        pairingResponse.payload.token
+      )
+    });
+
+    const response = await sendAndReceive(client, ping);
+
+    expect(response).toMatchObject({ type: 'ack', id: 'approved-ping-1', ok: true });
+    client.close();
+  });
+
   it('tracks connected clients and disconnects', async () => {
     const server = createServer();
     activeServers.push(server);
@@ -231,6 +358,20 @@ function createPingCommand(overrides: Partial<PingCommand> = {}): PingCommand {
   };
 }
 
+function createPairingApprovalRequest() {
+  return {
+    version: PROTOCOL_VERSION,
+    id: 'approval-1',
+    type: 'pairing.request',
+    payload: {
+      deviceId: 'android-smoke-1',
+      deviceName: 'Android smoke',
+      desktopId: 'desktop-1',
+      requestNonce: 'nonce'
+    }
+  };
+}
+
 function connect(port: number): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const client = new WebSocket(`ws://127.0.0.1:${port}`);
@@ -248,6 +389,43 @@ function sendAndReceive(client: WebSocket, message: unknown): Promise<unknown> {
     });
     client.once('error', reject);
     client.send(JSON.stringify(message));
+  });
+}
+
+function receive(client: WebSocket): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    client.once('message', (data) => {
+      const parsed = JSON.parse(data.toString());
+      expect(validateProtocolResponse(parsed)).toMatchObject({ ok: true });
+      resolve(parsed);
+    });
+    client.once('error', reject);
+  });
+}
+
+function receiveWithin(client: WebSocket, timeoutMs: number): Promise<unknown | null> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      client.off('message', onMessage);
+      client.off('error', onError);
+      resolve(null);
+    }, timeoutMs);
+
+    const onMessage = (data: RawData) => {
+      clearTimeout(timer);
+      client.off('error', onError);
+      const parsed = JSON.parse(data.toString());
+      expect(validateProtocolResponse(parsed)).toMatchObject({ ok: true });
+      resolve(parsed);
+    };
+    const onError = (error: Error) => {
+      clearTimeout(timer);
+      client.off('message', onMessage);
+      reject(error);
+    };
+
+    client.once('message', onMessage);
+    client.once('error', onError);
   });
 }
 

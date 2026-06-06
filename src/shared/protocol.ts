@@ -80,7 +80,19 @@ export type PairingCompleteRequest = {
   };
 };
 
-export type PairingRequest = PairingStartRequest | PairingCompleteRequest;
+export type PairingApprovalRequest = {
+  version: typeof PROTOCOL_VERSION;
+  id: string;
+  type: 'pairing.request';
+  payload: {
+    deviceId: string;
+    deviceName: string;
+    desktopId: string;
+    requestNonce: string;
+  };
+};
+
+export type PairingRequest = PairingStartRequest | PairingCompleteRequest | PairingApprovalRequest;
 
 export type MouseMoveCommand = BaseRequestEnvelope<'mouse.move', { dx: number; dy: number }>;
 export type MouseClickCommand = BaseRequestEnvelope<'mouse.click', { button: MouseButton }>;
@@ -159,7 +171,7 @@ const commandTypes = new Set<CommandRequest['type']>([
   'connection.ping'
 ]);
 
-const pairingTypes = new Set<PairingRequest['type']>(['pairing.start', 'pairing.complete']);
+const pairingTypes = new Set<PairingRequest['type']>(['pairing.start', 'pairing.complete', 'pairing.request']);
 const mouseButtons = new Set<MouseButton>(['left', 'right', 'middle']);
 const keyboardKeys = new Set<KeyboardKey>([
   'Backspace',
@@ -333,6 +345,14 @@ function validatePairingRequest(value: Record<string, unknown>): ValidationResul
     if (!isNonEmptyString(payload.deviceName)) return invalid('invalid_payload', 'Pairing device name is required.');
     if (!isNonEmptyString(payload.pairingCode)) return invalid('invalid_payload', 'Pairing code is required.');
     return { ok: true, value: value as PairingStartRequest };
+  }
+
+  if (value.type === 'pairing.request') {
+    if (!isNonEmptyString(payload.deviceId)) return invalid('invalid_payload', 'Pairing device id is required.');
+    if (!isNonEmptyString(payload.deviceName)) return invalid('invalid_payload', 'Pairing device name is required.');
+    if (!isNonEmptyString(payload.desktopId)) return invalid('invalid_payload', 'Desktop id is required.');
+    if (!isNonEmptyString(payload.requestNonce)) return invalid('invalid_payload', 'Pairing request nonce is required.');
+    return { ok: true, value: value as PairingApprovalRequest };
   }
 
   if (!isNonEmptyString(payload.deviceId)) return invalid('invalid_payload', 'Pairing device id is required.');

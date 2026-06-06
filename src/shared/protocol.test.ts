@@ -63,6 +63,43 @@ describe('protocol request validation', () => {
         }
       })
     ).toMatchObject({ ok: true });
+
+    expect(
+      validateProtocolRequest({
+        version: PROTOCOL_VERSION,
+        id: 'pairing-3',
+        type: 'pairing.request',
+        payload: {
+          deviceId: 'android-device-1',
+          deviceName: 'Android phone',
+          desktopId: 'desktop-1',
+          requestNonce: 'nonce'
+        }
+      })
+    ).toMatchObject({ ok: true });
+  });
+
+  it('rejects invalid pairing approval payloads', () => {
+    const validPayload = {
+      deviceId: 'android-device-1',
+      deviceName: 'Android phone',
+      desktopId: 'desktop-1',
+      requestNonce: 'nonce'
+    };
+
+    for (const field of ['deviceId', 'deviceName', 'desktopId', 'requestNonce'] as const) {
+      expect(
+        validateProtocolRequest({
+          version: PROTOCOL_VERSION,
+          id: `pairing-request-missing-${field}`,
+          type: 'pairing.request',
+          payload: {
+            ...validPayload,
+            [field]: ''
+          }
+        })
+      ).toMatchObject({ ok: false, error: 'invalid_payload' });
+    }
   });
 
   it('rejects invalid JSON', () => {
