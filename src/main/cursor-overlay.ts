@@ -1,5 +1,5 @@
 import { BrowserWindow, screen } from 'electron';
-import { cursorOverlayBounds, type CursorPoint } from './cursor-overlay-state';
+import { cursorOverlayBounds, nativeCursorToElectronPoint, type CursorPoint } from './cursor-overlay-state';
 
 export type CursorOverlayEvent = 'move' | 'click';
 
@@ -40,8 +40,7 @@ export class CursorOverlay {
     if (!this.enabled || this.failedToCreate) return;
 
     try {
-      const cursor = this.options.getCursorPosition();
-      screen.getDisplayNearestPoint(cursor);
+      const cursor = nativeCursorToElectronPoint(this.options.getCursorPosition(), screen.getAllDisplays());
       const window = this.ensureWindow();
       if (!window) return;
 
