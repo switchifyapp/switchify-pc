@@ -17,7 +17,10 @@ export function PairingApprovalRequests({
       <div className="approval-panel-header">
         <div>
           <h2>{sortedRequests[0].deviceName} wants to connect</h2>
-          <p>Only accept if this is your phone.</p>
+          <p>Confirm this code matches your phone.</p>
+          <div className="approval-code" aria-label="Verification code">
+            {sortedRequests[0].verificationCode}
+          </div>
         </div>
         <div className="approval-actions">
           <button
@@ -37,6 +40,7 @@ export function PairingApprovalRequests({
           {sortedRequests.slice(1).map((request) => (
             <li key={request.requestId}>
               <span>{request.deviceName}</span>
+              <strong>{request.verificationCode}</strong>
               <button type="button" onClick={() => void onRespond(request.requestId, 'accept')}>
                 Accept
               </button>

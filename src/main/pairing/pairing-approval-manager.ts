@@ -1,4 +1,5 @@
 import type { PendingPairingApprovalView } from '../../shared/pairing-approval';
+import { createPairingVerificationCode } from '../../shared/pairing-verification-code';
 import { createToken, TOKEN_BYTE_LENGTH } from './pairing-manager';
 import type { PairingStore } from './pairing-store';
 import { upsertPairedDevice } from './pairing-store';
@@ -67,6 +68,11 @@ export class PairingApprovalManager {
     return this.listPendingRequests().map((request) => ({
       requestId: request.requestId,
       deviceName: request.deviceName,
+      verificationCode: createPairingVerificationCode({
+        desktopId: request.desktopId,
+        deviceId: request.deviceId,
+        requestNonce: request.requestNonce
+      }),
       requestedAt: request.requestedAt,
       expiresAt: request.expiresAt,
       remoteAddress: request.remoteAddress

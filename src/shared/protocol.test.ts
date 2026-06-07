@@ -40,33 +40,7 @@ describe('protocol request validation', () => {
     }
   });
 
-  it('accepts pairing messages without command auth fields', () => {
-    expect(
-      validateProtocolRequest({
-        version: PROTOCOL_VERSION,
-        id: 'pairing-1',
-        type: 'pairing.start',
-        payload: {
-          deviceId: 'android-device-1',
-          deviceName: 'Android phone',
-          pairingCode: '123456'
-        }
-      })
-    ).toMatchObject({ ok: true });
-
-    expect(
-      validateProtocolRequest({
-        version: PROTOCOL_VERSION,
-        id: 'pairing-2',
-        type: 'pairing.complete',
-        payload: {
-          deviceId: 'android-device-1',
-          desktopId: 'desktop-1',
-          pairingNonce: 'nonce'
-        }
-      })
-    ).toMatchObject({ ok: true });
-
+  it('accepts pairing approval requests without command auth fields', () => {
     expect(
       validateProtocolRequest({
         version: PROTOCOL_VERSION,
@@ -80,6 +54,19 @@ describe('protocol request validation', () => {
         }
       })
     ).toMatchObject({ ok: true });
+  });
+
+  it('rejects legacy pairing session request types', () => {
+    for (const type of ['pairing.start', 'pairing.complete']) {
+      expect(
+        validateProtocolRequest({
+          version: PROTOCOL_VERSION,
+          id: `${type}-1`,
+          type,
+          payload: {}
+        })
+      ).toMatchObject({ ok: false, error: 'invalid_type' });
+    }
   });
 
   it('rejects invalid pairing approval payloads', () => {

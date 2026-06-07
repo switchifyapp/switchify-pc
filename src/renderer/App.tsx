@@ -25,26 +25,17 @@ export function App(): ReactElement {
           <PrimaryContent
             state={status.uiState}
             connectedClients={status.connectedClients}
-            showPairingWhileConnected={status.showPairingWhileConnected}
-            qrCodeUrl={status.qrCodeUrl}
-            isRefreshingPairing={status.isRefreshingPairing}
-            onRefreshPairing={status.refreshPairingCode}
             onDisconnect={status.disconnectClients}
-            onConnectAnotherPhone={status.connectAnotherPhone}
             onRefresh={status.refresh}
           />
 
           <TroubleshootingDetails
             serverStatus={status.serverStatus}
             connectionDetails={status.connectionDetails}
-            pairingSession={status.pairingSession}
             pairedDevices={status.pairedDevices}
             connectedClients={status.connectedClients}
             pendingPairingRequests={status.pendingPairingRequests}
-            connectionPayload={status.connectionPayload}
-            copyState={status.copyState}
             cursorOverlayEnabled={status.cursorOverlayEnabled}
-            onCopy={status.copyConnectionDetails}
             onDisconnect={status.disconnectClients}
             onToggleCursorOverlay={status.toggleCursorOverlay}
           />

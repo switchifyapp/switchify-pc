@@ -75,28 +75,6 @@ export interface BaseRequestEnvelope<TType extends string, TPayload> {
   auth: string;
 }
 
-export type PairingStartRequest = {
-  version: typeof PROTOCOL_VERSION;
-  id: string;
-  type: 'pairing.start';
-  payload: {
-    deviceId: string;
-    deviceName: string;
-    pairingCode: string;
-  };
-};
-
-export type PairingCompleteRequest = {
-  version: typeof PROTOCOL_VERSION;
-  id: string;
-  type: 'pairing.complete';
-  payload: {
-    deviceId: string;
-    desktopId: string;
-    pairingNonce: string;
-  };
-};
-
 export type PairingApprovalRequest = {
   version: typeof PROTOCOL_VERSION;
   id: string;
@@ -109,7 +87,7 @@ export type PairingApprovalRequest = {
   };
 };
 
-export type PairingRequest = PairingStartRequest | PairingCompleteRequest | PairingApprovalRequest;
+export type PairingRequest = PairingApprovalRequest;
 
 export type MouseMoveCommand = BaseRequestEnvelope<'mouse.move', { dx: number; dy: number }>;
 export type MouseClickCommand = BaseRequestEnvelope<'mouse.click', { button: MouseButton }>;
@@ -200,7 +178,7 @@ const commandTypes = new Set<CommandRequest['type']>([
   'connection.ping'
 ]);
 
-const pairingTypes = new Set<PairingRequest['type']>(['pairing.start', 'pairing.complete', 'pairing.request']);
+const pairingTypes = new Set<PairingRequest['type']>(['pairing.request']);
 const mouseButtons = new Set<MouseButton>(['left', 'right', 'middle']);
 const keyboardKeys = new Set<KeyboardKey>([
   'Backspace',
@@ -390,25 +368,11 @@ function validateCommandRequest(value: Record<string, unknown>): ValidationResul
 function validatePairingRequest(value: Record<string, unknown>): ValidationResult<PairingRequest> {
   const payload = value.payload as Record<string, unknown>;
 
-  if (value.type === 'pairing.start') {
-    if (!isNonEmptyString(payload.deviceId)) return invalid('invalid_payload', 'Pairing device id is required.');
-    if (!isNonEmptyString(payload.deviceName)) return invalid('invalid_payload', 'Pairing device name is required.');
-    if (!isNonEmptyString(payload.pairingCode)) return invalid('invalid_payload', 'Pairing code is required.');
-    return { ok: true, value: value as PairingStartRequest };
-  }
-
-  if (value.type === 'pairing.request') {
-    if (!isNonEmptyString(payload.deviceId)) return invalid('invalid_payload', 'Pairing device id is required.');
-    if (!isNonEmptyString(payload.deviceName)) return invalid('invalid_payload', 'Pairing device name is required.');
-    if (!isNonEmptyString(payload.desktopId)) return invalid('invalid_payload', 'Desktop id is required.');
-    if (!isNonEmptyString(payload.requestNonce)) return invalid('invalid_payload', 'Pairing request nonce is required.');
-    return { ok: true, value: value as PairingApprovalRequest };
-  }
-
   if (!isNonEmptyString(payload.deviceId)) return invalid('invalid_payload', 'Pairing device id is required.');
+  if (!isNonEmptyString(payload.deviceName)) return invalid('invalid_payload', 'Pairing device name is required.');
   if (!isNonEmptyString(payload.desktopId)) return invalid('invalid_payload', 'Desktop id is required.');
-  if (!isNonEmptyString(payload.pairingNonce)) return invalid('invalid_payload', 'Pairing nonce is required.');
-  return { ok: true, value: value as PairingCompleteRequest };
+  if (!isNonEmptyString(payload.requestNonce)) return invalid('invalid_payload', 'Pairing request nonce is required.');
+  return { ok: true, value: value as PairingApprovalRequest };
 }
 
 function validateCommandPayload(

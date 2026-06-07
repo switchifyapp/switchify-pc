@@ -3,37 +3,28 @@ import type { PendingPairingApprovalView } from '../../shared/pairing-approval';
 import type {
   ConnectionDetails,
   PairedDeviceView,
-  PairingSessionView,
   PcConnectedClient,
   PcServerStatus
 } from '../../shared/server-status';
-import { formatCopyState, formatExpiry, formatTimestamp, type CopyState } from '../format';
+import { formatTimestamp } from '../format';
 import { DetailGrid, DetailItem, TroubleshootingSection } from './DetailGrid';
 
 export function TroubleshootingDetails({
   serverStatus,
   connectionDetails,
-  pairingSession,
   pairedDevices,
   connectedClients,
   pendingPairingRequests,
-  connectionPayload,
-  copyState,
   cursorOverlayEnabled,
-  onCopy,
   onDisconnect,
   onToggleCursorOverlay
 }: {
   serverStatus: PcServerStatus | null;
   connectionDetails: ConnectionDetails | null;
-  pairingSession: PairingSessionView | null;
   pairedDevices: PairedDeviceView[];
   connectedClients: PcConnectedClient[];
   pendingPairingRequests: PendingPairingApprovalView[];
-  connectionPayload: string;
-  copyState: CopyState;
   cursorOverlayEnabled: boolean;
-  onCopy: () => Promise<void>;
   onDisconnect: () => Promise<void>;
   onToggleCursorOverlay: (enabled: boolean) => Promise<void>;
 }): ReactElement {
@@ -41,13 +32,6 @@ export function TroubleshootingDetails({
     <details className="troubleshooting-panel">
       <summary>Troubleshooting</summary>
       <div className="troubleshooting-content">
-        <ManualPairingFallback
-          pairingSession={pairingSession}
-          connectionDetails={connectionDetails}
-          connectionPayload={connectionPayload}
-          copyState={copyState}
-          onCopy={onCopy}
-        />
         <TroubleshootingSection title="Connected phones">
           <ClientList clients={connectedClients} />
           <button type="button" onClick={() => void onDisconnect()} disabled={connectedClients.length === 0}>
@@ -74,6 +58,8 @@ export function TroubleshootingDetails({
           <DetailGrid>
             <DetailItem label="Server status" value={serverStatus?.state ?? 'Unknown'} />
             <DetailItem label="Port" value={serverStatus ? String(serverStatus.port) : 'Unknown'} />
+            <DetailItem label="Connection address" value={connectionDetails?.websocketUrl ?? 'Not available.'} />
+            <DetailItem label="Desktop id" value={connectionDetails?.desktopId ?? 'Not available.'} />
             <DetailItem label="Last command" value={formatTimestamp(serverStatus?.lastSeenAt ?? null)} />
             <DetailItem label="Recent error" value={serverStatus?.lastError ?? 'No recent errors.'} />
           </DetailGrid>
@@ -94,43 +80,12 @@ function PendingRequestList({ requests }: { requests: PendingPairingApprovalView
         <li key={request.requestId}>
           <strong>{request.deviceName}</strong>
           <span>{request.remoteAddress ?? 'Unknown address'}</span>
+          <span>Code {request.verificationCode}</span>
           <span>Requested {formatTimestamp(request.requestedAt)}</span>
           <span>Expires {formatTimestamp(request.expiresAt)}</span>
         </li>
       ))}
     </ul>
-  );
-}
-
-function ManualPairingFallback({
-  pairingSession,
-  connectionDetails,
-  connectionPayload,
-  copyState,
-  onCopy
-}: {
-  pairingSession: PairingSessionView | null;
-  connectionDetails: ConnectionDetails | null;
-  connectionPayload: string;
-  copyState: CopyState;
-  onCopy: () => Promise<void>;
-}): ReactElement {
-  return (
-    <TroubleshootingSection title="Manual pairing code">
-      <DetailGrid>
-        <DetailItem label="Pairing code" value={pairingSession?.pairingCode ?? 'No active code.'} />
-        <DetailItem label="Connection address" value={connectionDetails?.websocketUrl ?? 'Not available.'} />
-        <DetailItem label="Desktop id" value={connectionDetails?.desktopId ?? 'Not available.'} />
-        <DetailItem label="Expires" value={formatExpiry(pairingSession?.expiresAt ?? null)} />
-      </DetailGrid>
-      <ConnectionUrlList urls={connectionDetails?.websocketUrls ?? []} primaryUrl={connectionDetails?.websocketUrl ?? null} />
-      <div className="copy-row">
-        <button type="button" onClick={() => void onCopy()} disabled={!connectionPayload}>
-          Copy manual setup details
-        </button>
-        <span>{formatCopyState(copyState)}</span>
-      </div>
-    </TroubleshootingSection>
   );
 }
 
@@ -168,23 +123,4 @@ function PairedDeviceList({ devices }: { devices: PairedDeviceView[] }): ReactEl
       ))}
     </ul>
   );
-}
-
-function ConnectionUrlList({ urls, primaryUrl }: { urls: string[]; primaryUrl: string | null }): ReactElement | null {
-  if (urls.length === 0) return null;
-
-  return (
-    <ul className="connection-url-list" aria-label="Connection addresses">
-      {urls.map((url) => (
-        <li key={url}>
-          <span>{url === primaryUrl ? 'Primary' : isLoopbackUrl(url) ? 'Local test' : 'Alternate'}</span>
-          <strong>{url}</strong>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function isLoopbackUrl(url: string): boolean {
-  return url.includes('://127.0.0.1:') || url.includes('://localhost:');
 }
