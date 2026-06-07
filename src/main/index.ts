@@ -29,7 +29,20 @@ function shellBackgroundColor(): string {
   return nativeTheme.shouldUseDarkColors ? '#161518' : '#f5f4f7';
 }
 
+function titleBarOverlayOptions():
+  | { color: string; symbolColor: string; height: number }
+  | undefined {
+  if (process.platform === 'darwin') return undefined;
+
+  return {
+    color: shellBackgroundColor(),
+    symbolColor: nativeTheme.shouldUseDarkColors ? '#e6e1e5' : '#1c1b1f',
+    height: 44
+  };
+}
+
 function createMainWindow(): BrowserWindow {
+  const overlayOptions = titleBarOverlayOptions();
   const window = new BrowserWindow({
     width: 920,
     height: 640,
@@ -38,6 +51,8 @@ function createMainWindow(): BrowserWindow {
     title: 'Switchify PC',
     backgroundColor: shellBackgroundColor(),
     show: false,
+    titleBarStyle: 'hidden',
+    ...(overlayOptions ? { titleBarOverlay: overlayOptions } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -65,6 +80,10 @@ function createMainWindow(): BrowserWindow {
   const applyThemeBackground = (): void => {
     if (!window.isDestroyed()) {
       window.setBackgroundColor(shellBackgroundColor());
+      const overlayOptions = titleBarOverlayOptions();
+      if (overlayOptions) {
+        window.setTitleBarOverlay?.(overlayOptions);
+      }
     }
   };
   nativeTheme.on('updated', applyThemeBackground);

@@ -29,6 +29,7 @@
   --radius-card: 16px;
   --radius-control: 10px;
   --radius-pill: 999px;
+  --titlebar-height: 44px;
 
   color-scheme: light dark;
   color: var(--color-text);
@@ -93,6 +94,15 @@ button:disabled {
   cursor: not-allowed;
 }
 
+button,
+input,
+summary,
+details,
+a {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
 .primary-button {
   border-color: var(--brand-primary);
   background: var(--brand-primary);
@@ -104,11 +114,75 @@ button:disabled {
   background: var(--brand-primary-hover);
 }
 
+.window-titlebar {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  height: var(--titlebar-height);
+  padding: 0 140px 0 var(--space-m);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  user-select: none;
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
+.window-titlebar-main {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-s);
+}
+
+.window-titlebar-app {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 0.9rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.window-titlebar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.window-titlebar-status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-text-muted);
+}
+
+.window-titlebar-status-ready .window-titlebar-status-dot,
+.window-titlebar-status-connected .window-titlebar-status-dot {
+  background: var(--color-status-ok);
+}
+
+.window-titlebar-status-waiting .window-titlebar-status-dot {
+  background: var(--color-status-warn);
+}
+
+.window-titlebar-status-error .window-titlebar-status-dot {
+  background: var(--color-status-error);
+}
+
 .app-shell {
   display: grid;
   place-items: center;
   min-height: 100vh;
-  padding: var(--space-xl);
+  padding: calc(var(--titlebar-height) + var(--space-xl)) var(--space-xl) var(--space-xl);
 }
 
 .setup-card {
@@ -470,9 +544,13 @@ p {
 }
 
 @media (max-width: 760px) {
+  .window-titlebar {
+    padding-right: 132px;
+  }
+
   .app-shell {
     align-items: start;
-    padding: 18px;
+    padding: calc(var(--titlebar-height) + 18px) 18px 18px;
   }
 
   .setup-card {
