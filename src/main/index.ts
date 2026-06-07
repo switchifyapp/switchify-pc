@@ -1,4 +1,4 @@
-import { app, BrowserWindow, screen } from 'electron';
+import { app, BrowserWindow, nativeTheme, screen } from 'electron';
 import { join } from 'node:path';
 import { CursorOverlay } from './cursor-overlay';
 import { registerCursorOverlayIpc } from './cursor-overlay-ipc';
@@ -23,6 +23,12 @@ let cursorOverlay: CursorOverlay | null = null;
 let mdnsAdvertiser: MdnsAdvertiser | null = null;
 let isQuitting = false;
 
+// Matches --color-bg in src/renderer/styles.css so the window frame paints
+// the correct base before the renderer loads.
+function shellBackgroundColor(): string {
+  return nativeTheme.shouldUseDarkColors ? '#161518' : '#f5f4f7';
+}
+
 function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 920,
@@ -30,7 +36,7 @@ function createMainWindow(): BrowserWindow {
     minWidth: 720,
     minHeight: 520,
     title: 'Switchify PC',
-    backgroundColor: '#f7f7f2',
+    backgroundColor: shellBackgroundColor(),
     show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -54,6 +60,16 @@ function createMainWindow(): BrowserWindow {
     if (mainWindow === window) {
       mainWindow = null;
     }
+  });
+
+  const applyThemeBackground = (): void => {
+    if (!window.isDestroyed()) {
+      window.setBackgroundColor(shellBackgroundColor());
+    }
+  };
+  nativeTheme.on('updated', applyThemeBackground);
+  window.on('closed', () => {
+    nativeTheme.off('updated', applyThemeBackground);
   });
 
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
