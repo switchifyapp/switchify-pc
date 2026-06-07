@@ -5,11 +5,13 @@ import {
   createAckResponse,
   createErrorResponse,
   createPairingCompleteResponse,
+  createPointerProfileResponse,
   parseProtocolRequest,
   type CommandRequest,
   type PairingApprovalRequest,
   type PairingCompleteRequest,
   type PairingStartRequest,
+  type PointerMovementProfile,
   type ProtocolErrorCode,
   type ProtocolResponse
 } from '../../shared/protocol';
@@ -29,6 +31,7 @@ export type PcWebSocketServerOptions = {
   pairingManager: PairingManager;
   pairingApprovalManager?: PairingApprovalManager;
   authValidator: CommandAuthValidator;
+  getPointerProfile?: () => PointerMovementProfile;
   onStatusChange?: PcServerStatusListener;
   onCommand?: (command: CommandRequest) => Promise<CommandHandlerResult> | CommandHandlerResult;
 };
@@ -224,6 +227,18 @@ export class PcWebSocketServer {
       return;
     }
 
+    if (authResult.command.type === 'pointer.profile') {
+      const profile = this.getPointerProfile();
+      if (!profile) {
+        sendResponse(client, createErrorResponse(message.id, 'command_failed', 'Pointer profile is unavailable.'));
+        return;
+      }
+      this.markClientSeen(client, authResult.command.deviceId);
+      this.setStatus({ lastSeenAt: Date.now(), lastError: null });
+      sendResponse(client, createPointerProfileResponse(message.id, profile));
+      return;
+    }
+
     const commandResult = await this.executeCommand(authResult.command);
     if (!commandResult.ok) {
       this.setStatus({ lastError: commandResult.message });
@@ -353,6 +368,17 @@ export class PcWebSocketServer {
   private setStatus(update: Partial<PcServerStatus>): void {
     this.status = { ...this.status, ...update };
     this.options.onStatusChange?.(this.getStatus());
+  }
+
+  private getPointerProfile(): PointerMovementProfile | null {
+    try {
+      return this.options.getPointerProfile?.() ?? null;
+    } catch (error) {
+      this.setStatus({
+        lastError: error instanceof Error ? error.message : 'Pointer profile failed.'
+      });
+      return null;
+    }
   }
 
   private expirePendingPairingRequests(): void {

@@ -87,6 +87,8 @@ export class DesktopCommandExecutor {
           return { ok: true };
         case 'connection.ping':
           return { ok: true };
+        case 'pointer.profile':
+          return { ok: false, code: 'unsupported_command', message: 'Pointer profile must be handled by the server.' };
       }
     } catch (error) {
       if (error instanceof DesktopInputError) {
