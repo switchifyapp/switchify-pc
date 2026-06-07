@@ -5,6 +5,7 @@ import { registerCursorOverlayIpc } from './cursor-overlay-ipc';
 import { MdnsAdvertiser } from './discovery/mdns-advertiser';
 import { DesktopCommandExecutor } from './input/command-executor';
 import { LibnutWin32InputAdapter } from './input/libnut-win32-adapter';
+import { createPointerMovementProfile } from './input/pointer-profile';
 import { CommandAuthValidator } from './pairing/auth';
 import { PairingApprovalManager } from './pairing/pairing-approval-manager';
 import { registerPairingApprovalIpc } from './pairing/pairing-approval-ipc';
@@ -98,6 +99,17 @@ app.whenReady().then(() => {
     pairingManager,
     pairingApprovalManager,
     authValidator: new CommandAuthValidator(pairingStore),
+    getPointerProfile: () => {
+      const cursor = inputAdapter.getMousePosition();
+      const display = screen.getDisplayNearestPoint(cursor);
+      return createPointerMovementProfile({
+        cursor,
+        display: {
+          bounds: display.bounds,
+          scaleFactor: display.scaleFactor
+        }
+      });
+    },
     onStatusChange: (status) => {
       tray?.update();
       void syncMdnsAdvertiser(status.state === 'listening');

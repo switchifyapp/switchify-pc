@@ -1,6 +1,13 @@
 import { WebSocket, type RawData } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
-import { PROTOCOL_VERSION, validateProtocolResponse, type PairingCompleteResponse, type PingCommand } from '../../shared/protocol';
+import {
+  MAX_POINTER_DELTA,
+  PROTOCOL_VERSION,
+  validateProtocolResponse,
+  type PairingCompleteResponse,
+  type PingCommand,
+  type PointerProfileCommand
+} from '../../shared/protocol';
 import { createCommandAuthProof, CommandAuthValidator } from '../pairing/auth';
 import { PairingApprovalManager, PAIRING_APPROVAL_REQUEST_TTL_MS } from '../pairing/pairing-approval-manager';
 import { PairingManager } from '../pairing/pairing-manager';
@@ -95,6 +102,75 @@ describe('PcWebSocketServer', () => {
       error: { code: 'invalid_auth' }
     });
     expect(server.getStatus().state).toBe('listening');
+    client.close();
+  });
+
+  it('returns an authenticated pointer profile without executing desktop input', async () => {
+    const handled: unknown[] = [];
+    const server = createServer({
+      getPointerProfile: () => ({
+        displayId: '0:0:1280:720:1.5',
+        scaleFactor: 1.5,
+        bounds: { x: 0, y: 0, width: 1280, height: 720 },
+        maxDelta: MAX_POINTER_DELTA,
+        recommendedDeltas: {
+          small: 50,
+          medium: 130,
+          large: 252
+        }
+      }),
+      onCommand: (command) => {
+        handled.push(command);
+        return { ok: true };
+      }
+    });
+    activeServers.push(server);
+    await server.start();
+    const client = await connect(server.getStatus().port);
+    const command = createPointerProfileCommand();
+
+    const response = await sendAndReceive(client, command);
+
+    expect(response).toMatchObject({
+      type: 'pointer.profile',
+      id: command.id,
+      ok: true,
+      payload: {
+        displayId: '0:0:1280:720:1.5',
+        scaleFactor: 1.5,
+        maxDelta: MAX_POINTER_DELTA,
+        recommendedDeltas: {
+          small: 50,
+          medium: 130,
+          large: 252
+        }
+      }
+    });
+    expect(handled).toEqual([]);
+    client.close();
+  });
+
+  it('rejects pointer profile requests with invalid auth', async () => {
+    const server = createServer({
+      getPointerProfile: () => ({
+        displayId: '0:0:1280:720:1.5',
+        scaleFactor: 1.5,
+        bounds: { x: 0, y: 0, width: 1280, height: 720 },
+        maxDelta: MAX_POINTER_DELTA,
+        recommendedDeltas: { small: 50, medium: 130, large: 252 }
+      })
+    });
+    activeServers.push(server);
+    await server.start();
+    const client = await connect(server.getStatus().port);
+
+    const response = await sendAndReceive(client, createPointerProfileCommand({ auth: 'bad-proof' }));
+
+    expect(response).toMatchObject({
+      type: 'error',
+      ok: false,
+      error: { code: 'invalid_auth' }
+    });
     client.close();
   });
 
@@ -352,6 +428,23 @@ function createPingCommand(overrides: Partial<PingCommand> = {}): PingCommand {
     auth: ''
   } satisfies PingCommand;
   const merged = { ...command, ...overrides } as PingCommand;
+  return {
+    ...merged,
+    auth: overrides.auth ?? createCommandAuthProof(merged, token)
+  };
+}
+
+function createPointerProfileCommand(overrides: Partial<PointerProfileCommand> = {}): PointerProfileCommand {
+  const command = {
+    version: PROTOCOL_VERSION,
+    id: 'profile-1',
+    deviceId: 'android-1',
+    timestamp: now,
+    type: 'pointer.profile',
+    payload: {},
+    auth: ''
+  } satisfies PointerProfileCommand;
+  const merged = { ...command, ...overrides } as PointerProfileCommand;
   return {
     ...merged,
     auth: overrides.auth ?? createCommandAuthProof(merged, token)

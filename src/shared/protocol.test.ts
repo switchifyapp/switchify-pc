@@ -3,6 +3,8 @@ import {
   createAckResponse,
   createErrorResponse,
   createPairingCompleteResponse,
+  createPointerProfileResponse,
+  MAX_POINTER_DELTA,
   parseProtocolRequest,
   PROTOCOL_VERSION,
   validateProtocolRequest,
@@ -29,6 +31,7 @@ describe('protocol request validation', () => {
       { type: 'keyboard.shortcut', payload: { keys: ['Ctrl', 'C'] } },
       { type: 'keyboard.typeText', payload: { text: 'Hello' } },
       { type: 'media.control', payload: { action: 'playPause' } },
+      { type: 'pointer.profile', payload: {} },
       { type: 'connection.ping', payload: {} }
     ];
 
@@ -149,6 +152,10 @@ describe('protocol request validation', () => {
       ok: false,
       error: 'invalid_payload'
     });
+    expect(validateProtocolRequest({ ...baseCommand, type: 'pointer.profile', payload: { includeDisplays: true } })).toMatchObject({
+      ok: false,
+      error: 'invalid_payload'
+    });
   });
 });
 
@@ -190,6 +197,57 @@ describe('protocol response validation', () => {
     });
 
     expect(validateProtocolResponse(response)).toMatchObject({ ok: true });
+  });
+
+  it('creates and validates pointer profile responses', () => {
+    const response = createPointerProfileResponse('profile-1', {
+      displayId: '0:0:1280:720:1.5',
+      scaleFactor: 1.5,
+      bounds: { x: 0, y: 0, width: 1280, height: 720 },
+      maxDelta: MAX_POINTER_DELTA,
+      recommendedDeltas: {
+        small: 50,
+        medium: 130,
+        large: 252
+      }
+    });
+
+    expect(validateProtocolResponse(response)).toMatchObject({ ok: true });
+  });
+
+  it('rejects malformed pointer profile responses', () => {
+    expect(
+      validateProtocolResponse({
+        version: PROTOCOL_VERSION,
+        id: 'profile-1',
+        type: 'pointer.profile',
+        ok: true,
+        payload: {
+          displayId: '0:0:1280:720:1.5',
+          scaleFactor: 0,
+          bounds: { x: 0, y: 0, width: 1280, height: 720 },
+          maxDelta: MAX_POINTER_DELTA,
+          recommendedDeltas: { small: 50, medium: 130, large: 252 }
+        },
+        error: null
+      })
+    ).toMatchObject({ ok: false, error: 'invalid_payload' });
+
+    expect(
+      validateProtocolResponse({
+        version: PROTOCOL_VERSION,
+        id: 'profile-1',
+        type: 'pointer.profile',
+        ok: true,
+        payload: {
+          displayId: '0:0:1280:720:1.5',
+          scaleFactor: 1.5,
+          bounds: { x: 0, y: 0, width: 1280, height: 720 },
+          maxDelta: MAX_POINTER_DELTA
+        },
+        error: null
+      })
+    ).toMatchObject({ ok: false, error: 'invalid_payload' });
   });
 
   it('rejects malformed responses', () => {

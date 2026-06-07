@@ -48,6 +48,23 @@ export type ShortcutKey =
 
 export type MediaAction = 'playPause' | 'nextTrack' | 'previousTrack' | 'volumeUp' | 'volumeDown' | 'mute';
 
+export type PointerMovementProfile = {
+  displayId: string;
+  scaleFactor: number;
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  maxDelta: number;
+  recommendedDeltas: {
+    small: number;
+    medium: number;
+    large: number;
+  };
+};
+
 export interface BaseRequestEnvelope<TType extends string, TPayload> {
   version: typeof PROTOCOL_VERSION;
   id: string;
@@ -104,6 +121,7 @@ export type KeyboardShortcutCommand = BaseRequestEnvelope<'keyboard.shortcut', {
 export type KeyboardTypeTextCommand = BaseRequestEnvelope<'keyboard.typeText', { text: string }>;
 export type MediaControlCommand = BaseRequestEnvelope<'media.control', { action: MediaAction }>;
 export type PingCommand = BaseRequestEnvelope<'connection.ping', Record<string, never>>;
+export type PointerProfileCommand = BaseRequestEnvelope<'pointer.profile', Record<string, never>>;
 
 export type CommandRequest =
   | MouseMoveCommand
@@ -115,6 +133,7 @@ export type CommandRequest =
   | KeyboardShortcutCommand
   | KeyboardTypeTextCommand
   | MediaControlCommand
+  | PointerProfileCommand
   | PingCommand;
 
 export type ProtocolRequest = CommandRequest | PairingRequest;
@@ -152,7 +171,16 @@ export type PairingCompleteResponse = {
   error: null;
 };
 
-export type ProtocolResponse = AckResponse | ErrorResponse | PairingCompleteResponse;
+export type PointerProfileResponse = {
+  version: typeof PROTOCOL_VERSION;
+  id: string;
+  type: 'pointer.profile';
+  ok: true;
+  payload: PointerMovementProfile;
+  error: null;
+};
+
+export type ProtocolResponse = AckResponse | ErrorResponse | PairingCompleteResponse | PointerProfileResponse;
 
 export type ValidationResult<T> =
   | { ok: true; value: T }
@@ -168,6 +196,7 @@ const commandTypes = new Set<CommandRequest['type']>([
   'keyboard.shortcut',
   'keyboard.typeText',
   'media.control',
+  'pointer.profile',
   'connection.ping'
 ]);
 
@@ -279,6 +308,16 @@ export function validateProtocolResponse(value: unknown): ValidationResult<Proto
     return { ok: true, value: value as PairingCompleteResponse };
   }
 
+  if (value.type === 'pointer.profile') {
+    if (!isNonEmptyString(value.id)) return invalid('invalid_message', 'Pointer profile response id is required.');
+    if (value.ok !== true || value.error !== null || !isRecord(value.payload)) {
+      return invalid('invalid_message', 'Pointer profile response is malformed.');
+    }
+    return validatePointerProfilePayload(value.payload).ok
+      ? { ok: true, value: value as PointerProfileResponse }
+      : invalid('invalid_payload', 'Pointer profile payload is invalid.');
+  }
+
   return invalid('invalid_type', 'Unsupported response type.');
 }
 
@@ -319,6 +358,17 @@ export function createPairingCompleteResponse(
     version: PROTOCOL_VERSION,
     id,
     type: 'pairing.complete',
+    ok: true,
+    payload,
+    error: null
+  };
+}
+
+export function createPointerProfileResponse(id: string, payload: PointerMovementProfile): PointerProfileResponse {
+  return {
+    version: PROTOCOL_VERSION,
+    id,
+    type: 'pointer.profile',
     ok: true,
     payload,
     error: null
@@ -394,7 +444,41 @@ function validateCommandPayload(
       return mediaActions.has(payload.action as MediaAction)
         ? valid()
         : invalid('invalid_payload', 'Media action is invalid.');
+    case 'pointer.profile':
+      return Object.keys(payload).length === 0
+        ? valid()
+        : invalid('invalid_payload', 'Payload must be empty.');
   }
+}
+
+function validatePointerProfilePayload(payload: Record<string, unknown>): ValidationResult<unknown> {
+  if (!isNonEmptyString(payload.displayId)) return invalid('invalid_payload', 'Display id is required.');
+  if (!isPositiveFiniteNumber(payload.scaleFactor)) return invalid('invalid_payload', 'Scale factor is invalid.');
+  if (!isRecord(payload.bounds) || !isFiniteBounds(payload.bounds)) {
+    return invalid('invalid_payload', 'Bounds are invalid.');
+  }
+  if (!isPositiveFiniteNumber(payload.maxDelta) || payload.maxDelta > MAX_POINTER_DELTA) {
+    return invalid('invalid_payload', 'Max delta is invalid.');
+  }
+  if (!isRecord(payload.recommendedDeltas)) {
+    return invalid('invalid_payload', 'Recommended deltas are required.');
+  }
+  for (const key of ['small', 'medium', 'large']) {
+    const value = payload.recommendedDeltas[key];
+    if (!isPositiveFiniteNumber(value) || value > MAX_POINTER_DELTA) {
+      return invalid('invalid_payload', 'Recommended delta is invalid.');
+    }
+  }
+  return valid();
+}
+
+function isFiniteBounds(value: Record<string, unknown>): boolean {
+  return (
+    isFiniteNumber(value.x) &&
+    isFiniteNumber(value.y) &&
+    isPositiveFiniteNumber(value.width) &&
+    isPositiveFiniteNumber(value.height)
+  );
 }
 
 function validateShortcutPayload(payload: Record<string, unknown>): ValidationResult<unknown> {
@@ -438,6 +522,10 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isPositiveFiniteNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value > 0;
 }
 
 function valid(): ValidationResult<unknown> {
