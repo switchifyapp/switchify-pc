@@ -144,6 +144,23 @@ describe('protocol request validation', () => {
       error: 'invalid_payload'
     });
   });
+
+  it('accepts committed Unicode text input payloads', () => {
+    for (const text of ['Hello', 'café', '👋', 'line one\nline two', 'tab\ttext', '']) {
+      expect(validateProtocolRequest({ ...baseCommand, type: 'keyboard.typeText', payload: { text } })).toMatchObject({
+        ok: true
+      });
+    }
+  });
+
+  it('rejects oversized and unsafe control character text payloads', () => {
+    for (const text of ['x'.repeat(2_001), 'hello\0world', 'hello\u001bworld', 'hello\u007fworld', 'hello\u0085world']) {
+      expect(validateProtocolRequest({ ...baseCommand, type: 'keyboard.typeText', payload: { text } })).toMatchObject({
+        ok: false,
+        error: 'invalid_payload'
+      });
+    }
+  });
 });
 
 describe('protocol response validation', () => {

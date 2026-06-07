@@ -6,9 +6,11 @@ import {
   scrollMouse as nativeScrollMouse,
   typeString
 } from '@nut-tree-fork/libnut-win32';
+import { clipboard } from 'electron';
 import type { KeyboardKey, MediaAction, MouseButton, ShortcutKey } from '../../shared/protocol';
 import type { DesktopInputAdapter } from './desktop-input-adapter';
 import { DesktopInputError } from './desktop-input-adapter';
+import { insertText } from './text-inserter';
 
 type Point = { x: number; y: number };
 type PointerScaleProvider = (position: Point) => number;
@@ -55,7 +57,18 @@ export class LibnutWin32InputAdapter implements DesktopInputAdapter {
   }
 
   async typeText(text: string): Promise<void> {
-    typeString(text);
+    try {
+      insertText(text, {
+        clipboard,
+        typeString,
+        pasteFromClipboard: () => keyTap('v', ['control']),
+        scheduleRestore: (callback, delayMs) => {
+          setTimeout(callback, delayMs);
+        }
+      });
+    } catch (error) {
+      throw new DesktopInputError('adapter_failure', 'Text insertion failed.', { cause: error });
+    }
   }
 
   async mediaControl(action: MediaAction): Promise<void> {
