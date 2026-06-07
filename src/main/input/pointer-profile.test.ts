@@ -18,14 +18,14 @@ describe('createPointerMovementProfile', () => {
       bounds: { x: 0, y: 0, width: 1280, height: 720 },
       maxDelta: MAX_POINTER_DELTA,
       recommendedDeltas: {
-        small: 50,
-        medium: 130,
-        large: 252
+        small: 32,
+        medium: 85,
+        large: 187
       }
     });
   });
 
-  it('creates larger deltas for a 1920x1080 display', () => {
+  it('returns native target deltas on a 1x display', () => {
     expect(
       createPointerMovementProfile({
         cursor: { x: 100, y: 100 },
@@ -35,22 +35,41 @@ describe('createPointerMovementProfile', () => {
         }
       }).recommendedDeltas
     ).toEqual({
-      small: 76,
-      medium: 194,
-      large: 378
+      small: 48,
+      medium: 128,
+      large: 280
     });
   });
 
-  it('clamps large deltas on very large displays', () => {
+  it('returns small logical deltas on a 3x display', () => {
     expect(
       createPointerMovementProfile({
         cursor: { x: 100, y: 100 },
         display: {
-          bounds: { x: 0, y: 0, width: 3840, height: 2160 },
-          scaleFactor: 1
+          bounds: { x: 0, y: 0, width: 1920, height: 960 },
+          scaleFactor: 3
         }
-      }).recommendedDeltas.large
-    ).toBe(450);
+      }).recommendedDeltas
+    ).toEqual({
+      small: 16,
+      medium: 43,
+      large: 93
+    });
+  });
+
+  it('keeps all recommended deltas below the configured max', () => {
+    const profile = createPointerMovementProfile({
+      cursor: { x: 100, y: 100 },
+      display: {
+        bounds: { x: 0, y: 0, width: 3840, height: 2160 },
+        scaleFactor: 0.25
+      },
+      maxDelta: 500
+    });
+
+    expect(profile.recommendedDeltas.small).toBeLessThanOrEqual(500);
+    expect(profile.recommendedDeltas.medium).toBeLessThanOrEqual(500);
+    expect(profile.recommendedDeltas.large).toBeLessThanOrEqual(500);
   });
 
   it('falls back to scale factor 1 for invalid scale values', () => {
