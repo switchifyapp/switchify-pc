@@ -49,10 +49,7 @@ function connectionDetails(): ConnectionDetails {
   return {
     desktopId: 'desktop-1',
     websocketUrl: 'ws://192.168.1.10:7347',
-    websocketUrls: ['ws://192.168.1.10:7347', 'ws://127.0.0.1:7347'],
-    pairingCode: '123456',
-    pairingNonce: 'nonce',
-    expiresAt: Date.now() + 60_000
+    websocketUrls: ['ws://192.168.1.10:7347', 'ws://127.0.0.1:7347']
   };
 }
 

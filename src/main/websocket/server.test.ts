@@ -174,63 +174,11 @@ describe('PcWebSocketServer', () => {
     client.close();
   });
 
-  it('accepts pairing messages and returns a token response', async () => {
-    const store = new MemoryPairingStore();
-    const pairingManager = new PairingManager(store, () => now);
-    const pairingSession = await pairingManager.createPairingSession();
-    const server = new PcWebSocketServer({
-      port: 0,
-      pairingManager,
-      authValidator: new CommandAuthValidator(store, () => now)
-    });
-    activeServers.push(server);
-    await server.start();
-    const client = await connect(server.getStatus().port);
-
-    await expect(
-      sendAndReceive(client, {
-        version: PROTOCOL_VERSION,
-        id: 'pairing-start-1',
-        type: 'pairing.start',
-        payload: {
-          deviceId: 'android-1',
-          deviceName: 'Android phone',
-          pairingCode: pairingSession.pairingCode
-        }
-      })
-    ).resolves.toMatchObject({ type: 'ack', ok: true });
-
-    const response = await sendAndReceive(client, {
-      version: PROTOCOL_VERSION,
-      id: 'pairing-complete-1',
-      type: 'pairing.complete',
-      payload: {
-        deviceId: 'android-1',
-        desktopId: pairingSession.desktopId,
-        pairingNonce: pairingSession.pairingNonce
-      }
-    });
-
-    expect(response).toMatchObject({
-      type: 'pairing.complete',
-      ok: true,
-      payload: {
-        desktopId: pairingSession.desktopId,
-        deviceId: 'android-1'
-      }
-    });
-    expect((await store.load()).pairedDevices[0]).toMatchObject({
-      deviceId: 'android-1',
-      deviceName: 'Android phone'
-    });
-    client.close();
-  });
-
   it('keeps pairing approval requests pending until accepted', async () => {
     const store = new MemoryPairingStore({ desktopId: 'desktop-1', pairedDevices: [] });
     const approvalManager = new PairingApprovalManager(store, () => now);
     const server = createServer({
-      pairingManager: new PairingManager(store, () => now),
+      pairingManager: new PairingManager(store),
       pairingApprovalManager: approvalManager,
       authValidator: new CommandAuthValidator(store, () => now)
     });
@@ -242,7 +190,13 @@ describe('PcWebSocketServer', () => {
     client.send(JSON.stringify(request));
 
     await expect(receiveWithin(client, 25)).resolves.toBeNull();
-    expect(server.getPendingPairingRequests()).toHaveLength(1);
+    expect(server.getPendingPairingRequests()).toMatchObject([
+      {
+        requestId: 'approval-1',
+        deviceName: 'Android smoke',
+        verificationCode: expect.stringMatching(/^\d{6}$/)
+      }
+    ]);
 
     await expect(server.respondToPairingRequest(request.id, 'accept')).resolves.toEqual({ ok: true });
     const response = await receive(client);
@@ -263,7 +217,7 @@ describe('PcWebSocketServer', () => {
     const store = new MemoryPairingStore({ desktopId: 'desktop-1', pairedDevices: [] });
     const approvalManager = new PairingApprovalManager(store, () => now);
     const server = createServer({
-      pairingManager: new PairingManager(store, () => now),
+      pairingManager: new PairingManager(store),
       pairingApprovalManager: approvalManager,
       authValidator: new CommandAuthValidator(store, () => now)
     });
@@ -290,7 +244,7 @@ describe('PcWebSocketServer', () => {
     const store = new MemoryPairingStore({ desktopId: 'desktop-1', pairedDevices: [] });
     const approvalManager = new PairingApprovalManager(store, () => currentTime);
     const server = createServer({
-      pairingManager: new PairingManager(store, () => currentTime),
+      pairingManager: new PairingManager(store),
       pairingApprovalManager: approvalManager,
       authValidator: new CommandAuthValidator(store, () => currentTime)
     });
@@ -317,7 +271,7 @@ describe('PcWebSocketServer', () => {
     const store = new MemoryPairingStore({ desktopId: 'desktop-1', pairedDevices: [] });
     const approvalManager = new PairingApprovalManager(store, () => now);
     const server = createServer({
-      pairingManager: new PairingManager(store, () => now),
+      pairingManager: new PairingManager(store),
       pairingApprovalManager: approvalManager,
       authValidator: new CommandAuthValidator(store, () => now)
     });
@@ -411,7 +365,7 @@ function createServer(overrides: Partial<ConstructorParameters<typeof PcWebSocke
   });
   return new PcWebSocketServer({
     port: 0,
-    pairingManager: new PairingManager(store, () => now),
+    pairingManager: new PairingManager(store),
     authValidator: new CommandAuthValidator(store, () => now),
     ...overrides
   });

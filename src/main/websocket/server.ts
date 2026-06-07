@@ -8,8 +8,6 @@ import {
   parseProtocolRequest,
   type CommandRequest,
   type PairingApprovalRequest,
-  type PairingCompleteRequest,
-  type PairingStartRequest,
   type PointerMovementProfile
 } from '../../shared/protocol';
 import {
@@ -43,7 +41,6 @@ export class PcWebSocketServer {
   private server: WebSocketServer | null = null;
   private readonly clientRegistry = new WebSocketClientRegistry();
   private readonly pendingApprovalConnections = new PendingPairingApprovalConnections();
-  private readonly pendingPairingDeviceNames = new Map<string, string>();
   private status: PcServerStatus;
 
   constructor(private readonly options: PcWebSocketServerOptions) {
@@ -195,16 +192,8 @@ export class PcWebSocketServer {
     }
 
     const message = parsed.value;
-    if (message.type === 'pairing.start') {
-      await this.handlePairingStart(client, message);
-      return;
-    }
     if (message.type === 'pairing.request') {
       await this.handlePairingApprovalRequest(client, message);
-      return;
-    }
-    if (message.type === 'pairing.complete') {
-      await this.handlePairingComplete(client, message);
       return;
     }
 
@@ -239,46 +228,6 @@ export class PcWebSocketServer {
     this.markClientSeen(client, authResult.command.deviceId);
     this.setStatus({ lastSeenAt: Date.now(), lastError: null });
     sendResponse(client, createAckResponse(message.id));
-  }
-
-  private async handlePairingStart(client: WebSocket, message: PairingStartRequest): Promise<void> {
-    const session = this.options.pairingManager.getActivePairingSession();
-    if (!session || session.pairingCode !== message.payload.pairingCode) {
-      sendResponse(client, createErrorResponse(message.id, 'invalid_auth', 'pairing_mismatch'));
-      return;
-    }
-
-    this.pendingPairingDeviceNames.set(message.payload.deviceId, message.payload.deviceName);
-    sendResponse(client, createAckResponse(message.id));
-  }
-
-  private async handlePairingComplete(client: WebSocket, message: PairingCompleteRequest): Promise<void> {
-    const session = this.options.pairingManager.getActivePairingSession();
-    if (!session || session.desktopId !== message.payload.desktopId) {
-      sendResponse(client, createErrorResponse(message.id, 'invalid_auth', 'pairing_mismatch'));
-      return;
-    }
-
-    const result = await this.options.pairingManager.completePairing({
-      deviceId: message.payload.deviceId,
-      deviceName: this.pendingPairingDeviceNames.get(message.payload.deviceId) ?? message.payload.deviceId,
-      pairingCode: session.pairingCode,
-      pairingNonce: message.payload.pairingNonce
-    });
-    if (!result.ok) {
-      sendResponse(client, createErrorResponse(message.id, 'invalid_auth', result.reason));
-      return;
-    }
-
-    sendResponse(
-      client,
-      createPairingCompleteResponse(message.id, {
-        desktopId: result.desktopId,
-        deviceId: result.deviceId,
-        token: result.token
-      })
-    );
-    this.pendingPairingDeviceNames.delete(message.payload.deviceId);
   }
 
   private async handlePairingApprovalRequest(client: WebSocket, message: PairingApprovalRequest): Promise<void> {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createPairingVerificationCode } from '../../shared/pairing-verification-code';
 import { PairingApprovalManager, PAIRING_APPROVAL_REQUEST_TTL_MS } from './pairing-approval-manager';
 import { MemoryPairingStore } from './pairing-store';
 
@@ -28,11 +29,31 @@ describe('PairingApprovalManager', () => {
       {
         requestId: 'approval-1',
         deviceName: 'Android smoke',
+        verificationCode: createPairingVerificationCode({
+          desktopId: 'desktop-1',
+          deviceId: 'android-1',
+          requestNonce: 'secret-nonce'
+        }),
         requestedAt: now,
         expiresAt: now + PAIRING_APPROVAL_REQUEST_TTL_MS,
         remoteAddress: '192.168.1.50'
       }
     ]);
+  });
+
+  it('creates deterministic verification codes for pending request views', () => {
+    const manager = createManager();
+    manager.createRequest(createRequestInput({ requestNonce: 'nonce-1' }));
+
+    const [view] = manager.listPendingRequestViews();
+
+    expect(view.verificationCode).toBe(
+      createPairingVerificationCode({
+        desktopId: 'desktop-1',
+        deviceId: 'android-1',
+        requestNonce: 'nonce-1'
+      })
+    );
   });
 
   it('accepts a request, stores the paired device, and returns a token', async () => {

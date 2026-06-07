@@ -19,20 +19,10 @@ export type PcServerStatus = {
 
 export type PcServerStatusListener = (status: PcServerStatus) => void;
 
-export type PairingSessionView = {
-  desktopId: string;
-  pairingCode: string;
-  pairingNonce: string;
-  expiresAt: number;
-};
-
 export type ConnectionDetails = {
   desktopId: string;
   websocketUrl: string;
   websocketUrls: string[];
-  pairingCode: string | null;
-  pairingNonce: string | null;
-  expiresAt: number | null;
 };
 
 export type PairedDeviceView = {
