@@ -115,6 +115,14 @@ describe('DesktopCommandExecutor', () => {
     ]);
   });
 
+  it('passes empty committed text to the adapter', async () => {
+    const { adapter, executor } = createExecutor();
+
+    await expect(executor.execute(command('keyboard.typeText', { text: '' }))).resolves.toEqual({ ok: true });
+
+    expect(adapter.calls).toEqual([{ method: 'typeText', args: [''] }]);
+  });
+
   it('rejects unsafe movement, scroll, shortcut, and text values', async () => {
     const { adapter, executor, overlay } = createExecutor();
 
