@@ -24,8 +24,8 @@ describe('deriveDesktopUiState', () => {
     expect(deriveDesktopUiState(serverStatus({ connectedClientCount: 1 }), connectionDetails(), [])).toBe('connected');
   });
 
-  it('returns waiting-for-phone when saved devices exist without active clients', () => {
-    expect(deriveDesktopUiState(serverStatus(), connectionDetails(), [pairedDevice()])).toBe('waiting-for-phone');
+  it('returns waiting-for-device when saved devices exist without active clients', () => {
+    expect(deriveDesktopUiState(serverStatus(), connectionDetails(), [pairedDevice()])).toBe('waiting-for-device');
   });
 
   it('returns ready-to-pair when listening without connected or saved devices', () => {
@@ -55,8 +55,8 @@ function connectionDetails(): ConnectionDetails {
 
 function pairedDevice(): PairedDeviceView {
   return {
-    deviceId: 'phone-1',
-    deviceName: 'Phone',
+    deviceId: 'device-1',
+    deviceName: 'Device',
     pairedAt: 1_000,
     lastSeenAt: null
   };

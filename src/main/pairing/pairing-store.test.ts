@@ -8,7 +8,7 @@ describe('toPairedDeviceViews', () => {
       pairedDevices: [
         {
           deviceId: 'android-1',
-          deviceName: 'Android phone',
+          deviceName: 'Android device',
           token: 'secret-token',
           pairedAt: 1_000,
           lastSeenAt: 2_000
@@ -21,7 +21,7 @@ describe('toPairedDeviceViews', () => {
     expect(views).toEqual([
       {
         deviceId: 'android-1',
-        deviceName: 'Android phone',
+        deviceName: 'Android device',
         pairedAt: 1_000,
         lastSeenAt: 2_000
       }

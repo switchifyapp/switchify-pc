@@ -30,8 +30,8 @@ export function PrimaryContent({
     );
   }
 
-  if (state === 'waiting-for-phone') {
-    return <WaitingForPhoneState />;
+  if (state === 'waiting-for-device') {
+    return <WaitingForDeviceState />;
   }
 
   return <ReadyToConnectState />;
@@ -42,7 +42,7 @@ function StartingState({ state }: { state: 'loading' | 'starting' | 'not-running
     return (
       <section className="primary-state">
         <h2>Switchify PC is not running</h2>
-        <p>Restart the app to connect your phone.</p>
+        <p>Restart the app to connect your device.</p>
       </section>
     );
   }
@@ -50,7 +50,7 @@ function StartingState({ state }: { state: 'loading' | 'starting' | 'not-running
   return (
     <section className="primary-state">
       <h2>{state === 'starting' ? 'Starting Switchify PC...' : 'Getting things ready...'}</h2>
-      <p>Switchify PC is preparing your phone connection.</p>
+      <p>Switchify PC is preparing your device connection.</p>
     </section>
   );
 }
@@ -73,7 +73,7 @@ function ReadyToConnectState(): ReactElement {
   return (
     <section className="primary-state">
       <h2>Ready to connect</h2>
-      <p>Open Switchify on your phone and choose this PC. Approve the request here when it appears.</p>
+      <p>Open Switchify on your device and choose this PC. Approve the request here when it appears.</p>
     </section>
   );
 }
@@ -87,23 +87,23 @@ function ConnectedReadyState({
 }): ReactElement {
   return (
     <section className="primary-state">
-      <h2>Your phone is connected</h2>
+      <h2>Your device is connected</h2>
       <p>You can control this PC from Switchify.</p>
       <DeviceSummary clients={connectedClients} />
       <div className="action-row centered">
         <button type="button" className="primary-button" onClick={() => void onDisconnect()}>
-          Disconnect phone
+          Disconnect device
         </button>
       </div>
     </section>
   );
 }
 
-function WaitingForPhoneState(): ReactElement {
+function WaitingForDeviceState(): ReactElement {
   return (
     <section className="primary-state">
-      <h2>Waiting for your phone</h2>
-      <p>Open Switchify on your phone and choose this PC to reconnect.</p>
+      <h2>Waiting for your device</h2>
+      <p>Open Switchify on your device and choose this PC to reconnect.</p>
     </section>
   );
 }
@@ -112,8 +112,8 @@ function DeviceSummary({ clients }: { clients: PcConnectedClient[] }): ReactElem
   const primaryClient = clients[0];
   return (
     <div className="device-summary">
-      <strong>{primaryClient?.deviceId ?? 'Phone connected'}</strong>
-      {clients.length > 1 ? <span>{clients.length} phones connected.</span> : <span>Connected now.</span>}
+      <strong>{primaryClient?.deviceId ?? 'Device connected'}</strong>
+      {clients.length > 1 ? <span>{clients.length} devices connected.</span> : <span>Connected now.</span>}
     </div>
   );
 }

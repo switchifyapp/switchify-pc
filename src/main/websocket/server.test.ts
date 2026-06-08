@@ -356,7 +356,7 @@ function createServer(overrides: Partial<ConstructorParameters<typeof PcWebSocke
     pairedDevices: [
       {
         deviceId: 'android-1',
-        deviceName: 'Android phone',
+        deviceName: 'Android device',
         token,
         pairedAt: now - 1_000,
         lastSeenAt: null

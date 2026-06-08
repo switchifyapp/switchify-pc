@@ -23,7 +23,7 @@ export function SettingsPanel({
         <TroubleshootingSection title="Connection">
           <ClientList clients={connectedClients} />
           <button type="button" onClick={() => void onDisconnect()} disabled={connectedClients.length === 0}>
-            Disconnect phone
+            Disconnect device
           </button>
         </TroubleshootingSection>
         <TroubleshootingSection title="Input">
@@ -33,10 +33,10 @@ export function SettingsPanel({
               checked={cursorOverlayEnabled}
               onChange={(event) => void onToggleCursorOverlay(event.currentTarget.checked)}
             />
-            <span>Show cursor highlight when the phone moves the mouse</span>
+            <span>Show cursor highlight when the device moves the mouse</span>
           </label>
         </TroubleshootingSection>
-        <TroubleshootingSection title="Saved phones">
+        <TroubleshootingSection title="Saved devices">
           <PairedDeviceList devices={pairedDevices} />
         </TroubleshootingSection>
       </div>
@@ -46,14 +46,14 @@ export function SettingsPanel({
 
 function ClientList({ clients }: { clients: PcConnectedClient[] }): ReactElement {
   if (clients.length === 0) {
-    return <div className="empty-state">No phones connected.</div>;
+    return <div className="empty-state">No devices connected.</div>;
   }
 
   return (
     <ul className="technical-list">
       {clients.map((client) => (
         <li key={client.id}>
-          <strong>{client.deviceId ?? 'Unidentified phone'}</strong>
+          <strong>{client.deviceId ?? 'Unidentified device'}</strong>
           <span>{client.remoteAddress ?? 'Unknown address'}</span>
         </li>
       ))}
@@ -63,7 +63,7 @@ function ClientList({ clients }: { clients: PcConnectedClient[] }): ReactElement
 
 function PairedDeviceList({ devices }: { devices: PairedDeviceView[] }): ReactElement {
   if (devices.length === 0) {
-    return <div className="empty-state">No phones saved.</div>;
+    return <div className="empty-state">No devices saved.</div>;
   }
 
   return (
