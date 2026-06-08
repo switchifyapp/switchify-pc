@@ -411,6 +411,24 @@ p {
   font-size: 0.9rem;
 }
 
+.settings-panel {
+  margin-top: 30px;
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-m);
+}
+
+.settings-panel summary {
+  color: var(--color-text);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.settings-content {
+  display: grid;
+  gap: 18px;
+  margin-top: var(--space-m);
+}
+
 .troubleshooting-panel {
   margin-top: 30px;
   border-top: 1px solid var(--color-border);

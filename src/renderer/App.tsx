@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { PairingApprovalRequests } from './components/PairingApprovalRequests';
 import { PrimaryContent } from './components/PrimaryContent';
+import { SettingsPanel } from './components/SettingsPanel';
 import { StatusHeader } from './components/StatusHeader';
 import { TroubleshootingDetails } from './components/TroubleshootingDetails';
 import { WindowTitleBar } from './components/WindowTitleBar';
@@ -29,15 +30,18 @@ export function App(): ReactElement {
             onRefresh={status.refresh}
           />
 
-          <TroubleshootingDetails
-            serverStatus={status.serverStatus}
-            connectionDetails={status.connectionDetails}
-            pairedDevices={status.pairedDevices}
+          <SettingsPanel
             connectedClients={status.connectedClients}
-            pendingPairingRequests={status.pendingPairingRequests}
+            pairedDevices={status.pairedDevices}
             cursorOverlayEnabled={status.cursorOverlayEnabled}
             onDisconnect={status.disconnectClients}
             onToggleCursorOverlay={status.toggleCursorOverlay}
+          />
+
+          <TroubleshootingDetails
+            serverStatus={status.serverStatus}
+            connectionDetails={status.connectionDetails}
+            pendingPairingRequests={status.pendingPairingRequests}
           />
         </section>
       </main>
