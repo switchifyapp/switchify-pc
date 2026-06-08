@@ -7,13 +7,17 @@ import {
   typeString
 } from '@nut-tree-fork/libnut-win32';
 import { clipboard } from 'electron';
-import type { KeyboardKey, MediaAction, MouseButton, ShortcutKey } from '../../shared/protocol';
+import type { KeyboardKey, MediaAction, MouseButton, ShortcutKey, WindowControlAction } from '../../shared/protocol';
 import type { DesktopInputAdapter } from './desktop-input-adapter';
 import { DesktopInputError } from './desktop-input-adapter';
 import { insertText } from './text-inserter';
 
 type Point = { x: number; y: number };
 type PointerScaleProvider = (position: Point) => number;
+export type NativeShortcut = {
+  key: string;
+  modifiers?: string[];
+};
 
 export const NATIVE_SCROLL_DELTA_MULTIPLIER = 8;
 
@@ -77,6 +81,11 @@ export class LibnutWin32InputAdapter implements DesktopInputAdapter {
   async mediaControl(action: MediaAction): Promise<void> {
     keyTap(toLibnutMediaKey(action));
   }
+
+  async controlWindow(action: WindowControlAction): Promise<void> {
+    const shortcut = toWindowControlShortcut(action);
+    keyTap(shortcut.key, shortcut.modifiers);
+  }
 }
 
 export function calculateScaledMouseTarget(
@@ -108,6 +117,25 @@ function scaleScrollAxis(value: number, multiplier: number): number {
   const scaledValue = value * multiplier;
   const roundedValue = Math.round(Math.abs(scaledValue));
   return Math.sign(scaledValue) * Math.max(1, roundedValue);
+}
+
+export function toWindowControlShortcut(action: WindowControlAction): NativeShortcut {
+  switch (action) {
+    case 'switchNext':
+      return { key: 'tab', modifiers: ['alt'] };
+    case 'switchPrevious':
+      return { key: 'tab', modifiers: ['alt', 'shift'] };
+    case 'taskView':
+      return { key: 'tab', modifiers: ['command'] };
+    case 'showDesktop':
+      return { key: 'd', modifiers: ['command'] };
+    case 'closeFocused':
+      return { key: 'f4', modifiers: ['alt'] };
+    case 'minimizeFocused':
+      return { key: 'down', modifiers: ['command'] };
+    case 'maximizeFocused':
+      return { key: 'up', modifiers: ['command'] };
+  }
 }
 
 function toLibnutMouseButton(button: MouseButton): string {

@@ -1,4 +1,4 @@
-import type { KeyboardKey, MediaAction, MouseButton, ShortcutKey } from '../../shared/protocol';
+import type { KeyboardKey, MediaAction, MouseButton, ShortcutKey, WindowControlAction } from '../../shared/protocol';
 
 export type DesktopInputAdapter = {
   getMousePosition(): { x: number; y: number };
@@ -10,6 +10,7 @@ export type DesktopInputAdapter = {
   pressShortcut(keys: ShortcutKey[]): Promise<void>;
   typeText(text: string): Promise<void>;
   mediaControl(action: MediaAction): Promise<void>;
+  controlWindow(action: WindowControlAction): Promise<void>;
 };
 
 export type DesktopInputErrorCode = 'unsupported_command' | 'unsafe_payload' | 'adapter_failure';

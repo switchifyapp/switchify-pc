@@ -6,7 +6,8 @@ import {
   validateProtocolResponse,
   type PairingCompleteResponse,
   type PingCommand,
-  type PointerProfileCommand
+  type PointerProfileCommand,
+  type WindowControlCommand
 } from '../../shared/protocol';
 import { createCommandAuthProof, CommandAuthValidator } from '../pairing/auth';
 import { PairingApprovalManager, PAIRING_APPROVAL_REQUEST_TTL_MS } from '../pairing/pairing-approval-manager';
@@ -64,6 +65,38 @@ describe('PcWebSocketServer', () => {
     const response = await sendAndReceive(client, command);
 
     expect(response).toMatchObject({ type: 'ack', id: command.id, ok: true });
+    expect(handled).toEqual([command]);
+    client.close();
+  });
+
+  it('routes authenticated window control commands and rejects invalid auth before execution', async () => {
+    const handled: WindowControlCommand[] = [];
+    const server = createServer({
+      onCommand: (command) => {
+        handled.push(command as WindowControlCommand);
+        return { ok: true };
+      }
+    });
+    activeServers.push(server);
+    await server.start();
+    const client = await connect(server.getStatus().port);
+    const command = createWindowControlCommand();
+
+    const response = await sendAndReceive(client, command);
+
+    expect(response).toMatchObject({ type: 'ack', id: command.id, ok: true });
+    expect(handled).toEqual([command]);
+
+    const invalidAuthResponse = await sendAndReceive(
+      client,
+      createWindowControlCommand({ id: 'window-control-bad-auth', auth: 'bad-proof' })
+    );
+
+    expect(invalidAuthResponse).toMatchObject({
+      type: 'error',
+      ok: false,
+      error: { code: 'invalid_auth' }
+    });
     expect(handled).toEqual([command]);
     client.close();
   });
@@ -399,6 +432,23 @@ function createPointerProfileCommand(overrides: Partial<PointerProfileCommand> =
     auth: ''
   } satisfies PointerProfileCommand;
   const merged = { ...command, ...overrides } as PointerProfileCommand;
+  return {
+    ...merged,
+    auth: overrides.auth ?? createCommandAuthProof(merged, token)
+  };
+}
+
+function createWindowControlCommand(overrides: Partial<WindowControlCommand> = {}): WindowControlCommand {
+  const command = {
+    version: PROTOCOL_VERSION,
+    id: 'window-control-1',
+    deviceId: 'android-1',
+    timestamp: now,
+    type: 'window.control',
+    payload: { action: 'switchNext' },
+    auth: ''
+  } satisfies WindowControlCommand;
+  const merged = { ...command, ...overrides } as WindowControlCommand;
   return {
     ...merged,
     auth: overrides.auth ?? createCommandAuthProof(merged, token)

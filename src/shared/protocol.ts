@@ -48,6 +48,15 @@ export type ShortcutKey =
 
 export type MediaAction = 'playPause' | 'nextTrack' | 'previousTrack' | 'volumeUp' | 'volumeDown' | 'mute';
 
+export type WindowControlAction =
+  | 'switchNext'
+  | 'switchPrevious'
+  | 'taskView'
+  | 'showDesktop'
+  | 'closeFocused'
+  | 'minimizeFocused'
+  | 'maximizeFocused';
+
 export type PointerMovementProfile = {
   displayId: string;
   scaleFactor: number;
@@ -98,6 +107,7 @@ export type KeyboardKeyCommand = BaseRequestEnvelope<'keyboard.key', { key: Keyb
 export type KeyboardShortcutCommand = BaseRequestEnvelope<'keyboard.shortcut', { keys: ShortcutKey[] }>;
 export type KeyboardTypeTextCommand = BaseRequestEnvelope<'keyboard.typeText', { text: string }>;
 export type MediaControlCommand = BaseRequestEnvelope<'media.control', { action: MediaAction }>;
+export type WindowControlCommand = BaseRequestEnvelope<'window.control', { action: WindowControlAction }>;
 export type PingCommand = BaseRequestEnvelope<'connection.ping', Record<string, never>>;
 export type PointerProfileCommand = BaseRequestEnvelope<'pointer.profile', Record<string, never>>;
 
@@ -111,6 +121,7 @@ export type CommandRequest =
   | KeyboardShortcutCommand
   | KeyboardTypeTextCommand
   | MediaControlCommand
+  | WindowControlCommand
   | PointerProfileCommand
   | PingCommand;
 
@@ -174,6 +185,7 @@ const commandTypes = new Set<CommandRequest['type']>([
   'keyboard.shortcut',
   'keyboard.typeText',
   'media.control',
+  'window.control',
   'pointer.profile',
   'connection.ping'
 ]);
@@ -216,6 +228,15 @@ const mediaActions = new Set<MediaAction>([
   'volumeUp',
   'volumeDown',
   'mute'
+]);
+const windowControlActions = new Set<WindowControlAction>([
+  'switchNext',
+  'switchPrevious',
+  'taskView',
+  'showDesktop',
+  'closeFocused',
+  'minimizeFocused',
+  'maximizeFocused'
 ]);
 
 export function parseProtocolRequest(raw: string): ValidationResult<ProtocolRequest> {
@@ -408,6 +429,10 @@ function validateCommandPayload(
       return mediaActions.has(payload.action as MediaAction)
         ? valid()
         : invalid('invalid_payload', 'Media action is invalid.');
+    case 'window.control':
+      return windowControlActions.has(payload.action as WindowControlAction)
+        ? valid()
+        : invalid('invalid_payload', 'Window control action is invalid.');
     case 'pointer.profile':
       return Object.keys(payload).length === 0
         ? valid()

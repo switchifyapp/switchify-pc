@@ -8,7 +8,8 @@ import {
   parseProtocolRequest,
   PROTOCOL_VERSION,
   validateProtocolRequest,
-  validateProtocolResponse
+  validateProtocolResponse,
+  type WindowControlAction
 } from './protocol';
 
 const baseCommand = {
@@ -31,6 +32,7 @@ describe('protocol request validation', () => {
       { type: 'keyboard.shortcut', payload: { keys: ['Ctrl', 'C'] } },
       { type: 'keyboard.typeText', payload: { text: 'Hello' } },
       { type: 'media.control', payload: { action: 'playPause' } },
+      { type: 'window.control', payload: { action: 'switchNext' } },
       { type: 'pointer.profile', payload: {} },
       { type: 'connection.ping', payload: {} }
     ];
@@ -143,6 +145,33 @@ describe('protocol request validation', () => {
       ok: false,
       error: 'invalid_payload'
     });
+  });
+
+  it('accepts named window control actions', () => {
+    const actions: WindowControlAction[] = [
+      'switchNext',
+      'switchPrevious',
+      'taskView',
+      'showDesktop',
+      'closeFocused',
+      'minimizeFocused',
+      'maximizeFocused'
+    ];
+
+    for (const action of actions) {
+      expect(validateProtocolRequest({ ...baseCommand, type: 'window.control', payload: { action } })).toMatchObject({
+        ok: true
+      });
+    }
+  });
+
+  it('rejects invalid window control actions', () => {
+    for (const payload of [{ action: 'snapLeft' }, {}, { action: 1 }]) {
+      expect(validateProtocolRequest({ ...baseCommand, type: 'window.control', payload })).toMatchObject({
+        ok: false,
+        error: 'invalid_payload'
+      });
+    }
   });
 
   it('accepts committed Unicode text input payloads', () => {

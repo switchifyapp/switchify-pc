@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CommandRequest } from '../../shared/protocol';
+import type { CommandRequest, WindowControlAction } from '../../shared/protocol';
 import { PROTOCOL_VERSION } from '../../shared/protocol';
 import type { DesktopInputAdapter } from './desktop-input-adapter';
 import { DesktopInputError } from './desktop-input-adapter';
@@ -67,6 +67,10 @@ class FakeInputAdapter implements DesktopInputAdapter {
     this.record('mediaControl', [action]);
   }
 
+  async controlWindow(action: WindowControlAction): Promise<void> {
+    this.record('controlWindow', [action]);
+  }
+
   private record(method: keyof DesktopInputAdapter, args: unknown[]): void {
     if (this.failNext) {
       const error = this.failNext;
@@ -121,6 +125,14 @@ describe('DesktopCommandExecutor', () => {
     await expect(executor.execute(command('keyboard.typeText', { text: '' }))).resolves.toEqual({ ok: true });
 
     expect(adapter.calls).toEqual([{ method: 'typeText', args: [''] }]);
+  });
+
+  it('maps window control commands to the adapter', async () => {
+    const { adapter, executor } = createExecutor();
+
+    await expect(executor.execute(command('window.control', { action: 'switchNext' }))).resolves.toEqual({ ok: true });
+
+    expect(adapter.calls).toEqual([{ method: 'controlWindow', args: ['switchNext'] }]);
   });
 
   it('rejects unsafe movement, scroll, shortcut, and text values', async () => {
