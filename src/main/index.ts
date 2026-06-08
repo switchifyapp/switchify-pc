@@ -1,4 +1,5 @@
 import { app, BrowserWindow, nativeTheme, screen } from 'electron';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { CursorOverlay } from './cursor-overlay';
 import { registerCursorOverlayIpc } from './cursor-overlay-ipc';
@@ -16,6 +17,7 @@ import { createSwitchifyTray, type SwitchifyTray } from './tray';
 import { PcWebSocketServer } from './websocket/server';
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
+const windowsAppUserModelId = 'app.switchify.pc';
 let pcServer: PcWebSocketServer | null = null;
 let mainWindow: BrowserWindow | null = null;
 let tray: SwitchifyTray | null = null;
@@ -41,8 +43,19 @@ function titleBarOverlayOptions():
   };
 }
 
+function appIconPath(): string | undefined {
+  if (process.platform === 'darwin') return undefined;
+
+  const iconPath = app.isPackaged
+    ? join(process.resourcesPath, 'icon.png')
+    : join(process.cwd(), 'build', 'icon.png');
+
+  return existsSync(iconPath) ? iconPath : undefined;
+}
+
 function createMainWindow(): BrowserWindow {
   const overlayOptions = titleBarOverlayOptions();
+  const iconPath = appIconPath();
   const window = new BrowserWindow({
     width: 920,
     height: 640,
@@ -53,6 +66,7 @@ function createMainWindow(): BrowserWindow {
     show: false,
     titleBarStyle: 'hidden',
     ...(overlayOptions ? { titleBarOverlay: overlayOptions } : {}),
+    ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -118,6 +132,10 @@ function quitApp(): void {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === 'win32') {
+    app.setAppUserModelId(windowsAppUserModelId);
+  }
+
   const pairingStore = new JsonPairingStore(join(app.getPath('userData'), 'pairing-state.json'));
   const pairingManager = new PairingManager(pairingStore);
   const pairingApprovalManager = new PairingApprovalManager(pairingStore);
