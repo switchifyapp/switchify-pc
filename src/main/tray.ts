@@ -1,4 +1,6 @@
-import { Menu, nativeImage, Tray, type NativeImage } from 'electron';
+import { app, Menu, nativeImage, Tray, type NativeImage } from 'electron';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { PcServerStatus } from '../shared/server-status';
 
 export type SwitchifyTrayOptions = {
@@ -45,10 +47,17 @@ export function createSwitchifyTray(options: SwitchifyTrayOptions): SwitchifyTra
 }
 
 function createTrayIcon(): NativeImage {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#1f3d2b"/><path d="M9 11h9.5a4.5 4.5 0 0 1 0 9H13" fill="none" stroke="#f8faf3" stroke-width="3" stroke-linecap="round"/><path d="M14 7 8 11l6 4" fill="none" stroke="#f8faf3" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 17h5" stroke="#88c36f" stroke-width="3" stroke-linecap="round"/></svg>`;
-  const image = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
-  image.setTemplateImage(false);
-  return image;
+  const iconPath = app.isPackaged
+    ? join(process.resourcesPath, 'icon.png')
+    : join(process.cwd(), 'build', 'icon.png');
+  const image = existsSync(iconPath)
+    ? nativeImage.createFromPath(iconPath)
+    : nativeImage.createFromDataURL(
+        `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" rx="7" fill="#111113"/><circle cx="16" cy="16" r="10" fill="none" stroke="#f51622" stroke-width="4"/></svg>').toString('base64')}`
+      );
+  const trayImage = image.resize({ width: 16, height: 16, quality: 'best' });
+  trayImage.setTemplateImage(false);
+  return trayImage;
 }
 
 function formatTooltipStatus(status: PcServerStatus): string {
