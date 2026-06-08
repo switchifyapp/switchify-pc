@@ -15,6 +15,8 @@ import { insertText } from './text-inserter';
 type Point = { x: number; y: number };
 type PointerScaleProvider = (position: Point) => number;
 
+export const NATIVE_SCROLL_DELTA_MULTIPLIER = 8;
+
 export class LibnutWin32InputAdapter implements DesktopInputAdapter {
   constructor(private readonly getPointerScale: PointerScaleProvider = () => 1) {}
 
@@ -39,7 +41,8 @@ export class LibnutWin32InputAdapter implements DesktopInputAdapter {
   }
 
   async scrollMouse(delta: { dx: number; dy: number }): Promise<void> {
-    nativeScrollMouse(delta.dx, delta.dy);
+    const nativeDelta = calculateNativeScrollDelta(delta);
+    nativeScrollMouse(nativeDelta.dx, nativeDelta.dy);
   }
 
   async pressKey(key: KeyboardKey): Promise<void> {
@@ -86,6 +89,25 @@ export function calculateScaledMouseTarget(
     x: Math.round(current.x + delta.dx * effectiveScale),
     y: Math.round(current.y + delta.dy * effectiveScale)
   };
+}
+
+export function calculateNativeScrollDelta(
+  delta: { dx: number; dy: number },
+  multiplier = NATIVE_SCROLL_DELTA_MULTIPLIER
+): { dx: number; dy: number } {
+  const effectiveMultiplier = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+  return {
+    dx: scaleScrollAxis(delta.dx, effectiveMultiplier),
+    dy: scaleScrollAxis(delta.dy, effectiveMultiplier)
+  };
+}
+
+function scaleScrollAxis(value: number, multiplier: number): number {
+  if (value === 0) return 0;
+
+  const scaledValue = value * multiplier;
+  const roundedValue = Math.round(Math.abs(scaledValue));
+  return Math.sign(scaledValue) * Math.max(1, roundedValue);
 }
 
 function toLibnutMouseButton(button: MouseButton): string {
