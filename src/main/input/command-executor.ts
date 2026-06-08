@@ -85,6 +85,9 @@ export class DesktopCommandExecutor {
         case 'media.control':
           await this.adapter.mediaControl(command.payload.action);
           return { ok: true };
+        case 'window.control':
+          await this.adapter.controlWindow(command.payload.action);
+          return { ok: true };
         case 'connection.ping':
           return { ok: true };
         case 'pointer.profile':

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateNativeScrollDelta, calculateScaledMouseTarget } from './libnut-win32-adapter';
+import { calculateNativeScrollDelta, calculateScaledMouseTarget, toWindowControlShortcut } from './libnut-win32-adapter';
 
 describe('calculateScaledMouseTarget', () => {
   it('applies the display scale factor to relative movement', () => {
@@ -76,5 +76,35 @@ describe('calculateNativeScrollDelta', () => {
       dx: 2,
       dy: -3
     });
+  });
+});
+
+describe('toWindowControlShortcut', () => {
+  it('maps switch next to Alt+Tab', () => {
+    expect(toWindowControlShortcut('switchNext')).toEqual({ key: 'tab', modifiers: ['alt'] });
+  });
+
+  it('maps switch previous to Alt+Shift+Tab', () => {
+    expect(toWindowControlShortcut('switchPrevious')).toEqual({ key: 'tab', modifiers: ['alt', 'shift'] });
+  });
+
+  it('maps task view to Win+Tab', () => {
+    expect(toWindowControlShortcut('taskView')).toEqual({ key: 'tab', modifiers: ['command'] });
+  });
+
+  it('maps show desktop to Win+D', () => {
+    expect(toWindowControlShortcut('showDesktop')).toEqual({ key: 'd', modifiers: ['command'] });
+  });
+
+  it('maps close focused to Alt+F4', () => {
+    expect(toWindowControlShortcut('closeFocused')).toEqual({ key: 'f4', modifiers: ['alt'] });
+  });
+
+  it('maps minimize focused to Win+Down', () => {
+    expect(toWindowControlShortcut('minimizeFocused')).toEqual({ key: 'down', modifiers: ['command'] });
+  });
+
+  it('maps maximize focused to Win+Up', () => {
+    expect(toWindowControlShortcut('maximizeFocused')).toEqual({ key: 'up', modifiers: ['command'] });
   });
 });
