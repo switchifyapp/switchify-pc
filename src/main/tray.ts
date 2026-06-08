@@ -27,7 +27,7 @@ export function createSwitchifyTray(options: SwitchifyTrayOptions): SwitchifyTra
         { label: formatMenuStatus(status), enabled: false },
         { type: 'separator' },
         {
-          label: 'Disconnect phone',
+          label: 'Disconnect device',
           enabled: status.connectedClientCount > 0,
           click: options.disconnectClients
         },
@@ -61,7 +61,7 @@ function createTrayIcon(): NativeImage {
 }
 
 function formatTooltipStatus(status: PcServerStatus): string {
-  if (status.connectedClientCount > 0) return 'phone connected';
+  if (status.connectedClientCount > 0) return 'device connected';
   if (status.state === 'listening') return 'ready';
   if (status.state === 'error') return 'needs attention';
   if (status.state === 'starting') return 'starting';
@@ -69,7 +69,7 @@ function formatTooltipStatus(status: PcServerStatus): string {
 }
 
 function formatMenuStatus(status: PcServerStatus): string {
-  if (status.connectedClientCount > 0) return 'Phone connected';
+  if (status.connectedClientCount > 0) return 'Device connected';
   if (status.state === 'listening') return 'Ready to connect';
   if (status.state === 'error') return 'Needs attention';
   if (status.state === 'starting') return 'Starting...';

@@ -30,7 +30,7 @@ function statusLabel(state: DesktopUiState): string {
       return 'Not running';
     case 'server-error':
       return 'Needs attention';
-    case 'waiting-for-phone':
+    case 'waiting-for-device':
       return 'Waiting';
     case 'connected':
       return 'Connected';
@@ -42,7 +42,7 @@ function statusLabel(state: DesktopUiState): string {
 function statusTone(state: DesktopUiState): 'ready' | 'connected' | 'waiting' | 'error' {
   if (state === 'connected') return 'connected';
   if (state === 'server-error') return 'error';
-  if (state === 'loading' || state === 'starting' || state === 'waiting-for-phone' || state === 'not-running') {
+  if (state === 'loading' || state === 'starting' || state === 'waiting-for-device' || state === 'not-running') {
     return 'waiting';
   }
   return 'ready';

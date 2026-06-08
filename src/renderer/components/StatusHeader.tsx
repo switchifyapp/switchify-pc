@@ -19,7 +19,7 @@ export function StatusHeader({ state, appName }: { state: DesktopUiState; appNam
 function statusTone(state: DesktopUiState): 'ready' | 'connected' | 'waiting' | 'error' {
   if (state === 'connected') return 'connected';
   if (state === 'server-error') return 'error';
-  if (state === 'loading' || state === 'starting' || state === 'waiting-for-phone' || state === 'not-running') {
+  if (state === 'loading' || state === 'starting' || state === 'waiting-for-device' || state === 'not-running') {
     return 'waiting';
   }
   return 'ready';
@@ -28,7 +28,7 @@ function statusTone(state: DesktopUiState): 'ready' | 'connected' | 'waiting' | 
 function statusBadgeLabel(state: DesktopUiState): string {
   if (state === 'connected') return 'Connected';
   if (state === 'server-error') return 'Needs attention';
-  if (state === 'waiting-for-phone') return 'Waiting';
+  if (state === 'waiting-for-device') return 'Waiting';
   if (state === 'not-running') return 'Not running';
   if (state === 'loading' || state === 'starting') return 'Starting...';
   return 'Ready';

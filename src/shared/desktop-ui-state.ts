@@ -7,7 +7,7 @@ export type DesktopUiState =
   | 'not-running'
   | 'ready-to-pair'
   | 'connected'
-  | 'waiting-for-phone';
+  | 'waiting-for-device';
 
 export function deriveDesktopUiState(
   serverStatus: PcServerStatus | null,
@@ -19,6 +19,6 @@ export function deriveDesktopUiState(
   if (serverStatus.state === 'starting') return 'starting';
   if (serverStatus.state === 'stopped') return 'not-running';
   if (serverStatus.connectedClientCount > 0) return 'connected';
-  if (pairedDevices.length > 0) return 'waiting-for-phone';
+  if (pairedDevices.length > 0) return 'waiting-for-device';
   return 'ready-to-pair';
 }

@@ -48,7 +48,7 @@ describe('protocol request validation', () => {
         type: 'pairing.request',
         payload: {
           deviceId: 'android-device-1',
-          deviceName: 'Android phone',
+          deviceName: 'Android device',
           desktopId: 'desktop-1',
           requestNonce: 'nonce'
         }
@@ -72,7 +72,7 @@ describe('protocol request validation', () => {
   it('rejects invalid pairing approval payloads', () => {
     const validPayload = {
       deviceId: 'android-device-1',
-      deviceName: 'Android phone',
+      deviceName: 'Android device',
       desktopId: 'desktop-1',
       requestNonce: 'nonce'
     };

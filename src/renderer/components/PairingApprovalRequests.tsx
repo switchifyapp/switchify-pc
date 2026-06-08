@@ -13,11 +13,11 @@ export function PairingApprovalRequests({
   const sortedRequests = [...requests].sort((a, b) => b.requestedAt - a.requestedAt);
 
   return (
-    <section className="approval-panel" aria-label="Phone connection requests">
+    <section className="approval-panel" aria-label="Device connection requests">
       <div className="approval-panel-header">
         <div>
           <h2>{sortedRequests[0].deviceName} wants to connect</h2>
-          <p>Confirm this code matches your phone.</p>
+          <p>Confirm this code matches your device.</p>
           <div className="approval-code" aria-label="Verification code">
             {sortedRequests[0].verificationCode}
           </div>
