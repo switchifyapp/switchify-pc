@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { calculateNativeScrollDelta, calculateScaledMouseTarget, toWindowControlShortcut } from './libnut-win32-adapter';
+import { calculateNativeScrollDelta, calculateScaledMouseTarget } from './libnut-win32-adapter';
+import {
+  createWindowControlScript,
+  toWindowsWindowControlStrategy
+} from './windows-window-control';
 
 describe('calculateScaledMouseTarget', () => {
   it('applies the display scale factor to relative movement', () => {
@@ -79,32 +83,61 @@ describe('calculateNativeScrollDelta', () => {
   });
 });
 
-describe('toWindowControlShortcut', () => {
-  it('maps switch next to Alt+Tab', () => {
-    expect(toWindowControlShortcut('switchNext')).toEqual({ key: 'tab', modifiers: ['alt'] });
+describe('toWindowsWindowControlStrategy', () => {
+  it('leaves app switching on the known-good libnut path', () => {
+    expect(toWindowsWindowControlStrategy('switchNext')).toBeNull();
+    expect(toWindowsWindowControlStrategy('switchPrevious')).toBeNull();
   });
 
-  it('maps switch previous to Alt+Shift+Tab', () => {
-    expect(toWindowControlShortcut('switchPrevious')).toEqual({ key: 'tab', modifiers: ['alt', 'shift'] });
+  it('maps task view to the shell task view strategy', () => {
+    expect(toWindowsWindowControlStrategy('taskView')).toEqual({ kind: 'taskView' });
   });
 
-  it('maps task view to Win+Tab', () => {
-    expect(toWindowControlShortcut('taskView')).toEqual({ key: 'tab', modifiers: ['command'] });
+  it('maps show desktop to the shell desktop strategy', () => {
+    expect(toWindowsWindowControlStrategy('showDesktop')).toEqual({ kind: 'showDesktop' });
   });
 
-  it('maps show desktop to Win+D', () => {
-    expect(toWindowControlShortcut('showDesktop')).toEqual({ key: 'd', modifiers: ['command'] });
+  it('maps close focused to a foreground window operation', () => {
+    expect(toWindowsWindowControlStrategy('closeFocused')).toEqual({ kind: 'foregroundWindow', operation: 'close' });
   });
 
-  it('maps close focused to Alt+F4', () => {
-    expect(toWindowControlShortcut('closeFocused')).toEqual({ key: 'f4', modifiers: ['alt'] });
+  it('maps minimize focused to a foreground window operation', () => {
+    expect(toWindowsWindowControlStrategy('minimizeFocused')).toEqual({
+      kind: 'foregroundWindow',
+      operation: 'minimize'
+    });
   });
 
-  it('maps minimize focused to Win+Down', () => {
-    expect(toWindowControlShortcut('minimizeFocused')).toEqual({ key: 'down', modifiers: ['command'] });
+  it('maps maximize focused to a foreground window operation', () => {
+    expect(toWindowsWindowControlStrategy('maximizeFocused')).toEqual({
+      kind: 'foregroundWindow',
+      operation: 'maximizeOrRestore'
+    });
+  });
+});
+
+describe('createWindowControlScript', () => {
+  it('uses shell integration for task view', () => {
+    expect(createWindowControlScript({ kind: 'taskView' })).toBe(
+      "Start-Process explorer.exe 'shell:::{3080F90E-D7AD-11D9-BD98-0000947B0257}'"
+    );
   });
 
-  it('maps maximize focused to Win+Up', () => {
-    expect(toWindowControlShortcut('maximizeFocused')).toEqual({ key: 'up', modifiers: ['command'] });
+  it('uses shell integration for show desktop', () => {
+    expect(createWindowControlScript({ kind: 'showDesktop' })).toBe(
+      '(New-Object -ComObject Shell.Application).MinimizeAll()'
+    );
+  });
+
+  it('uses direct foreground window APIs for close, minimize, and maximize', () => {
+    const closeScript = createWindowControlScript({ kind: 'foregroundWindow', operation: 'close' });
+    const minimizeScript = createWindowControlScript({ kind: 'foregroundWindow', operation: 'minimize' });
+    const maximizeScript = createWindowControlScript({ kind: 'foregroundWindow', operation: 'maximizeOrRestore' });
+
+    expect(closeScript).toContain('PostMessage($handle, 0x0010');
+    expect(minimizeScript).toContain('ShowWindow($handle, 6)');
+    expect(maximizeScript).toContain('IsZoomed($handle)');
+    expect(maximizeScript).toContain('ShowWindow($handle, 9)');
+    expect(maximizeScript).toContain('ShowWindow($handle, 3)');
   });
 });
