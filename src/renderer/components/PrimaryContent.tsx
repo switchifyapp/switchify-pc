@@ -1,15 +1,15 @@
 import type { ReactElement } from 'react';
 import type { DesktopUiState } from '../../shared/desktop-ui-state';
-import type { PcConnectedClient } from '../../shared/server-status';
+import type { ConnectedDeviceView } from '../connected-devices';
 
 export function PrimaryContent({
   state,
-  connectedClients,
+  connectedDevices,
   onDisconnect,
   onRefresh
 }: {
   state: DesktopUiState;
-  connectedClients: PcConnectedClient[];
+  connectedDevices: ConnectedDeviceView[];
   onDisconnect: () => Promise<void>;
   onRefresh: () => Promise<void>;
 }): ReactElement {
@@ -24,7 +24,7 @@ export function PrimaryContent({
   if (state === 'connected') {
     return (
       <ConnectedReadyState
-        connectedClients={connectedClients}
+        connectedDevices={connectedDevices}
         onDisconnect={onDisconnect}
       />
     );
@@ -79,17 +79,17 @@ function ReadyToConnectState(): ReactElement {
 }
 
 function ConnectedReadyState({
-  connectedClients,
+  connectedDevices,
   onDisconnect
 }: {
-  connectedClients: PcConnectedClient[];
+  connectedDevices: ConnectedDeviceView[];
   onDisconnect: () => Promise<void>;
 }): ReactElement {
   return (
     <section className="primary-state">
       <h2>Your device is connected</h2>
       <p>You can control this PC from Switchify.</p>
-      <DeviceSummary clients={connectedClients} />
+      <DeviceSummary devices={connectedDevices} />
       <div className="action-row centered">
         <button type="button" className="primary-button" onClick={() => void onDisconnect()}>
           Disconnect device
@@ -108,12 +108,12 @@ function WaitingForDeviceState(): ReactElement {
   );
 }
 
-function DeviceSummary({ clients }: { clients: PcConnectedClient[] }): ReactElement {
-  const primaryClient = clients[0];
+function DeviceSummary({ devices }: { devices: ConnectedDeviceView[] }): ReactElement {
+  const primaryDevice = devices[0];
   return (
     <div className="device-summary">
-      <strong>{primaryClient?.deviceId ?? 'Device connected'}</strong>
-      {clients.length > 1 ? <span>{clients.length} devices connected.</span> : <span>Connected now.</span>}
+      <strong>{primaryDevice?.deviceName ?? 'Device connected'}</strong>
+      {devices.length > 1 ? <span>{devices.length} devices connected.</span> : <span>Connected now.</span>}
     </div>
   );
 }

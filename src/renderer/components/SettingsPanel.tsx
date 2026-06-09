@@ -1,16 +1,17 @@
 import type { ReactElement } from 'react';
-import type { PairedDeviceView, PcConnectedClient } from '../../shared/server-status';
+import type { PairedDeviceView } from '../../shared/server-status';
+import type { ConnectedDeviceView } from '../connected-devices';
 import { formatTimestamp } from '../format';
 import { TroubleshootingSection } from './DetailGrid';
 
 export function SettingsPanel({
-  connectedClients,
+  connectedDevices,
   pairedDevices,
   cursorOverlayEnabled,
   onDisconnect,
   onToggleCursorOverlay
 }: {
-  connectedClients: PcConnectedClient[];
+  connectedDevices: ConnectedDeviceView[];
   pairedDevices: PairedDeviceView[];
   cursorOverlayEnabled: boolean;
   onDisconnect: () => Promise<void>;
@@ -21,8 +22,8 @@ export function SettingsPanel({
       <summary>Settings</summary>
       <div className="settings-content">
         <TroubleshootingSection title="Connection">
-          <ClientList clients={connectedClients} />
-          <button type="button" onClick={() => void onDisconnect()} disabled={connectedClients.length === 0}>
+          <ConnectedDeviceList devices={connectedDevices} />
+          <button type="button" onClick={() => void onDisconnect()} disabled={connectedDevices.length === 0}>
             Disconnect device
           </button>
         </TroubleshootingSection>
@@ -44,17 +45,17 @@ export function SettingsPanel({
   );
 }
 
-function ClientList({ clients }: { clients: PcConnectedClient[] }): ReactElement {
-  if (clients.length === 0) {
+function ConnectedDeviceList({ devices }: { devices: ConnectedDeviceView[] }): ReactElement {
+  if (devices.length === 0) {
     return <div className="empty-state">No devices connected.</div>;
   }
 
   return (
     <ul className="technical-list">
-      {clients.map((client) => (
-        <li key={client.id}>
-          <strong>{client.deviceId ?? 'Unidentified device'}</strong>
-          <span>{client.remoteAddress ?? 'Unknown address'}</span>
+      {devices.map((device) => (
+        <li key={device.connectionId}>
+          <strong>{device.deviceName}</strong>
+          <span>{device.remoteAddress ?? 'Unknown address'}</span>
         </li>
       ))}
     </ul>
@@ -71,7 +72,6 @@ function PairedDeviceList({ devices }: { devices: PairedDeviceView[] }): ReactEl
       {devices.map((device) => (
         <li key={device.deviceId}>
           <strong>{device.deviceName}</strong>
-          <span>{device.deviceId}</span>
           <span>Paired {formatTimestamp(device.pairedAt)}</span>
           <span>Last seen {formatTimestamp(device.lastSeenAt)}</span>
         </li>

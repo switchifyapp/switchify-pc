@@ -25,13 +25,13 @@ export function App(): ReactElement {
 
           <PrimaryContent
             state={status.uiState}
-            connectedClients={status.connectedClients}
+            connectedDevices={status.connectedDevices}
             onDisconnect={status.disconnectClients}
             onRefresh={status.refresh}
           />
 
           <SettingsPanel
-            connectedClients={status.connectedClients}
+            connectedDevices={status.connectedDevices}
             pairedDevices={status.pairedDevices}
             cursorOverlayEnabled={status.cursorOverlayEnabled}
             onDisconnect={status.disconnectClients}

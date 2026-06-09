@@ -4,9 +4,9 @@ import type { PairingApprovalDecision, PendingPairingApprovalView } from '../sha
 import type {
   ConnectionDetails,
   PairedDeviceView,
-  PcConnectedClient,
   PcServerStatus
 } from '../shared/server-status';
+import { toConnectedDeviceViews, type ConnectedDeviceView } from './connected-devices';
 
 export type SwitchifyPcStatusViewModel = {
   uiState: DesktopUiState;
@@ -14,7 +14,7 @@ export type SwitchifyPcStatusViewModel = {
   connectionDetails: ConnectionDetails | null;
   pairedDevices: PairedDeviceView[];
   pendingPairingRequests: PendingPairingApprovalView[];
-  connectedClients: PcConnectedClient[];
+  connectedDevices: ConnectedDeviceView[];
   cursorOverlayEnabled: boolean;
   refresh: () => Promise<void>;
   disconnectClients: () => Promise<void>;
@@ -90,7 +90,7 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
     connectionDetails,
     pairedDevices,
     pendingPairingRequests,
-    connectedClients: serverStatus?.connectedClients ?? [],
+    connectedDevices: toConnectedDeviceViews(serverStatus?.connectedClients ?? [], pairedDevices),
     cursorOverlayEnabled,
     refresh,
     disconnectClients,
