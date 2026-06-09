@@ -4,7 +4,7 @@ namespace Switchify.CursorOverlay;
 
 internal sealed class OverlayForm : Form
 {
-    private const int DefaultWindowSize = 72;
+    private const int DefaultWindowSize = 96;
     private const int DefaultDurationMs = 900;
     private const int ClickPulseMs = 180;
 
@@ -123,9 +123,9 @@ internal sealed class OverlayForm : Form
             graphics.Clear(Color.Transparent);
 
             float scale = ResolvePulseScale();
-            float ringDiameter = 34.0f * scale;
-            float ringStroke = 3.0f;
-            float outerStroke = 13.0f * scale;
+            float ringDiameter = 48.0f * scale;
+            float ringStroke = 4.0f;
+            float outerStroke = 18.0f * scale;
             float centerX = ClientSize.Width / 2.0f;
             float centerY = ClientSize.Height / 2.0f;
             float ringX = centerX - ringDiameter / 2.0f;

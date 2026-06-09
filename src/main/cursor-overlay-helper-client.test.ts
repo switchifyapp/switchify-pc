@@ -61,7 +61,7 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 100, y: 200 }),
       idleTimeoutMs: 900,
-      windowSize: 72,
+      windowSize: 96,
       spawnProcess: () => helper as never
     });
 
@@ -73,7 +73,7 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       event: 'move',
       x: 100,
       y: 200,
-      size: 72,
+      size: 96,
       durationMs: 900
     });
   });
@@ -86,7 +86,7 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 0, y: 0 }),
       idleTimeoutMs: 900,
-      windowSize: 72,
+      windowSize: 96,
       shutdownKillDelayMs: 1,
       spawnProcess: () => helper as never
     });
@@ -110,7 +110,7 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 100, y: 200 }),
       idleTimeoutMs: 900,
-      windowSize: 72,
+      windowSize: 96,
       onFailure: (message) => failures.push(message)
     });
 
@@ -128,7 +128,7 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 0, y: 0 }),
       idleTimeoutMs: 900,
-      windowSize: 72,
+      windowSize: 96,
       spawnProcess: () => helper as never
     });
 
@@ -148,7 +148,7 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 0, y: 0 }),
       idleTimeoutMs: 900,
-      windowSize: 72,
+      windowSize: 96,
       spawnProcess: () => helper as never
     });
 
