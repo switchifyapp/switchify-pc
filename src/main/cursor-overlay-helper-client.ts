@@ -25,6 +25,11 @@ export type NativeWindowsCursorOverlayBackendOptions = {
   shutdownKillDelayMs?: number;
 };
 
+export type CursorPositionProvider = {
+  getCursorScreenPoint: () => CursorOverlayPoint;
+  dipToScreenPoint: (point: CursorOverlayPoint) => CursorOverlayPoint;
+};
+
 type OverlayHelperCommand =
   | {
       type: 'show';
@@ -197,4 +202,8 @@ function spawnOverlayHelper(helperPath: string): ChildProcessWithoutNullStreams 
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true
   });
+}
+
+export function nativeHelperCursorPosition(provider: CursorPositionProvider): CursorOverlayPoint {
+  return provider.dipToScreenPoint(provider.getCursorScreenPoint());
 }

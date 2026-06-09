@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import {
   NativeWindowsCursorOverlayBackend,
+  nativeHelperCursorPosition,
   type CursorOverlayBackend
 } from './cursor-overlay-helper-client';
 
@@ -43,6 +44,15 @@ class FakeOverlayBackend implements CursorOverlayBackend {
 }
 
 describe('NativeWindowsCursorOverlayBackend', () => {
+  it('converts Electron cursor DIP coordinates to native screen pixels', () => {
+    expect(
+      nativeHelperCursorPosition({
+        getCursorScreenPoint: () => ({ x: 100, y: 200 }),
+        dipToScreenPoint: (point) => ({ x: point.x * 2, y: point.y * 2 })
+      })
+    ).toEqual({ x: 200, y: 400 });
+  });
+
   it('writes show commands to the helper process', () => {
     const helper = new FakeHelperProcess();
     const fallback = new FakeOverlayBackend();

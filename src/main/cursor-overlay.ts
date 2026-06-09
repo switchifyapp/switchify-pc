@@ -2,6 +2,7 @@ import { app, BrowserWindow, screen } from 'electron';
 import { join } from 'node:path';
 import {
   NativeWindowsCursorOverlayBackend,
+  nativeHelperCursorPosition,
   type CursorOverlayBackend,
   type CursorOverlayEvent
 } from './cursor-overlay-helper-client';
@@ -30,7 +31,7 @@ export class CursorOverlay {
         ? new NativeWindowsCursorOverlayBackend({
             helperPath: resolveNativeOverlayHelperPath(),
             fallback: electronBackend,
-            getCursorPosition: () => screen.getCursorScreenPoint(),
+            getCursorPosition: () => nativeHelperCursorPosition(screen),
             idleTimeoutMs,
             windowSize,
             onFailure: (message) => console.error('Switchify cursor overlay helper failed.', message)
