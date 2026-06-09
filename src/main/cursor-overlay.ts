@@ -1,7 +1,14 @@
 import { app, BrowserWindow, screen } from 'electron';
+import { join } from 'node:path';
+import {
+  NativeWindowsCursorOverlayBackend,
+  nativeHelperCursorPosition,
+  type CursorOverlayBackend,
+  type CursorOverlayEvent
+} from './cursor-overlay-helper-client';
 import { cursorOverlayBounds } from './cursor-overlay-state';
 
-export type CursorOverlayEvent = 'move' | 'click';
+export type { CursorOverlayEvent };
 
 export type CursorOverlayOptions = {
   idleTimeoutMs?: number;
@@ -9,20 +16,27 @@ export type CursorOverlayOptions = {
 };
 
 const DEFAULT_IDLE_TIMEOUT_MS = 900;
-const DEFAULT_WINDOW_SIZE = 72;
+const DEFAULT_WINDOW_SIZE = 128;
 
 export class CursorOverlay {
-  private window: BrowserWindow | null = null;
-  private windowReady: Promise<void> | null = null;
-  private hideTimer: NodeJS.Timeout | null = null;
+  private readonly backend: CursorOverlayBackend;
   private enabled = true;
-  private failedToCreate = false;
-  private readonly idleTimeoutMs: number;
-  private readonly windowSize: number;
 
   constructor(private readonly options: CursorOverlayOptions) {
-    this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
-    this.windowSize = options.windowSize ?? DEFAULT_WINDOW_SIZE;
+    const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+    const windowSize = options.windowSize ?? DEFAULT_WINDOW_SIZE;
+    const electronBackend = new ElectronCursorOverlayBackend({ idleTimeoutMs, windowSize });
+    this.backend =
+      process.platform === 'win32' && app.isPackaged
+        ? new NativeWindowsCursorOverlayBackend({
+            helperPath: resolveNativeOverlayHelperPath(),
+            fallback: electronBackend,
+            getCursorPosition: () => nativeHelperCursorPosition(screen),
+            idleTimeoutMs,
+            windowSize,
+            onFailure: (message) => console.error('Switchify cursor overlay helper failed.', message)
+          })
+        : electronBackend;
   }
 
   setEnabled(enabled: boolean): void {
@@ -37,7 +51,39 @@ export class CursorOverlay {
   }
 
   show(event: CursorOverlayEvent): void {
-    if (!this.enabled || this.failedToCreate) return;
+    if (!this.enabled) return;
+    this.backend.show(event);
+  }
+
+  hide(): void {
+    this.backend.hide();
+  }
+
+  destroy(): void {
+    this.backend.destroy();
+  }
+}
+
+type ElectronCursorOverlayBackendOptions = {
+  idleTimeoutMs: number;
+  windowSize: number;
+};
+
+class ElectronCursorOverlayBackend implements CursorOverlayBackend {
+  private window: BrowserWindow | null = null;
+  private windowReady: Promise<void> | null = null;
+  private hideTimer: NodeJS.Timeout | null = null;
+  private failedToCreate = false;
+  private readonly idleTimeoutMs: number;
+  private readonly windowSize: number;
+
+  constructor(options: ElectronCursorOverlayBackendOptions) {
+    this.idleTimeoutMs = options.idleTimeoutMs;
+    this.windowSize = options.windowSize;
+  }
+
+  show(event: CursorOverlayEvent): void {
+    if (this.failedToCreate) return;
 
     void this.showWhenReady(event);
   }
@@ -49,7 +95,7 @@ export class CursorOverlay {
       if (!window) return;
 
       await this.windowReady;
-      if (!this.enabled || window.isDestroyed()) return;
+      if (window.isDestroyed()) return;
 
       window.setBounds(cursorOverlayBounds(cursor, this.windowSize), false);
       await window.webContents.executeJavaScript(createOverlayEventScript(event));
@@ -153,6 +199,12 @@ export class CursorOverlay {
   }
 }
 
+function resolveNativeOverlayHelperPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'native', 'SwitchifyCursorOverlay.exe')
+    : join(process.cwd(), 'build', 'native', 'cursor-overlay-helper', 'win-x64', 'SwitchifyCursorOverlay.exe');
+}
+
 type OverlayMode = 'transparent' | 'opaque';
 
 function resolveOverlayMode(): OverlayMode {
@@ -203,13 +255,13 @@ function createOverlayHtml(overlayMode: OverlayMode): string {
       }
 
       .ring {
-        width: 34px;
-        height: 34px;
-        border: 3px solid rgba(132, 255, 145, 0.98);
+        width: 72px;
+        height: 72px;
+        border: 5px solid rgba(132, 255, 145, 0.98);
         border-radius: 999px;
         box-shadow:
-          0 0 0 5px rgba(132, 255, 145, 0.22),
-          0 0 24px rgba(132, 255, 145, 0.48);
+          0 0 0 10px rgba(132, 255, 145, 0.22),
+          0 0 38px rgba(132, 255, 145, 0.48);
         opacity: 0.95;
         transform: scale(1);
         transition:
@@ -225,14 +277,14 @@ function createOverlayHtml(overlayMode: OverlayMode): string {
         0% {
           transform: scale(0.82);
           box-shadow:
-            0 0 0 2px rgba(132, 255, 145, 0.3),
-            0 0 14px rgba(132, 255, 145, 0.5);
+            0 0 0 4px rgba(132, 255, 145, 0.3),
+            0 0 24px rgba(132, 255, 145, 0.5);
         }
         100% {
           transform: scale(1.18);
           box-shadow:
-            0 0 0 8px rgba(132, 255, 145, 0.08),
-            0 0 24px rgba(132, 255, 145, 0.24);
+            0 0 0 15px rgba(132, 255, 145, 0.08),
+            0 0 38px rgba(132, 255, 145, 0.24);
         }
       }
     </style>
