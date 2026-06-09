@@ -6,7 +6,8 @@ directories:
   output: dist
   buildResources: build
 
-afterPack: scripts/apply-win-icon.cjs
+afterPack: scripts/package-win-after-pack.cjs
+afterAllArtifactBuild: scripts/sign-win-artifacts.cjs
 
 files:
   - out/**/*
@@ -27,3 +28,13 @@ win:
     - target: dir
       arch:
         - x64
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: true
+  allowElevation: true
+  differentialPackage: false
+  artifactName: Switchify-PC-Setup-${version}-${arch}.${ext}
