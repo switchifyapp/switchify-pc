@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node scripts/dev.cjs",
     "build": "electron-vite build",
-    "package:win": "npm run build && electron-builder --win --x64",
+    "native:build-overlay": "node scripts/build-cursor-overlay-helper.cjs",
+    "package:win": "npm run build && npm run native:build-overlay && electron-builder --win --x64",
     "package:win:verify-uiaccess": "node scripts/verify-win-uiaccess-package.cjs",
     "signing:create-dev-cert": "node scripts/create-dev-signing-cert.cjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",

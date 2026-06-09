@@ -22,6 +22,12 @@ Build the compiled Electron output:
 npm run build
 ```
 
+Build the native Windows cursor overlay helper:
+
+```powershell
+npm run native:build-overlay
+```
+
 Run checks before pushing implementation changes:
 
 ```powershell
@@ -37,7 +43,7 @@ Create a local Windows x64 package:
 npm run package:win
 ```
 
-The package script runs `npm run build` first, then creates an unpacked Windows artifact in `dist/win-unpacked` and a per-machine NSIS installer in `dist`.
+The package script runs `npm run build` and `npm run native:build-overlay` first, then creates an unpacked Windows artifact in `dist/win-unpacked` and a per-machine NSIS installer in `dist`.
 
 ## Windows uiAccess packaging
 
@@ -51,6 +57,8 @@ Windows only honors `uiAccess` when all of these are true:
 - Signing happens after icon and manifest resource embedding.
 
 The packaged Windows app also disables the Chromium GPU child-process sandbox at startup. Without that switch, Electron's GPU child process can fail to launch under `uiAccess=true`, causing the app to exit even when the manifest, signature, and install location are valid.
+
+Packaged Windows builds include `SwitchifyCursorOverlay.exe`, a native self-contained cursor overlay helper under app resources. The Electron app controls it over stdin JSON lines so cursor feedback can render as a per-pixel-alpha ring over protected UI. If the helper cannot start, Switchify PC falls back to the Electron overlay instead of failing input commands.
 
 Development builds can use a local certificate chain trusted on the test machine. The script creates a local dev root CA, creates a code-signing leaf certificate, exports the leaf PFX, stores the leaf thumbprint for `signtool`, and imports trust material into the current user and local machine certificate stores. Accept the UAC prompt so Windows can trust the certificate machine-wide for `uiAccess`.
 
@@ -98,6 +106,8 @@ Use this checklist after packaging changes and before publishing any installer:
 - Paired Android device can disconnect and reconnect without deleting the saved pairing.
 - Authenticated ping receives an ack.
 - Relative mouse movement works and remains responsive under repeated movement.
+- Cursor highlight appears as a green ring, not a square, including over the Start menu.
+- Cursor highlight does not steal focus or block clicks.
 - Left click works.
 - Right-click works.
 - Scroll works.
@@ -106,4 +116,4 @@ Use this checklist after packaging changes and before publishing any installer:
 - Media key command works, for example play/pause or volume up.
 - Window control commands work, for example next app and show desktop.
 - Disconnect all removes active WebSocket sessions.
-- Quit exits the app and removes the tray icon.
+- Quit exits the app, removes the tray icon, and exits the native cursor overlay helper.

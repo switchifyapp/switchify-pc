@@ -1,7 +1,13 @@
 import { app, BrowserWindow, screen } from 'electron';
+import { join } from 'node:path';
+import {
+  NativeWindowsCursorOverlayBackend,
+  type CursorOverlayBackend,
+  type CursorOverlayEvent
+} from './cursor-overlay-helper-client';
 import { cursorOverlayBounds } from './cursor-overlay-state';
 
-export type CursorOverlayEvent = 'move' | 'click';
+export type { CursorOverlayEvent };
 
 export type CursorOverlayOptions = {
   idleTimeoutMs?: number;
@@ -12,17 +18,24 @@ const DEFAULT_IDLE_TIMEOUT_MS = 900;
 const DEFAULT_WINDOW_SIZE = 72;
 
 export class CursorOverlay {
-  private window: BrowserWindow | null = null;
-  private windowReady: Promise<void> | null = null;
-  private hideTimer: NodeJS.Timeout | null = null;
+  private readonly backend: CursorOverlayBackend;
   private enabled = true;
-  private failedToCreate = false;
-  private readonly idleTimeoutMs: number;
-  private readonly windowSize: number;
 
   constructor(private readonly options: CursorOverlayOptions) {
-    this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
-    this.windowSize = options.windowSize ?? DEFAULT_WINDOW_SIZE;
+    const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+    const windowSize = options.windowSize ?? DEFAULT_WINDOW_SIZE;
+    const electronBackend = new ElectronCursorOverlayBackend({ idleTimeoutMs, windowSize });
+    this.backend =
+      process.platform === 'win32' && app.isPackaged
+        ? new NativeWindowsCursorOverlayBackend({
+            helperPath: resolveNativeOverlayHelperPath(),
+            fallback: electronBackend,
+            getCursorPosition: () => screen.getCursorScreenPoint(),
+            idleTimeoutMs,
+            windowSize,
+            onFailure: (message) => console.error('Switchify cursor overlay helper failed.', message)
+          })
+        : electronBackend;
   }
 
   setEnabled(enabled: boolean): void {
@@ -37,7 +50,39 @@ export class CursorOverlay {
   }
 
   show(event: CursorOverlayEvent): void {
-    if (!this.enabled || this.failedToCreate) return;
+    if (!this.enabled) return;
+    this.backend.show(event);
+  }
+
+  hide(): void {
+    this.backend.hide();
+  }
+
+  destroy(): void {
+    this.backend.destroy();
+  }
+}
+
+type ElectronCursorOverlayBackendOptions = {
+  idleTimeoutMs: number;
+  windowSize: number;
+};
+
+class ElectronCursorOverlayBackend implements CursorOverlayBackend {
+  private window: BrowserWindow | null = null;
+  private windowReady: Promise<void> | null = null;
+  private hideTimer: NodeJS.Timeout | null = null;
+  private failedToCreate = false;
+  private readonly idleTimeoutMs: number;
+  private readonly windowSize: number;
+
+  constructor(options: ElectronCursorOverlayBackendOptions) {
+    this.idleTimeoutMs = options.idleTimeoutMs;
+    this.windowSize = options.windowSize;
+  }
+
+  show(event: CursorOverlayEvent): void {
+    if (this.failedToCreate) return;
 
     void this.showWhenReady(event);
   }
@@ -49,7 +94,7 @@ export class CursorOverlay {
       if (!window) return;
 
       await this.windowReady;
-      if (!this.enabled || window.isDestroyed()) return;
+      if (window.isDestroyed()) return;
 
       window.setBounds(cursorOverlayBounds(cursor, this.windowSize), false);
       await window.webContents.executeJavaScript(createOverlayEventScript(event));
@@ -151,6 +196,12 @@ export class CursorOverlay {
       this.hideTimer = null;
     }
   }
+}
+
+function resolveNativeOverlayHelperPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'native', 'SwitchifyCursorOverlay.exe')
+    : join(process.cwd(), 'build', 'native', 'cursor-overlay-helper', 'win-x64', 'SwitchifyCursorOverlay.exe');
 }
 
 type OverlayMode = 'transparent' | 'opaque';

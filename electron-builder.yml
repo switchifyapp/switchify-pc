@@ -20,6 +20,8 @@ asarUnpack:
 extraResources:
   - from: build/icon.png
     to: icon.png
+  - from: build/native/cursor-overlay-helper/win-x64/SwitchifyCursorOverlay.exe
+    to: native/SwitchifyCursorOverlay.exe
 
 win:
   icon: build/icon.ico
