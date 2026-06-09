@@ -16,7 +16,7 @@ export type CursorOverlayOptions = {
 };
 
 const DEFAULT_IDLE_TIMEOUT_MS = 900;
-const DEFAULT_WINDOW_SIZE = 96;
+const DEFAULT_WINDOW_SIZE = 128;
 
 export class CursorOverlay {
   private readonly backend: CursorOverlayBackend;
@@ -255,13 +255,13 @@ function createOverlayHtml(overlayMode: OverlayMode): string {
       }
 
       .ring {
-        width: 48px;
-        height: 48px;
-        border: 4px solid rgba(132, 255, 145, 0.98);
+        width: 72px;
+        height: 72px;
+        border: 5px solid rgba(132, 255, 145, 0.98);
         border-radius: 999px;
         box-shadow:
-          0 0 0 7px rgba(132, 255, 145, 0.22),
-          0 0 30px rgba(132, 255, 145, 0.48);
+          0 0 0 10px rgba(132, 255, 145, 0.22),
+          0 0 38px rgba(132, 255, 145, 0.48);
         opacity: 0.95;
         transform: scale(1);
         transition:
@@ -277,14 +277,14 @@ function createOverlayHtml(overlayMode: OverlayMode): string {
         0% {
           transform: scale(0.82);
           box-shadow:
-            0 0 0 3px rgba(132, 255, 145, 0.3),
-            0 0 18px rgba(132, 255, 145, 0.5);
+            0 0 0 4px rgba(132, 255, 145, 0.3),
+            0 0 24px rgba(132, 255, 145, 0.5);
         }
         100% {
           transform: scale(1.18);
           box-shadow:
-            0 0 0 11px rgba(132, 255, 145, 0.08),
-            0 0 30px rgba(132, 255, 145, 0.24);
+            0 0 0 15px rgba(132, 255, 145, 0.08),
+            0 0 38px rgba(132, 255, 145, 0.24);
         }
       }
     </style>
