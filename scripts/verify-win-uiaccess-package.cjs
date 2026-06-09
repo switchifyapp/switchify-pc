@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const {
   findWindowsSdkTool,
   isWindows,
@@ -38,6 +39,46 @@ try {
   if (!hasUiAccess || !hasHighestAvailable) {
     throw new Error('Packaged executable manifest does not contain the required uiAccess settings.');
   }
+
+  if (process.env.SWITCHIFY_VERIFY_INSTALLED_LAUNCH === '1') {
+    verifyInstalledLaunch();
+  }
 } finally {
   fs.rmSync(manifestOutPath, { force: true });
+}
+
+function verifyInstalledLaunch() {
+  const installedPath = path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Switchify PC', 'Switchify PC.exe');
+  if (!fs.existsSync(installedPath)) {
+    throw new Error(`Installed executable not found: ${installedPath}`);
+  }
+
+  const launchScript = `
+$path = '${escapePowerShellString(installedPath)}'
+$ErrorActionPreference = 'Stop'
+$process = Start-Process -FilePath $path -PassThru
+Start-Sleep -Seconds 5
+$launched = Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq $process.Id -and $_.ExecutablePath -eq $path }
+if ($null -eq $launched) {
+  Write-Host 'installed launch: failed'
+  exit 1
+}
+Write-Host ('installed launch: running (pid {0})' -f $process.Id)
+`.trim();
+
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', launchScript], {
+    encoding: 'utf8',
+    stdio: 'pipe'
+  });
+  const output = `${result.stdout || ''}${result.stderr || ''}`.trim();
+  if (output) {
+    console.log(output);
+  }
+  if (result.status !== 0) {
+    throw new Error('Installed uiAccess executable did not stay running.');
+  }
+}
+
+function escapePowerShellString(value) {
+  return value.replace(/'/g, "''");
 }

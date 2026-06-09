@@ -1,19 +1,19 @@
-import { BrowserWindow, screen } from 'electron';
-import { cursorOverlayBounds, nativeCursorToElectronPoint, type CursorPoint } from './cursor-overlay-state';
+import { app, BrowserWindow, screen } from 'electron';
+import { cursorOverlayBounds } from './cursor-overlay-state';
 
 export type CursorOverlayEvent = 'move' | 'click';
 
 export type CursorOverlayOptions = {
-  getCursorPosition: () => CursorPoint;
   idleTimeoutMs?: number;
   windowSize?: number;
 };
 
 const DEFAULT_IDLE_TIMEOUT_MS = 900;
-const DEFAULT_WINDOW_SIZE = 96;
+const DEFAULT_WINDOW_SIZE = 72;
 
 export class CursorOverlay {
   private window: BrowserWindow | null = null;
+  private windowReady: Promise<void> | null = null;
   private hideTimer: NodeJS.Timeout | null = null;
   private enabled = true;
   private failedToCreate = false;
@@ -39,17 +39,26 @@ export class CursorOverlay {
   show(event: CursorOverlayEvent): void {
     if (!this.enabled || this.failedToCreate) return;
 
+    void this.showWhenReady(event);
+  }
+
+  private async showWhenReady(event: CursorOverlayEvent): Promise<void> {
     try {
-      const cursor = nativeCursorToElectronPoint(this.options.getCursorPosition(), screen.getAllDisplays());
+      const cursor = screen.getCursorScreenPoint();
       const window = this.ensureWindow();
       if (!window) return;
 
+      await this.windowReady;
+      if (!this.enabled || window.isDestroyed()) return;
+
       window.setBounds(cursorOverlayBounds(cursor, this.windowSize), false);
-      void window.webContents.executeJavaScript(createOverlayEventScript(event)).catch(() => {});
-      window.showInactive();
+      await window.webContents.executeJavaScript(createOverlayEventScript(event));
+      this.showOverlayWindow(window);
       this.resetHideTimer();
-    } catch {
-      this.failedToCreate = true;
+    } catch (error) {
+      if (!this.window || this.window.isDestroyed()) {
+        this.failedToCreate = true;
+      }
       this.hide();
     }
   }
@@ -67,6 +76,7 @@ export class CursorOverlay {
       this.window.destroy();
     }
     this.window = null;
+    this.windowReady = null;
   }
 
   private ensureWindow(): BrowserWindow | null {
@@ -74,19 +84,22 @@ export class CursorOverlay {
       return this.window;
     }
 
+    const overlayMode = resolveOverlayMode();
+    const usesTransparentWindow = overlayMode === 'transparent';
     const window = new BrowserWindow({
       width: this.windowSize,
       height: this.windowSize,
       frame: false,
-      transparent: true,
+      transparent: usesTransparentWindow,
       resizable: false,
       movable: false,
       show: false,
+      paintWhenInitiallyHidden: true,
       skipTaskbar: true,
       focusable: false,
       alwaysOnTop: true,
       hasShadow: false,
-      backgroundColor: '#00000000',
+      backgroundColor: usesTransparentWindow ? '#00000000' : '#123d1f',
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
@@ -101,9 +114,28 @@ export class CursorOverlay {
     } catch {
       // Best-effort only; Windows utility behavior still works with always-on-top.
     }
-    void window.loadURL(createOverlayDataUrl());
+    if (overlayMode === 'opaque') {
+      window.setOpacity(0.78);
+    }
+    this.windowReady = window.loadURL(createOverlayDataUrl(overlayMode)).then(() => undefined);
+    window.on('closed', () => {
+      if (this.window === window) {
+        this.window = null;
+        this.windowReady = null;
+      }
+    });
     this.window = window;
     return window;
+  }
+
+  private showOverlayWindow(window: BrowserWindow): void {
+    window.setAlwaysOnTop(true, 'screen-saver');
+    if (process.platform === 'win32') {
+      window.show();
+    } else {
+      window.showInactive();
+    }
+    window.moveTop();
   }
 
   private resetHideTimer(): void {
@@ -121,8 +153,18 @@ export class CursorOverlay {
   }
 }
 
-function createOverlayDataUrl(): string {
-  return `data:text/html;charset=utf-8,${encodeURIComponent(createOverlayHtml())}`;
+type OverlayMode = 'transparent' | 'opaque';
+
+function resolveOverlayMode(): OverlayMode {
+  if (process.platform === 'win32' && app.isPackaged) {
+    return 'opaque';
+  }
+
+  return 'transparent';
+}
+
+function createOverlayDataUrl(overlayMode: OverlayMode): string {
+  return `data:text/html;charset=utf-8,${encodeURIComponent(createOverlayHtml(overlayMode))}`;
 }
 
 function createOverlayEventScript(event: CursorOverlayEvent): string {
@@ -138,7 +180,8 @@ function createOverlayEventScript(event: CursorOverlayEvent): string {
   `;
 }
 
-function createOverlayHtml(): string {
+function createOverlayHtml(overlayMode: OverlayMode): string {
+  const bodyBackground = overlayMode === 'transparent' ? 'transparent' : '#123d1f';
   return `<!doctype html>
 <html>
   <head>
@@ -150,22 +193,23 @@ function createOverlayHtml(): string {
         height: 100%;
         margin: 0;
         overflow: hidden;
-        background: transparent;
+        background: ${bodyBackground};
       }
 
       body {
         display: grid;
         place-items: center;
+        border-radius: 999px;
       }
 
       .ring {
-        width: 42px;
-        height: 42px;
-        border: 3px solid rgba(62, 138, 68, 0.95);
+        width: 34px;
+        height: 34px;
+        border: 3px solid rgba(132, 255, 145, 0.98);
         border-radius: 999px;
         box-shadow:
-          0 0 0 6px rgba(62, 138, 68, 0.18),
-          0 0 24px rgba(62, 138, 68, 0.35);
+          0 0 0 5px rgba(132, 255, 145, 0.22),
+          0 0 24px rgba(132, 255, 145, 0.48);
         opacity: 0.95;
         transform: scale(1);
         transition:
@@ -181,14 +225,14 @@ function createOverlayHtml(): string {
         0% {
           transform: scale(0.82);
           box-shadow:
-            0 0 0 2px rgba(62, 138, 68, 0.3),
-            0 0 14px rgba(62, 138, 68, 0.5);
+            0 0 0 2px rgba(132, 255, 145, 0.3),
+            0 0 14px rgba(132, 255, 145, 0.5);
         }
         100% {
           transform: scale(1.18);
           box-shadow:
-            0 0 0 10px rgba(62, 138, 68, 0.08),
-            0 0 28px rgba(62, 138, 68, 0.24);
+            0 0 0 8px rgba(132, 255, 145, 0.08),
+            0 0 24px rgba(132, 255, 145, 0.24);
         }
       }
     </style>

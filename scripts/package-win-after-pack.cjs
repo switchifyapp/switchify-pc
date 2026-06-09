@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const ResEdit = require('resedit');
+const packageJson = require('../package.json');
 const {
   findWindowsSdkTool,
   isWindows,
@@ -16,12 +17,12 @@ module.exports = async function packageWindowsAfterPack(context) {
   const executableName = `${context.packager.appInfo.productFilename}.exe`;
   const executablePath = path.join(context.appOutDir, executableName);
 
-  applyWindowsIcon(executablePath);
+  applyWindowsExecutableResources(executablePath);
   embedUiAccessManifest(executablePath);
   signWindowsExecutable(executablePath);
 };
 
-function applyWindowsIcon(executablePath) {
+function applyWindowsExecutableResources(executablePath) {
   const iconPath = resolveProjectPath('build', 'icon.ico');
   const executable = ResEdit.NtExecutable.from(fs.readFileSync(executablePath), { ignoreCert: true });
   const resources = ResEdit.NtExecutableResource.from(executable);
@@ -34,8 +35,48 @@ function applyWindowsIcon(executablePath) {
     iconFile.icons.map((item) => item.data)
   );
 
+  applyWindowsVersionInfo(resources);
   resources.outputResource(executable);
   fs.writeFileSync(executablePath, Buffer.from(executable.generate()));
+}
+
+function applyWindowsVersionInfo(resources) {
+  const versionInfo = ResEdit.Resource.VersionInfo.fromEntries(resources.entries)[0];
+  if (!versionInfo) {
+    throw new Error('Unable to find executable version info resource.');
+  }
+
+  const [major, minor, patch, build] = parseWindowsVersion(packageJson.version);
+  versionInfo.setFileVersion(major, minor, patch, build, 1033);
+  versionInfo.setProductVersion(major, minor, patch, build, 1033);
+  versionInfo.setStringValues(
+    { lang: 1033, codepage: 1200 },
+    {
+      CompanyName: 'Switchify',
+      FileDescription: 'Switchify PC',
+      FileVersion: packageJson.version,
+      InternalName: 'Switchify PC',
+      LegalCopyright: 'Copyright (C) 2026 Owen McGirr',
+      OriginalFilename: 'Switchify PC.exe',
+      ProductName: 'Switchify PC',
+      ProductVersion: packageJson.version
+    }
+  );
+  versionInfo.outputToResourceEntries(resources.entries);
+}
+
+function parseWindowsVersion(version) {
+  const numericParts = String(version)
+    .split(/[.-]/)
+    .slice(0, 4)
+    .map((part) => Number.parseInt(part, 10))
+    .map((part) => (Number.isFinite(part) && part >= 0 ? part : 0));
+
+  while (numericParts.length < 4) {
+    numericParts.push(0);
+  }
+
+  return numericParts;
 }
 
 function embedUiAccessManifest(executablePath) {
@@ -77,15 +118,35 @@ function createSigningArgs(filePath, { requireSigning }) {
 function createDevPfxSigningArgs(filePath) {
   const password = process.env.SWITCHIFY_DEV_CERT_PASSWORD;
   const pfxPath = process.env.SWITCHIFY_DEV_CERT_PFX || resolveProjectPath('.certs', 'switchify-dev-code-signing.pfx');
+  const thumbprint = resolveDevCertificateThumbprint(pfxPath);
 
   if (!password || !fs.existsSync(pfxPath)) return null;
 
   const args = ['sign', '/fd', 'SHA256', '/f', pfxPath, '/p', password];
+  if (thumbprint) {
+    args.push('/sha1', thumbprint);
+  }
   if (process.env.SWITCHIFY_SIGN_SKIP_TIMESTAMP !== '1') {
     args.push('/tr', 'http://timestamp.digicert.com', '/td', 'SHA256');
   }
   args.push(filePath);
   return args;
+}
+
+function resolveDevCertificateThumbprint(pfxPath) {
+  if (process.env.SWITCHIFY_DEV_CERT_THUMBPRINT) {
+    return normalizeThumbprint(process.env.SWITCHIFY_DEV_CERT_THUMBPRINT);
+  }
+
+  const thumbprintPath = path.join(path.dirname(pfxPath), 'switchify-dev-code-signing.thumbprint');
+  if (!fs.existsSync(thumbprintPath)) return null;
+
+  return normalizeThumbprint(fs.readFileSync(thumbprintPath, 'utf8'));
+}
+
+function normalizeThumbprint(value) {
+  const thumbprint = value.replace(/[^a-fA-F0-9]/g, '').toUpperCase();
+  return thumbprint.length > 0 ? thumbprint : null;
 }
 
 function createAzureSigningArgs(filePath, requireSigning) {

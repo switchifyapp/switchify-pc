@@ -50,7 +50,9 @@ Windows only honors `uiAccess` when all of these are true:
 - The executable is installed in a secure location such as `C:\Program Files\Switchify PC\`.
 - Signing happens after icon and manifest resource embedding.
 
-Development builds can use a local self-signed certificate trusted on the test machine:
+The packaged Windows app also disables the Chromium GPU child-process sandbox at startup. Without that switch, Electron's GPU child process can fail to launch under `uiAccess=true`, causing the app to exit even when the manifest, signature, and install location are valid.
+
+Development builds can use a local certificate chain trusted on the test machine. The script creates a local dev root CA, creates a code-signing leaf certificate, exports the leaf PFX, stores the leaf thumbprint for `signtool`, and imports trust material into the current user and local machine certificate stores. Accept the UAC prompt so Windows can trust the certificate machine-wide for `uiAccess`.
 
 ```powershell
 $env:SWITCHIFY_DEV_CERT_PASSWORD = "choose-a-local-password"
@@ -65,7 +67,14 @@ npm run package:win
 npm run package:win:verify-uiaccess
 ```
 
-Run the generated installer from `dist` and install per-machine. Running from `npm run dev`, `dist/win-unpacked`, AppData, Downloads, or the repo does not prove that `uiAccess` is active.
+Run the generated installer from `dist` and install per-machine. To verify the installed Program Files copy launches and stays running, use:
+
+```powershell
+$env:SWITCHIFY_VERIFY_INSTALLED_LAUNCH = "1"
+npm run package:win:verify-uiaccess
+```
+
+Running from `npm run dev`, `dist/win-unpacked`, AppData, Downloads, or the repo does not prove that `uiAccess` is active.
 
 Self-signed certificates are for dev/testing only. Production users should not be asked to trust a self-signed certificate manually. Azure Artifact Signing is the preferred low-cost production signing path when eligible; traditional OV/EV code-signing certificates remain possible. Production signing configuration must come from environment variables or CI secrets, never committed files.
 
