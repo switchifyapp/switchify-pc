@@ -25,6 +25,12 @@ let cursorOverlay: CursorOverlay | null = null;
 let mdnsAdvertiser: MdnsAdvertiser | null = null;
 let isQuitting = false;
 
+if (process.platform === 'win32' && app.isPackaged) {
+  // Chromium GPU sandboxed child processes can fail to start under the
+  // uiAccess packaged executable on Windows.
+  app.commandLine.appendSwitch('disable-gpu-sandbox');
+}
+
 // Matches --color-bg in src/renderer/styles.css so the window frame paints
 // the correct base before the renderer loads.
 function shellBackgroundColor(): string {
@@ -140,9 +146,7 @@ app.whenReady().then(() => {
   const pairingManager = new PairingManager(pairingStore);
   const pairingApprovalManager = new PairingApprovalManager(pairingStore);
   const inputAdapter = new LibnutWin32InputAdapter((position) => screen.getDisplayNearestPoint(position).scaleFactor);
-  cursorOverlay = new CursorOverlay({
-    getCursorPosition: () => inputAdapter.getMousePosition()
-  });
+  cursorOverlay = new CursorOverlay({});
   mdnsAdvertiser = new MdnsAdvertiser({
     getDesktopId: () => pairingManager.getDesktopId(),
     getPort: () => pcServer?.getStatus().port ?? 0

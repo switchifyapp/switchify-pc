@@ -1,7 +1,14 @@
 node_modules/
 dist/
 build/
+!build/
+build/*
+!build/icon.ico
+!build/icon.png
+!build/win-uiaccess.manifest
 out/
+.certs/*
+!.certs/.gitkeep
 .env
 .env.*
 *.log
