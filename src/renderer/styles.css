@@ -137,7 +137,6 @@ a {
   align-items: center;
   height: var(--titlebar-height);
   padding: 0 140px 0 var(--space-m);
-  border-bottom: 1px solid var(--color-border);
   background: var(--color-bg);
   color: var(--color-text);
   user-select: none;
