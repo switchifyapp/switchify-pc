@@ -18,6 +18,7 @@ export type SwitchifyPcStatusViewModel = {
   cursorOverlayEnabled: boolean;
   refresh: () => Promise<void>;
   disconnectClients: () => Promise<void>;
+  forgetPairedDevice: (deviceId: string) => Promise<{ ok: boolean; reason?: string }>;
   toggleCursorOverlay: (enabled: boolean) => Promise<void>;
   respondToPairingRequest: (requestId: string, decision: PairingApprovalDecision) => Promise<void>;
 };
@@ -45,6 +46,21 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
   const disconnectClients = useCallback(async (): Promise<void> => {
     setServerStatus(await bridge.disconnectClients());
   }, [bridge]);
+
+  const forgetPairedDevice = useCallback(
+    async (deviceId: string): Promise<{ ok: boolean; reason?: string }> => {
+      const result = await bridge.forgetPairedDevice(deviceId);
+      if (!result.ok) {
+        return result;
+      }
+
+      setPairedDevices(result.pairedDevices);
+      setServerStatus(result.status);
+      await refresh();
+      return { ok: true };
+    },
+    [bridge, refresh]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +110,7 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
     cursorOverlayEnabled,
     refresh,
     disconnectClients,
+    forgetPairedDevice,
     toggleCursorOverlay,
     respondToPairingRequest
   };

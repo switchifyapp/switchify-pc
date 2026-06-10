@@ -550,6 +550,23 @@ p {
   font-weight: 700;
 }
 
+.technical-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.inline-error {
+  color: var(--color-status-error);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.danger-button:hover:not(:disabled) {
+  border-color: var(--color-status-error);
+}
+
 .empty-state {
   display: grid;
   place-items: center;

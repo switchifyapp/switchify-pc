@@ -3,6 +3,7 @@ import type { PairingApprovalDecision, PendingPairingApprovalView } from '../sha
 import type { ConnectionDetails, PairedDeviceView, PcServerStatus } from '../shared/server-status';
 import {
   DISCONNECT_CLIENTS_CHANNEL,
+  FORGET_PAIRED_DEVICE_CHANNEL,
   GET_CURSOR_OVERLAY_ENABLED_CHANNEL,
   GET_CONNECTION_DETAILS_CHANNEL,
   GET_PAIRED_DEVICES_CHANNEL,
@@ -19,6 +20,11 @@ contextBridge.exposeInMainWorld('switchifyPc', {
   getConnectionDetails: (): Promise<ConnectionDetails> => ipcRenderer.invoke(GET_CONNECTION_DETAILS_CHANNEL),
   getPairedDevices: (): Promise<PairedDeviceView[]> => ipcRenderer.invoke(GET_PAIRED_DEVICES_CHANNEL),
   disconnectClients: (): Promise<PcServerStatus> => ipcRenderer.invoke(DISCONNECT_CLIENTS_CHANNEL),
+  forgetPairedDevice: (
+    deviceId: string
+  ): Promise<
+    { ok: true; pairedDevices: PairedDeviceView[]; status: PcServerStatus } | { ok: false; reason: string }
+  > => ipcRenderer.invoke(FORGET_PAIRED_DEVICE_CHANNEL, deviceId),
   getCursorOverlayEnabled: (): Promise<boolean> => ipcRenderer.invoke(GET_CURSOR_OVERLAY_ENABLED_CHANNEL),
   setCursorOverlayEnabled: (enabled: boolean): Promise<boolean> =>
     ipcRenderer.invoke(SET_CURSOR_OVERLAY_ENABLED_CHANNEL, enabled),

@@ -117,6 +117,12 @@ export class PcWebSocketServer {
     return this.getStatus();
   }
 
+  disconnectDevice(deviceId: string): PcServerStatus {
+    this.clientRegistry.closeByDeviceId(deviceId);
+    this.updateClientStatus();
+    return this.getStatus();
+  }
+
   getPendingPairingRequests(): PendingPairingApprovalView[] {
     this.expirePendingPairingRequests();
     return this.options.pairingApprovalManager?.listPendingRequestViews() ?? [];

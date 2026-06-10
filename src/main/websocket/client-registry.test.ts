@@ -88,6 +88,29 @@ describe('WebSocketClientRegistry', () => {
     expect(registry.count()).toBe(2);
   });
 
+  it('closes and removes clients by device id', () => {
+    const registry = new WebSocketClientRegistry();
+    const matching = createClient();
+    const otherDevice = createClient();
+    const unauthenticated = createClient();
+    registry.add(matching, '127.0.0.1');
+    registry.add(otherDevice, '127.0.0.2');
+    registry.add(unauthenticated, '127.0.0.3');
+    registry.markSeen(matching, 'android-1');
+    registry.markSeen(otherDevice, 'android-2');
+
+    const closedCount = registry.closeByDeviceId('android-1');
+
+    expect(closedCount).toBe(1);
+    expect(matching.close).toHaveBeenCalledTimes(1);
+    expect(otherDevice.close).not.toHaveBeenCalled();
+    expect(unauthenticated.close).not.toHaveBeenCalled();
+    expect(registry.count()).toBe(2);
+    expect(registry.get(matching)).toBeNull();
+    expect(registry.get(otherDevice)?.deviceId).toBe('android-2');
+    expect(registry.get(unauthenticated)?.deviceId).toBeNull();
+  });
+
   it('clears all clients', () => {
     const registry = new WebSocketClientRegistry();
     registry.add(createClient(), '127.0.0.1');
