@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import { SettingsView } from './components/SettingsPanel';
+import { WindowChrome } from './components/WindowTitleBar';
 import { useSwitchifyPcStatus } from './useSwitchifyPcStatus';
 
 export function SettingsApp(): ReactElement {
@@ -7,7 +8,7 @@ export function SettingsApp(): ReactElement {
   const status = useSwitchifyPcStatus(bridge);
 
   return (
-    <main className="settings-window-shell">
+    <WindowChrome title={bridge.appName} subtitle="Settings" className="settings-window-shell">
       <section className="settings-window-header">
         <p className="section-label">Settings</p>
         <h1>Settings</h1>
@@ -20,6 +21,6 @@ export function SettingsApp(): ReactElement {
         onDisconnect={status.disconnectClients}
         onToggleCursorOverlay={status.toggleCursorOverlay}
       />
-    </main>
+    </WindowChrome>
   );
 }

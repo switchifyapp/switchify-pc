@@ -123,6 +123,7 @@ function createMainWindow(): BrowserWindow {
 }
 
 function createSettingsWindow(): BrowserWindow {
+  const overlayOptions = titleBarOverlayOptions();
   const iconPath = appIconPath();
   const window = new BrowserWindow({
     width: 560,
@@ -132,6 +133,8 @@ function createSettingsWindow(): BrowserWindow {
     title: 'Settings',
     backgroundColor: shellBackgroundColor(),
     show: false,
+    titleBarStyle: 'hidden',
+    ...(overlayOptions ? { titleBarOverlay: overlayOptions } : {}),
     ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -160,6 +163,10 @@ function createSettingsWindow(): BrowserWindow {
   const applyThemeBackground = (): void => {
     if (!window.isDestroyed()) {
       window.setBackgroundColor(shellBackgroundColor());
+      const overlayOptions = titleBarOverlayOptions();
+      if (overlayOptions) {
+        window.setTitleBarOverlay?.(overlayOptions);
+      }
     }
   };
   nativeTheme.on('updated', applyThemeBackground);

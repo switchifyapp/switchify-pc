@@ -422,8 +422,9 @@ p {
   display: grid;
   align-content: start;
   gap: var(--space-l);
-  height: 100vh;
+  height: calc(100vh - var(--titlebar-height));
   min-height: 0;
+  margin-top: var(--titlebar-height);
   overflow-y: auto;
   padding: var(--space-xl);
   background: var(--color-bg);
