@@ -13,6 +13,7 @@ import { registerPairingApprovalIpc } from './pairing/pairing-approval-ipc';
 import { JsonPairingStore } from './pairing/pairing-store';
 import { PairingManager } from './pairing/pairing-manager';
 import { registerServerIpc } from './server-ipc';
+import { registerSettingsWindowIpc } from './settings-window-ipc';
 import { createSwitchifyTray, type SwitchifyTray } from './tray';
 import { PcWebSocketServer } from './websocket/server';
 
@@ -20,6 +21,7 @@ const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 const windowsAppUserModelId = 'app.switchify.pc';
 let pcServer: PcWebSocketServer | null = null;
 let mainWindow: BrowserWindow | null = null;
+let settingsWindow: BrowserWindow | null = null;
 let tray: SwitchifyTray | null = null;
 let cursorOverlay: CursorOverlay | null = null;
 let mdnsAdvertiser: MdnsAdvertiser | null = null;
@@ -120,6 +122,62 @@ function createMainWindow(): BrowserWindow {
   return window;
 }
 
+function createSettingsWindow(): BrowserWindow {
+  const iconPath = appIconPath();
+  const window = new BrowserWindow({
+    width: 560,
+    height: 620,
+    minWidth: 440,
+    minHeight: 460,
+    title: 'Settings',
+    backgroundColor: shellBackgroundColor(),
+    show: false,
+    ...(iconPath ? { icon: iconPath } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  });
+
+  window.once('ready-to-show', () => {
+    window.show();
+  });
+
+  window.on('close', (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+    window.hide();
+  });
+
+  window.on('closed', () => {
+    if (settingsWindow === window) {
+      settingsWindow = null;
+    }
+  });
+
+  const applyThemeBackground = (): void => {
+    if (!window.isDestroyed()) {
+      window.setBackgroundColor(shellBackgroundColor());
+    }
+  };
+  nativeTheme.on('updated', applyThemeBackground);
+  window.on('closed', () => {
+    nativeTheme.off('updated', applyThemeBackground);
+  });
+
+  if (isDev && process.env.ELECTRON_RENDERER_URL) {
+    const url = new URL(process.env.ELECTRON_RENDERER_URL);
+    url.hash = '/settings';
+    void window.loadURL(url.toString());
+  } else {
+    void window.loadFile(join(__dirname, '../renderer/index.html'), { hash: '/settings' });
+  }
+
+  return window;
+}
+
 function showMainWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = createMainWindow();
@@ -131,6 +189,19 @@ function showMainWindow(): void {
   }
   mainWindow.show();
   mainWindow.focus();
+}
+
+function showSettingsWindow(): void {
+  if (!settingsWindow || settingsWindow.isDestroyed()) {
+    settingsWindow = createSettingsWindow();
+    return;
+  }
+
+  if (settingsWindow.isMinimized()) {
+    settingsWindow.restore();
+  }
+  settingsWindow.show();
+  settingsWindow.focus();
 }
 
 function quitApp(): void {
@@ -176,6 +247,7 @@ app.whenReady().then(() => {
   registerServerIpc(pcServer, pairingManager, pairingStore);
   registerCursorOverlayIpc(cursorOverlay);
   registerPairingApprovalIpc(pcServer);
+  registerSettingsWindowIpc(showSettingsWindow);
   void pcServer.start();
 
   mainWindow = createMainWindow();
@@ -190,6 +262,7 @@ app.whenReady().then(() => {
         lastError: null
       },
     showWindow: showMainWindow,
+    openSettings: showSettingsWindow,
     disconnectClients: () => {
       pcServer?.disconnectClients();
       tray?.update();

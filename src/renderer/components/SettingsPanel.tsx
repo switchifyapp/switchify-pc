@@ -2,46 +2,47 @@ import type { ReactElement } from 'react';
 import type { PairedDeviceView } from '../../shared/server-status';
 import type { ConnectedDeviceView } from '../connected-devices';
 import { formatTimestamp } from '../format';
-import { TroubleshootingSection } from './DetailGrid';
 
-export function SettingsPanel({
-  connectedDevices,
-  pairedDevices,
-  cursorOverlayEnabled,
-  onDisconnect,
-  onToggleCursorOverlay
-}: {
+type SettingsViewProps = {
   connectedDevices: ConnectedDeviceView[];
   pairedDevices: PairedDeviceView[];
   cursorOverlayEnabled: boolean;
   onDisconnect: () => Promise<void>;
   onToggleCursorOverlay: (enabled: boolean) => Promise<void>;
-}): ReactElement {
+};
+
+export function SettingsView({
+  connectedDevices,
+  pairedDevices,
+  cursorOverlayEnabled,
+  onDisconnect,
+  onToggleCursorOverlay
+}: SettingsViewProps): ReactElement {
   return (
-    <details className="settings-panel">
-      <summary>Settings</summary>
-      <div className="settings-content">
-        <TroubleshootingSection title="Connection">
-          <ConnectedDeviceList devices={connectedDevices} />
-          <button type="button" onClick={() => void onDisconnect()} disabled={connectedDevices.length === 0}>
-            Disconnect device
-          </button>
-        </TroubleshootingSection>
-        <TroubleshootingSection title="Input">
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={cursorOverlayEnabled}
-              onChange={(event) => void onToggleCursorOverlay(event.currentTarget.checked)}
-            />
-            <span>Show cursor highlight when the device moves the mouse</span>
-          </label>
-        </TroubleshootingSection>
-        <TroubleshootingSection title="Saved devices">
-          <PairedDeviceList devices={pairedDevices} />
-        </TroubleshootingSection>
-      </div>
-    </details>
+    <div className="settings-window-content">
+      <section className="settings-window-section">
+        <h2>Connection</h2>
+        <ConnectedDeviceList devices={connectedDevices} />
+        <button type="button" onClick={() => void onDisconnect()} disabled={connectedDevices.length === 0}>
+          Disconnect device
+        </button>
+      </section>
+      <section className="settings-window-section">
+        <h2>Input</h2>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={cursorOverlayEnabled}
+            onChange={(event) => void onToggleCursorOverlay(event.currentTarget.checked)}
+          />
+          <span>Show cursor highlight when the device moves the mouse</span>
+        </label>
+      </section>
+      <section className="settings-window-section">
+        <h2>Saved devices</h2>
+        <PairedDeviceList devices={pairedDevices} />
+      </section>
+    </div>
   );
 }
 

@@ -1,13 +1,21 @@
 import type { ReactElement } from 'react';
 import { PairingApprovalRequests } from './components/PairingApprovalRequests';
 import { PrimaryContent } from './components/PrimaryContent';
-import { SettingsPanel } from './components/SettingsPanel';
 import { StatusHeader } from './components/StatusHeader';
 import { TroubleshootingDetails } from './components/TroubleshootingDetails';
 import { WindowTitleBar } from './components/WindowTitleBar';
+import { SettingsApp } from './SettingsApp';
 import { useSwitchifyPcStatus } from './useSwitchifyPcStatus';
 
 export function App(): ReactElement {
+  if (window.location.hash === '#/settings') {
+    return <SettingsApp />;
+  }
+
+  return <MainApp />;
+}
+
+function MainApp(): ReactElement {
   const bridge = window.switchifyPc;
   const status = useSwitchifyPcStatus(bridge);
 
@@ -16,7 +24,11 @@ export function App(): ReactElement {
       <WindowTitleBar appName={bridge.appName} state={status.uiState} />
       <main className="app-shell">
         <section className="setup-card" aria-label="Switchify PC setup">
-          <StatusHeader state={status.uiState} appName={bridge.appName} />
+          <StatusHeader
+            state={status.uiState}
+            appName={bridge.appName}
+            onOpenSettings={bridge.openSettingsWindow}
+          />
 
           <PairingApprovalRequests
             requests={status.pendingPairingRequests}
@@ -28,14 +40,6 @@ export function App(): ReactElement {
             connectedDevices={status.connectedDevices}
             onDisconnect={status.disconnectClients}
             onRefresh={status.refresh}
-          />
-
-          <SettingsPanel
-            connectedDevices={status.connectedDevices}
-            pairedDevices={status.pairedDevices}
-            cursorOverlayEnabled={status.cursorOverlayEnabled}
-            onDisconnect={status.disconnectClients}
-            onToggleCursorOverlay={status.toggleCursorOverlay}
           />
 
           <TroubleshootingDetails
