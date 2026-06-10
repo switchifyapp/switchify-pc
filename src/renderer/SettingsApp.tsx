@@ -19,6 +19,7 @@ export function SettingsApp(): ReactElement {
         pairedDevices={status.pairedDevices}
         cursorOverlayEnabled={status.cursorOverlayEnabled}
         onDisconnect={status.disconnectClients}
+        onForgetPairedDevice={status.forgetPairedDevice}
         onToggleCursorOverlay={status.toggleCursorOverlay}
       />
     </WindowChrome>

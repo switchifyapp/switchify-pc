@@ -2,6 +2,7 @@ export const SERVER_STATUS_CHANNEL = 'pc-server:get-status';
 export const GET_CONNECTION_DETAILS_CHANNEL = 'pc-server:get-connection-details';
 export const GET_PAIRED_DEVICES_CHANNEL = 'pc-server:get-paired-devices';
 export const DISCONNECT_CLIENTS_CHANNEL = 'pc-server:disconnect-clients';
+export const FORGET_PAIRED_DEVICE_CHANNEL = 'pc-server:forget-paired-device';
 export const GET_CURSOR_OVERLAY_ENABLED_CHANNEL = 'cursor-overlay:get-enabled';
 export const SET_CURSOR_OVERLAY_ENABLED_CHANNEL = 'cursor-overlay:set-enabled';
 export const GET_PENDING_PAIRING_REQUESTS_CHANNEL = 'pairing-approval:get-pending';

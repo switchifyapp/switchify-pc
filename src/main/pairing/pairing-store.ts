@@ -90,6 +90,13 @@ export function upsertPairedDevice(state: PairingState, device: PairedDevice): P
   };
 }
 
+export function removePairedDevice(state: PairingState, deviceId: string): PairingState {
+  return {
+    ...state,
+    pairedDevices: state.pairedDevices.filter((device) => device.deviceId !== deviceId)
+  };
+}
+
 function parsePairingState(value: unknown): PairingState {
   if (!isRecord(value) || typeof value.desktopId !== 'string' || !Array.isArray(value.pairedDevices)) {
     throw new Error('Invalid pairing state.');

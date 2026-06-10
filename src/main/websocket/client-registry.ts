@@ -27,6 +27,18 @@ export class WebSocketClientRegistry {
     }
   }
 
+  closeByDeviceId(deviceId: string): number {
+    let closedCount = 0;
+    for (const [client, connectedClient] of this.clients) {
+      if (connectedClient.deviceId !== deviceId) continue;
+
+      client.close();
+      this.clients.delete(client);
+      closedCount += 1;
+    }
+    return closedCount;
+  }
+
   clear(): void {
     this.clients.clear();
   }

@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import type { PairedDeviceView } from '../../shared/server-status';
 import type { ConnectedDeviceView } from '../connected-devices';
 import { formatTimestamp } from '../format';
@@ -8,6 +8,7 @@ type SettingsViewProps = {
   pairedDevices: PairedDeviceView[];
   cursorOverlayEnabled: boolean;
   onDisconnect: () => Promise<void>;
+  onForgetPairedDevice: (deviceId: string) => Promise<{ ok: boolean; reason?: string }>;
   onToggleCursorOverlay: (enabled: boolean) => Promise<void>;
 };
 
@@ -16,6 +17,7 @@ export function SettingsView({
   pairedDevices,
   cursorOverlayEnabled,
   onDisconnect,
+  onForgetPairedDevice,
   onToggleCursorOverlay
 }: SettingsViewProps): ReactElement {
   return (
@@ -40,7 +42,7 @@ export function SettingsView({
       </section>
       <section className="settings-window-section">
         <h2>Saved devices</h2>
-        <PairedDeviceList devices={pairedDevices} />
+        <PairedDeviceList devices={pairedDevices} onForgetPairedDevice={onForgetPairedDevice} />
       </section>
     </div>
   );
@@ -63,20 +65,95 @@ function ConnectedDeviceList({ devices }: { devices: ConnectedDeviceView[] }): R
   );
 }
 
-function PairedDeviceList({ devices }: { devices: PairedDeviceView[] }): ReactElement {
+function PairedDeviceList({
+  devices,
+  onForgetPairedDevice
+}: {
+  devices: PairedDeviceView[];
+  onForgetPairedDevice: (deviceId: string) => Promise<{ ok: boolean; reason?: string }>;
+}): ReactElement {
+  const [confirmingDeviceId, setConfirmingDeviceId] = useState<string | null>(null);
+  const [forgetError, setForgetError] = useState<string | null>(null);
+  const [forgettingDeviceId, setForgettingDeviceId] = useState<string | null>(null);
+
   if (devices.length === 0) {
     return <div className="empty-state">No devices saved.</div>;
   }
 
+  const confirmForget = async (deviceId: string): Promise<void> => {
+    setForgettingDeviceId(deviceId);
+    try {
+      const result = await onForgetPairedDevice(deviceId);
+      if (result.ok) {
+        setConfirmingDeviceId(null);
+        setForgetError(null);
+        return;
+      }
+      setForgetError(toForgetDeviceError(result.reason));
+    } catch {
+      setForgetError('Could not forget that saved device.');
+    } finally {
+      setForgettingDeviceId(null);
+    }
+  };
+
   return (
-    <ul className="technical-list">
-      {devices.map((device) => (
-        <li key={device.deviceId}>
-          <strong>{device.deviceName}</strong>
-          <span>Paired {formatTimestamp(device.pairedAt)}</span>
-          <span>Last seen {formatTimestamp(device.lastSeenAt)}</span>
-        </li>
-      ))}
-    </ul>
+    <>
+      {forgetError ? <div className="inline-error">{forgetError}</div> : null}
+      <ul className="technical-list">
+        {devices.map((device) => {
+          const isConfirming = confirmingDeviceId === device.deviceId;
+          const isForgetting = forgettingDeviceId === device.deviceId;
+          return (
+            <li key={device.deviceId}>
+              <strong>{device.deviceName}</strong>
+              <span>Paired {formatTimestamp(device.pairedAt)}</span>
+              <span>Last seen {formatTimestamp(device.lastSeenAt)}</span>
+              <div className="technical-list-actions">
+                {isConfirming ? (
+                  <>
+                    <button
+                      type="button"
+                      className="danger-button"
+                      disabled={isForgetting}
+                      onClick={() => void confirmForget(device.deviceId)}
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isForgetting}
+                      onClick={() => {
+                        setConfirmingDeviceId(null);
+                        setForgetError(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={() => {
+                      setConfirmingDeviceId(device.deviceId);
+                      setForgetError(null);
+                    }}
+                  >
+                    Forget
+                  </button>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
+}
+
+function toForgetDeviceError(reason: string | undefined): string {
+  if (reason === 'device_not_found') return 'That saved device is no longer available.';
+  if (reason === 'invalid_device_id') return 'That saved device could not be forgotten.';
+  return 'Could not forget that saved device.';
 }
