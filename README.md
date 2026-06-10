@@ -88,9 +88,17 @@ Self-signed certificates are for dev/testing only. Production users should not b
 
 ## Local network expectations
 
-Switchify PC starts a local WebSocket server on port `7347` by default. Android devices must be on the same local network and able to reach the PC at that port.
+Switchify PC starts local IPv4 and IPv6 WebSocket listeners on port `7347` by default. Android devices must be on the same local network and able to reach the PC at that port.
 
 Windows Defender Firewall or third-party firewall software may prompt when the packaged app first starts. Allow private-network access for local pairing and control. Public-network access is not required for the MVP.
+
+Use the read-only network diagnostic script to inspect current listeners, firewall rule state, and Windows network profiles:
+
+```powershell
+npm run check:network
+```
+
+On Windows, `Get-NetTCPConnection -LocalPort 7347 -State Listen` should show both IPv4 and IPv6 listeners when both address families are available.
 
 Do not expose the WebSocket port directly to the internet. Runtime commands are authenticated, but the intended control surface is the trusted local network.
 

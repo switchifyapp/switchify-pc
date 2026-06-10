@@ -8,7 +8,7 @@ describe('MdnsAdvertiser', () => {
     const advertiser = new MdnsAdvertiser({
       getDesktopId: async () => 'desktop-1',
       getPort: () => 7347,
-      getResponder: () => fakeResponder
+      getResponder: (options) => fakeResponder.getResponder(options)
     });
 
     await advertiser.start();
@@ -26,8 +26,15 @@ describe('MdnsAdvertiser', () => {
         pairing: 'approval'
       }
     });
-    expect(JSON.stringify(fakeResponder.serviceOptions)).not.toContain('token');
-    expect(JSON.stringify(fakeResponder.serviceOptions)).not.toContain('nonce');
+    expect(fakeResponder.responderOptions).toMatchObject({
+      advertiseIpv4: true,
+      advertiseIpv6: true
+    });
+    const serializedOptions = JSON.stringify(fakeResponder.serviceOptions);
+    expect(serializedOptions).not.toContain('token');
+    expect(serializedOptions).not.toContain('nonce');
+    expect(serializedOptions).not.toContain('auth');
+    expect(serializedOptions).not.toContain('secret');
   });
 
   it('stops and destroys the advertised service', async () => {
@@ -35,7 +42,7 @@ describe('MdnsAdvertiser', () => {
     const advertiser = new MdnsAdvertiser({
       getDesktopId: async () => 'desktop-1',
       getPort: () => 7347,
-      getResponder: () => fakeResponder
+      getResponder: (options) => fakeResponder.getResponder(options)
     });
     await advertiser.start();
 
@@ -51,7 +58,13 @@ describe('MdnsAdvertiser', () => {
 class FakeResponder {
   readonly service = new FakeService();
   serviceOptions: unknown = null;
+  responderOptions: unknown = null;
   shutdownCalled = false;
+
+  getResponder(options?: unknown): FakeResponder {
+    this.responderOptions = options;
+    return this;
+  }
 
   createService(options: unknown): FakeService {
     this.serviceOptions = options;

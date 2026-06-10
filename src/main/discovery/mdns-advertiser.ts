@@ -1,4 +1,4 @@
-import { getResponder } from '@homebridge/ciao';
+import { getResponder, type ResponderOptions } from '@homebridge/ciao';
 import {
   createSwitchifyDiscoveryTxt,
   SWITCHIFY_MDNS_SERVICE_NAME,
@@ -9,7 +9,7 @@ export type MdnsAdvertiserOptions = {
   getDesktopId: () => Promise<string>;
   getPort: () => number;
   getServiceName?: () => string;
-  getResponder?: () => MdnsResponder;
+  getResponder?: (options?: ResponderOptions) => MdnsResponder;
 };
 
 type MdnsResponder = {
@@ -34,15 +34,23 @@ export class MdnsAdvertiser {
     if (this.running) return;
 
     const desktopId = await this.options.getDesktopId();
-    const responder = this.options.getResponder?.() ?? getResponder();
+    const responderOptions: ResponderOptions = {
+      advertiseIpv4: true,
+      advertiseIpv6: true
+    };
+    const responder = this.options.getResponder?.(responderOptions) ?? getResponder(responderOptions);
+    const txt = createSwitchifyDiscoveryTxt(desktopId);
     const service = responder.createService({
       name: this.options.getServiceName?.() ?? SWITCHIFY_MDNS_SERVICE_NAME,
       type: SWITCHIFY_MDNS_SERVICE_TYPE,
       port: this.options.getPort(),
-      txt: createSwitchifyDiscoveryTxt(desktopId)
+      txt
     });
 
     await service.advertise();
+    console.info(
+      `Switchify discovery advertising. type=_${SWITCHIFY_MDNS_SERVICE_TYPE}._tcp port=${this.options.getPort()} addressFamilies=IPv4,IPv6 txtKeys=${Object.keys(txt).join(',')}`
+    );
     this.responder = responder;
     this.service = service;
     this.running = true;

@@ -31,9 +31,43 @@ describe('PcWebSocketServer', () => {
     const started = await server.start();
     expect(started.state).toBe('listening');
     expect(started.port).toBeGreaterThan(0);
+    expect(started.listeners.some((listener) => listener.family === 'IPv4' && listener.state === 'listening')).toBe(
+      true
+    );
 
     const stopped = await server.stop();
     expect(stopped.state).toBe('stopped');
+    expect(stopped.listeners).toEqual([]);
+  });
+
+  it('reports listener addresses and accepts IPv4 and available IPv6 connections', async () => {
+    const server = createServer();
+    activeServers.push(server);
+
+    await server.start();
+    const listeners = server.getAddresses();
+    const ipv4Listener = listeners.find((listener) => listener.family === 'IPv4');
+    const ipv6Listener = listeners.find((listener) => listener.family === 'IPv6');
+
+    expect(ipv4Listener).toMatchObject({
+      family: 'IPv4',
+      address: '0.0.0.0',
+      state: 'listening',
+      error: null
+    });
+
+    const ipv4Client = await connect(server.getStatus().port, '127.0.0.1');
+    ipv4Client.close();
+
+    if (ipv6Listener?.state === 'listening') {
+      expect(ipv6Listener).toMatchObject({
+        family: 'IPv6',
+        address: '::',
+        error: null
+      });
+      const ipv6Client = await connect(server.getStatus().port, '::1');
+      ipv6Client.close();
+    }
   });
 
   it('acks authenticated ping commands', async () => {
@@ -469,9 +503,10 @@ function createPairingApprovalRequest() {
   };
 }
 
-function connect(port: number): Promise<WebSocket> {
+function connect(port: number, host = '127.0.0.1'): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const client = new WebSocket(`ws://127.0.0.1:${port}`);
+    const formattedHost = host.includes(':') ? `[${host}]` : host;
+    const client = new WebSocket(`ws://${formattedHost}:${port}`);
     client.once('open', () => resolve(client));
     client.once('error', reject);
   });

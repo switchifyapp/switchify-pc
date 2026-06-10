@@ -10,6 +10,7 @@
     "package:win": "npm run build && npm run native:build-overlay && electron-builder --win --x64",
     "package:win:verify-uiaccess": "node scripts/verify-win-uiaccess-package.cjs",
     "signing:create-dev-cert": "node scripts/create-dev-signing-cert.cjs",
+    "check:network": "node scripts/check-network-listeners.cjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run"
   },
