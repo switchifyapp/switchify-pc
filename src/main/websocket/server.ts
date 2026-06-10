@@ -61,13 +61,17 @@ export class PcWebSocketServer {
     };
   }
 
+  getAddress(): ReturnType<WebSocketServer['address']> {
+    return this.server?.address() ?? null;
+  }
+
   async start(): Promise<PcServerStatus> {
     if (this.server) return this.getStatus();
 
     this.setStatus({ state: 'starting', lastError: null });
 
     await new Promise<void>((resolve, reject) => {
-      const server = new WebSocketServer({ port: this.status.port });
+      const server = new WebSocketServer({ host: '0.0.0.0', port: this.status.port });
       this.server = server;
 
       server.once('listening', () => {

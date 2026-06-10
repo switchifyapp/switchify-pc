@@ -90,7 +90,18 @@ Self-signed certificates are for dev/testing only. Production users should not b
 
 Switchify PC starts a local WebSocket server on port `7347` by default. Android devices must be on the same local network and able to reach the PC at that port.
 
-Windows Defender Firewall or third-party firewall software may prompt when the packaged app first starts. Allow private-network access for local pairing and control. Public-network access is not required for the MVP.
+The Windows installer creates inbound Windows Defender Firewall rules in the `Switchify PC` group for TCP `7347` and UDP `5353`. The TCP rule allows Android devices to connect to the local WebSocket server. The UDP rule allows the app-owned mDNS responder to advertise `_switchify._tcp`. Both rules apply to Public, Private, and Domain profiles because home Wi-Fi is frequently categorized as Public.
+
+The app's Troubleshooting section shows whether the Switchify PC firewall rules are present and whether the active network profile is Public. If the rules are missing, use `Fix firewall` and approve the Windows elevation prompt.
+
+You can verify the installed app with:
+
+```powershell
+Get-NetFirewallRule -DisplayGroup "Switchify PC"
+Get-NetTCPConnection -LocalPort 7347 -State Listen
+```
+
+Uninstalling Switchify PC removes firewall rules in the `Switchify PC` group. Third-party firewall software can still block local discovery or control even when Windows Defender Firewall is configured correctly.
 
 Do not expose the WebSocket port directly to the internet. Runtime commands are authenticated, but the intended control surface is the trusted local network.
 
@@ -101,6 +112,7 @@ Use this checklist after packaging changes and before publishing any installer:
 - App launches from `Switchify PC.exe`.
 - Tray menu opens and can show the main window.
 - WebSocket server starts and shows `Listening on port 7347`.
+- Windows Firewall has enabled `Switchify PC` rules for TCP `7347` and UDP `5353`.
 - Pairing approval requests appear and can be accepted or rejected.
 - Android can pair with the PC using local discovery and approval.
 - Paired Android device can disconnect and reconnect without deleting the saved pairing.

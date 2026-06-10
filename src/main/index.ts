@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { CursorOverlay } from './cursor-overlay';
 import { registerCursorOverlayIpc } from './cursor-overlay-ipc';
 import { MdnsAdvertiser } from './discovery/mdns-advertiser';
+import { registerFirewallIpc } from './firewall-ipc';
 import { DesktopCommandExecutor } from './input/command-executor';
 import { LibnutWin32InputAdapter } from './input/libnut-win32-adapter';
 import { createPointerMovementProfile } from './input/pointer-profile';
@@ -14,6 +15,7 @@ import { JsonPairingStore } from './pairing/pairing-store';
 import { PairingManager } from './pairing/pairing-manager';
 import { registerServerIpc } from './server-ipc';
 import { registerSettingsWindowIpc } from './settings-window-ipc';
+import { DEFAULT_WS_PORT } from '../shared/server-status';
 import { createSwitchifyTray, type SwitchifyTray } from './tray';
 import { PcWebSocketServer } from './websocket/server';
 
@@ -255,6 +257,10 @@ app.whenReady().then(() => {
   registerCursorOverlayIpc(cursorOverlay);
   registerPairingApprovalIpc(pcServer);
   registerSettingsWindowIpc(showSettingsWindow);
+  registerFirewallIpc({
+    getAppPath: () => app.getPath('exe'),
+    getPort: () => pcServer?.getStatus().port ?? DEFAULT_WS_PORT
+  });
   void pcServer.start();
 
   mainWindow = createMainWindow();

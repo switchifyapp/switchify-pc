@@ -31,6 +31,7 @@ describe('PcWebSocketServer', () => {
     const started = await server.start();
     expect(started.state).toBe('listening');
     expect(started.port).toBeGreaterThan(0);
+    expect(server.getAddress()).toMatchObject({ address: '0.0.0.0' });
 
     const stopped = await server.stop();
     expect(stopped.state).toBe('stopped');

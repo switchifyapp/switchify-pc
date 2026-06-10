@@ -1,14 +1,17 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { FirewallDiagnostics, FirewallRepairResult } from '../shared/firewall';
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
 import type { ConnectionDetails, PairedDeviceView, PcServerStatus } from '../shared/server-status';
 import {
   DISCONNECT_CLIENTS_CHANNEL,
   FORGET_PAIRED_DEVICE_CHANNEL,
+  GET_FIREWALL_DIAGNOSTICS_CHANNEL,
   GET_CURSOR_OVERLAY_ENABLED_CHANNEL,
   GET_CONNECTION_DETAILS_CHANNEL,
   GET_PAIRED_DEVICES_CHANNEL,
   GET_PENDING_PAIRING_REQUESTS_CHANNEL,
   OPEN_SETTINGS_WINDOW_CHANNEL,
+  REPAIR_FIREWALL_CHANNEL,
   RESPOND_TO_PAIRING_REQUEST_CHANNEL,
   SERVER_STATUS_CHANNEL,
   SET_CURSOR_OVERLAY_ENABLED_CHANNEL
@@ -29,6 +32,8 @@ contextBridge.exposeInMainWorld('switchifyPc', {
   setCursorOverlayEnabled: (enabled: boolean): Promise<boolean> =>
     ipcRenderer.invoke(SET_CURSOR_OVERLAY_ENABLED_CHANNEL, enabled),
   openSettingsWindow: (): Promise<void> => ipcRenderer.invoke(OPEN_SETTINGS_WINDOW_CHANNEL),
+  getFirewallDiagnostics: (): Promise<FirewallDiagnostics> => ipcRenderer.invoke(GET_FIREWALL_DIAGNOSTICS_CHANNEL),
+  repairFirewall: (): Promise<FirewallRepairResult> => ipcRenderer.invoke(REPAIR_FIREWALL_CHANNEL),
   getPendingPairingRequests: (): Promise<PendingPairingApprovalView[]> =>
     ipcRenderer.invoke(GET_PENDING_PAIRING_REQUESTS_CHANNEL),
   respondToPairingRequest: (requestId: string, decision: PairingApprovalDecision): Promise<{ ok: boolean; reason?: string }> =>

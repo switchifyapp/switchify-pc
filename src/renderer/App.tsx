@@ -44,6 +44,8 @@ function MainApp(): ReactElement {
           serverStatus={status.serverStatus}
           connectionDetails={status.connectionDetails}
           pendingPairingRequests={status.pendingPairingRequests}
+          firewallDiagnostics={status.firewallDiagnostics}
+          onRepairFirewall={status.repairFirewall}
         />
       </section>
     </WindowChrome>

@@ -478,6 +478,27 @@ p {
   font-size: 0.98rem;
 }
 
+.troubleshooting-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.inline-warning,
+.inline-error {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.inline-warning {
+  color: var(--color-text-muted);
+}
+
+.inline-error {
+  color: var(--color-status-error);
+}
+
 .detail-grid {
   display: grid;
   gap: var(--space-xs);

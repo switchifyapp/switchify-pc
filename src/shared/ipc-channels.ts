@@ -8,3 +8,5 @@ export const SET_CURSOR_OVERLAY_ENABLED_CHANNEL = 'cursor-overlay:set-enabled';
 export const GET_PENDING_PAIRING_REQUESTS_CHANNEL = 'pairing-approval:get-pending';
 export const RESPOND_TO_PAIRING_REQUEST_CHANNEL = 'pairing-approval:respond';
 export const OPEN_SETTINGS_WINDOW_CHANNEL = 'settings:open-window';
+export const GET_FIREWALL_DIAGNOSTICS_CHANNEL = 'firewall:get-diagnostics';
+export const REPAIR_FIREWALL_CHANNEL = 'firewall:repair';

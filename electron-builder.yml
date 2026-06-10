@@ -39,4 +39,5 @@ nsis:
   perMachine: true
   allowElevation: true
   differentialPackage: false
+  include: build/installer.nsh
   artifactName: Switchify-PC-Setup-${version}-${arch}.${ext}

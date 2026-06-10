@@ -1,11 +1,11 @@
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 
 export function TroubleshootingSection({
   title,
   children
 }: {
   title: string;
-  children: ReactElement | ReactElement[];
+  children: ReactNode;
 }): ReactElement {
   return (
     <section className="troubleshooting-section">
@@ -15,7 +15,7 @@ export function TroubleshootingSection({
   );
 }
 
-export function DetailGrid({ children }: { children: ReactElement | ReactElement[] }): ReactElement {
+export function DetailGrid({ children }: { children: ReactNode }): ReactElement {
   return <div className="detail-grid">{children}</div>;
 }
 

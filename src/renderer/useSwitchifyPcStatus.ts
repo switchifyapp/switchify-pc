@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { deriveDesktopUiState, type DesktopUiState } from '../shared/desktop-ui-state';
+import type { FirewallDiagnostics, FirewallRepairResult } from '../shared/firewall';
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
 import type {
   ConnectionDetails,
@@ -16,9 +17,12 @@ export type SwitchifyPcStatusViewModel = {
   pendingPairingRequests: PendingPairingApprovalView[];
   connectedDevices: ConnectedDeviceView[];
   cursorOverlayEnabled: boolean;
+  firewallDiagnostics: FirewallDiagnostics | null;
   refresh: () => Promise<void>;
+  refreshFirewallDiagnostics: () => Promise<void>;
   disconnectClients: () => Promise<void>;
   forgetPairedDevice: (deviceId: string) => Promise<{ ok: boolean; reason?: string }>;
+  repairFirewall: () => Promise<FirewallRepairResult>;
   toggleCursorOverlay: (enabled: boolean) => Promise<void>;
   respondToPairingRequest: (requestId: string, decision: PairingApprovalDecision) => Promise<void>;
 };
@@ -29,18 +33,25 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
   const [pairedDevices, setPairedDevices] = useState<PairedDeviceView[]>([]);
   const [pendingPairingRequests, setPendingPairingRequests] = useState<PendingPairingApprovalView[]>([]);
   const [cursorOverlayEnabled, setCursorOverlayEnabled] = useState(true);
+  const [firewallDiagnostics, setFirewallDiagnostics] = useState<FirewallDiagnostics | null>(null);
 
   const refresh = useCallback(async (): Promise<void> => {
-    const [status, details, devices, requests] = await Promise.all([
+    const [status, details, devices, requests, firewall] = await Promise.all([
       bridge.getServerStatus(),
       bridge.getConnectionDetails(),
       bridge.getPairedDevices(),
-      bridge.getPendingPairingRequests()
+      bridge.getPendingPairingRequests(),
+      bridge.getFirewallDiagnostics()
     ]);
     setServerStatus(status);
     setConnectionDetails(details);
     setPairedDevices(devices);
     setPendingPairingRequests(requests);
+    setFirewallDiagnostics(firewall);
+  }, [bridge]);
+
+  const refreshFirewallDiagnostics = useCallback(async (): Promise<void> => {
+    setFirewallDiagnostics(await bridge.getFirewallDiagnostics());
   }, [bridge]);
 
   const disconnectClients = useCallback(async (): Promise<void> => {
@@ -61,6 +72,16 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
     },
     [bridge, refresh]
   );
+
+  const repairFirewall = useCallback(async (): Promise<FirewallRepairResult> => {
+    const result = await bridge.repairFirewall();
+    if (result.diagnostics) {
+      setFirewallDiagnostics(result.diagnostics);
+    } else {
+      await refreshFirewallDiagnostics();
+    }
+    return result;
+  }, [bridge, refreshFirewallDiagnostics]);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,9 +129,12 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
     pendingPairingRequests,
     connectedDevices: toConnectedDeviceViews(serverStatus?.connectedClients ?? [], pairedDevices),
     cursorOverlayEnabled,
+    firewallDiagnostics,
     refresh,
+    refreshFirewallDiagnostics,
     disconnectClients,
     forgetPairedDevice,
+    repairFirewall,
     toggleCursorOverlay,
     respondToPairingRequest
   };
