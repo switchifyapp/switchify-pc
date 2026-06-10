@@ -13,6 +13,7 @@ declare global {
       disconnectClients: () => Promise<PcServerStatus>;
       getCursorOverlayEnabled: () => Promise<boolean>;
       setCursorOverlayEnabled: (enabled: boolean) => Promise<boolean>;
+      openSettingsWindow: () => Promise<void>;
       getPendingPairingRequests: () => Promise<PendingPairingApprovalView[]>;
       respondToPairingRequest: (
         requestId: string,

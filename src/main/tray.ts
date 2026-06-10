@@ -6,6 +6,7 @@ import type { PcServerStatus } from '../shared/server-status';
 export type SwitchifyTrayOptions = {
   getStatus: () => PcServerStatus;
   showWindow: () => void;
+  openSettings: () => void;
   disconnectClients: () => void;
   quit: () => void;
 };
@@ -24,6 +25,7 @@ export function createSwitchifyTray(options: SwitchifyTrayOptions): SwitchifyTra
     tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: 'Open Switchify PC', click: options.showWindow },
+        { label: 'Settings', click: options.openSettings },
         { label: formatMenuStatus(status), enabled: false },
         { type: 'separator' },
         {

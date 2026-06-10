@@ -7,6 +7,7 @@ import {
   GET_CONNECTION_DETAILS_CHANNEL,
   GET_PAIRED_DEVICES_CHANNEL,
   GET_PENDING_PAIRING_REQUESTS_CHANNEL,
+  OPEN_SETTINGS_WINDOW_CHANNEL,
   RESPOND_TO_PAIRING_REQUEST_CHANNEL,
   SERVER_STATUS_CHANNEL,
   SET_CURSOR_OVERLAY_ENABLED_CHANNEL
@@ -21,6 +22,7 @@ contextBridge.exposeInMainWorld('switchifyPc', {
   getCursorOverlayEnabled: (): Promise<boolean> => ipcRenderer.invoke(GET_CURSOR_OVERLAY_ENABLED_CHANNEL),
   setCursorOverlayEnabled: (enabled: boolean): Promise<boolean> =>
     ipcRenderer.invoke(SET_CURSOR_OVERLAY_ENABLED_CHANNEL, enabled),
+  openSettingsWindow: (): Promise<void> => ipcRenderer.invoke(OPEN_SETTINGS_WINDOW_CHANNEL),
   getPendingPairingRequests: (): Promise<PendingPairingApprovalView[]> =>
     ipcRenderer.invoke(GET_PENDING_PAIRING_REQUESTS_CHANNEL),
   respondToPairingRequest: (requestId: string, decision: PairingApprovalDecision): Promise<{ ok: boolean; reason?: string }> =>

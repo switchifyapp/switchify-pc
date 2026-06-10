@@ -1,16 +1,29 @@
 import type { ReactElement } from 'react';
 import type { DesktopUiState } from '../../shared/desktop-ui-state';
 
-export function StatusHeader({ state, appName }: { state: DesktopUiState; appName: string }): ReactElement {
+export function StatusHeader({
+  state,
+  appName,
+  onOpenSettings
+}: {
+  state: DesktopUiState;
+  appName: string;
+  onOpenSettings: () => Promise<void>;
+}): ReactElement {
   return (
     <header className="setup-header">
       <div>
         <p className="section-label">Desktop companion</p>
         <h1>{appName}</h1>
       </div>
-      <div className={`status-badge status-badge-${statusTone(state)}`}>
-        <span className="status-dot" />
-        {statusBadgeLabel(state)}
+      <div className="setup-header-actions">
+        <button type="button" onClick={() => void onOpenSettings()}>
+          Settings
+        </button>
+        <div className={`status-badge status-badge-${statusTone(state)}`}>
+          <span className="status-dot" />
+          {statusBadgeLabel(state)}
+        </div>
       </div>
     </header>
   );
