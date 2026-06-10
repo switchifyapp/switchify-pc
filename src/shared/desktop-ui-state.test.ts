@@ -41,6 +41,7 @@ function serverStatus(overrides: Partial<PcServerStatus> = {}): PcServerStatus {
     connectedClients: [],
     lastSeenAt: null,
     lastError: null,
+    listeners: [],
     ...overrides
   };
 }

@@ -27,6 +27,7 @@ export function TroubleshootingDetails({
           <DetailGrid>
             <DetailItem label="Server status" value={serverStatus?.state ?? 'Unknown'} />
             <DetailItem label="Port" value={serverStatus ? String(serverStatus.port) : 'Unknown'} />
+            <DetailItem label="Listeners" value={formatListeners(serverStatus)} />
             <DetailItem label="Connection address" value={connectionDetails?.websocketUrl ?? 'Not available.'} />
             <DetailItem label="Desktop id" value={connectionDetails?.desktopId ?? 'Not available.'} />
             <DetailItem label="Last command" value={formatTimestamp(serverStatus?.lastSeenAt ?? null)} />
@@ -36,6 +37,18 @@ export function TroubleshootingDetails({
       </div>
     </details>
   );
+}
+
+function formatListeners(serverStatus: PcServerStatus | null): string {
+  if (!serverStatus || serverStatus.listeners.length === 0) return 'Not available.';
+
+  return serverStatus.listeners
+    .map((listener) => {
+      const host = listener.family === 'IPv6' ? `[${listener.address}]` : listener.address;
+      const suffix = listener.state === 'error' ? ` (${listener.error ?? 'error'})` : '';
+      return `${listener.family} ${host}:${listener.port}${suffix}`;
+    })
+    .join(', ');
 }
 
 function PendingRequestList({ requests }: { requests: PendingPairingApprovalView[] }): ReactElement {

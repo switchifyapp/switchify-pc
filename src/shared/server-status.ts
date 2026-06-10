@@ -8,6 +8,14 @@ export type PcConnectedClient = {
   lastSeenAt: number | null;
 };
 
+export type PcServerListenerStatus = {
+  family: 'IPv4' | 'IPv6';
+  address: string;
+  port: number;
+  state: 'listening' | 'error';
+  error: string | null;
+};
+
 export type PcServerStatus = {
   state: 'stopped' | 'starting' | 'listening' | 'error';
   port: number;
@@ -15,6 +23,7 @@ export type PcServerStatus = {
   connectedClients: PcConnectedClient[];
   lastSeenAt: number | null;
   lastError: string | null;
+  listeners: PcServerListenerStatus[];
 };
 
 export type PcServerStatusListener = (status: PcServerStatus) => void;

@@ -266,7 +266,8 @@ app.whenReady().then(() => {
         connectedClientCount: 0,
         connectedClients: [],
         lastSeenAt: null,
-        lastError: null
+        lastError: null,
+        listeners: []
       },
     showWindow: showMainWindow,
     openSettings: showSettingsWindow,

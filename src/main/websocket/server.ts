@@ -1,4 +1,5 @@
-import type { IncomingMessage } from 'node:http';
+import { createServer, type IncomingMessage, type Server as HttpServer } from 'node:http';
+import type { AddressInfo, ListenOptions } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
 import {
   createAckResponse,
@@ -13,6 +14,7 @@ import {
 import {
   DEFAULT_WS_PORT,
   type PcServerStatus,
+  type PcServerListenerStatus,
   type PcServerStatusListener
 } from '../../shared/server-status';
 import type { CommandAuthValidator } from '../pairing/auth';
@@ -37,8 +39,29 @@ export type CommandHandlerResult =
   | { ok: true }
   | { ok: false; code: 'unsupported_command' | 'unsafe_payload' | 'adapter_failure'; message: string };
 
+type ListenerFamily = 'IPv4' | 'IPv6';
+
+type ListenerTarget = {
+  family: ListenerFamily;
+  host: string;
+  ipv6Only?: boolean;
+};
+
+type PcWebSocketListener = {
+  family: ListenerFamily;
+  host: string;
+  httpServer: HttpServer;
+  wsServer: WebSocketServer;
+  address: AddressInfo | null;
+};
+
+const LISTENER_TARGETS: ListenerTarget[] = [
+  { family: 'IPv4', host: '0.0.0.0' },
+  { family: 'IPv6', host: '::', ipv6Only: true }
+];
+
 export class PcWebSocketServer {
-  private server: WebSocketServer | null = null;
+  private listeners: PcWebSocketListener[] = [];
   private readonly clientRegistry = new WebSocketClientRegistry();
   private readonly pendingApprovalConnections = new PendingPairingApprovalConnections();
   private status: PcServerStatus;
@@ -50,46 +73,79 @@ export class PcWebSocketServer {
       connectedClientCount: 0,
       connectedClients: [],
       lastSeenAt: null,
-      lastError: null
+      lastError: null,
+      listeners: []
     };
   }
 
   getStatus(): PcServerStatus {
     return {
       ...this.status,
-      connectedClients: this.status.connectedClients.map((client) => ({ ...client }))
+      connectedClients: this.status.connectedClients.map((client) => ({ ...client })),
+      listeners: this.status.listeners.map((listener) => ({ ...listener }))
     };
   }
 
+  getAddresses(): PcServerListenerStatus[] {
+    return this.getStatus().listeners;
+  }
+
   async start(): Promise<PcServerStatus> {
-    if (this.server) return this.getStatus();
+    if (this.listeners.length > 0) return this.getStatus();
 
-    this.setStatus({ state: 'starting', lastError: null });
+    this.setStatus({ state: 'starting', lastError: null, listeners: [] });
 
-    await new Promise<void>((resolve, reject) => {
-      const server = new WebSocketServer({ port: this.status.port });
-      this.server = server;
+    const listenerStatuses: PcServerListenerStatus[] = [];
+    const errors: string[] = [];
+    let port = this.status.port;
 
-      server.once('listening', () => {
-        const address = server.address();
-        const port = typeof address === 'object' && address ? address.port : this.status.port;
-        this.setStatus({ state: 'listening', port });
-        resolve();
-      });
-      server.once('error', (error) => {
-        this.setStatus({ state: 'error', lastError: error.message });
-        reject(error);
-      });
-      server.on('connection', (client, request) => this.handleConnection(client, request));
+    for (const target of LISTENER_TARGETS) {
+      try {
+        const listener = await this.startListener(target, port);
+        this.listeners.push(listener);
+        port = listener.address?.port ?? port;
+        const status = toListenerStatus(listener);
+        listenerStatuses.push(status);
+        console.info(
+          `Switchify WebSocket listener started. family=${status.family} address=${status.address} port=${status.port}`
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown listener error.';
+        const status = {
+          family: target.family,
+          address: target.host,
+          port,
+          state: 'error',
+          error: message
+        } satisfies PcServerListenerStatus;
+        listenerStatuses.push(status);
+        errors.push(`${target.family} ${target.host}:${port} failed: ${message}`);
+        console.error(
+          `Switchify WebSocket listener failed. family=${target.family} address=${target.host} port=${port} error=${message}`
+        );
+      }
+    }
+
+    if (this.listeners.length === 0) {
+      const lastError = errors.join('; ') || 'No WebSocket listeners started.';
+      this.setStatus({ state: 'error', lastError, listeners: listenerStatuses });
+      throw new Error(lastError);
+    }
+
+    this.setStatus({
+      state: 'listening',
+      port,
+      lastError: errors.length > 0 ? errors.join('; ') : null,
+      listeners: listenerStatuses
     });
 
     return this.getStatus();
   }
 
   async stop(): Promise<PcServerStatus> {
-    const server = this.server;
-    if (!server) {
-      this.setStatus({ state: 'stopped', connectedClientCount: 0, connectedClients: [] });
+    const listeners = this.listeners;
+    if (listeners.length === 0) {
+      this.setStatus({ state: 'stopped', connectedClientCount: 0, connectedClients: [], listeners: [] });
       return this.getStatus();
     }
 
@@ -98,15 +154,10 @@ export class PcWebSocketServer {
     this.pendingApprovalConnections.clearAll();
     this.updateClientStatus();
 
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => {
-        if (error) reject(error);
-        else resolve();
-      });
-    });
+    this.listeners = [];
+    await Promise.all(listeners.map((listener) => closeListener(listener)));
 
-    this.server = null;
-    this.setStatus({ state: 'stopped', connectedClientCount: 0, connectedClients: [] });
+    this.setStatus({ state: 'stopped', connectedClientCount: 0, connectedClients: [], listeners: [] });
     return this.getStatus();
   }
 
@@ -306,6 +357,45 @@ export class PcWebSocketServer {
     this.options.onStatusChange?.(this.getStatus());
   }
 
+  private startListener(target: ListenerTarget, port: number): Promise<PcWebSocketListener> {
+    return new Promise((resolve, reject) => {
+      const httpServer = createServer();
+      const wsServer = new WebSocketServer({ server: httpServer });
+      const listenOptions = {
+        host: target.host,
+        port,
+        ...(target.ipv6Only === undefined ? {} : { ipv6Only: target.ipv6Only })
+      } satisfies ListenOptions;
+
+      const cleanup = (): void => {
+        httpServer.off('listening', onListening);
+        httpServer.off('error', onError);
+      };
+      const onListening = (): void => {
+        cleanup();
+        wsServer.on('connection', (client, request) => this.handleConnection(client, request));
+        const address = httpServer.address();
+        resolve({
+          family: target.family,
+          host: target.host,
+          httpServer,
+          wsServer,
+          address: typeof address === 'object' && address ? address : null
+        });
+      };
+      const onError = (error: Error): void => {
+        cleanup();
+        wsServer.close();
+        httpServer.close();
+        reject(error);
+      };
+
+      httpServer.once('listening', onListening);
+      httpServer.once('error', onError);
+      httpServer.listen(listenOptions);
+    });
+  }
+
   private getPointerProfile(): PointerMovementProfile | null {
     try {
       return this.options.getPointerProfile?.() ?? null;
@@ -334,4 +424,26 @@ export class PcWebSocketServer {
       this.options.pairingApprovalManager?.reject(requestId);
     }
   }
+}
+
+function toListenerStatus(listener: PcWebSocketListener): PcServerListenerStatus {
+  return {
+    family: listener.family,
+    address: listener.address?.address ?? listener.host,
+    port: listener.address?.port ?? 0,
+    state: 'listening',
+    error: null
+  };
+}
+
+async function closeListener(listener: PcWebSocketListener): Promise<void> {
+  await new Promise<void>((resolve) => {
+    listener.wsServer.close(() => resolve());
+  });
+  await new Promise<void>((resolve, reject) => {
+    listener.httpServer.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
 }
