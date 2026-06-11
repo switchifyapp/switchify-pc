@@ -35,6 +35,8 @@ function MainApp(): ReactElement {
 
         <PrimaryContent
           state={status.uiState}
+          appName={bridge.appName}
+          connectionDetails={status.connectionDetails}
           connectedDevices={status.connectedDevices}
           onDisconnect={status.disconnectClients}
           onRefresh={status.refresh}

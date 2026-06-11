@@ -1,14 +1,20 @@
 import type { ReactElement } from 'react';
 import type { DesktopUiState } from '../../shared/desktop-ui-state';
+import type { ConnectionDetails } from '../../shared/server-status';
 import type { ConnectedDeviceView } from '../connected-devices';
+import { ManualConnectionPanel } from './ManualConnectionPanel';
 
 export function PrimaryContent({
   state,
+  appName,
+  connectionDetails,
   connectedDevices,
   onDisconnect,
   onRefresh
 }: {
   state: DesktopUiState;
+  appName: string;
+  connectionDetails: ConnectionDetails | null;
   connectedDevices: ConnectedDeviceView[];
   onDisconnect: () => Promise<void>;
   onRefresh: () => Promise<void>;
@@ -31,10 +37,10 @@ export function PrimaryContent({
   }
 
   if (state === 'waiting-for-device') {
-    return <WaitingForDeviceState />;
+    return <WaitingForDeviceState appName={appName} connectionDetails={connectionDetails} />;
   }
 
-  return <ReadyToConnectState />;
+  return <ReadyToConnectState appName={appName} connectionDetails={connectionDetails} />;
 }
 
 function StartingState({ state }: { state: 'loading' | 'starting' | 'not-running' }): ReactElement {
@@ -69,11 +75,18 @@ function ServerErrorState({ onRefresh }: { onRefresh: () => Promise<void> }): Re
   );
 }
 
-function ReadyToConnectState(): ReactElement {
+function ReadyToConnectState({
+  appName,
+  connectionDetails
+}: {
+  appName: string;
+  connectionDetails: ConnectionDetails | null;
+}): ReactElement {
   return (
     <section className="primary-state">
       <h2>Ready to connect</h2>
       <p>Open Switchify on your device and choose this PC. Approve the request here when it appears.</p>
+      <ManualConnectionPanel appName={appName} connectionDetails={connectionDetails} />
     </section>
   );
 }
@@ -99,11 +112,18 @@ function ConnectedReadyState({
   );
 }
 
-function WaitingForDeviceState(): ReactElement {
+function WaitingForDeviceState({
+  appName,
+  connectionDetails
+}: {
+  appName: string;
+  connectionDetails: ConnectionDetails | null;
+}): ReactElement {
   return (
     <section className="primary-state">
       <h2>Waiting for your device</h2>
       <p>Open Switchify on your device and choose this PC to reconnect.</p>
+      <ManualConnectionPanel appName={appName} connectionDetails={connectionDetails} />
     </section>
   );
 }
