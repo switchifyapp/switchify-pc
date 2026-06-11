@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  SWITCHIFY_MANUAL_CONNECTION_KIND,
+  SWITCHIFY_MANUAL_CONNECTION_TYPE,
   createManualConnectionPayload,
   validateManualConnectionPayload
 } from './manual-connection';
@@ -10,35 +10,55 @@ describe('manual connection payload', () => {
     expect(
       createManualConnectionPayload({
         desktopId: 'desktop-1',
-        name: 'Switchify PC',
+        displayName: 'Switchify PC',
         urls: ['ws://[2001:bb6:a61:3700:574c:69d2:25ce:505]:7347', 'ws://192.168.1.180:7347']
       })
     ).toEqual({
-      kind: SWITCHIFY_MANUAL_CONNECTION_KIND,
+      type: SWITCHIFY_MANUAL_CONNECTION_TYPE,
       version: 1,
-      protocolVersion: 1,
       desktopId: 'desktop-1',
-      name: 'Switchify PC',
+      displayName: 'Switchify PC',
       urls: ['ws://[2001:bb6:a61:3700:574c:69d2:25ce:505]:7347', 'ws://192.168.1.180:7347']
     });
+  });
+
+  it('does not emit legacy manual QR fields rejected by Android', () => {
+    const payload = createManualConnectionPayload({
+      desktopId: 'desktop-1',
+      displayName: 'Switchify PC',
+      urls: ['ws://192.168.1.180:7347']
+    });
+
+    expect(payload).not.toHaveProperty('kind');
+    expect(payload).not.toHaveProperty('protocolVersion');
+    expect(payload).not.toHaveProperty('name');
+  });
+
+  it('falls back to Switchify PC for blank display names', () => {
+    expect(
+      createManualConnectionPayload({
+        desktopId: 'desktop-1',
+        displayName: ' ',
+        urls: ['ws://192.168.1.180:7347']
+      }).displayName
+    ).toBe('Switchify PC');
   });
 
   it('rejects empty URL lists and non-websocket URLs', () => {
     expect(() =>
       createManualConnectionPayload({
         desktopId: 'desktop-1',
-        name: 'Switchify PC',
+        displayName: 'Switchify PC',
         urls: []
       })
     ).toThrow('Invalid manual connection payload');
 
     expect(
       validateManualConnectionPayload({
-        kind: SWITCHIFY_MANUAL_CONNECTION_KIND,
+        type: SWITCHIFY_MANUAL_CONNECTION_TYPE,
         version: 1,
-        protocolVersion: 1,
         desktopId: 'desktop-1',
-        name: 'Switchify PC',
+        displayName: 'Switchify PC',
         urls: ['https://192.168.1.180:7347']
       })
     ).toBe(false);
@@ -47,25 +67,25 @@ describe('manual connection payload', () => {
   it('rejects empty desktop ids and forbidden secret-bearing keys', () => {
     expect(
       validateManualConnectionPayload({
-        kind: SWITCHIFY_MANUAL_CONNECTION_KIND,
+        type: SWITCHIFY_MANUAL_CONNECTION_TYPE,
         version: 1,
-        protocolVersion: 1,
         desktopId: '',
-        name: 'Switchify PC',
+        displayName: 'Switchify PC',
         urls: ['ws://192.168.1.180:7347']
       })
     ).toBe(false);
 
     expect(
-      validateManualConnectionPayload({
-        kind: SWITCHIFY_MANUAL_CONNECTION_KIND,
-        version: 1,
-        protocolVersion: 1,
-        desktopId: 'desktop-1',
-        name: 'Switchify PC',
-        urls: ['ws://192.168.1.180:7347'],
-        token: 'secret'
-      })
-    ).toBe(false);
+      ['token', 'auth', 'secret', 'nonce'].map((key) =>
+        validateManualConnectionPayload({
+          type: SWITCHIFY_MANUAL_CONNECTION_TYPE,
+          version: 1,
+          desktopId: 'desktop-1',
+          displayName: 'Switchify PC',
+          urls: ['ws://192.168.1.180:7347'],
+          [key]: 'hidden'
+        })
+      )
+    ).toEqual([false, false, false, false]);
   });
 });

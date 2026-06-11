@@ -30,7 +30,7 @@ export function createManualConnectionDetails(input: {
 
   const payload = createManualConnectionPayload({
     desktopId: input.connectionDetails.desktopId,
-    name: input.appName,
+    displayName: input.appName,
     urls
   });
 

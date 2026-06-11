@@ -92,7 +92,7 @@ Switchify PC starts local IPv4 and IPv6 WebSocket listeners on port `7347` by de
 
 Windows Defender Firewall or third-party firewall software may prompt when the packaged app first starts. Allow private-network access for local pairing and control. Public-network access is not required for the MVP.
 
-Automatic discovery uses mDNS. If the Android app cannot see the PC automatically, Switchify PC shows a manual connection QR code on the main screen when a local network address is available. The QR code contains only connection metadata: the desktop ID, app name, protocol version, and non-loopback WebSocket URLs. It does not contain pairing tokens, auth proofs, secrets, nonces, device IDs, or saved pairing data. Pairing still requires approval on the PC.
+Automatic discovery uses mDNS. If the Android app cannot see the PC automatically, Switchify PC shows a manual connection QR code on the main screen when a local network address is available. The QR code contains only connection metadata: the desktop ID, display name, version, and non-loopback WebSocket URLs. It does not contain pairing tokens, auth proofs, secrets, nonces, device IDs, or saved pairing data. Pairing still requires approval on the PC.
 
 If QR/manual connection also times out, check Windows Defender Firewall and any third-party antivirus or firewall. Products such as Avast can block inbound local TCP or multicast traffic even when Windows Defender Firewall rules are ready.
 

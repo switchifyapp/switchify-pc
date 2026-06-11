@@ -1,11 +1,10 @@
-export const SWITCHIFY_MANUAL_CONNECTION_KIND = 'switchify.pc.manual';
+export const SWITCHIFY_MANUAL_CONNECTION_TYPE = 'switchify.pc.connect';
 
 export type ManualConnectionPayload = {
-  kind: typeof SWITCHIFY_MANUAL_CONNECTION_KIND;
+  type: typeof SWITCHIFY_MANUAL_CONNECTION_TYPE;
   version: 1;
-  protocolVersion: 1;
   desktopId: string;
-  name: string;
+  displayName: string;
   urls: string[];
 };
 
@@ -13,15 +12,14 @@ const FORBIDDEN_KEY_PATTERN = /(token|auth|secret|nonce)/i;
 
 export function createManualConnectionPayload(input: {
   desktopId: string;
-  name: string;
+  displayName: string;
   urls: string[];
 }): ManualConnectionPayload {
   const payload: ManualConnectionPayload = {
-    kind: SWITCHIFY_MANUAL_CONNECTION_KIND,
+    type: SWITCHIFY_MANUAL_CONNECTION_TYPE,
     version: 1,
-    protocolVersion: 1,
     desktopId: input.desktopId.trim(),
-    name: input.name.trim() || 'Switchify PC',
+    displayName: input.displayName.trim() || 'Switchify PC',
     urls: [...input.urls]
   };
 
@@ -34,10 +32,10 @@ export function createManualConnectionPayload(input: {
 
 export function validateManualConnectionPayload(value: unknown): value is ManualConnectionPayload {
   if (!isRecord(value) || hasForbiddenKey(value)) return false;
-  if (value.kind !== SWITCHIFY_MANUAL_CONNECTION_KIND) return false;
-  if (value.version !== 1 || value.protocolVersion !== 1) return false;
+  if (value.type !== SWITCHIFY_MANUAL_CONNECTION_TYPE) return false;
+  if (value.version !== 1) return false;
   if (typeof value.desktopId !== 'string' || value.desktopId.trim().length === 0) return false;
-  if (typeof value.name !== 'string') return false;
+  if (typeof value.displayName !== 'string') return false;
   if (!Array.isArray(value.urls) || value.urls.length === 0) return false;
 
   return value.urls.every((url) => typeof url === 'string' && isValidWebSocketUrl(url));
