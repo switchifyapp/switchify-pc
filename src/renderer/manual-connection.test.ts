@@ -33,12 +33,11 @@ describe('manual connection renderer helpers', () => {
       }
     });
 
-    expect(details.payload).toMatchObject({
-      kind: 'switchify.pc.manual',
+    expect(details.payload).toEqual({
+      type: 'switchify.pc.connect',
       version: 1,
-      protocolVersion: 1,
       desktopId: 'desktop-1',
-      name: 'Switchify PC',
+      displayName: 'Switchify PC',
       urls: [
         'ws://[2001:bb6:a61:3700:574c:69d2:25ce:505]:7347',
         'ws://192.168.1.180:7347'
@@ -48,6 +47,9 @@ describe('manual connection renderer helpers', () => {
     expect(details.payloadJson).not.toContain('auth');
     expect(details.payloadJson).not.toContain('secret');
     expect(details.payloadJson).not.toContain('nonce');
+    expect(details.payloadJson).not.toContain('kind');
+    expect(details.payloadJson).not.toContain('protocolVersion');
+    expect(details.payloadJson).not.toContain('"name"');
   });
 
   it('returns no payload when only loopback URLs are available', () => {
