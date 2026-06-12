@@ -3,34 +3,37 @@ import type { PairingApprovalDecision, PendingPairingApprovalView } from '../../
 
 export function PairingApprovalRequests({
   requests,
+  connectedDeviceCount,
   onRespond
 }: {
   requests: PendingPairingApprovalView[];
+  connectedDeviceCount: number;
   onRespond: (requestId: string, decision: PairingApprovalDecision) => Promise<void>;
 }): ReactElement | null {
   if (requests.length === 0) return null;
 
   const sortedRequests = [...requests].sort((a, b) => b.requestedAt - a.requestedAt);
+  const primaryRequest = sortedRequests[0];
 
   return (
     <section className="approval-panel" aria-label="Device connection requests">
       <div className="approval-panel-header">
         <div>
-          <h2>{sortedRequests[0].deviceName} wants to connect</h2>
-          <p>Confirm this code matches your device.</p>
+          <h2>{approvalHeading(primaryRequest, connectedDeviceCount)}</h2>
+          <p>{connectedDeviceCount > 0 ? 'Confirm this code matches the device.' : 'Confirm this code matches your device.'}</p>
           <div className="approval-code" aria-label="Verification code">
-            {sortedRequests[0].verificationCode}
+            {primaryRequest.verificationCode}
           </div>
         </div>
         <div className="approval-actions">
           <button
             type="button"
             className="primary-button"
-            onClick={() => void onRespond(sortedRequests[0].requestId, 'accept')}
+            onClick={() => void onRespond(primaryRequest.requestId, 'accept')}
           >
             Accept
           </button>
-          <button type="button" onClick={() => void onRespond(sortedRequests[0].requestId, 'reject')}>
+          <button type="button" onClick={() => void onRespond(primaryRequest.requestId, 'reject')}>
             Not now
           </button>
         </div>
@@ -53,4 +56,8 @@ export function PairingApprovalRequests({
       ) : null}
     </section>
   );
+}
+
+export function approvalHeading(request: PendingPairingApprovalView, connectedDeviceCount: number): string {
+  return connectedDeviceCount > 0 ? 'Another device wants to connect' : `${request.deviceName} wants to connect`;
 }

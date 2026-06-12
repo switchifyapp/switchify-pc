@@ -264,6 +264,8 @@ describe('PcWebSocketServer', () => {
         verificationCode: expect.stringMatching(/^\d{6}$/)
       }
     ]);
+    expect(server.getStatus().connectedClientCount).toBe(0);
+    expect(server.getStatus().connectedClients).toHaveLength(0);
 
     await expect(server.respondToPairingRequest(request.id, 'accept')).resolves.toEqual({ ok: true });
     const response = await receive(client);
@@ -277,6 +279,10 @@ describe('PcWebSocketServer', () => {
       }
     });
     expect(server.getPendingPairingRequests()).toHaveLength(0);
+    expect(server.getStatus().connectedClientCount).toBe(1);
+    expect(server.getStatus().connectedClients[0]).toMatchObject({
+      deviceId: 'android-smoke-1'
+    });
     client.close();
   });
 
@@ -373,12 +379,16 @@ describe('PcWebSocketServer', () => {
     client.close();
   });
 
-  it('tracks connected clients and disconnects', async () => {
+  it('tracks only authenticated clients in status and disconnects all sockets', async () => {
     const server = createServer();
     activeServers.push(server);
     await server.start();
 
     const client = await connect(server.getStatus().port);
+    expect(server.getStatus().connectedClientCount).toBe(0);
+    expect(server.getStatus().connectedClients).toHaveLength(0);
+
+    await sendAndReceive(client, createPingCommand());
     expect(server.getStatus().connectedClientCount).toBe(1);
     expect(server.getStatus().connectedClients).toHaveLength(1);
 
