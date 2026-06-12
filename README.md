@@ -2,6 +2,10 @@
 
 Desktop companion app for Switchify Android.
 
+## Status
+
+Switchify PC is early-stage Windows-first software. It is intended for local-network use with paired Switchify Android devices.
+
 ## Development
 
 Install dependencies:
@@ -104,7 +108,11 @@ npm run check:network
 
 On Windows, `Get-NetTCPConnection -LocalPort 7347 -State Listen` should show both IPv4 and IPv6 listeners when both address families are available.
 
-Do not expose the WebSocket port directly to the internet. Runtime commands are authenticated, but the intended control surface is the trusted local network.
+## Security
+
+Do not expose the WebSocket port directly to the internet. The intended control surface is a trusted local network with paired devices only.
+
+Please report vulnerabilities by email to owen@switchifyapp.com instead of opening public issues.
 
 ## MVP smoke checklist
 
@@ -131,3 +139,7 @@ Use this checklist after packaging changes and before publishing any installer:
 - Window control commands work, for example next app and show desktop.
 - Disconnect all removes active WebSocket sessions.
 - Quit exits the app, removes the tray icon, and exits the native cursor overlay helper.
+
+## License
+
+Switchify PC is licensed under the GNU Affero General Public License v3.0 or later. See `LICENSE`.
