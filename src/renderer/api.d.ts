@@ -2,6 +2,7 @@ export {};
 
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
 import type { ConnectionDetails, PairedDeviceView, PcServerStatus } from '../shared/server-status';
+import type { UpdateState } from '../shared/update';
 
 declare global {
   interface Window {
@@ -24,6 +25,10 @@ declare global {
         requestId: string,
         decision: PairingApprovalDecision
       ) => Promise<{ ok: boolean; reason?: string }>;
+      getUpdateState: () => Promise<UpdateState>;
+      checkForUpdates: () => Promise<UpdateState>;
+      downloadUpdate: () => Promise<UpdateState>;
+      showDownloadedUpdate: () => Promise<{ ok: boolean; reason?: string }>;
     };
   }
 }
