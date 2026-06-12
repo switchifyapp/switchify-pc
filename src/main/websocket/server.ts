@@ -330,8 +330,8 @@ export class PcWebSocketServer {
 
   private updateClientStatus(): void {
     this.setStatus({
-      connectedClientCount: this.clientRegistry.count(),
-      connectedClients: this.clientRegistry.snapshot()
+      connectedClientCount: this.clientRegistry.authenticatedCount(),
+      connectedClients: this.clientRegistry.authenticatedSnapshot()
     });
   }
 

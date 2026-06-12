@@ -42,6 +42,35 @@ describe('WebSocketClientRegistry', () => {
     expect(registry.get(client)?.deviceId).toBeNull();
   });
 
+  it('returns authenticated snapshot clones without unauthenticated clients', () => {
+    const registry = new WebSocketClientRegistry();
+    const authenticated = createClient();
+    const unauthenticated = createClient();
+    registry.add(authenticated, '127.0.0.1');
+    registry.add(unauthenticated, '127.0.0.2');
+    registry.markSeen(authenticated, 'android-1');
+
+    const snapshot = registry.authenticatedSnapshot();
+    snapshot[0].deviceId = 'mutated';
+
+    expect(snapshot).toHaveLength(1);
+    expect(snapshot[0]).toMatchObject({ deviceId: 'mutated' });
+    expect(registry.get(authenticated)?.deviceId).toBe('android-1');
+    expect(registry.get(unauthenticated)?.deviceId).toBeNull();
+  });
+
+  it('counts only authenticated clients in authenticatedCount', () => {
+    const registry = new WebSocketClientRegistry();
+    const authenticated = createClient();
+    const unauthenticated = createClient();
+    registry.add(authenticated, '127.0.0.1');
+    registry.add(unauthenticated, '127.0.0.2');
+    registry.markSeen(authenticated, 'android-1');
+
+    expect(registry.count()).toBe(2);
+    expect(registry.authenticatedCount()).toBe(1);
+  });
+
   it('marks a tracked client seen', () => {
     const registry = new WebSocketClientRegistry();
     const client = createClient();

@@ -30,6 +30,7 @@ function MainApp(): ReactElement {
 
         <PairingApprovalRequests
           requests={status.pendingPairingRequests}
+          connectedDeviceCount={status.connectedDevices.length}
           onRespond={status.respondToPairingRequest}
         />
 

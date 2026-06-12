@@ -67,7 +67,19 @@ export class WebSocketClientRegistry {
     return [...this.clients.values()].map((client) => ({ ...client }));
   }
 
+  authenticatedSnapshot(): PcConnectedClient[] {
+    return this.snapshot().filter((client) => client.deviceId !== null);
+  }
+
   count(): number {
     return this.clients.size;
+  }
+
+  authenticatedCount(): number {
+    let count = 0;
+    for (const client of this.clients.values()) {
+      if (client.deviceId !== null) count += 1;
+    }
+    return count;
   }
 }
