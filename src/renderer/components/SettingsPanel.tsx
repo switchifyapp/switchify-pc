@@ -1,7 +1,9 @@
 import { useState, type ReactElement } from 'react';
 import type { PairedDeviceView } from '../../shared/server-status';
+import type { UpdateState } from '../../shared/update';
 import type { ConnectedDeviceView } from '../connected-devices';
 import { formatTimestamp } from '../format';
+import { UpdatesPanel } from './UpdatesPanel';
 
 type SettingsViewProps = {
   connectedDevices: ConnectedDeviceView[];
@@ -10,6 +12,12 @@ type SettingsViewProps = {
   onDisconnect: () => Promise<void>;
   onForgetPairedDevice: (deviceId: string) => Promise<{ ok: boolean; reason?: string }>;
   onToggleCursorOverlay: (enabled: boolean) => Promise<void>;
+  updateState: UpdateState | null;
+  isCheckingForUpdates: boolean;
+  isDownloadingUpdate: boolean;
+  onCheckForUpdates: () => Promise<void>;
+  onDownloadUpdate: () => Promise<void>;
+  onShowDownloadedUpdate: () => Promise<void>;
 };
 
 export function SettingsView({
@@ -18,7 +26,13 @@ export function SettingsView({
   cursorOverlayEnabled,
   onDisconnect,
   onForgetPairedDevice,
-  onToggleCursorOverlay
+  onToggleCursorOverlay,
+  updateState,
+  isCheckingForUpdates,
+  isDownloadingUpdate,
+  onCheckForUpdates,
+  onDownloadUpdate,
+  onShowDownloadedUpdate
 }: SettingsViewProps): ReactElement {
   return (
     <div className="settings-window-content">
@@ -40,6 +54,14 @@ export function SettingsView({
           <span>Show cursor highlight when the device moves the mouse</span>
         </label>
       </section>
+      <UpdatesPanel
+        state={updateState}
+        isChecking={isCheckingForUpdates}
+        isDownloading={isDownloadingUpdate}
+        onCheck={onCheckForUpdates}
+        onDownload={onDownloadUpdate}
+        onShowDownloaded={onShowDownloadedUpdate}
+      />
       <section className="settings-window-section">
         <h2>Saved devices</h2>
         <PairedDeviceList devices={pairedDevices} onForgetPairedDevice={onForgetPairedDevice} />

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeTheme, screen } from 'electron';
+import { app, BrowserWindow, nativeTheme, screen, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { CursorOverlay } from './cursor-overlay';
@@ -15,6 +15,8 @@ import { PairingManager } from './pairing/pairing-manager';
 import { registerServerIpc } from './server-ipc';
 import { registerSettingsWindowIpc } from './settings-window-ipc';
 import { createSwitchifyTray, type SwitchifyTray } from './tray';
+import { registerUpdateIpc } from './updates/update-ipc';
+import { UpdateService } from './updates/update-service';
 import { PcWebSocketServer } from './websocket/server';
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
@@ -255,6 +257,13 @@ app.whenReady().then(() => {
   registerCursorOverlayIpc(cursorOverlay);
   registerPairingApprovalIpc(pcServer);
   registerSettingsWindowIpc(showSettingsWindow);
+  registerUpdateIpc(
+    new UpdateService({
+      currentVersion: app.getVersion(),
+      downloadsPath: app.getPath('downloads'),
+      showItemInFolder: (filePath) => shell.showItemInFolder(filePath)
+    })
+  );
   void pcServer.start();
 
   mainWindow = createMainWindow();

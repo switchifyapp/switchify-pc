@@ -8,3 +8,7 @@ export const SET_CURSOR_OVERLAY_ENABLED_CHANNEL = 'cursor-overlay:set-enabled';
 export const GET_PENDING_PAIRING_REQUESTS_CHANNEL = 'pairing-approval:get-pending';
 export const RESPOND_TO_PAIRING_REQUEST_CHANNEL = 'pairing-approval:respond';
 export const OPEN_SETTINGS_WINDOW_CHANNEL = 'settings:open-window';
+export const GET_UPDATE_STATE_CHANNEL = 'updates:get-state';
+export const CHECK_FOR_UPDATES_CHANNEL = 'updates:check';
+export const DOWNLOAD_UPDATE_CHANNEL = 'updates:download';
+export const SHOW_DOWNLOADED_UPDATE_CHANNEL = 'updates:show-downloaded';
