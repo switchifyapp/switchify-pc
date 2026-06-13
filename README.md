@@ -114,6 +114,17 @@ Do not expose the WebSocket port directly to the internet. The intended control 
 
 Please report vulnerabilities by email to owen@switchifyapp.com instead of opening public issues.
 
+## Release CI
+
+Release builds are published from tags named `vX.Y.Z`, where `X.Y.Z` matches `package.json`.
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow builds the Windows x64 installer and uploads it to GitHub Releases. Current CI release installers are unsigned until production code signing is configured.
+
 ## MVP smoke checklist
 
 Use this checklist after packaging changes and before publishing any installer:
