@@ -5,52 +5,43 @@ export type NetworkAddressCandidate = {
   family: 'IPv4' | 'IPv6';
   websocketUrl: string;
   isLoopback: boolean;
+  interfaceName?: string;
+};
+
+type NetworkInterfaceCandidate = {
+  interfaceName: string;
+  info: NetworkInterfaceInfo;
+};
+
+type RankedNetworkAddressCandidate = NetworkAddressCandidate & {
+  rank: number;
 };
 
 export function getConnectionCandidates(port: number): NetworkAddressCandidate[] {
-  return toConnectionCandidates(Object.values(networkInterfaces()).flat(), port);
+  const interfaces = Object.entries(networkInterfaces()).flatMap(([interfaceName, addresses]) =>
+    (addresses ?? []).map((info) => ({ interfaceName, info }))
+  );
+
+  return toConnectionCandidates(interfaces, port);
 }
 
 export function toConnectionCandidates(
-  interfaces: Array<NetworkInterfaceInfo | undefined>,
+  interfaces: Array<NetworkInterfaceCandidate | NetworkInterfaceInfo | undefined>,
   port: number
 ): NetworkAddressCandidate[] {
-  const items = interfaces.filter((item): item is NetworkInterfaceInfo => Boolean(item));
-  const globalIpv6 = uniqueAddresses(
-    items
-      .filter((item) => item.family === 'IPv6' && !item.internal)
-      .map((item) => item.address)
-      .filter(isGlobalIPv6Address)
-  );
-  const privateIpv4 = uniqueAddresses(
-    items
-      .filter((item) => item.family === 'IPv4' && !item.internal)
-      .map((item) => item.address)
-      .filter(isPrivateIPv4Address)
-  );
-  const ulaIpv6 = uniqueAddresses(
-    items
-      .filter((item) => item.family === 'IPv6' && !item.internal)
-      .map((item) => item.address)
-      .filter(isUniqueLocalIPv6Address)
-  );
-  const otherIpv4 = uniqueAddresses(
-    items
-      .filter((item) => item.family === 'IPv4' && !item.internal)
-      .map((item) => item.address)
-      .filter((address) => isUsefulIPv4Address(address) && !isPrivateIPv4Address(address))
-  );
+  const rankedCandidates = normalizeInterfaces(interfaces)
+    .filter(({ info }) => !info.internal)
+    .map(toRankedCandidate)
+    .filter((candidate): candidate is RankedNetworkAddressCandidate => Boolean(candidate));
   const addresses = [
-    ...globalIpv6.map((address) => ({ address, family: 'IPv6' as const, isLoopback: false })),
-    ...privateIpv4.map((address) => ({ address, family: 'IPv4' as const, isLoopback: false })),
-    ...ulaIpv6.map((address) => ({ address, family: 'IPv6' as const, isLoopback: false })),
-    ...otherIpv4.map((address) => ({ address, family: 'IPv4' as const, isLoopback: false })),
-    { address: '127.0.0.1', family: 'IPv4' as const, isLoopback: true },
-    { address: '::1', family: 'IPv6' as const, isLoopback: true }
+    ...dedupeByBestRank(rankedCandidates).sort(compareRankedCandidates),
+    { address: '127.0.0.1', family: 'IPv4' as const, isLoopback: true, interfaceName: undefined, rank: 7 },
+    { address: '::1', family: 'IPv6' as const, isLoopback: true, interfaceName: undefined, rank: 7 }
   ];
 
-  return addresses.map((candidate) => ({
+  return addresses.map(({ rank: _rank, interfaceName, ...candidate }) => ({
     ...candidate,
+    ...(interfaceName ? { interfaceName } : {}),
     websocketUrl: formatWebSocketUrl(candidate.address, port)
   }));
 }
@@ -65,8 +56,92 @@ export function formatWebSocketUrl(address: string, port: number): string {
   return `ws://${host}:${port}`;
 }
 
-function uniqueAddresses(addresses: string[]): string[] {
-  return [...new Set(addresses)].sort();
+function normalizeInterfaces(
+  interfaces: Array<NetworkInterfaceCandidate | NetworkInterfaceInfo | undefined>
+): NetworkInterfaceCandidate[] {
+  return interfaces
+    .filter((item): item is NetworkInterfaceCandidate | NetworkInterfaceInfo => Boolean(item))
+    .map((item) =>
+      'info' in item
+        ? item
+        : {
+            interfaceName: '',
+            info: item
+          }
+    );
+}
+
+function toRankedCandidate(candidate: NetworkInterfaceCandidate): RankedNetworkAddressCandidate | null {
+  const { interfaceName, info } = candidate;
+  if (info.family === 'IPv4' && isUsefulIPv4Address(info.address)) {
+    const rank = rankIPv4Address(interfaceName, info.address);
+    if (rank === null) return null;
+    return {
+      address: info.address,
+      family: 'IPv4',
+      websocketUrl: '',
+      isLoopback: false,
+      interfaceName,
+      rank
+    };
+  }
+
+  if (info.family === 'IPv6' && isUsefulIPv6Address(info.address)) {
+    const rank = rankIPv6Address(interfaceName, info.address);
+    if (rank === null) return null;
+    return {
+      address: info.address,
+      family: 'IPv6',
+      websocketUrl: '',
+      isLoopback: false,
+      interfaceName,
+      rank
+    };
+  }
+
+  return null;
+}
+
+function rankIPv4Address(interfaceName: string, address: string): number | null {
+  if (isVirtualAdapter(interfaceName)) return 6;
+  if (isVpnAdapter(interfaceName)) return 5;
+  if (isPrivateIPv4Address(address) && isPhysicalLanAdapter(interfaceName)) return 1;
+  if (isPrivateIPv4Address(address)) return 2;
+  return 4;
+}
+
+function rankIPv6Address(interfaceName: string, address: string): number | null {
+  if (isVirtualAdapter(interfaceName)) return 6;
+  if (isVpnAdapter(interfaceName)) return 5;
+  if (isUniqueLocalIPv6Address(address)) return 3;
+  if (isGlobalIPv6Address(address)) return 4;
+  return null;
+}
+
+function dedupeByBestRank(candidates: RankedNetworkAddressCandidate[]): RankedNetworkAddressCandidate[] {
+  const byAddress = new Map<string, RankedNetworkAddressCandidate>();
+
+  for (const candidate of candidates) {
+    const existing = byAddress.get(candidate.address);
+    if (!existing || compareRankedCandidates(candidate, existing) < 0) {
+      byAddress.set(candidate.address, candidate);
+    }
+  }
+
+  return [...byAddress.values()];
+}
+
+function compareRankedCandidates(left: RankedNetworkAddressCandidate, right: RankedNetworkAddressCandidate): number {
+  return (
+    left.rank - right.rank ||
+    familyOrder(left.family) - familyOrder(right.family) ||
+    (left.interfaceName ?? '').localeCompare(right.interfaceName ?? '') ||
+    left.address.localeCompare(right.address)
+  );
+}
+
+function familyOrder(family: 'IPv4' | 'IPv6'): number {
+  return family === 'IPv4' ? 0 : 1;
 }
 
 function isUsefulIPv4Address(address: string): boolean {
@@ -104,4 +179,18 @@ function isUsefulIPv6Address(address: string): boolean {
     !normalizedAddress.startsWith('fe80:') &&
     !normalizedAddress.startsWith('fe80::')
   );
+}
+
+function isPhysicalLanAdapter(interfaceName: string): boolean {
+  if (isVirtualAdapter(interfaceName) || isVpnAdapter(interfaceName)) return false;
+
+  return /(^|\b)(wi-?fi|wlan|ethernet|local area connection)(\b|$)/i.test(interfaceName);
+}
+
+function isVpnAdapter(interfaceName: string): boolean {
+  return /(tailscale|zerotier|wireguard|openvpn|vpn)/i.test(interfaceName);
+}
+
+function isVirtualAdapter(interfaceName: string): boolean {
+  return /(vethernet|wsl|hyper-v|virtualbox|vmware|loopback|docker)/i.test(interfaceName);
 }

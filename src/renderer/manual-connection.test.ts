@@ -23,10 +23,11 @@ describe('manual connection renderer helpers', () => {
       appName: 'Switchify PC',
       connectionDetails: {
         desktopId: 'desktop-1',
-        websocketUrl: 'ws://[2001:bb6:a61:3700:574c:69d2:25ce:505]:7347',
+        websocketUrl: 'ws://192.168.1.180:7347',
         websocketUrls: [
-          'ws://[2001:bb6:a61:3700:574c:69d2:25ce:505]:7347',
           'ws://192.168.1.180:7347',
+          'ws://100.66.217.56:7347',
+          'ws://172.22.192.1:7347',
           'ws://127.0.0.1:7347',
           'ws://[::1]:7347'
         ]
@@ -39,8 +40,9 @@ describe('manual connection renderer helpers', () => {
       desktopId: 'desktop-1',
       displayName: 'Switchify PC',
       urls: [
-        'ws://[2001:bb6:a61:3700:574c:69d2:25ce:505]:7347',
-        'ws://192.168.1.180:7347'
+        'ws://192.168.1.180:7347',
+        'ws://100.66.217.56:7347',
+        'ws://172.22.192.1:7347'
       ]
     });
     expect(details.payloadJson).not.toContain('token');
