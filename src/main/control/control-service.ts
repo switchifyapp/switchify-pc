@@ -1,21 +1,20 @@
 import type { BluetoothStatus } from '../../shared/bluetooth-status';
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../../shared/pairing-approval';
 import type { CommandRequest, PointerMovementProfile } from '../../shared/protocol';
-import type { PcConnectedClient, PcControlStatus, PcServerStatusListener } from '../../shared/server-status';
+import type { PcConnectedClient, PcControlStatus, PcControlStatusListener } from '../../shared/server-status';
 import type { CommandAuthValidator } from '../pairing/auth';
 import type { PairingApprovalManager } from '../pairing/pairing-approval-manager';
 import type { PairingManager } from '../pairing/pairing-manager';
 import type { RemoteConnection } from '../transport/remote-connection';
 import { RemoteSessionManager, type CommandHandlerResult } from '../transport/remote-session-manager';
-import { cloneControlStatus, createInitialControlStatus, type ControlTransportStatusUpdate } from './control-status';
+import { cloneControlStatus, createInitialControlStatus } from './control-status';
 
 export type ControlServiceOptions = {
-  port?: number;
   pairingManager: PairingManager;
   pairingApprovalManager?: PairingApprovalManager;
   authValidator: CommandAuthValidator;
   getPointerProfile?: () => PointerMovementProfile;
-  onStatusChange?: PcServerStatusListener;
+  onStatusChange?: PcControlStatusListener;
   onCommand?: (command: CommandRequest) => Promise<CommandHandlerResult> | CommandHandlerResult;
 };
 
@@ -24,7 +23,7 @@ export class ControlService {
   private status: PcControlStatus;
 
   constructor(private readonly options: ControlServiceOptions) {
-    this.status = createInitialControlStatus(options.port);
+    this.status = createInitialControlStatus();
     this.sessions = new RemoteSessionManager({
       pairingManager: options.pairingManager,
       pairingApprovalManager: options.pairingApprovalManager,
@@ -39,11 +38,6 @@ export class ControlService {
 
   getStatus(): PcControlStatus {
     return cloneControlStatus(this.status);
-  }
-
-  updateTransportStatus(update: ControlTransportStatusUpdate): PcControlStatus {
-    this.setStatus(update);
-    return this.getStatus();
   }
 
   addRemoteConnection(connection: RemoteConnection): PcConnectedClient {
@@ -85,7 +79,12 @@ export class ControlService {
   }
 
   setBluetoothStatus(bluetooth: BluetoothStatus): PcControlStatus {
-    this.setStatus({ bluetooth });
+    this.setStatus({ bluetooth, state: controlStateFromBluetooth(bluetooth) });
+    return this.getStatus();
+  }
+
+  setDesktopId(desktopId: string): PcControlStatus {
+    this.setStatus({ desktopId });
     return this.getStatus();
   }
 
@@ -102,3 +101,9 @@ export class ControlService {
   }
 }
 
+function controlStateFromBluetooth(bluetooth: BluetoothStatus): PcControlStatus['state'] {
+  if (bluetooth.status === 'starting') return 'starting';
+  if (bluetooth.status === 'ready' || bluetooth.status === 'connected') return 'ready';
+  if (bluetooth.status === 'unavailable' || bluetooth.status === 'error') return 'error';
+  return 'stopped';
+}

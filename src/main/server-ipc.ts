@@ -2,28 +2,15 @@ import { ipcMain } from 'electron';
 import {
   DISCONNECT_CLIENTS_CHANNEL,
   FORGET_PAIRED_DEVICE_CHANNEL,
-  GET_CONNECTION_DETAILS_CHANNEL,
   GET_PAIRED_DEVICES_CHANNEL,
   SERVER_STATUS_CHANNEL
 } from '../shared/ipc-channels';
-import type { ConnectionDetails } from '../shared/server-status';
 import type { ControlService } from './control/control-service';
-import { getConnectionCandidates } from './network-addresses';
-import type { PairingManager } from './pairing/pairing-manager';
 import type { PairingStore } from './pairing/pairing-store';
 import { removePairedDevice, toPairedDeviceViews } from './pairing/pairing-store';
 
-export function registerServerIpc(controlService: ControlService, pairingManager: PairingManager, pairingStore: PairingStore): void {
+export function registerServerIpc(controlService: ControlService, pairingStore: PairingStore): void {
   ipcMain.handle(SERVER_STATUS_CHANNEL, () => controlService.getStatus());
-  ipcMain.handle(GET_CONNECTION_DETAILS_CHANNEL, async () => {
-    const status = controlService.getStatus();
-    const websocketUrls = getConnectionCandidates(status.port).map((candidate) => candidate.websocketUrl);
-    return {
-      desktopId: await pairingManager.getDesktopId(),
-      websocketUrl: websocketUrls[0] ?? `ws://127.0.0.1:${status.port}`,
-      websocketUrls
-    } satisfies ConnectionDetails;
-  });
   ipcMain.handle(GET_PAIRED_DEVICES_CHANNEL, async () => toPairedDeviceViews(await pairingStore.load()));
   ipcMain.handle(DISCONNECT_CLIENTS_CHANNEL, () => controlService.disconnectClients());
   ipcMain.handle(FORGET_PAIRED_DEVICE_CHANNEL, async (_event, deviceId: unknown) => {

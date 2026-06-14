@@ -25,6 +25,15 @@ describe('bluetoothPrimaryCopy', () => {
     });
   });
 
+  it('keeps adapter off copy when control status is already error', () => {
+    expect(
+      bluetoothPrimaryCopy('server-error', { status: 'unavailable', reason: 'adapter_off', connectedClientCount: 0, lastError: null })
+    ).toMatchObject({
+      title: 'Bluetooth needs attention',
+      body: 'Turn on Bluetooth on this PC, then refresh.'
+    });
+  });
+
   it('formats permission denied state', () => {
     expect(
       bluetoothPrimaryCopy('ready-to-pair', {

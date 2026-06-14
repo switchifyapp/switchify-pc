@@ -1,21 +1,20 @@
 export {};
 
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
-import type { ConnectionDetails, PairedDeviceView, PcServerStatus } from '../shared/server-status';
+import type { PairedDeviceView, PcControlStatus } from '../shared/server-status';
 import type { UpdateState } from '../shared/update';
 
 declare global {
   interface Window {
     switchifyPc: {
       appName: string;
-      getServerStatus: () => Promise<PcServerStatus>;
-      getConnectionDetails: () => Promise<ConnectionDetails>;
+      getServerStatus: () => Promise<PcControlStatus>;
       getPairedDevices: () => Promise<PairedDeviceView[]>;
-      disconnectClients: () => Promise<PcServerStatus>;
+      disconnectClients: () => Promise<PcControlStatus>;
       forgetPairedDevice: (
         deviceId: string
       ) => Promise<
-        { ok: true; pairedDevices: PairedDeviceView[]; status: PcServerStatus } | { ok: false; reason: string }
+        { ok: true; pairedDevices: PairedDeviceView[]; status: PcControlStatus } | { ok: false; reason: string }
       >;
       getCursorOverlayEnabled: () => Promise<boolean>;
       setCursorOverlayEnabled: (enabled: boolean) => Promise<boolean>;

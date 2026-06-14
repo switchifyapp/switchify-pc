@@ -24,14 +24,6 @@ export function bluetoothPrimaryCopy(state: DesktopUiState, bluetooth: Bluetooth
     };
   }
 
-  if (state === 'server-error' || bluetooth?.status === 'error') {
-    return {
-      title: 'Bluetooth needs attention',
-      body: 'Restart Switchify PC. If this keeps happening, open troubleshooting details.',
-      tone: 'error'
-    };
-  }
-
   if (bluetooth?.status === 'unavailable') {
     if (bluetooth.reason === 'permission_denied') {
       return {
@@ -44,6 +36,14 @@ export function bluetoothPrimaryCopy(state: DesktopUiState, bluetooth: Bluetooth
     return {
       title: 'Bluetooth needs attention',
       body: 'Turn on Bluetooth on this PC, then refresh.',
+      tone: 'error'
+    };
+  }
+
+  if (state === 'server-error' || bluetooth?.status === 'error') {
+    return {
+      title: 'Bluetooth needs attention',
+      body: 'Restart Switchify PC. If this keeps happening, open troubleshooting details.',
       tone: 'error'
     };
   }

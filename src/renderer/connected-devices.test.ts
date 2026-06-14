@@ -11,7 +11,7 @@ describe('toConnectedDeviceViews', () => {
         remoteAddress: '192.168.1.10',
         connectedAt: 100,
         lastSeenAt: 200,
-        transport: 'websocket'
+        transport: 'bluetooth'
       }
     ]);
   });
@@ -48,7 +48,7 @@ function connectedClient(overrides: Partial<PcConnectedClient> = {}): PcConnecte
     remoteAddress: '192.168.1.10',
     connectedAt: 100,
     lastSeenAt: 200,
-    transport: 'websocket',
+    transport: 'bluetooth',
     ...overrides
   };
 }

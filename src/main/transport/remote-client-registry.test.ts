@@ -23,10 +23,10 @@ describe('RemoteClientRegistry', () => {
     expect(connectedClient).toEqual({
       id: 'connection-1',
       deviceId: null,
-      remoteAddress: '127.0.0.1',
+      remoteAddress: null,
       connectedAt: now,
       lastSeenAt: null,
-      transport: 'websocket'
+      transport: 'bluetooth'
     });
     expect(registry.count()).toBe(1);
   });
@@ -67,9 +67,9 @@ describe('RemoteClientRegistry', () => {
 function createConnection(overrides: Partial<RemoteConnection> = {}): RemoteConnection {
   return {
     id: 'connection-1',
-    kind: 'websocket',
-    label: 'Test connection',
-    remoteAddress: '127.0.0.1',
+    kind: 'bluetooth',
+    label: 'Test Bluetooth connection',
+    remoteAddress: null,
     send: vi.fn(),
     close: vi.fn(),
     ...overrides

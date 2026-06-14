@@ -134,6 +134,7 @@ describe('ControlService', () => {
       connectedClientCount: 0,
       lastError: null
     });
+    expect(service.getStatus().state).toBe('ready');
   });
 });
 
@@ -163,7 +164,6 @@ function createControlService(
     });
 
   return new ControlService({
-    port: 0,
     pairingManager: new PairingManager(store),
     authValidator: new CommandAuthValidator(store, () => now),
     ...overrides

@@ -1,4 +1,4 @@
-import type { PairedDeviceView, PcServerStatus } from './server-status';
+import type { PairedDeviceView, PcControlStatus } from './server-status';
 
 export type DesktopUiState =
   | 'loading'
@@ -10,7 +10,7 @@ export type DesktopUiState =
   | 'waiting-for-device';
 
 export function deriveDesktopUiState(
-  serverStatus: PcServerStatus | null,
+  serverStatus: PcControlStatus | null,
   pairedDevices: PairedDeviceView[]
 ): DesktopUiState {
   if (!serverStatus) return 'loading';
