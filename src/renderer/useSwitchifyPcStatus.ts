@@ -1,17 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { deriveDesktopUiState, type DesktopUiState } from '../shared/desktop-ui-state';
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
-import type {
-  ConnectionDetails,
-  PairedDeviceView,
-  PcServerStatus
-} from '../shared/server-status';
+import type { PairedDeviceView, PcServerStatus } from '../shared/server-status';
 import { toConnectedDeviceViews, type ConnectedDeviceView } from './connected-devices';
 
 export type SwitchifyPcStatusViewModel = {
   uiState: DesktopUiState;
   serverStatus: PcServerStatus | null;
-  connectionDetails: ConnectionDetails | null;
   pairedDevices: PairedDeviceView[];
   pendingPairingRequests: PendingPairingApprovalView[];
   connectedDevices: ConnectedDeviceView[];
@@ -25,20 +20,17 @@ export type SwitchifyPcStatusViewModel = {
 
 export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPcStatusViewModel {
   const [serverStatus, setServerStatus] = useState<PcServerStatus | null>(null);
-  const [connectionDetails, setConnectionDetails] = useState<ConnectionDetails | null>(null);
   const [pairedDevices, setPairedDevices] = useState<PairedDeviceView[]>([]);
   const [pendingPairingRequests, setPendingPairingRequests] = useState<PendingPairingApprovalView[]>([]);
   const [cursorOverlayEnabled, setCursorOverlayEnabled] = useState(true);
 
   const refresh = useCallback(async (): Promise<void> => {
-    const [status, details, devices, requests] = await Promise.all([
+    const [status, devices, requests] = await Promise.all([
       bridge.getServerStatus(),
-      bridge.getConnectionDetails(),
       bridge.getPairedDevices(),
       bridge.getPendingPairingRequests()
     ]);
     setServerStatus(status);
-    setConnectionDetails(details);
     setPairedDevices(devices);
     setPendingPairingRequests(requests);
   }, [bridge]);
@@ -90,7 +82,7 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
     [bridge]
   );
 
-  const uiState = deriveDesktopUiState(serverStatus, connectionDetails, pairedDevices);
+  const uiState = deriveDesktopUiState(serverStatus, pairedDevices);
 
   const respondToPairingRequest = useCallback(
     async (requestId: string, decision: PairingApprovalDecision): Promise<void> => {
@@ -103,7 +95,6 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
   return {
     uiState,
     serverStatus,
-    connectionDetails,
     pairedDevices,
     pendingPairingRequests,
     connectedDevices: toConnectedDeviceViews(serverStatus?.connectedClients ?? [], pairedDevices),

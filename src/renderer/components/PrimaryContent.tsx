@@ -1,32 +1,22 @@
 import type { ReactElement } from 'react';
+import type { BluetoothStatus } from '../../shared/bluetooth-status';
 import type { DesktopUiState } from '../../shared/desktop-ui-state';
-import type { ConnectionDetails } from '../../shared/server-status';
+import { bluetoothPrimaryCopy } from '../bluetooth-primary';
 import type { ConnectedDeviceView } from '../connected-devices';
-import { ManualConnectionPanel } from './ManualConnectionPanel';
 
 export function PrimaryContent({
   state,
-  appName,
-  connectionDetails,
+  bluetoothStatus,
   connectedDevices,
   onDisconnect,
   onRefresh
 }: {
   state: DesktopUiState;
-  appName: string;
-  connectionDetails: ConnectionDetails | null;
+  bluetoothStatus: BluetoothStatus | null;
   connectedDevices: ConnectedDeviceView[];
   onDisconnect: () => Promise<void>;
   onRefresh: () => Promise<void>;
 }): ReactElement {
-  if (state === 'loading' || state === 'starting' || state === 'not-running') {
-    return <StartingState state={state} />;
-  }
-
-  if (state === 'server-error') {
-    return <ServerErrorState onRefresh={onRefresh} />;
-  }
-
   if (state === 'connected') {
     return (
       <ConnectedReadyState
@@ -36,59 +26,7 @@ export function PrimaryContent({
     );
   }
 
-  if (state === 'waiting-for-device') {
-    return <WaitingForDeviceState appName={appName} connectionDetails={connectionDetails} />;
-  }
-
-  return <ReadyToConnectState appName={appName} connectionDetails={connectionDetails} />;
-}
-
-function StartingState({ state }: { state: 'loading' | 'starting' | 'not-running' }): ReactElement {
-  if (state === 'not-running') {
-    return (
-      <section className="primary-state">
-        <h2>Switchify PC is not running</h2>
-        <p>Restart the app to connect your device.</p>
-      </section>
-    );
-  }
-
-  return (
-    <section className="primary-state">
-      <h2>{state === 'starting' ? 'Starting Switchify PC...' : 'Getting things ready...'}</h2>
-      <p>Switchify PC is preparing your device connection.</p>
-    </section>
-  );
-}
-
-function ServerErrorState({ onRefresh }: { onRefresh: () => Promise<void> }): ReactElement {
-  return (
-    <section className="primary-state">
-      <h2>Switchify PC needs attention</h2>
-      <p>Restart Switchify PC. If this keeps happening, open troubleshooting details.</p>
-      <div className="action-row">
-        <button type="button" className="primary-button" onClick={() => void onRefresh()}>
-          Refresh
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function ReadyToConnectState({
-  appName,
-  connectionDetails
-}: {
-  appName: string;
-  connectionDetails: ConnectionDetails | null;
-}): ReactElement {
-  return (
-    <section className="primary-state">
-      <h2>Ready to connect</h2>
-      <p>Open Switchify on your device and choose this PC. Approve the request here when it appears.</p>
-      <ManualConnectionPanel appName={appName} connectionDetails={connectionDetails} />
-    </section>
-  );
+  return <BluetoothState state={state} bluetoothStatus={bluetoothStatus} onRefresh={onRefresh} />;
 }
 
 function ConnectedReadyState({
@@ -101,7 +39,7 @@ function ConnectedReadyState({
   return (
     <section className="primary-state">
       <h2>Your device is connected</h2>
-      <p>You can control this PC from Switchify.</p>
+      <p>You can control this PC from Switchify over Bluetooth.</p>
       <DeviceSummary devices={connectedDevices} />
       <div className="action-row centered">
         <button type="button" className="primary-button" onClick={() => void onDisconnect()}>
@@ -112,20 +50,48 @@ function ConnectedReadyState({
   );
 }
 
-function WaitingForDeviceState({
-  appName,
-  connectionDetails
+function BluetoothState({
+  state,
+  bluetoothStatus,
+  onRefresh
 }: {
-  appName: string;
-  connectionDetails: ConnectionDetails | null;
+  state: DesktopUiState;
+  bluetoothStatus: BluetoothStatus | null;
+  onRefresh: () => Promise<void>;
 }): ReactElement {
+  const copy = bluetoothPrimaryCopy(state, bluetoothStatus);
+
   return (
     <section className="primary-state">
-      <h2>Waiting for your device</h2>
-      <p>Open Switchify on your device and choose this PC to reconnect.</p>
-      <ManualConnectionPanel appName={appName} connectionDetails={connectionDetails} />
+      <h2>{copy.title}</h2>
+      <p>{copy.body}</p>
+      <div className={`bluetooth-connection-panel bluetooth-connection-panel-${copy.tone}`}>
+        <div className="bluetooth-status-row">
+          <span className="bluetooth-status-indicator" aria-hidden="true" />
+          <span>{bluetoothStatusLabel(bluetoothStatus)}</span>
+        </div>
+      </div>
+      {copy.tone === 'error' ? (
+        <div className="action-row centered">
+          <button type="button" className="primary-button" onClick={() => void onRefresh()}>
+            Refresh
+          </button>
+        </div>
+      ) : null}
     </section>
   );
+}
+
+function bluetoothStatusLabel(status: BluetoothStatus | null): string {
+  if (!status) return 'Bluetooth status unknown.';
+  if (status.status === 'ready') return 'Bluetooth ready.';
+  if (status.status === 'connected') return 'Bluetooth device connected.';
+  if (status.status === 'starting') return 'Starting Bluetooth...';
+  if (status.status === 'unavailable' && status.reason === 'adapter_off') return 'Bluetooth is off.';
+  if (status.status === 'unavailable' && status.reason === 'permission_denied') return 'Bluetooth permission denied.';
+  if (status.status === 'unavailable') return 'Bluetooth unavailable.';
+  if (status.status === 'error') return 'Bluetooth needs attention.';
+  return 'Bluetooth stopped.';
 }
 
 function DeviceSummary({ devices }: { devices: ConnectedDeviceView[] }): ReactElement {

@@ -1,4 +1,4 @@
-import type { ConnectionDetails, PairedDeviceView, PcServerStatus } from './server-status';
+import type { PairedDeviceView, PcServerStatus } from './server-status';
 
 export type DesktopUiState =
   | 'loading'
@@ -11,10 +11,9 @@ export type DesktopUiState =
 
 export function deriveDesktopUiState(
   serverStatus: PcServerStatus | null,
-  connectionDetails: ConnectionDetails | null,
   pairedDevices: PairedDeviceView[]
 ): DesktopUiState {
-  if (!serverStatus || !connectionDetails) return 'loading';
+  if (!serverStatus) return 'loading';
   if (serverStatus.state === 'error') return 'server-error';
   if (serverStatus.state === 'starting') return 'starting';
   if (serverStatus.state === 'stopped') return 'not-running';
