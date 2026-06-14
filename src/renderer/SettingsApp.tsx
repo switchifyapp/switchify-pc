@@ -74,6 +74,7 @@ export function SettingsApp(): ReactElement {
       <SettingsView
         connectedDevices={status.connectedDevices}
         pairedDevices={status.pairedDevices}
+        serverStatus={status.serverStatus}
         cursorOverlayEnabled={status.cursorOverlayEnabled}
         onDisconnect={status.disconnectClients}
         onForgetPairedDevice={status.forgetPairedDevice}

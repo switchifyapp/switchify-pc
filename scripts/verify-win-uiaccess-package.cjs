@@ -20,6 +20,16 @@ const helperPath = resolveProjectPath('dist', 'win-unpacked', 'resources', 'nati
 if (!fs.existsSync(helperPath)) {
   throw new Error(`Native cursor overlay helper not found: ${helperPath}`);
 }
+const bluetoothHelperPath = resolveProjectPath(
+  'dist',
+  'win-unpacked',
+  'resources',
+  'native',
+  'SwitchifyBluetoothTransport.exe'
+);
+if (!fs.existsSync(bluetoothHelperPath)) {
+  throw new Error(`Native Bluetooth transport helper not found: ${bluetoothHelperPath}`);
+}
 
 const mtExe = findWindowsSdkTool('mt.exe');
 const signtoolExe = findWindowsSdkTool('signtool.exe');
@@ -35,6 +45,10 @@ try {
   const signatureOutput = `${signatureResult.stdout || ''}${signatureResult.stderr || ''}`;
   const helperSignatureResult = runTool(signtoolExe, ['verify', '/pa', '/v', helperPath], { stdio: 'pipe' });
   const helperSignatureOutput = `${helperSignatureResult.stdout || ''}${helperSignatureResult.stderr || ''}`;
+  const bluetoothHelperSignatureResult = runTool(signtoolExe, ['verify', '/pa', '/v', bluetoothHelperPath], {
+    stdio: 'pipe'
+  });
+  const bluetoothHelperSignatureOutput = `${bluetoothHelperSignatureResult.stdout || ''}${bluetoothHelperSignatureResult.stderr || ''}`;
 
   console.log(`manifest embedded: yes`);
   console.log(`uiAccess=true: ${hasUiAccess ? 'yes' : 'no'}`);
@@ -42,6 +56,8 @@ try {
   console.log(`signature status: ${signatureOutput.includes('Successfully verified') ? 'valid' : 'check output above'}`);
   console.log('cursor overlay helper: present');
   console.log(`cursor overlay helper signature: ${helperSignatureOutput.includes('Successfully verified') ? 'valid' : 'check output above'}`);
+  console.log('Bluetooth transport helper: present');
+  console.log(`Bluetooth transport helper signature: ${bluetoothHelperSignatureOutput.includes('Successfully verified') ? 'valid' : 'check output above'}`);
   console.log('secure install location required: install per-machine under Program Files for uiAccess to take effect.');
 
   if (!hasUiAccess || !hasHighestAvailable) {
