@@ -26,7 +26,7 @@ describe('formatBluetoothStatus', () => {
   });
 
   it('formats safe disconnect reasons', () => {
-    expect(formatBluetoothDisconnectReason('notification_unsubscribed')).toBe('Notification subscription ended.');
+    expect(formatBluetoothDisconnectReason('notification_unsubscribed')).toBe('Bluetooth connection lost.');
     expect(formatBluetoothDisconnectReason('pc_requested')).toBe('Disconnected from this PC.');
     expect(formatBluetoothDisconnectReason(null)).toBe('Not recorded.');
   });
