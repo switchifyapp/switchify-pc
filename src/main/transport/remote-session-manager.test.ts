@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   PROTOCOL_VERSION,
   validateProtocolResponse,
+  type MouseMoveCommand,
   type PairingCompleteResponse,
   type DisconnectingCommand,
   type PingCommand
@@ -17,17 +18,17 @@ const now = 1_724_000_000_000;
 const token = 'shared-token';
 
 describe('RemoteSessionManager', () => {
-  it('acks authenticated commands through a fake transport connection', async () => {
-    const handled: PingCommand[] = [];
+  it('executes authenticated desktop commands through a fake transport connection', async () => {
+    const handled: MouseMoveCommand[] = [];
     const manager = createManager({
       onCommand: (command) => {
-        handled.push(command as PingCommand);
+        handled.push(command as MouseMoveCommand);
         return { ok: true };
       }
     });
     const connection = createConnection();
     manager.addConnection(connection);
-    const command = createPingCommand();
+    const command = createMouseMoveCommand();
 
     await manager.handleMessage(connection.id, JSON.stringify(command));
 
@@ -40,6 +41,44 @@ describe('RemoteSessionManager', () => {
         transport: 'bluetooth'
       })
     ]);
+  });
+
+  it('acks authenticated heartbeat pings without executing desktop commands', async () => {
+    const onCommand = vi.fn();
+    const manager = createManager({ onCommand });
+    const connection = createConnection();
+    manager.addConnection(connection);
+    const command = createPingCommand();
+
+    await manager.handleMessage(connection.id, JSON.stringify(command));
+
+    expect(sentResponses(connection)).toEqual([expect.objectContaining({ type: 'ack', id: command.id, ok: true })]);
+    expect(onCommand).not.toHaveBeenCalled();
+    expect(manager.getAuthenticatedClients()).toEqual([
+      expect.objectContaining({
+        id: connection.id,
+        deviceId: 'android-1',
+        transport: 'bluetooth'
+      })
+    ]);
+  });
+
+  it('rejects unauthenticated heartbeat pings with a structured auth error', async () => {
+    const onCommand = vi.fn();
+    const manager = createManager({ onCommand });
+    const connection = createConnection();
+    manager.addConnection(connection);
+
+    await manager.handleMessage(connection.id, JSON.stringify(createPingCommand({ auth: 'invalid' })));
+
+    expect(sentResponses(connection)).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        ok: false,
+        error: expect.objectContaining({ code: 'invalid_auth' })
+      })
+    ]);
+    expect(onCommand).not.toHaveBeenCalled();
   });
 
   it('keeps pairing requests pending until they are accepted', async () => {
@@ -173,6 +212,23 @@ function createPingCommand(overrides: Partial<PingCommand> = {}): PingCommand {
     auth: ''
   } satisfies PingCommand;
   const merged = { ...command, ...overrides } as PingCommand;
+  return {
+    ...merged,
+    auth: overrides.auth ?? createCommandAuthProof(merged, token)
+  };
+}
+
+function createMouseMoveCommand(overrides: Partial<MouseMoveCommand> = {}): MouseMoveCommand {
+  const command = {
+    version: PROTOCOL_VERSION,
+    id: 'move-1',
+    deviceId: 'android-1',
+    timestamp: now,
+    type: 'mouse.move',
+    payload: { dx: 5, dy: -3 },
+    auth: ''
+  } satisfies MouseMoveCommand;
+  const merged = { ...command, ...overrides } as MouseMoveCommand;
   return {
     ...merged,
     auth: overrides.auth ?? createCommandAuthProof(merged, token)

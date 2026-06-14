@@ -152,6 +152,13 @@ export class RemoteSessionManager {
       return;
     }
 
+    if (authResult.command.type === 'connection.ping') {
+      this.markConnectionSeen(connection.id, authResult.command.deviceId);
+      this.markLastSeen(Date.now());
+      await sendResponse(connection, createAckResponse(message.id));
+      return;
+    }
+
     if (authResult.command.type === 'pointer.profile') {
       const profile = this.getPointerProfile();
       if (!profile) {
