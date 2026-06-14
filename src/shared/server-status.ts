@@ -1,11 +1,14 @@
 export const DEFAULT_WS_PORT = 7347;
 
+export type TransportKind = 'websocket' | 'bluetooth';
+
 export type PcConnectedClient = {
   id: string;
   deviceId: string | null;
   remoteAddress: string | null;
   connectedAt: number;
   lastSeenAt: number | null;
+  transport: TransportKind;
 };
 
 export type PcServerListenerStatus = {
