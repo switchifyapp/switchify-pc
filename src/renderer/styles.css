@@ -418,87 +418,39 @@ p {
   font-size: 0.9rem;
 }
 
-.manual-connection {
+.bluetooth-connection-panel {
   display: grid;
-  gap: var(--space-m);
-  margin-top: var(--space-s);
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-m);
-  text-align: left;
-}
-
-.manual-connection-header {
-  display: grid;
-  gap: 4px;
-}
-
-.manual-connection-main {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--space-m);
-  align-items: start;
-}
-
-.manual-connection-qr {
-  display: grid;
-  place-items: center;
-  width: 164px;
-  min-height: 164px;
+  gap: var(--space-xs);
+  min-height: 56px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  padding: var(--space-xs);
-  background: #ffffff;
-  color: #1c1b1f;
+  padding: 12px 14px;
+  background: var(--color-surface-muted);
 }
 
-.manual-connection-qr img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.manual-connection-details {
-  display: grid;
-  gap: var(--space-s);
-  min-width: 0;
-}
-
-.manual-detail {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px var(--space-s);
+.bluetooth-status-row {
+  display: flex;
   align-items: center;
+  gap: var(--space-xs);
   min-width: 0;
-}
-
-.manual-detail span {
-  grid-column: 1 / -1;
-  color: var(--color-text-muted);
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
-.manual-detail strong {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  color: var(--color-text);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 0.88rem;
-}
-
-.manual-connection-more {
-  display: grid;
-  gap: var(--space-s);
-}
-
-.manual-connection-more summary {
   color: var(--color-text);
   font-weight: 800;
-  cursor: pointer;
 }
 
-.manual-connection-more[open] {
-  gap: var(--space-s);
+.bluetooth-status-indicator {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-status-ok);
+}
+
+.bluetooth-connection-panel-working .bluetooth-status-indicator {
+  background: var(--color-status-warn);
+}
+
+.bluetooth-connection-panel-error .bluetooth-status-indicator {
+  background: var(--color-status-error);
 }
 
 .settings-window-shell {
@@ -743,12 +695,4 @@ p {
     gap: 3px;
   }
 
-  .manual-connection-main,
-  .manual-detail {
-    grid-template-columns: 1fr;
-  }
-
-  .manual-connection-qr {
-    justify-self: center;
-  }
 }

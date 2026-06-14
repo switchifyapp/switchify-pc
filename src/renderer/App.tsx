@@ -36,8 +36,7 @@ function MainApp(): ReactElement {
 
         <PrimaryContent
           state={status.uiState}
-          appName={bridge.appName}
-          connectionDetails={status.connectionDetails}
+          bluetoothStatus={status.serverStatus?.bluetooth ?? null}
           connectedDevices={status.connectedDevices}
           onDisconnect={status.disconnectClients}
           onRefresh={status.refresh}
@@ -45,7 +44,6 @@ function MainApp(): ReactElement {
 
         <TroubleshootingDetails
           serverStatus={status.serverStatus}
-          connectionDetails={status.connectionDetails}
           pendingPairingRequests={status.pendingPairingRequests}
         />
       </section>

@@ -40,8 +40,13 @@ export function SettingsView({
   return (
     <div className="settings-window-content">
       <section className="settings-window-section">
-        <h2>Connection</h2>
-        <div className="empty-state">{formatBluetoothStatus(serverStatus?.bluetooth)}</div>
+        <h2>Bluetooth connection</h2>
+        <div className="bluetooth-connection-panel">
+          <div className="bluetooth-status-row">
+            <span className="bluetooth-status-indicator" aria-hidden="true" />
+            <span>{formatBluetoothStatus(serverStatus?.bluetooth)}</span>
+          </div>
+        </div>
         <ConnectedDeviceList devices={connectedDevices} />
         <button type="button" onClick={() => void onDisconnect()} disabled={connectedDevices.length === 0}>
           Disconnect device

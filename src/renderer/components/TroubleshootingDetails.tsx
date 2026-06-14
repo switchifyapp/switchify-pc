@@ -1,20 +1,15 @@
 import type { ReactElement } from 'react';
 import type { PendingPairingApprovalView } from '../../shared/pairing-approval';
-import type {
-  ConnectionDetails,
-  PcServerStatus
-} from '../../shared/server-status';
+import type { PcServerStatus } from '../../shared/server-status';
 import { formatBluetoothStatus } from '../bluetooth-status';
 import { formatTimestamp } from '../format';
 import { DetailGrid, DetailItem, TroubleshootingSection } from './DetailGrid';
 
 export function TroubleshootingDetails({
   serverStatus,
-  connectionDetails,
   pendingPairingRequests
 }: {
   serverStatus: PcServerStatus | null;
-  connectionDetails: ConnectionDetails | null;
   pendingPairingRequests: PendingPairingApprovalView[];
 }): ReactElement {
   return (
@@ -27,11 +22,7 @@ export function TroubleshootingDetails({
         <TroubleshootingSection title="Server details">
           <DetailGrid>
             <DetailItem label="Server status" value={serverStatus?.state ?? 'Unknown'} />
-            <DetailItem label="Port" value={serverStatus ? String(serverStatus.port) : 'Unknown'} />
-            <DetailItem label="Listeners" value={formatListeners(serverStatus)} />
             <DetailItem label="Bluetooth" value={formatBluetoothStatus(serverStatus?.bluetooth)} />
-            <DetailItem label="Connection address" value={connectionDetails?.websocketUrl ?? 'Not available.'} />
-            <DetailItem label="Desktop id" value={connectionDetails?.desktopId ?? 'Not available.'} />
             <DetailItem label="Last command" value={formatTimestamp(serverStatus?.lastSeenAt ?? null)} />
             <DetailItem label="Recent error" value={serverStatus?.lastError ?? 'No recent errors.'} />
           </DetailGrid>
@@ -39,18 +30,6 @@ export function TroubleshootingDetails({
       </div>
     </details>
   );
-}
-
-function formatListeners(serverStatus: PcServerStatus | null): string {
-  if (!serverStatus || serverStatus.listeners.length === 0) return 'Not available.';
-
-  return serverStatus.listeners
-    .map((listener) => {
-      const host = listener.family === 'IPv6' ? `[${listener.address}]` : listener.address;
-      const suffix = listener.state === 'error' ? ` (${listener.error ?? 'error'})` : '';
-      return `${listener.family} ${host}:${listener.port}${suffix}`;
-    })
-    .join(', ');
 }
 
 function PendingRequestList({ requests }: { requests: PendingPairingApprovalView[] }): ReactElement {
@@ -63,7 +42,7 @@ function PendingRequestList({ requests }: { requests: PendingPairingApprovalView
       {requests.map((request) => (
         <li key={request.requestId}>
           <strong>{request.deviceName}</strong>
-          <span>{request.remoteAddress ?? 'Unknown address'}</span>
+          <span>{request.remoteAddress ?? 'Bluetooth'}</span>
           <span>Code {request.verificationCode}</span>
           <span>Requested {formatTimestamp(request.requestedAt)}</span>
           <span>Expires {formatTimestamp(request.expiresAt)}</span>
