@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_BLUETOOTH_STATUS } from './bluetooth-status';
 import { deriveDesktopUiState } from './desktop-ui-state';
-import type { PairedDeviceView, PcServerStatus } from './server-status';
+import type { PairedDeviceView, PcControlStatus } from './server-status';
 
 describe('deriveDesktopUiState', () => {
   it('returns loading when status is missing', () => {
@@ -28,20 +28,19 @@ describe('deriveDesktopUiState', () => {
     expect(deriveDesktopUiState(serverStatus(), [pairedDevice()])).toBe('waiting-for-device');
   });
 
-  it('returns ready-to-pair when listening without connected or saved devices', () => {
+  it('returns ready-to-pair when Bluetooth is ready without connected or saved devices', () => {
     expect(deriveDesktopUiState(serverStatus(), [])).toBe('ready-to-pair');
   });
 });
 
-function serverStatus(overrides: Partial<PcServerStatus> = {}): PcServerStatus {
+function serverStatus(overrides: Partial<PcControlStatus> = {}): PcControlStatus {
   return {
-    state: 'listening',
-    port: 7347,
+    state: 'ready',
+    desktopId: 'desktop-1',
     connectedClientCount: 0,
     connectedClients: [],
     lastSeenAt: null,
     lastError: null,
-    listeners: [],
     bluetooth: DEFAULT_BLUETOOTH_STATUS,
     ...overrides
   };

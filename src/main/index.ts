@@ -6,7 +6,6 @@ import { WindowsBluetoothTransport } from './bluetooth/bluetooth-transport';
 import { ControlService } from './control/control-service';
 import { CursorOverlay } from './cursor-overlay';
 import { registerCursorOverlayIpc } from './cursor-overlay-ipc';
-import { MdnsAdvertiser } from './discovery/mdns-advertiser';
 import { DesktopCommandExecutor } from './input/command-executor';
 import { LibnutWin32InputAdapter } from './input/libnut-win32-adapter';
 import { createPointerMovementProfile } from './input/pointer-profile';
@@ -20,17 +19,14 @@ import { registerSettingsWindowIpc } from './settings-window-ipc';
 import { createSwitchifyTray, type SwitchifyTray } from './tray';
 import { registerUpdateIpc } from './updates/update-ipc';
 import { UpdateService } from './updates/update-service';
-import { PcWebSocketServer } from './websocket/server';
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 const windowsAppUserModelId = 'app.switchify.pc';
-let pcServer: PcWebSocketServer | null = null;
 let controlService: ControlService | null = null;
 let mainWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let tray: SwitchifyTray | null = null;
 let cursorOverlay: CursorOverlay | null = null;
-let mdnsAdvertiser: MdnsAdvertiser | null = null;
 let bluetoothTransport: WindowsBluetoothTransport | null = null;
 let isQuitting = false;
 
@@ -232,10 +228,6 @@ app.whenReady().then(() => {
   const pairingApprovalManager = new PairingApprovalManager(pairingStore);
   const inputAdapter = new LibnutWin32InputAdapter((position) => screen.getDisplayNearestPoint(position).scaleFactor);
   cursorOverlay = new CursorOverlay({});
-  mdnsAdvertiser = new MdnsAdvertiser({
-    getDesktopId: () => pairingManager.getDesktopId(),
-    getPort: () => pcServer?.getStatus().port ?? 0
-  });
   const commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay);
   controlService = new ControlService({
     pairingManager,
@@ -254,12 +246,11 @@ app.whenReady().then(() => {
     },
     onStatusChange: (status) => {
       tray?.update();
-      void syncMdnsAdvertiser(status.state === 'listening');
     },
     onCommand: (command) => commandExecutor.execute(command)
   });
-  pcServer = new PcWebSocketServer({
-    controlService
+  void pairingManager.getDesktopId().then((desktopId) => {
+    controlService?.setDesktopId(desktopId);
   });
   bluetoothTransport = new WindowsBluetoothTransport({
     controlService,
@@ -269,7 +260,7 @@ app.whenReady().then(() => {
       tray?.update();
     }
   });
-  registerServerIpc(controlService, pairingManager, pairingStore);
+  registerServerIpc(controlService, pairingStore);
   registerCursorOverlayIpc(cursorOverlay);
   registerPairingApprovalIpc(controlService);
   registerSettingsWindowIpc(showSettingsWindow);
@@ -280,7 +271,6 @@ app.whenReady().then(() => {
       showItemInFolder: (filePath) => shell.showItemInFolder(filePath)
     })
   );
-  void pcServer.start();
   void bluetoothTransport.start();
 
   mainWindow = createMainWindow();
@@ -288,18 +278,17 @@ app.whenReady().then(() => {
     getStatus: () =>
       controlService?.getStatus() ?? {
         state: 'stopped',
-        port: 0,
+        desktopId: null,
         connectedClientCount: 0,
         connectedClients: [],
         lastSeenAt: null,
         lastError: null,
-        listeners: [],
         bluetooth: DEFAULT_BLUETOOTH_STATUS
       },
     showWindow: showMainWindow,
     openSettings: showSettingsWindow,
     disconnectClients: () => {
-      pcServer?.disconnectClients();
+      controlService?.disconnectClients();
       tray?.update();
     },
     quit: quitApp
@@ -313,37 +302,16 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {});
 
 app.on('before-quit', (event) => {
-  if (!pcServer || isQuitting) return;
+  if (isQuitting) return;
 
   event.preventDefault();
   isQuitting = true;
   tray?.destroy();
   tray = null;
-  const advertiser = mdnsAdvertiser;
-  mdnsAdvertiser = null;
   cursorOverlay?.destroy();
   cursorOverlay = null;
   bluetoothTransport?.stop();
   bluetoothTransport = null;
-  const server = pcServer;
-  pcServer = null;
   controlService = null;
-  void Promise.all([advertiser?.stop(), server.stop()]).finally(() => {
-    app.quit();
-  });
+  app.quit();
 });
-
-async function syncMdnsAdvertiser(shouldRun: boolean): Promise<void> {
-  const advertiser = mdnsAdvertiser;
-  if (!advertiser) return;
-
-  try {
-    if (shouldRun && !advertiser.isRunning()) {
-      await advertiser.start();
-    } else if (!shouldRun && advertiser.isRunning()) {
-      await advertiser.stop();
-    }
-  } catch (error) {
-    console.error('Switchify discovery failed.', error);
-  }
-}

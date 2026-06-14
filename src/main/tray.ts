@@ -1,10 +1,10 @@
 import { app, Menu, nativeImage, Tray, type NativeImage } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { PcServerStatus } from '../shared/server-status';
+import type { PcControlStatus } from '../shared/server-status';
 
 export type SwitchifyTrayOptions = {
-  getStatus: () => PcServerStatus;
+  getStatus: () => PcControlStatus;
   showWindow: () => void;
   openSettings: () => void;
   disconnectClients: () => void;
@@ -62,17 +62,19 @@ function createTrayIcon(): NativeImage {
   return trayImage;
 }
 
-function formatTooltipStatus(status: PcServerStatus): string {
+function formatTooltipStatus(status: PcControlStatus): string {
   if (status.connectedClientCount > 0) return 'device connected';
-  if (status.state === 'listening') return 'ready';
+  if (status.bluetooth.status === 'ready') return 'Bluetooth ready';
+  if (status.bluetooth.status === 'unavailable' || status.bluetooth.status === 'error') return 'Bluetooth unavailable';
   if (status.state === 'error') return 'needs attention';
   if (status.state === 'starting') return 'starting';
   return 'not running';
 }
 
-function formatMenuStatus(status: PcServerStatus): string {
+function formatMenuStatus(status: PcControlStatus): string {
   if (status.connectedClientCount > 0) return 'Device connected';
-  if (status.state === 'listening') return 'Ready to connect';
+  if (status.bluetooth.status === 'ready') return 'Bluetooth ready';
+  if (status.bluetooth.status === 'unavailable' || status.bluetooth.status === 'error') return 'Bluetooth unavailable';
   if (status.state === 'error') return 'Needs attention';
   if (status.state === 'starting') return 'Starting...';
   return 'Not running';

@@ -1,4 +1,4 @@
-export type TransportKind = 'websocket' | 'bluetooth';
+export type TransportKind = 'bluetooth';
 
 export type RemoteConnection = {
   id: string;

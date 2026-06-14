@@ -1,5 +1,4 @@
 export const SERVER_STATUS_CHANNEL = 'pc-server:get-status';
-export const GET_CONNECTION_DETAILS_CHANNEL = 'pc-server:get-connection-details';
 export const GET_PAIRED_DEVICES_CHANNEL = 'pc-server:get-paired-devices';
 export const DISCONNECT_CLIENTS_CHANNEL = 'pc-server:disconnect-clients';
 export const FORGET_PAIRED_DEVICE_CHANNEL = 'pc-server:forget-paired-device';

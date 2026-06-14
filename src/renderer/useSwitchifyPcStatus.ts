@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { deriveDesktopUiState, type DesktopUiState } from '../shared/desktop-ui-state';
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
-import type { PairedDeviceView, PcServerStatus } from '../shared/server-status';
+import type { PairedDeviceView, PcControlStatus } from '../shared/server-status';
 import { toConnectedDeviceViews, type ConnectedDeviceView } from './connected-devices';
 
 export type SwitchifyPcStatusViewModel = {
   uiState: DesktopUiState;
-  serverStatus: PcServerStatus | null;
+  serverStatus: PcControlStatus | null;
   pairedDevices: PairedDeviceView[];
   pendingPairingRequests: PendingPairingApprovalView[];
   connectedDevices: ConnectedDeviceView[];
@@ -19,7 +19,7 @@ export type SwitchifyPcStatusViewModel = {
 };
 
 export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPcStatusViewModel {
-  const [serverStatus, setServerStatus] = useState<PcServerStatus | null>(null);
+  const [serverStatus, setServerStatus] = useState<PcControlStatus | null>(null);
   const [pairedDevices, setPairedDevices] = useState<PairedDeviceView[]>([]);
   const [pendingPairingRequests, setPendingPairingRequests] = useState<PendingPairingApprovalView[]>([]);
   const [cursorOverlayEnabled, setCursorOverlayEnabled] = useState(true);

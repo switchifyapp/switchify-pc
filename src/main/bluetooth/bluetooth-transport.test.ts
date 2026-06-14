@@ -26,7 +26,6 @@ describe('WindowsBluetoothTransport', () => {
       ]
     });
     const controlService = new ControlService({
-      port: 0,
       pairingManager: new PairingManager(store),
       authValidator: new CommandAuthValidator(store, () => now)
     });

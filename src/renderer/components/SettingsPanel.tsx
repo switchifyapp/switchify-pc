@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from 'react';
-import type { PairedDeviceView, PcServerStatus } from '../../shared/server-status';
+import type { PairedDeviceView, PcControlStatus } from '../../shared/server-status';
 import type { UpdateState } from '../../shared/update';
 import { formatBluetoothStatus } from '../bluetooth-status';
 import type { ConnectedDeviceView } from '../connected-devices';
@@ -9,7 +9,7 @@ import { UpdatesPanel } from './UpdatesPanel';
 type SettingsViewProps = {
   connectedDevices: ConnectedDeviceView[];
   pairedDevices: PairedDeviceView[];
-  serverStatus: PcServerStatus | null;
+  serverStatus: PcControlStatus | null;
   cursorOverlayEnabled: boolean;
   onDisconnect: () => Promise<void>;
   onForgetPairedDevice: (deviceId: string) => Promise<{ ok: boolean; reason?: string }>;
@@ -89,16 +89,16 @@ function ConnectedDeviceList({ devices }: { devices: ConnectedDeviceView[] }): R
       {devices.map((device) => (
         <li key={device.connectionId}>
           <strong>{device.deviceName}</strong>
-          <span>{formatTransport(device.transport, device.remoteAddress)}</span>
+          <span>{formatTransport(device.transport)}</span>
         </li>
       ))}
     </ul>
   );
 }
 
-function formatTransport(transport: ConnectedDeviceView['transport'], remoteAddress: string | null): string {
+function formatTransport(transport: ConnectedDeviceView['transport']): string {
   if (transport === 'bluetooth') return 'Bluetooth';
-  return remoteAddress ?? 'Unknown address';
+  return 'Bluetooth';
 }
 
 function PairedDeviceList({

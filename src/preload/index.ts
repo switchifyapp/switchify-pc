@@ -1,13 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
-import type { ConnectionDetails, PairedDeviceView, PcServerStatus } from '../shared/server-status';
+import type { PairedDeviceView, PcControlStatus } from '../shared/server-status';
 import {
   CHECK_FOR_UPDATES_CHANNEL,
   DISCONNECT_CLIENTS_CHANNEL,
   DOWNLOAD_UPDATE_CHANNEL,
   FORGET_PAIRED_DEVICE_CHANNEL,
   GET_CURSOR_OVERLAY_ENABLED_CHANNEL,
-  GET_CONNECTION_DETAILS_CHANNEL,
   GET_PAIRED_DEVICES_CHANNEL,
   GET_PENDING_PAIRING_REQUESTS_CHANNEL,
   GET_UPDATE_STATE_CHANNEL,
@@ -21,14 +20,13 @@ import type { UpdateState } from '../shared/update';
 
 contextBridge.exposeInMainWorld('switchifyPc', {
   appName: 'Switchify PC',
-  getServerStatus: (): Promise<PcServerStatus> => ipcRenderer.invoke(SERVER_STATUS_CHANNEL),
-  getConnectionDetails: (): Promise<ConnectionDetails> => ipcRenderer.invoke(GET_CONNECTION_DETAILS_CHANNEL),
+  getServerStatus: (): Promise<PcControlStatus> => ipcRenderer.invoke(SERVER_STATUS_CHANNEL),
   getPairedDevices: (): Promise<PairedDeviceView[]> => ipcRenderer.invoke(GET_PAIRED_DEVICES_CHANNEL),
-  disconnectClients: (): Promise<PcServerStatus> => ipcRenderer.invoke(DISCONNECT_CLIENTS_CHANNEL),
+  disconnectClients: (): Promise<PcControlStatus> => ipcRenderer.invoke(DISCONNECT_CLIENTS_CHANNEL),
   forgetPairedDevice: (
     deviceId: string
   ): Promise<
-    { ok: true; pairedDevices: PairedDeviceView[]; status: PcServerStatus } | { ok: false; reason: string }
+    { ok: true; pairedDevices: PairedDeviceView[]; status: PcControlStatus } | { ok: false; reason: string }
   > => ipcRenderer.invoke(FORGET_PAIRED_DEVICE_CHANNEL, deviceId),
   getCursorOverlayEnabled: (): Promise<boolean> => ipcRenderer.invoke(GET_CURSOR_OVERLAY_ENABLED_CHANNEL),
   setCursorOverlayEnabled: (enabled: boolean): Promise<boolean> =>

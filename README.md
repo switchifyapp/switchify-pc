@@ -90,27 +90,15 @@ Running from `npm run dev`, `dist/win-unpacked`, AppData, Downloads, or the repo
 
 Self-signed certificates are for dev/testing only. Production users should not be asked to trust a self-signed certificate manually. Azure Artifact Signing is the preferred low-cost production signing path when eligible; traditional OV/EV code-signing certificates remain possible. Production signing configuration must come from environment variables or CI secrets, never committed files.
 
-## Local network expectations
+## Bluetooth connection expectations
 
-Switchify PC starts local IPv4 and IPv6 WebSocket listeners on port `7347` by default. Android devices must be on the same local network and able to reach the PC at that port.
+Switchify PC uses Bluetooth for PC control pairing and reconnect. The Android device must be near the PC, Bluetooth must be enabled on both devices, and the first pairing still requires approval on the PC.
 
-Windows Defender Firewall or third-party firewall software may prompt when the packaged app first starts. Allow private-network access for local pairing and control. Public-network access is not required for the MVP.
-
-Automatic discovery uses mDNS. If the Android app cannot see the PC automatically, Switchify PC shows a manual connection QR code on the main screen when a local network address is available. The QR code contains only connection metadata: the desktop ID, display name, version, and non-loopback WebSocket URLs. It does not contain pairing tokens, auth proofs, secrets, nonces, device IDs, or saved pairing data. Pairing still requires approval on the PC.
-
-If QR/manual connection also times out, check Windows Defender Firewall and any third-party antivirus or firewall. Products such as Avast can block inbound local TCP or multicast traffic even when Windows Defender Firewall rules are ready.
-
-Use the read-only network diagnostic script to inspect current listeners, firewall rule state, and Windows network profiles:
-
-```powershell
-npm run check:network
-```
-
-On Windows, `Get-NetTCPConnection -LocalPort 7347 -State Listen` should show both IPv4 and IPv6 listeners when both address families are available.
+Paired devices reconnect over Bluetooth using the existing app-level pairing token and authenticated command flow. Local-network WebSocket control, mDNS discovery, manual IP entry, and QR connection are not part of the product path.
 
 ## Security
 
-Do not expose the WebSocket port directly to the internet. The intended control surface is a trusted local network with paired devices only.
+Bluetooth proximity is not authentication. Pairing approval and authenticated commands remain required, and pairing tokens, auth proofs, and typed text payloads must not be exposed in logs or UI.
 
 Please report vulnerabilities by email to owen@switchifyapp.com instead of opening public issues.
 
@@ -131,11 +119,11 @@ Use this checklist after packaging changes and before publishing any installer:
 
 - App launches from `Switchify PC.exe`.
 - Tray menu opens and can show the main window.
-- WebSocket server starts and shows `Listening on port 7347`.
-- Manual connection QR appears when the PC has a non-loopback local network address.
-- Manual connection QR payload contains desktop ID and WebSocket URLs only, with no secrets.
+- Bluetooth helper starts and reports a safe status.
+- No QR/manual local-network connection UI appears.
+- No local IP address or WebSocket address appears in Settings or troubleshooting.
 - Pairing approval requests appear and can be accepted or rejected.
-- Android can pair with the PC using local discovery and approval.
+- Android can pair with the PC using Bluetooth and approval.
 - Paired Android device can disconnect and reconnect without deleting the saved pairing.
 - Authenticated ping receives an ack.
 - Relative mouse movement works and remains responsive under repeated movement.
@@ -148,7 +136,7 @@ Use this checklist after packaging changes and before publishing any installer:
 - Keyboard shortcut works, for example `Ctrl+C` or `Ctrl+V`.
 - Media key command works, for example play/pause or volume up.
 - Window control commands work, for example next app and show desktop.
-- Disconnect all removes active WebSocket sessions.
+- Disconnect all removes active Bluetooth sessions.
 - Quit exits the app, removes the tray icon, and exits the native cursor overlay helper.
 
 ## License
