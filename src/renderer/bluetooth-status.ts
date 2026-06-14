@@ -24,8 +24,10 @@ function toUnavailableText(reason: BluetoothStatus['reason']): string {
 export function formatBluetoothDiagnosticEvent(event: BluetoothDiagnosticEvent): string {
   if (event === 'advertising_started') return 'Advertising started.';
   if (event === 'subscribed') return 'Device subscribed.';
+  if (event === 'unsubscribed') return 'Device unsubscribed.';
   if (event === 'unsubscribe_grace_started') return 'Waiting for Bluetooth reconnect.';
   if (event === 'unsubscribe_grace_cancelled') return 'Bluetooth reconnect resumed.';
+  if (event === 'unsubscribe_grace_timed_out') return 'Bluetooth reconnect timed out.';
   if (event === 'write_received') return 'Message received.';
   return 'Not recorded.';
 }

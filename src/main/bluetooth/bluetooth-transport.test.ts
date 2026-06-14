@@ -44,11 +44,36 @@ describe('WindowsBluetoothTransport', () => {
 
     await transport.start();
     fakeHelper.emit({ type: 'diagnostic', event: 'subscribed' });
+    fakeHelper.emit({ type: 'diagnostic', event: 'unsubscribed' });
 
     expect(controlService.getStatus().bluetooth).toMatchObject({
-      lastEvent: 'subscribed',
-      lastEventAt: now
+      lastEvent: 'unsubscribed',
+      lastEventAt: now,
+      recentEvents: [
+        { event: 'subscribed', at: now },
+        { event: 'unsubscribed', at: now }
+      ]
     });
+  });
+
+  it('keeps only the most recent Bluetooth diagnostic events', async () => {
+    const { controlService, fakeHelper, transport } = createTransport();
+
+    await transport.start();
+    fakeHelper.emit({ type: 'diagnostic', event: 'advertising_started' });
+    fakeHelper.emit({ type: 'diagnostic', event: 'subscribed' });
+    fakeHelper.emit({ type: 'diagnostic', event: 'unsubscribed' });
+    fakeHelper.emit({ type: 'diagnostic', event: 'unsubscribe_grace_started' });
+    fakeHelper.emit({ type: 'diagnostic', event: 'unsubscribe_grace_cancelled' });
+    fakeHelper.emit({ type: 'diagnostic', event: 'write_received' });
+
+    expect(controlService.getStatus().bluetooth.recentEvents.map((event) => event.event)).toEqual([
+      'subscribed',
+      'unsubscribed',
+      'unsubscribe_grace_started',
+      'unsubscribe_grace_cancelled',
+      'write_received'
+    ]);
   });
 
   it('records disconnect reasons in Bluetooth status', async () => {

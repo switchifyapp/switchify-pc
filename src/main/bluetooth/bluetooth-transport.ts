@@ -5,7 +5,11 @@ import {
   createBluetoothFrames,
   type BluetoothFrame
 } from '../../shared/bluetooth-frame';
-import { type BluetoothStatus, type BluetoothUnavailableReason } from '../../shared/bluetooth-status';
+import {
+  type BluetoothDiagnosticEvent,
+  type BluetoothStatus,
+  type BluetoothUnavailableReason
+} from '../../shared/bluetooth-status';
 import type { ControlService } from '../control/control-service';
 import type { RemoteConnection } from '../transport/remote-connection';
 import {
@@ -41,6 +45,7 @@ export class WindowsBluetoothTransport {
     lastError: null,
     lastEvent: null,
     lastEventAt: null,
+    recentEvents: [],
     lastDisconnectReason: null,
     lastDisconnectAt: null
   };
@@ -111,7 +116,7 @@ export class WindowsBluetoothTransport {
         this.removeConnection(event.connectionId, event.reason);
         return;
       case 'diagnostic':
-        this.setStatus({ lastEvent: event.event, lastEventAt: Date.now() });
+        this.recordDiagnostic(event.event);
         return;
       case 'error':
         this.setStatus({ status: 'error', lastError: safeBluetoothError(event.reason) });
@@ -186,6 +191,15 @@ export class WindowsBluetoothTransport {
     this.options.controlService.setBluetoothStatus(this.status);
     this.options.onStatusChange?.(this.getStatus());
     return this.getStatus();
+  }
+
+  private recordDiagnostic(event: Exclude<BluetoothDiagnosticEvent, null>): void {
+    const at = Date.now();
+    this.setStatus({
+      lastEvent: event,
+      lastEventAt: at,
+      recentEvents: [...this.status.recentEvents, { event, at }].slice(-5)
+    });
   }
 }
 
