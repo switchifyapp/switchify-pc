@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_BLUETOOTH_STATUS } from './bluetooth-status';
 import { deriveDesktopUiState } from './desktop-ui-state';
 import type { ConnectionDetails, PairedDeviceView, PcServerStatus } from './server-status';
 
@@ -42,6 +43,7 @@ function serverStatus(overrides: Partial<PcServerStatus> = {}): PcServerStatus {
     lastSeenAt: null,
     lastError: null,
     listeners: [],
+    bluetooth: DEFAULT_BLUETOOTH_STATUS,
     ...overrides
   };
 }

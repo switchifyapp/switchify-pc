@@ -20,7 +20,7 @@ module.exports = async function packageWindowsAfterPack(context) {
   applyWindowsExecutableResources(executablePath);
   embedUiAccessManifest(executablePath);
   signWindowsExecutable(executablePath);
-  signNativeHelper(context.appOutDir);
+  signNativeHelpers(context.appOutDir);
 };
 
 function applyWindowsExecutableResources(executablePath) {
@@ -94,13 +94,15 @@ function signWindowsExecutable(filePath) {
   runTool(signtoolExe, signingArgs);
 }
 
-function signNativeHelper(appOutDir) {
-  const helperPath = path.join(appOutDir, 'resources', 'native', 'SwitchifyCursorOverlay.exe');
-  if (!fs.existsSync(helperPath)) {
-    throw new Error(`Cursor overlay helper is missing from packaged resources: ${helperPath}`);
-  }
+function signNativeHelpers(appOutDir) {
+  for (const helperName of ['SwitchifyCursorOverlay.exe', 'SwitchifyBluetoothTransport.exe']) {
+    const helperPath = path.join(appOutDir, 'resources', 'native', helperName);
+    if (!fs.existsSync(helperPath)) {
+      throw new Error(`Native helper is missing from packaged resources: ${helperPath}`);
+    }
 
-  signWindowsExecutable(helperPath);
+    signWindowsExecutable(helperPath);
+  }
 }
 
 function createSigningArgs(filePath, { requireSigning }) {

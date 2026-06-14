@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server as HttpServer } from 'n
 import type { AddressInfo, ListenOptions } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
+import { DEFAULT_BLUETOOTH_STATUS, type BluetoothStatus } from '../../shared/bluetooth-status';
 import type { CommandRequest, PointerMovementProfile } from '../../shared/protocol';
 import {
   DEFAULT_WS_PORT,
@@ -60,7 +61,8 @@ export class PcWebSocketServer {
       connectedClients: [],
       lastSeenAt: null,
       lastError: null,
-      listeners: []
+      listeners: [],
+      bluetooth: DEFAULT_BLUETOOTH_STATUS
     };
     this.sessions = new RemoteSessionManager({
       pairingManager: options.pairingManager,
@@ -162,6 +164,22 @@ export class PcWebSocketServer {
   disconnectDevice(deviceId: string): PcServerStatus {
     void this.sessions.disconnectDevice(deviceId);
     return this.getStatus();
+  }
+
+  addRemoteConnection(connection: RemoteConnection): void {
+    this.sessions.addConnection(connection);
+  }
+
+  async handleRemoteMessage(connectionId: string, rawMessage: string): Promise<void> {
+    await this.sessions.handleMessage(connectionId, rawMessage);
+  }
+
+  removeRemoteConnection(connectionId: string): void {
+    this.sessions.removeConnection(connectionId);
+  }
+
+  setBluetoothStatus(bluetooth: BluetoothStatus): void {
+    this.setStatus({ bluetooth });
   }
 
   getPendingPairingRequests(): PendingPairingApprovalView[] {

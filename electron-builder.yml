@@ -22,6 +22,8 @@ extraResources:
     to: icon.png
   - from: build/native/cursor-overlay-helper/win-x64/SwitchifyCursorOverlay.exe
     to: native/SwitchifyCursorOverlay.exe
+  - from: build/native/bluetooth-transport-helper/win-x64/SwitchifyBluetoothTransport.exe
+    to: native/SwitchifyBluetoothTransport.exe
 
 win:
   icon: build/icon.ico
