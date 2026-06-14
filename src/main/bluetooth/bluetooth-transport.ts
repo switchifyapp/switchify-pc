@@ -6,8 +6,8 @@ import {
   type BluetoothFrame
 } from '../../shared/bluetooth-frame';
 import { type BluetoothStatus, type BluetoothUnavailableReason } from '../../shared/bluetooth-status';
+import type { ControlService } from '../control/control-service';
 import type { RemoteConnection } from '../transport/remote-connection';
-import type { PcWebSocketServer } from '../websocket/server';
 import {
   SWITCHIFY_BLE_RX_CHARACTERISTIC_UUID,
   SWITCHIFY_BLE_SERVICE_UUID,
@@ -18,7 +18,7 @@ import { BluetoothHelperClient } from './bluetooth-helper-client';
 import type { BluetoothHelperEvent } from './helper-protocol';
 
 export type WindowsBluetoothTransportOptions = {
-  server: PcWebSocketServer;
+  controlService: ControlService;
   getDesktopId: () => Promise<string>;
   displayName: string;
   helperPath?: string;
@@ -135,13 +135,13 @@ export class WindowsBluetoothTransport {
       connection,
       reassembler: new BluetoothFrameReassembler()
     });
-    this.options.server.addRemoteConnection(connection);
+    this.options.controlService.addRemoteConnection(connection);
     this.setStatus({ status: 'connected', connectedClientCount: this.connections.size, reason: null });
   }
 
   private removeConnection(connectionId: string): void {
     if (!this.connections.delete(connectionId)) return;
-    this.options.server.removeRemoteConnection(connectionId);
+    this.options.controlService.removeRemoteConnection(connectionId);
     this.setStatus({
       status: this.connections.size > 0 ? 'connected' : 'ready',
       connectedClientCount: this.connections.size
@@ -160,7 +160,7 @@ export class WindowsBluetoothTransport {
       return;
     }
 
-    await this.options.server.handleRemoteMessage(connectionId, result.message);
+    await this.options.controlService.handleRemoteMessage(connectionId, result.message);
   }
 
   private setUnavailable(reason: BluetoothUnavailableReason): BluetoothStatus {
@@ -169,7 +169,7 @@ export class WindowsBluetoothTransport {
 
   private setStatus(update: Partial<BluetoothStatus>): BluetoothStatus {
     this.status = { ...this.status, ...update };
-    this.options.server.setBluetoothStatus(this.status);
+    this.options.controlService.setBluetoothStatus(this.status);
     this.options.onStatusChange?.(this.getStatus());
     return this.getStatus();
   }

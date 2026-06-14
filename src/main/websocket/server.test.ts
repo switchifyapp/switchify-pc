@@ -13,6 +13,7 @@ import { createCommandAuthProof, CommandAuthValidator } from '../pairing/auth';
 import { PairingApprovalManager, PAIRING_APPROVAL_REQUEST_TTL_MS } from '../pairing/pairing-approval-manager';
 import { PairingManager } from '../pairing/pairing-manager';
 import { MemoryPairingStore } from '../pairing/pairing-store';
+import { ControlService, type ControlServiceOptions } from '../control/control-service';
 import { PcWebSocketServer } from './server';
 
 const now = 1_724_000_000_000;
@@ -427,7 +428,7 @@ describe('PcWebSocketServer', () => {
   });
 });
 
-function createServer(overrides: Partial<ConstructorParameters<typeof PcWebSocketServer>[0]> = {}): PcWebSocketServer {
+function createServer(overrides: Partial<ControlServiceOptions> = {}): PcWebSocketServer {
   const store = new MemoryPairingStore({
     desktopId: 'desktop-1',
     pairedDevices: [
@@ -440,11 +441,15 @@ function createServer(overrides: Partial<ConstructorParameters<typeof PcWebSocke
       }
     ]
   });
-  return new PcWebSocketServer({
+  const controlService = new ControlService({
     port: 0,
     pairingManager: new PairingManager(store),
     authValidator: new CommandAuthValidator(store, () => now),
     ...overrides
+  });
+  return new PcWebSocketServer({
+    port: 0,
+    controlService
   });
 }
 

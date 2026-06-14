@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_BLUETOOTH_STATUS } from '../shared/bluetooth-status';
 import { WindowsBluetoothTransport } from './bluetooth/bluetooth-transport';
+import { ControlService } from './control/control-service';
 import { CursorOverlay } from './cursor-overlay';
 import { registerCursorOverlayIpc } from './cursor-overlay-ipc';
 import { MdnsAdvertiser } from './discovery/mdns-advertiser';
@@ -24,6 +25,7 @@ import { PcWebSocketServer } from './websocket/server';
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 const windowsAppUserModelId = 'app.switchify.pc';
 let pcServer: PcWebSocketServer | null = null;
+let controlService: ControlService | null = null;
 let mainWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let tray: SwitchifyTray | null = null;
@@ -235,7 +237,7 @@ app.whenReady().then(() => {
     getPort: () => pcServer?.getStatus().port ?? 0
   });
   const commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay);
-  pcServer = new PcWebSocketServer({
+  controlService = new ControlService({
     pairingManager,
     pairingApprovalManager,
     authValidator: new CommandAuthValidator(pairingStore),
@@ -256,17 +258,20 @@ app.whenReady().then(() => {
     },
     onCommand: (command) => commandExecutor.execute(command)
   });
+  pcServer = new PcWebSocketServer({
+    controlService
+  });
   bluetoothTransport = new WindowsBluetoothTransport({
-    server: pcServer,
+    controlService,
     getDesktopId: () => pairingManager.getDesktopId(),
     displayName: 'Switchify PC',
     onStatusChange: () => {
       tray?.update();
     }
   });
-  registerServerIpc(pcServer, pairingManager, pairingStore);
+  registerServerIpc(controlService, pairingManager, pairingStore);
   registerCursorOverlayIpc(cursorOverlay);
-  registerPairingApprovalIpc(pcServer);
+  registerPairingApprovalIpc(controlService);
   registerSettingsWindowIpc(showSettingsWindow);
   registerUpdateIpc(
     new UpdateService({
@@ -281,7 +286,7 @@ app.whenReady().then(() => {
   mainWindow = createMainWindow();
   tray = createSwitchifyTray({
     getStatus: () =>
-      pcServer?.getStatus() ?? {
+      controlService?.getStatus() ?? {
         state: 'stopped',
         port: 0,
         connectedClientCount: 0,
@@ -320,7 +325,10 @@ app.on('before-quit', (event) => {
   cursorOverlay = null;
   bluetoothTransport?.stop();
   bluetoothTransport = null;
-  void Promise.all([advertiser?.stop(), pcServer.stop()]).finally(() => {
+  const server = pcServer;
+  pcServer = null;
+  controlService = null;
+  void Promise.all([advertiser?.stop(), server.stop()]).finally(() => {
     app.quit();
   });
 });

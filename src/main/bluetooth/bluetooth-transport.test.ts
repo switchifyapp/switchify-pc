@@ -3,7 +3,7 @@ import { PROTOCOL_VERSION, validateProtocolResponse, type PingCommand } from '..
 import { createCommandAuthProof, CommandAuthValidator } from '../pairing/auth';
 import { PairingManager } from '../pairing/pairing-manager';
 import { MemoryPairingStore } from '../pairing/pairing-store';
-import { PcWebSocketServer } from '../websocket/server';
+import { ControlService } from '../control/control-service';
 import { WindowsBluetoothTransport } from './bluetooth-transport';
 import type { BluetoothHelperClient } from './bluetooth-helper-client';
 import type { BluetoothHelperEvent } from './helper-protocol';
@@ -25,14 +25,14 @@ describe('WindowsBluetoothTransport', () => {
         }
       ]
     });
-    const server = new PcWebSocketServer({
+    const controlService = new ControlService({
       port: 0,
       pairingManager: new PairingManager(store),
       authValidator: new CommandAuthValidator(store, () => now)
     });
     const fakeHelper = new FakeBluetoothHelper();
     const transport = new WindowsBluetoothTransport({
-      server,
+      controlService,
       getDesktopId: () => Promise.resolve('desktop-1'),
       displayName: 'Switchify PC',
       helperPath: 'fake-helper.exe',
@@ -52,7 +52,7 @@ describe('WindowsBluetoothTransport', () => {
     expect(sent).toHaveLength(1);
     expect(validateProtocolResponse(JSON.parse(sent[0]))).toMatchObject({ ok: true });
     expect(JSON.parse(sent[0])).toMatchObject({ type: 'ack', id: 'request-1', ok: true });
-    expect(server.getStatus().connectedClients[0]).toMatchObject({
+    expect(controlService.getStatus().connectedClients[0]).toMatchObject({
       deviceId: 'android-1',
       transport: 'bluetooth'
     });
