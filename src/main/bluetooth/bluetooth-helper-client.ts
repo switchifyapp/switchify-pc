@@ -200,8 +200,10 @@ function isDiagnosticEvent(value: unknown): value is Exclude<BluetoothDiagnostic
   return (
     value === 'advertising_started' ||
     value === 'subscribed' ||
+    value === 'unsubscribed' ||
     value === 'unsubscribe_grace_started' ||
     value === 'unsubscribe_grace_cancelled' ||
+    value === 'unsubscribe_grace_timed_out' ||
     value === 'write_received'
   );
 }

@@ -28,6 +28,7 @@ export function TroubleshootingDetails({
             <DetailItem label="Control status" value={serverStatus?.state ?? 'Unknown'} />
             <DetailItem label="Bluetooth" value={formatBluetoothStatus(serverStatus?.bluetooth)} />
             <DetailItem label="Last Bluetooth event" value={formatBluetoothEvent(serverStatus)} />
+            <DetailItem label="Recent Bluetooth events" value={formatBluetoothEvents(serverStatus)} />
             <DetailItem label="Last Bluetooth disconnect" value={formatBluetoothDisconnect(serverStatus)} />
             <DetailItem label="Desktop id" value={serverStatus?.desktopId ?? 'Unknown'} />
             <DetailItem label="Last command" value={formatTimestamp(serverStatus?.lastSeenAt ?? null)} />
@@ -43,6 +44,12 @@ function formatBluetoothEvent(serverStatus: PcControlStatus | null): string {
   const bluetooth = serverStatus?.bluetooth;
   if (!bluetooth?.lastEvent) return 'Not recorded.';
   return `${formatBluetoothDiagnosticEvent(bluetooth.lastEvent)} ${formatTimestamp(bluetooth.lastEventAt)}`;
+}
+
+function formatBluetoothEvents(serverStatus: PcControlStatus | null): string {
+  const events = serverStatus?.bluetooth?.recentEvents ?? [];
+  if (events.length === 0) return 'Not recorded.';
+  return events.map((event) => `${formatBluetoothDiagnosticEvent(event.event)} ${formatTimestamp(event.at)}`).join(' ');
 }
 
 function formatBluetoothDisconnect(serverStatus: PcControlStatus | null): string {

@@ -19,10 +19,17 @@ export type BluetoothDisconnectReason =
 export type BluetoothDiagnosticEvent =
   | 'advertising_started'
   | 'subscribed'
+  | 'unsubscribed'
   | 'unsubscribe_grace_started'
   | 'unsubscribe_grace_cancelled'
+  | 'unsubscribe_grace_timed_out'
   | 'write_received'
   | null;
+
+export type BluetoothDiagnosticRecord = {
+  event: Exclude<BluetoothDiagnosticEvent, null>;
+  at: number;
+};
 
 export type BluetoothStatus = {
   status: BluetoothTransportStatus;
@@ -31,6 +38,7 @@ export type BluetoothStatus = {
   lastError: string | null;
   lastEvent: BluetoothDiagnosticEvent;
   lastEventAt: number | null;
+  recentEvents: BluetoothDiagnosticRecord[];
   lastDisconnectReason: BluetoothDisconnectReason;
   lastDisconnectAt: number | null;
 };
@@ -42,6 +50,7 @@ export const DEFAULT_BLUETOOTH_STATUS: BluetoothStatus = {
   lastError: null,
   lastEvent: null,
   lastEventAt: null,
+  recentEvents: [],
   lastDisconnectReason: null,
   lastDisconnectAt: null
 };

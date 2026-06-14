@@ -21,7 +21,9 @@ describe('formatBluetoothStatus', () => {
 
   it('formats safe diagnostic events', () => {
     expect(formatBluetoothDiagnosticEvent('write_received')).toBe('Message received.');
+    expect(formatBluetoothDiagnosticEvent('unsubscribed')).toBe('Device unsubscribed.');
     expect(formatBluetoothDiagnosticEvent('unsubscribe_grace_started')).toBe('Waiting for Bluetooth reconnect.');
+    expect(formatBluetoothDiagnosticEvent('unsubscribe_grace_timed_out')).toBe('Bluetooth reconnect timed out.');
     expect(formatBluetoothDiagnosticEvent(null)).toBe('Not recorded.');
   });
 
@@ -49,6 +51,7 @@ function bluetoothStatus(overrides: Partial<BluetoothStatus> = {}): BluetoothSta
     lastError: null,
     lastEvent: null,
     lastEventAt: null,
+    recentEvents: [],
     lastDisconnectReason: null,
     lastDisconnectAt: null,
     ...overrides

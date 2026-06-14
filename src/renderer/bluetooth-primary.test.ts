@@ -67,6 +67,7 @@ function bluetoothStatus(overrides: Partial<BluetoothStatus> = {}): BluetoothSta
     lastError: null,
     lastEvent: null,
     lastEventAt: null,
+    recentEvents: [],
     lastDisconnectReason: null,
     lastDisconnectAt: null,
     ...overrides

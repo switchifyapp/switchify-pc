@@ -178,6 +178,7 @@ internal sealed class BluetoothGattBridge
             }
             else if (!hasSubscribers && connected)
             {
+                HelperProtocol.WriteEvent(new { type = "diagnostic", @event = "unsubscribed" });
                 StartDisconnectGrace();
             }
         };
@@ -297,6 +298,7 @@ internal sealed class BluetoothGattBridge
                 await Task.Delay(DisconnectGracePeriod, token);
                 if (!token.IsCancellationRequested && connected)
                 {
+                    HelperProtocol.WriteEvent(new { type = "diagnostic", @event = "unsubscribe_grace_timed_out" });
                     EmitDisconnected("notification_unsubscribed");
                 }
             }
