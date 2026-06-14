@@ -107,6 +107,40 @@ describe('WindowsBluetoothTransport', () => {
     });
   });
 
+  it('does not let client disconnect intent override helper failures', async () => {
+    const { controlService, fakeHelper, transport } = createTransport();
+
+    await transport.start();
+    fakeHelper.emit({ type: 'connected', connectionId: 'ble', label: 'Bluetooth device' });
+    transport.markClientRequestedDisconnect('ble');
+    fakeHelper.fail('helper crashed');
+
+    expect(controlService.getStatus().bluetooth).toMatchObject({
+      status: 'error',
+      connectedClientCount: 0,
+      lastDisconnectReason: 'helper_error',
+      lastDisconnectAt: now
+    });
+  });
+
+  it('clears client disconnect intent when Bluetooth traffic resumes before timeout', async () => {
+    const { controlService, fakeHelper, transport } = createTransport();
+
+    await transport.start();
+    fakeHelper.emit({ type: 'connected', connectionId: 'ble', label: 'Bluetooth device' });
+    transport.markClientRequestedDisconnect('ble');
+    fakeHelper.emitFrame(JSON.stringify(createPingCommand()));
+    await waitFor(() => fakeHelper.sentMessages().length === 1);
+    fakeHelper.emit({ type: 'disconnected', connectionId: 'ble', reason: 'notification_unsubscribed' });
+
+    expect(controlService.getStatus().bluetooth).toMatchObject({
+      status: 'ready',
+      connectedClientCount: 0,
+      lastDisconnectReason: 'notification_unsubscribed',
+      lastDisconnectAt: now
+    });
+  });
+
   it('clears active connections when the helper fails', async () => {
     const { controlService, fakeHelper, transport } = createTransport();
 
