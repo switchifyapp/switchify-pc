@@ -1,5 +1,5 @@
-import { WebSocket } from 'ws';
 import type { ProtocolErrorCode, ProtocolResponse } from '../../shared/protocol';
+import type { RemoteConnection } from './remote-connection';
 
 export function toProtocolCommandErrorCode(
   code: 'unsupported_command' | 'unsafe_payload' | 'adapter_failure'
@@ -9,8 +9,7 @@ export function toProtocolCommandErrorCode(
   return 'command_failed';
 }
 
-export function sendResponse(client: WebSocket, response: ProtocolResponse): void {
-  if (client.readyState === WebSocket.OPEN) {
-    client.send(JSON.stringify(response));
-  }
+export async function sendResponse(connection: RemoteConnection, response: ProtocolResponse): Promise<void> {
+  await connection.send(JSON.stringify(response));
 }
+

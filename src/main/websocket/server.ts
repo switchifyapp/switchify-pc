@@ -1,16 +1,8 @@
 import { createServer, type IncomingMessage, type Server as HttpServer } from 'node:http';
 import type { AddressInfo, ListenOptions } from 'node:net';
+import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import {
-  createAckResponse,
-  createErrorResponse,
-  createPairingCompleteResponse,
-  createPointerProfileResponse,
-  parseProtocolRequest,
-  type CommandRequest,
-  type PairingApprovalRequest,
-  type PointerMovementProfile
-} from '../../shared/protocol';
+import type { CommandRequest, PointerMovementProfile } from '../../shared/protocol';
 import {
   DEFAULT_WS_PORT,
   type PcServerStatus,
@@ -21,9 +13,8 @@ import type { CommandAuthValidator } from '../pairing/auth';
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../../shared/pairing-approval';
 import type { PairingApprovalManager } from '../pairing/pairing-approval-manager';
 import type { PairingManager } from '../pairing/pairing-manager';
-import { WebSocketClientRegistry } from './client-registry';
-import { PendingPairingApprovalConnections } from './pending-approval-connections';
-import { sendResponse, toProtocolCommandErrorCode } from './protocol-response';
+import { RemoteSessionManager, type CommandHandlerResult } from '../transport/remote-session-manager';
+import type { RemoteConnection } from '../transport/remote-connection';
 
 export type PcWebSocketServerOptions = {
   port?: number;
@@ -34,10 +25,6 @@ export type PcWebSocketServerOptions = {
   onStatusChange?: PcServerStatusListener;
   onCommand?: (command: CommandRequest) => Promise<CommandHandlerResult> | CommandHandlerResult;
 };
-
-export type CommandHandlerResult =
-  | { ok: true }
-  | { ok: false; code: 'unsupported_command' | 'unsafe_payload' | 'adapter_failure'; message: string };
 
 type ListenerFamily = 'IPv4' | 'IPv6';
 
@@ -62,8 +49,7 @@ const LISTENER_TARGETS: ListenerTarget[] = [
 
 export class PcWebSocketServer {
   private listeners: PcWebSocketListener[] = [];
-  private readonly clientRegistry = new WebSocketClientRegistry();
-  private readonly pendingApprovalConnections = new PendingPairingApprovalConnections();
+  private readonly sessions: RemoteSessionManager;
   private status: PcServerStatus;
 
   constructor(private readonly options: PcWebSocketServerOptions) {
@@ -76,6 +62,16 @@ export class PcWebSocketServer {
       lastError: null,
       listeners: []
     };
+    this.sessions = new RemoteSessionManager({
+      pairingManager: options.pairingManager,
+      pairingApprovalManager: options.pairingApprovalManager,
+      authValidator: options.authValidator,
+      getPointerProfile: options.getPointerProfile,
+      onCommand: options.onCommand,
+      onClientStatusChange: () => this.updateClientStatus(),
+      onLastSeen: (seenAt) => this.setStatus({ lastSeenAt: seenAt, lastError: null }),
+      onError: (message) => this.setStatus({ lastError: message })
+    });
   }
 
   getStatus(): PcServerStatus {
@@ -149,10 +145,7 @@ export class PcWebSocketServer {
       return this.getStatus();
     }
 
-    this.clientRegistry.closeAll();
-    this.clientRegistry.clear();
-    this.pendingApprovalConnections.clearAll();
-    this.updateClientStatus();
+    await this.sessions.closeAllConnections();
 
     this.listeners = [];
     await Promise.all(listeners.map((listener) => closeListener(listener)));
@@ -162,194 +155,46 @@ export class PcWebSocketServer {
   }
 
   disconnectClients(): PcServerStatus {
-    this.clientRegistry.closeAll();
-    this.clientRegistry.clear();
-    this.updateClientStatus();
+    void this.sessions.closeAllConnections();
     return this.getStatus();
   }
 
   disconnectDevice(deviceId: string): PcServerStatus {
-    this.clientRegistry.closeByDeviceId(deviceId);
-    this.updateClientStatus();
+    void this.sessions.disconnectDevice(deviceId);
     return this.getStatus();
   }
 
   getPendingPairingRequests(): PendingPairingApprovalView[] {
-    this.expirePendingPairingRequests();
-    return this.options.pairingApprovalManager?.listPendingRequestViews() ?? [];
+    return this.sessions.getPendingPairingRequests();
   }
 
   async respondToPairingRequest(
     requestId: string,
     decision: PairingApprovalDecision
   ): Promise<{ ok: boolean; reason?: string }> {
-    const manager = this.options.pairingApprovalManager;
-    if (!manager) return { ok: false, reason: 'pairing_approval_unavailable' };
-
-    if (decision === 'accept') {
-      const result = await manager.accept(requestId);
-      if (!result.ok) {
-        this.pendingApprovalConnections.clear(requestId);
-        return result;
-      }
-
-      const client = this.pendingApprovalConnections.get(requestId);
-      if (client) {
-        sendResponse(
-          client,
-          createPairingCompleteResponse(requestId, {
-            desktopId: result.desktopId,
-            deviceId: result.deviceId,
-            token: result.token
-          })
-        );
-        this.markClientSeen(client, result.deviceId);
-      }
-      this.pendingApprovalConnections.clear(requestId);
-      return { ok: true };
-    }
-
-    const result = manager.reject(requestId);
-    if (!result.ok) {
-      this.pendingApprovalConnections.clear(requestId);
-      return result;
-    }
-
-    const client = this.pendingApprovalConnections.get(requestId);
-    if (client) {
-      sendResponse(client, createErrorResponse(requestId, 'invalid_auth', 'pairing_rejected'));
-      client.close();
-    }
-    this.pendingApprovalConnections.clear(requestId);
-    return { ok: true };
+    return this.sessions.respondToPairingRequest(requestId, decision);
   }
 
   private handleConnection(client: WebSocket, request: IncomingMessage): void {
-    this.clientRegistry.add(client, request.socket.remoteAddress ?? null);
-    this.updateClientStatus();
+    const connection = createWebSocketRemoteConnection(client, request.socket.remoteAddress ?? null);
+    this.sessions.addConnection(connection);
 
     client.on('message', (data) => {
-      void this.handleMessage(client, data.toString());
+      void this.sessions.handleMessage(connection.id, data.toString());
     });
     client.on('close', () => {
-      this.removePendingApprovalsForClient(client);
-      this.clientRegistry.remove(client);
-      this.updateClientStatus();
+      this.sessions.removeConnection(connection.id);
     });
     client.on('error', (error) => {
       this.setStatus({ lastError: error.message });
     });
   }
 
-  private async handleMessage(client: WebSocket, rawMessage: string): Promise<void> {
-    const parsed = parseProtocolRequest(rawMessage);
-    if (!parsed.ok) {
-      sendResponse(client, createErrorResponse(null, parsed.error, parsed.message));
-      return;
-    }
-
-    const message = parsed.value;
-    if (message.type === 'pairing.request') {
-      await this.handlePairingApprovalRequest(client, message);
-      return;
-    }
-
-    const authResult = await this.options.authValidator.validate(message);
-    if (!authResult.ok) {
-      sendResponse(client, createErrorResponse(message.id, 'invalid_auth', authResult.reason));
-      return;
-    }
-
-    if (authResult.command.type === 'pointer.profile') {
-      const profile = this.getPointerProfile();
-      if (!profile) {
-        sendResponse(client, createErrorResponse(message.id, 'command_failed', 'Pointer profile is unavailable.'));
-        return;
-      }
-      this.markClientSeen(client, authResult.command.deviceId);
-      this.setStatus({ lastSeenAt: Date.now(), lastError: null });
-      sendResponse(client, createPointerProfileResponse(message.id, profile));
-      return;
-    }
-
-    const commandResult = await this.executeCommand(authResult.command);
-    if (!commandResult.ok) {
-      this.setStatus({ lastError: commandResult.message });
-      sendResponse(
-        client,
-        createErrorResponse(message.id, toProtocolCommandErrorCode(commandResult.code), commandResult.message)
-      );
-      return;
-    }
-
-    this.markClientSeen(client, authResult.command.deviceId);
-    this.setStatus({ lastSeenAt: Date.now(), lastError: null });
-    sendResponse(client, createAckResponse(message.id));
-  }
-
-  private async handlePairingApprovalRequest(client: WebSocket, message: PairingApprovalRequest): Promise<void> {
-    const manager = this.options.pairingApprovalManager;
-    if (!manager) {
-      sendResponse(client, createErrorResponse(message.id, 'invalid_type', 'pairing_approval_unavailable'));
-      return;
-    }
-
-    const desktopId = await this.options.pairingManager.getDesktopId();
-    if (message.payload.desktopId !== desktopId) {
-      sendResponse(client, createErrorResponse(message.id, 'invalid_auth', 'pairing_mismatch'));
-      return;
-    }
-
-    const { request, replacedRequestId } = manager.createRequest({
-      requestId: message.id,
-      deviceId: message.payload.deviceId,
-      deviceName: message.payload.deviceName,
-      desktopId: message.payload.desktopId,
-      requestNonce: message.payload.requestNonce,
-      remoteAddress: this.clientRegistry.getRemoteAddress(client)
-    });
-
-    if (replacedRequestId) {
-      const replacedClient = this.pendingApprovalConnections.get(replacedRequestId);
-      if (replacedClient) {
-        sendResponse(replacedClient, createErrorResponse(replacedRequestId, 'invalid_auth', 'pairing_request_expired'));
-        replacedClient.close();
-      }
-      this.pendingApprovalConnections.clear(replacedRequestId);
-    }
-
-    this.pendingApprovalConnections.set(
-      request.requestId,
-      client,
-      request.expiresAt,
-      () => {
-        this.expirePendingPairingRequests();
-      }
-    );
-  }
-
   private updateClientStatus(): void {
     this.setStatus({
-      connectedClientCount: this.clientRegistry.authenticatedCount(),
-      connectedClients: this.clientRegistry.authenticatedSnapshot()
+      connectedClientCount: this.sessions.getAuthenticatedClientCount(),
+      connectedClients: this.sessions.getAuthenticatedClients()
     });
-  }
-
-  private markClientSeen(client: WebSocket, deviceId: string): void {
-    this.clientRegistry.markSeen(client, deviceId);
-    this.updateClientStatus();
-  }
-
-  private async executeCommand(command: CommandRequest): Promise<CommandHandlerResult> {
-    try {
-      return (await this.options.onCommand?.(command)) ?? { ok: true };
-    } catch (error) {
-      return {
-        ok: false,
-        code: 'adapter_failure',
-        message: error instanceof Error ? error.message : 'Command execution failed.'
-      };
-    }
   }
 
   private setStatus(update: Partial<PcServerStatus>): void {
@@ -396,34 +241,23 @@ export class PcWebSocketServer {
     });
   }
 
-  private getPointerProfile(): PointerMovementProfile | null {
-    try {
-      return this.options.getPointerProfile?.() ?? null;
-    } catch (error) {
-      this.setStatus({
-        lastError: error instanceof Error ? error.message : 'Pointer profile failed.'
-      });
-      return null;
-    }
-  }
+}
 
-  private expirePendingPairingRequests(): void {
-    const expired = this.options.pairingApprovalManager?.expirePendingRequests() ?? [];
-    for (const request of expired) {
-      const client = this.pendingApprovalConnections.get(request.requestId);
-      if (client) {
-        sendResponse(client, createErrorResponse(request.requestId, 'invalid_auth', 'pairing_request_expired'));
-        client.close();
+function createWebSocketRemoteConnection(client: WebSocket, remoteAddress: string | null): RemoteConnection {
+  return {
+    id: randomUUID(),
+    kind: 'websocket',
+    label: remoteAddress ?? 'WebSocket client',
+    remoteAddress,
+    send: (message) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(message);
       }
-      this.pendingApprovalConnections.clear(request.requestId);
+    },
+    close: () => {
+      client.close();
     }
-  }
-
-  private removePendingApprovalsForClient(client: WebSocket): void {
-    for (const requestId of this.pendingApprovalConnections.clearForClient(client)) {
-      this.options.pairingApprovalManager?.reject(requestId);
-    }
-  }
+  };
 }
 
 function toListenerStatus(listener: PcWebSocketListener): PcServerListenerStatus {

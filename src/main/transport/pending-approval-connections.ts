@@ -1,12 +1,10 @@
-import type { WebSocket } from 'ws';
-
 export class PendingPairingApprovalConnections {
-  private readonly clientsByRequestId = new Map<string, WebSocket>();
+  private readonly connectionIdsByRequestId = new Map<string, string>();
   private readonly timersByRequestId = new Map<string, ReturnType<typeof setTimeout>>();
 
-  set(requestId: string, client: WebSocket, expiresAt: number, onExpire: () => void): void {
+  set(requestId: string, connectionId: string, expiresAt: number, onExpire: () => void): void {
     this.clear(requestId);
-    this.clientsByRequestId.set(requestId, client);
+    this.connectionIdsByRequestId.set(requestId, connectionId);
     this.timersByRequestId.set(
       requestId,
       setTimeout(() => {
@@ -15,8 +13,8 @@ export class PendingPairingApprovalConnections {
     );
   }
 
-  get(requestId: string): WebSocket | null {
-    return this.clientsByRequestId.get(requestId) ?? null;
+  get(requestId: string): string | null {
+    return this.connectionIdsByRequestId.get(requestId) ?? null;
   }
 
   clear(requestId: string): void {
@@ -25,13 +23,13 @@ export class PendingPairingApprovalConnections {
       clearTimeout(timer);
     }
     this.timersByRequestId.delete(requestId);
-    this.clientsByRequestId.delete(requestId);
+    this.connectionIdsByRequestId.delete(requestId);
   }
 
-  clearForClient(client: WebSocket): string[] {
+  clearForConnection(connectionId: string): string[] {
     const requestIds: string[] = [];
-    for (const [requestId, pendingClient] of this.clientsByRequestId.entries()) {
-      if (pendingClient === client) {
+    for (const [requestId, pendingConnectionId] of this.connectionIdsByRequestId.entries()) {
+      if (pendingConnectionId === connectionId) {
         requestIds.push(requestId);
       }
     }
@@ -46,6 +44,7 @@ export class PendingPairingApprovalConnections {
       clearTimeout(timer);
     }
     this.timersByRequestId.clear();
-    this.clientsByRequestId.clear();
+    this.connectionIdsByRequestId.clear();
   }
 }
+

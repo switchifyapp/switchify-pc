@@ -10,7 +10,8 @@ describe('toConnectedDeviceViews', () => {
         deviceName: 'Kitchen switch',
         remoteAddress: '192.168.1.10',
         connectedAt: 100,
-        lastSeenAt: 200
+        lastSeenAt: 200,
+        transport: 'websocket'
       }
     ]);
   });
@@ -47,6 +48,7 @@ function connectedClient(overrides: Partial<PcConnectedClient> = {}): PcConnecte
     remoteAddress: '192.168.1.10',
     connectedAt: 100,
     lastSeenAt: 200,
+    transport: 'websocket',
     ...overrides
   };
 }

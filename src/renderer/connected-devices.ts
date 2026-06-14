@@ -6,6 +6,7 @@ export type ConnectedDeviceView = {
   remoteAddress: string | null;
   connectedAt: number;
   lastSeenAt: number | null;
+  transport: PcConnectedClient['transport'];
 };
 
 export function toConnectedDeviceViews(
@@ -19,6 +20,7 @@ export function toConnectedDeviceViews(
     deviceName: client.deviceId ? pairedDeviceNames.get(client.deviceId) ?? 'Connected device' : 'Connected device',
     remoteAddress: client.remoteAddress,
     connectedAt: client.connectedAt,
-    lastSeenAt: client.lastSeenAt
+    lastSeenAt: client.lastSeenAt,
+    transport: client.transport
   }));
 }
