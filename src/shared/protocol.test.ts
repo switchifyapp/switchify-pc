@@ -34,7 +34,8 @@ describe('protocol request validation', () => {
       { type: 'media.control', payload: { action: 'playPause' } },
       { type: 'window.control', payload: { action: 'switchNext' } },
       { type: 'pointer.profile', payload: {} },
-      { type: 'connection.ping', payload: {} }
+      { type: 'connection.ping', payload: {} },
+      { type: 'connection.disconnecting', payload: {} }
     ];
 
     for (const command of commands) {
@@ -142,6 +143,10 @@ describe('protocol request validation', () => {
       error: 'invalid_payload'
     });
     expect(validateProtocolRequest({ ...baseCommand, type: 'pointer.profile', payload: { includeDisplays: true } })).toMatchObject({
+      ok: false,
+      error: 'invalid_payload'
+    });
+    expect(validateProtocolRequest({ ...baseCommand, type: 'connection.disconnecting', payload: { reason: 'leaving' } })).toMatchObject({
       ok: false,
       error: 'invalid_payload'
     });

@@ -190,6 +190,7 @@ function isUnavailableReason(value: unknown): value is BluetoothUnavailableReaso
 function isDisconnectReason(value: unknown): value is Exclude<BluetoothDisconnectReason, null> {
   return (
     value === 'notification_unsubscribed' ||
+    value === 'client_requested' ||
     value === 'pc_requested' ||
     value === 'helper_stopped' ||
     value === 'helper_error'

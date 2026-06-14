@@ -30,6 +30,7 @@ export type RemoteSessionManagerOptions = {
   onClientStatusChange?: () => void;
   onLastSeen?: (seenAt: number) => void;
   onError?: (message: string) => void;
+  onClientDisconnecting?: (connectionId: string, deviceId: string) => void;
   onCommand?: (command: CommandRequest) => Promise<CommandHandlerResult> | CommandHandlerResult;
 };
 
@@ -160,6 +161,14 @@ export class RemoteSessionManager {
       this.markConnectionSeen(connection.id, authResult.command.deviceId);
       this.markLastSeen(Date.now());
       await sendResponse(connection, createPointerProfileResponse(message.id, profile));
+      return;
+    }
+
+    if (authResult.command.type === 'connection.disconnecting') {
+      this.markConnectionSeen(connection.id, authResult.command.deviceId);
+      this.markLastSeen(Date.now());
+      this.options.onClientDisconnecting?.(connection.id, authResult.command.deviceId);
+      await sendResponse(connection, createAckResponse(message.id));
       return;
     }
 

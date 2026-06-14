@@ -15,6 +15,7 @@ export type ControlServiceOptions = {
   authValidator: CommandAuthValidator;
   getPointerProfile?: () => PointerMovementProfile;
   onStatusChange?: PcControlStatusListener;
+  onClientDisconnecting?: (connectionId: string, deviceId: string) => void;
   onCommand?: (command: CommandRequest) => Promise<CommandHandlerResult> | CommandHandlerResult;
 };
 
@@ -30,6 +31,7 @@ export class ControlService {
       authValidator: options.authValidator,
       getPointerProfile: options.getPointerProfile,
       onCommand: options.onCommand,
+      onClientDisconnecting: options.onClientDisconnecting,
       onClientStatusChange: () => this.updateClientStatus(),
       onLastSeen: (seenAt) => this.setStatus({ lastSeenAt: seenAt, lastError: null }),
       onError: (message) => this.setStatus({ lastError: message })

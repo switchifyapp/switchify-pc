@@ -91,6 +91,22 @@ describe('WindowsBluetoothTransport', () => {
     });
   });
 
+  it('overrides subscription timeout when the client announced an intentional disconnect', async () => {
+    const { controlService, fakeHelper, transport } = createTransport();
+
+    await transport.start();
+    fakeHelper.emit({ type: 'connected', connectionId: 'ble', label: 'Bluetooth device' });
+    transport.markClientRequestedDisconnect('ble');
+    fakeHelper.emit({ type: 'disconnected', connectionId: 'ble', reason: 'notification_unsubscribed' });
+
+    expect(controlService.getStatus().bluetooth).toMatchObject({
+      status: 'ready',
+      connectedClientCount: 0,
+      lastDisconnectReason: 'client_requested',
+      lastDisconnectAt: now
+    });
+  });
+
   it('clears active connections when the helper fails', async () => {
     const { controlService, fakeHelper, transport } = createTransport();
 

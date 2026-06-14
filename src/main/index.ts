@@ -247,6 +247,9 @@ app.whenReady().then(() => {
     onStatusChange: (status) => {
       tray?.update();
     },
+    onClientDisconnecting: (connectionId) => {
+      bluetoothTransport?.markClientRequestedDisconnect(connectionId);
+    },
     onCommand: (command) => commandExecutor.execute(command)
   });
   void pairingManager.getDesktopId().then((desktopId) => {

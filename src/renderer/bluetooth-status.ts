@@ -34,6 +34,7 @@ export function formatBluetoothDiagnosticEvent(event: BluetoothDiagnosticEvent):
 
 export function formatBluetoothDisconnectReason(reason: BluetoothDisconnectReason): string {
   if (reason === 'notification_unsubscribed') return 'Bluetooth connection lost.';
+  if (reason === 'client_requested') return 'Android device disconnected.';
   if (reason === 'pc_requested') return 'Disconnected from this PC.';
   if (reason === 'helper_stopped') return 'Bluetooth helper stopped.';
   if (reason === 'helper_error') return 'Bluetooth helper error.';

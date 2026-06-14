@@ -11,6 +11,7 @@ export type BluetoothUnavailableReason = 'unsupported' | 'permission_denied' | '
 
 export type BluetoothDisconnectReason =
   | 'notification_unsubscribed'
+  | 'client_requested'
   | 'pc_requested'
   | 'helper_stopped'
   | 'helper_error'

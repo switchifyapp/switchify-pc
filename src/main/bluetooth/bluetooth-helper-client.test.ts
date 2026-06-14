@@ -83,12 +83,14 @@ describe('BluetoothHelperClient', () => {
     helper.stdout.write(`${JSON.stringify({ type: 'diagnostic', event: 'subscribed' })}\n`);
     helper.stdout.write(`${JSON.stringify({ type: 'diagnostic', event: 'unsubscribed' })}\n`);
     helper.stdout.write(`${JSON.stringify({ type: 'diagnostic', event: 'unsubscribe_grace_timed_out' })}\n`);
+    helper.stdout.write(`${JSON.stringify({ type: 'disconnected', connectionId: 'ble', reason: 'client_requested' })}\n`);
     helper.stdout.write(`${JSON.stringify({ type: 'disconnected', connectionId: 'ble', reason: 'notification_unsubscribed' })}\n`);
 
     expect(events).toEqual([
       { type: 'diagnostic', event: 'subscribed' },
       { type: 'diagnostic', event: 'unsubscribed' },
       { type: 'diagnostic', event: 'unsubscribe_grace_timed_out' },
+      { type: 'disconnected', connectionId: 'ble', reason: 'client_requested' },
       { type: 'disconnected', connectionId: 'ble', reason: 'notification_unsubscribed' }
     ]);
   });
