@@ -90,6 +90,8 @@ export class DesktopCommandExecutor {
           return { ok: true };
         case 'connection.ping':
           return { ok: true };
+        case 'connection.disconnecting':
+          return { ok: false, code: 'unsupported_command', message: 'Disconnect intent must be handled by the server.' };
         case 'pointer.profile':
           return { ok: false, code: 'unsupported_command', message: 'Pointer profile must be handled by the server.' };
       }

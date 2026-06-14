@@ -109,6 +109,7 @@ export type KeyboardTypeTextCommand = BaseRequestEnvelope<'keyboard.typeText', {
 export type MediaControlCommand = BaseRequestEnvelope<'media.control', { action: MediaAction }>;
 export type WindowControlCommand = BaseRequestEnvelope<'window.control', { action: WindowControlAction }>;
 export type PingCommand = BaseRequestEnvelope<'connection.ping', Record<string, never>>;
+export type DisconnectingCommand = BaseRequestEnvelope<'connection.disconnecting', Record<string, never>>;
 export type PointerProfileCommand = BaseRequestEnvelope<'pointer.profile', Record<string, never>>;
 
 export type CommandRequest =
@@ -123,6 +124,7 @@ export type CommandRequest =
   | MediaControlCommand
   | WindowControlCommand
   | PointerProfileCommand
+  | DisconnectingCommand
   | PingCommand;
 
 export type ProtocolRequest = CommandRequest | PairingRequest;
@@ -187,7 +189,8 @@ const commandTypes = new Set<CommandRequest['type']>([
   'media.control',
   'window.control',
   'pointer.profile',
-  'connection.ping'
+  'connection.ping',
+  'connection.disconnecting'
 ]);
 
 const pairingTypes = new Set<PairingRequest['type']>(['pairing.request']);
@@ -412,6 +415,7 @@ function validateCommandPayload(
         : invalid('invalid_payload', 'Mouse button is invalid.');
     case 'mouse.rightClick':
     case 'connection.ping':
+    case 'connection.disconnecting':
       return Object.keys(payload).length === 0
         ? valid()
         : invalid('invalid_payload', 'Payload must be empty.');

@@ -3,6 +3,7 @@ import {
   PROTOCOL_VERSION,
   validateProtocolResponse,
   type PairingCompleteResponse,
+  type DisconnectingCommand,
   type PingCommand
 } from '../../shared/protocol';
 import { createCommandAuthProof, CommandAuthValidator } from '../pairing/auth';
@@ -93,6 +94,28 @@ describe('RemoteSessionManager', () => {
       })
     ]);
   });
+
+  it('acks authenticated client disconnect intent without executing desktop commands', async () => {
+    const onClientDisconnecting = vi.fn();
+    const onCommand = vi.fn();
+    const manager = createManager({ onClientDisconnecting, onCommand });
+    const connection = createConnection();
+    manager.addConnection(connection);
+    const command = createDisconnectingCommand();
+
+    await manager.handleMessage(connection.id, JSON.stringify(command));
+
+    expect(sentResponses(connection)).toEqual([expect.objectContaining({ type: 'ack', id: command.id, ok: true })]);
+    expect(onClientDisconnecting).toHaveBeenCalledWith(connection.id, 'android-1');
+    expect(onCommand).not.toHaveBeenCalled();
+    expect(manager.getAuthenticatedClients()).toEqual([
+      expect.objectContaining({
+        id: connection.id,
+        deviceId: 'android-1',
+        transport: 'bluetooth'
+      })
+    ]);
+  });
 });
 
 function createManager(
@@ -150,6 +173,23 @@ function createPingCommand(overrides: Partial<PingCommand> = {}): PingCommand {
     auth: ''
   } satisfies PingCommand;
   const merged = { ...command, ...overrides } as PingCommand;
+  return {
+    ...merged,
+    auth: overrides.auth ?? createCommandAuthProof(merged, token)
+  };
+}
+
+function createDisconnectingCommand(overrides: Partial<DisconnectingCommand> = {}): DisconnectingCommand {
+  const command = {
+    version: PROTOCOL_VERSION,
+    id: 'disconnecting-1',
+    deviceId: 'android-1',
+    timestamp: now,
+    type: 'connection.disconnecting',
+    payload: {},
+    auth: ''
+  } satisfies DisconnectingCommand;
+  const merged = { ...command, ...overrides } as DisconnectingCommand;
   return {
     ...merged,
     auth: overrides.auth ?? createCommandAuthProof(merged, token)

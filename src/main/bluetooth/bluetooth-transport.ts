@@ -37,6 +37,7 @@ type BluetoothConnectionState = {
 
 export class WindowsBluetoothTransport {
   private readonly connections = new Map<string, BluetoothConnectionState>();
+  private readonly pendingDisconnectReasons = new Map<string, Exclude<BluetoothStatus['lastDisconnectReason'], null>>();
   private helper: BluetoothHelperClient | null = null;
   private status: BluetoothStatus = {
     status: process.platform === 'win32' ? 'stopped' : 'disabled',
@@ -54,6 +55,12 @@ export class WindowsBluetoothTransport {
 
   getStatus(): BluetoothStatus {
     return { ...this.status };
+  }
+
+  markClientRequestedDisconnect(connectionId: string): void {
+    if (this.connections.has(connectionId)) {
+      this.pendingDisconnectReasons.set(connectionId, 'client_requested');
+    }
   }
 
   async start(): Promise<BluetoothStatus> {
@@ -152,12 +159,15 @@ export class WindowsBluetoothTransport {
 
   private removeConnection(connectionId: string, reason: BluetoothStatus['lastDisconnectReason'] = null): void {
     if (!this.connections.delete(connectionId)) return;
+    const pendingReason = this.pendingDisconnectReasons.get(connectionId) ?? null;
+    this.pendingDisconnectReasons.delete(connectionId);
+    const disconnectReason = pendingReason ?? reason;
     this.options.controlService.removeRemoteConnection(connectionId);
     this.setStatus({
       status: this.connections.size > 0 ? 'connected' : 'ready',
       connectedClientCount: this.connections.size,
-      lastDisconnectReason: reason,
-      lastDisconnectAt: reason ? Date.now() : this.status.lastDisconnectAt
+      lastDisconnectReason: disconnectReason,
+      lastDisconnectAt: disconnectReason ? Date.now() : this.status.lastDisconnectAt
     });
   }
 
