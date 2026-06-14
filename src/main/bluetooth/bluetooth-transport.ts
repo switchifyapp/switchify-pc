@@ -133,6 +133,7 @@ export class WindowsBluetoothTransport {
 
   private addConnection(connectionId: string, label: string): void {
     if (this.connections.has(connectionId)) return;
+    this.pendingDisconnectReasons.delete(connectionId);
 
     const connection: RemoteConnection = {
       id: connectionId,
@@ -161,7 +162,7 @@ export class WindowsBluetoothTransport {
     if (!this.connections.delete(connectionId)) return;
     const pendingReason = this.pendingDisconnectReasons.get(connectionId) ?? null;
     this.pendingDisconnectReasons.delete(connectionId);
-    const disconnectReason = pendingReason ?? reason;
+    const disconnectReason = reason === 'notification_unsubscribed' ? pendingReason ?? reason : reason;
     this.options.controlService.removeRemoteConnection(connectionId);
     this.setStatus({
       status: this.connections.size > 0 ? 'connected' : 'ready',
@@ -180,6 +181,7 @@ export class WindowsBluetoothTransport {
   private async handleFrame(connectionId: string, frame: BluetoothFrame): Promise<void> {
     const state = this.connections.get(connectionId);
     if (!state) return;
+    this.pendingDisconnectReasons.delete(connectionId);
 
     const result = state.reassembler.accept(frame);
     if (!result.ok) {
