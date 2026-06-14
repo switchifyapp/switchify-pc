@@ -1,6 +1,8 @@
 import { app, BrowserWindow, nativeTheme, screen, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { DEFAULT_BLUETOOTH_STATUS } from '../shared/bluetooth-status';
+import { WindowsBluetoothTransport } from './bluetooth/bluetooth-transport';
 import { CursorOverlay } from './cursor-overlay';
 import { registerCursorOverlayIpc } from './cursor-overlay-ipc';
 import { MdnsAdvertiser } from './discovery/mdns-advertiser';
@@ -27,6 +29,7 @@ let settingsWindow: BrowserWindow | null = null;
 let tray: SwitchifyTray | null = null;
 let cursorOverlay: CursorOverlay | null = null;
 let mdnsAdvertiser: MdnsAdvertiser | null = null;
+let bluetoothTransport: WindowsBluetoothTransport | null = null;
 let isQuitting = false;
 
 if (process.platform === 'win32' && app.isPackaged) {
@@ -253,6 +256,14 @@ app.whenReady().then(() => {
     },
     onCommand: (command) => commandExecutor.execute(command)
   });
+  bluetoothTransport = new WindowsBluetoothTransport({
+    server: pcServer,
+    getDesktopId: () => pairingManager.getDesktopId(),
+    displayName: 'Switchify PC',
+    onStatusChange: () => {
+      tray?.update();
+    }
+  });
   registerServerIpc(pcServer, pairingManager, pairingStore);
   registerCursorOverlayIpc(cursorOverlay);
   registerPairingApprovalIpc(pcServer);
@@ -265,6 +276,7 @@ app.whenReady().then(() => {
     })
   );
   void pcServer.start();
+  void bluetoothTransport.start();
 
   mainWindow = createMainWindow();
   tray = createSwitchifyTray({
@@ -276,7 +288,8 @@ app.whenReady().then(() => {
         connectedClients: [],
         lastSeenAt: null,
         lastError: null,
-        listeners: []
+        listeners: [],
+        bluetooth: DEFAULT_BLUETOOTH_STATUS
       },
     showWindow: showMainWindow,
     openSettings: showSettingsWindow,
@@ -305,6 +318,8 @@ app.on('before-quit', (event) => {
   mdnsAdvertiser = null;
   cursorOverlay?.destroy();
   cursorOverlay = null;
+  bluetoothTransport?.stop();
+  bluetoothTransport = null;
   void Promise.all([advertiser?.stop(), pcServer.stop()]).finally(() => {
     app.quit();
   });

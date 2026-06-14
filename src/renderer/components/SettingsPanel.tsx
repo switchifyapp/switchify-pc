@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from 'react';
-import type { PairedDeviceView } from '../../shared/server-status';
+import type { PairedDeviceView, PcServerStatus } from '../../shared/server-status';
 import type { UpdateState } from '../../shared/update';
+import { formatBluetoothStatus } from '../bluetooth-status';
 import type { ConnectedDeviceView } from '../connected-devices';
 import { formatTimestamp } from '../format';
 import { UpdatesPanel } from './UpdatesPanel';
@@ -8,6 +9,7 @@ import { UpdatesPanel } from './UpdatesPanel';
 type SettingsViewProps = {
   connectedDevices: ConnectedDeviceView[];
   pairedDevices: PairedDeviceView[];
+  serverStatus: PcServerStatus | null;
   cursorOverlayEnabled: boolean;
   onDisconnect: () => Promise<void>;
   onForgetPairedDevice: (deviceId: string) => Promise<{ ok: boolean; reason?: string }>;
@@ -23,6 +25,7 @@ type SettingsViewProps = {
 export function SettingsView({
   connectedDevices,
   pairedDevices,
+  serverStatus,
   cursorOverlayEnabled,
   onDisconnect,
   onForgetPairedDevice,
@@ -38,6 +41,7 @@ export function SettingsView({
     <div className="settings-window-content">
       <section className="settings-window-section">
         <h2>Connection</h2>
+        <div className="empty-state">{formatBluetoothStatus(serverStatus?.bluetooth)}</div>
         <ConnectedDeviceList devices={connectedDevices} />
         <button type="button" onClick={() => void onDisconnect()} disabled={connectedDevices.length === 0}>
           Disconnect device
@@ -80,11 +84,16 @@ function ConnectedDeviceList({ devices }: { devices: ConnectedDeviceView[] }): R
       {devices.map((device) => (
         <li key={device.connectionId}>
           <strong>{device.deviceName}</strong>
-          <span>{device.remoteAddress ?? 'Unknown address'}</span>
+          <span>{formatTransport(device.transport, device.remoteAddress)}</span>
         </li>
       ))}
     </ul>
   );
+}
+
+function formatTransport(transport: ConnectedDeviceView['transport'], remoteAddress: string | null): string {
+  if (transport === 'bluetooth') return 'Bluetooth';
+  return remoteAddress ?? 'Unknown address';
 }
 
 function PairedDeviceList({

@@ -1,3 +1,5 @@
+import type { BluetoothStatus } from './bluetooth-status';
+
 export const DEFAULT_WS_PORT = 7347;
 
 export type TransportKind = 'websocket' | 'bluetooth';
@@ -27,6 +29,7 @@ export type PcServerStatus = {
   lastSeenAt: number | null;
   lastError: string | null;
   listeners: PcServerListenerStatus[];
+  bluetooth: BluetoothStatus;
 };
 
 export type PcServerStatusListener = (status: PcServerStatus) => void;

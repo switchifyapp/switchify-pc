@@ -4,6 +4,7 @@ import type {
   ConnectionDetails,
   PcServerStatus
 } from '../../shared/server-status';
+import { formatBluetoothStatus } from '../bluetooth-status';
 import { formatTimestamp } from '../format';
 import { DetailGrid, DetailItem, TroubleshootingSection } from './DetailGrid';
 
@@ -28,6 +29,7 @@ export function TroubleshootingDetails({
             <DetailItem label="Server status" value={serverStatus?.state ?? 'Unknown'} />
             <DetailItem label="Port" value={serverStatus ? String(serverStatus.port) : 'Unknown'} />
             <DetailItem label="Listeners" value={formatListeners(serverStatus)} />
+            <DetailItem label="Bluetooth" value={formatBluetoothStatus(serverStatus?.bluetooth)} />
             <DetailItem label="Connection address" value={connectionDetails?.websocketUrl ?? 'Not available.'} />
             <DetailItem label="Desktop id" value={connectionDetails?.desktopId ?? 'Not available.'} />
             <DetailItem label="Last command" value={formatTimestamp(serverStatus?.lastSeenAt ?? null)} />
