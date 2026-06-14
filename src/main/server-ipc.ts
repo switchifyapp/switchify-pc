@@ -7,16 +7,16 @@ import {
   SERVER_STATUS_CHANNEL
 } from '../shared/ipc-channels';
 import type { ConnectionDetails } from '../shared/server-status';
+import type { ControlService } from './control/control-service';
 import { getConnectionCandidates } from './network-addresses';
 import type { PairingManager } from './pairing/pairing-manager';
 import type { PairingStore } from './pairing/pairing-store';
 import { removePairedDevice, toPairedDeviceViews } from './pairing/pairing-store';
-import type { PcWebSocketServer } from './websocket/server';
 
-export function registerServerIpc(server: PcWebSocketServer, pairingManager: PairingManager, pairingStore: PairingStore): void {
-  ipcMain.handle(SERVER_STATUS_CHANNEL, () => server.getStatus());
+export function registerServerIpc(controlService: ControlService, pairingManager: PairingManager, pairingStore: PairingStore): void {
+  ipcMain.handle(SERVER_STATUS_CHANNEL, () => controlService.getStatus());
   ipcMain.handle(GET_CONNECTION_DETAILS_CHANNEL, async () => {
-    const status = server.getStatus();
+    const status = controlService.getStatus();
     const websocketUrls = getConnectionCandidates(status.port).map((candidate) => candidate.websocketUrl);
     return {
       desktopId: await pairingManager.getDesktopId(),
@@ -25,7 +25,7 @@ export function registerServerIpc(server: PcWebSocketServer, pairingManager: Pai
     } satisfies ConnectionDetails;
   });
   ipcMain.handle(GET_PAIRED_DEVICES_CHANNEL, async () => toPairedDeviceViews(await pairingStore.load()));
-  ipcMain.handle(DISCONNECT_CLIENTS_CHANNEL, () => server.disconnectClients());
+  ipcMain.handle(DISCONNECT_CLIENTS_CHANNEL, () => controlService.disconnectClients());
   ipcMain.handle(FORGET_PAIRED_DEVICE_CHANNEL, async (_event, deviceId: unknown) => {
     if (typeof deviceId !== 'string' || deviceId.length === 0) {
       return { ok: false, reason: 'invalid_device_id' };
@@ -43,7 +43,7 @@ export function registerServerIpc(server: PcWebSocketServer, pairingManager: Pai
     return {
       ok: true,
       pairedDevices: toPairedDeviceViews(nextState),
-      status: server.disconnectDevice(deviceId)
+      status: controlService.disconnectDevice(deviceId)
     };
   });
 }

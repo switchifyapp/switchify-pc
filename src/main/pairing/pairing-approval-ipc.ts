@@ -4,11 +4,11 @@ import {
   RESPOND_TO_PAIRING_REQUEST_CHANNEL
 } from '../../shared/ipc-channels';
 import type { PairingApprovalDecision } from '../../shared/pairing-approval';
-import type { PcWebSocketServer } from '../websocket/server';
+import type { ControlService } from '../control/control-service';
 
-export function registerPairingApprovalIpc(server: PcWebSocketServer): void {
-  ipcMain.handle(GET_PENDING_PAIRING_REQUESTS_CHANNEL, () => server.getPendingPairingRequests());
+export function registerPairingApprovalIpc(controlService: ControlService): void {
+  ipcMain.handle(GET_PENDING_PAIRING_REQUESTS_CHANNEL, () => controlService.getPendingPairingRequests());
   ipcMain.handle(RESPOND_TO_PAIRING_REQUEST_CHANNEL, (_event, requestId: string, decision: PairingApprovalDecision) =>
-    server.respondToPairingRequest(requestId, decision)
+    controlService.respondToPairingRequest(requestId, decision)
   );
 }

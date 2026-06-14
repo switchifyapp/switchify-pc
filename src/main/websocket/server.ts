@@ -2,29 +2,18 @@ import { createServer, type IncomingMessage, type Server as HttpServer } from 'n
 import type { AddressInfo, ListenOptions } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { DEFAULT_BLUETOOTH_STATUS, type BluetoothStatus } from '../../shared/bluetooth-status';
-import type { CommandRequest, PointerMovementProfile } from '../../shared/protocol';
 import {
   DEFAULT_WS_PORT,
-  type PcServerStatus,
   type PcServerListenerStatus,
-  type PcServerStatusListener
+  type PcServerStatus
 } from '../../shared/server-status';
-import type { CommandAuthValidator } from '../pairing/auth';
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../../shared/pairing-approval';
-import type { PairingApprovalManager } from '../pairing/pairing-approval-manager';
-import type { PairingManager } from '../pairing/pairing-manager';
-import { RemoteSessionManager, type CommandHandlerResult } from '../transport/remote-session-manager';
+import type { ControlService } from '../control/control-service';
 import type { RemoteConnection } from '../transport/remote-connection';
 
 export type PcWebSocketServerOptions = {
   port?: number;
-  pairingManager: PairingManager;
-  pairingApprovalManager?: PairingApprovalManager;
-  authValidator: CommandAuthValidator;
-  getPointerProfile?: () => PointerMovementProfile;
-  onStatusChange?: PcServerStatusListener;
-  onCommand?: (command: CommandRequest) => Promise<CommandHandlerResult> | CommandHandlerResult;
+  controlService: ControlService;
 };
 
 type ListenerFamily = 'IPv4' | 'IPv6';
@@ -50,38 +39,13 @@ const LISTENER_TARGETS: ListenerTarget[] = [
 
 export class PcWebSocketServer {
   private listeners: PcWebSocketListener[] = [];
-  private readonly sessions: RemoteSessionManager;
-  private status: PcServerStatus;
 
   constructor(private readonly options: PcWebSocketServerOptions) {
-    this.status = {
-      state: 'stopped',
-      port: options.port ?? DEFAULT_WS_PORT,
-      connectedClientCount: 0,
-      connectedClients: [],
-      lastSeenAt: null,
-      lastError: null,
-      listeners: [],
-      bluetooth: DEFAULT_BLUETOOTH_STATUS
-    };
-    this.sessions = new RemoteSessionManager({
-      pairingManager: options.pairingManager,
-      pairingApprovalManager: options.pairingApprovalManager,
-      authValidator: options.authValidator,
-      getPointerProfile: options.getPointerProfile,
-      onCommand: options.onCommand,
-      onClientStatusChange: () => this.updateClientStatus(),
-      onLastSeen: (seenAt) => this.setStatus({ lastSeenAt: seenAt, lastError: null }),
-      onError: (message) => this.setStatus({ lastError: message })
-    });
+    this.options.controlService.updateTransportStatus({ port: options.port ?? DEFAULT_WS_PORT });
   }
 
   getStatus(): PcServerStatus {
-    return {
-      ...this.status,
-      connectedClients: this.status.connectedClients.map((client) => ({ ...client })),
-      listeners: this.status.listeners.map((listener) => ({ ...listener }))
-    };
+    return this.options.controlService.getStatus();
   }
 
   getAddresses(): PcServerListenerStatus[] {
@@ -91,11 +55,11 @@ export class PcWebSocketServer {
   async start(): Promise<PcServerStatus> {
     if (this.listeners.length > 0) return this.getStatus();
 
-    this.setStatus({ state: 'starting', lastError: null, listeners: [] });
+    this.options.controlService.updateTransportStatus({ state: 'starting', lastError: null, listeners: [] });
 
     const listenerStatuses: PcServerListenerStatus[] = [];
     const errors: string[] = [];
-    let port = this.status.port;
+    let port = this.getStatus().port;
 
     for (const target of LISTENER_TARGETS) {
       try {
@@ -126,11 +90,11 @@ export class PcWebSocketServer {
 
     if (this.listeners.length === 0) {
       const lastError = errors.join('; ') || 'No WebSocket listeners started.';
-      this.setStatus({ state: 'error', lastError, listeners: listenerStatuses });
+      this.options.controlService.updateTransportStatus({ state: 'error', lastError, listeners: listenerStatuses });
       throw new Error(lastError);
     }
 
-    this.setStatus({
+    this.options.controlService.updateTransportStatus({
       state: 'listening',
       port,
       lastError: errors.length > 0 ? errors.join('; ') : null,
@@ -143,81 +107,51 @@ export class PcWebSocketServer {
   async stop(): Promise<PcServerStatus> {
     const listeners = this.listeners;
     if (listeners.length === 0) {
-      this.setStatus({ state: 'stopped', connectedClientCount: 0, connectedClients: [], listeners: [] });
+      this.options.controlService.updateTransportStatus({ state: 'stopped', listeners: [] });
       return this.getStatus();
     }
 
-    await this.sessions.closeAllConnections();
+    await this.options.controlService.closeAllConnections();
 
     this.listeners = [];
     await Promise.all(listeners.map((listener) => closeListener(listener)));
 
-    this.setStatus({ state: 'stopped', connectedClientCount: 0, connectedClients: [], listeners: [] });
+    this.options.controlService.updateTransportStatus({ state: 'stopped', listeners: [] });
     return this.getStatus();
   }
 
   disconnectClients(): PcServerStatus {
-    void this.sessions.closeAllConnections();
-    return this.getStatus();
+    return this.options.controlService.disconnectClients();
   }
 
   disconnectDevice(deviceId: string): PcServerStatus {
-    void this.sessions.disconnectDevice(deviceId);
-    return this.getStatus();
-  }
-
-  addRemoteConnection(connection: RemoteConnection): void {
-    this.sessions.addConnection(connection);
-  }
-
-  async handleRemoteMessage(connectionId: string, rawMessage: string): Promise<void> {
-    await this.sessions.handleMessage(connectionId, rawMessage);
-  }
-
-  removeRemoteConnection(connectionId: string): void {
-    this.sessions.removeConnection(connectionId);
-  }
-
-  setBluetoothStatus(bluetooth: BluetoothStatus): void {
-    this.setStatus({ bluetooth });
+    return this.options.controlService.disconnectDevice(deviceId);
   }
 
   getPendingPairingRequests(): PendingPairingApprovalView[] {
-    return this.sessions.getPendingPairingRequests();
+    return this.options.controlService.getPendingPairingRequests();
   }
 
   async respondToPairingRequest(
     requestId: string,
     decision: PairingApprovalDecision
   ): Promise<{ ok: boolean; reason?: string }> {
-    return this.sessions.respondToPairingRequest(requestId, decision);
+    return this.options.controlService.respondToPairingRequest(requestId, decision);
   }
 
   private handleConnection(client: WebSocket, request: IncomingMessage): void {
     const connection = createWebSocketRemoteConnection(client, request.socket.remoteAddress ?? null);
-    this.sessions.addConnection(connection);
+    this.options.controlService.addRemoteConnection(connection);
 
     client.on('message', (data) => {
-      void this.sessions.handleMessage(connection.id, data.toString());
+      void this.options.controlService.handleRemoteMessage(connection.id, data.toString());
     });
     client.on('close', () => {
-      this.sessions.removeConnection(connection.id);
+      this.options.controlService.removeRemoteConnection(connection.id);
     });
     client.on('error', (error) => {
-      this.setStatus({ lastError: error.message });
+      this.options.controlService.updateTransportStatus({ lastError: error.message });
     });
-  }
-
-  private updateClientStatus(): void {
-    this.setStatus({
-      connectedClientCount: this.sessions.getAuthenticatedClientCount(),
-      connectedClients: this.sessions.getAuthenticatedClients()
-    });
-  }
-
-  private setStatus(update: Partial<PcServerStatus>): void {
-    this.status = { ...this.status, ...update };
-    this.options.onStatusChange?.(this.getStatus());
   }
 
   private startListener(target: ListenerTarget, port: number): Promise<PcWebSocketListener> {

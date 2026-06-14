@@ -21,7 +21,7 @@ export type PcServerListenerStatus = {
   error: string | null;
 };
 
-export type PcServerStatus = {
+export type PcControlStatus = {
   state: 'stopped' | 'starting' | 'listening' | 'error';
   port: number;
   connectedClientCount: number;
@@ -31,6 +31,8 @@ export type PcServerStatus = {
   listeners: PcServerListenerStatus[];
   bluetooth: BluetoothStatus;
 };
+
+export type PcServerStatus = PcControlStatus;
 
 export type PcServerStatusListener = (status: PcServerStatus) => void;
 
