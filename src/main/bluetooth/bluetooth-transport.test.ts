@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PROTOCOL_VERSION, validateProtocolResponse, type PingCommand } from '../../shared/protocol';
 import { createCommandAuthProof, CommandAuthValidator } from '../pairing/auth';
 import { PairingManager } from '../pairing/pairing-manager';
@@ -11,35 +11,17 @@ import type { BluetoothHelperEvent } from './helper-protocol';
 const now = 1_724_000_000_000;
 const token = 'shared-token';
 
+beforeEach(() => {
+  vi.spyOn(Date, 'now').mockReturnValue(now);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('WindowsBluetoothTransport', () => {
   it('bridges Bluetooth frames into the shared remote session manager', async () => {
-    const store = new MemoryPairingStore({
-      desktopId: 'desktop-1',
-      pairedDevices: [
-        {
-          deviceId: 'android-1',
-          deviceName: 'Android device',
-          token,
-          pairedAt: now - 1_000,
-          lastSeenAt: null
-        }
-      ]
-    });
-    const controlService = new ControlService({
-      pairingManager: new PairingManager(store),
-      authValidator: new CommandAuthValidator(store, () => now)
-    });
-    const fakeHelper = new FakeBluetoothHelper();
-    const transport = new WindowsBluetoothTransport({
-      controlService,
-      getDesktopId: () => Promise.resolve('desktop-1'),
-      displayName: 'Switchify PC',
-      helperPath: 'fake-helper.exe',
-      createHelper: (options) => {
-        fakeHelper.onEvent = options.onEvent;
-        return fakeHelper as unknown as BluetoothHelperClient;
-      }
-    });
+    const { controlService, fakeHelper, transport } = createTransport();
 
     await transport.start();
     fakeHelper.emit({ type: 'ready' });
@@ -56,10 +38,90 @@ describe('WindowsBluetoothTransport', () => {
       transport: 'bluetooth'
     });
   });
+
+  it('records diagnostic events in Bluetooth status', async () => {
+    const { controlService, fakeHelper, transport } = createTransport();
+
+    await transport.start();
+    fakeHelper.emit({ type: 'diagnostic', event: 'subscribed' });
+
+    expect(controlService.getStatus().bluetooth).toMatchObject({
+      lastEvent: 'subscribed',
+      lastEventAt: now
+    });
+  });
+
+  it('records disconnect reasons in Bluetooth status', async () => {
+    const { controlService, fakeHelper, transport } = createTransport();
+
+    await transport.start();
+    fakeHelper.emit({ type: 'connected', connectionId: 'ble', label: 'Bluetooth device' });
+    fakeHelper.emit({ type: 'disconnected', connectionId: 'ble', reason: 'notification_unsubscribed' });
+
+    expect(controlService.getStatus().bluetooth).toMatchObject({
+      status: 'ready',
+      connectedClientCount: 0,
+      lastDisconnectReason: 'notification_unsubscribed',
+      lastDisconnectAt: now
+    });
+  });
+
+  it('clears active connections when the helper fails', async () => {
+    const { controlService, fakeHelper, transport } = createTransport();
+
+    await transport.start();
+    fakeHelper.emit({ type: 'connected', connectionId: 'ble', label: 'Bluetooth device' });
+    fakeHelper.fail('helper crashed');
+
+    expect(controlService.getStatus().bluetooth).toMatchObject({
+      status: 'error',
+      connectedClientCount: 0,
+      lastDisconnectReason: 'helper_error',
+      lastDisconnectAt: now,
+      lastError: 'helper crashed'
+    });
+  });
 });
+
+function createTransport(): {
+  controlService: ControlService;
+  fakeHelper: FakeBluetoothHelper;
+  transport: WindowsBluetoothTransport;
+} {
+  const store = new MemoryPairingStore({
+    desktopId: 'desktop-1',
+    pairedDevices: [
+      {
+        deviceId: 'android-1',
+        deviceName: 'Android device',
+        token,
+        pairedAt: now - 1_000,
+        lastSeenAt: null
+      }
+    ]
+  });
+  const controlService = new ControlService({
+    pairingManager: new PairingManager(store),
+    authValidator: new CommandAuthValidator(store, () => now)
+  });
+  const fakeHelper = new FakeBluetoothHelper();
+  const transport = new WindowsBluetoothTransport({
+    controlService,
+    getDesktopId: () => Promise.resolve('desktop-1'),
+    displayName: 'Switchify PC',
+    helperPath: 'fake-helper.exe',
+    createHelper: (options) => {
+      fakeHelper.onEvent = options.onEvent;
+      fakeHelper.onFailure = options.onFailure ?? (() => {});
+      return fakeHelper as unknown as BluetoothHelperClient;
+    }
+  });
+  return { controlService, fakeHelper, transport };
+}
 
 class FakeBluetoothHelper {
   onEvent: (event: BluetoothHelperEvent) => void = () => {};
+  onFailure: (message: string) => void = () => {};
   private readonly sentFrames: string[] = [];
 
   start(): boolean {
@@ -78,6 +140,10 @@ class FakeBluetoothHelper {
 
   emit(event: BluetoothHelperEvent): void {
     this.onEvent(event);
+  }
+
+  fail(message: string): void {
+    this.onFailure(message);
   }
 
   emitFrame(message: string): void {

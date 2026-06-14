@@ -1,12 +1,17 @@
 import type { BluetoothFrame } from '../../shared/bluetooth-frame';
-import type { BluetoothUnavailableReason } from '../../shared/bluetooth-status';
+import type {
+  BluetoothDiagnosticEvent,
+  BluetoothDisconnectReason,
+  BluetoothUnavailableReason
+} from '../../shared/bluetooth-status';
 
 export type BluetoothHelperEvent =
   | { type: 'ready' }
   | { type: 'unavailable'; reason: BluetoothUnavailableReason }
   | { type: 'connected'; connectionId: string; label: string }
   | { type: 'message'; connectionId: string; frame: BluetoothFrame }
-  | { type: 'disconnected'; connectionId: string }
+  | { type: 'disconnected'; connectionId: string; reason: Exclude<BluetoothDisconnectReason, null> }
+  | { type: 'diagnostic'; event: Exclude<BluetoothDiagnosticEvent, null> }
   | { type: 'error'; reason: string };
 
 export type BluetoothHelperCommand =

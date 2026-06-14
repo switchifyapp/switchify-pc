@@ -1,6 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import type { BluetoothFrame } from '../../shared/bluetooth-frame';
+import { validateBluetoothFrame, type BluetoothFrame } from '../../shared/bluetooth-frame';
+import type {
+  BluetoothDiagnosticEvent,
+  BluetoothDisconnectReason,
+  BluetoothUnavailableReason
+} from '../../shared/bluetooth-status';
 import type { BluetoothHelperCommand, BluetoothHelperEvent } from './helper-protocol';
 
 export type BluetoothHelperClientOptions = {
@@ -113,7 +118,12 @@ export class BluetoothHelperClient {
 
     for (const line of lines.map((item) => item.trim()).filter(Boolean)) {
       try {
-        this.options.onEvent(JSON.parse(line) as BluetoothHelperEvent);
+        const event = parseHelperEvent(JSON.parse(line));
+        if (!event) {
+          this.fail('Bluetooth helper returned malformed status output.');
+          return;
+        }
+        this.options.onEvent(event);
       } catch {
         this.fail('Bluetooth helper returned malformed status output.');
       }
@@ -132,6 +142,68 @@ export class BluetoothHelperClient {
       helper.kill();
     }
   }
+}
+
+function parseHelperEvent(value: unknown): BluetoothHelperEvent | null {
+  if (!isRecord(value) || typeof value.type !== 'string') return null;
+
+  switch (value.type) {
+    case 'ready':
+      return { type: 'ready' };
+    case 'unavailable':
+      return isUnavailableReason(value.reason) ? { type: 'unavailable', reason: value.reason } : null;
+    case 'connected':
+      return typeof value.connectionId === 'string' && typeof value.label === 'string'
+        ? { type: 'connected', connectionId: value.connectionId, label: value.label }
+        : null;
+    case 'message':
+      return typeof value.connectionId === 'string' && isBluetoothFrame(value.frame)
+        ? { type: 'message', connectionId: value.connectionId, frame: value.frame }
+        : null;
+    case 'disconnected':
+      return typeof value.connectionId === 'string' && isDisconnectReason(value.reason)
+        ? { type: 'disconnected', connectionId: value.connectionId, reason: value.reason }
+        : null;
+    case 'diagnostic':
+      return isDiagnosticEvent(value.event) ? { type: 'diagnostic', event: value.event } : null;
+    case 'error':
+      return typeof value.reason === 'string' ? { type: 'error', reason: value.reason } : null;
+    default:
+      return null;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isBluetoothFrame(value: unknown): value is BluetoothFrame {
+  if (!isRecord(value)) return false;
+  const result = validateBluetoothFrame(value as BluetoothFrame);
+  return !result.ok && result.reason === 'incomplete';
+}
+
+function isUnavailableReason(value: unknown): value is BluetoothUnavailableReason {
+  return value === 'unsupported' || value === 'permission_denied' || value === 'adapter_off' || value === 'startup_failed';
+}
+
+function isDisconnectReason(value: unknown): value is Exclude<BluetoothDisconnectReason, null> {
+  return (
+    value === 'notification_unsubscribed' ||
+    value === 'pc_requested' ||
+    value === 'helper_stopped' ||
+    value === 'helper_error'
+  );
+}
+
+function isDiagnosticEvent(value: unknown): value is Exclude<BluetoothDiagnosticEvent, null> {
+  return (
+    value === 'advertising_started' ||
+    value === 'subscribed' ||
+    value === 'unsubscribe_grace_started' ||
+    value === 'unsubscribe_grace_cancelled' ||
+    value === 'write_received'
+  );
 }
 
 function spawnBluetoothHelper(helperPath: string): ChildProcessWithoutNullStreams {

@@ -38,7 +38,11 @@ export class WindowsBluetoothTransport {
     status: process.platform === 'win32' ? 'stopped' : 'disabled',
     reason: null,
     connectedClientCount: 0,
-    lastError: null
+    lastError: null,
+    lastEvent: null,
+    lastEventAt: null,
+    lastDisconnectReason: null,
+    lastDisconnectAt: null
   };
 
   constructor(private readonly options: WindowsBluetoothTransportOptions) {}
@@ -60,6 +64,7 @@ export class WindowsBluetoothTransport {
         void this.handleEvent(event);
       },
       onFailure: (message) => {
+        this.removeAllConnections('helper_error');
         this.setStatus({ status: 'error', lastError: safeBluetoothError(message) });
       }
     });
@@ -81,9 +86,7 @@ export class WindowsBluetoothTransport {
   }
 
   stop(): void {
-    for (const connectionId of this.connections.keys()) {
-      this.removeConnection(connectionId);
-    }
+    this.removeAllConnections('helper_stopped');
     this.helper?.stop();
     this.helper?.destroy();
     this.helper = null;
@@ -105,7 +108,10 @@ export class WindowsBluetoothTransport {
         await this.handleFrame(event.connectionId, event.frame);
         return;
       case 'disconnected':
-        this.removeConnection(event.connectionId);
+        this.removeConnection(event.connectionId, event.reason);
+        return;
+      case 'diagnostic':
+        this.setStatus({ lastEvent: event.event, lastEventAt: Date.now() });
         return;
       case 'error':
         this.setStatus({ status: 'error', lastError: safeBluetoothError(event.reason) });
@@ -139,13 +145,21 @@ export class WindowsBluetoothTransport {
     this.setStatus({ status: 'connected', connectedClientCount: this.connections.size, reason: null });
   }
 
-  private removeConnection(connectionId: string): void {
+  private removeConnection(connectionId: string, reason: BluetoothStatus['lastDisconnectReason'] = null): void {
     if (!this.connections.delete(connectionId)) return;
     this.options.controlService.removeRemoteConnection(connectionId);
     this.setStatus({
       status: this.connections.size > 0 ? 'connected' : 'ready',
-      connectedClientCount: this.connections.size
+      connectedClientCount: this.connections.size,
+      lastDisconnectReason: reason,
+      lastDisconnectAt: reason ? Date.now() : this.status.lastDisconnectAt
     });
+  }
+
+  private removeAllConnections(reason: Exclude<BluetoothStatus['lastDisconnectReason'], null>): void {
+    for (const connectionId of [...this.connections.keys()]) {
+      this.removeConnection(connectionId, reason);
+    }
   }
 
   private async handleFrame(connectionId: string, frame: BluetoothFrame): Promise<void> {

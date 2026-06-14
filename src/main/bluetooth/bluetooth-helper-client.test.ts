@@ -61,6 +61,58 @@ describe('BluetoothHelperClient', () => {
     expect(helper.stdinText()).toContain('"type":"send"');
     expect(helper.stdinText()).toContain('"connectionId":"ble"');
   });
+
+  it('parses diagnostic and disconnected events', () => {
+    const helper = createFakeProcess();
+    const events: BluetoothHelperEvent[] = [];
+    const client = new BluetoothHelperClient({
+      helperPath: 'package.json',
+      spawnProcess: () => helper.process,
+      onEvent: (event) => events.push(event)
+    });
+
+    client.start({
+      type: 'start',
+      serviceUuid: 'service',
+      rxCharacteristicUuid: 'rx',
+      txCharacteristicUuid: 'tx',
+      statusCharacteristicUuid: 'status',
+      displayName: 'Switchify PC',
+      desktopId: 'desktop-1'
+    });
+    helper.stdout.write(`${JSON.stringify({ type: 'diagnostic', event: 'subscribed' })}\n`);
+    helper.stdout.write(`${JSON.stringify({ type: 'disconnected', connectionId: 'ble', reason: 'notification_unsubscribed' })}\n`);
+
+    expect(events).toEqual([
+      { type: 'diagnostic', event: 'subscribed' },
+      { type: 'disconnected', connectionId: 'ble', reason: 'notification_unsubscribed' }
+    ]);
+  });
+
+  it('treats malformed diagnostic events as safe helper failure', () => {
+    const helper = createFakeProcess();
+    const failures: string[] = [];
+    const client = new BluetoothHelperClient({
+      helperPath: 'package.json',
+      spawnProcess: () => helper.process,
+      onEvent: vi.fn(),
+      onFailure: (message) => failures.push(message)
+    });
+
+    client.start({
+      type: 'start',
+      serviceUuid: 'service',
+      rxCharacteristicUuid: 'rx',
+      txCharacteristicUuid: 'tx',
+      statusCharacteristicUuid: 'status',
+      displayName: 'Switchify PC',
+      desktopId: 'desktop-1'
+    });
+    helper.stdout.write(`${JSON.stringify({ type: 'diagnostic', event: 'payload:secret' })}\n`);
+
+    expect(failures).toEqual(['Bluetooth helper returned malformed status output.']);
+    expect(helper.kill).toHaveBeenCalledTimes(1);
+  });
 });
 
 function createFakeProcess() {
@@ -68,6 +120,10 @@ function createFakeProcess() {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   const chunks: string[] = [];
+  const kill = vi.fn(() => {
+    process.killed = true;
+    return true;
+  });
   stdin.on('data', (chunk) => chunks.push(String(chunk)));
 
   const process = Object.assign(new EventEmitter(), {
@@ -75,15 +131,13 @@ function createFakeProcess() {
     stdout,
     stderr,
     killed: false,
-    kill: vi.fn(() => {
-      process.killed = true;
-      return true;
-    })
+    kill
   });
 
   return {
     process: process as never,
     stdout,
+    kill,
     stdinText: () => chunks.join('')
   };
 }

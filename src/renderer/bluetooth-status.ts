@@ -1,4 +1,4 @@
-import type { BluetoothStatus } from '../shared/bluetooth-status';
+import type { BluetoothDiagnosticEvent, BluetoothDisconnectReason, BluetoothStatus } from '../shared/bluetooth-status';
 
 export function formatBluetoothStatus(status: BluetoothStatus | null | undefined): string {
   if (!status) return 'Bluetooth status unknown.';
@@ -19,5 +19,22 @@ function toUnavailableText(reason: BluetoothStatus['reason']): string {
   if (reason === 'permission_denied') return 'Bluetooth permission denied.';
   if (reason === 'unsupported') return 'Bluetooth unavailable.';
   return 'Bluetooth unavailable.';
+}
+
+export function formatBluetoothDiagnosticEvent(event: BluetoothDiagnosticEvent): string {
+  if (event === 'advertising_started') return 'Advertising started.';
+  if (event === 'subscribed') return 'Device subscribed.';
+  if (event === 'unsubscribe_grace_started') return 'Waiting for Bluetooth reconnect.';
+  if (event === 'unsubscribe_grace_cancelled') return 'Bluetooth reconnect resumed.';
+  if (event === 'write_received') return 'Message received.';
+  return 'Not recorded.';
+}
+
+export function formatBluetoothDisconnectReason(reason: BluetoothDisconnectReason): string {
+  if (reason === 'notification_unsubscribed') return 'Notification subscription ended.';
+  if (reason === 'pc_requested') return 'Disconnected from this PC.';
+  if (reason === 'helper_stopped') return 'Bluetooth helper stopped.';
+  if (reason === 'helper_error') return 'Bluetooth helper error.';
+  return 'Not recorded.';
 }
 

@@ -10,6 +10,7 @@ namespace SwitchifyBluetoothTransport;
 internal sealed class BluetoothGattBridge
 {
     private const string ConnectionId = "ble";
+    private static readonly TimeSpan DisconnectGracePeriod = TimeSpan.FromSeconds(10);
 
     private GattServiceProvider? serviceProvider;
     private GattLocalCharacteristic? txCharacteristic;
@@ -17,6 +18,7 @@ internal sealed class BluetoothGattBridge
     private GattLocalCharacteristic? statusCharacteristic;
     private string statusPayload = "{}";
     private bool connected;
+    private CancellationTokenSource? disconnectGrace;
 
     public async Task StartAsync(StartCommand command)
     {
@@ -78,15 +80,16 @@ internal sealed class BluetoothGattBridge
             }
         );
 
+        HelperProtocol.WriteEvent(new { type = "diagnostic", @event = "advertising_started" });
         HelperProtocol.WriteEvent(new { type = "ready" });
     }
 
     public void Stop()
     {
+        CancelDisconnectGrace();
         if (connected)
         {
-            connected = false;
-            HelperProtocol.WriteEvent(new { type = "disconnected", connectionId = ConnectionId });
+            EmitDisconnected("helper_stopped");
         }
 
         serviceProvider?.StopAdvertising();
@@ -115,8 +118,8 @@ internal sealed class BluetoothGattBridge
             return;
         }
 
-        connected = false;
-        HelperProtocol.WriteEvent(new { type = "disconnected", connectionId = ConnectionId });
+        CancelDisconnectGrace();
+        EmitDisconnected("pc_requested");
     }
 
     private async Task<GattLocalCharacteristic?> CreateRxCharacteristicAsync(Guid uuid)
@@ -169,15 +172,13 @@ internal sealed class BluetoothGattBridge
         result.Characteristic.SubscribedClientsChanged += (_, _) =>
         {
             var hasSubscribers = result.Characteristic.SubscribedClients.Count > 0;
-            if (hasSubscribers && !connected)
+            if (hasSubscribers)
             {
-                connected = true;
-                HelperProtocol.WriteEvent(new { type = "connected", connectionId = ConnectionId, label = "Bluetooth device" });
+                MarkConnected("subscribed");
             }
             else if (!hasSubscribers && connected)
             {
-                connected = false;
-                HelperProtocol.WriteEvent(new { type = "disconnected", connectionId = ConnectionId });
+                StartDisconnectGrace();
             }
         };
 
@@ -231,11 +232,7 @@ internal sealed class BluetoothGattBridge
                 return;
             }
 
-            if (!connected)
-            {
-                connected = true;
-                HelperProtocol.WriteEvent(new { type = "connected", connectionId = ConnectionId, label = "Bluetooth device" });
-            }
+            MarkConnected("write_received");
 
             HelperProtocol.WriteEvent(new { type = "message", connectionId = ConnectionId, frame });
             request.Respond();
@@ -269,5 +266,74 @@ internal sealed class BluetoothGattBridge
         {
             deferral.Complete();
         }
+    }
+
+    private void MarkConnected(string eventName)
+    {
+        CancelDisconnectGrace();
+        if (!connected)
+        {
+            connected = true;
+            HelperProtocol.WriteEvent(new { type = "connected", connectionId = ConnectionId, label = "Bluetooth device" });
+        }
+        HelperProtocol.WriteEvent(new { type = "diagnostic", @event = eventName });
+    }
+
+    private void StartDisconnectGrace()
+    {
+        if (disconnectGrace is not null)
+        {
+            return;
+        }
+
+        disconnectGrace = new CancellationTokenSource();
+        var grace = disconnectGrace;
+        var token = grace.Token;
+        HelperProtocol.WriteEvent(new { type = "diagnostic", @event = "unsubscribe_grace_started" });
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(DisconnectGracePeriod, token);
+                if (!token.IsCancellationRequested && connected)
+                {
+                    EmitDisconnected("notification_unsubscribed");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when the client writes or resubscribes before the grace period expires.
+            }
+            finally
+            {
+                if (ReferenceEquals(disconnectGrace, grace))
+                {
+                    grace.Dispose();
+                    disconnectGrace = null;
+                }
+            }
+        });
+    }
+
+    private void CancelDisconnectGrace()
+    {
+        var pending = disconnectGrace;
+        if (pending is null)
+        {
+            return;
+        }
+
+        disconnectGrace = null;
+        pending.Cancel();
+        pending.Dispose();
+        HelperProtocol.WriteEvent(new { type = "diagnostic", @event = "unsubscribe_grace_cancelled" });
+    }
+
+    private void EmitDisconnected(string reason)
+    {
+        connected = false;
+        disconnectGrace?.Dispose();
+        disconnectGrace = null;
+        HelperProtocol.WriteEvent(new { type = "disconnected", connectionId = ConnectionId, reason });
     }
 }

@@ -1,7 +1,11 @@
 import type { ReactElement } from 'react';
 import type { PendingPairingApprovalView } from '../../shared/pairing-approval';
 import type { PcControlStatus } from '../../shared/server-status';
-import { formatBluetoothStatus } from '../bluetooth-status';
+import {
+  formatBluetoothDiagnosticEvent,
+  formatBluetoothDisconnectReason,
+  formatBluetoothStatus
+} from '../bluetooth-status';
 import { formatTimestamp } from '../format';
 import { DetailGrid, DetailItem, TroubleshootingSection } from './DetailGrid';
 
@@ -23,6 +27,8 @@ export function TroubleshootingDetails({
           <DetailGrid>
             <DetailItem label="Control status" value={serverStatus?.state ?? 'Unknown'} />
             <DetailItem label="Bluetooth" value={formatBluetoothStatus(serverStatus?.bluetooth)} />
+            <DetailItem label="Last Bluetooth event" value={formatBluetoothEvent(serverStatus)} />
+            <DetailItem label="Last Bluetooth disconnect" value={formatBluetoothDisconnect(serverStatus)} />
             <DetailItem label="Desktop id" value={serverStatus?.desktopId ?? 'Unknown'} />
             <DetailItem label="Last command" value={formatTimestamp(serverStatus?.lastSeenAt ?? null)} />
             <DetailItem label="Recent error" value={serverStatus?.lastError ?? 'No recent errors.'} />
@@ -31,6 +37,18 @@ export function TroubleshootingDetails({
       </div>
     </details>
   );
+}
+
+function formatBluetoothEvent(serverStatus: PcControlStatus | null): string {
+  const bluetooth = serverStatus?.bluetooth;
+  if (!bluetooth?.lastEvent) return 'Not recorded.';
+  return `${formatBluetoothDiagnosticEvent(bluetooth.lastEvent)} ${formatTimestamp(bluetooth.lastEventAt)}`;
+}
+
+function formatBluetoothDisconnect(serverStatus: PcControlStatus | null): string {
+  const bluetooth = serverStatus?.bluetooth;
+  if (!bluetooth?.lastDisconnectReason) return 'Not recorded.';
+  return `${formatBluetoothDisconnectReason(bluetooth.lastDisconnectReason)} ${formatTimestamp(bluetooth.lastDisconnectAt)}`;
 }
 
 function PendingRequestList({ requests }: { requests: PendingPairingApprovalView[] }): ReactElement {

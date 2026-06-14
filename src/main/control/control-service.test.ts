@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { DEFAULT_BLUETOOTH_STATUS } from '../../shared/bluetooth-status';
 import {
   PROTOCOL_VERSION,
   validateProtocolResponse,
@@ -122,6 +123,7 @@ describe('ControlService', () => {
     const service = createControlService();
 
     service.setBluetoothStatus({
+      ...DEFAULT_BLUETOOTH_STATUS,
       status: 'ready',
       reason: null,
       connectedClientCount: 0,
@@ -129,6 +131,7 @@ describe('ControlService', () => {
     });
 
     expect(service.getStatus().bluetooth).toEqual({
+      ...DEFAULT_BLUETOOTH_STATUS,
       status: 'ready',
       reason: null,
       connectedClientCount: 0,
