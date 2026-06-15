@@ -630,6 +630,32 @@ p {
   color: var(--color-text);
 }
 
+.color-swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.color-swatch {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  padding: 0;
+}
+
+.color-swatch.selected {
+  border-color: var(--brand-primary);
+  box-shadow:
+    0 0 0 3px var(--color-surface),
+    0 0 0 5px var(--brand-primary);
+}
+
+.color-swatch:disabled {
+  opacity: 0.45;
+}
+
 .technical-list {
   display: grid;
   gap: var(--space-xs);

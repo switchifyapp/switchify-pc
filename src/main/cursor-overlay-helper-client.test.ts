@@ -62,12 +62,18 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 100, y: 200 }),
       idleTimeoutMs: 900,
-      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false }),
+      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false, color: 'red' }),
       resolveSizePixels: () => 128,
       spawnProcess: () => helper as never
     });
 
-    backend.show('move', { size: 128, idleTimeoutMs: 900, crosshairs: true, persistent: false });
+    backend.show('move', {
+      size: 128,
+      idleTimeoutMs: 900,
+      crosshairs: true,
+      persistent: false,
+      colorRgb: [211, 47, 47]
+    });
 
     expect(fallback.events).toEqual([]);
     expect(JSON.parse(helper.writes[0])).toEqual({
@@ -78,7 +84,42 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       size: 128,
       durationMs: 900,
       crosshairs: true,
-      persistent: false
+      persistent: false,
+      color: {
+        red: 211,
+        green: 47,
+        blue: 47
+      }
+    });
+  });
+
+  it('writes non-default color commands to the helper process', () => {
+    const helper = new FakeHelperProcess();
+    const fallback = new FakeOverlayBackend();
+    const backend = new NativeWindowsCursorOverlayBackend({
+      helperPath: __filename,
+      fallback,
+      getCursorPosition: () => ({ x: 10, y: 20 }),
+      idleTimeoutMs: 900,
+      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false, color: 'green' }),
+      resolveSizePixels: () => 128,
+      spawnProcess: () => helper as never
+    });
+
+    backend.show('move', {
+      size: 128,
+      idleTimeoutMs: 900,
+      crosshairs: false,
+      persistent: false,
+      colorRgb: [132, 255, 145]
+    });
+
+    expect(JSON.parse(helper.writes[0])).toMatchObject({
+      color: {
+        red: 132,
+        green: 255,
+        blue: 145
+      }
     });
   });
 
@@ -90,12 +131,18 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 100, y: 200 }),
       idleTimeoutMs: 900,
-      getSettings: () => ({ enabled: true, size: 'large', visibility: 'whileControlling', crosshairs: true }),
+      getSettings: () => ({ enabled: true, size: 'large', visibility: 'whileControlling', crosshairs: true, color: 'red' }),
       resolveSizePixels: () => 176,
       spawnProcess: () => helper as never
     });
 
-    backend.show('move', { size: 176, idleTimeoutMs: 900, crosshairs: true, persistent: true });
+    backend.show('move', {
+      size: 176,
+      idleTimeoutMs: 900,
+      crosshairs: true,
+      persistent: true,
+      colorRgb: [211, 47, 47]
+    });
 
     expect(JSON.parse(helper.writes[0])).toEqual({
       type: 'show',
@@ -105,7 +152,12 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       size: 176,
       durationMs: 0,
       crosshairs: true,
-      persistent: true
+      persistent: true,
+      color: {
+        red: 211,
+        green: 47,
+        blue: 47
+      }
     });
   });
 
@@ -117,13 +169,19 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 0, y: 0 }),
       idleTimeoutMs: 900,
-      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false }),
+      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false, color: 'red' }),
       resolveSizePixels: () => 128,
       shutdownKillDelayMs: 1,
       spawnProcess: () => helper as never
     });
 
-    backend.show('click', { size: 128, idleTimeoutMs: 900, crosshairs: false, persistent: false });
+    backend.show('click', {
+      size: 128,
+      idleTimeoutMs: 900,
+      crosshairs: false,
+      persistent: false,
+      colorRgb: [211, 47, 47]
+    });
     backend.hide();
     backend.destroy();
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -142,12 +200,18 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 100, y: 200 }),
       idleTimeoutMs: 900,
-      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false }),
+      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false, color: 'red' }),
       resolveSizePixels: () => 128,
       onFailure: (message) => failures.push(message)
     });
 
-    backend.show('move', { size: 128, idleTimeoutMs: 900, crosshairs: false, persistent: false });
+    backend.show('move', {
+      size: 128,
+      idleTimeoutMs: 900,
+      crosshairs: false,
+      persistent: false,
+      colorRgb: [211, 47, 47]
+    });
 
     expect(fallback.events).toEqual(['show:move']);
     expect(failures[0]).toContain('Cursor overlay helper was not found');
@@ -161,14 +225,26 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 0, y: 0 }),
       idleTimeoutMs: 900,
-      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false }),
+      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false, color: 'red' }),
       resolveSizePixels: () => 128,
       spawnProcess: () => helper as never
     });
 
-    backend.show('move', { size: 128, idleTimeoutMs: 900, crosshairs: false, persistent: false });
+    backend.show('move', {
+      size: 128,
+      idleTimeoutMs: 900,
+      crosshairs: false,
+      persistent: false,
+      colorRgb: [211, 47, 47]
+    });
     helper.emit('error', new Error('boom'));
-    backend.show('click', { size: 128, idleTimeoutMs: 900, crosshairs: false, persistent: false });
+    backend.show('click', {
+      size: 128,
+      idleTimeoutMs: 900,
+      crosshairs: false,
+      persistent: false,
+      colorRgb: [211, 47, 47]
+    });
 
     expect(helper.killed).toBe(true);
     expect(fallback.events).toEqual(['show:click']);
@@ -182,14 +258,26 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 0, y: 0 }),
       idleTimeoutMs: 900,
-      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false }),
+      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false, color: 'red' }),
       resolveSizePixels: () => 128,
       spawnProcess: () => helper as never
     });
 
-    backend.show('move', { size: 128, idleTimeoutMs: 900, crosshairs: false, persistent: false });
+    backend.show('move', {
+      size: 128,
+      idleTimeoutMs: 900,
+      crosshairs: false,
+      persistent: false,
+      colorRgb: [211, 47, 47]
+    });
     helper.stdout.emit('data', '{"type":"error","message":"bad command"}\n');
-    backend.show('click', { size: 128, idleTimeoutMs: 900, crosshairs: false, persistent: false });
+    backend.show('click', {
+      size: 128,
+      idleTimeoutMs: 900,
+      crosshairs: false,
+      persistent: false,
+      colorRgb: [211, 47, 47]
+    });
 
     expect(fallback.events).toEqual(['show:click']);
   });
