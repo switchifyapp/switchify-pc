@@ -115,6 +115,9 @@ function createSigningArgs(filePath, { requireSigning }) {
   const devArgs = createDevPfxSigningArgs(filePath);
   if (devArgs) return devArgs;
 
+  const devStoreArgs = createDevStoreSigningArgs(filePath);
+  if (devStoreArgs) return devStoreArgs;
+
   const azureArgs = createAzureSigningArgs(filePath, false);
   if (azureArgs) return azureArgs;
 
@@ -138,6 +141,21 @@ function createDevPfxSigningArgs(filePath) {
   if (thumbprint) {
     args.push('/sha1', thumbprint);
   }
+  if (process.env.SWITCHIFY_SIGN_SKIP_TIMESTAMP !== '1') {
+    args.push('/tr', 'http://timestamp.digicert.com', '/td', 'SHA256');
+  }
+  args.push(filePath);
+  return args;
+}
+
+function createDevStoreSigningArgs(filePath) {
+  const thumbprint = resolveDevCertificateThumbprint(
+    process.env.SWITCHIFY_DEV_CERT_PFX || resolveProjectPath('.certs', 'switchify-dev-code-signing.pfx')
+  );
+
+  if (!thumbprint) return null;
+
+  const args = ['sign', '/fd', 'SHA256', '/sha1', thumbprint];
   if (process.env.SWITCHIFY_SIGN_SKIP_TIMESTAMP !== '1') {
     args.push('/tr', 'http://timestamp.digicert.com', '/td', 'SHA256');
   }
