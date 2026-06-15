@@ -29,6 +29,7 @@ let settingsWindow: BrowserWindow | null = null;
 let tray: SwitchifyTray | null = null;
 let cursorOverlay: CursorOverlay | null = null;
 let bluetoothTransport: WindowsBluetoothTransport | null = null;
+let releaseHeldMouseButtons: (() => Promise<void>) | null = null;
 let isQuitting = false;
 
 if (process.platform === 'win32' && app.isPackaged) {
@@ -233,6 +234,12 @@ app.whenReady().then(() => {
   const inputAdapter = new LibnutWin32InputAdapter((position) => screen.getDisplayNearestPoint(position).scaleFactor);
   cursorOverlay = new CursorOverlay({ settings: cursorOverlaySettingsStore.load() });
   const commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay);
+  releaseHeldMouseButtons = () => commandExecutor.releaseHeldMouseButtons();
+  const releaseHeldMouseButtonsSafely = (): void => {
+    void commandExecutor.releaseHeldMouseButtons().catch((error) => {
+      console.warn(error instanceof Error ? error.message : 'Could not release held mouse buttons.');
+    });
+  };
   controlService = new ControlService({
     pairingManager,
     pairingApprovalManager,
@@ -250,6 +257,7 @@ app.whenReady().then(() => {
     },
     onStatusChange: (status) => {
       if (status.connectedClientCount === 0) {
+        releaseHeldMouseButtonsSafely();
         cursorOverlay?.endControlSession();
       }
       tray?.update();
@@ -298,6 +306,7 @@ app.whenReady().then(() => {
     showWindow: showMainWindow,
     openSettings: showSettingsWindow,
     disconnectClients: () => {
+      releaseHeldMouseButtonsSafely();
       controlService?.disconnectClients();
       tray?.update();
     },
@@ -316,12 +325,21 @@ app.on('before-quit', (event) => {
 
   event.preventDefault();
   isQuitting = true;
-  tray?.destroy();
-  tray = null;
-  cursorOverlay?.destroy();
-  cursorOverlay = null;
-  bluetoothTransport?.stop();
-  bluetoothTransport = null;
-  controlService = null;
-  app.quit();
+  void (releaseHeldMouseButtons?.() ?? Promise.resolve())
+    .catch((error) => {
+      console.warn(error instanceof Error ? error.message : 'Could not release held mouse buttons.');
+    })
+    .then(() => {
+      tray?.destroy();
+      tray = null;
+      cursorOverlay?.destroy();
+      cursorOverlay = null;
+      bluetoothTransport?.stop();
+      bluetoothTransport = null;
+      releaseHeldMouseButtons = null;
+      controlService = null;
+    })
+    .finally(() => {
+      app.quit();
+    });
 });

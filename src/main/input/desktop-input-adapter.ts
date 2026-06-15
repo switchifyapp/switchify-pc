@@ -3,6 +3,7 @@ import type { KeyboardKey, MediaAction, MouseButton, ShortcutKey, WindowControlA
 export type DesktopInputAdapter = {
   getMousePosition(): { x: number; y: number };
   moveMouseBy(delta: { dx: number; dy: number }): Promise<void>;
+  setMouseButtonDown(button: MouseButton, down: boolean): Promise<void>;
   clickMouse(button: MouseButton): Promise<void>;
   doubleClickMouse(button: MouseButton): Promise<void>;
   scrollMouse(delta: { dx: number; dy: number }): Promise<void>;

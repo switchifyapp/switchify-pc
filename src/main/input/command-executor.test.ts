@@ -39,6 +39,10 @@ class FakeInputAdapter implements DesktopInputAdapter {
     }
   }
 
+  async setMouseButtonDown(button: 'left' | 'right' | 'middle', down: boolean): Promise<void> {
+    this.record('setMouseButtonDown', [button, down]);
+  }
+
   async clickMouse(button: 'left' | 'right' | 'middle'): Promise<void> {
     this.record('clickMouse', [button]);
   }
@@ -186,6 +190,92 @@ describe('DesktopCommandExecutor', () => {
       { method: 'moveMouseBy', args: [{ dx: 2, dy: 0 }] },
       { method: 'moveMouseBy', args: [{ dx: 3, dy: 0 }] }
     ]);
+  });
+
+  it('maps drag start and end to held mouse button actions', async () => {
+    const { adapter, executor, overlay } = createExecutor();
+
+    await executor.execute(command('mouse.dragStart', { button: 'left' }));
+    await executor.execute(command('mouse.move', { dx: 10, dy: 0 }));
+    await executor.execute(command('mouse.dragEnd', { button: 'left' }));
+
+    expect(adapter.calls).toEqual([
+      { method: 'setMouseButtonDown', args: ['left', true] },
+      { method: 'moveMouseBy', args: [{ dx: 10, dy: 0 }] },
+      { method: 'setMouseButtonDown', args: ['left', false] }
+    ]);
+    expect(overlay.events).toEqual(['move', 'move', 'move']);
+  });
+
+  it('serializes drag start, movement, and drag end pointer actions', async () => {
+    const { adapter, executor } = createExecutor();
+    adapter.mouseMoveDelayMs = 10;
+
+    await Promise.all([
+      executor.execute(command('mouse.dragStart', { button: 'left' })),
+      executor.execute(command('mouse.move', { dx: 1, dy: 0 })),
+      executor.execute(command('mouse.dragEnd', { button: 'left' }))
+    ]);
+
+    expect(adapter.maxActiveMouseMoves).toBe(1);
+    expect(adapter.calls).toEqual([
+      { method: 'setMouseButtonDown', args: ['left', true] },
+      { method: 'moveMouseBy', args: [{ dx: 1, dy: 0 }] },
+      { method: 'setMouseButtonDown', args: ['left', false] }
+    ]);
+  });
+
+  it('treats repeated drag start and drag end without active drag as no-ops', async () => {
+    const { adapter, executor } = createExecutor();
+
+    await executor.execute(command('mouse.dragStart', { button: 'left' }));
+    await executor.execute(command('mouse.dragStart', { button: 'left' }));
+    await executor.execute(command('mouse.dragEnd', { button: 'left' }));
+    await executor.execute(command('mouse.dragEnd', { button: 'left' }));
+
+    expect(adapter.calls).toEqual([
+      { method: 'setMouseButtonDown', args: ['left', true] },
+      { method: 'setMouseButtonDown', args: ['left', false] }
+    ]);
+  });
+
+  it('releases an active drag button before starting a different drag button', async () => {
+    const { adapter, executor } = createExecutor();
+
+    await executor.execute(command('mouse.dragStart', { button: 'left' }));
+    await executor.execute(command('mouse.dragStart', { button: 'right' }));
+
+    expect(adapter.calls).toEqual([
+      { method: 'setMouseButtonDown', args: ['left', true] },
+      { method: 'setMouseButtonDown', args: ['left', false] },
+      { method: 'setMouseButtonDown', args: ['right', true] }
+    ]);
+  });
+
+  it('releases the active drag button during cleanup', async () => {
+    const { adapter, executor } = createExecutor();
+
+    await executor.execute(command('mouse.dragStart', { button: 'left' }));
+    await executor.releaseHeldMouseButtons();
+    await executor.releaseHeldMouseButtons();
+
+    expect(adapter.calls).toEqual([
+      { method: 'setMouseButtonDown', args: ['left', true] },
+      { method: 'setMouseButtonDown', args: ['left', false] }
+    ]);
+  });
+
+  it('converts drag adapter errors into structured failures', async () => {
+    const { adapter, executor } = createExecutor();
+    adapter.failNext = new DesktopInputError('adapter_failure', 'Native drag failed.');
+
+    await expect(executor.execute(command('mouse.dragStart', { button: 'left' }))).resolves.toEqual({
+      ok: false,
+      code: 'adapter_failure',
+      message: 'Native drag failed.'
+    });
+
+    expect(adapter.calls).toHaveLength(0);
   });
 });
 

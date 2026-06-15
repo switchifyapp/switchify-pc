@@ -1,4 +1,4 @@
-import type { CommandRequest } from '../../shared/protocol';
+import type { CommandRequest, MouseButton } from '../../shared/protocol';
 import {
   MAX_POINTER_DELTA,
   MAX_SCROLL_DELTA,
@@ -18,7 +18,8 @@ export type CursorOverlayNotifier = {
 };
 
 export class DesktopCommandExecutor {
-  private pointerMoveQueue: Promise<void> = Promise.resolve();
+  private pointerActionQueue: Promise<void> = Promise.resolve();
+  private activeDragButton: MouseButton | null = null;
 
   constructor(
     private readonly adapter: DesktopInputAdapter,
@@ -26,16 +27,32 @@ export class DesktopCommandExecutor {
   ) {}
 
   async execute(command: CommandRequest): Promise<CommandExecutionResult> {
-    if (command.type === 'mouse.move') {
-      return this.enqueuePointerMove(command);
+    if (isPointerAction(command)) {
+      return this.enqueuePointerAction(command);
     }
 
     return this.executeNow(command);
   }
 
-  private async enqueuePointerMove(command: CommandRequest & { type: 'mouse.move' }): Promise<CommandExecutionResult> {
-    const result = this.pointerMoveQueue.then(() => this.executeNow(command));
-    this.pointerMoveQueue = result.then(
+  async releaseHeldMouseButtons(): Promise<void> {
+    const release = this.pointerActionQueue.then(async () => {
+      if (!this.activeDragButton) return;
+      const button = this.activeDragButton;
+      await this.adapter.setMouseButtonDown(button, false);
+      this.activeDragButton = null;
+    });
+    this.pointerActionQueue = release.then(
+      () => undefined,
+      () => undefined
+    );
+    await release;
+  }
+
+  private async enqueuePointerAction(
+    command: CommandRequest & { type: 'mouse.move' | 'mouse.dragStart' | 'mouse.dragEnd' }
+  ): Promise<CommandExecutionResult> {
+    const result = this.pointerActionQueue.then(() => this.executeNow(command));
+    this.pointerActionQueue = result.then(
       () => undefined,
       () => undefined
     );
@@ -50,6 +67,14 @@ export class DesktopCommandExecutor {
           assertBoundedNumber(command.payload.dx, MAX_POINTER_DELTA, 'dx');
           assertBoundedNumber(command.payload.dy, MAX_POINTER_DELTA, 'dy');
           await this.adapter.moveMouseBy(command.payload);
+          this.cursorOverlay?.show('move');
+          return { ok: true };
+        case 'mouse.dragStart':
+          await this.startDrag(command.payload.button);
+          this.cursorOverlay?.show('move');
+          return { ok: true };
+        case 'mouse.dragEnd':
+          await this.endDrag(command.payload.button);
           this.cursorOverlay?.show('move');
           return { ok: true };
         case 'mouse.click':
@@ -108,6 +133,27 @@ export class DesktopCommandExecutor {
       };
     }
   }
+
+  private async startDrag(button: MouseButton): Promise<void> {
+    if (this.activeDragButton === button) return;
+
+    if (this.activeDragButton) {
+      const previousButton = this.activeDragButton;
+      await this.adapter.setMouseButtonDown(previousButton, false);
+      this.activeDragButton = null;
+    }
+
+    await this.adapter.setMouseButtonDown(button, true);
+    this.activeDragButton = button;
+  }
+
+  private async endDrag(_button: MouseButton): Promise<void> {
+    if (!this.activeDragButton) return;
+
+    const buttonToRelease = this.activeDragButton;
+    await this.adapter.setMouseButtonDown(buttonToRelease, false);
+    this.activeDragButton = null;
+  }
 }
 
 function assertBoundedNumber(value: number, maxAbsValue: number, label: string): void {
@@ -118,4 +164,10 @@ function assertBoundedNumber(value: number, maxAbsValue: number, label: string):
 
 function unsafe(message: string): CommandExecutionResult {
   return { ok: false, code: 'unsafe_payload', message };
+}
+
+function isPointerAction(
+  command: CommandRequest
+): command is CommandRequest & { type: 'mouse.move' | 'mouse.dragStart' | 'mouse.dragEnd' } {
+  return command.type === 'mouse.move' || command.type === 'mouse.dragStart' || command.type === 'mouse.dragEnd';
 }
