@@ -28,6 +28,8 @@ describe('protocol request validation', () => {
       { type: 'mouse.doubleClick', payload: { button: 'middle' } },
       { type: 'mouse.rightClick', payload: {} },
       { type: 'mouse.scroll', payload: { dx: 0, dy: -3 } },
+      { type: 'mouse.dragStart', payload: { button: 'left' } },
+      { type: 'mouse.dragEnd', payload: { button: 'left' } },
       { type: 'keyboard.key', payload: { key: 'Enter' } },
       { type: 'keyboard.shortcut', payload: { keys: ['Ctrl', 'C'] } },
       { type: 'keyboard.typeText', payload: { text: 'Hello' } },
@@ -150,6 +152,19 @@ describe('protocol request validation', () => {
       ok: false,
       error: 'invalid_payload'
     });
+  });
+
+  it('rejects malformed drag payloads', () => {
+    for (const payload of [{ button: 'primary' }, {}, { button: 1 }]) {
+      expect(validateProtocolRequest({ ...baseCommand, type: 'mouse.dragStart', payload })).toMatchObject({
+        ok: false,
+        error: 'invalid_payload'
+      });
+      expect(validateProtocolRequest({ ...baseCommand, type: 'mouse.dragEnd', payload })).toMatchObject({
+        ok: false,
+        error: 'invalid_payload'
+      });
+    }
   });
 
   it('accepts named window control actions', () => {

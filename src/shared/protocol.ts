@@ -103,6 +103,8 @@ export type MouseClickCommand = BaseRequestEnvelope<'mouse.click', { button: Mou
 export type MouseDoubleClickCommand = BaseRequestEnvelope<'mouse.doubleClick', { button: MouseButton }>;
 export type MouseRightClickCommand = BaseRequestEnvelope<'mouse.rightClick', Record<string, never>>;
 export type MouseScrollCommand = BaseRequestEnvelope<'mouse.scroll', { dx: number; dy: number }>;
+export type MouseDragStartCommand = BaseRequestEnvelope<'mouse.dragStart', { button: MouseButton }>;
+export type MouseDragEndCommand = BaseRequestEnvelope<'mouse.dragEnd', { button: MouseButton }>;
 export type KeyboardKeyCommand = BaseRequestEnvelope<'keyboard.key', { key: KeyboardKey }>;
 export type KeyboardShortcutCommand = BaseRequestEnvelope<'keyboard.shortcut', { keys: ShortcutKey[] }>;
 export type KeyboardTypeTextCommand = BaseRequestEnvelope<'keyboard.typeText', { text: string }>;
@@ -118,6 +120,8 @@ export type CommandRequest =
   | MouseDoubleClickCommand
   | MouseRightClickCommand
   | MouseScrollCommand
+  | MouseDragStartCommand
+  | MouseDragEndCommand
   | KeyboardKeyCommand
   | KeyboardShortcutCommand
   | KeyboardTypeTextCommand
@@ -183,6 +187,8 @@ const commandTypes = new Set<CommandRequest['type']>([
   'mouse.doubleClick',
   'mouse.rightClick',
   'mouse.scroll',
+  'mouse.dragStart',
+  'mouse.dragEnd',
   'keyboard.key',
   'keyboard.shortcut',
   'keyboard.typeText',
@@ -410,6 +416,8 @@ function validateCommandPayload(
       return validateBoundedNumbers(payload, ['dx', 'dy'], MAX_SCROLL_DELTA);
     case 'mouse.click':
     case 'mouse.doubleClick':
+    case 'mouse.dragStart':
+    case 'mouse.dragEnd':
       return mouseButtons.has(payload.button as MouseButton)
         ? valid()
         : invalid('invalid_payload', 'Mouse button is invalid.');

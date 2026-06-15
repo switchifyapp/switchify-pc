@@ -2,6 +2,7 @@ import {
   getMousePos,
   keyTap,
   mouseClick,
+  mouseToggle,
   moveMouse,
   scrollMouse as nativeScrollMouse,
   typeString
@@ -31,6 +32,11 @@ export class LibnutWin32InputAdapter implements DesktopInputAdapter {
     const scale = this.getPointerScale(current);
     const target = calculateScaledMouseTarget(current, delta, scale);
     moveMouse(target.x, target.y);
+  }
+
+  async setMouseButtonDown(button: MouseButton, down: boolean): Promise<void> {
+    const toggle = toLibnutMouseToggle(down);
+    mouseToggle(toggle, toLibnutMouseButton(button));
   }
 
   async clickMouse(button: MouseButton): Promise<void> {
@@ -119,6 +125,10 @@ export function calculateNativeScrollDelta(
     dx: scaleScrollAxis(delta.dx, effectiveMultiplier),
     dy: scaleScrollAxis(delta.dy, effectiveMultiplier)
   };
+}
+
+export function toLibnutMouseToggle(down: boolean): 'down' | 'up' {
+  return down ? 'down' : 'up';
 }
 
 function scaleScrollAxis(value: number, multiplier: number): number {
