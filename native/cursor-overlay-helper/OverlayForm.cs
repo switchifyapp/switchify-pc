@@ -12,6 +12,9 @@ internal sealed class OverlayForm : Form
     private readonly System.Windows.Forms.Timer animationTimer = new();
     private DateTime clickPulseStartedAt = DateTime.MinValue;
     private bool isClickPulse;
+    private bool crosshairsEnabled;
+    private int ringWindowSize = DefaultWindowSize;
+    private PointF cursorCenter = new(DefaultWindowSize / 2.0f, DefaultWindowSize / 2.0f);
 
     internal OverlayForm()
     {
@@ -54,18 +57,36 @@ internal sealed class OverlayForm : Form
     {
         int size = command.Size > 0 ? command.Size : DefaultWindowSize;
         int durationMs = command.DurationMs > 0 ? command.DurationMs : DefaultDurationMs;
+        Point cursor = new((int)Math.Round(command.X), (int)Math.Round(command.Y));
+        Screen display = Screen.FromPoint(cursor);
+        Rectangle bounds = display.Bounds;
+        crosshairsEnabled = command.Crosshairs;
+        ringWindowSize = size;
 
-        ClientSize = new Size(size, size);
-        Location = new Point(
-            (int)Math.Round(command.X - size / 2.0),
-            (int)Math.Round(command.Y - size / 2.0));
+        if (crosshairsEnabled)
+        {
+            ClientSize = bounds.Size;
+            Location = bounds.Location;
+            cursorCenter = new PointF(cursor.X - bounds.X, cursor.Y - bounds.Y);
+        }
+        else
+        {
+            ClientSize = new Size(size, size);
+            Location = new Point(
+                (int)Math.Round(command.X - size / 2.0),
+                (int)Math.Round(command.Y - size / 2.0));
+            cursorCenter = new PointF(size / 2.0f, size / 2.0f);
+        }
 
         isClickPulse = string.Equals(command.Event, "click", StringComparison.OrdinalIgnoreCase);
         clickPulseStartedAt = isClickPulse ? DateTime.UtcNow : DateTime.MinValue;
 
         hideTimer.Stop();
-        hideTimer.Interval = durationMs;
-        hideTimer.Start();
+        if (!command.Persistent)
+        {
+            hideTimer.Interval = durationMs;
+            hideTimer.Start();
+        }
         animationTimer.Start();
 
         if (!Visible)
@@ -82,6 +103,7 @@ internal sealed class OverlayForm : Form
         hideTimer.Stop();
         animationTimer.Stop();
         isClickPulse = false;
+        crosshairsEnabled = false;
         Hide();
     }
 
@@ -123,16 +145,23 @@ internal sealed class OverlayForm : Form
             graphics.Clear(Color.Transparent);
 
             float scale = ResolvePulseScale();
-            float ringDiameter = 72.0f * scale;
-            float ringStroke = 5.0f;
-            float outerStroke = 24.0f * scale;
-            float centerX = ClientSize.Width / 2.0f;
-            float centerY = ClientSize.Height / 2.0f;
+            float ringDiameter = ringWindowSize * 0.5625f * scale;
+            float ringStroke = Math.Max(4.0f, ringWindowSize * 0.039f);
+            float outerStroke = Math.Max(18.0f, ringWindowSize * 0.1875f) * scale;
+            float centerX = cursorCenter.X;
+            float centerY = cursorCenter.Y;
             float ringX = centerX - ringDiameter / 2.0f;
             float ringY = centerY - ringDiameter / 2.0f;
 
             using Pen glow = new(Color.FromArgb(62, 132, 255, 145), outerStroke);
             using Pen ring = new(Color.FromArgb(250, 132, 255, 145), ringStroke);
+            using Pen crosshair = new(Color.FromArgb(184, 132, 255, 145), 2.0f);
+
+            if (crosshairsEnabled)
+            {
+                graphics.DrawLine(crosshair, 0.0f, centerY, ClientSize.Width, centerY);
+                graphics.DrawLine(crosshair, centerX, 0.0f, centerX, ClientSize.Height);
+            }
 
             graphics.DrawEllipse(glow, ringX, ringY, ringDiameter, ringDiameter);
             graphics.DrawEllipse(ring, ringX, ringY, ringDiameter, ringDiameter);

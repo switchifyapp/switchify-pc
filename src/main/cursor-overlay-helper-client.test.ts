@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   NativeWindowsCursorOverlayBackend,
   nativeHelperCursorPosition,
-  type CursorOverlayBackend
+  type CursorOverlayBackend,
+  type CursorOverlayRenderOptions
 } from './cursor-overlay-helper-client';
 
 class FakeHelperProcess extends EventEmitter {
@@ -30,7 +31,7 @@ class FakeHelperProcess extends EventEmitter {
 class FakeOverlayBackend implements CursorOverlayBackend {
   readonly events: string[] = [];
 
-  show(event: 'move' | 'click'): void {
+  show(event: 'move' | 'click', _options: CursorOverlayRenderOptions): void {
     this.events.push(`show:${event}`);
   }
 
@@ -61,11 +62,12 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 100, y: 200 }),
       idleTimeoutMs: 900,
-      windowSize: 128,
+      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false }),
+      resolveSizePixels: () => 128,
       spawnProcess: () => helper as never
     });
 
-    backend.show('move');
+    backend.show('move', { size: 128, idleTimeoutMs: 900, crosshairs: true, persistent: false });
 
     expect(fallback.events).toEqual([]);
     expect(JSON.parse(helper.writes[0])).toEqual({
@@ -74,7 +76,36 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       x: 100,
       y: 200,
       size: 128,
-      durationMs: 900
+      durationMs: 900,
+      crosshairs: true,
+      persistent: false
+    });
+  });
+
+  it('writes persistent show commands without a hide duration', () => {
+    const helper = new FakeHelperProcess();
+    const fallback = new FakeOverlayBackend();
+    const backend = new NativeWindowsCursorOverlayBackend({
+      helperPath: __filename,
+      fallback,
+      getCursorPosition: () => ({ x: 100, y: 200 }),
+      idleTimeoutMs: 900,
+      getSettings: () => ({ enabled: true, size: 'large', visibility: 'whileControlling', crosshairs: true }),
+      resolveSizePixels: () => 176,
+      spawnProcess: () => helper as never
+    });
+
+    backend.show('move', { size: 176, idleTimeoutMs: 900, crosshairs: true, persistent: true });
+
+    expect(JSON.parse(helper.writes[0])).toEqual({
+      type: 'show',
+      event: 'move',
+      x: 100,
+      y: 200,
+      size: 176,
+      durationMs: 0,
+      crosshairs: true,
+      persistent: true
     });
   });
 
@@ -86,12 +117,13 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 0, y: 0 }),
       idleTimeoutMs: 900,
-      windowSize: 128,
+      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false }),
+      resolveSizePixels: () => 128,
       shutdownKillDelayMs: 1,
       spawnProcess: () => helper as never
     });
 
-    backend.show('click');
+    backend.show('click', { size: 128, idleTimeoutMs: 900, crosshairs: false, persistent: false });
     backend.hide();
     backend.destroy();
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -110,11 +142,12 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 100, y: 200 }),
       idleTimeoutMs: 900,
-      windowSize: 128,
+      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false }),
+      resolveSizePixels: () => 128,
       onFailure: (message) => failures.push(message)
     });
 
-    backend.show('move');
+    backend.show('move', { size: 128, idleTimeoutMs: 900, crosshairs: false, persistent: false });
 
     expect(fallback.events).toEqual(['show:move']);
     expect(failures[0]).toContain('Cursor overlay helper was not found');
@@ -128,13 +161,14 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 0, y: 0 }),
       idleTimeoutMs: 900,
-      windowSize: 128,
+      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false }),
+      resolveSizePixels: () => 128,
       spawnProcess: () => helper as never
     });
 
-    backend.show('move');
+    backend.show('move', { size: 128, idleTimeoutMs: 900, crosshairs: false, persistent: false });
     helper.emit('error', new Error('boom'));
-    backend.show('click');
+    backend.show('click', { size: 128, idleTimeoutMs: 900, crosshairs: false, persistent: false });
 
     expect(helper.killed).toBe(true);
     expect(fallback.events).toEqual(['show:click']);
@@ -148,13 +182,14 @@ describe('NativeWindowsCursorOverlayBackend', () => {
       fallback,
       getCursorPosition: () => ({ x: 0, y: 0 }),
       idleTimeoutMs: 900,
-      windowSize: 128,
+      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false }),
+      resolveSizePixels: () => 128,
       spawnProcess: () => helper as never
     });
 
-    backend.show('move');
+    backend.show('move', { size: 128, idleTimeoutMs: 900, crosshairs: false, persistent: false });
     helper.stdout.emit('data', '{"type":"error","message":"bad command"}\n');
-    backend.show('click');
+    backend.show('click', { size: 128, idleTimeoutMs: 900, crosshairs: false, persistent: false });
 
     expect(fallback.events).toEqual(['show:click']);
   });

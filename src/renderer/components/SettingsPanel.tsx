@@ -1,4 +1,9 @@
 import { useState, type ReactElement } from 'react';
+import type {
+  CursorOverlaySettings,
+  CursorOverlaySize,
+  CursorOverlayVisibility
+} from '../../shared/cursor-overlay-settings';
 import type { PairedDeviceView, PcControlStatus } from '../../shared/server-status';
 import type { UpdateState } from '../../shared/update';
 import { formatBluetoothStatus } from '../bluetooth-status';
@@ -10,10 +15,10 @@ type SettingsViewProps = {
   connectedDevices: ConnectedDeviceView[];
   pairedDevices: PairedDeviceView[];
   serverStatus: PcControlStatus | null;
-  cursorOverlayEnabled: boolean;
+  cursorOverlaySettings: CursorOverlaySettings;
   onDisconnect: () => Promise<void>;
   onForgetPairedDevice: (deviceId: string) => Promise<{ ok: boolean; reason?: string }>;
-  onToggleCursorOverlay: (enabled: boolean) => Promise<void>;
+  onUpdateCursorOverlaySettings: (settings: CursorOverlaySettings) => Promise<void>;
   updateState: UpdateState | null;
   isCheckingForUpdates: boolean;
   isDownloadingUpdate: boolean;
@@ -26,10 +31,10 @@ export function SettingsView({
   connectedDevices,
   pairedDevices,
   serverStatus,
-  cursorOverlayEnabled,
+  cursorOverlaySettings,
   onDisconnect,
   onForgetPairedDevice,
-  onToggleCursorOverlay,
+  onUpdateCursorOverlaySettings,
   updateState,
   isCheckingForUpdates,
   isDownloadingUpdate,
@@ -54,14 +59,10 @@ export function SettingsView({
       </section>
       <section className="settings-window-section">
         <h2>Input</h2>
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={cursorOverlayEnabled}
-            onChange={(event) => void onToggleCursorOverlay(event.currentTarget.checked)}
-          />
-          <span>Show cursor highlight when the device moves the mouse</span>
-        </label>
+        <CursorOverlaySettingsControls
+          settings={cursorOverlaySettings}
+          onChange={onUpdateCursorOverlaySettings}
+        />
       </section>
       <UpdatesPanel
         state={updateState}
@@ -75,6 +76,95 @@ export function SettingsView({
         <h2>Saved devices</h2>
         <PairedDeviceList devices={pairedDevices} onForgetPairedDevice={onForgetPairedDevice} />
       </section>
+    </div>
+  );
+}
+
+function CursorOverlaySettingsControls({
+  settings,
+  onChange
+}: {
+  settings: CursorOverlaySettings;
+  onChange: (settings: CursorOverlaySettings) => Promise<void>;
+}): ReactElement {
+  const update = (update: Partial<CursorOverlaySettings>): void => {
+    void onChange({ ...settings, ...update });
+  };
+  const disabled = !settings.enabled;
+
+  return (
+    <div className="settings-control-group">
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={settings.enabled}
+          onChange={(event) => update({ enabled: event.currentTarget.checked })}
+        />
+        <span>Show cursor overlay</span>
+      </label>
+      <div className="settings-field">
+        <span className="settings-field-label">Size</span>
+        <SegmentedControl
+          disabled={disabled}
+          value={settings.size}
+          options={[
+            { value: 'small', label: 'Small' },
+            { value: 'medium', label: 'Medium' },
+            { value: 'large', label: 'Large' }
+          ]}
+          onChange={(size) => update({ size })}
+        />
+      </div>
+      <div className="settings-field">
+        <span className="settings-field-label">Visibility</span>
+        <SegmentedControl
+          disabled={disabled}
+          value={settings.visibility}
+          options={[
+            { value: 'onInput', label: 'On input' },
+            { value: 'whileControlling', label: 'While controlling' }
+          ]}
+          onChange={(visibility) => update({ visibility })}
+        />
+      </div>
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={settings.crosshairs}
+          disabled={disabled}
+          onChange={(event) => update({ crosshairs: event.currentTarget.checked })}
+        />
+        <span>Show full-display crosshairs</span>
+      </label>
+    </div>
+  );
+}
+
+function SegmentedControl<TValue extends CursorOverlaySize | CursorOverlayVisibility>({
+  disabled,
+  value,
+  options,
+  onChange
+}: {
+  disabled: boolean;
+  value: TValue;
+  options: Array<{ value: TValue; label: string }>;
+  onChange: (value: TValue) => void;
+}): ReactElement {
+  return (
+    <div className="segmented-control" role="group">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className={option.value === value ? 'selected' : ''}
+          disabled={disabled}
+          aria-pressed={option.value === value}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   );
 }

@@ -4,69 +4,149 @@ import {
   NativeWindowsCursorOverlayBackend,
   nativeHelperCursorPosition,
   type CursorOverlayBackend,
-  type CursorOverlayEvent
+  type CursorOverlayEvent,
+  type CursorOverlayRenderOptions
 } from './cursor-overlay-helper-client';
 import { cursorOverlayBounds } from './cursor-overlay-state';
+import {
+  DEFAULT_CURSOR_OVERLAY_SETTINGS,
+  normalizeCursorOverlaySettings,
+  resolveCursorOverlaySizePixels,
+  type CursorOverlaySettings
+} from '../shared/cursor-overlay-settings';
 
 export type { CursorOverlayEvent };
 
 export type CursorOverlayOptions = {
   idleTimeoutMs?: number;
-  windowSize?: number;
+  settings?: CursorOverlaySettings;
+  followIntervalMs?: number;
 };
 
 const DEFAULT_IDLE_TIMEOUT_MS = 900;
-const DEFAULT_WINDOW_SIZE = 128;
+const DEFAULT_FOLLOW_INTERVAL_MS = 75;
 
 export class CursorOverlay {
   private readonly backend: CursorOverlayBackend;
-  private enabled = true;
+  private readonly idleTimeoutMs: number;
+  private readonly followIntervalMs: number;
+  private settings: CursorOverlaySettings;
+  private followTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly options: CursorOverlayOptions) {
-    const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
-    const windowSize = options.windowSize ?? DEFAULT_WINDOW_SIZE;
-    const electronBackend = new ElectronCursorOverlayBackend({ idleTimeoutMs, windowSize });
+    this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+    this.followIntervalMs = options.followIntervalMs ?? DEFAULT_FOLLOW_INTERVAL_MS;
+    this.settings = normalizeCursorOverlaySettings(options.settings ?? DEFAULT_CURSOR_OVERLAY_SETTINGS);
+    const electronBackend = new ElectronCursorOverlayBackend({ idleTimeoutMs: this.idleTimeoutMs });
     this.backend =
       process.platform === 'win32' && app.isPackaged
         ? new NativeWindowsCursorOverlayBackend({
             helperPath: resolveNativeOverlayHelperPath(),
             fallback: electronBackend,
             getCursorPosition: () => nativeHelperCursorPosition(screen),
-            idleTimeoutMs,
-            windowSize,
+            getSettings: () => this.getSettings(),
+            resolveSizePixels: () => this.resolveSizePixels(),
+            idleTimeoutMs: this.idleTimeoutMs,
             onFailure: (message) => console.error('Switchify cursor overlay helper failed.', message)
           })
         : electronBackend;
   }
 
   setEnabled(enabled: boolean): void {
-    this.enabled = enabled;
-    if (!enabled) {
-      this.hide();
-    }
+    this.setSettings({ ...this.settings, enabled });
   }
 
   isEnabled(): boolean {
-    return this.enabled;
+    return this.settings.enabled;
+  }
+
+  getSettings(): CursorOverlaySettings {
+    return { ...this.settings };
+  }
+
+  setSettings(settings: CursorOverlaySettings): void {
+    const previous = this.settings;
+    this.settings = normalizeCursorOverlaySettings(settings);
+    if (!this.settings.enabled || this.settings.visibility !== 'whileControlling') {
+      this.stopFollowing();
+    }
+    if (!this.settings.enabled) {
+      this.hide();
+      return;
+    }
+    if (previous.size !== this.settings.size || previous.crosshairs !== this.settings.crosshairs) {
+      this.refreshPersistentOverlay();
+    }
+  }
+
+  markControlActive(): void {
+    if (!this.settings.enabled || this.settings.visibility !== 'whileControlling') return;
+    this.startFollowing();
   }
 
   show(event: CursorOverlayEvent): void {
-    if (!this.enabled) return;
-    this.backend.show(event);
+    if (!this.settings.enabled) return;
+    if (this.settings.visibility === 'whileControlling') {
+      this.startFollowing();
+    }
+    this.backend.show(event, this.renderOptions());
   }
 
   hide(): void {
+    this.stopFollowing();
     this.backend.hide();
   }
 
+  endControlSession(): void {
+    this.hide();
+  }
+
   destroy(): void {
+    this.stopFollowing();
     this.backend.destroy();
+  }
+
+  private startFollowing(): void {
+    this.refreshPersistentOverlay();
+    if (this.followTimer) return;
+    this.followTimer = setInterval(() => {
+      if (!this.settings.enabled || this.settings.visibility !== 'whileControlling') {
+        this.hide();
+        return;
+      }
+      this.backend.show('move', this.renderOptions());
+    }, this.followIntervalMs);
+    this.followTimer.unref?.();
+  }
+
+  private stopFollowing(): void {
+    if (this.followTimer) {
+      clearInterval(this.followTimer);
+      this.followTimer = null;
+    }
+  }
+
+  private refreshPersistentOverlay(): void {
+    if (!this.settings.enabled || this.settings.visibility !== 'whileControlling') return;
+    this.backend.show('move', this.renderOptions());
+  }
+
+  private renderOptions(): CursorOverlayRenderOptions {
+    return {
+      size: this.resolveSizePixels(),
+      idleTimeoutMs: this.idleTimeoutMs,
+      crosshairs: this.settings.crosshairs,
+      persistent: this.settings.visibility === 'whileControlling'
+    };
+  }
+
+  private resolveSizePixels(): number {
+    return resolveCursorOverlaySizePixels(this.settings.size);
   }
 }
 
 type ElectronCursorOverlayBackendOptions = {
   idleTimeoutMs: number;
-  windowSize: number;
 };
 
 class ElectronCursorOverlayBackend implements CursorOverlayBackend {
@@ -75,32 +155,43 @@ class ElectronCursorOverlayBackend implements CursorOverlayBackend {
   private hideTimer: NodeJS.Timeout | null = null;
   private failedToCreate = false;
   private readonly idleTimeoutMs: number;
-  private readonly windowSize: number;
 
   constructor(options: ElectronCursorOverlayBackendOptions) {
     this.idleTimeoutMs = options.idleTimeoutMs;
-    this.windowSize = options.windowSize;
   }
 
-  show(event: CursorOverlayEvent): void {
+  show(event: CursorOverlayEvent, options: CursorOverlayRenderOptions): void {
     if (this.failedToCreate) return;
 
-    void this.showWhenReady(event);
+    void this.showWhenReady(event, options);
   }
 
-  private async showWhenReady(event: CursorOverlayEvent): Promise<void> {
+  private async showWhenReady(event: CursorOverlayEvent, options: CursorOverlayRenderOptions): Promise<void> {
     try {
       const cursor = screen.getCursorScreenPoint();
+      const display = screen.getDisplayNearestPoint(cursor);
+      const bounds = options.crosshairs ? display.bounds : cursorOverlayBounds(cursor, options.size);
       const window = this.ensureWindow();
       if (!window) return;
 
       await this.windowReady;
       if (window.isDestroyed()) return;
 
-      window.setBounds(cursorOverlayBounds(cursor, this.windowSize), false);
-      await window.webContents.executeJavaScript(createOverlayEventScript(event));
+      window.setBounds(bounds, false);
+      await window.webContents.executeJavaScript(
+        createOverlayEventScript(event, {
+          centerX: cursor.x - bounds.x,
+          centerY: cursor.y - bounds.y,
+          crosshairs: options.crosshairs,
+          size: options.size
+        })
+      );
       this.showOverlayWindow(window);
-      this.resetHideTimer();
+      if (options.persistent) {
+        this.clearHideTimer();
+      } else {
+        this.resetHideTimer(options.idleTimeoutMs);
+      }
     } catch (error) {
       if (!this.window || this.window.isDestroyed()) {
         this.failedToCreate = true;
@@ -130,13 +221,11 @@ class ElectronCursorOverlayBackend implements CursorOverlayBackend {
       return this.window;
     }
 
-    const overlayMode = resolveOverlayMode();
-    const usesTransparentWindow = overlayMode === 'transparent';
     const window = new BrowserWindow({
-      width: this.windowSize,
-      height: this.windowSize,
+      width: 128,
+      height: 128,
       frame: false,
-      transparent: usesTransparentWindow,
+      transparent: true,
       resizable: false,
       movable: false,
       show: false,
@@ -145,7 +234,7 @@ class ElectronCursorOverlayBackend implements CursorOverlayBackend {
       focusable: false,
       alwaysOnTop: true,
       hasShadow: false,
-      backgroundColor: usesTransparentWindow ? '#00000000' : '#123d1f',
+      backgroundColor: '#00000000',
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
@@ -160,10 +249,7 @@ class ElectronCursorOverlayBackend implements CursorOverlayBackend {
     } catch {
       // Best-effort only; Windows utility behavior still works with always-on-top.
     }
-    if (overlayMode === 'opaque') {
-      window.setOpacity(0.78);
-    }
-    this.windowReady = window.loadURL(createOverlayDataUrl(overlayMode)).then(() => undefined);
+    this.windowReady = window.loadURL(createOverlayDataUrl()).then(() => undefined);
     window.on('closed', () => {
       if (this.window === window) {
         this.window = null;
@@ -184,11 +270,11 @@ class ElectronCursorOverlayBackend implements CursorOverlayBackend {
     window.moveTop();
   }
 
-  private resetHideTimer(): void {
+  private resetHideTimer(idleTimeoutMs = this.idleTimeoutMs): void {
     this.clearHideTimer();
     this.hideTimer = setTimeout(() => {
       this.hide();
-    }, this.idleTimeoutMs);
+    }, idleTimeoutMs);
   }
 
   private clearHideTimer(): void {
@@ -205,35 +291,34 @@ function resolveNativeOverlayHelperPath(): string {
     : join(process.cwd(), 'build', 'native', 'cursor-overlay-helper', 'win-x64', 'SwitchifyCursorOverlay.exe');
 }
 
-type OverlayMode = 'transparent' | 'opaque';
-
-function resolveOverlayMode(): OverlayMode {
-  if (process.platform === 'win32' && app.isPackaged) {
-    return 'opaque';
-  }
-
-  return 'transparent';
+function createOverlayDataUrl(): string {
+  return `data:text/html;charset=utf-8,${encodeURIComponent(createOverlayHtml())}`;
 }
 
-function createOverlayDataUrl(overlayMode: OverlayMode): string {
-  return `data:text/html;charset=utf-8,${encodeURIComponent(createOverlayHtml(overlayMode))}`;
-}
-
-function createOverlayEventScript(event: CursorOverlayEvent): string {
+function createOverlayEventScript(
+  event: CursorOverlayEvent,
+  options: { centerX: number; centerY: number; crosshairs: boolean; size: number }
+): string {
   return `
     document.body.className = ${JSON.stringify(event === 'click' ? 'click' : 'move')};
+    document.body.classList.toggle('crosshairs-enabled', ${JSON.stringify(options.crosshairs)});
+    document.documentElement.style.setProperty('--center-x', '${Math.round(options.centerX)}px');
+    document.documentElement.style.setProperty('--center-y', '${Math.round(options.centerY)}px');
+    document.documentElement.style.setProperty('--ring-size', '${Math.round(options.size * 0.5625)}px');
+    document.documentElement.style.setProperty('--ring-stroke', '${Math.max(4, Math.round(options.size * 0.039))}px');
+    document.documentElement.style.setProperty('--glow-stroke', '${Math.max(18, Math.round(options.size * 0.1875))}px');
     if (${JSON.stringify(event)} === 'click') {
       window.setTimeout(() => {
-        if (document.body.className === 'click') {
-          document.body.className = 'move';
+        if (document.body.classList.contains('click')) {
+          document.body.classList.remove('click');
+          document.body.classList.add('move');
         }
       }, 190);
     }
   `;
 }
 
-function createOverlayHtml(overlayMode: OverlayMode): string {
-  const bodyBackground = overlayMode === 'transparent' ? 'transparent' : '#123d1f';
+function createOverlayHtml(): string {
   return `<!doctype html>
 <html>
   <head>
@@ -245,28 +330,61 @@ function createOverlayHtml(overlayMode: OverlayMode): string {
         height: 100%;
         margin: 0;
         overflow: hidden;
-        background: ${bodyBackground};
+        background: transparent;
       }
 
       body {
-        display: grid;
-        place-items: center;
         border-radius: 999px;
       }
 
+      body.crosshairs-enabled {
+        border-radius: 0;
+      }
+
       .ring {
-        width: 72px;
-        height: 72px;
-        border: 5px solid rgba(132, 255, 145, 0.98);
+        position: absolute;
+        left: var(--center-x, 64px);
+        top: var(--center-y, 64px);
+        width: var(--ring-size, 72px);
+        height: var(--ring-size, 72px);
+        border: var(--ring-stroke, 5px) solid rgba(132, 255, 145, 0.98);
         border-radius: 999px;
         box-shadow:
-          0 0 0 10px rgba(132, 255, 145, 0.22),
+          0 0 0 calc(var(--glow-stroke, 24px) * 0.42) rgba(132, 255, 145, 0.22),
           0 0 38px rgba(132, 255, 145, 0.48);
         opacity: 0.95;
-        transform: scale(1);
+        transform: translate(-50%, -50%) scale(1);
         transition:
           opacity 130ms ease,
           transform 130ms ease;
+      }
+
+      .crosshair {
+        position: absolute;
+        display: none;
+        pointer-events: none;
+        background: rgba(132, 255, 145, 0.72);
+        box-shadow: 0 0 14px rgba(132, 255, 145, 0.35);
+      }
+
+      body.crosshairs-enabled .crosshair {
+        display: block;
+      }
+
+      .crosshair-horizontal {
+        left: 0;
+        top: var(--center-y, 64px);
+        width: 100%;
+        height: 2px;
+        transform: translateY(-1px);
+      }
+
+      .crosshair-vertical {
+        left: var(--center-x, 64px);
+        top: 0;
+        width: 2px;
+        height: 100%;
+        transform: translateX(-1px);
       }
 
       body.click .ring {
@@ -275,13 +393,13 @@ function createOverlayHtml(overlayMode: OverlayMode): string {
 
       @keyframes click-pulse {
         0% {
-          transform: scale(0.82);
+          transform: translate(-50%, -50%) scale(0.82);
           box-shadow:
             0 0 0 4px rgba(132, 255, 145, 0.3),
             0 0 24px rgba(132, 255, 145, 0.5);
         }
         100% {
-          transform: scale(1.18);
+          transform: translate(-50%, -50%) scale(1.18);
           box-shadow:
             0 0 0 15px rgba(132, 255, 145, 0.08),
             0 0 38px rgba(132, 255, 145, 0.24);
@@ -290,6 +408,8 @@ function createOverlayHtml(overlayMode: OverlayMode): string {
     </style>
   </head>
   <body>
+    <div class="crosshair crosshair-horizontal"></div>
+    <div class="crosshair crosshair-vertical"></div>
     <div class="ring"></div>
   </body>
 </html>`;

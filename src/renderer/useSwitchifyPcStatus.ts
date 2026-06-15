@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
+import {
+  DEFAULT_CURSOR_OVERLAY_SETTINGS,
+  normalizeCursorOverlaySettings,
+  type CursorOverlaySettings
+} from '../shared/cursor-overlay-settings';
 import { deriveDesktopUiState, type DesktopUiState } from '../shared/desktop-ui-state';
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
 import type { PairedDeviceView, PcControlStatus } from '../shared/server-status';
@@ -10,11 +15,11 @@ export type SwitchifyPcStatusViewModel = {
   pairedDevices: PairedDeviceView[];
   pendingPairingRequests: PendingPairingApprovalView[];
   connectedDevices: ConnectedDeviceView[];
-  cursorOverlayEnabled: boolean;
+  cursorOverlaySettings: CursorOverlaySettings;
   refresh: () => Promise<void>;
   disconnectClients: () => Promise<void>;
   forgetPairedDevice: (deviceId: string) => Promise<{ ok: boolean; reason?: string }>;
-  toggleCursorOverlay: (enabled: boolean) => Promise<void>;
+  updateCursorOverlaySettings: (settings: CursorOverlaySettings) => Promise<void>;
   respondToPairingRequest: (requestId: string, decision: PairingApprovalDecision) => Promise<void>;
 };
 
@@ -22,7 +27,9 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
   const [serverStatus, setServerStatus] = useState<PcControlStatus | null>(null);
   const [pairedDevices, setPairedDevices] = useState<PairedDeviceView[]>([]);
   const [pendingPairingRequests, setPendingPairingRequests] = useState<PendingPairingApprovalView[]>([]);
-  const [cursorOverlayEnabled, setCursorOverlayEnabled] = useState(true);
+  const [cursorOverlaySettings, setCursorOverlaySettings] = useState<CursorOverlaySettings>(
+    DEFAULT_CURSOR_OVERLAY_SETTINGS
+  );
 
   const refresh = useCallback(async (): Promise<void> => {
     const [status, devices, requests] = await Promise.all([
@@ -58,8 +65,9 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
     let cancelled = false;
     const load = async (): Promise<void> => {
       const overlayEnabled = await bridge.getCursorOverlayEnabled();
+      const overlaySettings = await bridge.getCursorOverlaySettings();
       if (!cancelled) {
-        setCursorOverlayEnabled(overlayEnabled);
+        setCursorOverlaySettings(normalizeCursorOverlaySettings({ ...overlaySettings, enabled: overlayEnabled }));
       }
       await refresh();
     };
@@ -75,9 +83,9 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
     };
   }, [bridge, refresh]);
 
-  const toggleCursorOverlay = useCallback(
-    async (enabled: boolean): Promise<void> => {
-      setCursorOverlayEnabled(await bridge.setCursorOverlayEnabled(enabled));
+  const updateCursorOverlaySettings = useCallback(
+    async (settings: CursorOverlaySettings): Promise<void> => {
+      setCursorOverlaySettings(await bridge.setCursorOverlaySettings(settings));
     },
     [bridge]
   );
@@ -98,11 +106,11 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
     pairedDevices,
     pendingPairingRequests,
     connectedDevices: toConnectedDeviceViews(serverStatus?.connectedClients ?? [], pairedDevices),
-    cursorOverlayEnabled,
+    cursorOverlaySettings,
     refresh,
     disconnectClients,
     forgetPairedDevice,
-    toggleCursorOverlay,
+    updateCursorOverlaySettings,
     respondToPairingRequest
   };
 }

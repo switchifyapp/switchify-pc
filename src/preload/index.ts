@@ -1,12 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
 import type { PairedDeviceView, PcControlStatus } from '../shared/server-status';
+import type { CursorOverlaySettings } from '../shared/cursor-overlay-settings';
 import {
   CHECK_FOR_UPDATES_CHANNEL,
   DISCONNECT_CLIENTS_CHANNEL,
   DOWNLOAD_UPDATE_CHANNEL,
   FORGET_PAIRED_DEVICE_CHANNEL,
   GET_CURSOR_OVERLAY_ENABLED_CHANNEL,
+  GET_CURSOR_OVERLAY_SETTINGS_CHANNEL,
   GET_PAIRED_DEVICES_CHANNEL,
   GET_PENDING_PAIRING_REQUESTS_CHANNEL,
   GET_UPDATE_STATE_CHANNEL,
@@ -14,6 +16,7 @@ import {
   RESPOND_TO_PAIRING_REQUEST_CHANNEL,
   SERVER_STATUS_CHANNEL,
   SET_CURSOR_OVERLAY_ENABLED_CHANNEL,
+  SET_CURSOR_OVERLAY_SETTINGS_CHANNEL,
   SHOW_DOWNLOADED_UPDATE_CHANNEL
 } from '../shared/ipc-channels';
 import type { UpdateState } from '../shared/update';
@@ -31,6 +34,9 @@ contextBridge.exposeInMainWorld('switchifyPc', {
   getCursorOverlayEnabled: (): Promise<boolean> => ipcRenderer.invoke(GET_CURSOR_OVERLAY_ENABLED_CHANNEL),
   setCursorOverlayEnabled: (enabled: boolean): Promise<boolean> =>
     ipcRenderer.invoke(SET_CURSOR_OVERLAY_ENABLED_CHANNEL, enabled),
+  getCursorOverlaySettings: (): Promise<CursorOverlaySettings> => ipcRenderer.invoke(GET_CURSOR_OVERLAY_SETTINGS_CHANNEL),
+  setCursorOverlaySettings: (settings: CursorOverlaySettings): Promise<CursorOverlaySettings> =>
+    ipcRenderer.invoke(SET_CURSOR_OVERLAY_SETTINGS_CHANNEL, settings),
   openSettingsWindow: (): Promise<void> => ipcRenderer.invoke(OPEN_SETTINGS_WINDOW_CHANNEL),
   getPendingPairingRequests: (): Promise<PendingPairingApprovalView[]> =>
     ipcRenderer.invoke(GET_PENDING_PAIRING_REQUESTS_CHANNEL),
