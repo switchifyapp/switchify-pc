@@ -27,6 +27,18 @@ type SettingsViewProps = {
   onShowDownloadedUpdate: () => Promise<void>;
 };
 
+type SettingsSectionId = 'bluetooth' | 'input' | 'updates' | 'savedDevices';
+
+const SETTINGS_SECTIONS: Array<{
+  id: SettingsSectionId;
+  label: string;
+}> = [
+  { id: 'bluetooth', label: 'Bluetooth' },
+  { id: 'input', label: 'Input' },
+  { id: 'updates', label: 'Updates' },
+  { id: 'savedDevices', label: 'Saved devices' }
+];
+
 export function SettingsView({
   connectedDevices,
   pairedDevices,
@@ -42,41 +54,114 @@ export function SettingsView({
   onDownloadUpdate,
   onShowDownloadedUpdate
 }: SettingsViewProps): ReactElement {
+  const [selectedSection, setSelectedSection] = useState<SettingsSectionId>('bluetooth');
+
   return (
-    <div className="settings-window-content">
-      <section className="settings-window-section">
-        <h2>Bluetooth connection</h2>
-        <div className="bluetooth-connection-panel">
-          <div className="bluetooth-status-row">
-            <span className="bluetooth-status-indicator" aria-hidden="true" />
-            <span>{formatBluetoothStatus(serverStatus?.bluetooth)}</span>
-          </div>
-        </div>
-        <ConnectedDeviceList devices={connectedDevices} />
-        <button type="button" onClick={() => void onDisconnect()} disabled={connectedDevices.length === 0}>
-          Disconnect device
-        </button>
-      </section>
-      <section className="settings-window-section">
-        <h2>Input</h2>
-        <CursorOverlaySettingsControls
-          settings={cursorOverlaySettings}
-          onChange={onUpdateCursorOverlaySettings}
-        />
-      </section>
-      <UpdatesPanel
-        state={updateState}
-        isChecking={isCheckingForUpdates}
-        isDownloading={isDownloadingUpdate}
-        onCheck={onCheckForUpdates}
-        onDownload={onDownloadUpdate}
-        onShowDownloaded={onShowDownloadedUpdate}
-      />
-      <section className="settings-window-section">
-        <h2>Saved devices</h2>
-        <PairedDeviceList devices={pairedDevices} onForgetPairedDevice={onForgetPairedDevice} />
-      </section>
+    <div className="settings-layout">
+      <aside className="settings-side-panel" aria-label="Settings sections">
+        {SETTINGS_SECTIONS.map((section) => (
+          <button
+            key={section.id}
+            type="button"
+            className={`settings-nav-item${selectedSection === section.id ? ' selected' : ''}`}
+            aria-pressed={selectedSection === section.id}
+            onClick={() => setSelectedSection(section.id)}
+          >
+            {section.label}
+          </button>
+        ))}
+      </aside>
+      <main className="settings-detail-panel">
+        {selectedSection === 'bluetooth' ? (
+          <BluetoothSettingsSection
+            connectedDevices={connectedDevices}
+            serverStatus={serverStatus}
+            onDisconnect={onDisconnect}
+          />
+        ) : null}
+        {selectedSection === 'input' ? (
+          <InputSettingsSection
+            cursorOverlaySettings={cursorOverlaySettings}
+            onUpdateCursorOverlaySettings={onUpdateCursorOverlaySettings}
+          />
+        ) : null}
+        {selectedSection === 'updates' ? (
+          <UpdatesPanel
+            state={updateState}
+            isChecking={isCheckingForUpdates}
+            isDownloading={isDownloadingUpdate}
+            onCheck={onCheckForUpdates}
+            onDownload={onDownloadUpdate}
+            onShowDownloaded={onShowDownloadedUpdate}
+          />
+        ) : null}
+        {selectedSection === 'savedDevices' ? (
+          <SavedDevicesSettingsSection
+            pairedDevices={pairedDevices}
+            onForgetPairedDevice={onForgetPairedDevice}
+          />
+        ) : null}
+      </main>
     </div>
+  );
+}
+
+function BluetoothSettingsSection({
+  connectedDevices,
+  serverStatus,
+  onDisconnect
+}: {
+  connectedDevices: ConnectedDeviceView[];
+  serverStatus: PcControlStatus | null;
+  onDisconnect: () => Promise<void>;
+}): ReactElement {
+  return (
+    <section className="settings-window-section">
+      <h2>Bluetooth connection</h2>
+      <div className="bluetooth-connection-panel">
+        <div className="bluetooth-status-row">
+          <span className="bluetooth-status-indicator" aria-hidden="true" />
+          <span>{formatBluetoothStatus(serverStatus?.bluetooth)}</span>
+        </div>
+      </div>
+      <ConnectedDeviceList devices={connectedDevices} />
+      <button type="button" onClick={() => void onDisconnect()} disabled={connectedDevices.length === 0}>
+        Disconnect device
+      </button>
+    </section>
+  );
+}
+
+function InputSettingsSection({
+  cursorOverlaySettings,
+  onUpdateCursorOverlaySettings
+}: {
+  cursorOverlaySettings: CursorOverlaySettings;
+  onUpdateCursorOverlaySettings: (settings: CursorOverlaySettings) => Promise<void>;
+}): ReactElement {
+  return (
+    <section className="settings-window-section">
+      <h2>Input</h2>
+      <CursorOverlaySettingsControls
+        settings={cursorOverlaySettings}
+        onChange={onUpdateCursorOverlaySettings}
+      />
+    </section>
+  );
+}
+
+function SavedDevicesSettingsSection({
+  pairedDevices,
+  onForgetPairedDevice
+}: {
+  pairedDevices: PairedDeviceView[];
+  onForgetPairedDevice: (deviceId: string) => Promise<{ ok: boolean; reason?: string }>;
+}): ReactElement {
+  return (
+    <section className="settings-window-section">
+      <h2>Saved devices</h2>
+      <PairedDeviceList devices={pairedDevices} onForgetPairedDevice={onForgetPairedDevice} />
+    </section>
   );
 }
 

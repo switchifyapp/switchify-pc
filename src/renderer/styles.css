@@ -476,6 +476,41 @@ p {
   width: min(100%, 560px);
 }
 
+.settings-layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: var(--space-l);
+  width: min(100%, 820px);
+  min-height: 0;
+}
+
+.settings-side-panel {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-xs);
+  background: var(--color-surface);
+}
+
+.settings-nav-item {
+  justify-content: flex-start;
+  min-height: 38px;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.settings-nav-item.selected {
+  border-color: var(--brand-primary);
+  background: var(--color-surface-muted);
+}
+
+.settings-detail-panel {
+  min-width: 0;
+}
+
 .settings-window-section {
   display: grid;
   gap: var(--space-s);
@@ -734,6 +769,17 @@ p {
   .update-status-row {
     grid-template-columns: 1fr;
     gap: 3px;
+  }
+
+  .settings-layout {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .settings-side-panel {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(120px, 1fr);
+    overflow-x: auto;
   }
 
 }

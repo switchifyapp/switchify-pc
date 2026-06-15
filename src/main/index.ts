@@ -130,9 +130,9 @@ function createSettingsWindow(): BrowserWindow {
   const overlayOptions = titleBarOverlayOptions();
   const iconPath = appIconPath();
   const window = new BrowserWindow({
-    width: 560,
+    width: 820,
     height: 620,
-    minWidth: 440,
+    minWidth: 680,
     minHeight: 460,
     title: 'Settings',
     backgroundColor: shellBackgroundColor(),
