@@ -75,10 +75,10 @@ export function SettingsApp(): ReactElement {
         connectedDevices={status.connectedDevices}
         pairedDevices={status.pairedDevices}
         serverStatus={status.serverStatus}
-        cursorOverlayEnabled={status.cursorOverlayEnabled}
+        cursorOverlaySettings={status.cursorOverlaySettings}
         onDisconnect={status.disconnectClients}
         onForgetPairedDevice={status.forgetPairedDevice}
-        onToggleCursorOverlay={status.toggleCursorOverlay}
+        onUpdateCursorOverlaySettings={status.updateCursorOverlaySettings}
         updateState={updateState}
         isCheckingForUpdates={isCheckingForUpdates}
         isDownloadingUpdate={isDownloadingUpdate}

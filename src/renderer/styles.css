@@ -554,6 +554,47 @@ p {
   accent-color: var(--brand-primary);
 }
 
+.settings-control-group {
+  display: grid;
+  gap: var(--space-s);
+}
+
+.settings-field {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.settings-field-label {
+  color: var(--color-text);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+  gap: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: 4px;
+  background: var(--color-surface-muted);
+}
+
+.segmented-control button {
+  min-height: 34px;
+  border-color: transparent;
+  border-radius: 7px;
+  padding: 0 var(--space-s);
+  background: transparent;
+  font-size: 0.88rem;
+}
+
+.segmented-control button.selected {
+  border-color: var(--brand-primary);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
 .technical-list {
   display: grid;
   gap: var(--space-xs);

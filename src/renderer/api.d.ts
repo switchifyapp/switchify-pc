@@ -2,6 +2,7 @@ export {};
 
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
 import type { PairedDeviceView, PcControlStatus } from '../shared/server-status';
+import type { CursorOverlaySettings } from '../shared/cursor-overlay-settings';
 import type { UpdateState } from '../shared/update';
 
 declare global {
@@ -18,6 +19,8 @@ declare global {
       >;
       getCursorOverlayEnabled: () => Promise<boolean>;
       setCursorOverlayEnabled: (enabled: boolean) => Promise<boolean>;
+      getCursorOverlaySettings: () => Promise<CursorOverlaySettings>;
+      setCursorOverlaySettings: (settings: CursorOverlaySettings) => Promise<CursorOverlaySettings>;
       openSettingsWindow: () => Promise<void>;
       getPendingPairingRequests: () => Promise<PendingPairingApprovalView[]>;
       respondToPairingRequest: (

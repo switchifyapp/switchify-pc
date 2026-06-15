@@ -6,6 +6,7 @@ import { WindowsBluetoothTransport } from './bluetooth/bluetooth-transport';
 import { ControlService } from './control/control-service';
 import { CursorOverlay } from './cursor-overlay';
 import { registerCursorOverlayIpc } from './cursor-overlay-ipc';
+import { JsonCursorOverlaySettingsStore } from './cursor-overlay-settings-store';
 import { DesktopCommandExecutor } from './input/command-executor';
 import { LibnutWin32InputAdapter } from './input/libnut-win32-adapter';
 import { createPointerMovementProfile } from './input/pointer-profile';
@@ -224,10 +225,13 @@ app.whenReady().then(() => {
   }
 
   const pairingStore = new JsonPairingStore(join(app.getPath('userData'), 'pairing-state.json'));
+  const cursorOverlaySettingsStore = new JsonCursorOverlaySettingsStore(
+    join(app.getPath('userData'), 'cursor-overlay-settings.json')
+  );
   const pairingManager = new PairingManager(pairingStore);
   const pairingApprovalManager = new PairingApprovalManager(pairingStore);
   const inputAdapter = new LibnutWin32InputAdapter((position) => screen.getDisplayNearestPoint(position).scaleFactor);
-  cursorOverlay = new CursorOverlay({});
+  cursorOverlay = new CursorOverlay({ settings: cursorOverlaySettingsStore.load() });
   const commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay);
   controlService = new ControlService({
     pairingManager,
@@ -245,6 +249,9 @@ app.whenReady().then(() => {
       });
     },
     onStatusChange: (status) => {
+      if (status.connectedClientCount === 0) {
+        cursorOverlay?.endControlSession();
+      }
       tray?.update();
     },
     onClientDisconnecting: (connectionId) => {
@@ -264,7 +271,7 @@ app.whenReady().then(() => {
     }
   });
   registerServerIpc(controlService, pairingStore);
-  registerCursorOverlayIpc(cursorOverlay);
+  registerCursorOverlayIpc(cursorOverlay, cursorOverlaySettingsStore);
   registerPairingApprovalIpc(controlService);
   registerSettingsWindowIpc(showSettingsWindow);
   registerUpdateIpc(

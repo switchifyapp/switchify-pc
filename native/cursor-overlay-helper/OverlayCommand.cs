@@ -21,4 +21,10 @@ internal sealed class OverlayCommand
 
     [JsonPropertyName("durationMs")]
     public int DurationMs { get; init; }
+
+    [JsonPropertyName("crosshairs")]
+    public bool Crosshairs { get; init; }
+
+    [JsonPropertyName("persistent")]
+    public bool Persistent { get; init; }
 }

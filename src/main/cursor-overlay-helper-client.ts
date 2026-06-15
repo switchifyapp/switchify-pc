@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import type { CursorOverlaySettings } from '../shared/cursor-overlay-settings';
 
 export type CursorOverlayEvent = 'move' | 'click';
 
@@ -9,16 +10,24 @@ export type CursorOverlayPoint = {
 };
 
 export type CursorOverlayBackend = {
-  show(event: CursorOverlayEvent): void;
+  show(event: CursorOverlayEvent, options: CursorOverlayRenderOptions): void;
   hide(): void;
   destroy(): void;
+};
+
+export type CursorOverlayRenderOptions = {
+  size: number;
+  idleTimeoutMs: number;
+  crosshairs: boolean;
+  persistent: boolean;
 };
 
 export type NativeWindowsCursorOverlayBackendOptions = {
   helperPath: string;
   fallback: CursorOverlayBackend;
   getCursorPosition: () => CursorOverlayPoint;
-  windowSize: number;
+  getSettings: () => CursorOverlaySettings;
+  resolveSizePixels: () => number;
   idleTimeoutMs: number;
   spawnProcess?: (helperPath: string) => ChildProcessWithoutNullStreams;
   onFailure?: (message: string) => void;
@@ -38,6 +47,8 @@ type OverlayHelperCommand =
       y: number;
       size: number;
       durationMs: number;
+      crosshairs: boolean;
+      persistent: boolean;
     }
   | { type: 'hide' }
   | { type: 'shutdown' };
@@ -49,29 +60,32 @@ export class NativeWindowsCursorOverlayBackend implements CursorOverlayBackend {
 
   constructor(private readonly options: NativeWindowsCursorOverlayBackendOptions) {}
 
-  show(event: CursorOverlayEvent): void {
+  show(event: CursorOverlayEvent, options: CursorOverlayRenderOptions): void {
     if (this.destroyed || this.unavailable) {
-      this.options.fallback.show(event);
+      this.options.fallback.show(event, options);
       return;
     }
 
     const helper = this.ensureProcess();
     if (!helper) {
-      this.options.fallback.show(event);
+      this.options.fallback.show(event, options);
       return;
     }
 
     const cursor = this.options.getCursorPosition();
+    const size = options.size || this.options.resolveSizePixels();
     this.writeCommand(
       {
         type: 'show',
         event,
         x: cursor.x,
         y: cursor.y,
-        size: this.options.windowSize,
-        durationMs: this.options.idleTimeoutMs
+        size,
+        durationMs: options.persistent ? 0 : options.idleTimeoutMs,
+        crosshairs: options.crosshairs,
+        persistent: options.persistent
       },
-      { fallbackEvent: event, fallbackOnBackpressure: false }
+      { fallbackEvent: event, fallbackOptions: options, fallbackOnBackpressure: false }
     );
   }
 
@@ -146,13 +160,17 @@ export class NativeWindowsCursorOverlayBackend implements CursorOverlayBackend {
 
   private writeCommand(
     command: OverlayHelperCommand,
-    options: { fallbackEvent?: CursorOverlayEvent; fallbackOnBackpressure?: boolean } = {}
+    options: {
+      fallbackEvent?: CursorOverlayEvent;
+      fallbackOptions?: CursorOverlayRenderOptions;
+      fallbackOnBackpressure?: boolean;
+    } = {}
   ): void {
     const helper = this.process;
     if (!helper || helper.stdin.destroyed) {
       this.fail('Cursor overlay helper stdin is unavailable.');
       if (options.fallbackEvent) {
-        this.options.fallback.show(options.fallbackEvent);
+        this.options.fallback.show(options.fallbackEvent, options.fallbackOptions ?? fallbackRenderOptions(this.options));
       }
       return;
     }
@@ -160,12 +178,15 @@ export class NativeWindowsCursorOverlayBackend implements CursorOverlayBackend {
     try {
       const accepted = helper.stdin.write(`${JSON.stringify(command)}\n`);
       if (!accepted && options.fallbackOnBackpressure) {
-        this.options.fallback.show(options.fallbackEvent ?? 'move');
+        this.options.fallback.show(
+          options.fallbackEvent ?? 'move',
+          options.fallbackOptions ?? fallbackRenderOptions(this.options)
+        );
       }
     } catch (error) {
       this.fail(error instanceof Error ? error.message : 'Cursor overlay helper write failed.');
       if (options.fallbackEvent) {
-        this.options.fallback.show(options.fallbackEvent);
+        this.options.fallback.show(options.fallbackEvent, options.fallbackOptions ?? fallbackRenderOptions(this.options));
       }
     }
   }
@@ -195,6 +216,16 @@ export class NativeWindowsCursorOverlayBackend implements CursorOverlayBackend {
       helper.kill();
     }
   }
+}
+
+function fallbackRenderOptions(options: NativeWindowsCursorOverlayBackendOptions): CursorOverlayRenderOptions {
+  const settings = options.getSettings();
+  return {
+    size: options.resolveSizePixels(),
+    idleTimeoutMs: options.idleTimeoutMs,
+    crosshairs: settings.crosshairs,
+    persistent: settings.visibility === 'whileControlling'
+  };
 }
 
 function spawnOverlayHelper(helperPath: string): ChildProcessWithoutNullStreams {

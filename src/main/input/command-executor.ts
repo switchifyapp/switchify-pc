@@ -14,6 +14,7 @@ export type CommandExecutionResult =
 
 export type CursorOverlayNotifier = {
   show(event: 'move' | 'click'): void;
+  markControlActive?(): void;
 };
 
 export class DesktopCommandExecutor {
@@ -43,6 +44,7 @@ export class DesktopCommandExecutor {
 
   private async executeNow(command: CommandRequest): Promise<CommandExecutionResult> {
     try {
+      this.cursorOverlay?.markControlActive?.();
       switch (command.type) {
         case 'mouse.move':
           assertBoundedNumber(command.payload.dx, MAX_POINTER_DELTA, 'dx');
