@@ -81,6 +81,14 @@ internal sealed class OverlayForm : Form
         isClickPulse = string.Equals(command.Event, "click", StringComparison.OrdinalIgnoreCase);
         clickPulseStartedAt = isClickPulse ? DateTime.UtcNow : DateTime.MinValue;
 
+        if (!RenderLayeredOverlay())
+        {
+            HideOverlay();
+            return;
+        }
+
+        ApplyTopMostNoActivate();
+
         hideTimer.Stop();
         if (!command.Persistent)
         {
@@ -88,14 +96,6 @@ internal sealed class OverlayForm : Form
             hideTimer.Start();
         }
         animationTimer.Start();
-
-        if (!Visible)
-        {
-            Show();
-        }
-
-        RenderLayeredOverlay();
-        ApplyTopMostNoActivate();
     }
 
     internal void HideOverlay()
@@ -129,16 +129,16 @@ internal sealed class OverlayForm : Form
     {
         if (isClickPulse)
         {
-            RenderLayeredOverlay();
+            _ = RenderLayeredOverlay();
             return;
         }
 
         animationTimer.Stop();
     }
 
-    private void RenderLayeredOverlay()
+    private bool RenderLayeredOverlay()
     {
-        using Bitmap bitmap = new(ClientSize.Width, ClientSize.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using Bitmap bitmap = new(ClientSize.Width, ClientSize.Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
         using (Graphics graphics = Graphics.FromImage(bitmap))
         {
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -185,7 +185,7 @@ internal sealed class OverlayForm : Form
                 AlphaFormat = NativeMethods.AC_SRC_ALPHA
             };
 
-            NativeMethods.UpdateLayeredWindow(
+            return NativeMethods.UpdateLayeredWindow(
                 Handle,
                 screenDc,
                 ref destination,
