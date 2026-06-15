@@ -7,12 +7,14 @@ internal sealed class OverlayForm : Form
     private const int DefaultWindowSize = 128;
     private const int DefaultDurationMs = 900;
     private const int ClickPulseMs = 180;
+    private const int CrosshairThickness = 2;
 
     private readonly System.Windows.Forms.Timer hideTimer = new();
     private readonly System.Windows.Forms.Timer animationTimer = new();
+    private readonly CrosshairLineForm horizontalCrosshair = new();
+    private readonly CrosshairLineForm verticalCrosshair = new();
     private DateTime clickPulseStartedAt = DateTime.MinValue;
     private bool isClickPulse;
-    private bool crosshairsEnabled;
     private int ringWindowSize = DefaultWindowSize;
     private PointF cursorCenter = new(DefaultWindowSize / 2.0f, DefaultWindowSize / 2.0f);
 
@@ -59,24 +61,14 @@ internal sealed class OverlayForm : Form
         int durationMs = command.DurationMs > 0 ? command.DurationMs : DefaultDurationMs;
         Point cursor = new((int)Math.Round(command.X), (int)Math.Round(command.Y));
         Screen display = Screen.FromPoint(cursor);
-        Rectangle bounds = display.Bounds;
-        crosshairsEnabled = command.Crosshairs;
+        Rectangle displayBounds = display.Bounds;
         ringWindowSize = size;
 
-        if (crosshairsEnabled)
-        {
-            ClientSize = bounds.Size;
-            Location = bounds.Location;
-            cursorCenter = new PointF(cursor.X - bounds.X, cursor.Y - bounds.Y);
-        }
-        else
-        {
-            ClientSize = new Size(size, size);
-            Location = new Point(
-                (int)Math.Round(command.X - size / 2.0),
-                (int)Math.Round(command.Y - size / 2.0));
-            cursorCenter = new PointF(size / 2.0f, size / 2.0f);
-        }
+        ClientSize = new Size(size, size);
+        Location = new Point(
+            (int)Math.Round(command.X - size / 2.0),
+            (int)Math.Round(command.Y - size / 2.0));
+        cursorCenter = new PointF(size / 2.0f, size / 2.0f);
 
         isClickPulse = string.Equals(command.Event, "click", StringComparison.OrdinalIgnoreCase);
         clickPulseStartedAt = isClickPulse ? DateTime.UtcNow : DateTime.MinValue;
@@ -88,6 +80,7 @@ internal sealed class OverlayForm : Form
         }
 
         ApplyTopMostNoActivate();
+        ShowCrosshairs(command.Crosshairs, cursor, displayBounds);
 
         hideTimer.Stop();
         if (!command.Persistent)
@@ -103,7 +96,8 @@ internal sealed class OverlayForm : Form
         hideTimer.Stop();
         animationTimer.Stop();
         isClickPulse = false;
-        crosshairsEnabled = false;
+        horizontalCrosshair.Hide();
+        verticalCrosshair.Hide();
         Hide();
     }
 
@@ -155,13 +149,6 @@ internal sealed class OverlayForm : Form
 
             using Pen glow = new(Color.FromArgb(62, 132, 255, 145), outerStroke);
             using Pen ring = new(Color.FromArgb(250, 132, 255, 145), ringStroke);
-            using Pen crosshair = new(Color.FromArgb(184, 132, 255, 145), 2.0f);
-
-            if (crosshairsEnabled)
-            {
-                graphics.DrawLine(crosshair, 0.0f, centerY, ClientSize.Width, centerY);
-                graphics.DrawLine(crosshair, centerX, 0.0f, centerX, ClientSize.Height);
-            }
 
             graphics.DrawEllipse(glow, ringX, ringY, ringDiameter, ringDiameter);
             graphics.DrawEllipse(ring, ringX, ringY, ringDiameter, ringDiameter);
@@ -203,6 +190,87 @@ internal sealed class OverlayForm : Form
             NativeMethods.DeleteDC(memoryDc);
             NativeMethods.ReleaseDC(IntPtr.Zero, screenDc);
         }
+    }
+
+    private void ApplyTopMostNoActivate()
+    {
+        NativeMethods.SetWindowPos(
+            Handle,
+            NativeMethods.HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            NativeMethods.SWP_NOMOVE |
+            NativeMethods.SWP_NOSIZE |
+            NativeMethods.SWP_NOACTIVATE |
+            NativeMethods.SWP_SHOWWINDOW);
+    }
+
+    private void ShowCrosshairs(bool enabled, Point cursor, Rectangle displayBounds)
+    {
+        if (!enabled)
+        {
+            horizontalCrosshair.Hide();
+            verticalCrosshair.Hide();
+            return;
+        }
+
+        horizontalCrosshair.ShowLine(new Rectangle(
+            displayBounds.Left,
+            cursor.Y - CrosshairThickness / 2,
+            displayBounds.Width,
+            CrosshairThickness));
+        verticalCrosshair.ShowLine(new Rectangle(
+            cursor.X - CrosshairThickness / 2,
+            displayBounds.Top,
+            CrosshairThickness,
+            displayBounds.Height));
+    }
+}
+
+internal sealed class CrosshairLineForm : Form
+{
+    internal CrosshairLineForm()
+    {
+        AutoScaleMode = AutoScaleMode.None;
+        BackColor = Color.FromArgb(132, 255, 145);
+        ControlBox = false;
+        FormBorderStyle = FormBorderStyle.None;
+        MaximizeBox = false;
+        MinimizeBox = false;
+        Name = "SwitchifyCursorCrosshair";
+        Opacity = 0.72;
+        ShowIcon = false;
+        ShowInTaskbar = false;
+        StartPosition = FormStartPosition.Manual;
+        TopMost = true;
+    }
+
+    protected override bool ShowWithoutActivation => true;
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams createParams = base.CreateParams;
+            createParams.ExStyle |=
+                NativeMethods.WS_EX_TRANSPARENT |
+                NativeMethods.WS_EX_TOPMOST |
+                NativeMethods.WS_EX_TOOLWINDOW |
+                NativeMethods.WS_EX_NOACTIVATE;
+            return createParams;
+        }
+    }
+
+    internal void ShowLine(Rectangle bounds)
+    {
+        Bounds = bounds;
+        if (!Visible)
+        {
+            Show();
+        }
+        ApplyTopMostNoActivate();
     }
 
     private void ApplyTopMostNoActivate()
