@@ -11,6 +11,7 @@ import { cursorOverlayBounds } from './cursor-overlay-state';
 import {
   DEFAULT_CURSOR_OVERLAY_SETTINGS,
   normalizeCursorOverlaySettings,
+  resolveCursorOverlayColorRgb,
   resolveCursorOverlaySizePixels,
   type CursorOverlaySettings
 } from '../shared/cursor-overlay-settings';
@@ -74,7 +75,11 @@ export class CursorOverlay {
       this.hide();
       return;
     }
-    if (previous.size !== this.settings.size || previous.crosshairs !== this.settings.crosshairs) {
+    if (
+      previous.size !== this.settings.size ||
+      previous.crosshairs !== this.settings.crosshairs ||
+      previous.color !== this.settings.color
+    ) {
       this.refreshPersistentOverlay();
     }
   }
@@ -136,7 +141,8 @@ export class CursorOverlay {
       size: this.resolveSizePixels(),
       idleTimeoutMs: this.idleTimeoutMs,
       crosshairs: this.settings.crosshairs,
-      persistent: this.settings.visibility === 'whileControlling'
+      persistent: this.settings.visibility === 'whileControlling',
+      colorRgb: resolveCursorOverlayColorRgb(this.settings.color)
     };
   }
 
@@ -183,6 +189,7 @@ class ElectronCursorOverlayBackend implements CursorOverlayBackend {
           centerX: cursor.x - bounds.x,
           centerY: cursor.y - bounds.y,
           crosshairs: options.crosshairs,
+          colorRgb: options.colorRgb,
           size: options.size
         })
       );
@@ -297,11 +304,18 @@ function createOverlayDataUrl(): string {
 
 function createOverlayEventScript(
   event: CursorOverlayEvent,
-  options: { centerX: number; centerY: number; crosshairs: boolean; size: number }
+  options: {
+    centerX: number;
+    centerY: number;
+    crosshairs: boolean;
+    colorRgb: [number, number, number];
+    size: number;
+  }
 ): string {
   return `
     document.body.className = ${JSON.stringify(event === 'click' ? 'click' : 'move')};
     document.body.classList.toggle('crosshairs-enabled', ${JSON.stringify(options.crosshairs)});
+    document.documentElement.style.setProperty('--overlay-rgb', '${options.colorRgb.join(', ')}');
     document.documentElement.style.setProperty('--center-x', '${Math.round(options.centerX)}px');
     document.documentElement.style.setProperty('--center-y', '${Math.round(options.centerY)}px');
     document.documentElement.style.setProperty('--ring-size', '${Math.round(options.size * 0.5625)}px');
@@ -347,11 +361,11 @@ function createOverlayHtml(): string {
         top: var(--center-y, 64px);
         width: var(--ring-size, 72px);
         height: var(--ring-size, 72px);
-        border: var(--ring-stroke, 5px) solid rgba(132, 255, 145, 0.98);
+        border: var(--ring-stroke, 5px) solid rgba(var(--overlay-rgb, 211, 47, 47), 0.98);
         border-radius: 999px;
         box-shadow:
-          0 0 0 calc(var(--glow-stroke, 24px) * 0.42) rgba(132, 255, 145, 0.22),
-          0 0 38px rgba(132, 255, 145, 0.48);
+          0 0 0 calc(var(--glow-stroke, 24px) * 0.42) rgba(var(--overlay-rgb, 211, 47, 47), 0.22),
+          0 0 38px rgba(var(--overlay-rgb, 211, 47, 47), 0.48);
         opacity: 0.95;
         transform: translate(-50%, -50%) scale(1);
         transition:
@@ -363,8 +377,8 @@ function createOverlayHtml(): string {
         position: absolute;
         display: none;
         pointer-events: none;
-        background: rgba(132, 255, 145, 0.72);
-        box-shadow: 0 0 14px rgba(132, 255, 145, 0.35);
+        background: rgba(var(--overlay-rgb, 211, 47, 47), 0.72);
+        box-shadow: 0 0 14px rgba(var(--overlay-rgb, 211, 47, 47), 0.35);
       }
 
       body.crosshairs-enabled .crosshair {
@@ -395,14 +409,14 @@ function createOverlayHtml(): string {
         0% {
           transform: translate(-50%, -50%) scale(0.82);
           box-shadow:
-            0 0 0 4px rgba(132, 255, 145, 0.3),
-            0 0 24px rgba(132, 255, 145, 0.5);
+            0 0 0 4px rgba(var(--overlay-rgb, 211, 47, 47), 0.3),
+            0 0 24px rgba(var(--overlay-rgb, 211, 47, 47), 0.5);
         }
         100% {
           transform: translate(-50%, -50%) scale(1.18);
           box-shadow:
-            0 0 0 15px rgba(132, 255, 145, 0.08),
-            0 0 38px rgba(132, 255, 145, 0.24);
+            0 0 0 15px rgba(var(--overlay-rgb, 211, 47, 47), 0.08),
+            0 0 38px rgba(var(--overlay-rgb, 211, 47, 47), 0.24);
         }
       }
     </style>

@@ -27,4 +27,19 @@ internal sealed class OverlayCommand
 
     [JsonPropertyName("persistent")]
     public bool Persistent { get; init; }
+
+    [JsonPropertyName("color")]
+    public OverlayColor? Color { get; init; }
+}
+
+internal sealed class OverlayColor
+{
+    [JsonPropertyName("red")]
+    public int Red { get; init; }
+
+    [JsonPropertyName("green")]
+    public int Green { get; init; }
+
+    [JsonPropertyName("blue")]
+    public int Blue { get; init; }
 }

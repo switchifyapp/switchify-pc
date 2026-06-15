@@ -8,6 +8,7 @@ internal sealed class OverlayForm : Form
     private const int DefaultDurationMs = 900;
     private const int ClickPulseMs = 180;
     private const int CrosshairThickness = 2;
+    private static readonly Color DefaultOverlayColor = Color.FromArgb(211, 47, 47);
 
     private readonly System.Windows.Forms.Timer hideTimer = new();
     private readonly System.Windows.Forms.Timer animationTimer = new();
@@ -17,6 +18,7 @@ internal sealed class OverlayForm : Form
     private bool isClickPulse;
     private int ringWindowSize = DefaultWindowSize;
     private PointF cursorCenter = new(DefaultWindowSize / 2.0f, DefaultWindowSize / 2.0f);
+    private Color overlayColor = DefaultOverlayColor;
 
     internal OverlayForm()
     {
@@ -63,6 +65,7 @@ internal sealed class OverlayForm : Form
         Screen display = Screen.FromPoint(cursor);
         Rectangle displayBounds = display.Bounds;
         ringWindowSize = size;
+        overlayColor = ResolveOverlayColor(command);
 
         ClientSize = new Size(size, size);
         Location = new Point(
@@ -80,7 +83,7 @@ internal sealed class OverlayForm : Form
         }
 
         ApplyTopMostNoActivate();
-        ShowCrosshairs(command.Crosshairs, cursor, displayBounds);
+        ShowCrosshairs(command.Crosshairs, cursor, displayBounds, overlayColor);
 
         hideTimer.Stop();
         if (!command.Persistent)
@@ -147,8 +150,8 @@ internal sealed class OverlayForm : Form
             float ringX = centerX - ringDiameter / 2.0f;
             float ringY = centerY - ringDiameter / 2.0f;
 
-            using Pen glow = new(Color.FromArgb(62, 132, 255, 145), outerStroke);
-            using Pen ring = new(Color.FromArgb(250, 132, 255, 145), ringStroke);
+            using Pen glow = new(Color.FromArgb(62, overlayColor.R, overlayColor.G, overlayColor.B), outerStroke);
+            using Pen ring = new(Color.FromArgb(250, overlayColor.R, overlayColor.G, overlayColor.B), ringStroke);
 
             graphics.DrawEllipse(glow, ringX, ringY, ringDiameter, ringDiameter);
             graphics.DrawEllipse(ring, ringX, ringY, ringDiameter, ringDiameter);
@@ -207,7 +210,7 @@ internal sealed class OverlayForm : Form
             NativeMethods.SWP_SHOWWINDOW);
     }
 
-    private void ShowCrosshairs(bool enabled, Point cursor, Rectangle displayBounds)
+    private void ShowCrosshairs(bool enabled, Point cursor, Rectangle displayBounds, Color color)
     {
         if (!enabled)
         {
@@ -216,16 +219,38 @@ internal sealed class OverlayForm : Form
             return;
         }
 
-        horizontalCrosshair.ShowLine(new Rectangle(
-            displayBounds.Left,
-            cursor.Y - CrosshairThickness / 2,
-            displayBounds.Width,
-            CrosshairThickness));
-        verticalCrosshair.ShowLine(new Rectangle(
-            cursor.X - CrosshairThickness / 2,
-            displayBounds.Top,
-            CrosshairThickness,
-            displayBounds.Height));
+        horizontalCrosshair.ShowLine(
+            new Rectangle(
+                displayBounds.Left,
+                cursor.Y - CrosshairThickness / 2,
+                displayBounds.Width,
+                CrosshairThickness),
+            color);
+        verticalCrosshair.ShowLine(
+            new Rectangle(
+                cursor.X - CrosshairThickness / 2,
+                displayBounds.Top,
+                CrosshairThickness,
+                displayBounds.Height),
+            color);
+    }
+
+    private static Color ResolveOverlayColor(OverlayCommand command)
+    {
+        if (command.Color is null)
+        {
+            return DefaultOverlayColor;
+        }
+
+        return Color.FromArgb(
+            ClampColorChannel(command.Color.Red),
+            ClampColorChannel(command.Color.Green),
+            ClampColorChannel(command.Color.Blue));
+    }
+
+    private static int ClampColorChannel(int channel)
+    {
+        return Math.Clamp(channel, 0, 255);
     }
 }
 
@@ -234,7 +259,7 @@ internal sealed class CrosshairLineForm : Form
     internal CrosshairLineForm()
     {
         AutoScaleMode = AutoScaleMode.None;
-        BackColor = Color.FromArgb(132, 255, 145);
+        BackColor = Color.FromArgb(211, 47, 47);
         ControlBox = false;
         FormBorderStyle = FormBorderStyle.None;
         MaximizeBox = false;
@@ -263,8 +288,9 @@ internal sealed class CrosshairLineForm : Form
         }
     }
 
-    internal void ShowLine(Rectangle bounds)
+    internal void ShowLine(Rectangle bounds, Color color)
     {
+        BackColor = color;
         Bounds = bounds;
         if (!Visible)
         {

@@ -1,9 +1,11 @@
 import { useState, type ReactElement } from 'react';
 import type {
+  CursorOverlayColor,
   CursorOverlaySettings,
   CursorOverlaySize,
   CursorOverlayVisibility
 } from '../../shared/cursor-overlay-settings';
+import { CURSOR_OVERLAY_COLORS } from '../../shared/cursor-overlay-settings';
 import type { PairedDeviceView, PcControlStatus } from '../../shared/server-status';
 import type { UpdateState } from '../../shared/update';
 import { formatBluetoothStatus } from '../bluetooth-status';
@@ -201,6 +203,14 @@ function CursorOverlaySettingsControls({
         />
       </div>
       <div className="settings-field">
+        <span className="settings-field-label">Color</span>
+        <ColorSwatches
+          disabled={disabled}
+          value={settings.color}
+          onChange={(color) => update({ color })}
+        />
+      </div>
+      <div className="settings-field">
         <span className="settings-field-label">Visibility</span>
         <SegmentedControl
           disabled={disabled}
@@ -221,6 +231,34 @@ function CursorOverlaySettingsControls({
         />
         <span>Show full-display crosshairs</span>
       </label>
+    </div>
+  );
+}
+
+function ColorSwatches({
+  disabled,
+  value,
+  onChange
+}: {
+  disabled: boolean;
+  value: CursorOverlayColor;
+  onChange: (value: CursorOverlayColor) => void;
+}): ReactElement {
+  return (
+    <div className="color-swatch-row" role="group" aria-label="Cursor overlay color">
+      {Object.entries(CURSOR_OVERLAY_COLORS).map(([color, preset]) => (
+        <button
+          key={color}
+          type="button"
+          className={`color-swatch${value === color ? ' selected' : ''}`}
+          style={{ backgroundColor: preset.hex }}
+          disabled={disabled}
+          aria-label={`Use ${preset.label.toLowerCase()} cursor overlay color`}
+          aria-pressed={value === color}
+          title={preset.label}
+          onClick={() => onChange(color as CursorOverlayColor)}
+        />
+      ))}
     </div>
   );
 }

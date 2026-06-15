@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import type { CursorOverlaySettings } from '../shared/cursor-overlay-settings';
+import { resolveCursorOverlayColorRgb, type CursorOverlaySettings } from '../shared/cursor-overlay-settings';
 
 export type CursorOverlayEvent = 'move' | 'click';
 
@@ -20,6 +20,7 @@ export type CursorOverlayRenderOptions = {
   idleTimeoutMs: number;
   crosshairs: boolean;
   persistent: boolean;
+  colorRgb: [number, number, number];
 };
 
 export type NativeWindowsCursorOverlayBackendOptions = {
@@ -49,6 +50,11 @@ type OverlayHelperCommand =
       durationMs: number;
       crosshairs: boolean;
       persistent: boolean;
+      color: {
+        red: number;
+        green: number;
+        blue: number;
+      };
     }
   | { type: 'hide' }
   | { type: 'shutdown' };
@@ -83,7 +89,12 @@ export class NativeWindowsCursorOverlayBackend implements CursorOverlayBackend {
         size,
         durationMs: options.persistent ? 0 : options.idleTimeoutMs,
         crosshairs: options.crosshairs,
-        persistent: options.persistent
+        persistent: options.persistent,
+        color: {
+          red: options.colorRgb[0],
+          green: options.colorRgb[1],
+          blue: options.colorRgb[2]
+        }
       },
       { fallbackEvent: event, fallbackOptions: options, fallbackOnBackpressure: false }
     );
@@ -224,7 +235,8 @@ function fallbackRenderOptions(options: NativeWindowsCursorOverlayBackendOptions
     size: options.resolveSizePixels(),
     idleTimeoutMs: options.idleTimeoutMs,
     crosshairs: settings.crosshairs,
-    persistent: settings.visibility === 'whileControlling'
+    persistent: settings.visibility === 'whileControlling',
+    colorRgb: resolveCursorOverlayColorRgb(settings.color)
   };
 }
 

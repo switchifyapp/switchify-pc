@@ -51,20 +51,23 @@ describe('JsonCursorOverlaySettingsStore', () => {
         enabled: false,
         size: 'large',
         visibility: 'whileControlling',
-        crosshairs: true
+        crosshairs: true,
+        color: 'blue'
       })
     ).toEqual({
       enabled: false,
       size: 'large',
       visibility: 'whileControlling',
-      crosshairs: true
+      crosshairs: true,
+      color: 'blue'
     });
 
     expect(settingsStore.load()).toEqual({
       enabled: false,
       size: 'large',
       visibility: 'whileControlling',
-      crosshairs: true
+      crosshairs: true,
+      color: 'blue'
     });
   });
 });
