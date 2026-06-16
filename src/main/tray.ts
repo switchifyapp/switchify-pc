@@ -18,34 +18,48 @@ export type SwitchifyTray = {
 
 export function createSwitchifyTray(options: SwitchifyTrayOptions): SwitchifyTray {
   const tray = new Tray(createTrayIcon());
+  let currentMenu: Menu | null = null;
 
   const update = (): void => {
     const status = options.getStatus();
+    currentMenu = buildTrayMenu(options, status);
     tray.setToolTip(`Switchify PC - ${formatTooltipStatus(status)}`);
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        { label: 'Open Switchify PC', click: options.showWindow },
-        { label: 'Settings', click: options.openSettings },
-        { label: formatMenuStatus(status), enabled: false },
-        { type: 'separator' },
-        {
-          label: 'Disconnect device',
-          enabled: status.connectedClientCount > 0,
-          click: options.disconnectClients
-        },
-        { type: 'separator' },
-        { label: 'Quit', click: options.quit }
-      ])
-    );
+    if (process.platform !== 'win32') {
+      tray.setContextMenu(currentMenu);
+    }
   };
 
   tray.on('click', options.showWindow);
+  if (process.platform === 'win32') {
+    tray.on('right-click', () => {
+      update();
+      if (currentMenu) {
+        tray.popUpContextMenu(currentMenu);
+      }
+    });
+  }
   update();
 
   return {
     update,
     destroy: () => tray.destroy()
   };
+}
+
+function buildTrayMenu(options: SwitchifyTrayOptions, status: PcControlStatus): Menu {
+  return Menu.buildFromTemplate([
+    { label: 'Open Switchify PC', click: options.showWindow },
+    { label: 'Settings', click: options.openSettings },
+    { label: formatMenuStatus(status), enabled: false },
+    { type: 'separator' },
+    {
+      label: 'Disconnect device',
+      enabled: status.connectedClientCount > 0,
+      click: options.disconnectClients
+    },
+    { type: 'separator' },
+    { label: 'Quit', click: options.quit }
+  ]);
 }
 
 function createTrayIcon(): NativeImage {
