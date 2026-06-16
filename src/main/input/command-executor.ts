@@ -14,6 +14,7 @@ export type CommandExecutionResult =
 
 export type CursorOverlayNotifier = {
   show(event: 'move' | 'click'): void;
+  hide?(): void;
   markControlActive?(): void;
 };
 
@@ -61,7 +62,11 @@ export class DesktopCommandExecutor {
 
   private async executeNow(command: CommandRequest): Promise<CommandExecutionResult> {
     try {
-      this.cursorOverlay?.markControlActive?.();
+      if (isMouseCommand(command)) {
+        this.cursorOverlay?.markControlActive?.();
+      } else {
+        this.cursorOverlay?.hide?.();
+      }
       switch (command.type) {
         case 'mouse.move':
           assertBoundedNumber(command.payload.dx, MAX_POINTER_DELTA, 'dx');
@@ -170,4 +175,16 @@ function isPointerAction(
   command: CommandRequest
 ): command is CommandRequest & { type: 'mouse.move' | 'mouse.dragStart' | 'mouse.dragEnd' } {
   return command.type === 'mouse.move' || command.type === 'mouse.dragStart' || command.type === 'mouse.dragEnd';
+}
+
+function isMouseCommand(command: CommandRequest): boolean {
+  return (
+    command.type === 'mouse.move' ||
+    command.type === 'mouse.click' ||
+    command.type === 'mouse.doubleClick' ||
+    command.type === 'mouse.rightClick' ||
+    command.type === 'mouse.scroll' ||
+    command.type === 'mouse.dragStart' ||
+    command.type === 'mouse.dragEnd'
+  );
 }

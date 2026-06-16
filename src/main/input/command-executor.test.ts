@@ -9,9 +9,19 @@ type RecordedCall = { method: keyof DesktopInputAdapter; args: unknown[] };
 
 class FakeCursorOverlay {
   readonly events: Array<'move' | 'click'> = [];
+  activeCount = 0;
+  hideCount = 0;
 
   show(event: 'move' | 'click'): void {
     this.events.push(event);
+  }
+
+  markControlActive(): void {
+    this.activeCount += 1;
+  }
+
+  hide(): void {
+    this.hideCount += 1;
   }
 }
 
@@ -103,15 +113,18 @@ describe('DesktopCommandExecutor', () => {
       { method: 'scrollMouse', args: [{ dx: 0, dy: -3 }] }
     ]);
     expect(overlay.events).toEqual(['move', 'click', 'click', 'click']);
+    expect(overlay.activeCount).toBe(5);
+    expect(overlay.hideCount).toBe(0);
   });
 
   it('maps keyboard, text, media, and ping commands', async () => {
-    const { adapter, executor } = createExecutor();
+    const { adapter, executor, overlay } = createExecutor();
 
     await executor.execute(command('keyboard.key', { key: 'Enter' }));
     await executor.execute(command('keyboard.shortcut', { keys: ['Ctrl', 'C'] }));
     await executor.execute(command('keyboard.typeText', { text: 'Hello' }));
     await executor.execute(command('media.control', { action: 'playPause' }));
+    await executor.execute(command('window.control', { action: 'switchNext' }));
     const pingResult = await executor.execute(command('connection.ping', {}));
 
     expect(pingResult).toEqual({ ok: true });
@@ -119,8 +132,12 @@ describe('DesktopCommandExecutor', () => {
       { method: 'pressKey', args: ['Enter'] },
       { method: 'pressShortcut', args: [['Ctrl', 'C']] },
       { method: 'typeText', args: ['Hello'] },
-      { method: 'mediaControl', args: ['playPause'] }
+      { method: 'mediaControl', args: ['playPause'] },
+      { method: 'controlWindow', args: ['switchNext'] }
     ]);
+    expect(overlay.events).toHaveLength(0);
+    expect(overlay.activeCount).toBe(0);
+    expect(overlay.hideCount).toBe(6);
   });
 
   it('passes empty committed text to the adapter', async () => {
@@ -131,12 +148,20 @@ describe('DesktopCommandExecutor', () => {
     expect(adapter.calls).toEqual([{ method: 'typeText', args: [''] }]);
   });
 
-  it('maps window control commands to the adapter', async () => {
-    const { adapter, executor } = createExecutor();
+  it('hides the overlay for unsupported server-level non-mouse commands', async () => {
+    const { executor, overlay } = createExecutor();
 
-    await expect(executor.execute(command('window.control', { action: 'switchNext' }))).resolves.toEqual({ ok: true });
+    await expect(executor.execute(command('connection.disconnecting', {}))).resolves.toMatchObject({
+      ok: false,
+      code: 'unsupported_command'
+    });
+    await expect(executor.execute(command('pointer.profile', {}))).resolves.toMatchObject({
+      ok: false,
+      code: 'unsupported_command'
+    });
 
-    expect(adapter.calls).toEqual([{ method: 'controlWindow', args: ['switchNext'] }]);
+    expect(overlay.activeCount).toBe(0);
+    expect(overlay.hideCount).toBe(2);
   });
 
   it('rejects unsafe movement, scroll, shortcut, and text values', async () => {
@@ -160,9 +185,11 @@ describe('DesktopCommandExecutor', () => {
     });
     expect(adapter.calls).toHaveLength(0);
     expect(overlay.events).toHaveLength(0);
+    expect(overlay.activeCount).toBe(2);
+    expect(overlay.hideCount).toBe(2);
   });
 
-  it('converts adapter errors into structured failures', async () => {
+  it('converts mouse adapter errors into structured failures without hiding the overlay', async () => {
     const { adapter, executor, overlay } = createExecutor();
     adapter.failNext = new DesktopInputError('adapter_failure', 'Native input failed.');
 
@@ -172,6 +199,22 @@ describe('DesktopCommandExecutor', () => {
       message: 'Native input failed.'
     });
     expect(overlay.events).toHaveLength(0);
+    expect(overlay.activeCount).toBe(1);
+    expect(overlay.hideCount).toBe(0);
+  });
+
+  it('converts non-mouse adapter errors into structured failures after hiding the overlay', async () => {
+    const { adapter, executor, overlay } = createExecutor();
+    adapter.failNext = new DesktopInputError('adapter_failure', 'Native input failed.');
+
+    await expect(executor.execute(command('keyboard.key', { key: 'Enter' }))).resolves.toEqual({
+      ok: false,
+      code: 'adapter_failure',
+      message: 'Native input failed.'
+    });
+    expect(overlay.events).toHaveLength(0);
+    expect(overlay.activeCount).toBe(0);
+    expect(overlay.hideCount).toBe(1);
   });
 
   it('serializes repeated pointer movement commands', async () => {
@@ -205,6 +248,8 @@ describe('DesktopCommandExecutor', () => {
       { method: 'setMouseButtonDown', args: ['left', false] }
     ]);
     expect(overlay.events).toEqual(['move', 'move', 'move']);
+    expect(overlay.activeCount).toBe(3);
+    expect(overlay.hideCount).toBe(0);
   });
 
   it('serializes drag start, movement, and drag end pointer actions', async () => {
