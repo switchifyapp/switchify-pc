@@ -3,6 +3,7 @@ export {};
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
 import type { PairedDeviceView, PcControlStatus } from '../shared/server-status';
 import type { CursorOverlaySettings } from '../shared/cursor-overlay-settings';
+import type { SystemStartupSettings } from '../shared/system-startup';
 import type { UpdateState } from '../shared/update';
 
 declare global {
@@ -30,6 +31,8 @@ declare global {
       getUpdateState: () => Promise<UpdateState>;
       checkForUpdates: () => Promise<UpdateState>;
       downloadUpdate: () => Promise<UpdateState>;
+      getSystemStartupSettings: () => Promise<SystemStartupSettings>;
+      setStartWithSystem: (enabled: boolean) => Promise<SystemStartupSettings>;
       showDownloadedUpdate: () => Promise<{ ok: boolean; reason?: string }>;
     };
   }

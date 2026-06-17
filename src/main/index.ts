@@ -17,12 +17,14 @@ import { JsonPairingStore } from './pairing/pairing-store';
 import { PairingManager } from './pairing/pairing-manager';
 import { registerServerIpc } from './server-ipc';
 import { registerSettingsWindowIpc } from './settings-window-ipc';
+import { registerSystemStartupIpc } from './system-startup-ipc';
+import { shouldStartHidden, SystemStartupService } from './system-startup';
 import { createSwitchifyTray, type SwitchifyTray } from './tray';
 import { registerUpdateIpc } from './updates/update-ipc';
 import { UpdateService } from './updates/update-service';
+import { WINDOWS_APP_USER_MODEL_ID } from './windows-app-user-model-id';
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
-const windowsAppUserModelId = 'app.switchify.pc';
 let controlService: ControlService | null = null;
 let mainWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
@@ -66,7 +68,12 @@ function appIconPath(): string | undefined {
   return existsSync(iconPath) ? iconPath : undefined;
 }
 
-function createMainWindow(): BrowserWindow {
+type MainWindowOptions = {
+  showOnReady?: boolean;
+};
+
+function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
+  const showOnReady = options.showOnReady ?? true;
   const overlayOptions = titleBarOverlayOptions();
   const iconPath = appIconPath();
   const window = new BrowserWindow({
@@ -89,7 +96,9 @@ function createMainWindow(): BrowserWindow {
   });
 
   window.once('ready-to-show', () => {
-    window.show();
+    if (showOnReady) {
+      window.show();
+    }
   });
 
   window.on('close', (event) => {
@@ -222,9 +231,18 @@ function quitApp(): void {
 
 app.whenReady().then(() => {
   if (process.platform === 'win32') {
-    app.setAppUserModelId(windowsAppUserModelId);
+    app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID);
   }
 
+  const startHidden = shouldStartHidden(process.argv, process.platform);
+  const systemStartup = new SystemStartupService({
+    platform: process.platform,
+    isPackaged: app.isPackaged,
+    executablePath: process.execPath,
+    appUserModelId: WINDOWS_APP_USER_MODEL_ID,
+    getLoginItemSettings: (options) => app.getLoginItemSettings(options),
+    setLoginItemSettings: (settings) => app.setLoginItemSettings(settings)
+  });
   const pairingStore = new JsonPairingStore(join(app.getPath('userData'), 'pairing-state.json'));
   const cursorOverlaySettingsStore = new JsonCursorOverlaySettingsStore(
     join(app.getPath('userData'), 'cursor-overlay-settings.json')
@@ -282,6 +300,7 @@ app.whenReady().then(() => {
   registerCursorOverlayIpc(cursorOverlay, cursorOverlaySettingsStore);
   registerPairingApprovalIpc(controlService);
   registerSettingsWindowIpc(showSettingsWindow);
+  registerSystemStartupIpc(systemStartup);
   registerUpdateIpc(
     new UpdateService({
       currentVersion: app.getVersion(),
@@ -291,7 +310,7 @@ app.whenReady().then(() => {
   );
   void bluetoothTransport.start();
 
-  mainWindow = createMainWindow();
+  mainWindow = createMainWindow({ showOnReady: !startHidden });
   tray = createSwitchifyTray({
     getStatus: () =>
       controlService?.getStatus() ?? {

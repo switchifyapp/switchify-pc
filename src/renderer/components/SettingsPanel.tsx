@@ -7,6 +7,7 @@ import type {
 } from '../../shared/cursor-overlay-settings';
 import { CURSOR_OVERLAY_COLORS } from '../../shared/cursor-overlay-settings';
 import type { PairedDeviceView, PcControlStatus } from '../../shared/server-status';
+import type { SystemStartupSettings } from '../../shared/system-startup';
 import type { UpdateState } from '../../shared/update';
 import { formatBluetoothStatus } from '../bluetooth-status';
 import type { ConnectedDeviceView } from '../connected-devices';
@@ -18,9 +19,12 @@ type SettingsViewProps = {
   pairedDevices: PairedDeviceView[];
   serverStatus: PcControlStatus | null;
   cursorOverlaySettings: CursorOverlaySettings;
+  systemStartupSettings: SystemStartupSettings | null;
   onDisconnect: () => Promise<void>;
   onForgetPairedDevice: (deviceId: string) => Promise<{ ok: boolean; reason?: string }>;
   onUpdateCursorOverlaySettings: (settings: CursorOverlaySettings) => Promise<void>;
+  isUpdatingSystemStartup: boolean;
+  onSetStartWithSystem: (enabled: boolean) => Promise<void>;
   updateState: UpdateState | null;
   isCheckingForUpdates: boolean;
   isDownloadingUpdate: boolean;
@@ -29,12 +33,13 @@ type SettingsViewProps = {
   onShowDownloadedUpdate: () => Promise<void>;
 };
 
-type SettingsSectionId = 'bluetooth' | 'input' | 'updates' | 'savedDevices';
+type SettingsSectionId = 'general' | 'bluetooth' | 'input' | 'updates' | 'savedDevices';
 
 const SETTINGS_SECTIONS: Array<{
   id: SettingsSectionId;
   label: string;
 }> = [
+  { id: 'general', label: 'General' },
   { id: 'bluetooth', label: 'Bluetooth' },
   { id: 'input', label: 'Input' },
   { id: 'updates', label: 'Updates' },
@@ -46,9 +51,12 @@ export function SettingsView({
   pairedDevices,
   serverStatus,
   cursorOverlaySettings,
+  systemStartupSettings,
   onDisconnect,
   onForgetPairedDevice,
   onUpdateCursorOverlaySettings,
+  isUpdatingSystemStartup,
+  onSetStartWithSystem,
   updateState,
   isCheckingForUpdates,
   isDownloadingUpdate,
@@ -56,7 +64,7 @@ export function SettingsView({
   onDownloadUpdate,
   onShowDownloadedUpdate
 }: SettingsViewProps): ReactElement {
-  const [selectedSection, setSelectedSection] = useState<SettingsSectionId>('bluetooth');
+  const [selectedSection, setSelectedSection] = useState<SettingsSectionId>('general');
 
   return (
     <div className="settings-layout">
@@ -74,6 +82,13 @@ export function SettingsView({
         ))}
       </aside>
       <main className="settings-detail-panel">
+        {selectedSection === 'general' ? (
+          <GeneralSettingsSection
+            systemStartupSettings={systemStartupSettings}
+            isUpdatingSystemStartup={isUpdatingSystemStartup}
+            onSetStartWithSystem={onSetStartWithSystem}
+          />
+        ) : null}
         {selectedSection === 'bluetooth' ? (
           <BluetoothSettingsSection
             connectedDevices={connectedDevices}
@@ -105,6 +120,36 @@ export function SettingsView({
         ) : null}
       </main>
     </div>
+  );
+}
+
+function GeneralSettingsSection({
+  systemStartupSettings,
+  isUpdatingSystemStartup,
+  onSetStartWithSystem
+}: {
+  systemStartupSettings: SystemStartupSettings | null;
+  isUpdatingSystemStartup: boolean;
+  onSetStartWithSystem: (enabled: boolean) => Promise<void>;
+}): ReactElement {
+  return (
+    <section className="settings-window-section">
+      <h2>General</h2>
+      <div className="settings-control-group">
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={Boolean(systemStartupSettings?.startWithSystem)}
+            disabled={!systemStartupSettings?.supported || isUpdatingSystemStartup}
+            onChange={(event) => void onSetStartWithSystem(event.currentTarget.checked)}
+          />
+          <span>Start with system</span>
+        </label>
+        {!systemStartupSettings?.supported ? (
+          <div className="empty-state">{systemStartupUnavailableMessage(systemStartupSettings?.reason)}</div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -312,6 +357,11 @@ function ConnectedDeviceList({ devices }: { devices: ConnectedDeviceView[] }): R
 function formatTransport(transport: ConnectedDeviceView['transport']): string {
   if (transport === 'bluetooth') return 'Bluetooth';
   return 'Bluetooth';
+}
+
+function systemStartupUnavailableMessage(reason: SystemStartupSettings['reason'] | undefined): string {
+  if (reason === 'unpackaged') return 'Start with system is only available in packaged builds.';
+  return 'Start with system is not available on this platform.';
 }
 
 function PairedDeviceList({

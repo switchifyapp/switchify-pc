@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
+import type { SystemStartupSettings } from '../shared/system-startup';
 import type { UpdateState } from '../shared/update';
 import { SettingsView } from './components/SettingsPanel';
 import { WindowChrome } from './components/WindowTitleBar';
@@ -8,16 +9,21 @@ export function SettingsApp(): ReactElement {
   const bridge = window.switchifyPc;
   const status = useSwitchifyPcStatus(bridge);
   const [updateState, setUpdateState] = useState<UpdateState | null>(null);
+  const [systemStartupSettings, setSystemStartupSettings] = useState<SystemStartupSettings | null>(null);
   const [isCheckingForUpdates, setIsCheckingForUpdates] = useState(false);
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
+  const [isUpdatingSystemStartup, setIsUpdatingSystemStartup] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    void bridge.getUpdateState().then((state) => {
-      if (!cancelled) {
-        setUpdateState(state);
+    void Promise.all([bridge.getUpdateState(), bridge.getSystemStartupSettings()]).then(
+      ([updateState, systemStartupSettings]) => {
+        if (!cancelled) {
+          setUpdateState(updateState);
+          setSystemStartupSettings(systemStartupSettings);
+        }
       }
-    });
+    );
 
     return () => {
       cancelled = true;
@@ -64,6 +70,18 @@ export function SettingsApp(): ReactElement {
     await bridge.showDownloadedUpdate();
   }, [bridge]);
 
+  const setStartWithSystem = useCallback(
+    async (enabled: boolean): Promise<void> => {
+      setIsUpdatingSystemStartup(true);
+      try {
+        setSystemStartupSettings(await bridge.setStartWithSystem(enabled));
+      } finally {
+        setIsUpdatingSystemStartup(false);
+      }
+    },
+    [bridge]
+  );
+
   return (
     <WindowChrome title={bridge.appName} subtitle="Settings" className="settings-window-shell">
       <section className="settings-window-header">
@@ -76,9 +94,12 @@ export function SettingsApp(): ReactElement {
         pairedDevices={status.pairedDevices}
         serverStatus={status.serverStatus}
         cursorOverlaySettings={status.cursorOverlaySettings}
+        systemStartupSettings={systemStartupSettings}
         onDisconnect={status.disconnectClients}
         onForgetPairedDevice={status.forgetPairedDevice}
         onUpdateCursorOverlaySettings={status.updateCursorOverlaySettings}
+        isUpdatingSystemStartup={isUpdatingSystemStartup}
+        onSetStartWithSystem={setStartWithSystem}
         updateState={updateState}
         isCheckingForUpdates={isCheckingForUpdates}
         isDownloadingUpdate={isDownloadingUpdate}

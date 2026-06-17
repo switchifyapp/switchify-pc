@@ -11,14 +11,17 @@ import {
   GET_CURSOR_OVERLAY_SETTINGS_CHANNEL,
   GET_PAIRED_DEVICES_CHANNEL,
   GET_PENDING_PAIRING_REQUESTS_CHANNEL,
+  GET_SYSTEM_STARTUP_SETTINGS_CHANNEL,
   GET_UPDATE_STATE_CHANNEL,
   OPEN_SETTINGS_WINDOW_CHANNEL,
   RESPOND_TO_PAIRING_REQUEST_CHANNEL,
   SERVER_STATUS_CHANNEL,
   SET_CURSOR_OVERLAY_ENABLED_CHANNEL,
   SET_CURSOR_OVERLAY_SETTINGS_CHANNEL,
+  SET_START_WITH_SYSTEM_CHANNEL,
   SHOW_DOWNLOADED_UPDATE_CHANNEL
 } from '../shared/ipc-channels';
+import type { SystemStartupSettings } from '../shared/system-startup';
 import type { UpdateState } from '../shared/update';
 
 contextBridge.exposeInMainWorld('switchifyPc', {
@@ -45,6 +48,10 @@ contextBridge.exposeInMainWorld('switchifyPc', {
   getUpdateState: (): Promise<UpdateState> => ipcRenderer.invoke(GET_UPDATE_STATE_CHANNEL),
   checkForUpdates: (): Promise<UpdateState> => ipcRenderer.invoke(CHECK_FOR_UPDATES_CHANNEL),
   downloadUpdate: (): Promise<UpdateState> => ipcRenderer.invoke(DOWNLOAD_UPDATE_CHANNEL),
+  getSystemStartupSettings: (): Promise<SystemStartupSettings> =>
+    ipcRenderer.invoke(GET_SYSTEM_STARTUP_SETTINGS_CHANNEL),
+  setStartWithSystem: (enabled: boolean): Promise<SystemStartupSettings> =>
+    ipcRenderer.invoke(SET_START_WITH_SYSTEM_CHANNEL, enabled),
   showDownloadedUpdate: (): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke(SHOW_DOWNLOADED_UPDATE_CHANNEL)
 });
