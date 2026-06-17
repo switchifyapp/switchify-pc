@@ -34,7 +34,7 @@ type SettingsViewProps = {
   onShowDownloadedUpdate: () => Promise<void>;
 };
 
-type SettingsSectionId = 'general' | 'bluetooth' | 'input' | 'updates' | 'savedDevices';
+type SettingsSectionId = 'general' | 'bluetooth' | 'pointer' | 'updates' | 'savedDevices';
 
 const SETTINGS_SECTIONS: Array<{
   id: SettingsSectionId;
@@ -42,7 +42,7 @@ const SETTINGS_SECTIONS: Array<{
 }> = [
   { id: 'general', label: 'General' },
   { id: 'bluetooth', label: 'Bluetooth' },
-  { id: 'input', label: 'Input' },
+  { id: 'pointer', label: 'Pointer' },
   { id: 'updates', label: 'Updates' },
   { id: 'savedDevices', label: 'Saved devices' }
 ];
@@ -97,8 +97,8 @@ export function SettingsView({
             onDisconnect={onDisconnect}
           />
         ) : null}
-        {selectedSection === 'input' ? (
-          <InputSettingsSection
+        {selectedSection === 'pointer' ? (
+          <PointerSettingsSection
             cursorOverlaySettings={cursorOverlaySettings}
             onUpdateCursorOverlaySettings={onUpdateCursorOverlaySettings}
           />
@@ -180,7 +180,7 @@ function BluetoothSettingsSection({
   );
 }
 
-function InputSettingsSection({
+function PointerSettingsSection({
   cursorOverlaySettings,
   onUpdateCursorOverlaySettings
 }: {
@@ -189,7 +189,7 @@ function InputSettingsSection({
 }): ReactElement {
   return (
     <section className="settings-window-section">
-      <h2>Input</h2>
+      <h2>Pointer</h2>
       <CursorOverlaySettingsControls
         settings={cursorOverlaySettings}
         onChange={onUpdateCursorOverlaySettings}
