@@ -16,6 +16,10 @@
   --color-accent-container: #ffdad6;
   --on-accent-container: #410002;
   --shadow-card: 0 14px 42px rgb(28 27 31 / 8%);
+  --tooltip-bg: #ffffff;
+  --tooltip-text: #1c1b1f;
+  --tooltip-border: #d7d3dc;
+  --tooltip-shadow: 0 10px 28px rgb(28 27 31 / 16%);
 
   /* Spacing scale — mirrors Android Dimens.kt */
   --space-xs: 8px;
@@ -58,6 +62,10 @@
     --color-accent-container: #93000a;
     --on-accent-container: #ffdad6;
     --shadow-card: 0 14px 42px rgb(0 0 0 / 45%);
+    --tooltip-bg: #2f2d33;
+    --tooltip-text: #f4eff4;
+    --tooltip-border: #514e57;
+    --tooltip-shadow: 0 12px 30px rgb(0 0 0 / 55%);
   }
 }
 
@@ -109,6 +117,72 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.tooltip-anchor {
+  position: relative;
+  display: inline-flex;
+  width: fit-content;
+}
+
+.tooltip-bubble {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 60;
+  max-width: 240px;
+  border: 1px solid var(--tooltip-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--tooltip-bg);
+  box-shadow: var(--tooltip-shadow);
+  color: var(--tooltip-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.25;
+  opacity: 0;
+  pointer-events: none;
+  text-align: center;
+  transform: translate(-50%, 4px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+  white-space: nowrap;
+}
+
+.tooltip-bubble::after {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 8px;
+  height: 8px;
+  border-right: 1px solid var(--tooltip-border);
+  border-bottom: 1px solid var(--tooltip-border);
+  background: var(--tooltip-bg);
+  content: "";
+  transform: translate(-50%, -4px) rotate(45deg);
+}
+
+.tooltip-anchor-bottom .tooltip-bubble {
+  top: calc(100% + 8px);
+  bottom: auto;
+  transform: translate(-50%, -4px);
+}
+
+.tooltip-anchor-bottom .tooltip-bubble::after {
+  top: auto;
+  bottom: 100%;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 1px solid var(--tooltip-border);
+  border-top: 1px solid var(--tooltip-border);
+  transform: translate(-50%, 4px) rotate(45deg);
+}
+
+.tooltip-anchor:hover .tooltip-bubble,
+.tooltip-anchor:focus-within .tooltip-bubble {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 button,
 input,
 summary,
@@ -136,7 +210,8 @@ a {
   display: flex;
   align-items: center;
   height: var(--titlebar-height);
-  padding: 0 140px 0 var(--space-m);
+  gap: var(--space-m);
+  padding: 0 var(--space-xs) 0 var(--space-m);
   background: var(--color-bg);
   color: var(--color-text);
   user-select: none;
@@ -148,6 +223,7 @@ a {
   display: inline-flex;
   min-width: 0;
   align-items: center;
+  flex: 1 1 auto;
   gap: var(--space-s);
 }
 
@@ -190,6 +266,87 @@ a {
 
 .window-titlebar-status-error .window-titlebar-status-dot {
   background: var(--color-status-error);
+}
+
+.window-titlebar-controls,
+.window-titlebar-controls .tooltip-anchor {
+  display: inline-flex;
+  height: 100%;
+  align-items: center;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+.window-titlebar-control {
+  display: grid;
+  width: 46px;
+  height: 34px;
+  min-height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  padding: 0;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.window-titlebar-control:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--color-surface-muted);
+}
+
+.window-titlebar-control-close:hover:not(:disabled) {
+  background: var(--color-status-error);
+  color: #ffffff;
+}
+
+.window-control-icon {
+  position: relative;
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+}
+
+.window-control-icon::before,
+.window-control-icon::after {
+  position: absolute;
+  content: "";
+}
+
+.window-control-icon-minimize::before {
+  left: 2px;
+  top: 7px;
+  width: 12px;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+}
+
+.window-control-icon-maximize::before {
+  left: 3px;
+  top: 3px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-radius: 2px;
+}
+
+.window-control-icon-close::before,
+.window-control-icon-close::after {
+  left: 7px;
+  top: 2px;
+  width: 2px;
+  height: 12px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+}
+
+.window-control-icon-close::before {
+  transform: rotate(45deg);
+}
+
+.window-control-icon-close::after {
+  transform: rotate(-45deg);
 }
 
 .app-shell {
@@ -755,7 +912,7 @@ p {
 
 @media (max-width: 760px) {
   .window-titlebar {
-    padding-right: 132px;
+    padding-right: var(--space-xs);
   }
 
   .app-shell {

@@ -3,6 +3,9 @@ import type { PairingApprovalDecision, PendingPairingApprovalView } from '../sha
 import type { PairedDeviceView, PcControlStatus } from '../shared/server-status';
 import type { CursorOverlaySettings } from '../shared/cursor-overlay-settings';
 import {
+  APP_WINDOW_CLOSE_CHANNEL,
+  APP_WINDOW_MINIMIZE_CHANNEL,
+  APP_WINDOW_TOGGLE_MAXIMIZE_CHANNEL,
   CHECK_FOR_UPDATES_CHANNEL,
   DISCONNECT_CLIENTS_CHANNEL,
   DOWNLOAD_UPDATE_CHANNEL,
@@ -26,6 +29,9 @@ import type { UpdateState } from '../shared/update';
 
 contextBridge.exposeInMainWorld('switchifyPc', {
   appName: 'Switchify PC',
+  minimizeWindow: (): Promise<void> => ipcRenderer.invoke(APP_WINDOW_MINIMIZE_CHANNEL),
+  toggleMaximizeWindow: (): Promise<void> => ipcRenderer.invoke(APP_WINDOW_TOGGLE_MAXIMIZE_CHANNEL),
+  closeWindow: (): Promise<void> => ipcRenderer.invoke(APP_WINDOW_CLOSE_CHANNEL),
   getServerStatus: (): Promise<PcControlStatus> => ipcRenderer.invoke(SERVER_STATUS_CHANNEL),
   getPairedDevices: (): Promise<PairedDeviceView[]> => ipcRenderer.invoke(GET_PAIRED_DEVICES_CHANNEL),
   disconnectClients: (): Promise<PcControlStatus> => ipcRenderer.invoke(DISCONNECT_CLIENTS_CHANNEL),
