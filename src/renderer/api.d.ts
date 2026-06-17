@@ -11,7 +11,6 @@ declare global {
     switchifyPc: {
       appName: string;
       minimizeWindow: () => Promise<void>;
-      toggleMaximizeWindow: () => Promise<void>;
       closeWindow: () => Promise<void>;
       getServerStatus: () => Promise<PcControlStatus>;
       getPairedDevices: () => Promise<PairedDeviceView[]>;
