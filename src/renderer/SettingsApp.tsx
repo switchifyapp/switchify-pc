@@ -83,7 +83,12 @@ export function SettingsApp(): ReactElement {
   );
 
   return (
-    <WindowChrome title={bridge.appName} subtitle="Settings" className="settings-window-shell">
+    <WindowChrome
+      title={bridge.appName}
+      subtitle="Settings"
+      className="settings-window-shell"
+      windowControls={{ minimize: false }}
+    >
       <section className="settings-window-header">
         <p className="section-label">Settings</p>
         <h1>Settings</h1>

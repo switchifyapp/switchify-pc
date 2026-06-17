@@ -2,22 +2,28 @@ import type { ReactElement, ReactNode } from 'react';
 import type { DesktopUiState } from '../../shared/desktop-ui-state';
 import { Tooltip } from './Tooltip';
 
+type WindowControlOptions = {
+  minimize?: boolean;
+};
+
 export function WindowChrome({
   title,
   state,
   subtitle,
   className,
+  windowControls,
   children
 }: {
   title: string;
   state?: DesktopUiState;
   subtitle?: string;
   className: string;
+  windowControls?: WindowControlOptions;
   children: ReactNode;
 }): ReactElement {
   return (
     <>
-      <WindowTitleBar title={title} state={state} subtitle={subtitle} />
+      <WindowTitleBar title={title} state={state} subtitle={subtitle} windowControls={windowControls} />
       <main className={className}>{children}</main>
     </>
   );
@@ -26,12 +32,19 @@ export function WindowChrome({
 export function WindowTitleBar({
   title,
   state,
-  subtitle
+  subtitle,
+  windowControls
 }: {
   title: string;
   state?: DesktopUiState;
   subtitle?: string;
+  windowControls?: WindowControlOptions;
 }): ReactElement {
+  const controls = {
+    minimize: true,
+    ...windowControls
+  };
+
   return (
     <header className="window-titlebar" aria-label="Window title bar">
       <div className="window-titlebar-main">
@@ -45,26 +58,18 @@ export function WindowTitleBar({
         {!state && subtitle ? <span className="window-titlebar-status">{subtitle}</span> : null}
       </div>
       <div className="window-titlebar-controls" aria-label="Window controls">
-        <Tooltip label="Minimize" placement="bottom">
-          <button
-            type="button"
-            className="window-titlebar-control"
-            aria-label="Minimize"
-            onClick={() => void window.switchifyPc.minimizeWindow()}
-          >
-            <span className="window-control-icon window-control-icon-minimize" aria-hidden="true" />
-          </button>
-        </Tooltip>
-        <Tooltip label="Maximize or restore" placement="bottom">
-          <button
-            type="button"
-            className="window-titlebar-control"
-            aria-label="Maximize or restore"
-            onClick={() => void window.switchifyPc.toggleMaximizeWindow()}
-          >
-            <span className="window-control-icon window-control-icon-maximize" aria-hidden="true" />
-          </button>
-        </Tooltip>
+        {controls.minimize ? (
+          <Tooltip label="Minimize" placement="bottom">
+            <button
+              type="button"
+              className="window-titlebar-control"
+              aria-label="Minimize"
+              onClick={() => void window.switchifyPc.minimizeWindow()}
+            >
+              <span className="window-control-icon window-control-icon-minimize" aria-hidden="true" />
+            </button>
+          </Tooltip>
+        ) : null}
         <Tooltip label="Close" placement="bottom">
           <button
             type="button"

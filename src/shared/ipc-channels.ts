@@ -10,7 +10,6 @@ export const GET_PENDING_PAIRING_REQUESTS_CHANNEL = 'pairing-approval:get-pendin
 export const RESPOND_TO_PAIRING_REQUEST_CHANNEL = 'pairing-approval:respond';
 export const OPEN_SETTINGS_WINDOW_CHANNEL = 'settings:open-window';
 export const APP_WINDOW_MINIMIZE_CHANNEL = 'app-window:minimize';
-export const APP_WINDOW_TOGGLE_MAXIMIZE_CHANNEL = 'app-window:toggle-maximize';
 export const APP_WINDOW_CLOSE_CHANNEL = 'app-window:close';
 export const GET_SYSTEM_STARTUP_SETTINGS_CHANNEL = 'system-startup:get-settings';
 export const SET_START_WITH_SYSTEM_CHANNEL = 'system-startup:set-start-with-system';

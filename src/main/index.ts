@@ -73,6 +73,7 @@ function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
     backgroundColor: shellBackgroundColor(),
     show: false,
     titleBarStyle: 'hidden',
+    maximizable: false,
     ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -130,6 +131,8 @@ function createSettingsWindow(): BrowserWindow {
     backgroundColor: shellBackgroundColor(),
     show: false,
     titleBarStyle: 'hidden',
+    minimizable: false,
+    maximizable: false,
     ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
