@@ -7,6 +7,7 @@ import { ControlService } from './control/control-service';
 import { CursorOverlay } from './cursor-overlay';
 import { registerCursorOverlayIpc } from './cursor-overlay-ipc';
 import { JsonCursorOverlaySettingsStore } from './cursor-overlay-settings-store';
+import { registerAppWindowIpc } from './app-window-ipc';
 import { DesktopCommandExecutor } from './input/command-executor';
 import { LibnutWin32InputAdapter } from './input/libnut-win32-adapter';
 import { createPointerMovementProfile } from './input/pointer-profile';
@@ -46,18 +47,6 @@ function shellBackgroundColor(): string {
   return nativeTheme.shouldUseDarkColors ? '#161518' : '#f5f4f7';
 }
 
-function titleBarOverlayOptions():
-  | { color: string; symbolColor: string; height: number }
-  | undefined {
-  if (process.platform === 'darwin') return undefined;
-
-  return {
-    color: shellBackgroundColor(),
-    symbolColor: nativeTheme.shouldUseDarkColors ? '#e6e1e5' : '#1c1b1f',
-    height: 44
-  };
-}
-
 function appIconPath(): string | undefined {
   if (process.platform === 'darwin') return undefined;
 
@@ -74,7 +63,6 @@ type MainWindowOptions = {
 
 function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
   const showOnReady = options.showOnReady ?? true;
-  const overlayOptions = titleBarOverlayOptions();
   const iconPath = appIconPath();
   const window = new BrowserWindow({
     width: 920,
@@ -85,7 +73,6 @@ function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
     backgroundColor: shellBackgroundColor(),
     show: false,
     titleBarStyle: 'hidden',
-    ...(overlayOptions ? { titleBarOverlay: overlayOptions } : {}),
     ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -116,10 +103,6 @@ function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
   const applyThemeBackground = (): void => {
     if (!window.isDestroyed()) {
       window.setBackgroundColor(shellBackgroundColor());
-      const overlayOptions = titleBarOverlayOptions();
-      if (overlayOptions) {
-        window.setTitleBarOverlay?.(overlayOptions);
-      }
     }
   };
   nativeTheme.on('updated', applyThemeBackground);
@@ -137,7 +120,6 @@ function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
 }
 
 function createSettingsWindow(): BrowserWindow {
-  const overlayOptions = titleBarOverlayOptions();
   const iconPath = appIconPath();
   const window = new BrowserWindow({
     width: 820,
@@ -148,7 +130,6 @@ function createSettingsWindow(): BrowserWindow {
     backgroundColor: shellBackgroundColor(),
     show: false,
     titleBarStyle: 'hidden',
-    ...(overlayOptions ? { titleBarOverlay: overlayOptions } : {}),
     ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -177,10 +158,6 @@ function createSettingsWindow(): BrowserWindow {
   const applyThemeBackground = (): void => {
     if (!window.isDestroyed()) {
       window.setBackgroundColor(shellBackgroundColor());
-      const overlayOptions = titleBarOverlayOptions();
-      if (overlayOptions) {
-        window.setTitleBarOverlay?.(overlayOptions);
-      }
     }
   };
   nativeTheme.on('updated', applyThemeBackground);
@@ -300,6 +277,7 @@ app.whenReady().then(() => {
   registerCursorOverlayIpc(cursorOverlay, cursorOverlaySettingsStore);
   registerPairingApprovalIpc(controlService);
   registerSettingsWindowIpc(showSettingsWindow);
+  registerAppWindowIpc();
   registerSystemStartupIpc(systemStartup);
   registerUpdateIpc(
     new UpdateService({

@@ -1,5 +1,6 @@
 import type { ReactElement, ReactNode } from 'react';
 import type { DesktopUiState } from '../../shared/desktop-ui-state';
+import { Tooltip } from './Tooltip';
 
 export function WindowChrome({
   title,
@@ -42,6 +43,38 @@ export function WindowTitleBar({
           </span>
         ) : null}
         {!state && subtitle ? <span className="window-titlebar-status">{subtitle}</span> : null}
+      </div>
+      <div className="window-titlebar-controls" aria-label="Window controls">
+        <Tooltip label="Minimize" placement="bottom">
+          <button
+            type="button"
+            className="window-titlebar-control"
+            aria-label="Minimize"
+            onClick={() => void window.switchifyPc.minimizeWindow()}
+          >
+            <span className="window-control-icon window-control-icon-minimize" aria-hidden="true" />
+          </button>
+        </Tooltip>
+        <Tooltip label="Maximize or restore" placement="bottom">
+          <button
+            type="button"
+            className="window-titlebar-control"
+            aria-label="Maximize or restore"
+            onClick={() => void window.switchifyPc.toggleMaximizeWindow()}
+          >
+            <span className="window-control-icon window-control-icon-maximize" aria-hidden="true" />
+          </button>
+        </Tooltip>
+        <Tooltip label="Close" placement="bottom">
+          <button
+            type="button"
+            className="window-titlebar-control window-titlebar-control-close"
+            aria-label="Close"
+            onClick={() => void window.switchifyPc.closeWindow()}
+          >
+            <span className="window-control-icon window-control-icon-close" aria-hidden="true" />
+          </button>
+        </Tooltip>
       </div>
     </header>
   );

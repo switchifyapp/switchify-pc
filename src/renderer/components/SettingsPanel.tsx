@@ -12,6 +12,7 @@ import type { UpdateState } from '../../shared/update';
 import { formatBluetoothStatus } from '../bluetooth-status';
 import type { ConnectedDeviceView } from '../connected-devices';
 import { formatTimestamp } from '../format';
+import { Tooltip } from './Tooltip';
 import { UpdatesPanel } from './UpdatesPanel';
 
 type SettingsViewProps = {
@@ -292,17 +293,17 @@ function ColorSwatches({
   return (
     <div className="color-swatch-row" role="group" aria-label="Cursor overlay color">
       {Object.entries(CURSOR_OVERLAY_COLORS).map(([color, preset]) => (
-        <button
-          key={color}
-          type="button"
-          className={`color-swatch${value === color ? ' selected' : ''}`}
-          style={{ backgroundColor: preset.hex }}
-          disabled={disabled}
-          aria-label={`Use ${preset.label.toLowerCase()} cursor overlay color`}
-          aria-pressed={value === color}
-          title={preset.label}
-          onClick={() => onChange(color as CursorOverlayColor)}
-        />
+        <Tooltip key={color} label={preset.label}>
+          <button
+            type="button"
+            className={`color-swatch${value === color ? ' selected' : ''}`}
+            style={{ backgroundColor: preset.hex }}
+            disabled={disabled}
+            aria-label={`Use ${preset.label.toLowerCase()} cursor overlay color`}
+            aria-pressed={value === color}
+            onClick={() => onChange(color as CursorOverlayColor)}
+          />
+        </Tooltip>
       ))}
     </div>
   );
