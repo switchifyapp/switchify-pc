@@ -25,6 +25,7 @@ declare global {
       getCursorOverlaySettings: () => Promise<CursorOverlaySettings>;
       setCursorOverlaySettings: (settings: CursorOverlaySettings) => Promise<CursorOverlaySettings>;
       openSettingsWindow: () => Promise<void>;
+      openExternalUrl: (url: string) => Promise<{ ok: boolean }>;
       getPendingPairingRequests: () => Promise<PendingPairingApprovalView[]>;
       respondToPairingRequest: (
         requestId: string,
