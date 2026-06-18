@@ -108,10 +108,11 @@ jobs:
           }
 
           $releaseExists = $true
-          gh release view $env:RELEASE_TAG *> $null
+          gh release view $env:RELEASE_TAG 1>$null 2>$null
           if ($LASTEXITCODE -ne 0) {
             $releaseExists = $false
           }
+          $global:LASTEXITCODE = 0
 
           if ($releaseExists) {
             gh release upload $env:RELEASE_TAG @assets --clobber
