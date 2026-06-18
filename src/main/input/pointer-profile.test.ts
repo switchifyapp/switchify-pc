@@ -21,6 +21,9 @@ describe('createPointerMovementProfile', () => {
         small: 32,
         medium: 85,
         large: 187
+      },
+      capabilities: {
+        noAckMouseMove: true
       }
     });
   });

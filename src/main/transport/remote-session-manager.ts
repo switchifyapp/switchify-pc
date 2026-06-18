@@ -4,6 +4,7 @@ import {
   createPairingCompleteResponse,
   createPointerProfileResponse,
   parseProtocolRequest,
+  type CommandResponseMode,
   type CommandRequest,
   type PairingApprovalRequest,
   type PointerMovementProfile
@@ -182,6 +183,9 @@ export class RemoteSessionManager {
     const commandResult = await this.executeCommand(authResult.command);
     if (!commandResult.ok) {
       this.options.onError?.(commandResult.message);
+      if (shouldSuppressAck(authResult.command)) {
+        return;
+      }
       await sendResponse(
         connection,
         createErrorResponse(message.id, toProtocolCommandErrorCode(commandResult.code), commandResult.message)
@@ -191,6 +195,9 @@ export class RemoteSessionManager {
 
     this.markConnectionSeen(connection.id, authResult.command.deviceId);
     this.markLastSeen(Date.now());
+    if (shouldSuppressAck(authResult.command)) {
+      return;
+    }
     await sendResponse(connection, createAckResponse(message.id));
   }
 
@@ -289,4 +296,12 @@ export class RemoteSessionManager {
   private notifyClientStatusChanged(): void {
     this.options.onClientStatusChange?.();
   }
+}
+
+function commandResponseMode(command: CommandRequest): CommandResponseMode {
+  return command.responseMode ?? 'ack';
+}
+
+function shouldSuppressAck(command: CommandRequest): boolean {
+  return command.type === 'mouse.move' && commandResponseMode(command) === 'none';
 }

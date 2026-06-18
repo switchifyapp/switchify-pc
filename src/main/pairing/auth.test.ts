@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PingCommand } from '../../shared/protocol';
+import type { MouseMoveCommand, PingCommand } from '../../shared/protocol';
 import { PROTOCOL_VERSION } from '../../shared/protocol';
 import { createCommandAuthProof, CommandAuthValidator, COMMAND_TIMESTAMP_TOLERANCE_MS } from './auth';
 import { MemoryPairingStore } from './pairing-store';
@@ -70,6 +70,31 @@ describe('CommandAuthValidator', () => {
     expect((await store.load()).pairedDevices[0].lastSeenAt).toBeNull();
   });
 
+  it('canonicalizes missing response mode as ack', () => {
+    const implicitAck = createCommand();
+    const explicitAck = createCommand({ responseMode: 'ack' });
+
+    expect(createCommandAuthProof(implicitAck, token)).toBe(createCommandAuthProof(explicitAck, token));
+  });
+
+  it('includes no-response mode in command auth proofs', async () => {
+    const ackMove = createMouseMoveCommand();
+    const noAckMove = createMouseMoveCommand({ responseMode: 'none' });
+
+    expect(createCommandAuthProof(noAckMove, token)).not.toBe(createCommandAuthProof(ackMove, token));
+  });
+
+  it('rejects response mode tampering after signing', async () => {
+    const store = createStore();
+    const validator = new CommandAuthValidator(store, () => now);
+    const command = createMouseMoveCommand();
+
+    await expect(validator.validate({ ...command, responseMode: 'none' })).resolves.toEqual({
+      ok: false,
+      reason: 'invalid_auth'
+    });
+  });
+
   it('rejects expired timestamps', async () => {
     const store = createStore();
     const validator = new CommandAuthValidator(store, () => now);
@@ -109,3 +134,21 @@ describe('CommandAuthValidator', () => {
     });
   });
 });
+
+function createMouseMoveCommand(overrides: Partial<MouseMoveCommand> = {}): MouseMoveCommand {
+  const command = {
+    version: PROTOCOL_VERSION,
+    id: 'move-1',
+    deviceId: 'android-1',
+    timestamp: now,
+    type: 'mouse.move',
+    payload: { dx: 12, dy: -6 },
+    auth: ''
+  } satisfies MouseMoveCommand;
+
+  const merged = { ...command, ...overrides } as MouseMoveCommand;
+  return {
+    ...merged,
+    auth: overrides.auth ?? createCommandAuthProof(merged, token)
+  };
+}

@@ -45,6 +45,49 @@ describe('protocol request validation', () => {
     }
   });
 
+  it('accepts no-response mode only for mouse movement', () => {
+    expect(
+      validateProtocolRequest({
+        ...baseCommand,
+        type: 'mouse.move',
+        payload: { dx: 12, dy: -6 },
+        responseMode: 'none'
+      })
+    ).toMatchObject({ ok: true });
+    expect(
+      validateProtocolRequest({
+        ...baseCommand,
+        type: 'mouse.move',
+        payload: { dx: 12, dy: -6 },
+        responseMode: 'ack'
+      })
+    ).toMatchObject({ ok: true });
+    expect(
+      validateProtocolRequest({
+        ...baseCommand,
+        type: 'mouse.scroll',
+        payload: { dx: 0, dy: -3 },
+        responseMode: 'none'
+      })
+    ).toMatchObject({ ok: false, error: 'invalid_payload' });
+    expect(
+      validateProtocolRequest({
+        ...baseCommand,
+        type: 'keyboard.key',
+        payload: { key: 'Enter' },
+        responseMode: 'none'
+      })
+    ).toMatchObject({ ok: false, error: 'invalid_payload' });
+    expect(
+      validateProtocolRequest({
+        ...baseCommand,
+        type: 'mouse.move',
+        payload: { dx: 12, dy: -6 },
+        responseMode: 'eventually'
+      })
+    ).toMatchObject({ ok: false, error: 'invalid_payload' });
+  });
+
   it('accepts pairing approval requests without command auth fields', () => {
     expect(
       validateProtocolRequest({
@@ -262,9 +305,13 @@ describe('protocol response validation', () => {
         small: 50,
         medium: 130,
         large: 252
+      },
+      capabilities: {
+        noAckMouseMove: true
       }
     });
 
+    expect(response.payload.capabilities.noAckMouseMove).toBe(true);
     expect(validateProtocolResponse(response)).toMatchObject({ ok: true });
   });
 

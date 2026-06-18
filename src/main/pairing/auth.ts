@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { CommandRequest } from '../../shared/protocol';
+import type { CommandRequest, CommandResponseMode } from '../../shared/protocol';
 import { validateProtocolRequest } from '../../shared/protocol';
 import type { PairingStore } from './pairing-store';
 import { findPairedDevice } from './pairing-store';
@@ -70,8 +70,13 @@ function canonicalCommandString(command: CommandRequest): string {
     command.deviceId,
     command.timestamp,
     command.type,
-    stableStringify(command.payload)
+    stableStringify(command.payload),
+    commandResponseMode(command)
   ].join('\n');
+}
+
+function commandResponseMode(command: CommandRequest): CommandResponseMode {
+  return command.responseMode ?? 'ack';
 }
 
 function stableStringify(value: unknown): string {
