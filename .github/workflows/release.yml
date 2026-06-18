@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Resolve release tag
-        shell: pwsh
+        shell: powershell
         run: |
           $tag = '${{ github.ref_name }}'
           if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
@@ -61,7 +61,7 @@ jobs:
         run: npm test
 
       - name: Verify Certum signing certificate
-        shell: pwsh
+        shell: powershell
         run: |
           $thumbprint = '${{ vars.CERTUM_CERT_THUMBPRINT }}' -replace '[^a-fA-F0-9]', ''
           if (-not $thumbprint) {
@@ -89,7 +89,7 @@ jobs:
         run: npm run package:win
 
       - name: Verify release tag matches package version
-        shell: pwsh
+        shell: powershell
         run: |
           $package = Get-Content package.json | ConvertFrom-Json
           $expectedTag = "v$($package.version)"
@@ -98,7 +98,7 @@ jobs:
           }
 
       - name: Publish GitHub release
-        shell: pwsh
+        shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
