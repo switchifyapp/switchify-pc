@@ -5,6 +5,7 @@ import {
   createPairingCompleteResponse,
   createPointerProfileResponse,
   MAX_POINTER_DELTA,
+  NO_ACK_CONTROL_COMMAND_TYPES,
   parseProtocolRequest,
   PROTOCOL_VERSION,
   validateProtocolRequest,
@@ -45,15 +46,33 @@ describe('protocol request validation', () => {
     }
   });
 
-  it('accepts no-response mode only for mouse movement', () => {
-    expect(
-      validateProtocolRequest({
-        ...baseCommand,
-        type: 'mouse.move',
-        payload: { dx: 12, dy: -6 },
-        responseMode: 'none'
-      })
-    ).toMatchObject({ ok: true });
+  it('accepts no-response mode only for user control commands', () => {
+    const payloads = {
+      'mouse.move': { dx: 12, dy: -6 },
+      'mouse.click': { button: 'left' },
+      'mouse.doubleClick': { button: 'middle' },
+      'mouse.rightClick': {},
+      'mouse.scroll': { dx: 0, dy: -3 },
+      'mouse.dragStart': { button: 'left' },
+      'mouse.dragEnd': { button: 'left' },
+      'keyboard.key': { key: 'Enter' },
+      'keyboard.shortcut': { keys: ['Ctrl', 'C'] },
+      'keyboard.typeText': { text: 'Hello' },
+      'media.control': { action: 'playPause' },
+      'window.control': { action: 'switchNext' }
+    };
+
+    for (const type of NO_ACK_CONTROL_COMMAND_TYPES) {
+      expect(
+        validateProtocolRequest({
+          ...baseCommand,
+          type,
+          payload: payloads[type],
+          responseMode: 'none'
+        })
+      ).toMatchObject({ ok: true });
+    }
+
     expect(
       validateProtocolRequest({
         ...baseCommand,
@@ -62,22 +81,16 @@ describe('protocol request validation', () => {
         responseMode: 'ack'
       })
     ).toMatchObject({ ok: true });
-    expect(
-      validateProtocolRequest({
-        ...baseCommand,
-        type: 'mouse.scroll',
-        payload: { dx: 0, dy: -3 },
-        responseMode: 'none'
-      })
-    ).toMatchObject({ ok: false, error: 'invalid_payload' });
-    expect(
-      validateProtocolRequest({
-        ...baseCommand,
-        type: 'keyboard.key',
-        payload: { key: 'Enter' },
-        responseMode: 'none'
-      })
-    ).toMatchObject({ ok: false, error: 'invalid_payload' });
+    for (const command of [
+      { type: 'connection.ping', payload: {} },
+      { type: 'connection.disconnecting', payload: {} },
+      { type: 'pointer.profile', payload: {} }
+    ]) {
+      expect(validateProtocolRequest({ ...baseCommand, ...command, responseMode: 'none' })).toMatchObject({
+        ok: false,
+        error: 'invalid_payload'
+      });
+    }
     expect(
       validateProtocolRequest({
         ...baseCommand,
@@ -307,12 +320,42 @@ describe('protocol response validation', () => {
         large: 252
       },
       capabilities: {
-        noAckMouseMove: true
+        noAckMouseMove: true,
+        noAckCommands: [...NO_ACK_CONTROL_COMMAND_TYPES]
       }
     });
 
     expect(response.payload.capabilities.noAckMouseMove).toBe(true);
+    expect(response.payload.capabilities.noAckCommands).toEqual([...NO_ACK_CONTROL_COMMAND_TYPES]);
     expect(validateProtocolResponse(response)).toMatchObject({ ok: true });
+  });
+
+  it('accepts backward-compatible pointer profile capabilities', () => {
+    const baseProfile = {
+      version: PROTOCOL_VERSION,
+      id: 'profile-1',
+      type: 'pointer.profile',
+      ok: true,
+      payload: {
+        displayId: '0:0:1280:720:1.5',
+        scaleFactor: 1.5,
+        bounds: { x: 0, y: 0, width: 1280, height: 720 },
+        maxDelta: MAX_POINTER_DELTA,
+        recommendedDeltas: { small: 50, medium: 130, large: 252 }
+      },
+      error: null
+    };
+
+    expect(validateProtocolResponse(baseProfile)).toMatchObject({ ok: true });
+    expect(
+      validateProtocolResponse({
+        ...baseProfile,
+        payload: {
+          ...baseProfile.payload,
+          capabilities: { noAckMouseMove: true }
+        }
+      })
+    ).toMatchObject({ ok: true });
   });
 
   it('rejects malformed pointer profile responses', () => {

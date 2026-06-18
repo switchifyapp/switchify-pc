@@ -1,4 +1,4 @@
-import { MAX_POINTER_DELTA, type PointerMovementProfile } from '../../shared/protocol';
+import { MAX_POINTER_DELTA, NO_ACK_CONTROL_COMMAND_TYPES, type PointerMovementProfile } from '../../shared/protocol';
 
 type Point = { x: number; y: number };
 type Bounds = { x: number; y: number; width: number; height: number };
@@ -33,7 +33,8 @@ export function createPointerMovementProfile(input: {
       large: toLogicalDelta(TARGET_NATIVE_DELTAS.large, scaleFactor, maxDelta)
     },
     capabilities: {
-      noAckMouseMove: true
+      noAckMouseMove: true,
+      noAckCommands: [...NO_ACK_CONTROL_COMMAND_TYPES]
     }
   };
 }
