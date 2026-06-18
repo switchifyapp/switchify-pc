@@ -108,8 +108,11 @@ jobs:
           }
 
           $releaseExists = $true
+          $ErrorActionPreference = 'Continue'
           gh release view $env:RELEASE_TAG 1>$null 2>$null
-          if ($LASTEXITCODE -ne 0) {
+          $releaseViewExitCode = $LASTEXITCODE
+          $ErrorActionPreference = 'Stop'
+          if ($releaseViewExitCode -ne 0) {
             $releaseExists = $false
           }
           $global:LASTEXITCODE = 0
