@@ -1,4 +1,5 @@
-import { app, BrowserWindow, nativeTheme, screen, shell } from 'electron';
+import { app, BrowserWindow, nativeTheme, screen } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_BLUETOOTH_STATUS } from '../shared/bluetooth-status';
@@ -285,8 +286,9 @@ app.whenReady().then(() => {
   registerUpdateIpc(
     new UpdateService({
       currentVersion: app.getVersion(),
-      downloadsPath: app.getPath('downloads'),
-      showItemInFolder: (filePath) => shell.showItemInFolder(filePath)
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      autoUpdater
     })
   );
   void bluetoothTransport.start();

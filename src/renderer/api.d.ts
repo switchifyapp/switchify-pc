@@ -35,7 +35,7 @@ declare global {
       downloadUpdate: () => Promise<UpdateState>;
       getSystemStartupSettings: () => Promise<SystemStartupSettings>;
       setStartWithSystem: (enabled: boolean) => Promise<SystemStartupSettings>;
-      showDownloadedUpdate: () => Promise<{ ok: boolean; reason?: string }>;
+      installDownloadedUpdate: () => Promise<{ ok: boolean; reason?: string }>;
     };
   }
 }

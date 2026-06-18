@@ -16,4 +16,4 @@ export const SET_START_WITH_SYSTEM_CHANNEL = 'system-startup:set-start-with-syst
 export const GET_UPDATE_STATE_CHANNEL = 'updates:get-state';
 export const CHECK_FOR_UPDATES_CHANNEL = 'updates:check';
 export const DOWNLOAD_UPDATE_CHANNEL = 'updates:download';
-export const SHOW_DOWNLOADED_UPDATE_CHANNEL = 'updates:show-downloaded';
+export const INSTALL_DOWNLOADED_UPDATE_CHANNEL = 'updates:install-downloaded';

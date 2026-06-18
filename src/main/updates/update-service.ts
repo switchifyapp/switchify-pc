@@ -1,77 +1,53 @@
-import { createWriteStream, existsSync } from 'node:fs';
-import { mkdir, rename, unlink } from 'node:fs/promises';
-import { basename, join } from 'node:path';
-import { once } from 'node:events';
+import { autoUpdater as defaultAutoUpdater } from 'electron-updater';
+import type { UpdateInfo as ElectronUpdateInfo, UpdateCheckResult } from 'electron-updater';
 import type { UpdateDownloadProgress, UpdateInfo, UpdateState } from '../../shared/update';
 import { createInitialUpdateState } from '../../shared/update';
-import { compareVersions, normalizeVersion } from './version';
 
-const LATEST_RELEASE_URL = 'https://api.github.com/repos/switchifyapp/switchify-pc/releases/latest';
-
-type GitHubReleaseAsset = {
-  name: string;
-  browser_download_url: string;
+type ElectronDownloadProgress = {
+  transferred?: number;
+  total?: number;
+  percent?: number;
 };
 
-type GitHubRelease = {
-  tag_name: string;
-  name: string | null;
-  html_url: string;
-  draft: boolean;
-  prerelease: boolean;
-  assets: GitHubReleaseAsset[];
-};
-
-type ReleaseFetchResult = {
-  status: number;
-  release: unknown;
-};
-
-type InstallerAsset = {
-  name: string;
-  url: string;
-};
-
-type DownloadProgress = {
-  downloadedBytes: number;
-  totalBytes: number | null;
+export type ElectronUpdaterAdapter = {
+  autoDownload: boolean;
+  autoInstallOnAppQuit: boolean;
+  checkForUpdates(): Promise<UpdateCheckResult | null>;
+  downloadUpdate(): Promise<Array<string>>;
+  quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void;
+  on(event: string, listener: (...args: unknown[]) => void): void;
 };
 
 export type UpdateServiceOptions = {
   currentVersion: string;
-  downloadsPath: string;
-  fetchLatestRelease?: () => Promise<ReleaseFetchResult>;
-  downloadAsset?: (
-    asset: InstallerAsset,
-    destinationPath: string,
-    onProgress: (progress: DownloadProgress) => void
-  ) => Promise<void>;
-  showItemInFolder?: (filePath: string) => void;
+  isPackaged: boolean;
+  platform: NodeJS.Platform;
+  autoUpdater?: ElectronUpdaterAdapter;
   now?: () => Date;
 };
 
+type UpdateOperation = 'idle' | 'checking' | 'downloading';
+
 export class UpdateService {
-  private readonly downloadsPath: string;
-  private readonly fetchLatestRelease: () => Promise<ReleaseFetchResult>;
-  private readonly downloadAsset: (
-    asset: InstallerAsset,
-    destinationPath: string,
-    onProgress: (progress: DownloadProgress) => void
-  ) => Promise<void>;
-  private readonly showItemInFolder: (filePath: string) => void;
+  private readonly isPackaged: boolean;
+  private readonly platform: NodeJS.Platform;
+  private readonly autoUpdater: ElectronUpdaterAdapter;
   private readonly now: () => Date;
   private state: UpdateState;
-  private latestAsset: InstallerAsset | null = null;
+  private operation: UpdateOperation = 'idle';
   private checkingPromise: Promise<UpdateState> | null = null;
   private downloadPromise: Promise<UpdateState> | null = null;
 
   constructor(options: UpdateServiceOptions) {
-    this.downloadsPath = options.downloadsPath;
-    this.fetchLatestRelease = options.fetchLatestRelease ?? fetchLatestGitHubRelease;
-    this.downloadAsset = options.downloadAsset ?? downloadAssetToFile;
-    this.showItemInFolder = options.showItemInFolder ?? (() => {});
+    this.isPackaged = options.isPackaged;
+    this.platform = options.platform;
+    this.autoUpdater = options.autoUpdater ?? defaultAutoUpdater;
     this.now = options.now ?? (() => new Date());
     this.state = createInitialUpdateState(options.currentVersion);
+
+    this.autoUpdater.autoDownload = false;
+    this.autoUpdater.autoInstallOnAppQuit = false;
+    this.registerUpdaterEvents();
   }
 
   getState(): UpdateState {
@@ -79,23 +55,40 @@ export class UpdateService {
   }
 
   checkForUpdates(): Promise<UpdateState> {
+    const unsupportedReason = this.unsupportedReason();
+    if (unsupportedReason) {
+      this.state = {
+        ...this.state,
+        info: {
+          ...this.state.info,
+          checkedAt: this.now().toISOString(),
+          status: 'check_failed',
+          reason: unsupportedReason
+        },
+        download: createIdleDownload()
+      };
+      return Promise.resolve(this.getState());
+    }
+
     if (this.checkingPromise) return Promise.resolve(this.getState());
 
-    this.latestAsset = null;
+    this.operation = 'checking';
     this.state = {
       info: {
         ...this.state.info,
         latestVersion: null,
         releaseName: null,
-        releaseUrl: null,
-        installerAssetName: null,
+        releaseNotes: null,
+        checkedAt: null,
         status: 'checking',
         reason: undefined
       },
       download: createIdleDownload()
     };
 
-    this.checkingPromise = this.runCheck()
+    this.checkingPromise = this.autoUpdater
+      .checkForUpdates()
+      .then(() => this.getState())
       .catch((error) => {
         console.error('Switchify update check failed.', error);
         this.state = {
@@ -110,6 +103,7 @@ export class UpdateService {
         return this.getState();
       })
       .finally(() => {
+        this.operation = 'idle';
         this.checkingPromise = null;
       });
 
@@ -117,10 +111,22 @@ export class UpdateService {
   }
 
   async downloadUpdate(): Promise<UpdateState> {
+    const unsupportedReason = this.unsupportedReason();
+    if (unsupportedReason) {
+      this.state = {
+        ...this.state,
+        download: {
+          ...createIdleDownload(),
+          status: 'download_failed',
+          reason: unsupportedReason
+        }
+      };
+      return this.getState();
+    }
+
     if (this.downloadPromise) return this.getState();
 
-    const asset = this.latestAsset;
-    if (!asset || this.state.info.status !== 'update_available') {
+    if (this.state.info.status !== 'update_available') {
       this.state = {
         ...this.state,
         download: {
@@ -132,224 +138,182 @@ export class UpdateService {
       return this.getState();
     }
 
+    this.operation = 'downloading';
     this.state = {
       ...this.state,
       download: {
         status: 'downloading',
         downloadedBytes: 0,
         totalBytes: null,
-        percent: null,
-        filePath: null
+        percent: null
       }
     };
 
-    this.downloadPromise = this.runDownload(asset).finally(() => {
-      this.downloadPromise = null;
-    });
-    return this.downloadPromise;
-  }
-
-  showDownloadedUpdate(): { ok: boolean; reason?: string } {
-    const filePath = this.state.download.filePath;
-    if (!filePath || this.state.download.status !== 'downloaded') {
-      return { ok: false, reason: 'not_downloaded' };
-    }
-
-    this.showItemInFolder(filePath);
-    return { ok: true };
-  }
-
-  private async runCheck(): Promise<UpdateState> {
-    const result = await this.fetchLatestRelease();
-
-    if (result.status === 404) {
-      this.state = {
-        ...this.state,
-        info: {
-          ...this.state.info,
-          checkedAt: this.now().toISOString(),
-          status: 'no_release',
-          reason: 'no_release'
-        }
-      };
-      return this.getState();
-    }
-
-    if (result.status !== 200 || !isGitHubRelease(result.release)) {
-      this.state = {
-        ...this.state,
-        info: {
-          ...this.state.info,
-          checkedAt: this.now().toISOString(),
-          status: 'check_failed',
-          reason: result.status === 200 ? 'invalid_release' : 'network_error'
-        }
-      };
-      return this.getState();
-    }
-
-    const release = result.release;
-    if (release.draft || release.prerelease) {
-      this.state = {
-        ...this.state,
-        info: {
-          ...this.state.info,
-          checkedAt: this.now().toISOString(),
-          status: 'check_failed',
-          reason: 'invalid_release'
-        }
-      };
-      return this.getState();
-    }
-
-    const latestVersion = normalizeVersion(release.tag_name);
-    const comparison = compareVersions(release.tag_name, this.state.info.currentVersion);
-    if (!latestVersion || comparison === null) {
-      this.state = {
-        ...this.state,
-        info: releaseInfo(this.state.info, release, latestVersion, {
-          checkedAt: this.now().toISOString(),
-          status: 'check_failed',
-          reason: 'invalid_version'
-        })
-      };
-      return this.getState();
-    }
-
-    if (comparison <= 0) {
-      this.state = {
-        ...this.state,
-        info: releaseInfo(this.state.info, release, latestVersion, {
-          checkedAt: this.now().toISOString(),
-          status: 'up_to_date',
-          reason: undefined
-        })
-      };
-      return this.getState();
-    }
-
-    const asset = selectInstallerAsset(release.assets, latestVersion);
-    if (!asset) {
-      this.state = {
-        ...this.state,
-        info: releaseInfo(this.state.info, release, latestVersion, {
-          checkedAt: this.now().toISOString(),
-          status: 'check_failed',
-          reason: 'installer_missing'
-        })
-      };
-      return this.getState();
-    }
-
-    this.latestAsset = {
-      name: asset.name,
-      url: asset.browser_download_url
-    };
-    this.state = {
-      ...this.state,
-      info: releaseInfo(this.state.info, release, latestVersion, {
-        checkedAt: this.now().toISOString(),
-        installerAssetName: asset.name,
-        status: 'update_available',
-        reason: undefined
-      })
-    };
-    return this.getState();
-  }
-
-  private async runDownload(asset: InstallerAsset): Promise<UpdateState> {
-    await mkdir(this.downloadsPath, { recursive: true });
-    const destinationPath = resolveAvailableDownloadPath(this.downloadsPath, asset.name);
-    const partialPath = `${destinationPath}.download`;
-
-    try {
-      if (existsSync(partialPath)) {
-        await unlink(partialPath);
-      }
-
-      await this.downloadAsset(asset, partialPath, (progress) => {
+    this.downloadPromise = this.autoUpdater
+      .downloadUpdate()
+      .then(() => this.getState())
+      .catch((error) => {
+        console.error('Switchify update download failed.', error);
         this.state = {
           ...this.state,
           download: {
-            status: 'downloading',
-            downloadedBytes: progress.downloadedBytes,
-            totalBytes: progress.totalBytes,
-            percent:
-              progress.totalBytes && progress.totalBytes > 0
-                ? Math.min(100, Math.round((progress.downloadedBytes / progress.totalBytes) * 100))
-                : null,
-            filePath: null
+            ...this.state.download,
+            status: 'download_failed',
+            reason: 'network_error'
           }
         };
+        return this.getState();
+      })
+      .finally(() => {
+        this.operation = 'idle';
+        this.downloadPromise = null;
       });
-      await rename(partialPath, destinationPath);
+
+    return this.downloadPromise;
+  }
+
+  installDownloadedUpdate(): { ok: boolean; reason?: string } {
+    const unsupportedReason = this.unsupportedReason();
+    if (unsupportedReason) {
+      return { ok: false, reason: unsupportedReason };
+    }
+
+    if (this.state.download.status !== 'downloaded') {
+      return { ok: false, reason: 'not_downloaded' };
+    }
+
+    this.autoUpdater.quitAndInstall(false, true);
+    return { ok: true };
+  }
+
+  private registerUpdaterEvents(): void {
+    this.autoUpdater.on('update-available', (rawInfo) => {
+      const info = rawInfo as ElectronUpdateInfo;
+      this.state = {
+        info: updateInfo(this.state.info, info, {
+          checkedAt: this.now().toISOString(),
+          status: 'update_available',
+          reason: undefined
+        }),
+        download: createIdleDownload()
+      };
+    });
+
+    this.autoUpdater.on('update-not-available', (rawInfo) => {
+      const info = rawInfo as ElectronUpdateInfo;
       this.state = {
         ...this.state,
+        info: updateInfo(this.state.info, info, {
+          checkedAt: this.now().toISOString(),
+          latestVersion: info.version || this.state.info.currentVersion,
+          status: 'up_to_date',
+          reason: undefined
+        }),
+        download: createIdleDownload()
+      };
+    });
+
+    this.autoUpdater.on('download-progress', (rawProgress) => {
+      const progress = rawProgress as ElectronDownloadProgress;
+      const downloadedBytes = Number.isFinite(progress.transferred) ? Number(progress.transferred) : 0;
+      const totalBytes = Number.isFinite(progress.total) && Number(progress.total) > 0 ? Number(progress.total) : null;
+      const percent =
+        Number.isFinite(progress.percent) && Number(progress.percent) >= 0
+          ? Math.min(100, Math.round(Number(progress.percent)))
+          : totalBytes
+            ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100))
+            : null;
+
+      this.state = {
+        ...this.state,
+        download: {
+          status: 'downloading',
+          downloadedBytes,
+          totalBytes,
+          percent
+        }
+      };
+    });
+
+    this.autoUpdater.on('update-downloaded', (rawInfo) => {
+      const info = rawInfo as ElectronUpdateInfo;
+      this.state = {
+        ...this.state,
+        info: updateInfo(this.state.info, info),
         download: {
           status: 'downloaded',
           downloadedBytes: this.state.download.downloadedBytes,
           totalBytes: this.state.download.totalBytes,
-          percent: this.state.download.totalBytes ? 100 : this.state.download.percent,
-          filePath: destinationPath
+          percent: 100
         }
       };
-    } catch (error) {
-      console.error('Switchify update download failed.', error);
-      await unlinkIfExists(partialPath);
+    });
+
+    this.autoUpdater.on('error', (error) => {
+      console.error('Switchify updater error.', error);
+      if (this.operation === 'downloading') {
+        this.state = {
+          ...this.state,
+          download: {
+            ...this.state.download,
+            status: 'download_failed',
+            reason: 'network_error'
+          }
+        };
+        return;
+      }
+
       this.state = {
         ...this.state,
-        download: {
-          status: 'download_failed',
-          downloadedBytes: this.state.download.downloadedBytes,
-          totalBytes: this.state.download.totalBytes,
-          percent: this.state.download.percent,
-          filePath: null,
-          reason: toDownloadFailureReason(error)
+        info: {
+          ...this.state.info,
+          checkedAt: this.now().toISOString(),
+          status: 'check_failed',
+          reason: 'network_error'
         }
       };
-    }
+    });
+  }
 
-    return this.getState();
+  private unsupportedReason(): 'not_packaged' | 'not_supported' | null {
+    if (!this.isPackaged) return 'not_packaged';
+    if (this.platform !== 'win32') return 'not_supported';
+    return null;
   }
 }
 
-export function selectInstallerAsset(
-  assets: GitHubReleaseAsset[],
-  version: string
-): GitHubReleaseAsset | null {
-  const preferredName = `Switchify-PC-Setup-${version}-x64.exe`.toLowerCase();
-  const preferred = assets.find((asset) => asset.name.toLowerCase() === preferredName);
-  if (preferred) return preferred;
-
-  return (
-    assets.find((asset) => {
-      const name = asset.name.toLowerCase();
-      return (
-        name.endsWith('.exe') &&
-        name.includes('setup') &&
-        name.includes('x64') &&
-        !name.includes('blockmap') &&
-        !name.includes('sha') &&
-        !name.includes('latest')
-      );
-    }) ?? null
-  );
-}
-
-function releaseInfo(
+function updateInfo(
   previous: UpdateInfo,
-  release: GitHubRelease,
-  latestVersion: string | null,
-  patch: Partial<UpdateInfo>
+  info: ElectronUpdateInfo,
+  patch: Partial<UpdateInfo> = {}
 ): UpdateInfo {
   return {
     ...previous,
-    latestVersion,
-    releaseName: release.name,
-    releaseUrl: release.html_url,
-    installerAssetName: null,
+    latestVersion: info.version || previous.latestVersion,
+    releaseName: toNullableString(info.releaseName),
+    releaseNotes: normalizeReleaseNotes(info.releaseNotes),
     ...patch
   };
+}
+
+function normalizeReleaseNotes(notes: unknown): string | null {
+  if (typeof notes === 'string') return notes;
+  if (Array.isArray(notes)) {
+    const text = notes
+      .map((note) => {
+        if (typeof note === 'string') return note;
+        if (note && typeof note === 'object' && 'note' in note && typeof note.note === 'string') return note.note;
+        return null;
+      })
+      .filter(Boolean)
+      .join('\n\n');
+    return text.length > 0 ? text : null;
+  }
+  return null;
+}
+
+function toNullableString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
 }
 
 function createIdleDownload(): UpdateDownloadProgress {
@@ -357,139 +321,8 @@ function createIdleDownload(): UpdateDownloadProgress {
     status: 'idle',
     downloadedBytes: 0,
     totalBytes: null,
-    percent: null,
-    filePath: null
+    percent: null
   };
-}
-
-async function fetchLatestGitHubRelease(): Promise<ReleaseFetchResult> {
-  const response = await fetch(LATEST_RELEASE_URL, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      'User-Agent': 'Switchify-PC'
-    }
-  });
-
-  if (response.status === 404) {
-    return { status: 404, release: null };
-  }
-
-  if (!response.ok) {
-    return { status: response.status, release: null };
-  }
-
-  try {
-    return { status: response.status, release: await response.json() };
-  } catch {
-    return { status: response.status, release: null };
-  }
-}
-
-async function downloadAssetToFile(
-  asset: InstallerAsset,
-  destinationPath: string,
-  onProgress: (progress: DownloadProgress) => void
-): Promise<void> {
-  const response = await fetch(asset.url, {
-    headers: {
-      'User-Agent': 'Switchify-PC'
-    }
-  });
-
-  if (!response.ok || !response.body) {
-    throw createDownloadFailure('network_error');
-  }
-
-  const totalBytesHeader = response.headers.get('content-length');
-  const totalBytes = totalBytesHeader ? Number(totalBytesHeader) : null;
-  const file = createWriteStream(destinationPath, { flags: 'wx' });
-  const reader = response.body.getReader();
-  let downloadedBytes = 0;
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      downloadedBytes += value.byteLength;
-      if (!file.write(value)) {
-        await once(file, 'drain');
-      }
-      onProgress({
-        downloadedBytes,
-        totalBytes: Number.isFinite(totalBytes) ? totalBytes : null
-      });
-    }
-  } catch (error) {
-    file.destroy();
-    throw error;
-  }
-
-  file.end();
-  await once(file, 'finish');
-}
-
-function isGitHubRelease(value: unknown): value is GitHubRelease {
-  if (!value || typeof value !== 'object') return false;
-  const release = value as Partial<GitHubRelease>;
-  return (
-    typeof release.tag_name === 'string' &&
-    (typeof release.name === 'string' || release.name === null) &&
-    typeof release.html_url === 'string' &&
-    typeof release.draft === 'boolean' &&
-    typeof release.prerelease === 'boolean' &&
-    Array.isArray(release.assets) &&
-    release.assets.every(
-      (asset) =>
-        asset &&
-        typeof asset === 'object' &&
-        typeof (asset as Partial<GitHubReleaseAsset>).name === 'string' &&
-        typeof (asset as Partial<GitHubReleaseAsset>).browser_download_url === 'string'
-    )
-  );
-}
-
-function resolveAvailableDownloadPath(downloadsPath: string, assetName: string): string {
-  const sanitizedName = sanitizeFilename(assetName);
-  const extensionIndex = sanitizedName.lastIndexOf('.');
-  const stem = extensionIndex > 0 ? sanitizedName.slice(0, extensionIndex) : sanitizedName;
-  const extension = extensionIndex > 0 ? sanitizedName.slice(extensionIndex) : '';
-  let candidate = join(downloadsPath, sanitizedName);
-  let suffix = 1;
-
-  while (existsSync(candidate) || existsSync(`${candidate}.download`)) {
-    candidate = join(downloadsPath, `${stem} (${suffix})${extension}`);
-    suffix += 1;
-  }
-
-  return candidate;
-}
-
-function sanitizeFilename(assetName: string): string {
-  const name = basename(assetName).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim();
-  return name.length > 0 ? name : 'Switchify-PC-Setup.exe';
-}
-
-function createDownloadFailure(reason: UpdateDownloadProgress['reason']): Error & { reason: UpdateDownloadProgress['reason'] } {
-  const error = new Error(reason);
-  return Object.assign(error, { reason });
-}
-
-function toDownloadFailureReason(error: unknown): UpdateDownloadProgress['reason'] {
-  if (error && typeof error === 'object' && 'reason' in error) {
-    const reason = (error as { reason?: unknown }).reason;
-    if (reason === 'network_error' || reason === 'filesystem_error' || reason === 'installer_missing' || reason === 'not_available') {
-      return reason;
-    }
-  }
-  return 'network_error';
-}
-
-async function unlinkIfExists(filePath: string): Promise<void> {
-  try {
-    await unlink(filePath);
-  } catch {
-    // Ignore cleanup failures for partial downloads.
-  }
 }
 
 function cloneState(state: UpdateState): UpdateState {

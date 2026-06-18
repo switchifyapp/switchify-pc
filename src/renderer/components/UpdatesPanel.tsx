@@ -8,7 +8,7 @@ type UpdatesPanelProps = {
   isDownloading: boolean;
   onCheck: () => Promise<void>;
   onDownload: () => Promise<void>;
-  onShowDownloaded: () => Promise<void>;
+  onInstallDownloaded: () => Promise<void>;
 };
 
 export function UpdatesPanel({
@@ -17,11 +17,11 @@ export function UpdatesPanel({
   isDownloading,
   onCheck,
   onDownload,
-  onShowDownloaded
+  onInstallDownloaded
 }: UpdatesPanelProps): ReactElement {
   const downloadMessage = updateDownloadMessage(state?.download ?? null);
   const showDownloadButton = canDownloadUpdate(state);
-  const showInFolderButton = state?.download.status === 'downloaded';
+  const showInstallButton = state?.download.status === 'downloaded';
 
   return (
     <section className="settings-window-section">
@@ -54,9 +54,9 @@ export function UpdatesPanel({
             {isDownloading ? 'Downloading...' : 'Download update'}
           </button>
         ) : null}
-        {showInFolderButton ? (
-          <button type="button" onClick={() => void onShowDownloaded()}>
-            Show in folder
+        {showInstallButton ? (
+          <button type="button" className="primary-button" onClick={() => void onInstallDownloaded()}>
+            Install update
           </button>
         ) : null}
       </div>

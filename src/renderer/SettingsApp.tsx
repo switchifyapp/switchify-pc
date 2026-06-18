@@ -49,8 +49,7 @@ export function SettingsApp(): ReactElement {
               status: 'downloading',
               downloadedBytes: 0,
               totalBytes: null,
-              percent: null,
-              filePath: null
+              percent: null
             }
           }
         : current
@@ -66,8 +65,8 @@ export function SettingsApp(): ReactElement {
     }
   }, [bridge]);
 
-  const showDownloadedUpdate = useCallback(async (): Promise<void> => {
-    await bridge.showDownloadedUpdate();
+  const installDownloadedUpdate = useCallback(async (): Promise<void> => {
+    await bridge.installDownloadedUpdate();
   }, [bridge]);
 
   const setStartWithSystem = useCallback(
@@ -108,10 +107,10 @@ export function SettingsApp(): ReactElement {
         updateState={updateState}
         isCheckingForUpdates={isCheckingForUpdates}
         isDownloadingUpdate={isDownloadingUpdate}
-        onCheckForUpdates={checkForUpdates}
-        onDownloadUpdate={downloadUpdate}
-        onShowDownloadedUpdate={showDownloadedUpdate}
-      />
+          onCheckForUpdates={checkForUpdates}
+          onDownloadUpdate={downloadUpdate}
+          onInstallDownloadedUpdate={installDownloadedUpdate}
+        />
     </WindowChrome>
   );
 }
