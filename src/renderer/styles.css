@@ -601,6 +601,49 @@ p {
   background: var(--color-status-error);
 }
 
+.android-download-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-m);
+  align-items: center;
+  margin-top: var(--space-l);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-m);
+  background: var(--color-surface-muted);
+  text-align: left;
+}
+
+.android-download-panel img {
+  width: 112px;
+  height: 112px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 6px;
+  background: #ffffff;
+}
+
+.android-download-panel div {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.android-download-panel h2 {
+  font-size: 1.05rem;
+}
+
+.android-download-panel a {
+  width: fit-content;
+  color: var(--brand-secondary);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.android-download-panel a:hover {
+  text-decoration: underline;
+}
+
 .settings-window-shell {
   display: grid;
   align-content: start;
@@ -933,6 +976,16 @@ p {
   .status-badge {
     width: fit-content;
     white-space: normal;
+  }
+
+  .android-download-panel {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .android-download-panel a {
+    justify-self: center;
   }
 
   .detail-item {

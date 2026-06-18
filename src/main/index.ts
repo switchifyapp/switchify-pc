@@ -9,6 +9,7 @@ import { CursorOverlay } from './cursor-overlay';
 import { registerCursorOverlayIpc } from './cursor-overlay-ipc';
 import { JsonCursorOverlaySettingsStore } from './cursor-overlay-settings-store';
 import { registerAppWindowIpc } from './app-window-ipc';
+import { registerExternalUrlIpc } from './external-url-ipc';
 import { DesktopCommandExecutor } from './input/command-executor';
 import { LibnutWin32InputAdapter } from './input/libnut-win32-adapter';
 import { createPointerMovementProfile } from './input/pointer-profile';
@@ -282,6 +283,7 @@ app.whenReady().then(() => {
   registerPairingApprovalIpc(controlService);
   registerSettingsWindowIpc(showSettingsWindow);
   registerAppWindowIpc();
+  registerExternalUrlIpc();
   registerSystemStartupIpc(systemStartup);
   registerUpdateIpc(
     new UpdateService({

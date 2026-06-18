@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { AndroidDownloadPanel } from './components/AndroidDownloadPanel';
 import { PairingApprovalRequests } from './components/PairingApprovalRequests';
 import { PrimaryContent } from './components/PrimaryContent';
 import { StatusHeader } from './components/StatusHeader';
@@ -41,6 +42,10 @@ function MainApp(): ReactElement {
           onDisconnect={status.disconnectClients}
           onRefresh={status.refresh}
         />
+
+        {status.uiState === 'connected' ? null : (
+          <AndroidDownloadPanel onOpenDownload={bridge.openExternalUrl} />
+        )}
 
         <TroubleshootingDetails
           serverStatus={status.serverStatus}
