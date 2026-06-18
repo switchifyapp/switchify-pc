@@ -14,9 +14,8 @@ describe('createSigningArgs', () => {
   });
 
   it('uses an installed certificate thumbprint when no PFX password is available', () => {
+    clearSigningEnv();
     delete process.env.SWITCHIFY_DEV_CERT_PASSWORD;
-    delete process.env.SWITCHIFY_AZURE_SIGNING_DLIB;
-    delete process.env.SWITCHIFY_AZURE_SIGNING_METADATA;
     process.env.SWITCHIFY_DEV_CERT_THUMBPRINT = '24 05 4d 36';
 
     const args = createSigningArgs('C:\\build\\Switchify PC.exe', { requireSigning: true });
@@ -41,6 +40,7 @@ describe('createSigningArgs', () => {
   });
 
   it('uses Certum SimplySign args when explicitly configured', () => {
+    clearSigningEnv();
     process.env.SWITCHIFY_SIGNING_MODE = 'certum-simplysign';
     process.env.SWITCHIFY_CERTUM_CERT_THUMBPRINT = '9A 27 06 A2 E8 6F 13 97 95 DA 2E 45 2B 31 2A 8C 23 AA 0C 48';
 
@@ -67,6 +67,7 @@ describe('createSigningArgs', () => {
   });
 
   it('requires a Certum thumbprint when Certum mode is explicit', () => {
+    clearSigningEnv();
     process.env.SWITCHIFY_SIGNING_MODE = 'certum-simplysign';
     delete process.env.SWITCHIFY_CERTUM_CERT_THUMBPRINT;
 
@@ -80,3 +81,16 @@ describe('createSigningArgs', () => {
     );
   });
 });
+
+function clearSigningEnv(): void {
+  delete process.env.SWITCHIFY_SIGNING_MODE;
+  delete process.env.SWITCHIFY_CERTUM_CERT_THUMBPRINT;
+  delete process.env.SWITCHIFY_CERTUM_TIMESTAMP_URL;
+  delete process.env.SWITCHIFY_DEV_CERT_PASSWORD;
+  delete process.env.SWITCHIFY_DEV_CERT_PFX;
+  delete process.env.SWITCHIFY_DEV_CERT_THUMBPRINT;
+  delete process.env.SWITCHIFY_AZURE_SIGNING_DLIB;
+  delete process.env.SWITCHIFY_AZURE_SIGNING_METADATA;
+  delete process.env.SWITCHIFY_SIGN_SKIP_TIMESTAMP;
+  delete process.env.SWITCHIFY_ALLOW_UNSIGNED_UIACCESS_PACKAGE;
+}
