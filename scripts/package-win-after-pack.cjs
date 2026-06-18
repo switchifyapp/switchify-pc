@@ -108,6 +108,10 @@ function signNativeHelpers(appOutDir) {
 function createSigningArgs(filePath, { requireSigning }) {
   if (!isWindows()) return null;
 
+  if (process.env.SWITCHIFY_SIGNING_MODE === 'certum-simplysign') {
+    return createCertumSimplySignArgs(filePath, requireSigning);
+  }
+
   if (process.env.SWITCHIFY_SIGNING_MODE === 'azure') {
     return createAzureSigningArgs(filePath, requireSigning);
   }
@@ -128,6 +132,31 @@ function createSigningArgs(filePath, { requireSigning }) {
   }
 
   throw new Error('Signing is required for uiAccess packaging. Set SWITCHIFY_DEV_CERT_PASSWORD with a dev PFX, run npm run signing:create-dev-cert, or configure Azure Artifact Signing.');
+}
+
+function createCertumSimplySignArgs(filePath, requireSigning) {
+  const thumbprint = normalizeThumbprint(process.env.SWITCHIFY_CERTUM_CERT_THUMBPRINT || '');
+
+  if (!thumbprint) {
+    if (requireSigning && process.env.SWITCHIFY_SIGNING_MODE === 'certum-simplysign') {
+      throw new Error('Certum SimplySign signing requires SWITCHIFY_CERTUM_CERT_THUMBPRINT.');
+    }
+    return null;
+  }
+
+  return [
+    'sign',
+    '/v',
+    '/fd',
+    'SHA256',
+    '/sha1',
+    thumbprint,
+    '/tr',
+    process.env.SWITCHIFY_CERTUM_TIMESTAMP_URL || 'http://time.certum.pl',
+    '/td',
+    'SHA256',
+    filePath
+  ];
 }
 
 function createDevPfxSigningArgs(filePath) {

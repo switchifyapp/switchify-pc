@@ -20,11 +20,12 @@ concurrency:
 
 jobs:
   release-windows:
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows, switchify-signing]
 
     env:
-      SWITCHIFY_ALLOW_UNSIGNED_UIACCESS_PACKAGE: '1'
-      SWITCHIFY_ALLOW_UNSIGNED_INSTALLER: '1'
+      SWITCHIFY_SIGNING_MODE: certum-simplysign
+      SWITCHIFY_CERTUM_CERT_THUMBPRINT: ${{ vars.CERTUM_CERT_THUMBPRINT }}
+      SWITCHIFY_CERTUM_TIMESTAMP_URL: http://time.certum.pl
 
     steps:
       - name: Resolve release tag
@@ -58,6 +59,28 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Verify Certum signing certificate
+        shell: pwsh
+        run: |
+          $thumbprint = '${{ vars.CERTUM_CERT_THUMBPRINT }}' -replace '[^a-fA-F0-9]', ''
+          if (-not $thumbprint) {
+            throw 'CERTUM_CERT_THUMBPRINT repository variable is not set.'
+          }
+
+          $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
+            Where-Object { $_.Thumbprint -eq $thumbprint } |
+            Select-Object -First 1
+
+          if (-not $cert) {
+            throw "Certum code-signing certificate $thumbprint was not found in Cert:\CurrentUser\My. Make sure SimplySign Desktop is logged in before running the release."
+          }
+
+          if (-not $cert.HasPrivateKey) {
+            throw "Certum certificate $thumbprint is present but has no private key."
+          }
+
+          Write-Host "Using Certum signing certificate: $($cert.Subject)"
 
       - name: Build native cursor overlay helper
         run: npm run native:build-overlay
