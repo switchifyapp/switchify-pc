@@ -3,7 +3,6 @@ export type UpdateCheckStatus =
   | 'checking'
   | 'up_to_date'
   | 'update_available'
-  | 'no_release'
   | 'check_failed';
 
 export type UpdateDownloadStatus =
@@ -16,11 +15,10 @@ export type UpdateInfo = {
   currentVersion: string;
   latestVersion: string | null;
   releaseName: string | null;
-  releaseUrl: string | null;
-  installerAssetName: string | null;
+  releaseNotes: string | null;
   checkedAt: string | null;
   status: UpdateCheckStatus;
-  reason?: 'no_release' | 'network_error' | 'invalid_release' | 'installer_missing' | 'invalid_version';
+  reason?: 'network_error' | 'invalid_update' | 'not_packaged' | 'not_supported';
 };
 
 export type UpdateDownloadProgress = {
@@ -28,8 +26,7 @@ export type UpdateDownloadProgress = {
   downloadedBytes: number;
   totalBytes: number | null;
   percent: number | null;
-  filePath: string | null;
-  reason?: 'network_error' | 'filesystem_error' | 'installer_missing' | 'not_available';
+  reason?: 'network_error' | 'not_available' | 'not_packaged' | 'not_supported';
 };
 
 export type UpdateState = {
@@ -43,8 +40,7 @@ export function createInitialUpdateState(currentVersion: string): UpdateState {
       currentVersion,
       latestVersion: null,
       releaseName: null,
-      releaseUrl: null,
-      installerAssetName: null,
+      releaseNotes: null,
       checkedAt: null,
       status: 'not_checked'
     },
@@ -52,8 +48,7 @@ export function createInitialUpdateState(currentVersion: string): UpdateState {
       status: 'idle',
       downloadedBytes: 0,
       totalBytes: null,
-      percent: null,
-      filePath: null
+      percent: null
     }
   };
 }

@@ -22,18 +22,23 @@ describe('updateCheckMessage', () => {
       'Could not check for updates.'
     );
   });
+
+  it('explains unsupported unpackaged builds', () => {
+    expect(updateCheckMessage(info({ status: 'check_failed', reason: 'not_packaged' }))).toBe(
+      'Updates are only available in packaged builds.'
+    );
+  });
+
+  it('explains unsupported platforms', () => {
+    expect(updateCheckMessage(info({ status: 'check_failed', reason: 'not_supported' }))).toBe(
+      'Updates are not available on this platform.'
+    );
+  });
 });
 
 describe('updateDownloadMessage', () => {
-  it('does not show the full local path after download', () => {
-    expect(
-      updateDownloadMessage(
-        download({
-          status: 'downloaded',
-          filePath: 'C:\\Users\\oamcg\\Downloads\\Switchify-PC-Setup-0.1.1-x64.exe'
-        })
-      )
-    ).toBe('Downloaded to Downloads.');
+  it('formats downloaded updates as ready to install', () => {
+    expect(updateDownloadMessage(download({ status: 'downloaded' }))).toBe('Update downloaded and ready to install.');
   });
 
   it('formats download progress when a percent is available', () => {
@@ -50,8 +55,7 @@ function info(overrides: Partial<UpdateInfo>): UpdateInfo {
     currentVersion: '0.1.0',
     latestVersion: null,
     releaseName: null,
-    releaseUrl: null,
-    installerAssetName: null,
+    releaseNotes: null,
     checkedAt: null,
     status: 'not_checked',
     ...overrides
@@ -64,7 +68,6 @@ function download(overrides: Partial<UpdateDownloadProgress>): UpdateDownloadPro
     downloadedBytes: 0,
     totalBytes: null,
     percent: null,
-    filePath: null,
     ...overrides
   };
 }

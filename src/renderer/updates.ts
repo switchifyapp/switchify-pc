@@ -3,9 +3,8 @@ import type { UpdateDownloadProgress, UpdateInfo, UpdateState } from '../shared/
 export function updateCheckMessage(info: UpdateInfo | null): string {
   if (!info) return 'Loading...';
 
-  if (info.reason === 'installer_missing') {
-    return 'The release does not include a Windows installer.';
-  }
+  if (info.reason === 'not_packaged') return 'Updates are only available in packaged builds.';
+  if (info.reason === 'not_supported') return 'Updates are not available on this platform.';
 
   switch (info.status) {
     case 'not_checked':
@@ -16,8 +15,6 @@ export function updateCheckMessage(info: UpdateInfo | null): string {
       return 'Switchify PC is up to date.';
     case 'update_available':
       return `Update available: v${info.latestVersion ?? 'unknown'}.`;
-    case 'no_release':
-      return 'No public release found.';
     case 'check_failed':
       return 'Could not check for updates.';
   }
@@ -31,12 +28,11 @@ export function updateDownloadMessage(download: UpdateDownloadProgress | null): 
   }
 
   if (download.status === 'downloaded') {
-    return 'Downloaded to Downloads.';
+    return 'Update downloaded and ready to install.';
   }
 
-  if (download.reason === 'installer_missing') {
-    return 'The release does not include a Windows installer.';
-  }
+  if (download.reason === 'not_packaged') return 'Updates are only available in packaged builds.';
+  if (download.reason === 'not_supported') return 'Updates are not available on this platform.';
 
   return 'Could not download the update.';
 }

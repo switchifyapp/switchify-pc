@@ -31,7 +31,7 @@ type SettingsViewProps = {
   isDownloadingUpdate: boolean;
   onCheckForUpdates: () => Promise<void>;
   onDownloadUpdate: () => Promise<void>;
-  onShowDownloadedUpdate: () => Promise<void>;
+  onInstallDownloadedUpdate: () => Promise<void>;
 };
 
 type SettingsSectionId = 'general' | 'bluetooth' | 'pointer' | 'updates' | 'savedDevices';
@@ -63,7 +63,7 @@ export function SettingsView({
   isDownloadingUpdate,
   onCheckForUpdates,
   onDownloadUpdate,
-  onShowDownloadedUpdate
+  onInstallDownloadedUpdate
 }: SettingsViewProps): ReactElement {
   const [selectedSection, setSelectedSection] = useState<SettingsSectionId>('general');
 
@@ -110,7 +110,7 @@ export function SettingsView({
             isDownloading={isDownloadingUpdate}
             onCheck={onCheckForUpdates}
             onDownload={onDownloadUpdate}
-            onShowDownloaded={onShowDownloadedUpdate}
+            onInstallDownloaded={onInstallDownloadedUpdate}
           />
         ) : null}
         {selectedSection === 'savedDevices' ? (

@@ -9,6 +9,12 @@ directories:
 afterPack: scripts/package-win-after-pack.cjs
 afterAllArtifactBuild: scripts/sign-win-artifacts.cjs
 
+publish:
+  provider: github
+  owner: switchifyapp
+  repo: switchify-pc
+  releaseType: release
+
 files:
   - out/**/*
   - package.json
