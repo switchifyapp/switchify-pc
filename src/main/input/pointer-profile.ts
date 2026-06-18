@@ -31,6 +31,9 @@ export function createPointerMovementProfile(input: {
       small: toLogicalDelta(TARGET_NATIVE_DELTAS.small, scaleFactor, maxDelta),
       medium: toLogicalDelta(TARGET_NATIVE_DELTAS.medium, scaleFactor, maxDelta),
       large: toLogicalDelta(TARGET_NATIVE_DELTAS.large, scaleFactor, maxDelta)
+    },
+    capabilities: {
+      noAckMouseMove: true
     }
   };
 }

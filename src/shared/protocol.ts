@@ -57,6 +57,8 @@ export type WindowControlAction =
   | 'minimizeFocused'
   | 'maximizeFocused';
 
+export type CommandResponseMode = 'ack' | 'none';
+
 export type PointerMovementProfile = {
   displayId: string;
   scaleFactor: number;
@@ -72,6 +74,9 @@ export type PointerMovementProfile = {
     medium: number;
     large: number;
   };
+  capabilities: {
+    noAckMouseMove: boolean;
+  };
 };
 
 export interface BaseRequestEnvelope<TType extends string, TPayload> {
@@ -82,6 +87,7 @@ export interface BaseRequestEnvelope<TType extends string, TPayload> {
   type: TType;
   payload: TPayload;
   auth: string;
+  responseMode?: CommandResponseMode;
 }
 
 export type PairingApprovalRequest = {
@@ -200,6 +206,7 @@ const commandTypes = new Set<CommandRequest['type']>([
 ]);
 
 const pairingTypes = new Set<PairingRequest['type']>(['pairing.request']);
+const commandResponseModes = new Set<CommandResponseMode>(['ack', 'none']);
 const mouseButtons = new Set<MouseButton>(['left', 'right', 'middle']);
 const keyboardKeys = new Set<KeyboardKey>([
   'Backspace',
@@ -387,6 +394,9 @@ function validateCommandRequest(value: Record<string, unknown>): ValidationResul
   if (!isNonEmptyString(value.deviceId)) return invalid('invalid_message', 'Device id is required.');
   if (!isFiniteNumber(value.timestamp)) return invalid('invalid_message', 'Timestamp is required.');
   if (!isNonEmptyString(value.auth)) return invalid('invalid_auth', 'Auth proof is required.');
+  if (!isValidResponseMode(value.type as CommandRequest['type'], value.responseMode)) {
+    return invalid('invalid_payload', 'Response mode is invalid.');
+  }
 
   const payload = value.payload as Record<string, unknown>;
   const payloadOk = validateCommandPayload(value.type as CommandRequest['type'], payload);
@@ -470,7 +480,24 @@ function validatePointerProfilePayload(payload: Record<string, unknown>): Valida
       return invalid('invalid_payload', 'Recommended delta is invalid.');
     }
   }
+  if ('capabilities' in payload) {
+    if (!isRecord(payload.capabilities)) {
+      return invalid('invalid_payload', 'Pointer capabilities are invalid.');
+    }
+    if (
+      'noAckMouseMove' in payload.capabilities &&
+      typeof payload.capabilities.noAckMouseMove !== 'boolean'
+    ) {
+      return invalid('invalid_payload', 'No-ack mouse move capability is invalid.');
+    }
+  }
   return valid();
+}
+
+function isValidResponseMode(type: CommandRequest['type'], responseMode: unknown): boolean {
+  if (responseMode === undefined) return true;
+  if (!commandResponseModes.has(responseMode as CommandResponseMode)) return false;
+  return responseMode !== 'none' || type === 'mouse.move';
 }
 
 function isFiniteBounds(value: Record<string, unknown>): boolean {

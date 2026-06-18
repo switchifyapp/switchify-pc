@@ -43,6 +43,47 @@ describe('RemoteSessionManager', () => {
     ]);
   });
 
+  it('executes authenticated no-response mouse movement without sending an ack', async () => {
+    const handled: MouseMoveCommand[] = [];
+    const manager = createManager({
+      onCommand: (command) => {
+        handled.push(command as MouseMoveCommand);
+        return { ok: true };
+      }
+    });
+    const connection = createConnection();
+    manager.addConnection(connection);
+    const command = createMouseMoveCommand({ responseMode: 'none' });
+
+    await manager.handleMessage(connection.id, JSON.stringify(command));
+
+    expect(sentResponses(connection)).toEqual([]);
+    expect(handled).toEqual([command]);
+    expect(manager.getAuthenticatedClients()).toEqual([
+      expect.objectContaining({
+        id: connection.id,
+        deviceId: 'android-1',
+        transport: 'bluetooth'
+      })
+    ]);
+  });
+
+  it('suppresses adapter failure responses for no-response mouse movement', async () => {
+    const onError = vi.fn();
+    const manager = createManager({
+      onError,
+      onCommand: () => ({ ok: false, code: 'adapter_failure', message: 'Move failed.' })
+    });
+    const connection = createConnection();
+    manager.addConnection(connection);
+    const command = createMouseMoveCommand({ responseMode: 'none' });
+
+    await manager.handleMessage(connection.id, JSON.stringify(command));
+
+    expect(sentResponses(connection)).toEqual([]);
+    expect(onError).toHaveBeenCalledWith('Move failed.');
+  });
+
   it('acks authenticated heartbeat pings without executing desktop commands', async () => {
     const onCommand = vi.fn();
     const manager = createManager({ onCommand });
@@ -76,6 +117,46 @@ describe('RemoteSessionManager', () => {
         type: 'error',
         ok: false,
         error: expect.objectContaining({ code: 'invalid_auth' })
+      })
+    ]);
+    expect(onCommand).not.toHaveBeenCalled();
+  });
+
+  it('rejects unauthenticated no-response movement with a structured auth error', async () => {
+    const onCommand = vi.fn();
+    const manager = createManager({ onCommand });
+    const connection = createConnection();
+    manager.addConnection(connection);
+
+    await manager.handleMessage(
+      connection.id,
+      JSON.stringify(createMouseMoveCommand({ auth: 'invalid', responseMode: 'none' }))
+    );
+
+    expect(sentResponses(connection)).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        ok: false,
+        error: expect.objectContaining({ code: 'invalid_auth' })
+      })
+    ]);
+    expect(onCommand).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsupported no-response command types during validation', async () => {
+    const onCommand = vi.fn();
+    const manager = createManager({ onCommand });
+    const connection = createConnection();
+    manager.addConnection(connection);
+    const command = createPingCommand({ responseMode: 'none' } as Partial<PingCommand>);
+
+    await manager.handleMessage(connection.id, JSON.stringify(command));
+
+    expect(sentResponses(connection)).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        ok: false,
+        error: expect.objectContaining({ code: 'invalid_payload' })
       })
     ]);
     expect(onCommand).not.toHaveBeenCalled();

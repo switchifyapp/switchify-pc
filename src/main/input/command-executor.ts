@@ -3,7 +3,8 @@ import {
   MAX_POINTER_DELTA,
   MAX_SCROLL_DELTA,
   MAX_SHORTCUT_KEYS,
-  MAX_TEXT_LENGTH
+  MAX_TEXT_LENGTH,
+  PROTOCOL_VERSION
 } from '../../shared/protocol';
 import type { DesktopInputAdapter } from './desktop-input-adapter';
 import { DesktopInputError } from './desktop-input-adapter';
@@ -21,6 +22,8 @@ export type CursorOverlayNotifier = {
 export class DesktopCommandExecutor {
   private pointerActionQueue: Promise<void> = Promise.resolve();
   private activeDragButton: MouseButton | null = null;
+  private pendingRealtimeMove: { dx: number; dy: number } | null = null;
+  private realtimeMoveFlush: Promise<CommandExecutionResult> | null = null;
 
   constructor(
     private readonly adapter: DesktopInputAdapter,
@@ -28,6 +31,10 @@ export class DesktopCommandExecutor {
   ) {}
 
   async execute(command: CommandRequest): Promise<CommandExecutionResult> {
+    if (command.type === 'mouse.move' && command.responseMode === 'none') {
+      return this.enqueueCoalescedMouseMove(command);
+    }
+
     if (isPointerAction(command)) {
       return this.enqueuePointerAction(command);
     }
@@ -58,6 +65,56 @@ export class DesktopCommandExecutor {
       () => undefined
     );
     return result;
+  }
+
+  private enqueueCoalescedMouseMove(command: CommandRequest & { type: 'mouse.move' }): Promise<CommandExecutionResult> {
+    this.pendingRealtimeMove = addMouseDeltas(this.pendingRealtimeMove, command.payload);
+
+    if (this.realtimeMoveFlush) {
+      return Promise.resolve({ ok: true });
+    }
+
+    const result = this.pointerActionQueue.then(() => this.flushRealtimeMouseMoves());
+    this.realtimeMoveFlush = result;
+    this.pointerActionQueue = result.then(
+      () => undefined,
+      () => undefined
+    );
+
+    return result;
+  }
+
+  private async flushRealtimeMouseMoves(): Promise<CommandExecutionResult> {
+    try {
+      while (this.pendingRealtimeMove) {
+        const payload = this.pendingRealtimeMove;
+        this.pendingRealtimeMove = null;
+        const result = await this.executeNow({
+          version: PROTOCOL_VERSION,
+          id: 'realtime-move',
+          deviceId: 'realtime',
+          timestamp: Date.now(),
+          type: 'mouse.move',
+          payload,
+          auth: '',
+          responseMode: 'none'
+        });
+        if (!result.ok) {
+          return result;
+        }
+      }
+      return { ok: true };
+    } finally {
+      this.realtimeMoveFlush = null;
+      if (this.pendingRealtimeMove) {
+        const result = this.pointerActionQueue.then(() => this.flushRealtimeMouseMoves());
+        this.realtimeMoveFlush = result;
+        this.pointerActionQueue = result.then(
+          () => undefined,
+          () => undefined
+        );
+      }
+    }
   }
 
   private async executeNow(command: CommandRequest): Promise<CommandExecutionResult> {
@@ -169,6 +226,20 @@ function assertBoundedNumber(value: number, maxAbsValue: number, label: string):
 
 function unsafe(message: string): CommandExecutionResult {
   return { ok: false, code: 'unsafe_payload', message };
+}
+
+function addMouseDeltas(
+  current: { dx: number; dy: number } | null,
+  next: { dx: number; dy: number }
+): { dx: number; dy: number } {
+  return {
+    dx: clampDelta((current?.dx ?? 0) + next.dx),
+    dy: clampDelta((current?.dy ?? 0) + next.dy)
+  };
+}
+
+function clampDelta(value: number): number {
+  return Math.max(-MAX_POINTER_DELTA, Math.min(MAX_POINTER_DELTA, value));
 }
 
 function isPointerAction(

@@ -235,6 +235,42 @@ describe('DesktopCommandExecutor', () => {
     ]);
   });
 
+  it('coalesces no-response pointer movement commands', async () => {
+    const { adapter, executor } = createExecutor();
+    adapter.mouseMoveDelayMs = 10;
+
+    await Promise.all([
+      executor.execute(command('mouse.move', { dx: 1, dy: 0 }, { responseMode: 'none' })),
+      executor.execute(command('mouse.move', { dx: 2, dy: 0 }, { responseMode: 'none' })),
+      executor.execute(command('mouse.move', { dx: 3, dy: 0 }, { responseMode: 'none' }))
+    ]);
+
+    expect(adapter.maxActiveMouseMoves).toBe(1);
+    expect(adapter.calls.length).toBeLessThan(3);
+    expect(adapter.calls).toEqual([
+      { method: 'moveMouseBy', args: [{ dx: 6, dy: 0 }] }
+    ]);
+  });
+
+  it('keeps drag actions ordered around no-response pointer movement', async () => {
+    const { adapter, executor } = createExecutor();
+    adapter.mouseMoveDelayMs = 10;
+
+    await Promise.all([
+      executor.execute(command('mouse.dragStart', { button: 'left' })),
+      executor.execute(command('mouse.move', { dx: 1, dy: 0 }, { responseMode: 'none' })),
+      executor.execute(command('mouse.move', { dx: 2, dy: 0 }, { responseMode: 'none' })),
+      executor.execute(command('mouse.dragEnd', { button: 'left' }))
+    ]);
+
+    expect(adapter.maxActiveMouseMoves).toBe(1);
+    expect(adapter.calls).toEqual([
+      { method: 'setMouseButtonDown', args: ['left', true] },
+      { method: 'moveMouseBy', args: [{ dx: 3, dy: 0 }] },
+      { method: 'setMouseButtonDown', args: ['left', false] }
+    ]);
+  });
+
   it('maps drag start and end to held mouse button actions', async () => {
     const { adapter, executor, overlay } = createExecutor();
 
@@ -332,7 +368,8 @@ function createExecutor(): { adapter: FakeInputAdapter; overlay: FakeCursorOverl
 
 function command<TType extends CommandRequest['type']>(
   type: TType,
-  payload: Extract<CommandRequest, { type: TType }>['payload']
+  payload: Extract<CommandRequest, { type: TType }>['payload'],
+  overrides: Partial<Extract<CommandRequest, { type: TType }>> = {}
 ): Extract<CommandRequest, { type: TType }> {
   return {
     version: PROTOCOL_VERSION,
@@ -341,6 +378,7 @@ function command<TType extends CommandRequest['type']>(
     timestamp: 1,
     type,
     payload,
-    auth: 'proof'
+    auth: 'proof',
+    ...overrides
   } as Extract<CommandRequest, { type: TType }>;
 }
