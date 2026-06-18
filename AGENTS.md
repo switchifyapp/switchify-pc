@@ -78,9 +78,69 @@ For desktop input or packaging changes, also run the relevant manual smoke path:
 
 ## Release flow
 
-Release automation is not implemented yet. Until a release issue defines the final flow:
+Only the maintainer should publish releases.
 
-- Use semantic versions for early packages.
-- Do not tag releases without a dedicated release issue.
-- Do not publish installers without a Windows smoke test.
-- Do not add code signing, auto-update, WinGet, or cross-platform packaging unless an issue explicitly scopes it.
+Release builds are published from tags named `vX.Y.Z`, where `X.Y.Z` must match `package.json`.
+
+The release workflow is `.github/workflows/release.yml`. It runs on the self-hosted Windows signing runner with the `switchify-signing` label. The runner is expected to have:
+
+- Windows.
+- Node and npm.
+- GitHub CLI authentication available to the workflow.
+- Windows SDK signing tools available, including `signtool`.
+- The Certum SimplySign certificate available in `Cert:\CurrentUser\My`.
+- An active SimplySign session before the release job runs.
+
+Production release signing uses Certum SimplySign through `signtool`. Do not document or commit the real certificate thumbprint. Use placeholders in docs and examples.
+
+Required signing environment for production packaging:
+
+```powershell
+$env:SWITCHIFY_SIGNING_MODE = "certum-simplysign"
+$env:SWITCHIFY_CERTUM_CERT_THUMBPRINT = "<certum-certificate-thumbprint>"
+$env:SWITCHIFY_CERTUM_TIMESTAMP_URL = "http://time.certum.pl"
+```
+
+The release workflow:
+
+- installs dependencies with `npm ci`
+- runs `npm run typecheck`
+- runs `npm test`
+- verifies the Certum signing certificate
+- builds native helpers
+- packages the Windows x64 NSIS installer with `npm run package:win`
+- verifies the tag matches `package.json`
+- uploads all top-level `dist` release assets to GitHub Releases, including the signed installer and updater metadata
+
+Local packaging with `npm run package:win` creates artifacts under `dist`. It does not publish a GitHub release.
+
+Before publishing a release, the maintainer should run or confirm the Windows smoke path:
+
+- signed installer verifies with Authenticode
+- installer installs per-machine under `C:\Program Files\Switchify PC\`
+- `npm run package:win:verify-uiaccess` passes
+- app launches and stays running
+- tray menu works
+- Bluetooth pairing works
+- authenticated ping works
+- mouse, click, right-click, scroll, keyboard/text, media, and window control commands work
+- Settings > Updates can check, download, and show `Install update` in packaged builds
+- updater metadata exists in `dist\latest.yml` and packaged `resources\app-update.yml`
+
+To publish a release, the maintainer may push an annotated tag:
+
+```powershell
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
+git push origin vX.Y.Z
+```
+
+The workflow can also be dispatched manually by the maintainer with a `tag` input.
+
+Do not:
+
+- publish releases from contributor machines
+- tag releases without maintainer intent
+- hard-code a real certificate thumbprint in docs
+- bypass the signed Windows runner for production installers
+- publish unsigned production installers
+- change signing, updater, WinGet, or cross-platform release behavior unless a dedicated issue explicitly scopes it
