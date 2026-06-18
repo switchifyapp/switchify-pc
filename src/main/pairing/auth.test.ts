@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { MouseMoveCommand, PingCommand } from '../../shared/protocol';
+import type { MouseClickCommand, MouseMoveCommand, PingCommand } from '../../shared/protocol';
 import { PROTOCOL_VERSION } from '../../shared/protocol';
 import { createCommandAuthProof, CommandAuthValidator, COMMAND_TIMESTAMP_TOLERANCE_MS } from './auth';
 import { MemoryPairingStore } from './pairing-store';
@@ -80,8 +80,11 @@ describe('CommandAuthValidator', () => {
   it('includes no-response mode in command auth proofs', async () => {
     const ackMove = createMouseMoveCommand();
     const noAckMove = createMouseMoveCommand({ responseMode: 'none' });
+    const ackClick = createMouseClickCommand();
+    const noAckClick = createMouseClickCommand({ responseMode: 'none' });
 
     expect(createCommandAuthProof(noAckMove, token)).not.toBe(createCommandAuthProof(ackMove, token));
+    expect(createCommandAuthProof(noAckClick, token)).not.toBe(createCommandAuthProof(ackClick, token));
   });
 
   it('rejects response mode tampering after signing', async () => {
@@ -90,6 +93,12 @@ describe('CommandAuthValidator', () => {
     const command = createMouseMoveCommand();
 
     await expect(validator.validate({ ...command, responseMode: 'none' })).resolves.toEqual({
+      ok: false,
+      reason: 'invalid_auth'
+    });
+
+    const clickCommand = createMouseClickCommand();
+    await expect(validator.validate({ ...clickCommand, responseMode: 'none' })).resolves.toEqual({
       ok: false,
       reason: 'invalid_auth'
     });
@@ -147,6 +156,24 @@ function createMouseMoveCommand(overrides: Partial<MouseMoveCommand> = {}): Mous
   } satisfies MouseMoveCommand;
 
   const merged = { ...command, ...overrides } as MouseMoveCommand;
+  return {
+    ...merged,
+    auth: overrides.auth ?? createCommandAuthProof(merged, token)
+  };
+}
+
+function createMouseClickCommand(overrides: Partial<MouseClickCommand> = {}): MouseClickCommand {
+  const command = {
+    version: PROTOCOL_VERSION,
+    id: 'click-1',
+    deviceId: 'android-1',
+    timestamp: now,
+    type: 'mouse.click',
+    payload: { button: 'left' },
+    auth: ''
+  } satisfies MouseClickCommand;
+
+  const merged = { ...command, ...overrides } as MouseClickCommand;
   return {
     ...merged,
     auth: overrides.auth ?? createCommandAuthProof(merged, token)

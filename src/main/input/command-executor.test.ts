@@ -140,6 +140,25 @@ describe('DesktopCommandExecutor', () => {
     expect(overlay.hideCount).toBe(6);
   });
 
+  it('executes non-movement no-response commands without coalescing', async () => {
+    const { adapter, executor, overlay } = createExecutor();
+
+    await executor.execute(command('mouse.click', { button: 'left' }, { responseMode: 'none' }));
+    await executor.execute(command('mouse.scroll', { dx: 0, dy: -3 }, { responseMode: 'none' }));
+    await executor.execute(command('keyboard.key', { key: 'Enter' }, { responseMode: 'none' }));
+    await executor.execute(command('window.control', { action: 'switchNext' }, { responseMode: 'none' }));
+
+    expect(adapter.calls).toEqual([
+      { method: 'clickMouse', args: ['left'] },
+      { method: 'scrollMouse', args: [{ dx: 0, dy: -3 }] },
+      { method: 'pressKey', args: ['Enter'] },
+      { method: 'controlWindow', args: ['switchNext'] }
+    ]);
+    expect(overlay.events).toEqual(['click']);
+    expect(overlay.activeCount).toBe(2);
+    expect(overlay.hideCount).toBe(2);
+  });
+
   it('passes empty committed text to the adapter', async () => {
     const { adapter, executor } = createExecutor();
 

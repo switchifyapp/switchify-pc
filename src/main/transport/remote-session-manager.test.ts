@@ -2,10 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   PROTOCOL_VERSION,
   validateProtocolResponse,
+  type CommandRequest,
+  type KeyboardKeyCommand,
+  type MouseClickCommand,
   type MouseMoveCommand,
   type PairingCompleteResponse,
   type DisconnectingCommand,
-  type PingCommand
+  type PingCommand,
+  type WindowControlCommand
 } from '../../shared/protocol';
 import { createCommandAuthProof, CommandAuthValidator } from '../pairing/auth';
 import { PairingApprovalManager } from '../pairing/pairing-approval-manager';
@@ -82,6 +86,46 @@ describe('RemoteSessionManager', () => {
 
     expect(sentResponses(connection)).toEqual([]);
     expect(onError).toHaveBeenCalledWith('Move failed.');
+  });
+
+  it('executes authenticated no-response control commands without sending an ack', async () => {
+    const handled: CommandRequest[] = [];
+    const manager = createManager({
+      onCommand: (command) => {
+        handled.push(command);
+        return { ok: true };
+      }
+    });
+    const connection = createConnection();
+    manager.addConnection(connection);
+    const commands = [
+      createMouseClickCommand({ responseMode: 'none' }),
+      createKeyboardKeyCommand({ responseMode: 'none' }),
+      createWindowControlCommand({ responseMode: 'none' })
+    ];
+
+    for (const command of commands) {
+      await manager.handleMessage(connection.id, JSON.stringify(command));
+    }
+
+    expect(sentResponses(connection)).toEqual([]);
+    expect(handled).toEqual(commands);
+  });
+
+  it('suppresses adapter failure responses for no-response control commands', async () => {
+    const onError = vi.fn();
+    const manager = createManager({
+      onError,
+      onCommand: () => ({ ok: false, code: 'adapter_failure', message: 'Click failed.' })
+    });
+    const connection = createConnection();
+    manager.addConnection(connection);
+    const command = createMouseClickCommand({ responseMode: 'none' });
+
+    await manager.handleMessage(connection.id, JSON.stringify(command));
+
+    expect(sentResponses(connection)).toEqual([]);
+    expect(onError).toHaveBeenCalledWith('Click failed.');
   });
 
   it('acks authenticated heartbeat pings without executing desktop commands', async () => {
@@ -310,6 +354,57 @@ function createMouseMoveCommand(overrides: Partial<MouseMoveCommand> = {}): Mous
     auth: ''
   } satisfies MouseMoveCommand;
   const merged = { ...command, ...overrides } as MouseMoveCommand;
+  return {
+    ...merged,
+    auth: overrides.auth ?? createCommandAuthProof(merged, token)
+  };
+}
+
+function createMouseClickCommand(overrides: Partial<MouseClickCommand> = {}): MouseClickCommand {
+  const command = {
+    version: PROTOCOL_VERSION,
+    id: 'click-1',
+    deviceId: 'android-1',
+    timestamp: now,
+    type: 'mouse.click',
+    payload: { button: 'left' },
+    auth: ''
+  } satisfies MouseClickCommand;
+  const merged = { ...command, ...overrides } as MouseClickCommand;
+  return {
+    ...merged,
+    auth: overrides.auth ?? createCommandAuthProof(merged, token)
+  };
+}
+
+function createKeyboardKeyCommand(overrides: Partial<KeyboardKeyCommand> = {}): KeyboardKeyCommand {
+  const command = {
+    version: PROTOCOL_VERSION,
+    id: 'key-1',
+    deviceId: 'android-1',
+    timestamp: now,
+    type: 'keyboard.key',
+    payload: { key: 'Enter' },
+    auth: ''
+  } satisfies KeyboardKeyCommand;
+  const merged = { ...command, ...overrides } as KeyboardKeyCommand;
+  return {
+    ...merged,
+    auth: overrides.auth ?? createCommandAuthProof(merged, token)
+  };
+}
+
+function createWindowControlCommand(overrides: Partial<WindowControlCommand> = {}): WindowControlCommand {
+  const command = {
+    version: PROTOCOL_VERSION,
+    id: 'window-1',
+    deviceId: 'android-1',
+    timestamp: now,
+    type: 'window.control',
+    payload: { action: 'switchNext' },
+    auth: ''
+  } satisfies WindowControlCommand;
+  const merged = { ...command, ...overrides } as WindowControlCommand;
   return {
     ...merged,
     auth: overrides.auth ?? createCommandAuthProof(merged, token)

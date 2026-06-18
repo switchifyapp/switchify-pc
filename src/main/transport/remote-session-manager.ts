@@ -3,6 +3,7 @@ import {
   createErrorResponse,
   createPairingCompleteResponse,
   createPointerProfileResponse,
+  NO_ACK_CONTROL_COMMAND_TYPES,
   parseProtocolRequest,
   type CommandResponseMode,
   type CommandRequest,
@@ -303,5 +304,9 @@ function commandResponseMode(command: CommandRequest): CommandResponseMode {
 }
 
 function shouldSuppressAck(command: CommandRequest): boolean {
-  return command.type === 'mouse.move' && commandResponseMode(command) === 'none';
+  return isNoAckControlCommand(command) && commandResponseMode(command) === 'none';
+}
+
+function isNoAckControlCommand(command: CommandRequest): boolean {
+  return (NO_ACK_CONTROL_COMMAND_TYPES as readonly CommandRequest['type'][]).includes(command.type);
 }

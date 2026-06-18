@@ -59,6 +59,23 @@ export type WindowControlAction =
 
 export type CommandResponseMode = 'ack' | 'none';
 
+export const NO_ACK_CONTROL_COMMAND_TYPES = [
+  'mouse.move',
+  'mouse.click',
+  'mouse.doubleClick',
+  'mouse.rightClick',
+  'mouse.scroll',
+  'mouse.dragStart',
+  'mouse.dragEnd',
+  'keyboard.key',
+  'keyboard.shortcut',
+  'keyboard.typeText',
+  'media.control',
+  'window.control'
+] as const;
+
+export type NoAckControlCommandType = (typeof NO_ACK_CONTROL_COMMAND_TYPES)[number];
+
 export type PointerMovementProfile = {
   displayId: string;
   scaleFactor: number;
@@ -76,6 +93,7 @@ export type PointerMovementProfile = {
   };
   capabilities: {
     noAckMouseMove: boolean;
+    noAckCommands: NoAckControlCommandType[];
   };
 };
 
@@ -207,6 +225,7 @@ const commandTypes = new Set<CommandRequest['type']>([
 
 const pairingTypes = new Set<PairingRequest['type']>(['pairing.request']);
 const commandResponseModes = new Set<CommandResponseMode>(['ack', 'none']);
+const noAckControlCommandTypes = new Set<CommandRequest['type']>(NO_ACK_CONTROL_COMMAND_TYPES);
 const mouseButtons = new Set<MouseButton>(['left', 'right', 'middle']);
 const keyboardKeys = new Set<KeyboardKey>([
   'Backspace',
@@ -490,6 +509,18 @@ function validatePointerProfilePayload(payload: Record<string, unknown>): Valida
     ) {
       return invalid('invalid_payload', 'No-ack mouse move capability is invalid.');
     }
+    if ('noAckCommands' in payload.capabilities) {
+      if (!Array.isArray(payload.capabilities.noAckCommands)) {
+        return invalid('invalid_payload', 'No-ack commands capability is invalid.');
+      }
+      if (
+        !payload.capabilities.noAckCommands.every(
+          (commandType) => typeof commandType === 'string' && noAckControlCommandTypes.has(commandType as CommandRequest['type'])
+        )
+      ) {
+        return invalid('invalid_payload', 'No-ack commands capability is invalid.');
+      }
+    }
   }
   return valid();
 }
@@ -497,7 +528,7 @@ function validatePointerProfilePayload(payload: Record<string, unknown>): Valida
 function isValidResponseMode(type: CommandRequest['type'], responseMode: unknown): boolean {
   if (responseMode === undefined) return true;
   if (!commandResponseModes.has(responseMode as CommandResponseMode)) return false;
-  return responseMode !== 'none' || type === 'mouse.move';
+  return responseMode !== 'none' || noAckControlCommandTypes.has(type);
 }
 
 function isFiniteBounds(value: Record<string, unknown>): boolean {
