@@ -1,10 +1,38 @@
 # Switchify PC
 
-Desktop companion app for Switchify Android.
+Switchify PC is the Windows desktop companion for Switchify Android. It runs in the tray, accepts authenticated Bluetooth commands from paired Android devices, and turns them into mouse, keyboard, text, media, window, and status actions on the PC.
 
-## Status
+Switchify PC is early-stage Windows-first software. Expect Bluetooth and Windows packaging behavior to be the main supported path for now.
 
-Switchify PC is early-stage Windows-first software. It is intended for local-network use with paired Switchify Android devices.
+## Download
+
+Download the latest Windows installer from GitHub Releases:
+
+- [Latest Switchify PC release](https://github.com/switchifyapp/switchify-pc/releases/latest)
+
+Install Switchify Android from Google Play:
+
+- [Switchify for Android](https://play.google.com/store/apps/details?id=com.enaboapps.switchify)
+
+The Windows installer is a per-machine installer and should be installed under `C:\Program Files\Switchify PC\` so Windows can honor `uiAccess`.
+
+## Requirements
+
+- Windows 10 or later.
+- Bluetooth enabled on the PC.
+- Switchify Android installed on a nearby Android device.
+- Per-machine install under `C:\Program Files\Switchify PC\` for full `uiAccess` behavior.
+
+## Using Switchify PC
+
+1. Install Switchify PC.
+2. Install Switchify Android.
+3. Launch Switchify PC and leave it running in the tray.
+4. Open Switchify Android near the PC.
+5. Approve the pairing request on the PC and confirm the verification code.
+6. Use the Android app to control the PC.
+
+If the main window is closed, Switchify PC continues running from the tray. Use the tray menu to reopen it or quit.
 
 ## Development
 
@@ -49,6 +77,8 @@ npm run package:win
 
 The package script runs `npm run build` and `npm run native:build-overlay` first, then creates an unpacked Windows artifact in `dist/win-unpacked` and a per-machine NSIS installer in `dist`.
 
+Local packaging builds artifacts under `dist`. It does not publish a GitHub release.
+
 ## Windows uiAccess packaging
 
 Switchify PC uses `uiAccess="true"` so the installed app can interact with elevated or higher-integrity windows for accessibility and input automation scenarios.
@@ -88,7 +118,47 @@ npm run package:win:verify-uiaccess
 
 Running from `npm run dev`, `dist/win-unpacked`, AppData, Downloads, or the repo does not prove that `uiAccess` is active.
 
-Self-signed certificates are for dev/testing only. Production users should not be asked to trust a self-signed certificate manually. Azure Artifact Signing is the preferred low-cost production signing path when eligible; traditional OV/EV code-signing certificates remain possible. Production signing configuration must come from environment variables or CI secrets, never committed files.
+Self-signed certificates are for development and testing only. Production users should not be asked to trust a self-signed certificate manually.
+
+## Production signing
+
+Production Windows packages are signed with the Certum SimplySign code-signing certificate through `signtool`.
+
+Required environment variables:
+
+```powershell
+$env:SWITCHIFY_SIGNING_MODE = "certum-simplysign"
+$env:SWITCHIFY_CERTUM_CERT_THUMBPRINT = "<certum-certificate-thumbprint>"
+$env:SWITCHIFY_CERTUM_TIMESTAMP_URL = "http://time.certum.pl"
+```
+
+The release workflow expects the Certum certificate to be available in `Cert:\CurrentUser\My` on the Windows signing runner and the SimplySign session to be available before the release job runs.
+
+## Release CI
+
+Only the maintainer should publish releases.
+
+Release builds are published from tags named `vX.Y.Z`, where `X.Y.Z` matches `package.json`.
+
+The release workflow runs on the self-hosted Windows signing runner with the `switchify-signing` label. It:
+
+- installs dependencies with `npm ci`
+- runs `npm run typecheck`
+- runs `npm test`
+- verifies the Certum signing certificate
+- builds native helpers
+- packages the Windows x64 NSIS installer
+- verifies the tag matches `package.json`
+- uploads the installer and update metadata to GitHub Releases
+
+The maintainer can publish a release by pushing an annotated tag:
+
+```powershell
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
+git push origin vX.Y.Z
+```
+
+The workflow can also be dispatched manually by the maintainer with a `tag` input.
 
 ## Bluetooth connection expectations
 
@@ -102,25 +172,18 @@ Bluetooth proximity is not authentication. Pairing approval and authenticated co
 
 Please report vulnerabilities by email to owen@switchifyapp.com instead of opening public issues.
 
-## Release CI
-
-Release builds are published from tags named `vX.Y.Z`, where `X.Y.Z` matches `package.json`.
-
-```powershell
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-The release workflow builds the Windows x64 installer and uploads it to GitHub Releases. Current CI release installers are unsigned until production code signing is configured.
-
 ## MVP smoke checklist
 
 Use this checklist after packaging changes and before publishing any installer:
 
+- Signed installer verifies with Authenticode.
+- Installer installs under `C:\Program Files\Switchify PC\`.
 - App launches from `Switchify PC.exe`.
 - Tray menu opens and can show the main window.
+- Main window shows Android download QR/link before a device is connected.
+- Android download link opens externally in the browser.
 - Bluetooth helper starts and reports a safe status.
-- No QR/manual local-network connection UI appears.
+- No QR/manual local-network connection UI appears for pairing or control.
 - No local IP address or WebSocket address appears in Settings or troubleshooting.
 - Pairing approval requests appear and can be accepted or rejected.
 - Android can pair with the PC using Bluetooth and approval.
@@ -136,6 +199,8 @@ Use this checklist after packaging changes and before publishing any installer:
 - Keyboard shortcut works, for example `Ctrl+C` or `Ctrl+V`.
 - Media key command works, for example play/pause or volume up.
 - Window control commands work, for example next app and show desktop.
+- Settings > Updates can check for updates in packaged builds.
+- Downloaded updates show an `Install update` action.
 - Disconnect all removes active Bluetooth sessions.
 - Quit exits the app, removes the tray icon, and exits the native cursor overlay helper.
 
