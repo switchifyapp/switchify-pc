@@ -1,5 +1,7 @@
 import type { ReactElement, ReactNode } from 'react';
 import type { DesktopUiState } from '../../shared/desktop-ui-state';
+import type { UpdateState } from '../../shared/update';
+import { updateIndicatorState } from '../updates';
 import { Tooltip } from './Tooltip';
 
 type WindowControlOptions = {
@@ -12,6 +14,8 @@ export function WindowChrome({
   subtitle,
   className,
   windowControls,
+  updateState,
+  onOpenUpdates,
   children
 }: {
   title: string;
@@ -19,11 +23,20 @@ export function WindowChrome({
   subtitle?: string;
   className: string;
   windowControls?: WindowControlOptions;
+  updateState?: UpdateState | null;
+  onOpenUpdates?: () => Promise<void> | void;
   children: ReactNode;
 }): ReactElement {
   return (
     <>
-      <WindowTitleBar title={title} state={state} subtitle={subtitle} windowControls={windowControls} />
+      <WindowTitleBar
+        title={title}
+        state={state}
+        subtitle={subtitle}
+        windowControls={windowControls}
+        updateState={updateState}
+        onOpenUpdates={onOpenUpdates}
+      />
       <main className={className}>{children}</main>
     </>
   );
@@ -33,17 +46,22 @@ export function WindowTitleBar({
   title,
   state,
   subtitle,
-  windowControls
+  windowControls,
+  updateState,
+  onOpenUpdates
 }: {
   title: string;
   state?: DesktopUiState;
   subtitle?: string;
   windowControls?: WindowControlOptions;
+  updateState?: UpdateState | null;
+  onOpenUpdates?: () => Promise<void> | void;
 }): ReactElement {
   const controls = {
     minimize: true,
     ...windowControls
   };
+  const updateIndicator = updateIndicatorState(updateState ?? null);
 
   return (
     <header className="window-titlebar" aria-label="Window title bar">
@@ -58,6 +76,18 @@ export function WindowTitleBar({
         {!state && subtitle ? <span className="window-titlebar-status">{subtitle}</span> : null}
       </div>
       <div className="window-titlebar-controls" aria-label="Window controls">
+        {updateIndicator !== 'hidden' && onOpenUpdates ? (
+          <Tooltip label={updateIndicator === 'downloaded' ? 'Update ready to install' : 'Update available'} placement="bottom">
+            <button
+              type="button"
+              className={`window-titlebar-control window-titlebar-update window-titlebar-update-${updateIndicator}`}
+              aria-label="Open updates"
+              onClick={() => void onOpenUpdates()}
+            >
+              <span className="window-control-icon window-control-icon-update" aria-hidden="true" />
+            </button>
+          </Tooltip>
+        ) : null}
         {controls.minimize ? (
           <Tooltip label="Minimize" placement="bottom">
             <button

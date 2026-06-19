@@ -3,6 +3,8 @@ import { autoUpdater } from 'electron-updater';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_BLUETOOTH_STATUS } from '../shared/bluetooth-status';
+import { SHOW_SETTINGS_SECTION_CHANNEL } from '../shared/ipc-channels';
+import type { SettingsSectionId } from '../shared/settings';
 import { WindowsBluetoothTransport } from './bluetooth/bluetooth-transport';
 import { ControlService } from './control/control-service';
 import { CursorOverlay } from './cursor-overlay';
@@ -122,7 +124,11 @@ function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
   return window;
 }
 
-function createSettingsWindow(): BrowserWindow {
+function settingsHashForSection(section: SettingsSectionId): string {
+  return section === 'general' ? '/settings' : `/settings/${section}`;
+}
+
+function createSettingsWindow(section: SettingsSectionId = 'general'): BrowserWindow {
   const iconPath = appIconPath();
   const window = new BrowserWindow({
     width: 820,
@@ -172,10 +178,10 @@ function createSettingsWindow(): BrowserWindow {
 
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
     const url = new URL(process.env.ELECTRON_RENDERER_URL);
-    url.hash = '/settings';
+    url.hash = settingsHashForSection(section);
     void window.loadURL(url.toString());
   } else {
-    void window.loadFile(join(__dirname, '../renderer/index.html'), { hash: '/settings' });
+    void window.loadFile(join(__dirname, '../renderer/index.html'), { hash: settingsHashForSection(section) });
   }
 
   return window;
@@ -194,9 +200,24 @@ function showMainWindow(): void {
   mainWindow.focus();
 }
 
-function showSettingsWindow(): void {
+function sendSettingsSection(window: BrowserWindow, section: SettingsSectionId): void {
+  const send = (): void => {
+    if (!window.isDestroyed()) {
+      window.webContents.send(SHOW_SETTINGS_SECTION_CHANNEL, section);
+    }
+  };
+
+  if (window.webContents.isLoading()) {
+    window.webContents.once('did-finish-load', send);
+    return;
+  }
+
+  send();
+}
+
+function showSettingsWindow(section: SettingsSectionId = 'general'): void {
   if (!settingsWindow || settingsWindow.isDestroyed()) {
-    settingsWindow = createSettingsWindow();
+    settingsWindow = createSettingsWindow(section);
     return;
   }
 
@@ -205,6 +226,7 @@ function showSettingsWindow(): void {
   }
   settingsWindow.show();
   settingsWindow.focus();
+  sendSettingsSection(settingsWindow, section);
 }
 
 function quitApp(): void {

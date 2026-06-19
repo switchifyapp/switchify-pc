@@ -9,6 +9,7 @@ export const SET_CURSOR_OVERLAY_SETTINGS_CHANNEL = 'cursor-overlay:set-settings'
 export const GET_PENDING_PAIRING_REQUESTS_CHANNEL = 'pairing-approval:get-pending';
 export const RESPOND_TO_PAIRING_REQUEST_CHANNEL = 'pairing-approval:respond';
 export const OPEN_SETTINGS_WINDOW_CHANNEL = 'settings:open-window';
+export const SHOW_SETTINGS_SECTION_CHANNEL = 'settings:show-section';
 export const APP_WINDOW_MINIMIZE_CHANNEL = 'app-window:minimize';
 export const APP_WINDOW_CLOSE_CHANNEL = 'app-window:close';
 export const OPEN_EXTERNAL_URL_CHANNEL = 'shell:open-external-url';
