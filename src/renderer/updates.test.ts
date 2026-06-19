@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { UpdateDownloadProgress, UpdateInfo } from '../shared/update';
-import { updateCheckMessage, updateDownloadMessage } from './updates';
+import type { UpdateDownloadProgress, UpdateInfo, UpdateState } from '../shared/update';
+import { canDownloadUpdate, updateCheckMessage, updateDownloadMessage } from './updates';
 
 describe('updateCheckMessage', () => {
   it('formats not checked text as a terminal sentence', () => {
@@ -49,6 +49,71 @@ describe('updateDownloadMessage', () => {
     expect(updateDownloadMessage(download({ status: 'downloading', percent: null }))).toBe('Downloading...');
   });
 });
+
+describe('canDownloadUpdate', () => {
+  it('allows download when an update is available and download is idle', () => {
+    expect(
+      canDownloadUpdate(
+        state({
+          info: info({ status: 'update_available' }),
+          download: download({ status: 'idle' })
+        })
+      )
+    ).toBe(true);
+  });
+
+  it('allows retry when an update is available and download failed', () => {
+    expect(
+      canDownloadUpdate(
+        state({
+          info: info({ status: 'update_available' }),
+          download: download({ status: 'download_failed' })
+        })
+      )
+    ).toBe(true);
+  });
+
+  it('does not allow download while downloading', () => {
+    expect(
+      canDownloadUpdate(
+        state({
+          info: info({ status: 'update_available' }),
+          download: download({ status: 'downloading' })
+        })
+      )
+    ).toBe(false);
+  });
+
+  it('does not allow download after update is downloaded', () => {
+    expect(
+      canDownloadUpdate(
+        state({
+          info: info({ status: 'update_available' }),
+          download: download({ status: 'downloaded' })
+        })
+      )
+    ).toBe(false);
+  });
+
+  it('does not allow download when no update is available', () => {
+    expect(
+      canDownloadUpdate(
+        state({
+          info: info({ status: 'up_to_date' }),
+          download: download({ status: 'idle' })
+        })
+      )
+    ).toBe(false);
+  });
+});
+
+function state(overrides: Partial<UpdateState>): UpdateState {
+  return {
+    info: info({}),
+    download: download({}),
+    ...overrides
+  };
+}
 
 function info(overrides: Partial<UpdateInfo>): UpdateInfo {
   return {
