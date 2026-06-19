@@ -85,7 +85,7 @@ Switchify PC uses `uiAccess="true"` so the installed app can interact with eleva
 
 Windows only honors `uiAccess` when all of these are true:
 
-- The app executable manifest has `level="asInvoker"` and `uiAccess="true"`.
+- The app executable manifest has `level="highestAvailable"` and `uiAccess="true"`.
 - The executable is Authenticode signed.
 - The executable is installed in a secure location such as `C:\Program Files\Switchify PC\`.
 - Signing happens after icon and manifest resource embedding.
