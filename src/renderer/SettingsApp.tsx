@@ -3,6 +3,7 @@ import type { SystemStartupSettings } from '../shared/system-startup';
 import type { UpdateState } from '../shared/update';
 import { SettingsView } from './components/SettingsPanel';
 import { WindowChrome } from './components/WindowTitleBar';
+import { settingsSectionFromHash } from './settings-route';
 import { useSwitchifyPcStatus } from './useSwitchifyPcStatus';
 
 export function SettingsApp(): ReactElement {
@@ -107,9 +108,11 @@ export function SettingsApp(): ReactElement {
         updateState={updateState}
         isCheckingForUpdates={isCheckingForUpdates}
         isDownloadingUpdate={isDownloadingUpdate}
-          onCheckForUpdates={checkForUpdates}
-          onDownloadUpdate={downloadUpdate}
-          onInstallDownloadedUpdate={installDownloadedUpdate}
+        initialSection={settingsSectionFromHash(window.location.hash)}
+        onSettingsSectionRequest={bridge.onShowSettingsSection}
+        onCheckForUpdates={checkForUpdates}
+        onDownloadUpdate={downloadUpdate}
+        onInstallDownloadedUpdate={installDownloadedUpdate}
         />
     </WindowChrome>
   );

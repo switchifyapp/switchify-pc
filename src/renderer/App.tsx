@@ -1,4 +1,5 @@
-import type { ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
+import type { UpdateState } from '../shared/update';
 import { AndroidDownloadPanel } from './components/AndroidDownloadPanel';
 import { PairingApprovalRequests } from './components/PairingApprovalRequests';
 import { PrimaryContent } from './components/PrimaryContent';
@@ -9,7 +10,7 @@ import { SettingsApp } from './SettingsApp';
 import { useSwitchifyPcStatus } from './useSwitchifyPcStatus';
 
 export function App(): ReactElement {
-  if (window.location.hash === '#/settings') {
+  if (window.location.hash === '#/settings' || window.location.hash.startsWith('#/settings/')) {
     return <SettingsApp />;
   }
 
@@ -19,9 +20,38 @@ export function App(): ReactElement {
 function MainApp(): ReactElement {
   const bridge = window.switchifyPc;
   const status = useSwitchifyPcStatus(bridge);
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshUpdateState = (): void => {
+      void bridge.getUpdateState().then((state) => {
+        if (!cancelled) {
+          setUpdateState(state);
+        }
+      });
+    };
+
+    refreshUpdateState();
+    const interval = window.setInterval(refreshUpdateState, 30_000);
+    window.addEventListener('focus', refreshUpdateState);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshUpdateState);
+    };
+  }, [bridge]);
 
   return (
-    <WindowChrome title={bridge.appName} state={status.uiState} className="app-shell">
+    <WindowChrome
+      title={bridge.appName}
+      state={status.uiState}
+      className="app-shell"
+      updateState={updateState}
+      onOpenUpdates={() => bridge.openSettingsWindow('updates')}
+    >
       <section className="setup-card" aria-label="Switchify PC setup">
         <StatusHeader
           state={status.uiState}

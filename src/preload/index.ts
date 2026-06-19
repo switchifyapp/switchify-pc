@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
 import type { PairedDeviceView, PcControlStatus } from '../shared/server-status';
 import type { CursorOverlaySettings } from '../shared/cursor-overlay-settings';
@@ -23,7 +23,9 @@ import {
   SET_CURSOR_OVERLAY_ENABLED_CHANNEL,
   SET_CURSOR_OVERLAY_SETTINGS_CHANNEL,
   SET_START_WITH_SYSTEM_CHANNEL,
+  SHOW_SETTINGS_SECTION_CHANNEL,
 } from '../shared/ipc-channels';
+import type { SettingsSectionId } from '../shared/settings';
 import type { SystemStartupSettings } from '../shared/system-startup';
 import type { UpdateState } from '../shared/update';
 
@@ -45,7 +47,13 @@ contextBridge.exposeInMainWorld('switchifyPc', {
   getCursorOverlaySettings: (): Promise<CursorOverlaySettings> => ipcRenderer.invoke(GET_CURSOR_OVERLAY_SETTINGS_CHANNEL),
   setCursorOverlaySettings: (settings: CursorOverlaySettings): Promise<CursorOverlaySettings> =>
     ipcRenderer.invoke(SET_CURSOR_OVERLAY_SETTINGS_CHANNEL, settings),
-  openSettingsWindow: (): Promise<void> => ipcRenderer.invoke(OPEN_SETTINGS_WINDOW_CHANNEL),
+  openSettingsWindow: (section?: SettingsSectionId): Promise<void> =>
+    ipcRenderer.invoke(OPEN_SETTINGS_WINDOW_CHANNEL, section),
+  onShowSettingsSection: (handler: (section: SettingsSectionId) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, section: SettingsSectionId): void => handler(section);
+    ipcRenderer.on(SHOW_SETTINGS_SECTION_CHANNEL, listener);
+    return () => ipcRenderer.removeListener(SHOW_SETTINGS_SECTION_CHANNEL, listener);
+  },
   openExternalUrl: (url: string): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke(OPEN_EXTERNAL_URL_CHANNEL, url),
   getPendingPairingRequests: (): Promise<PendingPairingApprovalView[]> =>

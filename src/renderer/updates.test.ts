@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { UpdateDownloadProgress, UpdateInfo, UpdateState } from '../shared/update';
-import { canDownloadUpdate, updateCheckMessage, updateDownloadMessage } from './updates';
+import { canDownloadUpdate, updateCheckMessage, updateDownloadMessage, updateIndicatorState } from './updates';
 
 describe('updateCheckMessage', () => {
   it('formats not checked text as a terminal sentence', () => {
@@ -104,6 +104,68 @@ describe('canDownloadUpdate', () => {
         })
       )
     ).toBe(false);
+  });
+});
+
+describe('updateIndicatorState', () => {
+  it('hides the indicator without update state', () => {
+    expect(updateIndicatorState(null)).toBe('hidden');
+  });
+
+  it('hides the indicator before updates are checked', () => {
+    expect(updateIndicatorState(state({ info: info({ status: 'not_checked' }) }))).toBe('hidden');
+  });
+
+  it('hides the indicator when the app is up to date', () => {
+    expect(updateIndicatorState(state({ info: info({ status: 'up_to_date' }) }))).toBe('hidden');
+  });
+
+  it('hides the indicator when update checks fail', () => {
+    expect(updateIndicatorState(state({ info: info({ status: 'check_failed' }) }))).toBe('hidden');
+  });
+
+  it('shows an available indicator when an update is available and idle', () => {
+    expect(
+      updateIndicatorState(
+        state({
+          info: info({ status: 'update_available' }),
+          download: download({ status: 'idle' })
+        })
+      )
+    ).toBe('available');
+  });
+
+  it('shows an available indicator when an update download failed', () => {
+    expect(
+      updateIndicatorState(
+        state({
+          info: info({ status: 'update_available' }),
+          download: download({ status: 'download_failed' })
+        })
+      )
+    ).toBe('available');
+  });
+
+  it('shows an available indicator while an update is downloading', () => {
+    expect(
+      updateIndicatorState(
+        state({
+          info: info({ status: 'update_available' }),
+          download: download({ status: 'downloading' })
+        })
+      )
+    ).toBe('available');
+  });
+
+  it('shows a downloaded indicator when an update is downloaded', () => {
+    expect(
+      updateIndicatorState(
+        state({
+          info: info({ status: 'up_to_date' }),
+          download: download({ status: 'downloaded' })
+        })
+      )
+    ).toBe('downloaded');
   });
 });
 

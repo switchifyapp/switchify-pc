@@ -1,5 +1,7 @@
 import type { UpdateDownloadProgress, UpdateInfo, UpdateState } from '../shared/update';
 
+export type UpdateIndicatorState = 'hidden' | 'available' | 'downloaded';
+
 export function updateCheckMessage(info: UpdateInfo | null): string {
   if (!info) return 'Loading...';
 
@@ -42,4 +44,11 @@ export function canDownloadUpdate(state: UpdateState | null): boolean {
     state?.info.status === 'update_available' &&
     (state.download.status === 'idle' || state.download.status === 'download_failed')
   );
+}
+
+export function updateIndicatorState(state: UpdateState | null): UpdateIndicatorState {
+  if (!state) return 'hidden';
+  if (state.download.status === 'downloaded') return 'downloaded';
+  if (state.info.status === 'update_available') return 'available';
+  return 'hidden';
 }

@@ -300,6 +300,14 @@ a {
   color: #ffffff;
 }
 
+.window-titlebar-update {
+  color: var(--color-status-warn);
+}
+
+.window-titlebar-update-downloaded {
+  color: var(--color-status-ok);
+}
+
 .window-control-icon {
   position: relative;
   display: inline-block;
@@ -318,6 +326,15 @@ a {
   top: 7px;
   width: 12px;
   height: 2px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+}
+
+.window-control-icon-update::before {
+  left: 3px;
+  top: 3px;
+  width: 10px;
+  height: 10px;
   border-radius: var(--radius-pill);
   background: currentColor;
 }

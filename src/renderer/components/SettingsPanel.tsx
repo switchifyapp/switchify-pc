@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import type {
   CursorOverlayColor,
   CursorOverlaySettings,
@@ -8,6 +8,7 @@ import type {
 import { CURSOR_OVERLAY_COLORS } from '../../shared/cursor-overlay-settings';
 import type { PairedDeviceView, PcControlStatus } from '../../shared/server-status';
 import type { SystemStartupSettings } from '../../shared/system-startup';
+import type { SettingsSectionId } from '../../shared/settings';
 import type { UpdateState } from '../../shared/update';
 import { formatBluetoothStatus } from '../bluetooth-status';
 import type { ConnectedDeviceView } from '../connected-devices';
@@ -29,12 +30,12 @@ type SettingsViewProps = {
   updateState: UpdateState | null;
   isCheckingForUpdates: boolean;
   isDownloadingUpdate: boolean;
+  initialSection: SettingsSectionId;
+  onSettingsSectionRequest?: (handler: (section: SettingsSectionId) => void) => () => void;
   onCheckForUpdates: () => Promise<void>;
   onDownloadUpdate: () => Promise<void>;
   onInstallDownloadedUpdate: () => Promise<void>;
 };
-
-type SettingsSectionId = 'general' | 'bluetooth' | 'pointer' | 'updates' | 'savedDevices';
 
 const SETTINGS_SECTIONS: Array<{
   id: SettingsSectionId;
@@ -61,11 +62,18 @@ export function SettingsView({
   updateState,
   isCheckingForUpdates,
   isDownloadingUpdate,
+  initialSection,
+  onSettingsSectionRequest,
   onCheckForUpdates,
   onDownloadUpdate,
   onInstallDownloadedUpdate
 }: SettingsViewProps): ReactElement {
-  const [selectedSection, setSelectedSection] = useState<SettingsSectionId>('general');
+  const [selectedSection, setSelectedSection] = useState<SettingsSectionId>(initialSection);
+
+  useEffect(() => {
+    if (!onSettingsSectionRequest) return undefined;
+    return onSettingsSectionRequest(setSelectedSection);
+  }, [onSettingsSectionRequest]);
 
   return (
     <div className="settings-layout">
