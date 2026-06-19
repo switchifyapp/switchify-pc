@@ -1,6 +1,6 @@
 {
   "name": "switchify-pc",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Desktop companion app for Switchify Android.",
   "main": "out/main/index.js",
   "scripts": {
