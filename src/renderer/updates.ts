@@ -38,5 +38,8 @@ export function updateDownloadMessage(download: UpdateDownloadProgress | null): 
 }
 
 export function canDownloadUpdate(state: UpdateState | null): boolean {
-  return state?.info.status === 'update_available' && state.download.status !== 'downloading';
+  return (
+    state?.info.status === 'update_available' &&
+    (state.download.status === 'idle' || state.download.status === 'download_failed')
+  );
 }
