@@ -98,33 +98,33 @@ describe('createSwitchifyTray', () => {
     expect(callbacks.quit).not.toHaveBeenCalled();
   });
 
-  it('opens the context menu on Windows right-click', () => {
+  it('attaches the context menu on Windows', () => {
     const callbacks = createCallbacks();
     createSwitchifyTray({
       ...callbacks,
       getStatus: () => status()
     });
 
-    tray().emit('right-click');
-
-    expect(tray().popUpContextMenu).toHaveBeenCalledTimes(1);
-    expect(tray().popUpContextMenu).toHaveBeenCalledWith(lastMenu());
-    expect(callbacks.showWindow).not.toHaveBeenCalled();
+    expect(tray().setContextMenu).toHaveBeenCalledTimes(1);
+    expect(tray().setContextMenu).toHaveBeenCalledWith(lastMenu());
+    expect(tray().popUpContextMenu).not.toHaveBeenCalled();
+    expect(tray().handlers.has('right-click')).toBe(false);
   });
 
-  it('refreshes the right-click menu with the latest status', () => {
+  it('refreshes the context menu with the latest status on update', () => {
     const callbacks = createCallbacks();
     let connectedClientCount = 0;
-    createSwitchifyTray({
+    const switchifyTray = createSwitchifyTray({
       ...callbacks,
       getStatus: () => status({ connectedClientCount })
     });
 
     connectedClientCount = 1;
-    tray().emit('right-click');
+    switchifyTray.update();
 
     const disconnectItem = lastMenu().template.find((item) => item.label === 'Disconnect device');
     expect(disconnectItem?.enabled).toBe(true);
+    expect(tray().setContextMenu).toHaveBeenLastCalledWith(lastMenu());
   });
 
   it('refreshes the tooltip on update', () => {
