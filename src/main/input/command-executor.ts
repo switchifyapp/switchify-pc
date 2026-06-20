@@ -14,9 +14,10 @@ export type CommandExecutionResult =
   | { ok: false; code: 'unsupported_command' | 'unsafe_payload' | 'adapter_failure'; message: string };
 
 export type CursorOverlayNotifier = {
-  show(event: 'move' | 'click'): void;
+  show(event: 'move' | 'click' | 'drag'): void;
   hide?(): void;
   markControlActive?(): void;
+  setDragActive?(active: boolean): void;
 };
 
 export class DesktopCommandExecutor {
@@ -48,6 +49,8 @@ export class DesktopCommandExecutor {
       const button = this.activeDragButton;
       await this.adapter.setMouseButtonDown(button, false);
       this.activeDragButton = null;
+      this.cursorOverlay?.setDragActive?.(false);
+      this.cursorOverlay?.hide?.();
     });
     this.pointerActionQueue = release.then(
       () => undefined,
@@ -129,14 +132,16 @@ export class DesktopCommandExecutor {
           assertBoundedNumber(command.payload.dx, MAX_POINTER_DELTA, 'dx');
           assertBoundedNumber(command.payload.dy, MAX_POINTER_DELTA, 'dy');
           await this.adapter.moveMouseBy(command.payload);
-          this.cursorOverlay?.show('move');
+          this.cursorOverlay?.show(this.activeDragButton ? 'drag' : 'move');
           return { ok: true };
         case 'mouse.dragStart':
           await this.startDrag(command.payload.button);
-          this.cursorOverlay?.show('move');
+          this.cursorOverlay?.setDragActive?.(true);
+          this.cursorOverlay?.show('drag');
           return { ok: true };
         case 'mouse.dragEnd':
           await this.endDrag(command.payload.button);
+          this.cursorOverlay?.setDragActive?.(false);
           this.cursorOverlay?.show('move');
           return { ok: true };
         case 'mouse.click':

@@ -33,6 +33,7 @@ export class CursorOverlay {
   private readonly followIntervalMs: number;
   private settings: CursorOverlaySettings;
   private followTimer: NodeJS.Timeout | null = null;
+  private dragActive = false;
 
   constructor(private readonly options: CursorOverlayOptions) {
     this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
@@ -68,7 +69,7 @@ export class CursorOverlay {
   setSettings(settings: CursorOverlaySettings): void {
     const previous = this.settings;
     this.settings = normalizeCursorOverlaySettings(settings);
-    if (!this.settings.enabled || this.settings.visibility !== 'whileControlling') {
+    if (!this.settings.enabled || !this.shouldFollowCursor()) {
       this.stopFollowing();
     }
     if (!this.settings.enabled) {
@@ -85,13 +86,31 @@ export class CursorOverlay {
   }
 
   markControlActive(): void {
-    if (!this.settings.enabled || this.settings.visibility !== 'whileControlling') return;
+    if (!this.settings.enabled || !this.shouldFollowCursor()) return;
     this.startFollowing();
+  }
+
+  setDragActive(active: boolean): void {
+    if (this.dragActive === active) return;
+
+    this.dragActive = active;
+    if (!this.settings.enabled) return;
+
+    if (this.dragActive) {
+      this.startFollowing();
+      return;
+    }
+
+    if (this.shouldFollowCursor()) {
+      this.refreshPersistentOverlay();
+    } else {
+      this.stopFollowing();
+    }
   }
 
   show(event: CursorOverlayEvent): void {
     if (!this.settings.enabled) return;
-    if (this.settings.visibility === 'whileControlling') {
+    if (this.shouldFollowCursor()) {
       this.startFollowing();
     }
     this.backend.show(event, this.renderOptions());
@@ -103,6 +122,7 @@ export class CursorOverlay {
   }
 
   endControlSession(): void {
+    this.dragActive = false;
     this.hide();
   }
 
@@ -112,14 +132,14 @@ export class CursorOverlay {
   }
 
   private startFollowing(): void {
-    this.refreshPersistentOverlay();
     if (this.followTimer) return;
+    this.refreshPersistentOverlay();
     this.followTimer = setInterval(() => {
-      if (!this.settings.enabled || this.settings.visibility !== 'whileControlling') {
+      if (!this.settings.enabled || !this.shouldFollowCursor()) {
         this.hide();
         return;
       }
-      this.backend.show('move', this.renderOptions());
+      this.backend.show(this.currentPersistentEvent(), this.renderOptions());
     }, this.followIntervalMs);
     this.followTimer.unref?.();
   }
@@ -132,8 +152,8 @@ export class CursorOverlay {
   }
 
   private refreshPersistentOverlay(): void {
-    if (!this.settings.enabled || this.settings.visibility !== 'whileControlling') return;
-    this.backend.show('move', this.renderOptions());
+    if (!this.settings.enabled || !this.shouldFollowCursor()) return;
+    this.backend.show(this.currentPersistentEvent(), this.renderOptions());
   }
 
   private renderOptions(): CursorOverlayRenderOptions {
@@ -141,13 +161,21 @@ export class CursorOverlay {
       size: this.resolveSizePixels(),
       idleTimeoutMs: this.idleTimeoutMs,
       crosshairs: this.settings.crosshairs,
-      persistent: this.settings.visibility === 'whileControlling',
+      persistent: this.shouldFollowCursor(),
       colorRgb: resolveCursorOverlayColorRgb(this.settings.color)
     };
   }
 
   private resolveSizePixels(): number {
     return resolveCursorOverlaySizePixels(this.settings.size);
+  }
+
+  private shouldFollowCursor(): boolean {
+    return this.settings.visibility === 'whileControlling' || this.dragActive;
+  }
+
+  private currentPersistentEvent(): CursorOverlayEvent {
+    return this.dragActive ? 'drag' : 'move';
   }
 }
 
@@ -313,7 +341,7 @@ function createOverlayEventScript(
   }
 ): string {
   return `
-    document.body.className = ${JSON.stringify(event === 'click' ? 'click' : 'move')};
+    document.body.className = ${JSON.stringify(event)};
     document.body.classList.toggle('crosshairs-enabled', ${JSON.stringify(options.crosshairs)});
     document.documentElement.style.setProperty('--overlay-rgb', '${options.colorRgb.join(', ')}');
     document.documentElement.style.setProperty('--center-x', '${Math.round(options.centerX)}px');
@@ -405,6 +433,32 @@ function createOverlayHtml(): string {
         animation: click-pulse 180ms ease-out;
       }
 
+      .drag-dot {
+        position: absolute;
+        left: var(--center-x, 64px);
+        top: var(--center-y, 64px);
+        display: none;
+        width: calc(var(--ring-size, 72px) * 0.22);
+        height: calc(var(--ring-size, 72px) * 0.22);
+        border-radius: 999px;
+        background: rgba(var(--overlay-rgb, 211, 47, 47), 0.94);
+        box-shadow:
+          0 0 0 4px rgba(var(--overlay-rgb, 211, 47, 47), 0.18),
+          0 0 18px rgba(var(--overlay-rgb, 211, 47, 47), 0.45);
+        transform: translate(-50%, -50%);
+      }
+
+      body.drag .ring {
+        border-width: calc(var(--ring-stroke, 5px) + 1px);
+        box-shadow:
+          0 0 0 calc(var(--glow-stroke, 24px) * 0.5) rgba(var(--overlay-rgb, 211, 47, 47), 0.26),
+          0 0 42px rgba(var(--overlay-rgb, 211, 47, 47), 0.54);
+      }
+
+      body.drag .drag-dot {
+        display: block;
+      }
+
       @keyframes click-pulse {
         0% {
           transform: translate(-50%, -50%) scale(0.82);
@@ -425,6 +479,7 @@ function createOverlayHtml(): string {
     <div class="crosshair crosshair-horizontal"></div>
     <div class="crosshair crosshair-vertical"></div>
     <div class="ring"></div>
+    <div class="drag-dot"></div>
   </body>
 </html>`;
 }
