@@ -24,20 +24,10 @@ export function createSwitchifyTray(options: SwitchifyTrayOptions): SwitchifyTra
     const status = options.getStatus();
     currentMenu = buildTrayMenu(options, status);
     tray.setToolTip(`Switchify PC - ${formatTooltipStatus(status)}`);
-    if (process.platform !== 'win32') {
-      tray.setContextMenu(currentMenu);
-    }
+    tray.setContextMenu(currentMenu);
   };
 
   tray.on('click', options.showWindow);
-  if (process.platform === 'win32') {
-    tray.on('right-click', () => {
-      update();
-      if (currentMenu) {
-        tray.popUpContextMenu(currentMenu);
-      }
-    });
-  }
   update();
 
   return {
