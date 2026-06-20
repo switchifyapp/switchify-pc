@@ -34,3 +34,9 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Build native cursor overlay helper
+        run: npm run native:build-overlay
+
+      - name: Smoke native cursor overlay helper
+        run: npm run native:smoke-overlay

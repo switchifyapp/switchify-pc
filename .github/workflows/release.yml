@@ -85,6 +85,9 @@ jobs:
       - name: Build native cursor overlay helper
         run: npm run native:build-overlay
 
+      - name: Smoke native cursor overlay helper
+        run: npm run native:smoke-overlay
+
       - name: Package Windows installer
         run: npm run package:win
 
