@@ -53,17 +53,17 @@ export class LibnutWin32InputAdapter implements DesktopInputAdapter {
   }
 
   async pressKey(key: KeyboardKey): Promise<void> {
-    keyTap(toLibnutKey(key));
+    keyTap(toLibnutKeyboardKey(key));
   }
 
   async pressShortcut(keys: ShortcutKey[]): Promise<void> {
     if (keys.length === 1) {
-      keyTap(toLibnutKey(keys[0]));
+      keyTap(toLibnutKeyboardKey(keys[0]));
       return;
     }
 
     const [key, ...modifiers] = [...keys].reverse();
-    keyTap(toLibnutKey(key), modifiers.map(toLibnutKey));
+    keyTap(toLibnutKeyboardKey(key), modifiers.map(toLibnutKeyboardKey));
   }
 
   async typeText(text: string): Promise<void> {
@@ -150,7 +150,7 @@ function toLibnutMouseButton(button: MouseButton): string {
   }
 }
 
-function toLibnutKey(key: KeyboardKey | ShortcutKey): string {
+export function toLibnutKeyboardKey(key: KeyboardKey | ShortcutKey): string {
   switch (key) {
     case 'Backspace':
       return 'backspace';
@@ -180,6 +180,19 @@ function toLibnutKey(key: KeyboardKey | ShortcutKey): string {
       return 'pageup';
     case 'PageDown':
       return 'pagedown';
+    case 'F1':
+    case 'F2':
+    case 'F3':
+    case 'F4':
+    case 'F5':
+    case 'F6':
+    case 'F7':
+    case 'F8':
+    case 'F9':
+    case 'F10':
+    case 'F11':
+    case 'F12':
+      return key.toLowerCase();
     case 'Ctrl':
       return 'control';
     case 'Alt':

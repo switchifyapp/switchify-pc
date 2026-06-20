@@ -121,7 +121,9 @@ describe('DesktopCommandExecutor', () => {
     const { adapter, executor, overlay } = createExecutor();
 
     await executor.execute(command('keyboard.key', { key: 'Enter' }));
+    await executor.execute(command('keyboard.key', { key: 'F12' }));
     await executor.execute(command('keyboard.shortcut', { keys: ['Ctrl', 'C'] }));
+    await executor.execute(command('keyboard.shortcut', { keys: ['Ctrl', 'F5'] }));
     await executor.execute(command('keyboard.typeText', { text: 'Hello' }));
     await executor.execute(command('media.control', { action: 'playPause' }));
     await executor.execute(command('window.control', { action: 'switchNext' }));
@@ -130,14 +132,16 @@ describe('DesktopCommandExecutor', () => {
     expect(pingResult).toEqual({ ok: true });
     expect(adapter.calls).toEqual([
       { method: 'pressKey', args: ['Enter'] },
+      { method: 'pressKey', args: ['F12'] },
       { method: 'pressShortcut', args: [['Ctrl', 'C']] },
+      { method: 'pressShortcut', args: [['Ctrl', 'F5']] },
       { method: 'typeText', args: ['Hello'] },
       { method: 'mediaControl', args: ['playPause'] },
       { method: 'controlWindow', args: ['switchNext'] }
     ]);
     expect(overlay.events).toHaveLength(0);
     expect(overlay.activeCount).toBe(0);
-    expect(overlay.hideCount).toBe(6);
+    expect(overlay.hideCount).toBe(8);
   });
 
   it('executes non-movement no-response commands without coalescing', async () => {
@@ -145,13 +149,13 @@ describe('DesktopCommandExecutor', () => {
 
     await executor.execute(command('mouse.click', { button: 'left' }, { responseMode: 'none' }));
     await executor.execute(command('mouse.scroll', { dx: 0, dy: -3 }, { responseMode: 'none' }));
-    await executor.execute(command('keyboard.key', { key: 'Enter' }, { responseMode: 'none' }));
+    await executor.execute(command('keyboard.key', { key: 'F12' }, { responseMode: 'none' }));
     await executor.execute(command('window.control', { action: 'switchNext' }, { responseMode: 'none' }));
 
     expect(adapter.calls).toEqual([
       { method: 'clickMouse', args: ['left'] },
       { method: 'scrollMouse', args: [{ dx: 0, dy: -3 }] },
-      { method: 'pressKey', args: ['Enter'] },
+      { method: 'pressKey', args: ['F12'] },
       { method: 'controlWindow', args: ['switchNext'] }
     ]);
     expect(overlay.events).toEqual(['click']);
