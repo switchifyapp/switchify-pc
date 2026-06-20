@@ -8,12 +8,17 @@ import { DesktopCommandExecutor } from './command-executor';
 type RecordedCall = { method: keyof DesktopInputAdapter; args: unknown[] };
 
 class FakeCursorOverlay {
-  readonly events: Array<'move' | 'click'> = [];
+  readonly events: Array<'move' | 'click' | 'drag'> = [];
+  readonly dragActiveChanges: boolean[] = [];
   activeCount = 0;
   hideCount = 0;
 
-  show(event: 'move' | 'click'): void {
+  show(event: 'move' | 'click' | 'drag'): void {
     this.events.push(event);
+  }
+
+  setDragActive(active: boolean): void {
+    this.dragActiveChanges.push(active);
   }
 
   markControlActive(): void {
@@ -306,9 +311,22 @@ describe('DesktopCommandExecutor', () => {
       { method: 'moveMouseBy', args: [{ dx: 10, dy: 0 }] },
       { method: 'setMouseButtonDown', args: ['left', false] }
     ]);
-    expect(overlay.events).toEqual(['move', 'move', 'move']);
+    expect(overlay.events).toEqual(['drag', 'drag', 'move']);
+    expect(overlay.dragActiveChanges).toEqual([true, false]);
     expect(overlay.activeCount).toBe(3);
     expect(overlay.hideCount).toBe(0);
+  });
+
+  it('uses the drag overlay while moving with a held mouse button', async () => {
+    const { executor, overlay } = createExecutor();
+
+    await executor.execute(command('mouse.dragStart', { button: 'left' }));
+    await executor.execute(command('mouse.move', { dx: 5, dy: 0 }));
+    await executor.execute(command('mouse.dragEnd', { button: 'left' }));
+    await executor.execute(command('mouse.move', { dx: 5, dy: 0 }));
+
+    expect(overlay.events).toEqual(['drag', 'drag', 'move', 'move']);
+    expect(overlay.dragActiveChanges).toEqual([true, false]);
   });
 
   it('serializes drag start, movement, and drag end pointer actions', async () => {
@@ -356,8 +374,8 @@ describe('DesktopCommandExecutor', () => {
     ]);
   });
 
-  it('releases the active drag button during cleanup', async () => {
-    const { adapter, executor } = createExecutor();
+  it('releases the active drag button and clears the drag overlay during cleanup', async () => {
+    const { adapter, executor, overlay } = createExecutor();
 
     await executor.execute(command('mouse.dragStart', { button: 'left' }));
     await executor.releaseHeldMouseButtons();
@@ -367,6 +385,8 @@ describe('DesktopCommandExecutor', () => {
       { method: 'setMouseButtonDown', args: ['left', true] },
       { method: 'setMouseButtonDown', args: ['left', false] }
     ]);
+    expect(overlay.dragActiveChanges).toEqual([true, false]);
+    expect(overlay.hideCount).toBe(1);
   });
 
   it('converts drag adapter errors into structured failures', async () => {

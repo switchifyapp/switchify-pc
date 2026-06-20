@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolveCursorOverlayColorRgb, type CursorOverlaySettings } from '../shared/cursor-overlay-settings';
 
-export type CursorOverlayEvent = 'move' | 'click';
+export type CursorOverlayEvent = 'move' | 'click' | 'drag';
 
 export type CursorOverlayPoint = {
   x: number;

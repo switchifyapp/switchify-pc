@@ -31,7 +31,7 @@ class FakeHelperProcess extends EventEmitter {
 class FakeOverlayBackend implements CursorOverlayBackend {
   readonly events: string[] = [];
 
-  show(event: 'move' | 'click', _options: CursorOverlayRenderOptions): void {
+  show(event: 'move' | 'click' | 'drag', _options: CursorOverlayRenderOptions): void {
     this.events.push(`show:${event}`);
   }
 
@@ -120,6 +120,35 @@ describe('NativeWindowsCursorOverlayBackend', () => {
         green: 255,
         blue: 145
       }
+    });
+  });
+
+  it('writes drag commands to the helper process', () => {
+    const helper = new FakeHelperProcess();
+    const fallback = new FakeOverlayBackend();
+    const backend = new NativeWindowsCursorOverlayBackend({
+      helperPath: __filename,
+      fallback,
+      getCursorPosition: () => ({ x: 100, y: 200 }),
+      idleTimeoutMs: 900,
+      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false, color: 'red' }),
+      resolveSizePixels: () => 128,
+      spawnProcess: () => helper as never
+    });
+
+    backend.show('drag', {
+      size: 128,
+      idleTimeoutMs: 900,
+      crosshairs: false,
+      persistent: true,
+      colorRgb: [211, 47, 47]
+    });
+
+    expect(JSON.parse(helper.writes[0])).toMatchObject({
+      type: 'show',
+      event: 'drag',
+      persistent: true,
+      durationMs: 0
     });
   });
 
@@ -215,6 +244,28 @@ describe('NativeWindowsCursorOverlayBackend', () => {
 
     expect(fallback.events).toEqual(['show:move']);
     expect(failures[0]).toContain('Cursor overlay helper was not found');
+  });
+
+  it('falls back with the drag event when the helper is missing during drag', () => {
+    const fallback = new FakeOverlayBackend();
+    const backend = new NativeWindowsCursorOverlayBackend({
+      helperPath: 'C:\\missing\\SwitchifyCursorOverlay.exe',
+      fallback,
+      getCursorPosition: () => ({ x: 100, y: 200 }),
+      idleTimeoutMs: 900,
+      getSettings: () => ({ enabled: true, size: 'medium', visibility: 'onInput', crosshairs: false, color: 'red' }),
+      resolveSizePixels: () => 128
+    });
+
+    backend.show('drag', {
+      size: 128,
+      idleTimeoutMs: 900,
+      crosshairs: false,
+      persistent: true,
+      colorRgb: [211, 47, 47]
+    });
+
+    expect(fallback.events).toEqual(['show:drag']);
   });
 
   it('falls back after helper errors', () => {

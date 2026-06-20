@@ -16,6 +16,7 @@ internal sealed class OverlayForm : Form
     private readonly CrosshairLineForm verticalCrosshair = new();
     private DateTime clickPulseStartedAt = DateTime.MinValue;
     private bool isClickPulse;
+    private bool isDragActive;
     private int ringWindowSize = DefaultWindowSize;
     private PointF cursorCenter = new(DefaultWindowSize / 2.0f, DefaultWindowSize / 2.0f);
     private Color overlayColor = DefaultOverlayColor;
@@ -74,6 +75,7 @@ internal sealed class OverlayForm : Form
         cursorCenter = new PointF(size / 2.0f, size / 2.0f);
 
         isClickPulse = string.Equals(command.Event, "click", StringComparison.OrdinalIgnoreCase);
+        isDragActive = string.Equals(command.Event, "drag", StringComparison.OrdinalIgnoreCase);
         clickPulseStartedAt = isClickPulse ? DateTime.UtcNow : DateTime.MinValue;
 
         if (!RenderLayeredOverlay())
@@ -99,6 +101,7 @@ internal sealed class OverlayForm : Form
         hideTimer.Stop();
         animationTimer.Stop();
         isClickPulse = false;
+        isDragActive = false;
         horizontalCrosshair.Hide();
         verticalCrosshair.Hide();
         Hide();
@@ -149,12 +152,24 @@ internal sealed class OverlayForm : Form
             float centerY = cursorCenter.Y;
             float ringX = centerX - ringDiameter / 2.0f;
             float ringY = centerY - ringDiameter / 2.0f;
+            float dragDotDiameter = ringDiameter * 0.22f;
+            float dragDotX = centerX - dragDotDiameter / 2.0f;
+            float dragDotY = centerY - dragDotDiameter / 2.0f;
 
-            using Pen glow = new(Color.FromArgb(62, overlayColor.R, overlayColor.G, overlayColor.B), outerStroke);
-            using Pen ring = new(Color.FromArgb(250, overlayColor.R, overlayColor.G, overlayColor.B), ringStroke);
+            using Pen glow = new(
+                Color.FromArgb(isDragActive ? 66 : 62, overlayColor.R, overlayColor.G, overlayColor.B),
+                isDragActive ? outerStroke * 1.08f : outerStroke);
+            using Pen ring = new(
+                Color.FromArgb(250, overlayColor.R, overlayColor.G, overlayColor.B),
+                isDragActive ? ringStroke + 1.0f : ringStroke);
+            using SolidBrush dragDot = new(Color.FromArgb(240, overlayColor.R, overlayColor.G, overlayColor.B));
 
             graphics.DrawEllipse(glow, ringX, ringY, ringDiameter, ringDiameter);
             graphics.DrawEllipse(ring, ringX, ringY, ringDiameter, ringDiameter);
+            if (isDragActive)
+            {
+                graphics.FillEllipse(dragDot, dragDotX, dragDotY, dragDotDiameter, dragDotDiameter);
+            }
         }
 
         IntPtr screenDc = NativeMethods.GetDC(IntPtr.Zero);
