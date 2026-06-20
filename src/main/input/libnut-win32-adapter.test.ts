@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { calculateNativeScrollDelta, calculateScaledMouseTarget, toLibnutMouseToggle } from './libnut-win32-adapter';
+import {
+  calculateNativeScrollDelta,
+  calculateScaledMouseTarget,
+  toLibnutKeyboardKey,
+  toLibnutMouseToggle
+} from './libnut-win32-adapter';
 import {
   createWindowControlScript,
   toWindowsWindowControlStrategy
@@ -87,6 +92,17 @@ describe('toLibnutMouseToggle', () => {
   it('maps held-button state to libnut toggle values', () => {
     expect(toLibnutMouseToggle(true)).toBe('down');
     expect(toLibnutMouseToggle(false)).toBe('up');
+  });
+});
+
+describe('toLibnutKeyboardKey', () => {
+  it('maps navigation keys to libnut key values', () => {
+    expect(toLibnutKeyboardKey('PageUp')).toBe('pageup');
+  });
+
+  it('maps function keys to libnut key values', () => {
+    expect(toLibnutKeyboardKey('F1')).toBe('f1');
+    expect(toLibnutKeyboardKey('F12')).toBe('f12');
   });
 });
 

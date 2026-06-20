@@ -33,6 +33,9 @@ describe('protocol request validation', () => {
       { type: 'mouse.dragEnd', payload: { button: 'left' } },
       { type: 'keyboard.key', payload: { key: 'Enter' } },
       { type: 'keyboard.shortcut', payload: { keys: ['Ctrl', 'C'] } },
+      { type: 'keyboard.key', payload: { key: 'F1' } },
+      { type: 'keyboard.key', payload: { key: 'F12' } },
+      { type: 'keyboard.shortcut', payload: { keys: ['Ctrl', 'F5'] } },
       { type: 'keyboard.typeText', payload: { text: 'Hello' } },
       { type: 'media.control', payload: { action: 'playPause' } },
       { type: 'window.control', payload: { action: 'switchNext' } },
@@ -193,6 +196,10 @@ describe('protocol request validation', () => {
       error: 'invalid_payload'
     });
     expect(validateProtocolRequest({ ...baseCommand, type: 'keyboard.shortcut', payload: { keys: [] } })).toMatchObject({
+      ok: false,
+      error: 'invalid_payload'
+    });
+    expect(validateProtocolRequest({ ...baseCommand, type: 'keyboard.key', payload: { key: 'F13' } })).toMatchObject({
       ok: false,
       error: 'invalid_payload'
     });
