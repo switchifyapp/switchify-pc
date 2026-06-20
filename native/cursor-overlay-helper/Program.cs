@@ -78,9 +78,9 @@ internal static class Program
         switch (command.Type)
         {
             case "show":
-                if (command.Event is not ("move" or "click"))
+                if (command.Event is not ("move" or "click" or "drag"))
                 {
-                    WriteError("invalid_command", "Show command event must be move or click.");
+                    WriteError("invalid_command", "Show command event must be move, click, or drag.");
                     return;
                 }
 
