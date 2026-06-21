@@ -3,7 +3,7 @@ import { MAX_POINTER_DELTA } from '../../shared/protocol';
 import { createPointerMovementProfile } from './pointer-profile';
 
 describe('createPointerMovementProfile', () => {
-  it('creates sensible deltas for a 1280x720 display at 1.5 scale', () => {
+  it('creates display-relative deltas for a 1280x720 display at 1.5 scale', () => {
     const profile = createPointerMovementProfile({
       cursor: { x: 100, y: 100 },
       display: {
@@ -18,9 +18,9 @@ describe('createPointerMovementProfile', () => {
       bounds: { x: 0, y: 0, width: 1280, height: 720 },
       maxDelta: MAX_POINTER_DELTA,
       recommendedDeltas: {
-        small: 32,
-        medium: 85,
-        large: 187
+        small: 21,
+        medium: 57,
+        large: 125
       },
       capabilities: {
         noAckMouseMove: true
@@ -28,7 +28,7 @@ describe('createPointerMovementProfile', () => {
     });
   });
 
-  it('returns native target deltas on a 1x display', () => {
+  it('preserves current feel on a 1920x1080 display at 1x scale', () => {
     expect(
       createPointerMovementProfile({
         cursor: { x: 100, y: 100 },
@@ -38,25 +38,57 @@ describe('createPointerMovementProfile', () => {
         }
       }).recommendedDeltas
     ).toEqual({
-      small: 48,
-      medium: 128,
-      large: 280
+      small: 49,
+      medium: 130,
+      large: 281
     });
   });
 
-  it('returns small logical deltas on a 3x display', () => {
+  it('returns larger clamped deltas on a 4K display at 1x scale', () => {
     expect(
       createPointerMovementProfile({
         cursor: { x: 100, y: 100 },
         display: {
-          bounds: { x: 0, y: 0, width: 1920, height: 960 },
-          scaleFactor: 3
+          bounds: { x: 0, y: 0, width: 3840, height: 2160 },
+          scaleFactor: 1
         }
       }).recommendedDeltas
     ).toEqual({
-      small: 16,
-      medium: 43,
-      large: 93
+      small: 97,
+      medium: 259,
+      large: MAX_POINTER_DELTA
+    });
+  });
+
+  it('uses the short edge for ultrawide displays', () => {
+    expect(
+      createPointerMovementProfile({
+        cursor: { x: 100, y: 100 },
+        display: {
+          bounds: { x: 0, y: 0, width: 3440, height: 1440 },
+          scaleFactor: 1
+        }
+      }).recommendedDeltas
+    ).toEqual({
+      small: 65,
+      medium: 173,
+      large: 374
+    });
+  });
+
+  it('still divides by scale factor on high-DPI displays', () => {
+    expect(
+      createPointerMovementProfile({
+        cursor: { x: 100, y: 100 },
+        display: {
+          bounds: { x: 0, y: 0, width: 3840, height: 2160 },
+          scaleFactor: 2
+        }
+      }).recommendedDeltas
+    ).toEqual({
+      small: 49,
+      medium: 130,
+      large: 281
     });
   });
 
