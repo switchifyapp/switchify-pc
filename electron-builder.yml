@@ -30,6 +30,8 @@ extraResources:
     to: native/SwitchifyCursorOverlay.exe
   - from: build/native/bluetooth-transport-helper/win-x64/SwitchifyBluetoothTransport.exe
     to: native/SwitchifyBluetoothTransport.exe
+  - from: build/native/text-input-helper/win-x64/SwitchifyTextInput.exe
+    to: native/SwitchifyTextInput.exe
 
 win:
   icon: build/icon.ico

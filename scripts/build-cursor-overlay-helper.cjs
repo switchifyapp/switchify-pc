@@ -15,6 +15,12 @@ const helpers = [
     projectPath: resolveProjectPath('native', 'bluetooth-transport-helper', 'SwitchifyBluetoothTransport.csproj'),
     outputDir: resolveProjectPath('build', 'native', 'bluetooth-transport-helper', 'win-x64'),
     outputExeName: 'SwitchifyBluetoothTransport.exe'
+  },
+  {
+    name: 'text input helper',
+    projectPath: resolveProjectPath('native', 'text-input-helper', 'TextInputHelper.csproj'),
+    outputDir: resolveProjectPath('build', 'native', 'text-input-helper', 'win-x64'),
+    outputExeName: 'SwitchifyTextInput.exe'
   }
 ];
 

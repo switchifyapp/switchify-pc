@@ -30,6 +30,16 @@ const bluetoothHelperPath = resolveProjectPath(
 if (!fs.existsSync(bluetoothHelperPath)) {
   throw new Error(`Native Bluetooth transport helper not found: ${bluetoothHelperPath}`);
 }
+const textInputHelperPath = resolveProjectPath(
+  'dist',
+  'win-unpacked',
+  'resources',
+  'native',
+  'SwitchifyTextInput.exe'
+);
+if (!fs.existsSync(textInputHelperPath)) {
+  throw new Error(`Native text input helper not found: ${textInputHelperPath}`);
+}
 
 const mtExe = findWindowsSdkTool('mt.exe');
 const signtoolExe = findWindowsSdkTool('signtool.exe');
@@ -49,6 +59,10 @@ try {
     stdio: 'pipe'
   });
   const bluetoothHelperSignatureOutput = `${bluetoothHelperSignatureResult.stdout || ''}${bluetoothHelperSignatureResult.stderr || ''}`;
+  const textInputHelperSignatureResult = runTool(signtoolExe, ['verify', '/pa', '/v', textInputHelperPath], {
+    stdio: 'pipe'
+  });
+  const textInputHelperSignatureOutput = `${textInputHelperSignatureResult.stdout || ''}${textInputHelperSignatureResult.stderr || ''}`;
 
   console.log(`manifest embedded: yes`);
   console.log(`uiAccess=true: ${hasUiAccess ? 'yes' : 'no'}`);
@@ -58,6 +72,8 @@ try {
   console.log(`cursor overlay helper signature: ${helperSignatureOutput.includes('Successfully verified') ? 'valid' : 'check output above'}`);
   console.log('Bluetooth transport helper: present');
   console.log(`Bluetooth transport helper signature: ${bluetoothHelperSignatureOutput.includes('Successfully verified') ? 'valid' : 'check output above'}`);
+  console.log('text input helper: present');
+  console.log(`text input helper signature: ${textInputHelperSignatureOutput.includes('Successfully verified') ? 'valid' : 'check output above'}`);
   console.log('secure install location required: install per-machine under Program Files for uiAccess to take effect.');
 
   if (!hasUiAccess || !hasHighestAvailable) {
