@@ -84,7 +84,7 @@ internal static partial class NativeMethods
         internal INPUTUNION InputUnion;
     }
 
-    [StructLayout(LayoutKind.Explicit)]
+    [StructLayout(LayoutKind.Explicit, Size = 32)]
     private struct INPUTUNION
     {
         [FieldOffset(0)]
