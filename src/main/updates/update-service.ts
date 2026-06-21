@@ -28,6 +28,9 @@ export type UpdateServiceOptions = {
 
 type UpdateOperation = 'idle' | 'checking' | 'downloading';
 
+const INSTALL_UPDATE_SILENTLY = true;
+const FORCE_RUN_AFTER_INSTALL = true;
+
 export class UpdateService {
   private readonly isPackaged: boolean;
   private readonly platform: NodeJS.Platform;
@@ -182,7 +185,7 @@ export class UpdateService {
       return { ok: false, reason: 'not_downloaded' };
     }
 
-    this.autoUpdater.quitAndInstall(false, true);
+    this.autoUpdater.quitAndInstall(INSTALL_UPDATE_SILENTLY, FORCE_RUN_AFTER_INSTALL);
     return { ok: true };
   }
 

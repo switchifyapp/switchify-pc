@@ -138,7 +138,7 @@ describe('UpdateService', () => {
     expect(updater.quitAndInstall).not.toHaveBeenCalled();
   });
 
-  it('calls quitAndInstall after an update is downloaded', async () => {
+  it('installs downloaded updates silently and relaunches the app', async () => {
     const updater = new FakeUpdater();
     updater.checkForUpdates.mockImplementation(async () => {
       updater.emit('update-available', updateInfo({ version: '0.1.1' }));
@@ -153,7 +153,7 @@ describe('UpdateService', () => {
     await service.downloadUpdate();
 
     expect(service.installDownloadedUpdate()).toEqual({ ok: true });
-    expect(updater.quitAndInstall).toHaveBeenCalledWith(false, true);
+    expect(updater.quitAndInstall).toHaveBeenCalledWith(true, true);
   });
 
   it('maps updater errors during checks to check_failed', async () => {
