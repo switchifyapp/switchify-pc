@@ -95,7 +95,7 @@ function signWindowsExecutable(filePath) {
 }
 
 function signNativeHelpers(appOutDir) {
-  for (const helperName of ['SwitchifyCursorOverlay.exe', 'SwitchifyBluetoothTransport.exe']) {
+  for (const helperName of ['SwitchifyCursorOverlay.exe', 'SwitchifyBluetoothTransport.exe', 'SwitchifyTextInput.exe']) {
     const helperPath = path.join(appOutDir, 'resources', 'native', helperName);
     if (!fs.existsSync(helperPath)) {
       throw new Error(`Native helper is missing from packaged resources: ${helperPath}`);

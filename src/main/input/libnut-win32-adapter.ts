@@ -12,6 +12,7 @@ import type { KeyboardKey, MediaAction, MouseButton, ShortcutKey, WindowControlA
 import type { DesktopInputAdapter } from './desktop-input-adapter';
 import { DesktopInputError } from './desktop-input-adapter';
 import { insertText } from './text-inserter';
+import { createTextInputBackend, type TextInputBackend } from './text-input-helper-client';
 import { runWindowsWindowControlAction } from './windows-window-control';
 
 type Point = { x: number; y: number };
@@ -20,7 +21,10 @@ type PointerScaleProvider = (position: Point) => number;
 export const NATIVE_SCROLL_DELTA_MULTIPLIER = 8;
 
 export class LibnutWin32InputAdapter implements DesktopInputAdapter {
-  constructor(private readonly getPointerScale: PointerScaleProvider = () => 1) {}
+  constructor(
+    private readonly getPointerScale: PointerScaleProvider = () => 1,
+    private readonly textInputBackend: TextInputBackend = createTextInputBackend()
+  ) {}
 
   getMousePosition(): { x: number; y: number } {
     const current = getMousePos();
@@ -68,13 +72,15 @@ export class LibnutWin32InputAdapter implements DesktopInputAdapter {
 
   async typeText(text: string): Promise<void> {
     try {
-      insertText(text, {
+      await insertText(text, {
         clipboard,
         typeString,
+        typeUnicodeText: (value) => this.textInputBackend.typeText(value),
         pasteFromClipboard: () => keyTap('v', ['control']),
         scheduleRestore: (callback, delayMs) => {
           setTimeout(callback, delayMs);
-        }
+        },
+        wait: (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs))
       });
     } catch (error) {
       throw new DesktopInputError('adapter_failure', 'Text insertion failed.', { cause: error });
