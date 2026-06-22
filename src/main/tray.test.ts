@@ -10,12 +10,18 @@ const electronMock = vi.hoisted(() => {
     click?: () => void;
     type?: string;
   };
+  type FakeMenu = {
+    template: MenuTemplateItem[];
+    once: ReturnType<typeof vi.fn>;
+    emitMenuWillClose: () => void;
+  };
 
   class FakeTray {
     readonly handlers = new Map<string, Handler[]>();
     readonly setToolTip = vi.fn();
     readonly setContextMenu = vi.fn();
     readonly popUpContextMenu = vi.fn();
+    readonly focus = vi.fn();
     readonly destroy = vi.fn();
 
     on(event: string, handler: Handler): this {
@@ -38,11 +44,28 @@ const electronMock = vi.hoisted(() => {
       setTemplateImage: vi.fn()
     }))
   };
-  const buildFromTemplate = vi.fn((template: MenuTemplateItem[]) => ({ template }));
+  const menus: FakeMenu[] = [];
+  const buildFromTemplate = vi.fn((template: MenuTemplateItem[]) => {
+    let menuWillCloseHandler: Handler | null = null;
+    const menu = {
+      template,
+      once: vi.fn((event: string, handler: Handler) => {
+        if (event === 'menu-will-close') {
+          menuWillCloseHandler = handler;
+        }
+      }),
+      emitMenuWillClose: () => {
+        menuWillCloseHandler?.();
+      }
+    };
+    menus.push(menu);
+    return menu;
+  });
 
   return {
     FakeTray,
     trayInstances,
+    menus,
     buildFromTemplate,
     image
   };
@@ -67,12 +90,14 @@ vi.mock('electron', () => ({
 }));
 
 import { createSwitchifyTray } from './tray';
+import { trayMenuPosition } from './tray';
 
 describe('createSwitchifyTray', () => {
   const originalPlatform = process.platform;
 
   beforeEach(() => {
     electronMock.trayInstances.length = 0;
+    electronMock.menus.length = 0;
     electronMock.buildFromTemplate.mockClear();
     electronMock.image.resize.mockClear();
     setPlatform('win32');
@@ -98,7 +123,53 @@ describe('createSwitchifyTray', () => {
     expect(callbacks.quit).not.toHaveBeenCalled();
   });
 
-  it('attaches the context menu on Windows', () => {
+  it('uses an anchored manual popup on Windows right-click', () => {
+    const callbacks = createCallbacks();
+    createSwitchifyTray({
+      ...callbacks,
+      getStatus: () => status()
+    });
+
+    expect(tray().setContextMenu).not.toHaveBeenCalled();
+    expect(tray().handlers.has('right-click')).toBe(true);
+
+    tray().emit('right-click', {}, { x: 100, y: 100, width: 16, height: 24 });
+
+    expect(tray().popUpContextMenu).toHaveBeenCalledTimes(1);
+    expect(tray().popUpContextMenu).toHaveBeenCalledWith(lastMenu(), { x: 100, y: 124 });
+  });
+
+  it('refreshes the context menu with the latest status before Windows popup', () => {
+    const callbacks = createCallbacks();
+    let connectedClientCount = 0;
+    createSwitchifyTray({
+      ...callbacks,
+      getStatus: () => status({ connectedClientCount })
+    });
+
+    connectedClientCount = 1;
+    tray().emit('right-click', {}, { x: 100, y: 100, width: 16, height: 24 });
+
+    const disconnectItem = lastMenu().template.find((item) => item.label === 'Disconnect device');
+    expect(disconnectItem?.enabled).toBe(true);
+    expect(tray().popUpContextMenu).toHaveBeenLastCalledWith(lastMenu(), { x: 100, y: 124 });
+  });
+
+  it('restores notification area focus when the Windows popup closes', () => {
+    const callbacks = createCallbacks();
+    createSwitchifyTray({
+      ...callbacks,
+      getStatus: () => status()
+    });
+
+    tray().emit('right-click', {}, { x: 100, y: 100, width: 16, height: 24 });
+    lastMenu().emitMenuWillClose();
+
+    expect(tray().focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('attaches the context menu on non-Windows platforms', () => {
+    setPlatform('darwin');
     const callbacks = createCallbacks();
     createSwitchifyTray({
       ...callbacks,
@@ -109,22 +180,6 @@ describe('createSwitchifyTray', () => {
     expect(tray().setContextMenu).toHaveBeenCalledWith(lastMenu());
     expect(tray().popUpContextMenu).not.toHaveBeenCalled();
     expect(tray().handlers.has('right-click')).toBe(false);
-  });
-
-  it('refreshes the context menu with the latest status on update', () => {
-    const callbacks = createCallbacks();
-    let connectedClientCount = 0;
-    const switchifyTray = createSwitchifyTray({
-      ...callbacks,
-      getStatus: () => status({ connectedClientCount })
-    });
-
-    connectedClientCount = 1;
-    switchifyTray.update();
-
-    const disconnectItem = lastMenu().template.find((item) => item.label === 'Disconnect device');
-    expect(disconnectItem?.enabled).toBe(true);
-    expect(tray().setContextMenu).toHaveBeenLastCalledWith(lastMenu());
   });
 
   it('refreshes the tooltip on update', () => {
@@ -149,6 +204,17 @@ describe('createSwitchifyTray', () => {
     switchifyTray.destroy();
 
     expect(tray().destroy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('trayMenuPosition', () => {
+  it('anchors a menu below the tray bounds', () => {
+    expect(trayMenuPosition({ x: 10.4, y: 20.2, width: 16, height: 18.6 })).toEqual({ x: 10, y: 39 });
+  });
+
+  it('returns undefined for missing or invalid bounds', () => {
+    expect(trayMenuPosition(undefined)).toBeUndefined();
+    expect(trayMenuPosition({ x: Number.NaN, y: 20, width: 16, height: 18 })).toBeUndefined();
   });
 });
 
@@ -182,13 +248,15 @@ function tray(): InstanceType<typeof electronMock.FakeTray> {
   return currentTray;
 }
 
-function lastMenu(): { template: Array<{ label?: string; enabled?: boolean; click?: () => void; type?: string }> } {
-  const calls = electronMock.buildFromTemplate.mock.calls;
-  const template = calls.at(-1)?.[0];
-  if (!template) {
+function lastMenu(): {
+  template: Array<{ label?: string; enabled?: boolean; click?: () => void; type?: string }>;
+  emitMenuWillClose: () => void;
+} {
+  const menu = electronMock.menus.at(-1);
+  if (!menu) {
     throw new Error('Expected a menu template.');
   }
-  return { template };
+  return menu;
 }
 
 function setPlatform(platform: NodeJS.Platform): void {
