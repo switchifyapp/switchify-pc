@@ -75,11 +75,11 @@ function registerWindowsTrayMenu(tray: Tray, update: () => void, getCurrentMenu:
 }
 
 function registerWindowsTrayDiagnostics(tray: Tray): void {
-  for (const eventName of ['click', 'right-click', 'double-click', 'mouse-enter', 'mouse-leave'] as const) {
-    tray.on(eventName, (_event, boundsOrPosition) => {
-      logTrayEvent(eventName, isTrayBounds(boundsOrPosition) ? boundsOrPosition : undefined);
-    });
-  }
+  tray.on('click', (_event, bounds) => logTrayEvent('click', bounds));
+  tray.on('right-click', (_event, bounds) => logTrayEvent('right-click', bounds));
+  tray.on('double-click', (_event, bounds) => logTrayEvent('double-click', bounds));
+  tray.on('mouse-enter', (_event, position) => logTrayEvent('mouse-enter', isTrayBounds(position) ? position : undefined));
+  tray.on('mouse-leave', (_event, position) => logTrayEvent('mouse-leave', isTrayBounds(position) ? position : undefined));
 }
 
 export function trayMenuPosition(bounds: TrayBounds | undefined): { x: number; y: number } | undefined {
