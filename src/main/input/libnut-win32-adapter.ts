@@ -16,13 +16,21 @@ import { createTextInputBackend, type TextInputBackend } from './text-input-help
 import { runWindowsWindowControlAction } from './windows-window-control';
 
 type Point = { x: number; y: number };
-type PointerScaleProvider = (position: Point) => number;
+type PointerDisplay = {
+  bounds: { x: number; y: number; width: number; height: number };
+  scaleFactor: number;
+};
+type PointerDisplayProvider = (position: Point) => PointerDisplay;
 
 export const NATIVE_SCROLL_DELTA_MULTIPLIER = 8;
+export const REFERENCE_POINTER_SHORT_EDGE = 1080;
 
 export class LibnutWin32InputAdapter implements DesktopInputAdapter {
   constructor(
-    private readonly getPointerScale: PointerScaleProvider = () => 1,
+    private readonly getPointerDisplay: PointerDisplayProvider = () => ({
+      bounds: { x: 0, y: 0, width: REFERENCE_POINTER_SHORT_EDGE, height: REFERENCE_POINTER_SHORT_EDGE },
+      scaleFactor: 1
+    }),
     private readonly textInputBackend: TextInputBackend = createTextInputBackend()
   ) {}
 
@@ -33,8 +41,8 @@ export class LibnutWin32InputAdapter implements DesktopInputAdapter {
 
   async moveMouseBy(delta: { dx: number; dy: number }): Promise<void> {
     const current = this.getMousePosition();
-    const scale = this.getPointerScale(current);
-    const target = calculateScaledMouseTarget(current, delta, scale);
+    const display = this.getPointerDisplay(current);
+    const target = calculateDisplayNormalizedMouseTarget(current, delta, display);
     moveMouse(target.x, target.y);
   }
 
@@ -119,6 +127,25 @@ export function calculateScaledMouseTarget(
   return {
     x: Math.round(current.x + delta.dx * effectiveScale),
     y: Math.round(current.y + delta.dy * effectiveScale)
+  };
+}
+
+export function calculateDisplayNormalizedMouseTarget(
+  current: Point,
+  delta: { dx: number; dy: number },
+  display: PointerDisplay
+): Point {
+  const scaleFactor = Number.isFinite(display.scaleFactor) && display.scaleFactor > 0 ? display.scaleFactor : 1;
+  const shortEdge =
+    Number.isFinite(display.bounds.width) && display.bounds.width > 0 &&
+    Number.isFinite(display.bounds.height) && display.bounds.height > 0
+      ? Math.min(display.bounds.width, display.bounds.height)
+      : REFERENCE_POINTER_SHORT_EDGE;
+  const multiplier = scaleFactor * (shortEdge / REFERENCE_POINTER_SHORT_EDGE);
+
+  return {
+    x: Math.round(current.x + delta.dx * multiplier),
+    y: Math.round(current.y + delta.dy * multiplier)
   };
 }
 

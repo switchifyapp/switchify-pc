@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculateNativeScrollDelta,
+  calculateDisplayNormalizedMouseTarget,
   calculateScaledMouseTarget,
   toLibnutKeyboardKey,
   toLibnutMouseToggle
@@ -27,6 +28,112 @@ describe('calculateScaledMouseTarget', () => {
 
   it('falls back to unscaled movement for invalid scale values', () => {
     expect(calculateScaledMouseTarget({ x: 10, y: 20 }, { dx: 5, dy: 6 }, 0)).toEqual({
+      x: 15,
+      y: 26
+    });
+  });
+});
+
+describe('calculateDisplayNormalizedMouseTarget', () => {
+  it('uses 1080p as the reference display size', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: 128, dy: -64 },
+        { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 }
+      )
+    ).toEqual({
+      x: 228,
+      y: 136
+    });
+  });
+
+  it('applies larger native movement on a 4K display at 1x scale', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: 128, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 3840, height: 2160 }, scaleFactor: 1 }
+      )
+    ).toEqual({
+      x: 356,
+      y: 200
+    });
+  });
+
+  it('combines high-DPI logical deltas with display resolution normalization', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: 64, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 3840, height: 2160 }, scaleFactor: 2 }
+      )
+    ).toEqual({
+      x: 356,
+      y: 200
+    });
+  });
+
+  it('uses the display short edge for ultrawide displays', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: 128, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 3440, height: 1440 }, scaleFactor: 1 }
+      )
+    ).toEqual({
+      x: 271,
+      y: 200
+    });
+  });
+
+  it('accounts for fractional scale factors', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: 102, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 2560, height: 1440 }, scaleFactor: 1.25 }
+      )
+    ).toEqual({
+      x: 270,
+      y: 200
+    });
+  });
+
+  it('handles displays with negative coordinates', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: -300, y: 100 },
+        { dx: 128, dy: 64 },
+        { bounds: { x: -3840, y: 0, width: 3840, height: 2160 }, scaleFactor: 1 }
+      )
+    ).toEqual({
+      x: -44,
+      y: 228
+    });
+  });
+
+  it('falls back to the reference size for invalid bounds', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 10, y: 20 },
+        { dx: 5, dy: 6 },
+        { bounds: { x: 0, y: 0, width: 0, height: 2160 }, scaleFactor: 1 }
+      )
+    ).toEqual({
+      x: 15,
+      y: 26
+    });
+  });
+
+  it('falls back to scale 1 for invalid scale values', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 10, y: 20 },
+        { dx: 5, dy: 6 },
+        { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 0 }
+      )
+    ).toEqual({
       x: 15,
       y: 26
     });
