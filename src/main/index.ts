@@ -267,7 +267,13 @@ if (!gotSingleInstanceLock) {
     );
     const pairingManager = new PairingManager(pairingStore);
     const pairingApprovalManager = new PairingApprovalManager(pairingStore);
-    const inputAdapter = new LibnutWin32InputAdapter((position) => screen.getDisplayNearestPoint(position).scaleFactor);
+    const inputAdapter = new LibnutWin32InputAdapter((position) => {
+      const display = screen.getDisplayNearestPoint(position);
+      return {
+        bounds: display.bounds,
+        scaleFactor: display.scaleFactor
+      };
+    });
     cursorOverlay = new CursorOverlay({ settings: cursorOverlaySettingsStore.load() });
     const commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay);
     releaseHeldMouseButtons = () => commandExecutor.releaseHeldMouseButtons();
