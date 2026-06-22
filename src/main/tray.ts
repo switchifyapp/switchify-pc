@@ -1,4 +1,4 @@
-import { app, Menu, nativeImage, Tray, type NativeImage } from 'electron';
+import { app, Menu, nativeImage, Tray, type NativeImage, type Rectangle } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PcControlStatus } from '../shared/server-status';
@@ -16,6 +16,9 @@ export type SwitchifyTray = {
   destroy: () => void;
 };
 
+type TrayEventName = 'click' | 'right-click' | 'double-click' | 'mouse-enter' | 'mouse-leave';
+type TrayBounds = Pick<Rectangle, 'x' | 'y' | 'width' | 'height'>;
+
 export function createSwitchifyTray(options: SwitchifyTrayOptions): SwitchifyTray {
   const tray = new Tray(createTrayIcon());
   let currentMenu: Menu | null = null;
@@ -24,10 +27,16 @@ export function createSwitchifyTray(options: SwitchifyTrayOptions): SwitchifyTra
     const status = options.getStatus();
     currentMenu = buildTrayMenu(options, status);
     tray.setToolTip(`Switchify PC - ${formatTooltipStatus(status)}`);
-    tray.setContextMenu(currentMenu);
+    if (process.platform !== 'win32') {
+      tray.setContextMenu(currentMenu);
+    }
   };
 
   tray.on('click', options.showWindow);
+  if (process.platform === 'win32') {
+    registerWindowsTrayMenu(tray, update, () => currentMenu);
+    registerWindowsTrayDiagnostics(tray);
+  }
   update();
 
   return {
@@ -50,6 +59,68 @@ function buildTrayMenu(options: SwitchifyTrayOptions, status: PcControlStatus): 
     { type: 'separator' },
     { label: 'Quit', click: options.quit }
   ]);
+}
+
+function registerWindowsTrayMenu(tray: Tray, update: () => void, getCurrentMenu: () => Menu | null): void {
+  tray.on('right-click', (_event, bounds) => {
+    update();
+    const menu = getCurrentMenu();
+    if (!menu) return;
+
+    menu.once?.('menu-will-close', () => {
+      tray.focus?.();
+    });
+    tray.popUpContextMenu(menu, trayMenuPosition(bounds));
+  });
+}
+
+function registerWindowsTrayDiagnostics(tray: Tray): void {
+  for (const eventName of ['click', 'right-click', 'double-click', 'mouse-enter', 'mouse-leave'] as const) {
+    tray.on(eventName, (_event, boundsOrPosition) => {
+      logTrayEvent(eventName, isTrayBounds(boundsOrPosition) ? boundsOrPosition : undefined);
+    });
+  }
+}
+
+export function trayMenuPosition(bounds: TrayBounds | undefined): { x: number; y: number } | undefined {
+  if (!bounds || !isFiniteBounds(bounds)) return undefined;
+  return {
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y + bounds.height)
+  };
+}
+
+function isFiniteBounds(bounds: TrayBounds): boolean {
+  return (
+    Number.isFinite(bounds.x) &&
+    Number.isFinite(bounds.y) &&
+    Number.isFinite(bounds.width) &&
+    Number.isFinite(bounds.height)
+  );
+}
+
+function isTrayBounds(value: unknown): value is TrayBounds {
+  if (!value || typeof value !== 'object') return false;
+  const maybeBounds = value as Partial<TrayBounds>;
+  return (
+    typeof maybeBounds.x === 'number' &&
+    typeof maybeBounds.y === 'number' &&
+    typeof maybeBounds.width === 'number' &&
+    typeof maybeBounds.height === 'number'
+  );
+}
+
+function shouldLogTrayDiagnostics(): boolean {
+  return process.platform === 'win32' && (app.isPackaged || process.env.SWITCHIFY_TRAY_DEBUG === '1');
+}
+
+function logTrayEvent(eventName: TrayEventName, bounds?: TrayBounds): void {
+  if (!shouldLogTrayDiagnostics()) return;
+  console.info('[tray]', eventName, bounds ? formatBounds(bounds) : '');
+}
+
+function formatBounds(bounds: TrayBounds): string {
+  return `x=${Math.round(bounds.x)} y=${Math.round(bounds.y)} width=${Math.round(bounds.width)} height=${Math.round(bounds.height)}`;
 }
 
 function createTrayIcon(): NativeImage {
