@@ -22,6 +22,7 @@ import { JsonPairingStore } from './pairing/pairing-store';
 import { PairingManager } from './pairing/pairing-manager';
 import { registerServerIpc } from './server-ipc';
 import { registerSettingsWindowIpc } from './settings-window-ipc';
+import { secondInstanceAction } from './single-instance';
 import { registerSystemStartupIpc } from './system-startup-ipc';
 import { shouldStartHidden, SystemStartupService } from './system-startup';
 import { createSwitchifyTray, type SwitchifyTray } from './tray';
@@ -44,6 +45,8 @@ if (process.platform === 'win32' && app.isPackaged) {
   // uiAccess packaged executable on Windows.
   app.commandLine.appendSwitch('disable-gpu-sandbox');
 }
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 // Matches --color-bg in src/renderer/styles.css so the window frame paints
 // the correct base before the renderer loads.
@@ -233,139 +236,151 @@ function quitApp(): void {
   app.quit();
 }
 
-app.whenReady().then(() => {
-  if (process.platform === 'win32') {
-    app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID);
-  }
-
-  const startHidden = shouldStartHidden(process.argv, process.platform);
-  const systemStartup = new SystemStartupService({
-    platform: process.platform,
-    isPackaged: app.isPackaged,
-    executablePath: process.execPath,
-    appUserModelId: WINDOWS_APP_USER_MODEL_ID,
-    getLoginItemSettings: (options) => app.getLoginItemSettings(options),
-    setLoginItemSettings: (settings) => app.setLoginItemSettings(settings)
-  });
-  const pairingStore = new JsonPairingStore(join(app.getPath('userData'), 'pairing-state.json'));
-  const cursorOverlaySettingsStore = new JsonCursorOverlaySettingsStore(
-    join(app.getPath('userData'), 'cursor-overlay-settings.json')
-  );
-  const pairingManager = new PairingManager(pairingStore);
-  const pairingApprovalManager = new PairingApprovalManager(pairingStore);
-  const inputAdapter = new LibnutWin32InputAdapter((position) => screen.getDisplayNearestPoint(position).scaleFactor);
-  cursorOverlay = new CursorOverlay({ settings: cursorOverlaySettingsStore.load() });
-  const commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay);
-  releaseHeldMouseButtons = () => commandExecutor.releaseHeldMouseButtons();
-  const releaseHeldMouseButtonsSafely = (): void => {
-    void commandExecutor.releaseHeldMouseButtons().catch((error) => {
-      console.warn(error instanceof Error ? error.message : 'Could not release held mouse buttons.');
-    });
-  };
-  controlService = new ControlService({
-    pairingManager,
-    pairingApprovalManager,
-    authValidator: new CommandAuthValidator(pairingStore),
-    getPointerProfile: () => {
-      const cursor = inputAdapter.getMousePosition();
-      const display = screen.getDisplayNearestPoint(cursor);
-      return createPointerMovementProfile({
-        cursor,
-        display: {
-          bounds: display.bounds,
-          scaleFactor: display.scaleFactor
-        }
-      });
-    },
-    onStatusChange: (status) => {
-      if (status.connectedClientCount === 0) {
-        releaseHeldMouseButtonsSafely();
-        cursorOverlay?.endControlSession();
-      }
-      tray?.update();
-    },
-    onClientDisconnecting: (connectionId) => {
-      bluetoothTransport?.markClientRequestedDisconnect(connectionId);
-    },
-    onCommand: (command) => commandExecutor.execute(command)
-  });
-  void pairingManager.getDesktopId().then((desktopId) => {
-    controlService?.setDesktopId(desktopId);
-  });
-  bluetoothTransport = new WindowsBluetoothTransport({
-    controlService,
-    getDesktopId: () => pairingManager.getDesktopId(),
-    displayName: 'Switchify PC',
-    onStatusChange: () => {
-      tray?.update();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    if (secondInstanceAction(argv, process.platform) === 'ignore') {
+      return;
     }
-  });
-  registerServerIpc(controlService, pairingStore);
-  registerCursorOverlayIpc(cursorOverlay, cursorOverlaySettingsStore);
-  registerPairingApprovalIpc(controlService);
-  registerSettingsWindowIpc(showSettingsWindow);
-  registerAppWindowIpc();
-  registerExternalUrlIpc();
-  registerSystemStartupIpc(systemStartup);
-  registerUpdateIpc(
-    new UpdateService({
-      currentVersion: app.getVersion(),
-      isPackaged: app.isPackaged,
-      platform: process.platform,
-      autoUpdater
-    })
-  );
-  void bluetoothTransport.start();
 
-  mainWindow = createMainWindow({ showOnReady: !startHidden });
-  tray = createSwitchifyTray({
-    getStatus: () =>
-      controlService?.getStatus() ?? {
-        state: 'stopped',
-        desktopId: null,
-        connectedClientCount: 0,
-        connectedClients: [],
-        lastSeenAt: null,
-        lastError: null,
-        bluetooth: DEFAULT_BLUETOOTH_STATUS
-      },
-    showWindow: showMainWindow,
-    openSettings: showSettingsWindow,
-    disconnectClients: () => {
-      releaseHeldMouseButtonsSafely();
-      controlService?.disconnectClients();
-      tray?.update();
-    },
-    quit: quitApp
-  });
-
-  app.on('activate', () => {
     showMainWindow();
   });
-});
 
-app.on('window-all-closed', () => {});
+  app.whenReady().then(() => {
+    if (process.platform === 'win32') {
+      app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID);
+    }
 
-app.on('before-quit', (event) => {
-  if (isQuitting) return;
-
-  event.preventDefault();
-  isQuitting = true;
-  void (releaseHeldMouseButtons?.() ?? Promise.resolve())
-    .catch((error) => {
-      console.warn(error instanceof Error ? error.message : 'Could not release held mouse buttons.');
-    })
-    .then(() => {
-      tray?.destroy();
-      tray = null;
-      cursorOverlay?.destroy();
-      cursorOverlay = null;
-      bluetoothTransport?.stop();
-      bluetoothTransport = null;
-      releaseHeldMouseButtons = null;
-      controlService = null;
-    })
-    .finally(() => {
-      app.quit();
+    const startHidden = shouldStartHidden(process.argv, process.platform);
+    const systemStartup = new SystemStartupService({
+      platform: process.platform,
+      isPackaged: app.isPackaged,
+      executablePath: process.execPath,
+      appUserModelId: WINDOWS_APP_USER_MODEL_ID,
+      getLoginItemSettings: (options) => app.getLoginItemSettings(options),
+      setLoginItemSettings: (settings) => app.setLoginItemSettings(settings)
     });
-});
+    const pairingStore = new JsonPairingStore(join(app.getPath('userData'), 'pairing-state.json'));
+    const cursorOverlaySettingsStore = new JsonCursorOverlaySettingsStore(
+      join(app.getPath('userData'), 'cursor-overlay-settings.json')
+    );
+    const pairingManager = new PairingManager(pairingStore);
+    const pairingApprovalManager = new PairingApprovalManager(pairingStore);
+    const inputAdapter = new LibnutWin32InputAdapter((position) => screen.getDisplayNearestPoint(position).scaleFactor);
+    cursorOverlay = new CursorOverlay({ settings: cursorOverlaySettingsStore.load() });
+    const commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay);
+    releaseHeldMouseButtons = () => commandExecutor.releaseHeldMouseButtons();
+    const releaseHeldMouseButtonsSafely = (): void => {
+      void commandExecutor.releaseHeldMouseButtons().catch((error) => {
+        console.warn(error instanceof Error ? error.message : 'Could not release held mouse buttons.');
+      });
+    };
+    controlService = new ControlService({
+      pairingManager,
+      pairingApprovalManager,
+      authValidator: new CommandAuthValidator(pairingStore),
+      getPointerProfile: () => {
+        const cursor = inputAdapter.getMousePosition();
+        const display = screen.getDisplayNearestPoint(cursor);
+        return createPointerMovementProfile({
+          cursor,
+          display: {
+            bounds: display.bounds,
+            scaleFactor: display.scaleFactor
+          }
+        });
+      },
+      onStatusChange: (status) => {
+        if (status.connectedClientCount === 0) {
+          releaseHeldMouseButtonsSafely();
+          cursorOverlay?.endControlSession();
+        }
+        tray?.update();
+      },
+      onClientDisconnecting: (connectionId) => {
+        bluetoothTransport?.markClientRequestedDisconnect(connectionId);
+      },
+      onCommand: (command) => commandExecutor.execute(command)
+    });
+    void pairingManager.getDesktopId().then((desktopId) => {
+      controlService?.setDesktopId(desktopId);
+    });
+    bluetoothTransport = new WindowsBluetoothTransport({
+      controlService,
+      getDesktopId: () => pairingManager.getDesktopId(),
+      displayName: 'Switchify PC',
+      onStatusChange: () => {
+        tray?.update();
+      }
+    });
+    registerServerIpc(controlService, pairingStore);
+    registerCursorOverlayIpc(cursorOverlay, cursorOverlaySettingsStore);
+    registerPairingApprovalIpc(controlService);
+    registerSettingsWindowIpc(showSettingsWindow);
+    registerAppWindowIpc();
+    registerExternalUrlIpc();
+    registerSystemStartupIpc(systemStartup);
+    registerUpdateIpc(
+      new UpdateService({
+        currentVersion: app.getVersion(),
+        isPackaged: app.isPackaged,
+        platform: process.platform,
+        autoUpdater
+      })
+    );
+    void bluetoothTransport.start();
+
+    mainWindow = createMainWindow({ showOnReady: !startHidden });
+    tray = createSwitchifyTray({
+      getStatus: () =>
+        controlService?.getStatus() ?? {
+          state: 'stopped',
+          desktopId: null,
+          connectedClientCount: 0,
+          connectedClients: [],
+          lastSeenAt: null,
+          lastError: null,
+          bluetooth: DEFAULT_BLUETOOTH_STATUS
+        },
+      showWindow: showMainWindow,
+      openSettings: showSettingsWindow,
+      disconnectClients: () => {
+        releaseHeldMouseButtonsSafely();
+        controlService?.disconnectClients();
+        tray?.update();
+      },
+      quit: quitApp
+    });
+
+    app.on('activate', () => {
+      showMainWindow();
+    });
+  });
+
+  app.on('window-all-closed', () => {});
+
+  app.on('before-quit', (event) => {
+    if (isQuitting) return;
+
+    event.preventDefault();
+    isQuitting = true;
+    void (releaseHeldMouseButtons?.() ?? Promise.resolve())
+      .catch((error) => {
+        console.warn(error instanceof Error ? error.message : 'Could not release held mouse buttons.');
+      })
+      .then(() => {
+        tray?.destroy();
+        tray = null;
+        cursorOverlay?.destroy();
+        cursorOverlay = null;
+        bluetoothTransport?.stop();
+        bluetoothTransport = null;
+        releaseHeldMouseButtons = null;
+        controlService = null;
+      })
+      .finally(() => {
+        app.quit();
+      });
+  });
+}
