@@ -813,6 +813,100 @@ p {
   font-weight: 800;
 }
 
+.pointer-movement-controls {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.pointer-movement-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.25fr) minmax(120px, 1fr) minmax(48px, auto);
+  gap: var(--space-s);
+  align-items: center;
+}
+
+.pointer-movement-label,
+.pointer-movement-value {
+  color: var(--color-text);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.pointer-movement-value {
+  justify-self: end;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.pointer-movement-slider {
+  width: 100%;
+  accent-color: var(--brand-primary);
+}
+
+.pointer-preview {
+  display: grid;
+  gap: var(--space-xs);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-s);
+  background: var(--color-surface-muted);
+}
+
+.pointer-preview-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.24fr) minmax(120px, 1fr) minmax(48px, auto);
+  gap: var(--space-s);
+  align-items: center;
+}
+
+.pointer-preview-row span,
+.pointer-preview-row strong {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+
+.pointer-preview-row strong {
+  justify-self: end;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.pointer-preview-track {
+  container-type: inline-size;
+  position: relative;
+  height: 28px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+}
+
+.pointer-preview-dot {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-primary);
+  transform: translateY(-50%);
+  animation: pointer-preview-travel var(--pointer-preview-duration, 2s) ease-in-out infinite;
+}
+
+@keyframes pointer-preview-travel {
+  0%,
+  15% {
+    transform: translateY(-50%) translateX(0);
+  }
+
+  65%,
+  85% {
+    transform: translateY(-50%) translateX(calc(var(--pointer-preview-scale) * 34cqw));
+  }
+
+  100% {
+    transform: translateY(-50%) translateX(0);
+  }
+}
+
 .segmented-control {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
@@ -1015,6 +1109,17 @@ p {
     gap: 3px;
   }
 
+  .pointer-movement-row,
+  .pointer-preview-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .pointer-movement-value,
+  .pointer-preview-row strong {
+    justify-self: start;
+  }
+
   .settings-layout {
     grid-template-columns: 1fr;
     width: 100%;
@@ -1026,4 +1131,11 @@ p {
     overflow-x: auto;
   }
 
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pointer-preview-dot {
+    animation: none;
+    transform: translateY(-50%) translateX(calc(var(--pointer-preview-scale) * 34cqw));
+  }
 }

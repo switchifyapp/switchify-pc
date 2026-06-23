@@ -20,6 +20,8 @@ import { PairingApprovalManager } from './pairing/pairing-approval-manager';
 import { registerPairingApprovalIpc } from './pairing/pairing-approval-ipc';
 import { JsonPairingStore } from './pairing/pairing-store';
 import { PairingManager } from './pairing/pairing-manager';
+import { registerPointerMovementSettingsIpc } from './pointer-movement-settings-ipc';
+import { JsonPointerMovementSettingsStore } from './pointer-movement-settings-store';
 import { registerServerIpc } from './server-ipc';
 import { registerSettingsWindowIpc } from './settings-window-ipc';
 import { secondInstanceAction } from './single-instance';
@@ -265,6 +267,10 @@ if (!gotSingleInstanceLock) {
     const cursorOverlaySettingsStore = new JsonCursorOverlaySettingsStore(
       join(app.getPath('userData'), 'cursor-overlay-settings.json')
     );
+    const pointerMovementSettingsStore = new JsonPointerMovementSettingsStore(
+      join(app.getPath('userData'), 'pointer-movement-settings.json')
+    );
+    let pointerMovementSettings = pointerMovementSettingsStore.load();
     const pairingManager = new PairingManager(pairingStore);
     const pairingApprovalManager = new PairingApprovalManager(pairingStore);
     const inputAdapter = new LibnutWin32InputAdapter((position) => {
@@ -273,7 +279,7 @@ if (!gotSingleInstanceLock) {
         bounds: display.bounds,
         scaleFactor: display.scaleFactor
       };
-    });
+    }, undefined, pointerMovementSettings);
     cursorOverlay = new CursorOverlay({ settings: cursorOverlaySettingsStore.load() });
     const commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay);
     releaseHeldMouseButtons = () => commandExecutor.releaseHeldMouseButtons();
@@ -294,7 +300,8 @@ if (!gotSingleInstanceLock) {
           display: {
             bounds: display.bounds,
             scaleFactor: display.scaleFactor
-          }
+          },
+          movementSettings: pointerMovementSettings
         });
       },
       onStatusChange: (status) => {
@@ -322,6 +329,10 @@ if (!gotSingleInstanceLock) {
     });
     registerServerIpc(controlService, pairingStore);
     registerCursorOverlayIpc(cursorOverlay, cursorOverlaySettingsStore);
+    registerPointerMovementSettingsIpc(pointerMovementSettingsStore, (settings) => {
+      pointerMovementSettings = settings;
+      inputAdapter.setPointerMovementSettings(settings);
+    });
     registerPairingApprovalIpc(controlService);
     registerSettingsWindowIpc(showSettingsWindow);
     registerAppWindowIpc();

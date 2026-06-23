@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactElement } from 'react';
 import type {
   CursorOverlayColor,
   CursorOverlaySettings,
@@ -6,6 +6,15 @@ import type {
   CursorOverlayVisibility
 } from '../../shared/cursor-overlay-settings';
 import { CURSOR_OVERLAY_COLORS } from '../../shared/cursor-overlay-settings';
+import {
+  POINTER_MOVEMENT_MULTIPLIER_MAX,
+  POINTER_MOVEMENT_MULTIPLIER_MIN,
+  POINTER_MOVEMENT_MULTIPLIER_STEP,
+  normalizePointerMovementSettings,
+  pointerMovementMultiplierFor,
+  type PointerMovementSettings,
+  type PointerMovementSizeKey
+} from '../../shared/pointer-movement-settings';
 import type { PairedDeviceView, PcControlStatus } from '../../shared/server-status';
 import type { SystemStartupSettings } from '../../shared/system-startup';
 import type { SettingsSectionId } from '../../shared/settings';
@@ -21,10 +30,12 @@ type SettingsViewProps = {
   pairedDevices: PairedDeviceView[];
   serverStatus: PcControlStatus | null;
   cursorOverlaySettings: CursorOverlaySettings;
+  pointerMovementSettings: PointerMovementSettings;
   systemStartupSettings: SystemStartupSettings | null;
   onDisconnect: () => Promise<void>;
   onForgetPairedDevice: (deviceId: string) => Promise<{ ok: boolean; reason?: string }>;
   onUpdateCursorOverlaySettings: (settings: CursorOverlaySettings) => Promise<void>;
+  onUpdatePointerMovementSettings: (settings: PointerMovementSettings) => Promise<void>;
   isUpdatingSystemStartup: boolean;
   onSetStartWithSystem: (enabled: boolean) => Promise<void>;
   updateState: UpdateState | null;
@@ -53,10 +64,12 @@ export function SettingsView({
   pairedDevices,
   serverStatus,
   cursorOverlaySettings,
+  pointerMovementSettings,
   systemStartupSettings,
   onDisconnect,
   onForgetPairedDevice,
   onUpdateCursorOverlaySettings,
+  onUpdatePointerMovementSettings,
   isUpdatingSystemStartup,
   onSetStartWithSystem,
   updateState,
@@ -108,7 +121,9 @@ export function SettingsView({
         {selectedSection === 'pointer' ? (
           <PointerSettingsSection
             cursorOverlaySettings={cursorOverlaySettings}
+            pointerMovementSettings={pointerMovementSettings}
             onUpdateCursorOverlaySettings={onUpdateCursorOverlaySettings}
+            onUpdatePointerMovementSettings={onUpdatePointerMovementSettings}
           />
         ) : null}
         {selectedSection === 'updates' ? (
@@ -190,14 +205,24 @@ function BluetoothSettingsSection({
 
 function PointerSettingsSection({
   cursorOverlaySettings,
-  onUpdateCursorOverlaySettings
+  pointerMovementSettings,
+  onUpdateCursorOverlaySettings,
+  onUpdatePointerMovementSettings
 }: {
   cursorOverlaySettings: CursorOverlaySettings;
+  pointerMovementSettings: PointerMovementSettings;
   onUpdateCursorOverlaySettings: (settings: CursorOverlaySettings) => Promise<void>;
+  onUpdatePointerMovementSettings: (settings: PointerMovementSettings) => Promise<void>;
 }): ReactElement {
   return (
     <section className="settings-window-section">
       <h2>Pointer</h2>
+      <h3>Movement sizes</h3>
+      <PointerMovementSettingsControls
+        settings={pointerMovementSettings}
+        onChange={onUpdatePointerMovementSettings}
+      />
+      <h3>Cursor overlay</h3>
       <CursorOverlaySettingsControls
         settings={cursorOverlaySettings}
         onChange={onUpdateCursorOverlaySettings}
@@ -205,6 +230,87 @@ function PointerSettingsSection({
     </section>
   );
 }
+
+function PointerMovementSettingsControls({
+  settings,
+  onChange
+}: {
+  settings: PointerMovementSettings;
+  onChange: (settings: PointerMovementSettings) => Promise<void>;
+}): ReactElement {
+  const normalizedSettings = normalizePointerMovementSettings(settings);
+  const update = (size: PointerMovementSizeKey, value: number): void => {
+    void onChange(
+      normalizePointerMovementSettings({
+        multipliers: {
+          ...normalizedSettings.multipliers,
+          [size]: value
+        }
+      })
+    );
+  };
+
+  return (
+    <div className="settings-control-group">
+      <div className="pointer-movement-controls">
+        {pointerMovementSizeOptions.map((option) => {
+          const value = pointerMovementMultiplierFor(normalizedSettings, option.value);
+          return (
+            <label key={option.value} className="pointer-movement-row">
+              <span className="pointer-movement-label">{option.label}</span>
+              <input
+                className="pointer-movement-slider"
+                type="range"
+                min={POINTER_MOVEMENT_MULTIPLIER_MIN}
+                max={POINTER_MOVEMENT_MULTIPLIER_MAX}
+                step={POINTER_MOVEMENT_MULTIPLIER_STEP}
+                value={value}
+                aria-label={`${option.label} pointer movement size`}
+                onChange={(event) => update(option.value, Number(event.currentTarget.value))}
+              />
+              <span className="pointer-movement-value">{value}%</span>
+            </label>
+          );
+        })}
+      </div>
+      <PointerMovementPreview settings={normalizedSettings} />
+    </div>
+  );
+}
+
+function PointerMovementPreview({ settings }: { settings: PointerMovementSettings }): ReactElement {
+  const normalizedSettings = normalizePointerMovementSettings(settings);
+  return (
+    <div className="pointer-preview" aria-label="Pointer movement preview">
+      {pointerMovementSizeOptions.map((option, index) => {
+        const multiplier = pointerMovementMultiplierFor(normalizedSettings, option.value);
+        return (
+          <div key={option.value} className="pointer-preview-row">
+            <span>{option.label}</span>
+            <div className="pointer-preview-track" aria-hidden="true">
+              <span
+                className="pointer-preview-dot"
+                style={
+                  {
+                    '--pointer-preview-scale': String(multiplier / 100),
+                    '--pointer-preview-duration': `${1.8 + index * 0.3}s`
+                  } as CSSProperties
+                }
+              />
+            </div>
+            <strong>{multiplier}%</strong>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const pointerMovementSizeOptions: Array<{ value: PointerMovementSizeKey; label: string }> = [
+  { value: 'small', label: 'Small' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'large', label: 'Large' }
+];
 
 function SavedDevicesSettingsSection({
   pairedDevices,

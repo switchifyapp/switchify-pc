@@ -3,6 +3,7 @@ import {
   calculateNativeScrollDelta,
   calculateDisplayNormalizedMouseTarget,
   calculateScaledMouseTarget,
+  inferPointerMovementSize,
   toLibnutKeyboardKey,
   toLibnutMouseToggle
 } from './libnut-win32-adapter';
@@ -137,6 +138,71 @@ describe('calculateDisplayNormalizedMouseTarget', () => {
       x: 15,
       y: 26
     });
+  });
+
+  it('applies the small movement multiplier', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: 48, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
+        { multipliers: { small: 200, medium: 100, large: 100 } }
+      )
+    ).toEqual({
+      x: 196,
+      y: 200
+    });
+  });
+
+  it('applies the medium movement multiplier', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: 128, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
+        { multipliers: { small: 100, medium: 50, large: 100 } }
+      )
+    ).toEqual({
+      x: 164,
+      y: 200
+    });
+  });
+
+  it('combines display normalization with customized movement multipliers', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: 128, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 3840, height: 2160 }, scaleFactor: 1 },
+        { multipliers: { small: 100, medium: 150, large: 100 } }
+      )
+    ).toEqual({
+      x: 484,
+      y: 200
+    });
+  });
+
+  it('falls back for invalid display data while applying movement multipliers', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 10, y: 20 },
+        { dx: 48, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 0, height: 2160 }, scaleFactor: 0 },
+        { multipliers: { small: 200, medium: 100, large: 100 } }
+      )
+    ).toEqual({
+      x: 106,
+      y: 20
+    });
+  });
+});
+
+describe('inferPointerMovementSize', () => {
+  it('classifies movement deltas by dominant axis', () => {
+    expect(inferPointerMovementSize({ dx: 48, dy: 0 })).toBe('small');
+    expect(inferPointerMovementSize({ dx: 128, dy: 0 })).toBe('medium');
+    expect(inferPointerMovementSize({ dx: 280, dy: 0 })).toBe('large');
+    expect(inferPointerMovementSize({ dx: 0, dy: 128 })).toBe('medium');
   });
 });
 

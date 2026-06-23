@@ -3,6 +3,7 @@ export {};
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
 import type { PairedDeviceView, PcControlStatus } from '../shared/server-status';
 import type { CursorOverlaySettings } from '../shared/cursor-overlay-settings';
+import type { PointerMovementSettings } from '../shared/pointer-movement-settings';
 import type { SettingsSectionId } from '../shared/settings';
 import type { SystemStartupSettings } from '../shared/system-startup';
 import type { UpdateState } from '../shared/update';
@@ -25,6 +26,8 @@ declare global {
       setCursorOverlayEnabled: (enabled: boolean) => Promise<boolean>;
       getCursorOverlaySettings: () => Promise<CursorOverlaySettings>;
       setCursorOverlaySettings: (settings: CursorOverlaySettings) => Promise<CursorOverlaySettings>;
+      getPointerMovementSettings: () => Promise<PointerMovementSettings>;
+      setPointerMovementSettings: (settings: PointerMovementSettings) => Promise<PointerMovementSettings>;
       openSettingsWindow: (section?: SettingsSectionId) => Promise<void>;
       onShowSettingsSection: (handler: (section: SettingsSectionId) => void) => () => void;
       openExternalUrl: (url: string) => Promise<{ ok: boolean }>;

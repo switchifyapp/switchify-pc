@@ -1,4 +1,9 @@
 import { MAX_POINTER_DELTA, NO_ACK_CONTROL_COMMAND_TYPES, type PointerMovementProfile } from '../../shared/protocol';
+import {
+  normalizePointerMovementSettings,
+  pointerMovementScaleFor,
+  type PointerMovementSettings
+} from '../../shared/pointer-movement-settings';
 
 type Point = { x: number; y: number };
 type Bounds = { x: number; y: number; width: number; height: number };
@@ -15,12 +20,19 @@ export function createPointerMovementProfile(input: {
     bounds: Bounds;
     scaleFactor: number;
   };
+  movementSettings?: PointerMovementSettings;
   maxDelta?: number;
 }): PointerMovementProfile {
   const bounds = normalizeBounds(input.display.bounds);
   const scaleFactor =
     Number.isFinite(input.display.scaleFactor) && input.display.scaleFactor > 0 ? input.display.scaleFactor : 1;
   const maxDelta = input.maxDelta ?? MAX_POINTER_DELTA;
+  const movementSettings = normalizePointerMovementSettings(input.movementSettings);
+  const targetNativeDeltas = {
+    small: TARGET_REFERENCE_NATIVE_DELTAS.small * pointerMovementScaleFor(movementSettings, 'small'),
+    medium: TARGET_REFERENCE_NATIVE_DELTAS.medium * pointerMovementScaleFor(movementSettings, 'medium'),
+    large: TARGET_REFERENCE_NATIVE_DELTAS.large * pointerMovementScaleFor(movementSettings, 'large')
+  };
 
   return {
     displayId: `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}:${scaleFactor}`,
@@ -28,9 +40,9 @@ export function createPointerMovementProfile(input: {
     bounds,
     maxDelta,
     recommendedDeltas: {
-      small: toLogicalDelta(TARGET_REFERENCE_NATIVE_DELTAS.small, scaleFactor, maxDelta),
-      medium: toLogicalDelta(TARGET_REFERENCE_NATIVE_DELTAS.medium, scaleFactor, maxDelta),
-      large: toLogicalDelta(TARGET_REFERENCE_NATIVE_DELTAS.large, scaleFactor, maxDelta)
+      small: toLogicalDelta(targetNativeDeltas.small, scaleFactor, maxDelta),
+      medium: toLogicalDelta(targetNativeDeltas.medium, scaleFactor, maxDelta),
+      large: toLogicalDelta(targetNativeDeltas.large, scaleFactor, maxDelta)
     },
     capabilities: {
       noAckMouseMove: true,

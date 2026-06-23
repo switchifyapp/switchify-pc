@@ -9,6 +9,13 @@ import {
 } from '@nut-tree-fork/libnut-win32';
 import { clipboard } from 'electron';
 import type { KeyboardKey, MediaAction, MouseButton, ShortcutKey, WindowControlAction } from '../../shared/protocol';
+import {
+  DEFAULT_POINTER_MOVEMENT_SETTINGS,
+  normalizePointerMovementSettings,
+  pointerMovementScaleFor,
+  type PointerMovementSettings,
+  type PointerMovementSizeKey
+} from '../../shared/pointer-movement-settings';
 import type { DesktopInputAdapter } from './desktop-input-adapter';
 import { DesktopInputError } from './desktop-input-adapter';
 import { insertText } from './text-inserter';
@@ -24,15 +31,35 @@ type PointerDisplayProvider = (position: Point) => PointerDisplay;
 
 export const NATIVE_SCROLL_DELTA_MULTIPLIER = 8;
 export const REFERENCE_POINTER_SHORT_EDGE = 1080;
+const BASELINE_POINTER_DELTAS = {
+  small: 48,
+  medium: 128,
+  large: 280
+};
+const SMALL_MEDIUM_POINTER_BOUNDARY = (BASELINE_POINTER_DELTAS.small + BASELINE_POINTER_DELTAS.medium) / 2;
+const MEDIUM_LARGE_POINTER_BOUNDARY = (BASELINE_POINTER_DELTAS.medium + BASELINE_POINTER_DELTAS.large) / 2;
+
+function defaultPointerDisplayProvider(): PointerDisplay {
+  return {
+    bounds: { x: 0, y: 0, width: REFERENCE_POINTER_SHORT_EDGE, height: REFERENCE_POINTER_SHORT_EDGE },
+    scaleFactor: 1
+  };
+}
 
 export class LibnutWin32InputAdapter implements DesktopInputAdapter {
+  private pointerMovementSettings: PointerMovementSettings;
+
   constructor(
-    private readonly getPointerDisplay: PointerDisplayProvider = () => ({
-      bounds: { x: 0, y: 0, width: REFERENCE_POINTER_SHORT_EDGE, height: REFERENCE_POINTER_SHORT_EDGE },
-      scaleFactor: 1
-    }),
-    private readonly textInputBackend: TextInputBackend = createTextInputBackend()
-  ) {}
+    private readonly getPointerDisplay: PointerDisplayProvider = defaultPointerDisplayProvider,
+    private readonly textInputBackend: TextInputBackend = createTextInputBackend(),
+    pointerMovementSettings: PointerMovementSettings = DEFAULT_POINTER_MOVEMENT_SETTINGS
+  ) {
+    this.pointerMovementSettings = normalizePointerMovementSettings(pointerMovementSettings);
+  }
+
+  setPointerMovementSettings(settings: PointerMovementSettings): void {
+    this.pointerMovementSettings = normalizePointerMovementSettings(settings);
+  }
 
   getMousePosition(): { x: number; y: number } {
     const current = getMousePos();
@@ -42,7 +69,7 @@ export class LibnutWin32InputAdapter implements DesktopInputAdapter {
   async moveMouseBy(delta: { dx: number; dy: number }): Promise<void> {
     const current = this.getMousePosition();
     const display = this.getPointerDisplay(current);
-    const target = calculateDisplayNormalizedMouseTarget(current, delta, display);
+    const target = calculateDisplayNormalizedMouseTarget(current, delta, display, this.pointerMovementSettings);
     moveMouse(target.x, target.y);
   }
 
@@ -141,7 +168,8 @@ export function calculateScaledMouseTarget(
 export function calculateDisplayNormalizedMouseTarget(
   current: Point,
   delta: { dx: number; dy: number },
-  display: PointerDisplay
+  display: PointerDisplay,
+  movementSettings: PointerMovementSettings = DEFAULT_POINTER_MOVEMENT_SETTINGS
 ): Point {
   const scaleFactor = Number.isFinite(display.scaleFactor) && display.scaleFactor > 0 ? display.scaleFactor : 1;
   const shortEdge =
@@ -149,12 +177,22 @@ export function calculateDisplayNormalizedMouseTarget(
     Number.isFinite(display.bounds.height) && display.bounds.height > 0
       ? Math.min(display.bounds.width, display.bounds.height)
       : REFERENCE_POINTER_SHORT_EDGE;
-  const multiplier = scaleFactor * (shortEdge / REFERENCE_POINTER_SHORT_EDGE);
+  const settings = normalizePointerMovementSettings(movementSettings);
+  const size = inferPointerMovementSize(delta);
+  const movementScale = pointerMovementScaleFor(settings, size);
+  const multiplier = scaleFactor * (shortEdge / REFERENCE_POINTER_SHORT_EDGE) * movementScale;
 
   return {
     x: Math.round(current.x + delta.dx * multiplier),
     y: Math.round(current.y + delta.dy * multiplier)
   };
+}
+
+export function inferPointerMovementSize(delta: { dx: number; dy: number }): PointerMovementSizeKey {
+  const magnitude = Math.max(Math.abs(delta.dx), Math.abs(delta.dy));
+  if (magnitude <= SMALL_MEDIUM_POINTER_BOUNDARY) return 'small';
+  if (magnitude <= MEDIUM_LARGE_POINTER_BOUNDARY) return 'medium';
+  return 'large';
 }
 
 export function calculateNativeScrollDelta(
