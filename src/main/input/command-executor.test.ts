@@ -82,6 +82,10 @@ class FakeInputAdapter implements DesktopInputAdapter {
     this.record('typeText', [text]);
   }
 
+  async typeCharacter(text: string): Promise<void> {
+    this.record('typeCharacter', [text]);
+  }
+
   async mediaControl(action: string): Promise<void> {
     this.record('mediaControl', [action]);
   }
@@ -174,6 +178,196 @@ describe('DesktopCommandExecutor', () => {
     await expect(executor.execute(command('keyboard.typeText', { text: '' }))).resolves.toEqual({ ok: true });
 
     expect(adapter.calls).toEqual([{ method: 'typeText', args: [''] }]);
+  });
+
+  it('streams text characters and keys before closing successfully', async () => {
+    const { adapter, executor } = createExecutor();
+
+    await expect(executor.execute(command('keyboard.textStream.open', { streamId: 'stream-1' }))).resolves.toEqual({
+      ok: true
+    });
+    await expect(
+      executor.execute(command('keyboard.textStream.char', { streamId: 'stream-1', seq: 0, text: 'H' }, { responseMode: 'none' }))
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      executor.execute(command('keyboard.textStream.key', { streamId: 'stream-1', seq: 1, key: 'Enter' }, { responseMode: 'none' }))
+    ).resolves.toEqual({ ok: true });
+    await expect(executor.execute(command('keyboard.textStream.close', { streamId: 'stream-1', expectedCount: 2 }))).resolves.toEqual({
+      ok: true
+    });
+
+    expect(adapter.calls).toEqual([
+      { method: 'typeCharacter', args: ['H'] },
+      { method: 'pressKey', args: ['Enter'] }
+    ]);
+  });
+
+  it('streams ACKed text chunks before closing successfully', async () => {
+    const { adapter, executor } = createExecutor();
+
+    await expect(executor.execute(command('keyboard.textStream.open', { streamId: 'stream-1' }))).resolves.toEqual({
+      ok: true
+    });
+    await expect(
+      executor.execute(command('keyboard.textStream.chunk', { streamId: 'stream-1', seq: 0, text: 'Hello ' }))
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      executor.execute(command('keyboard.textStream.chunk', { streamId: 'stream-1', seq: 1, text: 'world' }))
+    ).resolves.toEqual({ ok: true });
+    await expect(executor.execute(command('keyboard.textStream.close', { streamId: 'stream-1', expectedCount: 2 }))).resolves.toEqual({
+      ok: true
+    });
+
+    expect(adapter.calls).toEqual([
+      { method: 'typeCharacter', args: ['H'] },
+      { method: 'typeCharacter', args: ['e'] },
+      { method: 'typeCharacter', args: ['l'] },
+      { method: 'typeCharacter', args: ['l'] },
+      { method: 'typeCharacter', args: ['o'] },
+      { method: 'typeCharacter', args: [' '] },
+      { method: 'typeCharacter', args: ['w'] },
+      { method: 'typeCharacter', args: ['o'] },
+      { method: 'typeCharacter', args: ['r'] },
+      { method: 'typeCharacter', args: ['l'] },
+      { method: 'typeCharacter', args: ['d'] }
+    ]);
+  });
+
+  it('fails text stream close when an expected item is missing', async () => {
+    const { executor } = createExecutor();
+
+    await executor.execute(command('keyboard.textStream.open', { streamId: 'stream-1' }));
+    await executor.execute(command('keyboard.textStream.char', { streamId: 'stream-1', seq: 0, text: 'H' }, { responseMode: 'none' }));
+
+    await expect(executor.execute(command('keyboard.textStream.close', { streamId: 'stream-1', expectedCount: 2 }))).resolves.toEqual({
+      ok: false,
+      code: 'adapter_failure',
+      message: 'Text stream did not receive every item.'
+    });
+  });
+
+  it('accepts duplicate text stream item retries without reinserting input', async () => {
+    const { adapter, executor } = createExecutor();
+
+    await executor.execute(command('keyboard.textStream.open', { streamId: 'stream-1' }));
+    await expect(
+      executor.execute(command('keyboard.textStream.char', { streamId: 'stream-1', seq: 0, text: 'H' }, { responseMode: 'none' }))
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      executor.execute(command('keyboard.textStream.char', { streamId: 'stream-1', seq: 0, text: 'H' }, { responseMode: 'none' }))
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      executor.execute(command('keyboard.textStream.key', { streamId: 'stream-1', seq: 1, key: 'Enter' }, { responseMode: 'none' }))
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      executor.execute(command('keyboard.textStream.key', { streamId: 'stream-1', seq: 1, key: 'Enter' }, { responseMode: 'none' }))
+    ).resolves.toEqual({ ok: true });
+    await expect(executor.execute(command('keyboard.textStream.close', { streamId: 'stream-1', expectedCount: 2 }))).resolves.toEqual({
+      ok: true
+    });
+
+    expect(adapter.calls).toEqual([
+      { method: 'typeCharacter', args: ['H'] },
+      { method: 'pressKey', args: ['Enter'] }
+    ]);
+  });
+
+  it('accepts duplicate text stream chunk retries without reinserting input', async () => {
+    const { adapter, executor } = createExecutor();
+
+    await executor.execute(command('keyboard.textStream.open', { streamId: 'stream-1' }));
+    await expect(
+      executor.execute(command('keyboard.textStream.chunk', { streamId: 'stream-1', seq: 0, text: 'Hello' }))
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      executor.execute(command('keyboard.textStream.chunk', { streamId: 'stream-1', seq: 0, text: 'Hello' }))
+    ).resolves.toEqual({ ok: true });
+    await expect(executor.execute(command('keyboard.textStream.close', { streamId: 'stream-1', expectedCount: 1 }))).resolves.toEqual({
+      ok: true
+    });
+
+    expect(adapter.calls).toEqual([
+      { method: 'typeCharacter', args: ['H'] },
+      { method: 'typeCharacter', args: ['e'] },
+      { method: 'typeCharacter', args: ['l'] },
+      { method: 'typeCharacter', args: ['l'] },
+      { method: 'typeCharacter', args: ['o'] }
+    ]);
+  });
+
+  it('marks a text stream failed after a sequence mismatch', async () => {
+    const { adapter, executor } = createExecutor();
+
+    await executor.execute(command('keyboard.textStream.open', { streamId: 'stream-1' }));
+    await expect(
+      executor.execute(command('keyboard.textStream.char', { streamId: 'stream-1', seq: 1, text: 'H' }, { responseMode: 'none' }))
+    ).resolves.toEqual({
+      ok: false,
+      code: 'adapter_failure',
+      message: 'Text stream sequence mismatch.'
+    });
+    await expect(executor.execute(command('keyboard.textStream.close', { streamId: 'stream-1', expectedCount: 2 }))).resolves.toEqual({
+      ok: false,
+      code: 'adapter_failure',
+      message: 'Text stream sequence mismatch.'
+    });
+
+    expect(adapter.calls).toHaveLength(0);
+  });
+
+  it('marks a text stream failed after character insertion fails', async () => {
+    const { adapter, executor } = createExecutor();
+
+    await executor.execute(command('keyboard.textStream.open', { streamId: 'stream-1' }));
+    adapter.failNext = new DesktopInputError('adapter_failure', 'Native character failed.');
+    await expect(
+      executor.execute(command('keyboard.textStream.char', { streamId: 'stream-1', seq: 0, text: 'H' }, { responseMode: 'none' }))
+    ).resolves.toEqual({
+      ok: false,
+      code: 'adapter_failure',
+      message: 'Text stream character insertion failed.'
+    });
+    await expect(executor.execute(command('keyboard.textStream.close', { streamId: 'stream-1', expectedCount: 1 }))).resolves.toEqual({
+      ok: false,
+      code: 'adapter_failure',
+      message: 'Text stream character insertion failed.'
+    });
+
+    expect(adapter.calls).toHaveLength(0);
+  });
+
+  it('resets a duplicate text stream open', async () => {
+    const { adapter, executor } = createExecutor();
+
+    await executor.execute(command('keyboard.textStream.open', { streamId: 'stream-1' }));
+    await executor.execute(command('keyboard.textStream.char', { streamId: 'stream-1', seq: 0, text: 'A' }, { responseMode: 'none' }));
+    await executor.execute(command('keyboard.textStream.open', { streamId: 'stream-1' }));
+    await executor.execute(command('keyboard.textStream.char', { streamId: 'stream-1', seq: 0, text: 'B' }, { responseMode: 'none' }));
+
+    await expect(executor.execute(command('keyboard.textStream.close', { streamId: 'stream-1', expectedCount: 1 }))).resolves.toEqual({
+      ok: true
+    });
+    expect(adapter.calls).toEqual([
+      { method: 'typeCharacter', args: ['A'] },
+      { method: 'typeCharacter', args: ['B'] }
+    ]);
+  });
+
+  it('fails text stream items and close when the stream is not open', async () => {
+    const { executor } = createExecutor();
+
+    await expect(
+      executor.execute(command('keyboard.textStream.char', { streamId: 'stream-1', seq: 0, text: 'H' }, { responseMode: 'none' }))
+    ).resolves.toEqual({
+      ok: false,
+      code: 'adapter_failure',
+      message: 'Text stream is not open.'
+    });
+    await expect(executor.execute(command('keyboard.textStream.close', { streamId: 'stream-1', expectedCount: 0 }))).resolves.toEqual({
+      ok: false,
+      code: 'adapter_failure',
+      message: 'Text stream is not open.'
+    });
   });
 
   it('hides the overlay for unsupported server-level non-mouse commands', async () => {

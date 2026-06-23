@@ -34,7 +34,15 @@ export function createPointerMovementProfile(input: {
     },
     capabilities: {
       noAckMouseMove: true,
-      noAckCommands: [...NO_ACK_CONTROL_COMMAND_TYPES]
+      noAckCommands: [...NO_ACK_CONTROL_COMMAND_TYPES],
+      supportedCommands: [
+        ...NO_ACK_CONTROL_COMMAND_TYPES,
+        'keyboard.textStream.open',
+        'keyboard.textStream.chunk',
+        'keyboard.textStream.close',
+        'connection.ping',
+        'pointer.profile'
+      ]
     }
   };
 }

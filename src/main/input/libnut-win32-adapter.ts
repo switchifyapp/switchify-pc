@@ -95,6 +95,14 @@ export class LibnutWin32InputAdapter implements DesktopInputAdapter {
     }
   }
 
+  async typeCharacter(text: string): Promise<void> {
+    try {
+      await this.textInputBackend.typeText(text);
+    } catch (error) {
+      throw new DesktopInputError('adapter_failure', 'Character insertion failed.', { cause: error });
+    }
+  }
+
   async mediaControl(action: MediaAction): Promise<void> {
     keyTap(toLibnutMediaKey(action));
   }

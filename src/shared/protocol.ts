@@ -1,6 +1,9 @@
 export const PROTOCOL_VERSION = 1;
 
 export const MAX_TEXT_LENGTH = 2_000;
+export const MAX_TEXT_STREAM_ID_LENGTH = 80;
+export const MAX_TEXT_STREAM_ITEMS = 2_000;
+export const MAX_TEXT_STREAM_CHUNK_LENGTH = 120;
 export const MAX_POINTER_DELTA = 500;
 export const MAX_SCROLL_DELTA = 50;
 export const MAX_SHORTCUT_KEYS = 6;
@@ -82,6 +85,8 @@ export const NO_ACK_CONTROL_COMMAND_TYPES = [
   'keyboard.key',
   'keyboard.shortcut',
   'keyboard.typeText',
+  'keyboard.textStream.char',
+  'keyboard.textStream.key',
   'media.control',
   'window.control'
 ] as const;
@@ -106,6 +111,7 @@ export type PointerMovementProfile = {
   capabilities: {
     noAckMouseMove: boolean;
     noAckCommands: NoAckControlCommandType[];
+    supportedCommands?: string[];
   };
 };
 
@@ -144,6 +150,23 @@ export type MouseDragEndCommand = BaseRequestEnvelope<'mouse.dragEnd', { button:
 export type KeyboardKeyCommand = BaseRequestEnvelope<'keyboard.key', { key: KeyboardKey }>;
 export type KeyboardShortcutCommand = BaseRequestEnvelope<'keyboard.shortcut', { keys: ShortcutKey[] }>;
 export type KeyboardTypeTextCommand = BaseRequestEnvelope<'keyboard.typeText', { text: string }>;
+export type KeyboardTextStreamOpenCommand = BaseRequestEnvelope<'keyboard.textStream.open', { streamId: string }>;
+export type KeyboardTextStreamCharCommand = BaseRequestEnvelope<
+  'keyboard.textStream.char',
+  { streamId: string; seq: number; text: string }
+>;
+export type KeyboardTextStreamChunkCommand = BaseRequestEnvelope<
+  'keyboard.textStream.chunk',
+  { streamId: string; seq: number; text: string }
+>;
+export type KeyboardTextStreamKeyCommand = BaseRequestEnvelope<
+  'keyboard.textStream.key',
+  { streamId: string; seq: number; key: KeyboardKey }
+>;
+export type KeyboardTextStreamCloseCommand = BaseRequestEnvelope<
+  'keyboard.textStream.close',
+  { streamId: string; expectedCount: number }
+>;
 export type MediaControlCommand = BaseRequestEnvelope<'media.control', { action: MediaAction }>;
 export type WindowControlCommand = BaseRequestEnvelope<'window.control', { action: WindowControlAction }>;
 export type PingCommand = BaseRequestEnvelope<'connection.ping', Record<string, never>>;
@@ -161,6 +184,11 @@ export type CommandRequest =
   | KeyboardKeyCommand
   | KeyboardShortcutCommand
   | KeyboardTypeTextCommand
+  | KeyboardTextStreamOpenCommand
+  | KeyboardTextStreamCharCommand
+  | KeyboardTextStreamChunkCommand
+  | KeyboardTextStreamKeyCommand
+  | KeyboardTextStreamCloseCommand
   | MediaControlCommand
   | WindowControlCommand
   | PointerProfileCommand
@@ -228,6 +256,11 @@ const commandTypes = new Set<CommandRequest['type']>([
   'keyboard.key',
   'keyboard.shortcut',
   'keyboard.typeText',
+  'keyboard.textStream.open',
+  'keyboard.textStream.char',
+  'keyboard.textStream.chunk',
+  'keyboard.textStream.key',
+  'keyboard.textStream.close',
   'media.control',
   'window.control',
   'pointer.profile',
@@ -490,6 +523,33 @@ function validateCommandPayload(
       return isSafeTextPayload(payload.text)
         ? valid()
         : invalid('invalid_payload', 'Text payload is invalid.');
+    case 'keyboard.textStream.open':
+      return isSafeTextStreamId(payload.streamId)
+        ? valid()
+        : invalid('invalid_payload', 'Text stream id is invalid.');
+    case 'keyboard.textStream.char':
+      return isSafeTextStreamId(payload.streamId) &&
+        isValidTextStreamSequence(payload.seq) &&
+        isSafeTextStreamCharacter(payload.text)
+        ? valid()
+        : invalid('invalid_payload', 'Text stream character payload is invalid.');
+    case 'keyboard.textStream.chunk':
+      return isSafeTextStreamId(payload.streamId) &&
+        isValidTextStreamSequence(payload.seq) &&
+        isSafeTextStreamChunk(payload.text)
+        ? valid()
+        : invalid('invalid_payload', 'Text stream chunk payload is invalid.');
+    case 'keyboard.textStream.key':
+      return isSafeTextStreamId(payload.streamId) &&
+        isValidTextStreamSequence(payload.seq) &&
+        keyboardKeys.has(payload.key as KeyboardKey)
+        ? valid()
+        : invalid('invalid_payload', 'Text stream key payload is invalid.');
+    case 'keyboard.textStream.close':
+      return isSafeTextStreamId(payload.streamId) &&
+        isValidTextStreamExpectedCount(payload.expectedCount)
+        ? valid()
+        : invalid('invalid_payload', 'Text stream close payload is invalid.');
     case 'media.control':
       return mediaActions.has(payload.action as MediaAction)
         ? valid()
@@ -543,6 +603,18 @@ function validatePointerProfilePayload(payload: Record<string, unknown>): Valida
         )
       ) {
         return invalid('invalid_payload', 'No-ack commands capability is invalid.');
+      }
+    }
+    if ('supportedCommands' in payload.capabilities) {
+      if (!Array.isArray(payload.capabilities.supportedCommands)) {
+        return invalid('invalid_payload', 'Supported commands capability is invalid.');
+      }
+      if (
+        !payload.capabilities.supportedCommands.every(
+          (commandType) => typeof commandType === 'string' && commandTypes.has(commandType as CommandRequest['type'])
+        )
+      ) {
+        return invalid('invalid_payload', 'Supported commands capability is invalid.');
       }
     }
   }
@@ -601,6 +673,37 @@ function isString(value: unknown): value is string {
 
 function isSafeTextPayload(value: unknown): value is string {
   return isString(value) && value.length <= MAX_TEXT_LENGTH && !containsDisallowedControlCharacter(value);
+}
+
+function isSafeTextStreamId(value: unknown): value is string {
+  if (!isString(value)) return false;
+  return value.length > 0 &&
+    value.length <= MAX_TEXT_STREAM_ID_LENGTH &&
+    /^[A-Za-z0-9._:-]+$/.test(value);
+}
+
+function isValidTextStreamSequence(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < MAX_TEXT_STREAM_ITEMS;
+}
+
+function isValidTextStreamExpectedCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= MAX_TEXT_STREAM_ITEMS;
+}
+
+function isSafeTextStreamCharacter(value: unknown): value is string {
+  if (!isString(value)) return false;
+  const codePoints = Array.from(value);
+  if (codePoints.length !== 1) return false;
+  const code = value.codePointAt(0);
+  if (code === undefined) return false;
+  return !(code <= 0x1f || (code >= 0x7f && code <= 0x9f));
+}
+
+function isSafeTextStreamChunk(value: unknown): value is string {
+  if (!isString(value)) return false;
+  return value.length > 0 &&
+    value.length <= MAX_TEXT_STREAM_CHUNK_LENGTH &&
+    !containsDisallowedControlCharacter(value);
 }
 
 function containsDisallowedControlCharacter(value: string): boolean {

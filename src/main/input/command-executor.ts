@@ -20,11 +20,25 @@ export type CursorOverlayNotifier = {
   setDragActive?(active: boolean): void;
 };
 
+type TextInputStreamState = {
+  deviceId: string;
+  streamId: string;
+  nextSeq: number;
+  failed: boolean;
+  errorMessage?: string;
+  openedAtMs: number;
+  updatedAtMs: number;
+};
+
+const TEXT_STREAM_TTL_MS = 60_000;
+const TEXT_STREAM_CHUNK_CHARACTER_DELAY_MS = 35;
+
 export class DesktopCommandExecutor {
   private pointerActionQueue: Promise<void> = Promise.resolve();
   private activeDragButton: MouseButton | null = null;
   private pendingRealtimeMove: { dx: number; dy: number } | null = null;
   private realtimeMoveFlush: Promise<CommandExecutionResult> | null = null;
+  private readonly textInputStreams = new Map<string, TextInputStreamState>();
 
   constructor(
     private readonly adapter: DesktopInputAdapter,
@@ -176,6 +190,35 @@ export class DesktopCommandExecutor {
           }
           await this.adapter.typeText(command.payload.text);
           return { ok: true };
+        case 'keyboard.textStream.open':
+          this.openTextInputStream(command.deviceId, command.payload.streamId);
+          return { ok: true };
+        case 'keyboard.textStream.char':
+          return await this.executeTextStreamItem(
+            command.deviceId,
+            command.payload.streamId,
+            command.payload.seq,
+            () => this.adapter.typeCharacter(command.payload.text),
+            'Text stream character insertion failed.'
+          );
+        case 'keyboard.textStream.chunk':
+          return await this.executeTextStreamItem(
+            command.deviceId,
+            command.payload.streamId,
+            command.payload.seq,
+            () => this.typeTextStreamChunk(command.payload.text),
+            'Text stream chunk insertion failed.'
+          );
+        case 'keyboard.textStream.key':
+          return await this.executeTextStreamItem(
+            command.deviceId,
+            command.payload.streamId,
+            command.payload.seq,
+            () => this.adapter.pressKey(command.payload.key),
+            'Text stream key insertion failed.'
+          );
+        case 'keyboard.textStream.close':
+          return this.closeTextInputStream(command.deviceId, command.payload.streamId, command.payload.expectedCount);
         case 'media.control':
           await this.adapter.mediaControl(command.payload.action);
           return { ok: true };
@@ -221,6 +264,103 @@ export class DesktopCommandExecutor {
     await this.adapter.setMouseButtonDown(buttonToRelease, false);
     this.activeDragButton = null;
   }
+
+  private openTextInputStream(deviceId: string, streamId: string): void {
+    this.expireTextInputStreams();
+    const now = Date.now();
+    this.textInputStreams.set(textInputStreamKey(deviceId, streamId), {
+      deviceId,
+      streamId,
+      nextSeq: 0,
+      failed: false,
+      openedAtMs: now,
+      updatedAtMs: now
+    });
+  }
+
+  private async executeTextStreamItem(
+    deviceId: string,
+    streamId: string,
+    seq: number,
+    execute: () => Promise<void>,
+    failureMessage: string
+  ): Promise<CommandExecutionResult> {
+    const stream = this.textInputStreams.get(textInputStreamKey(deviceId, streamId));
+    if (!stream) {
+      return { ok: false, code: 'adapter_failure', message: 'Text stream is not open.' };
+    }
+
+    stream.updatedAtMs = Date.now();
+    if (seq < stream.nextSeq) {
+      return stream.failed
+        ? { ok: false, code: 'adapter_failure', message: stream.errorMessage ?? 'Text stream failed.' }
+        : { ok: true };
+    }
+
+    if (seq > stream.nextSeq) {
+      stream.failed = true;
+      stream.errorMessage = 'Text stream sequence mismatch.';
+      stream.nextSeq = Math.max(stream.nextSeq, seq + 1);
+      return { ok: false, code: 'adapter_failure', message: stream.errorMessage };
+    }
+
+    stream.nextSeq = seq + 1;
+    if (stream.failed) {
+      return { ok: false, code: 'adapter_failure', message: stream.errorMessage ?? 'Text stream failed.' };
+    }
+
+    try {
+      await execute();
+      return { ok: true };
+    } catch {
+      stream.failed = true;
+      stream.errorMessage = failureMessage;
+      return { ok: false, code: 'adapter_failure', message: failureMessage };
+    }
+  }
+
+  private closeTextInputStream(
+    deviceId: string,
+    streamId: string,
+    expectedCount: number
+  ): CommandExecutionResult {
+    this.expireTextInputStreams();
+    const key = textInputStreamKey(deviceId, streamId);
+    const stream = this.textInputStreams.get(key);
+    if (!stream) {
+      return { ok: false, code: 'adapter_failure', message: 'Text stream is not open.' };
+    }
+
+    this.textInputStreams.delete(key);
+    if (expectedCount !== stream.nextSeq) {
+      return { ok: false, code: 'adapter_failure', message: 'Text stream did not receive every item.' };
+    }
+
+    if (stream.failed) {
+      return { ok: false, code: 'adapter_failure', message: stream.errorMessage ?? 'Text stream failed.' };
+    }
+
+    return { ok: true };
+  }
+
+  private async typeTextStreamChunk(text: string): Promise<void> {
+    const characters = Array.from(text);
+    for (const [index, character] of characters.entries()) {
+      await this.adapter.typeCharacter(character);
+      if (index < characters.length - 1) {
+        await delay(TEXT_STREAM_CHUNK_CHARACTER_DELAY_MS);
+      }
+    }
+  }
+
+  private expireTextInputStreams(): void {
+    const expiresBefore = Date.now() - TEXT_STREAM_TTL_MS;
+    for (const [key, stream] of this.textInputStreams) {
+      if (stream.updatedAtMs < expiresBefore) {
+        this.textInputStreams.delete(key);
+      }
+    }
+  }
 }
 
 function assertBoundedNumber(value: number, maxAbsValue: number, label: string): void {
@@ -231,6 +371,14 @@ function assertBoundedNumber(value: number, maxAbsValue: number, label: string):
 
 function unsafe(message: string): CommandExecutionResult {
   return { ok: false, code: 'unsafe_payload', message };
+}
+
+function textInputStreamKey(deviceId: string, streamId: string): string {
+  return `${deviceId}:${streamId}`;
+}
+
+function delay(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 function addMouseDeltas(
