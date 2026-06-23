@@ -233,10 +233,9 @@ internal sealed class BluetoothGattBridge
                 return;
             }
 
-            MarkConnected("write_received");
-
-            HelperProtocol.WriteEvent(new { type = "message", connectionId = ConnectionId, frame });
             request.Respond();
+            MarkConnected("write_received");
+            HelperProtocol.WriteEvent(new { type = "message", connectionId = ConnectionId, frame });
         }
         catch
         {

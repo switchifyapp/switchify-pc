@@ -37,6 +37,11 @@ describe('protocol request validation', () => {
       { type: 'keyboard.key', payload: { key: 'F12' } },
       { type: 'keyboard.shortcut', payload: { keys: ['Ctrl', 'F5'] } },
       { type: 'keyboard.typeText', payload: { text: 'Hello' } },
+      { type: 'keyboard.textStream.open', payload: { streamId: 'android-stream-1' } },
+      { type: 'keyboard.textStream.char', payload: { streamId: 'android-stream-1', seq: 0, text: 'H' } },
+      { type: 'keyboard.textStream.chunk', payload: { streamId: 'android-stream-1', seq: 0, text: 'Hello' } },
+      { type: 'keyboard.textStream.key', payload: { streamId: 'android-stream-1', seq: 1, key: 'Enter' } },
+      { type: 'keyboard.textStream.close', payload: { streamId: 'android-stream-1', expectedCount: 2 } },
       { type: 'media.control', payload: { action: 'playPause' } },
       { type: 'window.control', payload: { action: 'switchNext' } },
       { type: 'pointer.profile', payload: {} },
@@ -61,6 +66,8 @@ describe('protocol request validation', () => {
       'keyboard.key': { key: 'Enter' },
       'keyboard.shortcut': { keys: ['Ctrl', 'C'] },
       'keyboard.typeText': { text: 'Hello' },
+      'keyboard.textStream.char': { streamId: 'android-stream-1', seq: 0, text: 'H' },
+      'keyboard.textStream.key': { streamId: 'android-stream-1', seq: 1, key: 'Enter' },
       'media.control': { action: 'playPause' },
       'window.control': { action: 'switchNext' }
     };
@@ -87,7 +94,10 @@ describe('protocol request validation', () => {
     for (const command of [
       { type: 'connection.ping', payload: {} },
       { type: 'connection.disconnecting', payload: {} },
-      { type: 'pointer.profile', payload: {} }
+      { type: 'pointer.profile', payload: {} },
+      { type: 'keyboard.textStream.open', payload: { streamId: 'android-stream-1' } },
+      { type: 'keyboard.textStream.chunk', payload: { streamId: 'android-stream-1', seq: 0, text: 'Hello' } },
+      { type: 'keyboard.textStream.close', payload: { streamId: 'android-stream-1', expectedCount: 0 } }
     ]) {
       expect(validateProtocolRequest({ ...baseCommand, ...command, responseMode: 'none' })).toMatchObject({
         ok: false,
@@ -207,6 +217,42 @@ describe('protocol request validation', () => {
       ok: false,
       error: 'invalid_payload'
     });
+    expect(validateProtocolRequest({ ...baseCommand, type: 'keyboard.textStream.open', payload: { streamId: '' } })).toMatchObject({
+      ok: false,
+      error: 'invalid_payload'
+    });
+    expect(validateProtocolRequest({ ...baseCommand, type: 'keyboard.textStream.open', payload: { streamId: 'bad stream' } })).toMatchObject({
+      ok: false,
+      error: 'invalid_payload'
+    });
+    expect(validateProtocolRequest({ ...baseCommand, type: 'keyboard.textStream.char', payload: { streamId: 'stream-1', seq: 0, text: 'Hi' } })).toMatchObject({
+      ok: false,
+      error: 'invalid_payload'
+    });
+    expect(validateProtocolRequest({ ...baseCommand, type: 'keyboard.textStream.char', payload: { streamId: 'stream-1', seq: -1, text: 'H' } })).toMatchObject({
+      ok: false,
+      error: 'invalid_payload'
+    });
+    expect(validateProtocolRequest({ ...baseCommand, type: 'keyboard.textStream.chunk', payload: { streamId: 'stream-1', seq: 0, text: '' } })).toMatchObject({
+      ok: false,
+      error: 'invalid_payload'
+    });
+    expect(validateProtocolRequest({ ...baseCommand, type: 'keyboard.textStream.chunk', payload: { streamId: 'stream-1', seq: 0, text: 'x'.repeat(121) } })).toMatchObject({
+      ok: false,
+      error: 'invalid_payload'
+    });
+    expect(validateProtocolRequest({ ...baseCommand, type: 'keyboard.textStream.chunk', payload: { streamId: 'stream-1', seq: 0, text: 'bad\u0000chunk' } })).toMatchObject({
+      ok: false,
+      error: 'invalid_payload'
+    });
+    expect(validateProtocolRequest({ ...baseCommand, type: 'keyboard.textStream.key', payload: { streamId: 'stream-1', seq: 0, key: 'F13' } })).toMatchObject({
+      ok: false,
+      error: 'invalid_payload'
+    });
+    expect(validateProtocolRequest({ ...baseCommand, type: 'keyboard.textStream.close', payload: { streamId: 'stream-1', expectedCount: -1 } })).toMatchObject({
+      ok: false,
+      error: 'invalid_payload'
+    });
     expect(validateProtocolRequest({ ...baseCommand, type: 'pointer.profile', payload: { includeDisplays: true } })).toMatchObject({
       ok: false,
       error: 'invalid_payload'
@@ -273,6 +319,42 @@ describe('protocol request validation', () => {
       });
     }
   });
+
+  it('accepts one printable character for text stream character payloads', () => {
+    for (const text of ['H', ' ', 'é', '👋']) {
+      expect(
+        validateProtocolRequest({
+          ...baseCommand,
+          type: 'keyboard.textStream.char',
+          payload: { streamId: 'stream-1', seq: 0, text }
+        })
+      ).toMatchObject({ ok: true });
+    }
+  });
+
+  it('rejects unsafe text stream character payloads', () => {
+    for (const text of ['', 'Hi', '\n', '\r', '\t', '\0', '\u007f']) {
+      expect(
+        validateProtocolRequest({
+          ...baseCommand,
+          type: 'keyboard.textStream.char',
+          payload: { streamId: 'stream-1', seq: 0, text }
+        })
+      ).toMatchObject({ ok: false, error: 'invalid_payload' });
+    }
+  });
+
+  it('accepts safe text stream chunk payloads', () => {
+    for (const text of ['Hello', 'cafÃ© ðŸ‘‹', 'space and punctuation!']) {
+      expect(
+        validateProtocolRequest({
+          ...baseCommand,
+          type: 'keyboard.textStream.chunk',
+          payload: { streamId: 'stream-1', seq: 0, text }
+        })
+      ).toMatchObject({ ok: true });
+    }
+  });
 });
 
 describe('protocol response validation', () => {
@@ -328,12 +410,23 @@ describe('protocol response validation', () => {
       },
       capabilities: {
         noAckMouseMove: true,
-        noAckCommands: [...NO_ACK_CONTROL_COMMAND_TYPES]
+        noAckCommands: [...NO_ACK_CONTROL_COMMAND_TYPES],
+        supportedCommands: [
+          ...NO_ACK_CONTROL_COMMAND_TYPES,
+          'keyboard.textStream.open',
+          'keyboard.textStream.chunk',
+          'keyboard.textStream.close',
+          'connection.ping',
+          'pointer.profile'
+        ]
       }
     });
 
     expect(response.payload.capabilities.noAckMouseMove).toBe(true);
     expect(response.payload.capabilities.noAckCommands).toEqual([...NO_ACK_CONTROL_COMMAND_TYPES]);
+    expect(response.payload.capabilities.supportedCommands).toContain('keyboard.textStream.open');
+    expect(response.payload.capabilities.supportedCommands).toContain('keyboard.textStream.chunk');
+    expect(response.payload.capabilities.supportedCommands).toContain('keyboard.textStream.close');
     expect(validateProtocolResponse(response)).toMatchObject({ ok: true });
   });
 
@@ -360,6 +453,19 @@ describe('protocol response validation', () => {
         payload: {
           ...baseProfile.payload,
           capabilities: { noAckMouseMove: true }
+        }
+      })
+    ).toMatchObject({ ok: true });
+    expect(
+      validateProtocolResponse({
+        ...baseProfile,
+        payload: {
+          ...baseProfile.payload,
+          capabilities: {
+            noAckMouseMove: true,
+            noAckCommands: [...NO_ACK_CONTROL_COMMAND_TYPES],
+            supportedCommands: ['keyboard.textStream.open', 'keyboard.textStream.chunk', 'keyboard.textStream.close']
+          }
         }
       })
     ).toMatchObject({ ok: true });
@@ -394,6 +500,26 @@ describe('protocol response validation', () => {
           scaleFactor: 1.5,
           bounds: { x: 0, y: 0, width: 1280, height: 720 },
           maxDelta: MAX_POINTER_DELTA
+        },
+        error: null
+      })
+    ).toMatchObject({ ok: false, error: 'invalid_payload' });
+
+    expect(
+      validateProtocolResponse({
+        version: PROTOCOL_VERSION,
+        id: 'profile-1',
+        type: 'pointer.profile',
+        ok: true,
+        payload: {
+          displayId: '0:0:1280:720:1.5',
+          scaleFactor: 1.5,
+          bounds: { x: 0, y: 0, width: 1280, height: 720 },
+          maxDelta: MAX_POINTER_DELTA,
+          recommendedDeltas: { small: 50, medium: 130, large: 252 },
+          capabilities: {
+            supportedCommands: ['keyboard.textStream.open', 'unknown.command']
+          }
         },
         error: null
       })

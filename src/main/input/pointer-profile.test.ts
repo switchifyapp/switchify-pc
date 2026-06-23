@@ -26,6 +26,17 @@ describe('createPointerMovementProfile', () => {
         noAckMouseMove: true
       }
     });
+    expect(profile.capabilities.noAckCommands).toContain('keyboard.textStream.char');
+    expect(profile.capabilities.noAckCommands).toContain('keyboard.textStream.key');
+    expect(profile.capabilities.supportedCommands).toEqual(
+      expect.arrayContaining([
+        'keyboard.textStream.open',
+        'keyboard.textStream.chunk',
+        'keyboard.textStream.char',
+        'keyboard.textStream.key',
+        'keyboard.textStream.close'
+      ])
+    );
   });
 
   it('returns 1080p baseline deltas on a 1920x1080 display at 1x scale', () => {

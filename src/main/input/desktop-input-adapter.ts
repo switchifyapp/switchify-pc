@@ -10,6 +10,7 @@ export type DesktopInputAdapter = {
   pressKey(key: KeyboardKey): Promise<void>;
   pressShortcut(keys: ShortcutKey[]): Promise<void>;
   typeText(text: string): Promise<void>;
+  typeCharacter(text: string): Promise<void>;
   mediaControl(action: MediaAction): Promise<void>;
   controlWindow(action: WindowControlAction): Promise<void>;
 };
