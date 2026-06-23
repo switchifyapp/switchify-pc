@@ -10,10 +10,10 @@ import type { UpdateService } from './update-service';
 export const UPDATE_INSTALL_CONFIRMATION_OPTIONS: MessageBoxOptions = {
   type: 'warning',
   title: 'Install update?',
-  message: 'Install update and restart Switchify PC?',
+  message: 'Install the downloaded Switchify PC update?',
   detail:
-    'Switchify PC will close while the update installs. If you rely on Switchify to control this computer, you may temporarily lose access until the app starts again. Make sure you have another way to regain access before continuing.',
-  buttons: ['Install and restart', 'Cancel'],
+    'Switchify PC will close while the update installer runs. If you rely on Switchify to control this computer, you may temporarily lose access. Make sure you have another way to regain access before continuing.',
+  buttons: ['Install update', 'Cancel'],
   defaultId: 1,
   cancelId: 1,
   noLink: true

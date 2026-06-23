@@ -69,11 +69,12 @@ describe('registerUpdateIpc', () => {
 });
 
 describe('update install confirmation options', () => {
-  it('warns about restart and possible temporary access loss', () => {
+  it('warns about the installer and possible temporary access loss', () => {
     expect(UPDATE_INSTALL_CONFIRMATION_OPTIONS.type).toBe('warning');
-    expect(UPDATE_INSTALL_CONFIRMATION_OPTIONS.message).toContain('Install update and restart');
+    expect(UPDATE_INSTALL_CONFIRMATION_OPTIONS.message).toContain('Install the downloaded Switchify PC update');
     expect(UPDATE_INSTALL_CONFIRMATION_OPTIONS.detail).toContain('temporarily lose access');
-    expect(UPDATE_INSTALL_CONFIRMATION_OPTIONS.buttons).toEqual(['Install and restart', 'Cancel']);
+    expect(UPDATE_INSTALL_CONFIRMATION_OPTIONS.detail).toContain('installer runs');
+    expect(UPDATE_INSTALL_CONFIRMATION_OPTIONS.buttons).toEqual(['Install update', 'Cancel']);
     expect(UPDATE_INSTALL_CONFIRMATION_OPTIONS.defaultId).toBe(1);
     expect(UPDATE_INSTALL_CONFIRMATION_OPTIONS.cancelId).toBe(1);
   });

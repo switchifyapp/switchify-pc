@@ -48,6 +48,6 @@ nsis:
   oneClick: false
   perMachine: true
   allowElevation: true
-  runAfterFinish: true
+  runAfterFinish: false
   differentialPackage: false
   artifactName: Switchify-PC-Setup-${version}-${arch}.${ext}

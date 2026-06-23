@@ -56,7 +56,7 @@ export function UpdatesPanel({
         ) : null}
         {showInstallButton ? (
           <button type="button" className="primary-button" onClick={() => void onInstallDownloaded()}>
-            Install and restart
+            Install update
           </button>
         ) : null}
       </div>
