@@ -218,6 +218,10 @@ function PointerSettingsSection({
     <section className="settings-window-section">
       <h2>Pointer</h2>
       <h3>Movement sizes</h3>
+      <p className="settings-section-note">
+        Adjust how far each Android pointer step moves the cursor. 100% is the default. Reconnect Android or reopen
+        control to refresh its movement profile.
+      </p>
       <PointerMovementSettingsControls
         settings={pointerMovementSettings}
         onChange={onUpdatePointerMovementSettings}
@@ -265,7 +269,7 @@ function PointerMovementSettingsControls({
                 max={POINTER_MOVEMENT_MULTIPLIER_MAX}
                 step={POINTER_MOVEMENT_MULTIPLIER_STEP}
                 value={value}
-                aria-label={`${option.label} pointer movement size`}
+                aria-label={`${option.label} pointer movement distance`}
                 onChange={(event) => update(option.value, Number(event.currentTarget.value))}
               />
               <span className="pointer-movement-value">{value}%</span>
@@ -281,7 +285,11 @@ function PointerMovementSettingsControls({
 function PointerMovementPreview({ settings }: { settings: PointerMovementSettings }): ReactElement {
   const normalizedSettings = normalizePointerMovementSettings(settings);
   return (
-    <div className="pointer-preview" aria-label="Pointer movement preview">
+    <div className="pointer-preview" aria-label="Pointer movement distance preview">
+      <div className="pointer-preview-scale" aria-hidden="true">
+        <span>Shorter</span>
+        <span>Longer</span>
+      </div>
       {pointerMovementSizeOptions.map((option, index) => {
         const multiplier = pointerMovementMultiplierFor(normalizedSettings, option.value);
         return (
@@ -307,9 +315,9 @@ function PointerMovementPreview({ settings }: { settings: PointerMovementSetting
 }
 
 const pointerMovementSizeOptions: Array<{ value: PointerMovementSizeKey; label: string }> = [
-  { value: 'small', label: 'Small' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'large', label: 'Large' }
+  { value: 'small', label: 'Small step' },
+  { value: 'medium', label: 'Medium step' },
+  { value: 'large', label: 'Large step' }
 ];
 
 function SavedDevicesSettingsSection({

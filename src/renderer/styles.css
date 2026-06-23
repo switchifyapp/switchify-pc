@@ -813,6 +813,14 @@ p {
   font-weight: 800;
 }
 
+.settings-section-note {
+  max-width: 64ch;
+  margin: calc(var(--space-xs) * -1) 0 var(--space-s);
+  color: var(--color-text-muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
 .pointer-movement-controls {
   display: grid;
   gap: var(--space-xs);
@@ -849,6 +857,25 @@ p {
   border-radius: var(--radius-control);
   padding: var(--space-s);
   background: var(--color-surface-muted);
+}
+
+.pointer-preview-scale {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.24fr) minmax(120px, 1fr) minmax(48px, auto);
+  gap: var(--space-s);
+  align-items: center;
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.pointer-preview-scale span:first-child {
+  grid-column: 2;
+}
+
+.pointer-preview-scale span:last-child {
+  grid-column: 3;
+  justify-self: end;
 }
 
 .pointer-preview-row {
@@ -1110,9 +1137,16 @@ p {
   }
 
   .pointer-movement-row,
+  .pointer-preview-scale,
   .pointer-preview-row {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .pointer-preview-scale span:first-child,
+  .pointer-preview-scale span:last-child {
+    grid-column: auto;
+    justify-self: start;
   }
 
   .pointer-movement-value,
