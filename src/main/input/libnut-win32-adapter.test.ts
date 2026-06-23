@@ -140,13 +140,13 @@ describe('calculateDisplayNormalizedMouseTarget', () => {
     });
   });
 
-  it('applies the small movement percentage', () => {
+  it('applies the movement scale to small movement', () => {
     expect(
       calculateDisplayNormalizedMouseTarget(
         { x: 100, y: 200 },
         { dx: 48, dy: 0 },
         { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
-        { percentages: { small: 9, medium: 12, large: 26 } }
+        { scalePercent: 200 }
       )
     ).toEqual({
       x: 196,
@@ -154,13 +154,13 @@ describe('calculateDisplayNormalizedMouseTarget', () => {
     });
   });
 
-  it('applies the medium movement percentage', () => {
+  it('applies the movement scale to medium movement', () => {
     expect(
       calculateDisplayNormalizedMouseTarget(
         { x: 100, y: 200 },
         { dx: 128, dy: 0 },
         { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
-        { percentages: { small: 4.5, medium: 6, large: 26 } }
+        { scalePercent: 50 }
       )
     ).toEqual({
       x: 164,
@@ -168,13 +168,13 @@ describe('calculateDisplayNormalizedMouseTarget', () => {
     });
   });
 
-  it('combines display normalization with customized movement percentages', () => {
+  it('combines display normalization with customized movement scale', () => {
     expect(
       calculateDisplayNormalizedMouseTarget(
         { x: 100, y: 200 },
         { dx: 128, dy: 0 },
         { bounds: { x: 0, y: 0, width: 3840, height: 2160 }, scaleFactor: 1 },
-        { percentages: { small: 4.5, medium: 18, large: 26 } }
+        { scalePercent: 150 }
       )
     ).toEqual({
       x: 484,
@@ -182,13 +182,13 @@ describe('calculateDisplayNormalizedMouseTarget', () => {
     });
   });
 
-  it('falls back for invalid display data while applying movement percentages', () => {
+  it('falls back for invalid display data while applying movement scale', () => {
     expect(
       calculateDisplayNormalizedMouseTarget(
         { x: 10, y: 20 },
         { dx: 48, dy: 0 },
         { bounds: { x: 0, y: 0, width: 0, height: 2160 }, scaleFactor: 0 },
-        { percentages: { small: 9, medium: 12, large: 26 } }
+        { scalePercent: 200 }
       )
     ).toEqual({
       x: 106,
@@ -196,16 +196,16 @@ describe('calculateDisplayNormalizedMouseTarget', () => {
     });
   });
 
-  it('normalizes unordered movement settings before applying movement percentages', () => {
+  it('migrates legacy percentage settings before applying movement scale', () => {
     expect(
       calculateDisplayNormalizedMouseTarget(
         { x: 100, y: 200 },
         { dx: 48, dy: 0 },
         { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
-        { percentages: { small: 20, medium: 12, large: 26 } }
+        { percentages: { small: 9, medium: 24, large: 50 } }
       )
     ).toEqual({
-      x: 223,
+      x: 196,
       y: 200
     });
   });

@@ -3,7 +3,8 @@ import {
   DEFAULT_POINTER_MOVEMENT_SETTINGS,
   normalizePointerMovementSettings,
   pointerMovementFractionFor,
-  pointerMovementPercentageFor
+  pointerMovementPercentageFor,
+  pointerMovementScalePercentFor
 } from './pointer-movement-settings';
 
 describe('normalizePointerMovementSettings', () => {
@@ -11,191 +12,40 @@ describe('normalizePointerMovementSettings', () => {
     expect(normalizePointerMovementSettings(null)).toEqual(DEFAULT_POINTER_MOVEMENT_SETTINGS);
   });
 
-  it('preserves valid percentages', () => {
-    expect(
-      normalizePointerMovementSettings({
-        percentages: {
-          small: 3,
-          medium: 12.5,
-          large: 30
-        }
-      })
-    ).toEqual({
-      percentages: {
-        small: 3,
-        medium: 12.5,
-        large: 30
-      }
-    });
+  it('preserves valid scale percentages', () => {
+    expect(normalizePointerMovementSettings({ scalePercent: 125 })).toEqual({ scalePercent: 125 });
   });
 
-  it('fills missing sizes with defaults', () => {
-    expect(
-      normalizePointerMovementSettings({
-        percentages: {
-          small: 6
-        }
-      })
-    ).toEqual({
-      percentages: {
-        small: 6,
-        medium: 12,
-        large: 26
-      }
-    });
+  it('clamps scale values below the minimum', () => {
+    expect(normalizePointerMovementSettings({ scalePercent: 10 })).toEqual({ scalePercent: 50 });
   });
 
-  it('clamps values below the minimum', () => {
-    expect(
-      normalizePointerMovementSettings({
-        percentages: {
-          small: 0.2
-        }
-      }).percentages.small
-    ).toBe(1);
+  it('clamps scale values above the maximum', () => {
+    expect(normalizePointerMovementSettings({ scalePercent: 1000 })).toEqual({ scalePercent: 200 });
   });
 
-  it('clamps values above the maximum', () => {
-    expect(
-      normalizePointerMovementSettings({
-        percentages: {
-          large: 100
-        }
-      }).percentages.large
-    ).toBe(50);
-  });
-
-  it('enforces ordered percentages with a minimum half percent gap', () => {
-    expect(
-      normalizePointerMovementSettings({
-        percentages: {
-          small: 12,
-          medium: 12,
-          large: 12
-        }
-      })
-    ).toEqual({
-      percentages: {
-        small: 11.5,
-        medium: 12,
-        large: 12.5
-      }
-    });
-  });
-
-  it('clamps small below medium', () => {
-    expect(
-      normalizePointerMovementSettings({
-        percentages: {
-          small: 20,
-          medium: 12,
-          large: 26
-        }
-      })
-    ).toEqual({
-      percentages: {
-        small: 11.5,
-        medium: 12,
-        large: 26
-      }
-    });
-  });
-
-  it('clamps medium above small', () => {
-    expect(
-      normalizePointerMovementSettings({
-        percentages: {
-          small: 4.5,
-          medium: 3,
-          large: 26
-        }
-      })
-    ).toEqual({
-      percentages: {
-        small: 4.5,
-        medium: 5,
-        large: 26
-      }
-    });
-  });
-
-  it('clamps medium below large', () => {
-    expect(
-      normalizePointerMovementSettings({
-        percentages: {
-          small: 4.5,
-          medium: 40,
-          large: 26
-        }
-      })
-    ).toEqual({
-      percentages: {
-        small: 4.5,
-        medium: 25.5,
-        large: 26
-      }
-    });
-  });
-
-  it('clamps large above medium', () => {
-    expect(
-      normalizePointerMovementSettings({
-        percentages: {
-          small: 4.5,
-          medium: 12,
-          large: 10
-        }
-      })
-    ).toEqual({
-      percentages: {
-        small: 4.5,
-        medium: 12,
-        large: 12.5
-      }
-    });
-  });
-
-  it('shifts values down from the top when order would exceed the maximum', () => {
-    expect(
-      normalizePointerMovementSettings({
-        percentages: {
-          small: 49.8,
-          medium: 50,
-          large: 50
-        }
-      })
-    ).toEqual({
-      percentages: {
-        small: 49,
-        medium: 49.5,
-        large: 50
-      }
-    });
-  });
-
-  it('rounds values to the nearest half percent', () => {
-    expect(
-      normalizePointerMovementSettings({
-        percentages: {
-          medium: 12.3
-        }
-      }).percentages.medium
-    ).toBe(12.5);
+  it('rounds scale values to the nearest five percent', () => {
+    expect(normalizePointerMovementSettings({ scalePercent: 123 })).toEqual({ scalePercent: 125 });
   });
 
   it('falls back for non-finite and non-number values', () => {
+    expect(normalizePointerMovementSettings({ scalePercent: Number.NaN })).toEqual(DEFAULT_POINTER_MOVEMENT_SETTINGS);
+    expect(normalizePointerMovementSettings({ scalePercent: '125' })).toEqual(DEFAULT_POINTER_MOVEMENT_SETTINGS);
+  });
+
+  it('migrates percentage settings to one scale value', () => {
     expect(
       normalizePointerMovementSettings({
         percentages: {
-          small: Number.NaN,
-          medium: '12',
-          large: Number.POSITIVE_INFINITY
+          small: 9,
+          medium: 24,
+          large: 50
         }
       })
-    ).toEqual(DEFAULT_POINTER_MOVEMENT_SETTINGS);
+    ).toEqual({ scalePercent: 195 });
   });
 
-  it('migrates legacy multiplier settings to screen percentages', () => {
+  it('migrates legacy multiplier settings to one scale value', () => {
     expect(
       normalizePointerMovementSettings({
         multipliers: {
@@ -204,22 +54,22 @@ describe('normalizePointerMovementSettings', () => {
           large: 100
         }
       })
-    ).toEqual({
-      percentages: {
-        small: 9,
-        medium: 9.5,
-        large: 26
-      }
-    });
+    ).toEqual({ scalePercent: 115 });
   });
 });
 
 describe('pointer movement setting helpers', () => {
-  it('returns normalized percentages', () => {
-    expect(pointerMovementPercentageFor({ percentages: { small: 0.2, medium: 12, large: 26 } }, 'small')).toBe(1);
+  it('returns normalized scale percentages', () => {
+    expect(pointerMovementScalePercentFor({ scalePercent: 123 })).toBe(125);
   });
 
-  it('returns fractions for normalized percentages', () => {
+  it('returns derived movement percentages', () => {
+    expect(pointerMovementPercentageFor({ scalePercent: 150 }, 'small')).toBe(7);
+    expect(pointerMovementPercentageFor({ scalePercent: 150 }, 'medium')).toBe(18);
+    expect(pointerMovementPercentageFor({ scalePercent: 150 }, 'large')).toBe(39);
+  });
+
+  it('returns fractions for derived movement percentages', () => {
     expect(pointerMovementFractionFor(DEFAULT_POINTER_MOVEMENT_SETTINGS, 'small')).toBe(0.045);
     expect(pointerMovementFractionFor(DEFAULT_POINTER_MOVEMENT_SETTINGS, 'medium')).toBe(0.12);
     expect(pointerMovementFractionFor(DEFAULT_POINTER_MOVEMENT_SETTINGS, 'large')).toBe(0.26);

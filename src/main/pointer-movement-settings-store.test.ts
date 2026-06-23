@@ -27,28 +27,23 @@ describe('JsonPointerMovementSettingsStore', () => {
 
   it('loads and normalizes valid settings', () => {
     const settingsFile = settingsPath();
-    writeFileSync(settingsFile, JSON.stringify({ percentages: { small: 3, medium: 12.3, large: 100 } }), 'utf8');
+    writeFileSync(settingsFile, JSON.stringify({ scalePercent: 123 }), 'utf8');
 
-    expect(new JsonPointerMovementSettingsStore(settingsFile).load()).toEqual({
-      percentages: {
-        small: 3,
-        medium: 12.5,
-        large: 50
-      }
-    });
+    expect(new JsonPointerMovementSettingsStore(settingsFile).load()).toEqual({ scalePercent: 125 });
+  });
+
+  it('loads and migrates percentage settings', () => {
+    const settingsFile = settingsPath();
+    writeFileSync(settingsFile, JSON.stringify({ percentages: { small: 9, medium: 24, large: 50 } }), 'utf8');
+
+    expect(new JsonPointerMovementSettingsStore(settingsFile).load()).toEqual({ scalePercent: 195 });
   });
 
   it('loads and migrates legacy multiplier settings', () => {
     const settingsFile = settingsPath();
     writeFileSync(settingsFile, JSON.stringify({ multipliers: { small: 200, medium: 50, large: 100 } }), 'utf8');
 
-    expect(new JsonPointerMovementSettingsStore(settingsFile).load()).toEqual({
-      percentages: {
-        small: 9,
-        medium: 9.5,
-        large: 26
-      }
-    });
+    expect(new JsonPointerMovementSettingsStore(settingsFile).load()).toEqual({ scalePercent: 115 });
   });
 
   it('loads defaults and warns when JSON is invalid', () => {
@@ -61,41 +56,9 @@ describe('JsonPointerMovementSettingsStore', () => {
 
   it('saves normalized JSON', () => {
     const settingsFile = settingsPath();
-    const saved = new JsonPointerMovementSettingsStore(settingsFile).save({
-      percentages: {
-        small: 0.2,
-        medium: 12.3,
-        large: 100
-      }
-    });
+    const saved = new JsonPointerMovementSettingsStore(settingsFile).save({ scalePercent: 123 });
 
-    expect(saved).toEqual({
-      percentages: {
-        small: 1,
-        medium: 12.5,
-        large: 50
-      }
-    });
-    expect(JSON.parse(readFileSync(settingsFile, 'utf8'))).toEqual(saved);
-  });
-
-  it('saves unordered settings in ordered normalized form', () => {
-    const settingsFile = settingsPath();
-    const saved = new JsonPointerMovementSettingsStore(settingsFile).save({
-      percentages: {
-        small: 20,
-        medium: 12,
-        large: 26
-      }
-    });
-
-    expect(saved).toEqual({
-      percentages: {
-        small: 11.5,
-        medium: 12,
-        large: 26
-      }
-    });
+    expect(saved).toEqual({ scalePercent: 125 });
     expect(JSON.parse(readFileSync(settingsFile, 'utf8'))).toEqual(saved);
   });
 

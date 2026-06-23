@@ -850,6 +850,33 @@ p {
   accent-color: var(--brand-primary);
 }
 
+.pointer-movement-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+
+.pointer-movement-table th,
+.pointer-movement-table td {
+  border-bottom: 1px solid var(--color-border);
+  padding: 7px 0;
+  text-align: left;
+}
+
+.pointer-movement-table th {
+  color: var(--color-text);
+  font-weight: 800;
+}
+
+.pointer-movement-table td {
+  color: var(--color-text-muted);
+}
+
+.pointer-movement-table td:last-child,
+.pointer-movement-table th:last-child {
+  text-align: right;
+}
+
 .segmented-control {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));

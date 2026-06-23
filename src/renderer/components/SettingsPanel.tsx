@@ -7,12 +7,13 @@ import type {
 } from '../../shared/cursor-overlay-settings';
 import { CURSOR_OVERLAY_COLORS } from '../../shared/cursor-overlay-settings';
 import {
-  POINTER_MOVEMENT_PERCENTAGE_MAX,
-  POINTER_MOVEMENT_PERCENTAGE_MIN,
-  POINTER_MOVEMENT_PERCENTAGE_MIN_GAP,
-  POINTER_MOVEMENT_PERCENTAGE_STEP,
+  BASE_POINTER_MOVEMENT_PERCENTAGES,
+  POINTER_MOVEMENT_SCALE_MAX,
+  POINTER_MOVEMENT_SCALE_MIN,
+  POINTER_MOVEMENT_SCALE_STEP,
   normalizePointerMovementSettings,
   pointerMovementPercentageFor,
+  pointerMovementScalePercentFor,
   type PointerMovementSettings,
   type PointerMovementSizeKey
 } from '../../shared/pointer-movement-settings';
@@ -220,7 +221,8 @@ function PointerSettingsSection({
       <h2>Pointer</h2>
       <h3>Movement distance</h3>
       <p className="settings-section-note">
-        Set how far each Android pointer step moves, as a percentage of the active screen size.
+        Adjust all Android pointer steps together. The table shows each movement distance as a percentage of the
+        active screen size.
       </p>
       <PointerMovementSettingsControls
         settings={pointerMovementSettings}
@@ -243,13 +245,11 @@ function PointerMovementSettingsControls({
   onChange: (settings: PointerMovementSettings) => Promise<void>;
 }): ReactElement {
   const normalizedSettings = normalizePointerMovementSettings(settings);
-  const update = (size: PointerMovementSizeKey, value: number): void => {
+  const scalePercent = pointerMovementScalePercentFor(normalizedSettings);
+  const update = (value: number): void => {
     void onChange(
       normalizePointerMovementSettings({
-        percentages: {
-          ...normalizedSettings.percentages,
-          [size]: value
-        }
+        scalePercent: value
       })
     );
   };
@@ -257,27 +257,22 @@ function PointerMovementSettingsControls({
   return (
     <div className="settings-control-group">
       <div className="pointer-movement-controls">
-        {pointerMovementSizeOptions.map((option) => {
-          const value = pointerMovementPercentageFor(normalizedSettings, option.value);
-          const bounds = pointerMovementSliderBounds(normalizedSettings, option.value);
-          return (
-            <label key={option.value} className="pointer-movement-row">
-              <span className="pointer-movement-label">{option.label}</span>
-              <input
-                className="pointer-movement-slider"
-                type="range"
-                min={bounds.min}
-                max={bounds.max}
-                step={POINTER_MOVEMENT_PERCENTAGE_STEP}
-                value={value}
-                aria-label={`${option.label} pointer movement percentage`}
-                onChange={(event) => update(option.value, Number(event.currentTarget.value))}
-              />
-              <span className="pointer-movement-value">{value}%</span>
-            </label>
-          );
-        })}
+        <label className="pointer-movement-row">
+          <span className="pointer-movement-label">Scale</span>
+          <input
+            className="pointer-movement-slider"
+            type="range"
+            min={POINTER_MOVEMENT_SCALE_MIN}
+            max={POINTER_MOVEMENT_SCALE_MAX}
+            step={POINTER_MOVEMENT_SCALE_STEP}
+            value={scalePercent}
+            aria-label="Pointer movement scale"
+            onChange={(event) => update(Number(event.currentTarget.value))}
+          />
+          <span className="pointer-movement-value">{scalePercent}%</span>
+        </label>
       </div>
+      <PointerMovementTable settings={normalizedSettings} />
     </div>
   );
 }
@@ -288,29 +283,28 @@ const pointerMovementSizeOptions: Array<{ value: PointerMovementSizeKey; label: 
   { value: 'large', label: 'Large' }
 ];
 
-function pointerMovementSliderBounds(
-  settings: PointerMovementSettings,
-  size: PointerMovementSizeKey
-): { min: number; max: number } {
-  const percentages = normalizePointerMovementSettings(settings).percentages;
-  if (size === 'small') {
-    return {
-      min: POINTER_MOVEMENT_PERCENTAGE_MIN,
-      max: percentages.medium - POINTER_MOVEMENT_PERCENTAGE_MIN_GAP
-    };
-  }
-
-  if (size === 'medium') {
-    return {
-      min: percentages.small + POINTER_MOVEMENT_PERCENTAGE_MIN_GAP,
-      max: percentages.large - POINTER_MOVEMENT_PERCENTAGE_MIN_GAP
-    };
-  }
-
-  return {
-    min: percentages.medium + POINTER_MOVEMENT_PERCENTAGE_MIN_GAP,
-    max: POINTER_MOVEMENT_PERCENTAGE_MAX
-  };
+function PointerMovementTable({ settings }: { settings: PointerMovementSettings }): ReactElement {
+  const normalizedSettings = normalizePointerMovementSettings(settings);
+  return (
+    <table className="pointer-movement-table">
+      <thead>
+        <tr>
+          <th scope="col">Step</th>
+          <th scope="col">Default</th>
+          <th scope="col">Current</th>
+        </tr>
+      </thead>
+      <tbody>
+        {pointerMovementSizeOptions.map((option) => (
+          <tr key={option.value}>
+            <th scope="row">{option.label}</th>
+            <td>{BASE_POINTER_MOVEMENT_PERCENTAGES[option.value]}%</td>
+            <td>{pointerMovementPercentageFor(normalizedSettings, option.value)}%</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
 
 function SavedDevicesSettingsSection({

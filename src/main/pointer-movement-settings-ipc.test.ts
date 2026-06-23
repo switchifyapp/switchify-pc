@@ -25,7 +25,7 @@ describe('registerPointerMovementSettingsIpc', () => {
   });
 
   it('returns stored settings', async () => {
-    const settings = { percentages: { small: 3, medium: 12, large: 30 } };
+    const settings = { scalePercent: 125 };
     const store = createStore(settings);
 
     registerPointerMovementSettingsIpc(store, vi.fn());
@@ -38,24 +38,10 @@ describe('registerPointerMovementSettingsIpc', () => {
 
     registerPointerMovementSettingsIpc(store, vi.fn());
 
-    await expect(
-      invoke(SET_POINTER_MOVEMENT_SETTINGS_CHANNEL, {
-        percentages: { small: 0.2, medium: 12.3, large: 100 }
-      })
-    ).resolves.toEqual({
-      percentages: {
-        small: 1,
-        medium: 12.5,
-        large: 50
-      }
+    await expect(invoke(SET_POINTER_MOVEMENT_SETTINGS_CHANNEL, { scalePercent: 123 })).resolves.toEqual({
+      scalePercent: 125
     });
-    expect(store.save).toHaveBeenCalledWith({
-      percentages: {
-        small: 1,
-        medium: 12.5,
-        large: 50
-      }
-    });
+    expect(store.save).toHaveBeenCalledWith({ scalePercent: 125 });
   });
 
   it('notifies when settings change', async () => {
@@ -63,18 +49,12 @@ describe('registerPointerMovementSettingsIpc', () => {
     const onSettingsChanged = vi.fn();
 
     registerPointerMovementSettingsIpc(store, onSettingsChanged);
-    await invoke(SET_POINTER_MOVEMENT_SETTINGS_CHANNEL, { percentages: { small: 3 } });
+    await invoke(SET_POINTER_MOVEMENT_SETTINGS_CHANNEL, { scalePercent: 75 });
 
-    expect(onSettingsChanged).toHaveBeenCalledWith({
-      percentages: {
-        small: 3,
-        medium: 12,
-        large: 26
-      }
-    });
+    expect(onSettingsChanged).toHaveBeenCalledWith({ scalePercent: 75 });
   });
 
-  it('normalizes unordered settings before saving and notifying', async () => {
+  it('normalizes migrated percentage settings before saving and notifying', async () => {
     const store = createStore();
     const onSettingsChanged = vi.fn();
 
@@ -82,33 +62,15 @@ describe('registerPointerMovementSettingsIpc', () => {
 
     await expect(
       invoke(SET_POINTER_MOVEMENT_SETTINGS_CHANNEL, {
-        percentages: { small: 20, medium: 12, large: 26 }
+        percentages: { small: 9, medium: 24, large: 50 }
       })
-    ).resolves.toEqual({
-      percentages: {
-        small: 11.5,
-        medium: 12,
-        large: 26
-      }
-    });
-    expect(store.save).toHaveBeenCalledWith({
-      percentages: {
-        small: 11.5,
-        medium: 12,
-        large: 26
-      }
-    });
-    expect(onSettingsChanged).toHaveBeenCalledWith({
-      percentages: {
-        small: 11.5,
-        medium: 12,
-        large: 26
-      }
-    });
+    ).resolves.toEqual({ scalePercent: 195 });
+    expect(store.save).toHaveBeenCalledWith({ scalePercent: 195 });
+    expect(onSettingsChanged).toHaveBeenCalledWith({ scalePercent: 195 });
   });
 });
 
-function createStore(settings: PointerMovementSettings = { percentages: { small: 4.5, medium: 12, large: 26 } }): JsonPointerMovementSettingsStore {
+function createStore(settings: PointerMovementSettings = { scalePercent: 100 }): JsonPointerMovementSettingsStore {
   return {
     load: vi.fn(() => settings),
     save: vi.fn((nextSettings: PointerMovementSettings) => nextSettings)
