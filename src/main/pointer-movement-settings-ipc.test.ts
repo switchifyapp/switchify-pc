@@ -73,6 +73,39 @@ describe('registerPointerMovementSettingsIpc', () => {
       }
     });
   });
+
+  it('normalizes unordered settings before saving and notifying', async () => {
+    const store = createStore();
+    const onSettingsChanged = vi.fn();
+
+    registerPointerMovementSettingsIpc(store, onSettingsChanged);
+
+    await expect(
+      invoke(SET_POINTER_MOVEMENT_SETTINGS_CHANNEL, {
+        percentages: { small: 20, medium: 12, large: 26 }
+      })
+    ).resolves.toEqual({
+      percentages: {
+        small: 11.5,
+        medium: 12,
+        large: 26
+      }
+    });
+    expect(store.save).toHaveBeenCalledWith({
+      percentages: {
+        small: 11.5,
+        medium: 12,
+        large: 26
+      }
+    });
+    expect(onSettingsChanged).toHaveBeenCalledWith({
+      percentages: {
+        small: 11.5,
+        medium: 12,
+        large: 26
+      }
+    });
+  });
 });
 
 function createStore(settings: PointerMovementSettings = { percentages: { small: 4.5, medium: 12, large: 26 } }): JsonPointerMovementSettingsStore {

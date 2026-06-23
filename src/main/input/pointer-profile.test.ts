@@ -120,6 +120,25 @@ describe('createPointerMovementProfile', () => {
     });
   });
 
+  it('normalizes unordered movement settings before generating deltas', () => {
+    expect(
+      createPointerMovementProfile({
+        cursor: { x: 100, y: 100 },
+        display: {
+          bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+          scaleFactor: 1
+        },
+        movementSettings: {
+          percentages: {
+            small: 20,
+            medium: 12,
+            large: 26
+          }
+        }
+      }).recommendedDeltas.small
+    ).toBe(124);
+  });
+
   it('returns larger deltas on a 4K display at 1x scale', () => {
     expect(
       createPointerMovementProfile({

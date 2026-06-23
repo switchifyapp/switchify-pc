@@ -195,6 +195,20 @@ describe('calculateDisplayNormalizedMouseTarget', () => {
       y: 20
     });
   });
+
+  it('normalizes unordered movement settings before applying movement percentages', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: 48, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
+        { percentages: { small: 20, medium: 12, large: 26 } }
+      )
+    ).toEqual({
+      x: 223,
+      y: 200
+    });
+  });
 });
 
 describe('inferPointerMovementSize', () => {

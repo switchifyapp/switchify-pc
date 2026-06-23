@@ -9,6 +9,7 @@ import { CURSOR_OVERLAY_COLORS } from '../../shared/cursor-overlay-settings';
 import {
   POINTER_MOVEMENT_PERCENTAGE_MAX,
   POINTER_MOVEMENT_PERCENTAGE_MIN,
+  POINTER_MOVEMENT_PERCENTAGE_MIN_GAP,
   POINTER_MOVEMENT_PERCENTAGE_STEP,
   normalizePointerMovementSettings,
   pointerMovementPercentageFor,
@@ -258,20 +259,21 @@ function PointerMovementSettingsControls({
       <div className="pointer-movement-controls">
         {pointerMovementSizeOptions.map((option) => {
           const value = pointerMovementPercentageFor(normalizedSettings, option.value);
+          const bounds = pointerMovementSliderBounds(normalizedSettings, option.value);
           return (
             <label key={option.value} className="pointer-movement-row">
               <span className="pointer-movement-label">{option.label}</span>
               <input
-                className="pointer-movement-number"
-                type="number"
-                min={POINTER_MOVEMENT_PERCENTAGE_MIN}
-                max={POINTER_MOVEMENT_PERCENTAGE_MAX}
+                className="pointer-movement-slider"
+                type="range"
+                min={bounds.min}
+                max={bounds.max}
                 step={POINTER_MOVEMENT_PERCENTAGE_STEP}
                 value={value}
                 aria-label={`${option.label} pointer movement percentage`}
                 onChange={(event) => update(option.value, Number(event.currentTarget.value))}
               />
-              <span className="pointer-movement-unit">% of screen</span>
+              <span className="pointer-movement-value">{value}%</span>
             </label>
           );
         })}
@@ -285,6 +287,31 @@ const pointerMovementSizeOptions: Array<{ value: PointerMovementSizeKey; label: 
   { value: 'medium', label: 'Medium' },
   { value: 'large', label: 'Large' }
 ];
+
+function pointerMovementSliderBounds(
+  settings: PointerMovementSettings,
+  size: PointerMovementSizeKey
+): { min: number; max: number } {
+  const percentages = normalizePointerMovementSettings(settings).percentages;
+  if (size === 'small') {
+    return {
+      min: POINTER_MOVEMENT_PERCENTAGE_MIN,
+      max: percentages.medium - POINTER_MOVEMENT_PERCENTAGE_MIN_GAP
+    };
+  }
+
+  if (size === 'medium') {
+    return {
+      min: percentages.small + POINTER_MOVEMENT_PERCENTAGE_MIN_GAP,
+      max: percentages.large - POINTER_MOVEMENT_PERCENTAGE_MIN_GAP
+    };
+  }
+
+  return {
+    min: percentages.medium + POINTER_MOVEMENT_PERCENTAGE_MIN_GAP,
+    max: POINTER_MOVEMENT_PERCENTAGE_MAX
+  };
+}
 
 function SavedDevicesSettingsSection({
   pairedDevices,

@@ -65,6 +65,114 @@ describe('normalizePointerMovementSettings', () => {
     ).toBe(50);
   });
 
+  it('enforces ordered percentages with a minimum half percent gap', () => {
+    expect(
+      normalizePointerMovementSettings({
+        percentages: {
+          small: 12,
+          medium: 12,
+          large: 12
+        }
+      })
+    ).toEqual({
+      percentages: {
+        small: 11.5,
+        medium: 12,
+        large: 12.5
+      }
+    });
+  });
+
+  it('clamps small below medium', () => {
+    expect(
+      normalizePointerMovementSettings({
+        percentages: {
+          small: 20,
+          medium: 12,
+          large: 26
+        }
+      })
+    ).toEqual({
+      percentages: {
+        small: 11.5,
+        medium: 12,
+        large: 26
+      }
+    });
+  });
+
+  it('clamps medium above small', () => {
+    expect(
+      normalizePointerMovementSettings({
+        percentages: {
+          small: 4.5,
+          medium: 3,
+          large: 26
+        }
+      })
+    ).toEqual({
+      percentages: {
+        small: 4.5,
+        medium: 5,
+        large: 26
+      }
+    });
+  });
+
+  it('clamps medium below large', () => {
+    expect(
+      normalizePointerMovementSettings({
+        percentages: {
+          small: 4.5,
+          medium: 40,
+          large: 26
+        }
+      })
+    ).toEqual({
+      percentages: {
+        small: 4.5,
+        medium: 25.5,
+        large: 26
+      }
+    });
+  });
+
+  it('clamps large above medium', () => {
+    expect(
+      normalizePointerMovementSettings({
+        percentages: {
+          small: 4.5,
+          medium: 12,
+          large: 10
+        }
+      })
+    ).toEqual({
+      percentages: {
+        small: 4.5,
+        medium: 12,
+        large: 12.5
+      }
+    });
+  });
+
+  it('shifts values down from the top when order would exceed the maximum', () => {
+    expect(
+      normalizePointerMovementSettings({
+        percentages: {
+          small: 49.8,
+          medium: 50,
+          large: 50
+        }
+      })
+    ).toEqual({
+      percentages: {
+        small: 49,
+        medium: 49.5,
+        large: 50
+      }
+    });
+  });
+
   it('rounds values to the nearest half percent', () => {
     expect(
       normalizePointerMovementSettings({
@@ -99,7 +207,7 @@ describe('normalizePointerMovementSettings', () => {
     ).toEqual({
       percentages: {
         small: 9,
-        medium: 6,
+        medium: 9.5,
         large: 26
       }
     });
