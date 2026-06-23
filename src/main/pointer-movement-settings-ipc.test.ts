@@ -25,7 +25,7 @@ describe('registerPointerMovementSettingsIpc', () => {
   });
 
   it('returns stored settings', async () => {
-    const settings = { multipliers: { small: 75, medium: 100, large: 150 } };
+    const settings = { percentages: { small: 3, medium: 12, large: 30 } };
     const store = createStore(settings);
 
     registerPointerMovementSettingsIpc(store, vi.fn());
@@ -40,20 +40,20 @@ describe('registerPointerMovementSettingsIpc', () => {
 
     await expect(
       invoke(SET_POINTER_MOVEMENT_SETTINGS_CHANNEL, {
-        multipliers: { small: 10, medium: 123, large: 1000 }
+        percentages: { small: 0.2, medium: 12.3, large: 100 }
       })
     ).resolves.toEqual({
-      multipliers: {
-        small: 50,
-        medium: 125,
-        large: 200
+      percentages: {
+        small: 1,
+        medium: 12.5,
+        large: 50
       }
     });
     expect(store.save).toHaveBeenCalledWith({
-      multipliers: {
-        small: 50,
-        medium: 125,
-        large: 200
+      percentages: {
+        small: 1,
+        medium: 12.5,
+        large: 50
       }
     });
   });
@@ -63,19 +63,19 @@ describe('registerPointerMovementSettingsIpc', () => {
     const onSettingsChanged = vi.fn();
 
     registerPointerMovementSettingsIpc(store, onSettingsChanged);
-    await invoke(SET_POINTER_MOVEMENT_SETTINGS_CHANNEL, { multipliers: { small: 75 } });
+    await invoke(SET_POINTER_MOVEMENT_SETTINGS_CHANNEL, { percentages: { small: 3 } });
 
     expect(onSettingsChanged).toHaveBeenCalledWith({
-      multipliers: {
-        small: 75,
-        medium: 100,
-        large: 100
+      percentages: {
+        small: 3,
+        medium: 12,
+        large: 26
       }
     });
   });
 });
 
-function createStore(settings: PointerMovementSettings = { multipliers: { small: 100, medium: 100, large: 100 } }): JsonPointerMovementSettingsStore {
+function createStore(settings: PointerMovementSettings = { percentages: { small: 4.5, medium: 12, large: 26 } }): JsonPointerMovementSettingsStore {
   return {
     load: vi.fn(() => settings),
     save: vi.fn((nextSettings: PointerMovementSettings) => nextSettings)

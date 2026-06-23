@@ -3,7 +3,7 @@ import { MAX_POINTER_DELTA } from '../../shared/protocol';
 import { createPointerMovementProfile } from './pointer-profile';
 
 describe('createPointerMovementProfile', () => {
-  it('creates baseline deltas for a 1280x720 display at 1.5 scale', () => {
+  it('creates display-relative deltas for a 1280x720 display at 1.5 scale', () => {
     const profile = createPointerMovementProfile({
       cursor: { x: 100, y: 100 },
       display: {
@@ -18,9 +18,9 @@ describe('createPointerMovementProfile', () => {
       bounds: { x: 0, y: 0, width: 1280, height: 720 },
       maxDelta: MAX_POINTER_DELTA,
       recommendedDeltas: {
-        small: 32,
-        medium: 85,
-        large: 187
+        small: 22,
+        medium: 58,
+        large: 125
       },
       capabilities: {
         noAckMouseMove: true
@@ -39,7 +39,7 @@ describe('createPointerMovementProfile', () => {
     );
   });
 
-  it('returns 1080p baseline deltas on a 1920x1080 display at 1x scale', () => {
+  it('preserves current feel on a 1920x1080 display at 1x scale', () => {
     expect(
       createPointerMovementProfile({
         cursor: { x: 100, y: 100 },
@@ -49,13 +49,13 @@ describe('createPointerMovementProfile', () => {
         }
       }).recommendedDeltas
     ).toEqual({
-      small: 48,
-      medium: 128,
-      large: 280
+      small: 49,
+      medium: 130,
+      large: 281
     });
   });
 
-  it('applies pointer movement multipliers to recommended deltas', () => {
+  it('applies pointer movement percentages to recommended deltas', () => {
     expect(
       createPointerMovementProfile({
         cursor: { x: 100, y: 100 },
@@ -64,21 +64,21 @@ describe('createPointerMovementProfile', () => {
           scaleFactor: 1
         },
         movementSettings: {
-          multipliers: {
-            small: 50,
-            medium: 125,
-            large: 200
+          percentages: {
+            small: 2,
+            medium: 15,
+            large: 50
           }
         }
       }).recommendedDeltas
     ).toEqual({
-      small: 24,
-      medium: 160,
+      small: 22,
+      medium: 162,
       large: 500
     });
   });
 
-  it('divides customized deltas by scale factor on high-DPI displays', () => {
+  it('divides percentage deltas by scale factor on high-DPI displays', () => {
     expect(
       createPointerMovementProfile({
         cursor: { x: 100, y: 100 },
@@ -87,14 +87,14 @@ describe('createPointerMovementProfile', () => {
           scaleFactor: 2
         },
         movementSettings: {
-          multipliers: {
-            small: 100,
-            medium: 150,
-            large: 100
+          percentages: {
+            small: 4.5,
+            medium: 12,
+            large: 26
           }
         }
       }).recommendedDeltas.medium
-    ).toBe(96);
+    ).toBe(130);
   });
 
   it('normalizes invalid movement settings to defaults', () => {
@@ -106,21 +106,21 @@ describe('createPointerMovementProfile', () => {
           scaleFactor: 1
         },
         movementSettings: {
-          multipliers: {
+          percentages: {
             small: Number.NaN,
             medium: Number.POSITIVE_INFINITY,
-            large: 0
+            large: '0'
           }
         }
       }).recommendedDeltas
     ).toEqual({
-      small: 48,
-      medium: 128,
-      large: 140
+      small: 49,
+      medium: 130,
+      large: 281
     });
   });
 
-  it('keeps profile deltas stable on a 4K display at 1x scale', () => {
+  it('returns larger deltas on a 4K display at 1x scale', () => {
     expect(
       createPointerMovementProfile({
         cursor: { x: 100, y: 100 },
@@ -130,13 +130,13 @@ describe('createPointerMovementProfile', () => {
         }
       }).recommendedDeltas
     ).toEqual({
-      small: 48,
-      medium: 128,
-      large: 280
+      small: 97,
+      medium: 259,
+      large: 500
     });
   });
 
-  it('keeps profile deltas stable on ultrawide displays', () => {
+  it('uses the short edge for ultrawide displays', () => {
     expect(
       createPointerMovementProfile({
         cursor: { x: 100, y: 100 },
@@ -146,9 +146,9 @@ describe('createPointerMovementProfile', () => {
         }
       }).recommendedDeltas
     ).toEqual({
-      small: 48,
-      medium: 128,
-      large: 280
+      small: 65,
+      medium: 173,
+      large: 374
     });
   });
 
@@ -162,9 +162,9 @@ describe('createPointerMovementProfile', () => {
         }
       }).recommendedDeltas
     ).toEqual({
-      small: 24,
-      medium: 64,
-      large: 140
+      small: 49,
+      medium: 130,
+      large: 281
     });
   });
 

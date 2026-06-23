@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_POINTER_MOVEMENT_SETTINGS } from '../shared/pointer-movement-settings';
 import { JsonPointerMovementSettingsStore } from './pointer-movement-settings-store';
@@ -27,13 +27,26 @@ describe('JsonPointerMovementSettingsStore', () => {
 
   it('loads and normalizes valid settings', () => {
     const settingsFile = settingsPath();
-    writeFileSync(settingsFile, JSON.stringify({ multipliers: { small: 75, medium: 123, large: 300 } }), 'utf8');
+    writeFileSync(settingsFile, JSON.stringify({ percentages: { small: 3, medium: 12.3, large: 100 } }), 'utf8');
 
     expect(new JsonPointerMovementSettingsStore(settingsFile).load()).toEqual({
-      multipliers: {
-        small: 75,
-        medium: 125,
-        large: 200
+      percentages: {
+        small: 3,
+        medium: 12.5,
+        large: 50
+      }
+    });
+  });
+
+  it('loads and migrates legacy multiplier settings', () => {
+    const settingsFile = settingsPath();
+    writeFileSync(settingsFile, JSON.stringify({ multipliers: { small: 200, medium: 50, large: 100 } }), 'utf8');
+
+    expect(new JsonPointerMovementSettingsStore(settingsFile).load()).toEqual({
+      percentages: {
+        small: 9,
+        medium: 6,
+        large: 26
       }
     });
   });
@@ -49,18 +62,18 @@ describe('JsonPointerMovementSettingsStore', () => {
   it('saves normalized JSON', () => {
     const settingsFile = settingsPath();
     const saved = new JsonPointerMovementSettingsStore(settingsFile).save({
-      multipliers: {
-        small: 10,
-        medium: 123,
-        large: 250
+      percentages: {
+        small: 0.2,
+        medium: 12.3,
+        large: 100
       }
     });
 
     expect(saved).toEqual({
-      multipliers: {
-        small: 50,
-        medium: 125,
-        large: 200
+      percentages: {
+        small: 1,
+        medium: 12.5,
+        large: 50
       }
     });
     expect(JSON.parse(readFileSync(settingsFile, 'utf8'))).toEqual(saved);

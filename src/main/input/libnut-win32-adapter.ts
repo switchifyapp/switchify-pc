@@ -12,7 +12,7 @@ import type { KeyboardKey, MediaAction, MouseButton, ShortcutKey, WindowControlA
 import {
   DEFAULT_POINTER_MOVEMENT_SETTINGS,
   normalizePointerMovementSettings,
-  pointerMovementScaleFor,
+  pointerMovementFractionFor,
   type PointerMovementSettings,
   type PointerMovementSizeKey
 } from '../../shared/pointer-movement-settings';
@@ -179,7 +179,8 @@ export function calculateDisplayNormalizedMouseTarget(
       : REFERENCE_POINTER_SHORT_EDGE;
   const settings = normalizePointerMovementSettings(movementSettings);
   const size = inferPointerMovementSize(delta);
-  const movementScale = pointerMovementScaleFor(settings, size);
+  const baselineFraction = pointerMovementFractionFor(DEFAULT_POINTER_MOVEMENT_SETTINGS, size);
+  const movementScale = pointerMovementFractionFor(settings, size) / baselineFraction;
   const multiplier = scaleFactor * (shortEdge / REFERENCE_POINTER_SHORT_EDGE) * movementScale;
 
   return {

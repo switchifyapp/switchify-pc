@@ -140,13 +140,13 @@ describe('calculateDisplayNormalizedMouseTarget', () => {
     });
   });
 
-  it('applies the small movement multiplier', () => {
+  it('applies the small movement percentage', () => {
     expect(
       calculateDisplayNormalizedMouseTarget(
         { x: 100, y: 200 },
         { dx: 48, dy: 0 },
         { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
-        { multipliers: { small: 200, medium: 100, large: 100 } }
+        { percentages: { small: 9, medium: 12, large: 26 } }
       )
     ).toEqual({
       x: 196,
@@ -154,13 +154,13 @@ describe('calculateDisplayNormalizedMouseTarget', () => {
     });
   });
 
-  it('applies the medium movement multiplier', () => {
+  it('applies the medium movement percentage', () => {
     expect(
       calculateDisplayNormalizedMouseTarget(
         { x: 100, y: 200 },
         { dx: 128, dy: 0 },
         { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
-        { multipliers: { small: 100, medium: 50, large: 100 } }
+        { percentages: { small: 4.5, medium: 6, large: 26 } }
       )
     ).toEqual({
       x: 164,
@@ -168,13 +168,13 @@ describe('calculateDisplayNormalizedMouseTarget', () => {
     });
   });
 
-  it('combines display normalization with customized movement multipliers', () => {
+  it('combines display normalization with customized movement percentages', () => {
     expect(
       calculateDisplayNormalizedMouseTarget(
         { x: 100, y: 200 },
         { dx: 128, dy: 0 },
         { bounds: { x: 0, y: 0, width: 3840, height: 2160 }, scaleFactor: 1 },
-        { multipliers: { small: 100, medium: 150, large: 100 } }
+        { percentages: { small: 4.5, medium: 18, large: 26 } }
       )
     ).toEqual({
       x: 484,
@@ -182,13 +182,13 @@ describe('calculateDisplayNormalizedMouseTarget', () => {
     });
   });
 
-  it('falls back for invalid display data while applying movement multipliers', () => {
+  it('falls back for invalid display data while applying movement percentages', () => {
     expect(
       calculateDisplayNormalizedMouseTarget(
         { x: 10, y: 20 },
         { dx: 48, dy: 0 },
         { bounds: { x: 0, y: 0, width: 0, height: 2160 }, scaleFactor: 0 },
-        { multipliers: { small: 200, medium: 100, large: 100 } }
+        { percentages: { small: 9, medium: 12, large: 26 } }
       )
     ).toEqual({
       x: 106,

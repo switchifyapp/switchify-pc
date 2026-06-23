@@ -1,18 +1,12 @@
 import { MAX_POINTER_DELTA, NO_ACK_CONTROL_COMMAND_TYPES, type PointerMovementProfile } from '../../shared/protocol';
 import {
   normalizePointerMovementSettings,
-  pointerMovementScaleFor,
+  pointerMovementFractionFor,
   type PointerMovementSettings
 } from '../../shared/pointer-movement-settings';
 
 type Point = { x: number; y: number };
 type Bounds = { x: number; y: number; width: number; height: number };
-
-const TARGET_REFERENCE_NATIVE_DELTAS = {
-  small: 48,
-  medium: 128,
-  large: 280
-};
 
 export function createPointerMovementProfile(input: {
   cursor: Point;
@@ -28,10 +22,11 @@ export function createPointerMovementProfile(input: {
     Number.isFinite(input.display.scaleFactor) && input.display.scaleFactor > 0 ? input.display.scaleFactor : 1;
   const maxDelta = input.maxDelta ?? MAX_POINTER_DELTA;
   const movementSettings = normalizePointerMovementSettings(input.movementSettings);
+  const referenceSize = Math.min(bounds.width, bounds.height);
   const targetNativeDeltas = {
-    small: TARGET_REFERENCE_NATIVE_DELTAS.small * pointerMovementScaleFor(movementSettings, 'small'),
-    medium: TARGET_REFERENCE_NATIVE_DELTAS.medium * pointerMovementScaleFor(movementSettings, 'medium'),
-    large: TARGET_REFERENCE_NATIVE_DELTAS.large * pointerMovementScaleFor(movementSettings, 'large')
+    small: referenceSize * pointerMovementFractionFor(movementSettings, 'small'),
+    medium: referenceSize * pointerMovementFractionFor(movementSettings, 'medium'),
+    large: referenceSize * pointerMovementFractionFor(movementSettings, 'large')
   };
 
   return {

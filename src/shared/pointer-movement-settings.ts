@@ -1,20 +1,20 @@
 export type PointerMovementSizeKey = 'small' | 'medium' | 'large';
 
 export type PointerMovementSettings = {
-  multipliers: Record<PointerMovementSizeKey, number>;
+  percentages: Record<PointerMovementSizeKey, number>;
 };
 
 export const DEFAULT_POINTER_MOVEMENT_SETTINGS: PointerMovementSettings = {
-  multipliers: {
-    small: 100,
-    medium: 100,
-    large: 100
+  percentages: {
+    small: 4.5,
+    medium: 12,
+    large: 26
   }
 };
 
-export const POINTER_MOVEMENT_MULTIPLIER_MIN = 50;
-export const POINTER_MOVEMENT_MULTIPLIER_MAX = 200;
-export const POINTER_MOVEMENT_MULTIPLIER_STEP = 5;
+export const POINTER_MOVEMENT_PERCENTAGE_MIN = 1;
+export const POINTER_MOVEMENT_PERCENTAGE_MAX = 50;
+export const POINTER_MOVEMENT_PERCENTAGE_STEP = 0.5;
 
 const pointerMovementSizeKeys: PointerMovementSizeKey[] = ['small', 'medium', 'large'];
 
@@ -24,44 +24,72 @@ export function normalizePointerMovementSettings(value: unknown): PointerMovemen
   }
 
   const candidate = value as Partial<PointerMovementSettings>;
-  const multipliers = candidate.multipliers;
+  const percentages = candidate.percentages;
+  if (percentages && typeof percentages === 'object') {
+    return {
+      percentages: {
+        small: normalizePercentage((percentages as Partial<Record<PointerMovementSizeKey, unknown>>).small, 'small'),
+        medium: normalizePercentage((percentages as Partial<Record<PointerMovementSizeKey, unknown>>).medium, 'medium'),
+        large: normalizePercentage((percentages as Partial<Record<PointerMovementSizeKey, unknown>>).large, 'large')
+      }
+    };
+  }
+
+  const multipliers = (candidate as { multipliers?: unknown }).multipliers;
   if (!multipliers || typeof multipliers !== 'object') {
     return cloneDefaultSettings();
   }
 
   return {
-    multipliers: {
-      small: normalizeMultiplier((multipliers as Partial<Record<PointerMovementSizeKey, unknown>>).small, 'small'),
-      medium: normalizeMultiplier((multipliers as Partial<Record<PointerMovementSizeKey, unknown>>).medium, 'medium'),
-      large: normalizeMultiplier((multipliers as Partial<Record<PointerMovementSizeKey, unknown>>).large, 'large')
+    percentages: {
+      small: normalizeLegacyMultiplier(
+        (multipliers as Partial<Record<PointerMovementSizeKey, unknown>>).small,
+        'small'
+      ),
+      medium: normalizeLegacyMultiplier(
+        (multipliers as Partial<Record<PointerMovementSizeKey, unknown>>).medium,
+        'medium'
+      ),
+      large: normalizeLegacyMultiplier(
+        (multipliers as Partial<Record<PointerMovementSizeKey, unknown>>).large,
+        'large'
+      )
     }
   };
 }
 
-export function pointerMovementMultiplierFor(
+export function pointerMovementPercentageFor(
   settings: PointerMovementSettings,
   size: PointerMovementSizeKey
 ): number {
-  return normalizePointerMovementSettings(settings).multipliers[size];
+  return normalizePointerMovementSettings(settings).percentages[size];
 }
 
-export function pointerMovementScaleFor(
+export function pointerMovementFractionFor(
   settings: PointerMovementSettings,
   size: PointerMovementSizeKey
 ): number {
-  return pointerMovementMultiplierFor(settings, size) / 100;
+  return pointerMovementPercentageFor(settings, size) / 100;
 }
 
-function normalizeMultiplier(value: unknown, size: PointerMovementSizeKey): number {
+function normalizePercentage(value: unknown, size: PointerMovementSizeKey): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return DEFAULT_POINTER_MOVEMENT_SETTINGS.multipliers[size];
+    return DEFAULT_POINTER_MOVEMENT_SETTINGS.percentages[size];
   }
 
-  return clamp(roundToStep(value), POINTER_MOVEMENT_MULTIPLIER_MIN, POINTER_MOVEMENT_MULTIPLIER_MAX);
+  return clamp(roundToStep(value), POINTER_MOVEMENT_PERCENTAGE_MIN, POINTER_MOVEMENT_PERCENTAGE_MAX);
+}
+
+function normalizeLegacyMultiplier(value: unknown, size: PointerMovementSizeKey): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_POINTER_MOVEMENT_SETTINGS.percentages[size];
+  }
+
+  return normalizePercentage((DEFAULT_POINTER_MOVEMENT_SETTINGS.percentages[size] * value) / 100, size);
 }
 
 function roundToStep(value: number): number {
-  return Math.round(value / POINTER_MOVEMENT_MULTIPLIER_STEP) * POINTER_MOVEMENT_MULTIPLIER_STEP;
+  return Math.round(value / POINTER_MOVEMENT_PERCENTAGE_STEP) * POINTER_MOVEMENT_PERCENTAGE_STEP;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -70,8 +98,8 @@ function clamp(value: number, min: number, max: number): number {
 
 function cloneDefaultSettings(): PointerMovementSettings {
   return {
-    multipliers: Object.fromEntries(
-      pointerMovementSizeKeys.map((size) => [size, DEFAULT_POINTER_MOVEMENT_SETTINGS.multipliers[size]])
+    percentages: Object.fromEntries(
+      pointerMovementSizeKeys.map((size) => [size, DEFAULT_POINTER_MOVEMENT_SETTINGS.percentages[size]])
     ) as Record<PointerMovementSizeKey, number>
   };
 }

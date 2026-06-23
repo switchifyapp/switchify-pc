@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import type {
   CursorOverlayColor,
   CursorOverlaySettings,
@@ -7,11 +7,11 @@ import type {
 } from '../../shared/cursor-overlay-settings';
 import { CURSOR_OVERLAY_COLORS } from '../../shared/cursor-overlay-settings';
 import {
-  POINTER_MOVEMENT_MULTIPLIER_MAX,
-  POINTER_MOVEMENT_MULTIPLIER_MIN,
-  POINTER_MOVEMENT_MULTIPLIER_STEP,
+  POINTER_MOVEMENT_PERCENTAGE_MAX,
+  POINTER_MOVEMENT_PERCENTAGE_MIN,
+  POINTER_MOVEMENT_PERCENTAGE_STEP,
   normalizePointerMovementSettings,
-  pointerMovementMultiplierFor,
+  pointerMovementPercentageFor,
   type PointerMovementSettings,
   type PointerMovementSizeKey
 } from '../../shared/pointer-movement-settings';
@@ -217,10 +217,9 @@ function PointerSettingsSection({
   return (
     <section className="settings-window-section">
       <h2>Pointer</h2>
-      <h3>Movement sizes</h3>
+      <h3>Movement distance</h3>
       <p className="settings-section-note">
-        Adjust how far each Android pointer step moves the cursor. 100% is the default. Reconnect Android or reopen
-        control to refresh its movement profile.
+        Set how far each Android pointer step moves, as a percentage of the active screen size.
       </p>
       <PointerMovementSettingsControls
         settings={pointerMovementSettings}
@@ -246,8 +245,8 @@ function PointerMovementSettingsControls({
   const update = (size: PointerMovementSizeKey, value: number): void => {
     void onChange(
       normalizePointerMovementSettings({
-        multipliers: {
-          ...normalizedSettings.multipliers,
+        percentages: {
+          ...normalizedSettings.percentages,
           [size]: value
         }
       })
@@ -258,66 +257,33 @@ function PointerMovementSettingsControls({
     <div className="settings-control-group">
       <div className="pointer-movement-controls">
         {pointerMovementSizeOptions.map((option) => {
-          const value = pointerMovementMultiplierFor(normalizedSettings, option.value);
+          const value = pointerMovementPercentageFor(normalizedSettings, option.value);
           return (
             <label key={option.value} className="pointer-movement-row">
               <span className="pointer-movement-label">{option.label}</span>
               <input
-                className="pointer-movement-slider"
-                type="range"
-                min={POINTER_MOVEMENT_MULTIPLIER_MIN}
-                max={POINTER_MOVEMENT_MULTIPLIER_MAX}
-                step={POINTER_MOVEMENT_MULTIPLIER_STEP}
+                className="pointer-movement-number"
+                type="number"
+                min={POINTER_MOVEMENT_PERCENTAGE_MIN}
+                max={POINTER_MOVEMENT_PERCENTAGE_MAX}
+                step={POINTER_MOVEMENT_PERCENTAGE_STEP}
                 value={value}
-                aria-label={`${option.label} pointer movement distance`}
+                aria-label={`${option.label} pointer movement percentage`}
                 onChange={(event) => update(option.value, Number(event.currentTarget.value))}
               />
-              <span className="pointer-movement-value">{value}%</span>
+              <span className="pointer-movement-unit">% of screen</span>
             </label>
           );
         })}
       </div>
-      <PointerMovementPreview settings={normalizedSettings} />
-    </div>
-  );
-}
-
-function PointerMovementPreview({ settings }: { settings: PointerMovementSettings }): ReactElement {
-  const normalizedSettings = normalizePointerMovementSettings(settings);
-  return (
-    <div className="pointer-preview" aria-label="Pointer movement distance preview">
-      <div className="pointer-preview-scale" aria-hidden="true">
-        <span>Shorter</span>
-        <span>Longer</span>
-      </div>
-      {pointerMovementSizeOptions.map((option, index) => {
-        const multiplier = pointerMovementMultiplierFor(normalizedSettings, option.value);
-        return (
-          <div key={option.value} className="pointer-preview-row">
-            <span>{option.label}</span>
-            <div className="pointer-preview-track" aria-hidden="true">
-              <span
-                className="pointer-preview-dot"
-                style={
-                  {
-                    '--pointer-preview-scale': String(multiplier / 100),
-                    '--pointer-preview-duration': `${1.8 + index * 0.3}s`
-                  } as CSSProperties
-                }
-              />
-            </div>
-            <strong>{multiplier}%</strong>
-          </div>
-        );
-      })}
     </div>
   );
 }
 
 const pointerMovementSizeOptions: Array<{ value: PointerMovementSizeKey; label: string }> = [
-  { value: 'small', label: 'Small step' },
-  { value: 'medium', label: 'Medium step' },
-  { value: 'large', label: 'Large step' }
+  { value: 'small', label: 'Small' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'large', label: 'Large' }
 ];
 
 function SavedDevicesSettingsSection({

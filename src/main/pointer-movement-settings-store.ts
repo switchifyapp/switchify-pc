@@ -15,11 +15,11 @@ export class JsonPointerMovementSettingsStore {
       return normalizePointerMovementSettings(JSON.parse(raw));
     } catch (error) {
       if (isMissingFileError(error)) {
-        return { multipliers: { ...DEFAULT_POINTER_MOVEMENT_SETTINGS.multipliers } };
+        return DEFAULT_POINTER_MOVEMENT_SETTINGS;
       }
 
       console.warn('Switchify pointer movement settings could not be loaded. Defaults will be used.');
-      return { multipliers: { ...DEFAULT_POINTER_MOVEMENT_SETTINGS.multipliers } };
+      return DEFAULT_POINTER_MOVEMENT_SETTINGS;
     }
   }
 
