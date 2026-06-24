@@ -8,9 +8,6 @@ import type {
 import { CURSOR_OVERLAY_COLORS } from '../../shared/cursor-overlay-settings';
 import {
   BASE_POINTER_MOVEMENT_PERCENTAGES,
-  POINTER_MOVEMENT_SCALE_MAX,
-  POINTER_MOVEMENT_SCALE_MIN,
-  POINTER_MOVEMENT_SCALE_STEP,
   normalizePointerMovementSettings,
   pointerMovementPercentageFor,
   pointerMovementScalePercentFor,
@@ -257,20 +254,19 @@ function PointerMovementSettingsControls({
   return (
     <div className="settings-control-group">
       <div className="pointer-movement-controls">
-        <label className="pointer-movement-row">
-          <span className="pointer-movement-label">Scale</span>
-          <input
-            className="pointer-movement-slider"
-            type="range"
-            min={POINTER_MOVEMENT_SCALE_MIN}
-            max={POINTER_MOVEMENT_SCALE_MAX}
-            step={POINTER_MOVEMENT_SCALE_STEP}
-            value={scalePercent}
-            aria-label="Pointer movement scale"
-            onChange={(event) => update(Number(event.currentTarget.value))}
-          />
-          <span className="pointer-movement-value">{scalePercent}%</span>
-        </label>
+        <div className="pointer-movement-button-row" role="group" aria-label="Pointer movement scale">
+          {pointerMovementScaleOptions.map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={value === scalePercent ? 'selected' : undefined}
+              aria-pressed={value === scalePercent}
+              onClick={() => update(value)}
+            >
+              {value}%
+            </button>
+          ))}
+        </div>
       </div>
       <PointerMovementTable settings={normalizedSettings} />
     </div>
@@ -282,6 +278,8 @@ const pointerMovementSizeOptions: Array<{ value: PointerMovementSizeKey; label: 
   { value: 'medium', label: 'Medium' },
   { value: 'large', label: 'Large' }
 ];
+
+const pointerMovementScaleOptions = [50, 75, 100, 125, 150, 175, 200];
 
 function PointerMovementTable({ settings }: { settings: PointerMovementSettings }): ReactElement {
   const normalizedSettings = normalizePointerMovementSettings(settings);
