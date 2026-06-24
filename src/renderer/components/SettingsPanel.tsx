@@ -295,7 +295,7 @@ function PointerMovementPreview({ settings }: { settings: PointerMovementSetting
             <div className="pointer-movement-preview-track" aria-hidden="true">
               <MousePointer2
                 className="pointer-movement-preview-icon"
-                style={{ '--pointer-preview-distance': `${distance}%` } as CSSProperties}
+                style={{ '--pointer-preview-distance': String(distance) } as CSSProperties}
               />
             </div>
             <span className="pointer-movement-preview-value">{percentage}%</span>

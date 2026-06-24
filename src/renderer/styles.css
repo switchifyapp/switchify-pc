@@ -881,6 +881,7 @@ p {
 }
 
 .pointer-movement-preview-track {
+  container-type: inline-size;
   position: relative;
   height: 30px;
   overflow: hidden;
@@ -908,7 +909,7 @@ p {
 
   78%,
   92% {
-    transform: translateY(-50%) translateX(var(--pointer-preview-distance));
+    transform: translateY(-50%) translateX(calc(var(--pointer-preview-distance) * 1cqw));
   }
 
   93%,
@@ -1170,6 +1171,6 @@ p {
 @media (prefers-reduced-motion: reduce) {
   .pointer-movement-preview-icon {
     animation: none;
-    transform: translateY(-50%) translateX(var(--pointer-preview-distance));
+    transform: translateY(-50%) translateX(calc(var(--pointer-preview-distance) * 1cqw));
   }
 }
