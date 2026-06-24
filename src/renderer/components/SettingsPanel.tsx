@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactElement } from 'react';
+import { MousePointer2 } from 'lucide-react';
 import type {
   CursorOverlayColor,
   CursorOverlaySettings,
@@ -218,8 +219,7 @@ function PointerSettingsSection({
       <h2>Pointer</h2>
       <h3>Movement distance</h3>
       <p className="settings-section-note">
-        Adjust all Android pointer steps together. The table shows each movement distance as a percentage of the
-        active screen size.
+        Choose how slow or fast Android pointer steps feel on this display.
       </p>
       <PointerMovementSettingsControls
         settings={pointerMovementSettings}
@@ -268,6 +268,7 @@ function PointerMovementSettingsControls({
           ))}
         </div>
       </div>
+      <PointerMovementPreview settings={normalizedSettings} />
       <PointerMovementTable settings={normalizedSettings} />
     </div>
   );
@@ -280,6 +281,30 @@ const pointerMovementSizeOptions: Array<{ value: PointerMovementSizeKey; label: 
 ];
 
 const pointerMovementScaleOptions = [50, 75, 100, 125, 150, 175, 200];
+
+function PointerMovementPreview({ settings }: { settings: PointerMovementSettings }): ReactElement {
+  const normalizedSettings = normalizePointerMovementSettings(settings);
+  return (
+    <div className="pointer-movement-preview" aria-label="Pointer movement preview">
+      {pointerMovementSizeOptions.map((option) => {
+        const percentage = pointerMovementPercentageFor(normalizedSettings, option.value);
+        const distance = Math.min(percentage * 2.4, 88);
+        return (
+          <div key={option.value} className="pointer-movement-preview-row">
+            <span className="pointer-movement-preview-label">{option.label}</span>
+            <div className="pointer-movement-preview-track" aria-hidden="true">
+              <MousePointer2
+                className="pointer-movement-preview-icon"
+                style={{ '--pointer-preview-distance': `${distance}%` } as CSSProperties}
+              />
+            </div>
+            <span className="pointer-movement-preview-value">{percentage}%</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function PointerMovementTable({ settings }: { settings: PointerMovementSettings }): ReactElement {
   const normalizedSettings = normalizePointerMovementSettings(settings);

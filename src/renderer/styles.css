@@ -852,6 +852,71 @@ p {
   color: var(--brand-primary);
 }
 
+.pointer-movement-preview {
+  display: grid;
+  gap: var(--space-xs);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-s);
+  background: var(--color-surface-muted);
+}
+
+.pointer-movement-preview-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.25fr) minmax(140px, 1fr) minmax(52px, auto);
+  gap: var(--space-s);
+  align-items: center;
+}
+
+.pointer-movement-preview-label,
+.pointer-movement-preview-value {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.pointer-movement-preview-value {
+  justify-self: end;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.pointer-movement-preview-track {
+  position: relative;
+  height: 30px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+}
+
+.pointer-movement-preview-icon {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  color: var(--brand-primary);
+  transform: translateY(-50%);
+  animation: pointer-preview-forward 1.8s ease-in-out infinite;
+}
+
+@keyframes pointer-preview-forward {
+  0%,
+  18% {
+    transform: translateY(-50%) translateX(0);
+  }
+
+  78%,
+  92% {
+    transform: translateY(-50%) translateX(var(--pointer-preview-distance));
+  }
+
+  93%,
+  100% {
+    transform: translateY(-50%) translateX(0);
+  }
+}
+
 .pointer-movement-table {
   width: 100%;
   border-collapse: collapse;
@@ -1081,6 +1146,14 @@ p {
     gap: 3px;
   }
 
+  .pointer-movement-preview-row {
+    grid-template-columns: 1fr;
+  }
+
+  .pointer-movement-preview-value {
+    justify-self: start;
+  }
+
   .settings-layout {
     grid-template-columns: 1fr;
     width: 100%;
@@ -1092,4 +1165,11 @@ p {
     overflow-x: auto;
   }
 
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pointer-movement-preview-icon {
+    animation: none;
+    transform: translateY(-50%) translateX(var(--pointer-preview-distance));
+  }
 }
