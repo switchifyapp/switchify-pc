@@ -4,6 +4,11 @@ import {
   normalizeCursorOverlaySettings,
   type CursorOverlaySettings
 } from '../shared/cursor-overlay-settings';
+import {
+  DEFAULT_POINTER_MOVEMENT_SETTINGS,
+  normalizePointerMovementSettings,
+  type PointerMovementSettings
+} from '../shared/pointer-movement-settings';
 import { deriveDesktopUiState, type DesktopUiState } from '../shared/desktop-ui-state';
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
 import type { PairedDeviceView, PcControlStatus } from '../shared/server-status';
@@ -16,10 +21,12 @@ export type SwitchifyPcStatusViewModel = {
   pendingPairingRequests: PendingPairingApprovalView[];
   connectedDevices: ConnectedDeviceView[];
   cursorOverlaySettings: CursorOverlaySettings;
+  pointerMovementSettings: PointerMovementSettings;
   refresh: () => Promise<void>;
   disconnectClients: () => Promise<void>;
   forgetPairedDevice: (deviceId: string) => Promise<{ ok: boolean; reason?: string }>;
   updateCursorOverlaySettings: (settings: CursorOverlaySettings) => Promise<void>;
+  updatePointerMovementSettings: (settings: PointerMovementSettings) => Promise<void>;
   respondToPairingRequest: (requestId: string, decision: PairingApprovalDecision) => Promise<void>;
 };
 
@@ -29,6 +36,9 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
   const [pendingPairingRequests, setPendingPairingRequests] = useState<PendingPairingApprovalView[]>([]);
   const [cursorOverlaySettings, setCursorOverlaySettings] = useState<CursorOverlaySettings>(
     DEFAULT_CURSOR_OVERLAY_SETTINGS
+  );
+  const [pointerMovementSettings, setPointerMovementSettings] = useState<PointerMovementSettings>(
+    DEFAULT_POINTER_MOVEMENT_SETTINGS
   );
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -66,8 +76,10 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
     const load = async (): Promise<void> => {
       const overlayEnabled = await bridge.getCursorOverlayEnabled();
       const overlaySettings = await bridge.getCursorOverlaySettings();
+      const movementSettings = await bridge.getPointerMovementSettings();
       if (!cancelled) {
         setCursorOverlaySettings(normalizeCursorOverlaySettings({ ...overlaySettings, enabled: overlayEnabled }));
+        setPointerMovementSettings(normalizePointerMovementSettings(movementSettings));
       }
       await refresh();
     };
@@ -90,6 +102,15 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
     [bridge]
   );
 
+  const updatePointerMovementSettings = useCallback(
+    async (settings: PointerMovementSettings): Promise<void> => {
+      const normalized = normalizePointerMovementSettings(settings);
+      setPointerMovementSettings(normalized);
+      setPointerMovementSettings(await bridge.setPointerMovementSettings(normalized));
+    },
+    [bridge]
+  );
+
   const uiState = deriveDesktopUiState(serverStatus, pairedDevices);
 
   const respondToPairingRequest = useCallback(
@@ -107,10 +128,12 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
     pendingPairingRequests,
     connectedDevices: toConnectedDeviceViews(serverStatus?.connectedClients ?? [], pairedDevices),
     cursorOverlaySettings,
+    pointerMovementSettings,
     refresh,
     disconnectClients,
     forgetPairedDevice,
     updateCursorOverlaySettings,
+    updatePointerMovementSettings,
     respondToPairingRequest
   };
 }

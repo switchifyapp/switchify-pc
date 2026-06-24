@@ -3,6 +3,7 @@ import {
   calculateNativeScrollDelta,
   calculateDisplayNormalizedMouseTarget,
   calculateScaledMouseTarget,
+  inferPointerMovementSize,
   toLibnutKeyboardKey,
   toLibnutMouseToggle
 } from './libnut-win32-adapter';
@@ -10,6 +11,8 @@ import {
   createWindowControlScript,
   toWindowsWindowControlStrategy
 } from './windows-window-control';
+import { createPointerMovementProfile } from './pointer-profile';
+import type { PointerMovementSettings } from '../../shared/pointer-movement-settings';
 
 describe('calculateScaledMouseTarget', () => {
   it('applies the display scale factor to relative movement', () => {
@@ -137,6 +140,153 @@ describe('calculateDisplayNormalizedMouseTarget', () => {
       x: 15,
       y: 26
     });
+  });
+
+  it('applies the movement scale to small movement', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: 48, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
+        { scalePercent: 200 }
+      )
+    ).toEqual({
+      x: 196,
+      y: 200
+    });
+  });
+
+  it('applies the movement scale to medium movement', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: 128, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
+        { scalePercent: 50 }
+      )
+    ).toEqual({
+      x: 164,
+      y: 200
+    });
+  });
+
+  it('combines display normalization with customized movement scale', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: 128, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 3840, height: 2160 }, scaleFactor: 1 },
+        { scalePercent: 150 }
+      )
+    ).toEqual({
+      x: 484,
+      y: 200
+    });
+  });
+
+  it('falls back for invalid display data while applying movement scale', () => {
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 10, y: 20 },
+        { dx: 48, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 0, height: 2160 }, scaleFactor: 0 },
+        { scalePercent: 200 }
+      )
+    ).toEqual({
+      x: 106,
+      y: 20
+    });
+  });
+
+  it('migrates legacy percentage settings before applying movement scale', () => {
+    const legacySettings = {
+      percentages: { small: 9, medium: 24, large: 50 }
+    } as unknown as PointerMovementSettings;
+
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: 48, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
+        legacySettings
+      )
+    ).toEqual({
+      x: 196,
+      y: 200
+    });
+  });
+
+  it('normalizes a 4K profile delta once at execution time', () => {
+    const profile = createPointerMovementProfile({
+      cursor: { x: 100, y: 200 },
+      display: {
+        bounds: { x: 0, y: 0, width: 3840, height: 2160 },
+        scaleFactor: 1
+      }
+    });
+
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: profile.recommendedDeltas.medium, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 3840, height: 2160 }, scaleFactor: 1 }
+      )
+    ).toEqual({
+      x: 360,
+      y: 200
+    });
+  });
+
+  it('normalizes a high-DPI profile delta once at execution time', () => {
+    const profile = createPointerMovementProfile({
+      cursor: { x: 100, y: 200 },
+      display: {
+        bounds: { x: 0, y: 0, width: 3840, height: 2160 },
+        scaleFactor: 2
+      }
+    });
+
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: profile.recommendedDeltas.medium, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 3840, height: 2160 }, scaleFactor: 2 }
+      )
+    ).toEqual({
+      x: 360,
+      y: 200
+    });
+  });
+
+  it('applies configured movement scale during profile delta execution', () => {
+    const profile = createPointerMovementProfile({
+      cursor: { x: 100, y: 200 },
+      display: {
+        bounds: { x: 0, y: 0, width: 3840, height: 2160 },
+        scaleFactor: 1
+      }
+    });
+
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: profile.recommendedDeltas.medium, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 3840, height: 2160 }, scaleFactor: 1 },
+        { scalePercent: 150 }
+      )
+    ).toEqual({
+      x: 490,
+      y: 200
+    });
+  });
+});
+
+describe('inferPointerMovementSize', () => {
+  it('classifies movement deltas by dominant axis', () => {
+    expect(inferPointerMovementSize({ dx: 48, dy: 0 })).toBe('small');
+    expect(inferPointerMovementSize({ dx: 128, dy: 0 })).toBe('medium');
+    expect(inferPointerMovementSize({ dx: 280, dy: 0 })).toBe('large');
+    expect(inferPointerMovementSize({ dx: 0, dy: 128 })).toBe('medium');
   });
 });
 

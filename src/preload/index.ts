@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type { PairingApprovalDecision, PendingPairingApprovalView } from '../shared/pairing-approval';
 import type { PairedDeviceView, PcControlStatus } from '../shared/server-status';
 import type { CursorOverlaySettings } from '../shared/cursor-overlay-settings';
+import type { PointerMovementSettings } from '../shared/pointer-movement-settings';
 import {
   APP_WINDOW_CLOSE_CHANNEL,
   APP_WINDOW_MINIMIZE_CHANNEL,
@@ -13,6 +14,7 @@ import {
   GET_CURSOR_OVERLAY_SETTINGS_CHANNEL,
   GET_PAIRED_DEVICES_CHANNEL,
   GET_PENDING_PAIRING_REQUESTS_CHANNEL,
+  GET_POINTER_MOVEMENT_SETTINGS_CHANNEL,
   GET_SYSTEM_STARTUP_SETTINGS_CHANNEL,
   GET_UPDATE_STATE_CHANNEL,
   INSTALL_DOWNLOADED_UPDATE_CHANNEL,
@@ -22,6 +24,7 @@ import {
   SERVER_STATUS_CHANNEL,
   SET_CURSOR_OVERLAY_ENABLED_CHANNEL,
   SET_CURSOR_OVERLAY_SETTINGS_CHANNEL,
+  SET_POINTER_MOVEMENT_SETTINGS_CHANNEL,
   SET_START_WITH_SYSTEM_CHANNEL,
   SHOW_SETTINGS_SECTION_CHANNEL,
 } from '../shared/ipc-channels';
@@ -47,6 +50,10 @@ contextBridge.exposeInMainWorld('switchifyPc', {
   getCursorOverlaySettings: (): Promise<CursorOverlaySettings> => ipcRenderer.invoke(GET_CURSOR_OVERLAY_SETTINGS_CHANNEL),
   setCursorOverlaySettings: (settings: CursorOverlaySettings): Promise<CursorOverlaySettings> =>
     ipcRenderer.invoke(SET_CURSOR_OVERLAY_SETTINGS_CHANNEL, settings),
+  getPointerMovementSettings: (): Promise<PointerMovementSettings> =>
+    ipcRenderer.invoke(GET_POINTER_MOVEMENT_SETTINGS_CHANNEL),
+  setPointerMovementSettings: (settings: PointerMovementSettings): Promise<PointerMovementSettings> =>
+    ipcRenderer.invoke(SET_POINTER_MOVEMENT_SETTINGS_CHANNEL, settings),
   openSettingsWindow: (section?: SettingsSectionId): Promise<void> =>
     ipcRenderer.invoke(OPEN_SETTINGS_WINDOW_CHANNEL, section),
   onShowSettingsSection: (handler: (section: SettingsSectionId) => void): (() => void) => {

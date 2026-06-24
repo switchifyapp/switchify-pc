@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactElement } from 'react';
+import { MousePointer2 } from 'lucide-react';
 import type {
   CursorOverlayColor,
   CursorOverlaySettings,
@@ -6,6 +7,14 @@ import type {
   CursorOverlayVisibility
 } from '../../shared/cursor-overlay-settings';
 import { CURSOR_OVERLAY_COLORS } from '../../shared/cursor-overlay-settings';
+import {
+  BASE_POINTER_MOVEMENT_PERCENTAGES,
+  normalizePointerMovementSettings,
+  pointerMovementPercentageFor,
+  pointerMovementScalePercentFor,
+  type PointerMovementSettings,
+  type PointerMovementSizeKey
+} from '../../shared/pointer-movement-settings';
 import type { PairedDeviceView, PcControlStatus } from '../../shared/server-status';
 import type { SystemStartupSettings } from '../../shared/system-startup';
 import type { SettingsSectionId } from '../../shared/settings';
@@ -21,10 +30,12 @@ type SettingsViewProps = {
   pairedDevices: PairedDeviceView[];
   serverStatus: PcControlStatus | null;
   cursorOverlaySettings: CursorOverlaySettings;
+  pointerMovementSettings: PointerMovementSettings;
   systemStartupSettings: SystemStartupSettings | null;
   onDisconnect: () => Promise<void>;
   onForgetPairedDevice: (deviceId: string) => Promise<{ ok: boolean; reason?: string }>;
   onUpdateCursorOverlaySettings: (settings: CursorOverlaySettings) => Promise<void>;
+  onUpdatePointerMovementSettings: (settings: PointerMovementSettings) => Promise<void>;
   isUpdatingSystemStartup: boolean;
   onSetStartWithSystem: (enabled: boolean) => Promise<void>;
   updateState: UpdateState | null;
@@ -53,10 +64,12 @@ export function SettingsView({
   pairedDevices,
   serverStatus,
   cursorOverlaySettings,
+  pointerMovementSettings,
   systemStartupSettings,
   onDisconnect,
   onForgetPairedDevice,
   onUpdateCursorOverlaySettings,
+  onUpdatePointerMovementSettings,
   isUpdatingSystemStartup,
   onSetStartWithSystem,
   updateState,
@@ -108,7 +121,9 @@ export function SettingsView({
         {selectedSection === 'pointer' ? (
           <PointerSettingsSection
             cursorOverlaySettings={cursorOverlaySettings}
+            pointerMovementSettings={pointerMovementSettings}
             onUpdateCursorOverlaySettings={onUpdateCursorOverlaySettings}
+            onUpdatePointerMovementSettings={onUpdatePointerMovementSettings}
           />
         ) : null}
         {selectedSection === 'updates' ? (
@@ -190,19 +205,127 @@ function BluetoothSettingsSection({
 
 function PointerSettingsSection({
   cursorOverlaySettings,
-  onUpdateCursorOverlaySettings
+  pointerMovementSettings,
+  onUpdateCursorOverlaySettings,
+  onUpdatePointerMovementSettings
 }: {
   cursorOverlaySettings: CursorOverlaySettings;
+  pointerMovementSettings: PointerMovementSettings;
   onUpdateCursorOverlaySettings: (settings: CursorOverlaySettings) => Promise<void>;
+  onUpdatePointerMovementSettings: (settings: PointerMovementSettings) => Promise<void>;
 }): ReactElement {
   return (
     <section className="settings-window-section">
       <h2>Pointer</h2>
+      <h3>Movement distance</h3>
+      <p className="settings-section-note">
+        Choose how far each Android pointer step moves on this display.
+      </p>
+      <PointerMovementSettingsControls
+        settings={pointerMovementSettings}
+        onChange={onUpdatePointerMovementSettings}
+      />
+      <h3>Cursor overlay</h3>
       <CursorOverlaySettingsControls
         settings={cursorOverlaySettings}
         onChange={onUpdateCursorOverlaySettings}
       />
     </section>
+  );
+}
+
+function PointerMovementSettingsControls({
+  settings,
+  onChange
+}: {
+  settings: PointerMovementSettings;
+  onChange: (settings: PointerMovementSettings) => Promise<void>;
+}): ReactElement {
+  const normalizedSettings = normalizePointerMovementSettings(settings);
+  const scalePercent = pointerMovementScalePercentFor(normalizedSettings);
+  const update = (value: number): void => {
+    void onChange(
+      normalizePointerMovementSettings({
+        scalePercent: value
+      })
+    );
+  };
+
+  return (
+    <div className="settings-control-group">
+      <div className="pointer-movement-controls">
+        <div className="pointer-movement-button-row" role="group" aria-label="Pointer movement scale">
+          {pointerMovementScaleOptions.map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={value === scalePercent ? 'selected' : undefined}
+              aria-pressed={value === scalePercent}
+              onClick={() => update(value)}
+            >
+              {value}%
+            </button>
+          ))}
+        </div>
+      </div>
+      <PointerMovementPreview settings={normalizedSettings} />
+      <PointerMovementTable settings={normalizedSettings} />
+    </div>
+  );
+}
+
+const pointerMovementSizeOptions: Array<{ value: PointerMovementSizeKey; label: string }> = [
+  { value: 'small', label: 'Small' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'large', label: 'Large' }
+];
+
+const pointerMovementScaleOptions = [50, 75, 100, 125, 150, 175, 200];
+
+function PointerMovementPreview({ settings }: { settings: PointerMovementSettings }): ReactElement {
+  const normalizedSettings = normalizePointerMovementSettings(settings);
+  return (
+    <div className="pointer-movement-preview" aria-label="Pointer movement preview">
+      {pointerMovementSizeOptions.map((option) => {
+        const percentage = pointerMovementPercentageFor(normalizedSettings, option.value);
+        return (
+          <div key={option.value} className="pointer-movement-preview-row">
+            <span className="pointer-movement-preview-label">{option.label}</span>
+            <div className="pointer-movement-preview-track" aria-hidden="true">
+              <MousePointer2
+                className="pointer-movement-preview-icon"
+                style={{ '--pointer-preview-distance': String(percentage) } as CSSProperties}
+              />
+            </div>
+            <span className="pointer-movement-preview-value">{percentage}%</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PointerMovementTable({ settings }: { settings: PointerMovementSettings }): ReactElement {
+  const normalizedSettings = normalizePointerMovementSettings(settings);
+  return (
+    <table className="pointer-movement-table">
+      <thead>
+        <tr>
+          <th scope="col">Step</th>
+          <th scope="col">Default</th>
+          <th scope="col">Current</th>
+        </tr>
+      </thead>
+      <tbody>
+        {pointerMovementSizeOptions.map((option) => (
+          <tr key={option.value}>
+            <th scope="row">{option.label}</th>
+            <td>{BASE_POINTER_MOVEMENT_PERCENTAGES[option.value]}%</td>
+            <td>{pointerMovementPercentageFor(normalizedSettings, option.value)}%</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 

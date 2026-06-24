@@ -99,10 +99,12 @@ export function SettingsApp(): ReactElement {
         pairedDevices={status.pairedDevices}
         serverStatus={status.serverStatus}
         cursorOverlaySettings={status.cursorOverlaySettings}
+        pointerMovementSettings={status.pointerMovementSettings}
         systemStartupSettings={systemStartupSettings}
         onDisconnect={status.disconnectClients}
         onForgetPairedDevice={status.forgetPairedDevice}
         onUpdateCursorOverlaySettings={status.updateCursorOverlaySettings}
+        onUpdatePointerMovementSettings={status.updatePointerMovementSettings}
         isUpdatingSystemStartup={isUpdatingSystemStartup}
         onSetStartWithSystem={setStartWithSystem}
         updateState={updateState}

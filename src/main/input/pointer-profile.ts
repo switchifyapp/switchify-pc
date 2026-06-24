@@ -1,13 +1,21 @@
 import { MAX_POINTER_DELTA, NO_ACK_CONTROL_COMMAND_TYPES, type PointerMovementProfile } from '../../shared/protocol';
+import {
+  pointerMovementFractionFor,
+  DEFAULT_POINTER_MOVEMENT_SETTINGS,
+  type PointerMovementSizeKey
+} from '../../shared/pointer-movement-settings';
 
 type Point = { x: number; y: number };
 type Bounds = { x: number; y: number; width: number; height: number };
 
-const TARGET_REFERENCE_NATIVE_DELTAS = {
-  small: 48,
-  medium: 128,
-  large: 280
-};
+const REFERENCE_POINTER_SHORT_EDGE = 1080;
+const pointerMovementSizeKeys: PointerMovementSizeKey[] = ['small', 'medium', 'large'];
+const TARGET_REFERENCE_NATIVE_DELTAS = Object.fromEntries(
+  pointerMovementSizeKeys.map((size) => [
+    size,
+    REFERENCE_POINTER_SHORT_EDGE * pointerMovementFractionFor(DEFAULT_POINTER_MOVEMENT_SETTINGS, size)
+  ])
+) as Record<PointerMovementSizeKey, number>;
 
 export function createPointerMovementProfile(input: {
   cursor: Point;
