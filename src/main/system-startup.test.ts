@@ -196,7 +196,7 @@ function createService(
   } = {
     getEntry: vi.fn(async () => {
       if (options.getEntryError) throw options.getEntryError;
-      return options.entry ?? { command: null, startupApproved: 'missing' };
+      return options.entry ?? ({ command: null, startupApproved: 'missing' } satisfies StartupRegistryEntry);
     }),
     setEntry: vi.fn(async () => undefined),
     deleteEntry: vi.fn(async () => undefined)
