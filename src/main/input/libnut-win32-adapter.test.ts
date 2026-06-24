@@ -12,6 +12,7 @@ import {
   toWindowsWindowControlStrategy
 } from './windows-window-control';
 import { createPointerMovementProfile } from './pointer-profile';
+import type { PointerMovementSettings } from '../../shared/pointer-movement-settings';
 
 describe('calculateScaledMouseTarget', () => {
   it('applies the display scale factor to relative movement', () => {
@@ -198,12 +199,16 @@ describe('calculateDisplayNormalizedMouseTarget', () => {
   });
 
   it('migrates legacy percentage settings before applying movement scale', () => {
+    const legacySettings = {
+      percentages: { small: 9, medium: 24, large: 50 }
+    } as unknown as PointerMovementSettings;
+
     expect(
       calculateDisplayNormalizedMouseTarget(
         { x: 100, y: 200 },
         { dx: 48, dy: 0 },
         { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
-        { percentages: { small: 9, medium: 24, large: 50 } }
+        legacySettings
       )
     ).toEqual({
       x: 196,
