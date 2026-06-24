@@ -104,7 +104,9 @@ export function useSwitchifyPcStatus(bridge: Window['switchifyPc']): SwitchifyPc
 
   const updatePointerMovementSettings = useCallback(
     async (settings: PointerMovementSettings): Promise<void> => {
-      setPointerMovementSettings(await bridge.setPointerMovementSettings(settings));
+      const normalized = normalizePointerMovementSettings(settings);
+      setPointerMovementSettings(normalized);
+      setPointerMovementSettings(await bridge.setPointerMovementSettings(normalized));
     },
     [bridge]
   );
