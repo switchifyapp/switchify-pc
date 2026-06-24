@@ -1,32 +1,14 @@
 import type { SystemStartupSettings } from '../shared/system-startup';
+import { startupCommandFor, type WindowsStartupRegistry } from './windows-startup-registry';
 
 export const START_HIDDEN_ARG = '--start-hidden';
-
-type LoginItemQueryOptions = {
-  path: string;
-  args: string[];
-};
-
-type LoginItemSettingsResult = {
-  openAtLogin: boolean;
-  executableWillLaunchAtLogin?: boolean;
-};
-
-type LoginItemUpdateSettings = {
-  openAtLogin: boolean;
-  path: string;
-  args: string[];
-  name: string;
-  enabled?: boolean;
-};
+export const STARTUP_VALUE_NAME = 'app.switchify.pc';
 
 export type SystemStartupServiceOptions = {
   platform: NodeJS.Platform;
   isPackaged: boolean;
   executablePath: string;
-  appUserModelId: string;
-  getLoginItemSettings: (options: LoginItemQueryOptions) => LoginItemSettingsResult;
-  setLoginItemSettings: (settings: LoginItemUpdateSettings) => void;
+  startupRegistry: WindowsStartupRegistry;
 };
 
 export function shouldStartHidden(argv: string[], platform: NodeJS.Platform): boolean {
@@ -36,32 +18,38 @@ export function shouldStartHidden(argv: string[], platform: NodeJS.Platform): bo
 export class SystemStartupService {
   constructor(private readonly options: SystemStartupServiceOptions) {}
 
-  getSettings(): SystemStartupSettings {
+  async getSettings(): Promise<SystemStartupSettings> {
     if (!this.isSupported()) {
       return this.unsupportedSettings();
     }
 
-    const loginItemSettings = this.options.getLoginItemSettings(this.loginItemQueryOptions());
+    const expectedCommand = this.expectedCommand();
+    const entry = await this.getRegistryEntrySafely();
+
     return {
       supported: true,
-      startWithSystem: loginItemSettings.openAtLogin && loginItemSettings.executableWillLaunchAtLogin !== false,
+      startWithSystem: entry.command === expectedCommand && entry.startupApproved !== 'disabled',
       startsHidden: true,
-      reason: null
+      reason: null,
+      registration: {
+        expectedCommand,
+        registeredCommand: entry.command,
+        startupApproved: entry.startupApproved
+      }
     };
   }
 
-  setStartWithSystem(enabled: boolean): SystemStartupSettings {
+  async setStartWithSystem(enabled: boolean): Promise<SystemStartupSettings> {
     if (!this.isSupported()) {
       return this.unsupportedSettings();
     }
 
-    this.options.setLoginItemSettings({
-      openAtLogin: enabled,
-      path: this.options.executablePath,
-      args: [START_HIDDEN_ARG],
-      name: this.options.appUserModelId,
-      ...(enabled ? { enabled: true } : {})
-    });
+    if (enabled) {
+      await this.options.startupRegistry.setEntry(STARTUP_VALUE_NAME, this.expectedCommand());
+    } else {
+      await this.options.startupRegistry.deleteEntry(STARTUP_VALUE_NAME);
+    }
+
     return this.getSettings();
   }
 
@@ -69,11 +57,20 @@ export class SystemStartupService {
     return this.options.platform === 'win32' && this.options.isPackaged;
   }
 
-  private loginItemQueryOptions(): LoginItemQueryOptions {
-    return {
-      path: this.options.executablePath,
-      args: [START_HIDDEN_ARG]
-    };
+  private expectedCommand(): string {
+    return startupCommandFor(this.options.executablePath, [START_HIDDEN_ARG]);
+  }
+
+  private async getRegistryEntrySafely(): Promise<{
+    command: string | null;
+    startupApproved: 'enabled' | 'disabled' | 'missing' | 'unknown';
+  }> {
+    try {
+      return await this.options.startupRegistry.getEntry(STARTUP_VALUE_NAME);
+    } catch (error) {
+      console.warn(error instanceof Error ? error.message : 'Could not read startup registry settings.');
+      return { command: null, startupApproved: 'unknown' };
+    }
   }
 
   private unsupportedSettings(): SystemStartupSettings {

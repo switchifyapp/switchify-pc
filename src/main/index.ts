@@ -25,12 +25,14 @@ import { JsonPointerMovementSettingsStore } from './pointer-movement-settings-st
 import { registerServerIpc } from './server-ipc';
 import { registerSettingsWindowIpc } from './settings-window-ipc';
 import { secondInstanceAction } from './single-instance';
+import { appendStartupDiagnostics } from './startup-diagnostics';
 import { registerSystemStartupIpc } from './system-startup-ipc';
 import { shouldStartHidden, SystemStartupService } from './system-startup';
 import { createSwitchifyTray, type SwitchifyTray } from './tray';
 import { registerUpdateIpc } from './updates/update-ipc';
 import { UpdateService } from './updates/update-service';
 import { WINDOWS_APP_USER_MODEL_ID } from './windows-app-user-model-id';
+import { createWindowsStartupRegistry } from './windows-startup-registry';
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 let controlService: ControlService | null = null;
@@ -259,10 +261,31 @@ if (!gotSingleInstanceLock) {
       platform: process.platform,
       isPackaged: app.isPackaged,
       executablePath: process.execPath,
-      appUserModelId: WINDOWS_APP_USER_MODEL_ID,
-      getLoginItemSettings: (options) => app.getLoginItemSettings(options),
-      setLoginItemSettings: (settings) => app.setLoginItemSettings(settings)
+      startupRegistry: createWindowsStartupRegistry()
     });
+    void systemStartup
+      .getSettings()
+      .then((settings) => {
+        appendStartupDiagnostics(join(app.getPath('userData'), 'startup-diagnostics.jsonl'), {
+          startedAt: new Date().toISOString(),
+          version: app.getVersion(),
+          isPackaged: app.isPackaged,
+          platform: process.platform,
+          executablePath: process.execPath,
+          argv: process.argv,
+          startHidden,
+          startupRegistration: settings.registration
+            ? {
+                startWithSystem: settings.startWithSystem,
+                registeredCommand: settings.registration.registeredCommand,
+                startupApproved: settings.registration.startupApproved
+              }
+            : undefined
+        });
+      })
+      .catch((error) => {
+        console.warn(error instanceof Error ? error.message : 'Could not write startup diagnostics.');
+      });
     const pairingStore = new JsonPairingStore(join(app.getPath('userData'), 'pairing-state.json'));
     const cursorOverlaySettingsStore = new JsonCursorOverlaySettingsStore(
       join(app.getPath('userData'), 'cursor-overlay-settings.json')

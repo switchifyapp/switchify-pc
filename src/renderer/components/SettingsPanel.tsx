@@ -172,6 +172,9 @@ function GeneralSettingsSection({
         {!systemStartupSettings?.supported ? (
           <div className="empty-state">{systemStartupUnavailableMessage(systemStartupSettings?.reason)}</div>
         ) : null}
+        {systemStartupSettings?.supported ? (
+          <SystemStartupRegistrationMessage settings={systemStartupSettings} />
+        ) : null}
       </div>
     </section>
   );
@@ -494,6 +497,25 @@ function formatTransport(transport: ConnectedDeviceView['transport']): string {
 function systemStartupUnavailableMessage(reason: SystemStartupSettings['reason'] | undefined): string {
   if (reason === 'unpackaged') return 'Start with system is only available in packaged builds.';
   return 'Start with system is not available on this platform.';
+}
+
+function SystemStartupRegistrationMessage({ settings }: { settings: SystemStartupSettings }): ReactElement | null {
+  if (settings.registration?.startupApproved === 'disabled') {
+    return <div className="empty-state">Start with system is disabled in Windows Startup settings.</div>;
+  }
+
+  if (
+    settings.registration?.registeredCommand &&
+    settings.registration.registeredCommand !== settings.registration.expectedCommand
+  ) {
+    return (
+      <div className="empty-state">
+        Start with system is registered to an older app path. Turn it off and on again to repair it.
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function PairedDeviceList({
