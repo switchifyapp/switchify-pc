@@ -288,14 +288,13 @@ function PointerMovementPreview({ settings }: { settings: PointerMovementSetting
     <div className="pointer-movement-preview" aria-label="Pointer movement preview">
       {pointerMovementSizeOptions.map((option) => {
         const percentage = pointerMovementPercentageFor(normalizedSettings, option.value);
-        const distance = Math.min(percentage * 2.4, 88);
         return (
           <div key={option.value} className="pointer-movement-preview-row">
             <span className="pointer-movement-preview-label">{option.label}</span>
             <div className="pointer-movement-preview-track" aria-hidden="true">
               <MousePointer2
                 className="pointer-movement-preview-icon"
-                style={{ '--pointer-preview-distance': String(distance) } as CSSProperties}
+                style={{ '--pointer-preview-distance': String(percentage) } as CSSProperties}
               />
             </div>
             <span className="pointer-movement-preview-value">{percentage}%</span>
