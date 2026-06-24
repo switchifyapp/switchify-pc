@@ -219,7 +219,7 @@ function PointerSettingsSection({
       <h2>Pointer</h2>
       <h3>Movement distance</h3>
       <p className="settings-section-note">
-        Choose how slow or fast Android pointer steps feel on this display.
+        Choose how far each Android pointer step moves on this display.
       </p>
       <PointerMovementSettingsControls
         settings={pointerMovementSettings}
