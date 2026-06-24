@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { START_HIDDEN_ARG, shouldStartHidden, SystemStartupService } from './system-startup';
+import { START_HIDDEN_ARG, STARTUP_VALUE_NAME, shouldStartHidden, SystemStartupService } from './system-startup';
+import type { StartupRegistryEntry, WindowsStartupRegistry } from './windows-startup-registry';
+
+const expectedCommand = '"C:\\Program Files\\Switchify PC\\Switchify PC.exe" --start-hidden';
 
 describe('shouldStartHidden', () => {
   it('detects the Windows hidden startup argument', () => {
@@ -16,94 +19,159 @@ describe('shouldStartHidden', () => {
 });
 
 describe('SystemStartupService', () => {
-  it('returns unsupported settings on non-Windows platforms', () => {
+  it('returns unsupported settings on non-Windows platforms without reading the registry', async () => {
     const service = createService({ platform: 'darwin', isPackaged: true });
 
-    expect(service.getSettings()).toEqual({
+    await expect(service.getSettings()).resolves.toEqual({
       supported: false,
       startWithSystem: false,
       startsHidden: true,
       reason: 'unsupported_platform'
     });
 
-    service.setStartWithSystem(true);
-    expect(service.setLoginItemSettings).not.toHaveBeenCalled();
+    await service.setStartWithSystem(true);
+    expect(service.startupRegistry.getEntry).not.toHaveBeenCalled();
+    expect(service.startupRegistry.setEntry).not.toHaveBeenCalled();
   });
 
-  it('returns unsupported settings for unpackaged Windows builds', () => {
+  it('returns unsupported settings for unpackaged Windows builds without writing the registry', async () => {
     const service = createService({ platform: 'win32', isPackaged: false });
 
-    expect(service.getSettings()).toEqual({
+    await expect(service.getSettings()).resolves.toEqual({
       supported: false,
       startWithSystem: false,
       startsHidden: true,
       reason: 'unpackaged'
     });
 
-    service.setStartWithSystem(true);
-    expect(service.setLoginItemSettings).not.toHaveBeenCalled();
+    await service.setStartWithSystem(true);
+    expect(service.startupRegistry.setEntry).not.toHaveBeenCalled();
   });
 
-  it('reports enabled startup when the registered executable will launch at login', () => {
+  it('reports enabled startup when the expected command is registered and approved', async () => {
     const service = createService({
-      loginItemSettings: {
-        openAtLogin: true,
-        executableWillLaunchAtLogin: true
+      entry: {
+        command: expectedCommand,
+        startupApproved: 'enabled'
       }
     });
 
-    expect(service.getSettings()).toEqual({
+    await expect(service.getSettings()).resolves.toEqual({
       supported: true,
       startWithSystem: true,
       startsHidden: true,
-      reason: null
+      reason: null,
+      registration: {
+        expectedCommand,
+        registeredCommand: expectedCommand,
+        startupApproved: 'enabled'
+      }
     });
-    expect(service.getLoginItemSettings).toHaveBeenCalledWith({
-      path: 'C:\\Program Files\\Switchify PC\\Switchify PC.exe',
-      args: [START_HIDDEN_ARG]
-    });
+    expect(service.startupRegistry.getEntry).toHaveBeenCalledWith(STARTUP_VALUE_NAME);
   });
 
-  it('reports disabled startup when Windows will not launch the executable', () => {
+  it('reports enabled startup when StartupApproved is missing but the command matches', async () => {
     const service = createService({
-      loginItemSettings: {
-        openAtLogin: true,
-        executableWillLaunchAtLogin: false
+      entry: {
+        command: expectedCommand,
+        startupApproved: 'missing'
       }
     });
 
-    expect(service.getSettings()).toMatchObject({
+    await expect(service.getSettings()).resolves.toMatchObject({
       supported: true,
-      startWithSystem: false
+      startWithSystem: true,
+      registration: {
+        startupApproved: 'missing'
+      }
     });
   });
 
-  it('enables startup with the hidden startup argument', () => {
-    const service = createService();
+  it('reports disabled startup when StartupApproved disables the matching command', async () => {
+    const service = createService({
+      entry: {
+        command: expectedCommand,
+        startupApproved: 'disabled'
+      }
+    });
 
-    service.setStartWithSystem(true);
-
-    expect(service.setLoginItemSettings).toHaveBeenCalledWith({
-      openAtLogin: true,
-      path: 'C:\\Program Files\\Switchify PC\\Switchify PC.exe',
-      args: [START_HIDDEN_ARG],
-      name: 'app.switchify.pc',
-      enabled: true
+    await expect(service.getSettings()).resolves.toMatchObject({
+      supported: true,
+      startWithSystem: false,
+      registration: {
+        registeredCommand: expectedCommand,
+        startupApproved: 'disabled'
+      }
     });
   });
 
-  it('disables startup without leaving a disabled login item entry', () => {
+  it('reports disabled startup when the Run command is missing', async () => {
+    const service = createService({
+      entry: {
+        command: null,
+        startupApproved: 'missing'
+      }
+    });
+
+    await expect(service.getSettings()).resolves.toMatchObject({
+      supported: true,
+      startWithSystem: false,
+      registration: {
+        expectedCommand,
+        registeredCommand: null,
+        startupApproved: 'missing'
+      }
+    });
+  });
+
+  it('reports disabled startup when the Run command points to an older path', async () => {
+    const oldCommand = '"C:\\Old\\Switchify PC.exe" --start-hidden';
+    const service = createService({
+      entry: {
+        command: oldCommand,
+        startupApproved: 'enabled'
+      }
+    });
+
+    await expect(service.getSettings()).resolves.toMatchObject({
+      supported: true,
+      startWithSystem: false,
+      registration: {
+        expectedCommand,
+        registeredCommand: oldCommand,
+        startupApproved: 'enabled'
+      }
+    });
+  });
+
+  it('enables startup by writing the expected command', async () => {
     const service = createService();
 
-    service.setStartWithSystem(false);
+    await service.setStartWithSystem(true);
 
-    expect(service.setLoginItemSettings).toHaveBeenCalledWith({
-      openAtLogin: false,
-      path: 'C:\\Program Files\\Switchify PC\\Switchify PC.exe',
-      args: [START_HIDDEN_ARG],
-      name: 'app.switchify.pc'
+    expect(service.startupRegistry.setEntry).toHaveBeenCalledWith(STARTUP_VALUE_NAME, expectedCommand);
+  });
+
+  it('disables startup by deleting the registry entry', async () => {
+    const service = createService();
+
+    await service.setStartWithSystem(false);
+
+    expect(service.startupRegistry.deleteEntry).toHaveBeenCalledWith(STARTUP_VALUE_NAME);
+  });
+
+  it('returns disabled diagnostics when registry reads fail', async () => {
+    const service = createService({ getEntryError: new Error('registry unavailable') });
+
+    await expect(service.getSettings()).resolves.toMatchObject({
+      supported: true,
+      startWithSystem: false,
+      registration: {
+        expectedCommand,
+        registeredCommand: null,
+        startupApproved: 'unknown'
+      }
     });
-    expect(service.setLoginItemSettings.mock.calls[0][0]).not.toHaveProperty('enabled');
   });
 });
 
@@ -111,28 +179,34 @@ function createService(
   options: Partial<{
     platform: NodeJS.Platform;
     isPackaged: boolean;
-    loginItemSettings: {
-      openAtLogin: boolean;
-      executableWillLaunchAtLogin?: boolean;
-    };
+    entry: StartupRegistryEntry;
+    getEntryError: Error;
   }> = {}
 ): SystemStartupService & {
-  getLoginItemSettings: ReturnType<typeof vi.fn>;
-  setLoginItemSettings: ReturnType<typeof vi.fn>;
+  startupRegistry: {
+    getEntry: ReturnType<typeof vi.fn>;
+    setEntry: ReturnType<typeof vi.fn>;
+    deleteEntry: ReturnType<typeof vi.fn>;
+  };
 } {
-  const getLoginItemSettings = vi.fn(() => options.loginItemSettings ?? { openAtLogin: false });
-  const setLoginItemSettings = vi.fn();
+  const startupRegistry: WindowsStartupRegistry & {
+    getEntry: ReturnType<typeof vi.fn>;
+    setEntry: ReturnType<typeof vi.fn>;
+    deleteEntry: ReturnType<typeof vi.fn>;
+  } = {
+    getEntry: vi.fn(async () => {
+      if (options.getEntryError) throw options.getEntryError;
+      return options.entry ?? { command: null, startupApproved: 'missing' };
+    }),
+    setEntry: vi.fn(async () => undefined),
+    deleteEntry: vi.fn(async () => undefined)
+  };
   const service = new SystemStartupService({
     platform: options.platform ?? 'win32',
     isPackaged: options.isPackaged ?? true,
     executablePath: 'C:\\Program Files\\Switchify PC\\Switchify PC.exe',
-    appUserModelId: 'app.switchify.pc',
-    getLoginItemSettings,
-    setLoginItemSettings
+    startupRegistry
   });
 
-  return Object.assign(service, {
-    getLoginItemSettings,
-    setLoginItemSettings
-  });
+  return Object.assign(service, { startupRegistry });
 }
