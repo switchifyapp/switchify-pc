@@ -29,7 +29,7 @@ export type UpdateServiceOptions = {
 type UpdateOperation = 'idle' | 'checking' | 'downloading';
 
 const INSTALL_UPDATE_SILENTLY = false;
-const FORCE_RUN_AFTER_INSTALL = false;
+const FORCE_RUN_AFTER_INSTALL = true;
 
 export class UpdateService {
   private readonly isPackaged: boolean;
