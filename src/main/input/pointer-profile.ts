@@ -1,12 +1,21 @@
 import { MAX_POINTER_DELTA, NO_ACK_CONTROL_COMMAND_TYPES, type PointerMovementProfile } from '../../shared/protocol';
 import {
-  normalizePointerMovementSettings,
   pointerMovementFractionFor,
-  type PointerMovementSettings
+  DEFAULT_POINTER_MOVEMENT_SETTINGS,
+  type PointerMovementSizeKey
 } from '../../shared/pointer-movement-settings';
 
 type Point = { x: number; y: number };
 type Bounds = { x: number; y: number; width: number; height: number };
+
+const REFERENCE_POINTER_SHORT_EDGE = 1080;
+const pointerMovementSizeKeys: PointerMovementSizeKey[] = ['small', 'medium', 'large'];
+const TARGET_REFERENCE_NATIVE_DELTAS = Object.fromEntries(
+  pointerMovementSizeKeys.map((size) => [
+    size,
+    REFERENCE_POINTER_SHORT_EDGE * pointerMovementFractionFor(DEFAULT_POINTER_MOVEMENT_SETTINGS, size)
+  ])
+) as Record<PointerMovementSizeKey, number>;
 
 export function createPointerMovementProfile(input: {
   cursor: Point;
@@ -14,20 +23,12 @@ export function createPointerMovementProfile(input: {
     bounds: Bounds;
     scaleFactor: number;
   };
-  movementSettings?: PointerMovementSettings;
   maxDelta?: number;
 }): PointerMovementProfile {
   const bounds = normalizeBounds(input.display.bounds);
   const scaleFactor =
     Number.isFinite(input.display.scaleFactor) && input.display.scaleFactor > 0 ? input.display.scaleFactor : 1;
   const maxDelta = input.maxDelta ?? MAX_POINTER_DELTA;
-  const movementSettings = normalizePointerMovementSettings(input.movementSettings);
-  const referenceSize = Math.min(bounds.width, bounds.height);
-  const targetNativeDeltas = {
-    small: referenceSize * pointerMovementFractionFor(movementSettings, 'small'),
-    medium: referenceSize * pointerMovementFractionFor(movementSettings, 'medium'),
-    large: referenceSize * pointerMovementFractionFor(movementSettings, 'large')
-  };
 
   return {
     displayId: `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}:${scaleFactor}`,
@@ -35,9 +36,9 @@ export function createPointerMovementProfile(input: {
     bounds,
     maxDelta,
     recommendedDeltas: {
-      small: toLogicalDelta(targetNativeDeltas.small, scaleFactor, maxDelta),
-      medium: toLogicalDelta(targetNativeDeltas.medium, scaleFactor, maxDelta),
-      large: toLogicalDelta(targetNativeDeltas.large, scaleFactor, maxDelta)
+      small: toLogicalDelta(TARGET_REFERENCE_NATIVE_DELTAS.small, scaleFactor, maxDelta),
+      medium: toLogicalDelta(TARGET_REFERENCE_NATIVE_DELTAS.medium, scaleFactor, maxDelta),
+      large: toLogicalDelta(TARGET_REFERENCE_NATIVE_DELTAS.large, scaleFactor, maxDelta)
     },
     capabilities: {
       noAckMouseMove: true,

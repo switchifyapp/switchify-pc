@@ -11,6 +11,7 @@ import {
   createWindowControlScript,
   toWindowsWindowControlStrategy
 } from './windows-window-control';
+import { createPointerMovementProfile } from './pointer-profile';
 
 describe('calculateScaledMouseTarget', () => {
   it('applies the display scale factor to relative movement', () => {
@@ -206,6 +207,70 @@ describe('calculateDisplayNormalizedMouseTarget', () => {
       )
     ).toEqual({
       x: 196,
+      y: 200
+    });
+  });
+
+  it('normalizes a 4K profile delta once at execution time', () => {
+    const profile = createPointerMovementProfile({
+      cursor: { x: 100, y: 200 },
+      display: {
+        bounds: { x: 0, y: 0, width: 3840, height: 2160 },
+        scaleFactor: 1
+      }
+    });
+
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: profile.recommendedDeltas.medium, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 3840, height: 2160 }, scaleFactor: 1 }
+      )
+    ).toEqual({
+      x: 360,
+      y: 200
+    });
+  });
+
+  it('normalizes a high-DPI profile delta once at execution time', () => {
+    const profile = createPointerMovementProfile({
+      cursor: { x: 100, y: 200 },
+      display: {
+        bounds: { x: 0, y: 0, width: 3840, height: 2160 },
+        scaleFactor: 2
+      }
+    });
+
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: profile.recommendedDeltas.medium, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 3840, height: 2160 }, scaleFactor: 2 }
+      )
+    ).toEqual({
+      x: 360,
+      y: 200
+    });
+  });
+
+  it('applies configured movement scale during profile delta execution', () => {
+    const profile = createPointerMovementProfile({
+      cursor: { x: 100, y: 200 },
+      display: {
+        bounds: { x: 0, y: 0, width: 3840, height: 2160 },
+        scaleFactor: 1
+      }
+    });
+
+    expect(
+      calculateDisplayNormalizedMouseTarget(
+        { x: 100, y: 200 },
+        { dx: profile.recommendedDeltas.medium, dy: 0 },
+        { bounds: { x: 0, y: 0, width: 3840, height: 2160 }, scaleFactor: 1 },
+        { scalePercent: 150 }
+      )
+    ).toEqual({
+      x: 490,
       y: 200
     });
   });

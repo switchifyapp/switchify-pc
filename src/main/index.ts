@@ -300,8 +300,7 @@ if (!gotSingleInstanceLock) {
           display: {
             bounds: display.bounds,
             scaleFactor: display.scaleFactor
-          },
-          movementSettings: pointerMovementSettings
+          }
         });
       },
       onStatusChange: (status) => {
