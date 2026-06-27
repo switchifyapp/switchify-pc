@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { UpdateDownloadProgress, UpdateInfo, UpdateState } from '../shared/update';
-import { canDownloadUpdate, updateCheckMessage, updateDownloadMessage, updateIndicatorState } from './updates';
+import {
+  canDownloadUpdate,
+  updateCheckMessage,
+  updateDownloadMessage,
+  updateIndicatorState,
+  updateInstallMessage
+} from './updates';
 
 describe('updateCheckMessage', () => {
   it('formats not checked text as a terminal sentence', () => {
@@ -104,6 +110,40 @@ describe('canDownloadUpdate', () => {
         })
       )
     ).toBe(false);
+  });
+});
+
+describe('updateInstallMessage', () => {
+  it('does not show a message for cancel or no error', () => {
+    expect(updateInstallMessage(null)).toBeNull();
+    expect(updateInstallMessage('cancelled')).toBeNull();
+  });
+
+  it('explains when the update is not downloaded', () => {
+    expect(updateInstallMessage('not_downloaded')).toBe('The update is not downloaded yet.');
+  });
+
+  it('explains unsupported install environments', () => {
+    expect(updateInstallMessage('not_packaged')).toBe('Updates are only available in the installed app.');
+    expect(updateInstallMessage('not_supported')).toBe('Updates are only supported on Windows.');
+  });
+
+  it('explains missing installer files', () => {
+    expect(updateInstallMessage('installer_unavailable')).toBe(
+      'The downloaded installer could not be found. Download the update again.'
+    );
+  });
+
+  it('explains missing elevation support', () => {
+    expect(updateInstallMessage('elevation_helper_unavailable')).toBe(
+      'The update installer could not request permission to install. Reinstall Switchify PC from the latest installer.'
+    );
+  });
+
+  it('explains installer launch failures', () => {
+    expect(updateInstallMessage('installer_launch_failed')).toBe(
+      'The update installer could not be started. Download the update again or run the installer manually.'
+    );
   });
 });
 

@@ -4,6 +4,7 @@ import type { UpdateState } from '../shared/update';
 import { SettingsView } from './components/SettingsPanel';
 import { WindowChrome } from './components/WindowTitleBar';
 import { settingsSectionFromHash } from './settings-route';
+import { updateInstallMessage } from './updates';
 import { useSwitchifyPcStatus } from './useSwitchifyPcStatus';
 
 export function SettingsApp(): ReactElement {
@@ -13,6 +14,8 @@ export function SettingsApp(): ReactElement {
   const [systemStartupSettings, setSystemStartupSettings] = useState<SystemStartupSettings | null>(null);
   const [isCheckingForUpdates, setIsCheckingForUpdates] = useState(false);
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
+  const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
+  const [updateInstallError, setUpdateInstallError] = useState<string | null>(null);
   const [isUpdatingSystemStartup, setIsUpdatingSystemStartup] = useState(false);
 
   useEffect(() => {
@@ -67,7 +70,16 @@ export function SettingsApp(): ReactElement {
   }, [bridge]);
 
   const installDownloadedUpdate = useCallback(async (): Promise<void> => {
-    await bridge.installDownloadedUpdate();
+    setIsInstallingUpdate(true);
+    setUpdateInstallError(null);
+    try {
+      const result = await bridge.installDownloadedUpdate();
+      if (!result.ok) {
+        setUpdateInstallError(updateInstallMessage(result.reason));
+      }
+    } finally {
+      setIsInstallingUpdate(false);
+    }
   }, [bridge]);
 
   const setStartWithSystem = useCallback(
@@ -110,6 +122,8 @@ export function SettingsApp(): ReactElement {
         updateState={updateState}
         isCheckingForUpdates={isCheckingForUpdates}
         isDownloadingUpdate={isDownloadingUpdate}
+        isInstallingUpdate={isInstallingUpdate}
+        updateInstallError={updateInstallError}
         initialSection={settingsSectionFromHash(window.location.hash)}
         onSettingsSectionRequest={bridge.onShowSettingsSection}
         onCheckForUpdates={checkForUpdates}

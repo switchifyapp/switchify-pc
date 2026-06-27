@@ -365,7 +365,9 @@ if (!gotSingleInstanceLock) {
         currentVersion: app.getVersion(),
         isPackaged: app.isPackaged,
         platform: process.platform,
-        autoUpdater
+        resourcesPath: process.resourcesPath,
+        autoUpdater,
+        quitApp
       })
     );
     void bluetoothTransport.start();

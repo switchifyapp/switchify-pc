@@ -41,6 +41,8 @@ type SettingsViewProps = {
   updateState: UpdateState | null;
   isCheckingForUpdates: boolean;
   isDownloadingUpdate: boolean;
+  isInstallingUpdate: boolean;
+  updateInstallError: string | null;
   initialSection: SettingsSectionId;
   onSettingsSectionRequest?: (handler: (section: SettingsSectionId) => void) => () => void;
   onCheckForUpdates: () => Promise<void>;
@@ -75,6 +77,8 @@ export function SettingsView({
   updateState,
   isCheckingForUpdates,
   isDownloadingUpdate,
+  isInstallingUpdate,
+  updateInstallError,
   initialSection,
   onSettingsSectionRequest,
   onCheckForUpdates,
@@ -131,6 +135,8 @@ export function SettingsView({
             state={updateState}
             isChecking={isCheckingForUpdates}
             isDownloading={isDownloadingUpdate}
+            isInstalling={isInstallingUpdate}
+            installError={updateInstallError}
             onCheck={onCheckForUpdates}
             onDownload={onDownloadUpdate}
             onInstallDownloaded={onInstallDownloadedUpdate}

@@ -1,7 +1,8 @@
 import { autoUpdater as defaultAutoUpdater } from 'electron-updater';
 import type { UpdateInfo as ElectronUpdateInfo, UpdateCheckResult } from 'electron-updater';
-import type { UpdateDownloadProgress, UpdateInfo, UpdateState } from '../../shared/update';
+import type { UpdateDownloadProgress, UpdateInfo, UpdateInstallResult, UpdateState } from '../../shared/update';
 import { createInitialUpdateState } from '../../shared/update';
+import { launchWindowsUpdateInstaller } from './update-installer-launcher';
 
 type ElectronDownloadProgress = {
   transferred?: number;
@@ -14,7 +15,6 @@ export type ElectronUpdaterAdapter = {
   autoInstallOnAppQuit: boolean;
   checkForUpdates(): Promise<UpdateCheckResult | null>;
   downloadUpdate(): Promise<Array<string>>;
-  quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void;
   on(event: string, listener: (...args: unknown[]) => void): void;
 };
 
@@ -22,29 +22,36 @@ export type UpdateServiceOptions = {
   currentVersion: string;
   isPackaged: boolean;
   platform: NodeJS.Platform;
+  resourcesPath: string;
   autoUpdater?: ElectronUpdaterAdapter;
+  launchInstaller?: typeof launchWindowsUpdateInstaller;
+  quitApp?: () => void;
   now?: () => Date;
 };
 
 type UpdateOperation = 'idle' | 'checking' | 'downloading';
 
-const INSTALL_UPDATE_SILENTLY = false;
-const FORCE_RUN_AFTER_INSTALL = true;
-
 export class UpdateService {
   private readonly isPackaged: boolean;
   private readonly platform: NodeJS.Platform;
+  private readonly resourcesPath: string;
   private readonly autoUpdater: ElectronUpdaterAdapter;
+  private readonly launchInstaller: typeof launchWindowsUpdateInstaller;
+  private readonly quitApp: () => void;
   private readonly now: () => Date;
   private state: UpdateState;
   private operation: UpdateOperation = 'idle';
   private checkingPromise: Promise<UpdateState> | null = null;
   private downloadPromise: Promise<UpdateState> | null = null;
+  private downloadedInstallerPath: string | null = null;
 
   constructor(options: UpdateServiceOptions) {
     this.isPackaged = options.isPackaged;
     this.platform = options.platform;
+    this.resourcesPath = options.resourcesPath;
     this.autoUpdater = options.autoUpdater ?? defaultAutoUpdater;
+    this.launchInstaller = options.launchInstaller ?? launchWindowsUpdateInstaller;
+    this.quitApp = options.quitApp ?? (() => undefined);
     this.now = options.now ?? (() => new Date());
     this.state = createInitialUpdateState(options.currentVersion);
 
@@ -76,6 +83,7 @@ export class UpdateService {
     if (this.checkingPromise) return Promise.resolve(this.getState());
 
     this.operation = 'checking';
+    this.downloadedInstallerPath = null;
     this.state = {
       info: {
         ...this.state.info,
@@ -154,9 +162,13 @@ export class UpdateService {
 
     this.downloadPromise = this.autoUpdater
       .downloadUpdate()
-      .then(() => this.getState())
+      .then((downloadedPaths) => {
+        this.downloadedInstallerPath = firstInstallerPath(downloadedPaths);
+        return this.getState();
+      })
       .catch((error) => {
         console.error('Switchify update download failed.', error);
+        this.downloadedInstallerPath = null;
         this.state = {
           ...this.state,
           download: {
@@ -175,7 +187,7 @@ export class UpdateService {
     return this.downloadPromise;
   }
 
-  installDownloadedUpdate(): { ok: boolean; reason?: string } {
+  async installDownloadedUpdate(): Promise<UpdateInstallResult> {
     const unsupportedReason = this.unsupportedReason();
     if (unsupportedReason) {
       return { ok: false, reason: unsupportedReason };
@@ -185,13 +197,24 @@ export class UpdateService {
       return { ok: false, reason: 'not_downloaded' };
     }
 
-    this.autoUpdater.quitAndInstall(INSTALL_UPDATE_SILENTLY, FORCE_RUN_AFTER_INSTALL);
+    const result = await this.launchInstaller({
+      installerPath: this.downloadedInstallerPath,
+      resourcesPath: this.resourcesPath
+    });
+
+    if (!result.ok) {
+      console.error('Switchify update installer could not be started.', result.reason);
+      return { ok: false, reason: result.reason };
+    }
+
+    this.quitApp();
     return { ok: true };
   }
 
   private registerUpdaterEvents(): void {
     this.autoUpdater.on('update-available', (rawInfo) => {
       const info = rawInfo as ElectronUpdateInfo;
+      this.downloadedInstallerPath = null;
       this.state = {
         info: updateInfo(this.state.info, info, {
           checkedAt: this.now().toISOString(),
@@ -255,6 +278,7 @@ export class UpdateService {
     this.autoUpdater.on('error', (error) => {
       console.error('Switchify updater error.', error);
       if (this.operation === 'downloading') {
+        this.downloadedInstallerPath = null;
         this.state = {
           ...this.state,
           download: {
@@ -283,6 +307,10 @@ export class UpdateService {
     if (this.platform !== 'win32') return 'not_supported';
     return null;
   }
+}
+
+function firstInstallerPath(paths: string[]): string | null {
+  return paths.find((path) => path.toLowerCase().endsWith('.exe')) ?? paths[0] ?? null;
 }
 
 function updateInfo(

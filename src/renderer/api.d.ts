@@ -6,7 +6,7 @@ import type { CursorOverlaySettings } from '../shared/cursor-overlay-settings';
 import type { PointerMovementSettings } from '../shared/pointer-movement-settings';
 import type { SettingsSectionId } from '../shared/settings';
 import type { SystemStartupSettings } from '../shared/system-startup';
-import type { UpdateState } from '../shared/update';
+import type { UpdateInstallResult, UpdateState } from '../shared/update';
 
 declare global {
   interface Window {
@@ -41,7 +41,7 @@ declare global {
       downloadUpdate: () => Promise<UpdateState>;
       getSystemStartupSettings: () => Promise<SystemStartupSettings>;
       setStartWithSystem: (enabled: boolean) => Promise<SystemStartupSettings>;
-      installDownloadedUpdate: () => Promise<{ ok: boolean; reason?: string }>;
+      installDownloadedUpdate: () => Promise<UpdateInstallResult>;
     };
   }
 }
