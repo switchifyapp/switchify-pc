@@ -1,10 +1,10 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readFileSync } from 'node:fs';
 import {
   DEFAULT_POINTER_MOVEMENT_SETTINGS,
   normalizePointerMovementSettings,
   type PointerMovementSettings
 } from '../shared/pointer-movement-settings';
+import { writeJsonFileAtomicSync } from './json-file-store';
 
 export class JsonPointerMovementSettingsStore {
   constructor(private readonly filePath: string) {}
@@ -25,8 +25,7 @@ export class JsonPointerMovementSettingsStore {
 
   save(settings: PointerMovementSettings): PointerMovementSettings {
     const normalized = normalizePointerMovementSettings(settings);
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8');
+    writeJsonFileAtomicSync(this.filePath, `${JSON.stringify(normalized, null, 2)}\n`);
     return normalized;
   }
 }

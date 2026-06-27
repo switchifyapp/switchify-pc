@@ -1,7 +1,7 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import type { PairedDeviceView } from '../../shared/server-status';
+import { backupCorruptJsonFile, writeJsonFileAtomic } from '../json-file-store';
 
 export type PairedDevice = {
   deviceId: string;
@@ -34,13 +34,25 @@ export class JsonPairingStore implements PairingStore {
         await this.save(state);
         return state;
       }
+
+      if (isCorruptPairingStateError(error)) {
+        const backup = await backupCorruptJsonFile(this.filePath);
+        console.warn(
+          backup.backupPath
+            ? 'Switchify pairing state could not be loaded. The corrupt file was backed up and a fresh pairing state will be used.'
+            : 'Switchify pairing state could not be loaded. A fresh pairing state will be used.'
+        );
+        const state = createEmptyPairingState();
+        await this.save(state);
+        return state;
+      }
+
       throw error;
     }
   }
 
   async save(state: PairingState): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    await writeJsonFileAtomic(this.filePath, `${JSON.stringify(state, null, 2)}\n`);
   }
 }
 
@@ -138,6 +150,13 @@ function cloneState(state: PairingState): PairingState {
 
 function isMissingFileError(error: unknown): boolean {
   return isRecord(error) && error.code === 'ENOENT';
+}
+
+function isCorruptPairingStateError(error: unknown): boolean {
+  return (
+    error instanceof SyntaxError ||
+    (error instanceof Error && (error.message === 'Invalid pairing state.' || error.message === 'Invalid paired device.'))
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
