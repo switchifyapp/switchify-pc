@@ -6,6 +6,8 @@ type UpdatesPanelProps = {
   state: UpdateState | null;
   isChecking: boolean;
   isDownloading: boolean;
+  isInstalling: boolean;
+  installError: string | null;
   onCheck: () => Promise<void>;
   onDownload: () => Promise<void>;
   onInstallDownloaded: () => Promise<void>;
@@ -15,6 +17,8 @@ export function UpdatesPanel({
   state,
   isChecking,
   isDownloading,
+  isInstalling,
+  installError,
   onCheck,
   onDownload,
   onInstallDownloaded
@@ -44,6 +48,7 @@ export function UpdatesPanel({
       ) : null}
 
       {downloadMessage ? <div className={state?.download.status === 'download_failed' ? 'inline-error' : 'empty-state'}>{downloadMessage}</div> : null}
+      {installError ? <div className="inline-error">{installError}</div> : null}
 
       <div className="technical-list-actions">
         <button type="button" onClick={() => void onCheck()} disabled={isChecking || isDownloading}>
@@ -55,8 +60,13 @@ export function UpdatesPanel({
           </button>
         ) : null}
         {showInstallButton ? (
-          <button type="button" className="primary-button" onClick={() => void onInstallDownloaded()}>
-            Install update
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => void onInstallDownloaded()}
+            disabled={isChecking || isDownloading || isInstalling}
+          >
+            {isInstalling ? 'Starting installer...' : 'Install update'}
           </button>
         ) : null}
       </div>

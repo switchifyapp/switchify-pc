@@ -45,13 +45,13 @@ export function registerUpdateIpc(
   ipcMain.handle(DOWNLOAD_UPDATE_CHANNEL, () => updateService.downloadUpdate());
   ipcMain.handle(INSTALL_DOWNLOADED_UPDATE_CHANNEL, async (event) => {
     if (updateService.getState().download.status !== 'downloaded') {
-      return updateService.installDownloadedUpdate();
+      return await updateService.installDownloadedUpdate();
     }
 
     if (!(await confirmInstallDownloadedUpdate(event))) {
       return { ok: false, reason: 'cancelled' };
     }
 
-    return updateService.installDownloadedUpdate();
+    return await updateService.installDownloadedUpdate();
   });
 }

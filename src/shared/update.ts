@@ -34,6 +34,17 @@ export type UpdateState = {
   download: UpdateDownloadProgress;
 };
 
+export type UpdateInstallFailureReason =
+  | 'not_downloaded'
+  | 'not_packaged'
+  | 'not_supported'
+  | 'cancelled'
+  | 'installer_unavailable'
+  | 'elevation_helper_unavailable'
+  | 'installer_launch_failed';
+
+export type UpdateInstallResult = { ok: true } | { ok: false; reason: UpdateInstallFailureReason };
+
 export function createInitialUpdateState(currentVersion: string): UpdateState {
   return {
     info: {

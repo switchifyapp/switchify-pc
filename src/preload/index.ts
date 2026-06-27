@@ -30,7 +30,7 @@ import {
 } from '../shared/ipc-channels';
 import type { SettingsSectionId } from '../shared/settings';
 import type { SystemStartupSettings } from '../shared/system-startup';
-import type { UpdateState } from '../shared/update';
+import type { UpdateInstallResult, UpdateState } from '../shared/update';
 
 contextBridge.exposeInMainWorld('switchifyPc', {
   appName: 'Switchify PC',
@@ -74,6 +74,6 @@ contextBridge.exposeInMainWorld('switchifyPc', {
     ipcRenderer.invoke(GET_SYSTEM_STARTUP_SETTINGS_CHANNEL),
   setStartWithSystem: (enabled: boolean): Promise<SystemStartupSettings> =>
     ipcRenderer.invoke(SET_START_WITH_SYSTEM_CHANNEL, enabled),
-  installDownloadedUpdate: (): Promise<{ ok: boolean; reason?: string }> =>
+  installDownloadedUpdate: (): Promise<UpdateInstallResult> =>
     ipcRenderer.invoke(INSTALL_DOWNLOADED_UPDATE_CHANNEL)
 });

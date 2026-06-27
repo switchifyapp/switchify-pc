@@ -7,6 +7,7 @@ import {
   type UpdateInstallConfirmation
 } from './update-ipc';
 import type { UpdateService } from './update-service';
+import type { UpdateInstallResult } from '../../shared/update';
 
 type IpcHandler = (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
@@ -38,6 +39,20 @@ describe('registerUpdateIpc', () => {
     registerUpdateIpc(updateService, { confirmInstallDownloadedUpdate });
 
     await expect(invokeInstall()).resolves.toEqual({ ok: true });
+    expect(confirmInstallDownloadedUpdate).toHaveBeenCalledTimes(1);
+    expect(updateService.installDownloadedUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns installer launch failures after confirmation', async () => {
+    const updateService = createUpdateService({
+      downloaded: true,
+      installResult: { ok: false, reason: 'installer_launch_failed' }
+    });
+    const confirmInstallDownloadedUpdate = vi.fn<UpdateInstallConfirmation>(async () => true);
+
+    registerUpdateIpc(updateService, { confirmInstallDownloadedUpdate });
+
+    await expect(invokeInstall()).resolves.toEqual({ ok: false, reason: 'installer_launch_failed' });
     expect(confirmInstallDownloadedUpdate).toHaveBeenCalledTimes(1);
     expect(updateService.installDownloadedUpdate).toHaveBeenCalledTimes(1);
   });
@@ -91,7 +106,7 @@ function createUpdateService({
   installResult
 }: {
   downloaded: boolean;
-  installResult: { ok: boolean; reason?: string };
+  installResult: UpdateInstallResult;
 }): UpdateService {
   return {
     getState: vi.fn(() => ({
@@ -112,7 +127,7 @@ function createUpdateService({
     })),
     checkForUpdates: vi.fn(),
     downloadUpdate: vi.fn(),
-    installDownloadedUpdate: vi.fn(() => installResult)
+    installDownloadedUpdate: vi.fn(async () => installResult)
   } as unknown as UpdateService;
 }
 

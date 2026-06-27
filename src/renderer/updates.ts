@@ -1,4 +1,4 @@
-import type { UpdateDownloadProgress, UpdateInfo, UpdateState } from '../shared/update';
+import type { UpdateDownloadProgress, UpdateInfo, UpdateInstallFailureReason, UpdateState } from '../shared/update';
 
 export type UpdateIndicatorState = 'hidden' | 'available' | 'downloaded';
 
@@ -37,6 +37,26 @@ export function updateDownloadMessage(download: UpdateDownloadProgress | null): 
   if (download.reason === 'not_supported') return 'Updates are not available on this platform.';
 
   return 'Could not download the update.';
+}
+
+export function updateInstallMessage(reason: UpdateInstallFailureReason | null): string | null {
+  switch (reason) {
+    case null:
+    case 'cancelled':
+      return null;
+    case 'not_downloaded':
+      return 'The update is not downloaded yet.';
+    case 'not_packaged':
+      return 'Updates are only available in the installed app.';
+    case 'not_supported':
+      return 'Updates are only supported on Windows.';
+    case 'installer_unavailable':
+      return 'The downloaded installer could not be found. Download the update again.';
+    case 'elevation_helper_unavailable':
+      return 'The update installer could not request permission to install. Reinstall Switchify PC from the latest installer.';
+    case 'installer_launch_failed':
+      return 'The update installer could not be started. Download the update again or run the installer manually.';
+  }
 }
 
 export function canDownloadUpdate(state: UpdateState | null): boolean {
