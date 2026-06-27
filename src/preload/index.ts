@@ -27,6 +27,7 @@ import {
   SET_POINTER_MOVEMENT_SETTINGS_CHANNEL,
   SET_START_WITH_SYSTEM_CHANNEL,
   SHOW_SETTINGS_SECTION_CHANNEL,
+  UPDATE_STATE_CHANGED_CHANNEL,
 } from '../shared/ipc-channels';
 import type { SettingsSectionId } from '../shared/settings';
 import type { SystemStartupSettings } from '../shared/system-startup';
@@ -70,6 +71,11 @@ contextBridge.exposeInMainWorld('switchifyPc', {
   getUpdateState: (): Promise<UpdateState> => ipcRenderer.invoke(GET_UPDATE_STATE_CHANNEL),
   checkForUpdates: (): Promise<UpdateState> => ipcRenderer.invoke(CHECK_FOR_UPDATES_CHANNEL),
   downloadUpdate: (): Promise<UpdateState> => ipcRenderer.invoke(DOWNLOAD_UPDATE_CHANNEL),
+  onUpdateStateChanged: (handler: (state: UpdateState) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, state: UpdateState): void => handler(state);
+    ipcRenderer.on(UPDATE_STATE_CHANGED_CHANNEL, listener);
+    return () => ipcRenderer.removeListener(UPDATE_STATE_CHANGED_CHANNEL, listener);
+  },
   getSystemStartupSettings: (): Promise<SystemStartupSettings> =>
     ipcRenderer.invoke(GET_SYSTEM_STARTUP_SETTINGS_CHANNEL),
   setStartWithSystem: (enabled: boolean): Promise<SystemStartupSettings> =>

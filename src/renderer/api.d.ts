@@ -39,6 +39,7 @@ declare global {
       getUpdateState: () => Promise<UpdateState>;
       checkForUpdates: () => Promise<UpdateState>;
       downloadUpdate: () => Promise<UpdateState>;
+      onUpdateStateChanged: (handler: (state: UpdateState) => void) => () => void;
       getSystemStartupSettings: () => Promise<SystemStartupSettings>;
       setStartWithSystem: (enabled: boolean) => Promise<SystemStartupSettings>;
       installDownloadedUpdate: () => Promise<UpdateInstallResult>;
