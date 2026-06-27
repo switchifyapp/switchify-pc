@@ -134,15 +134,31 @@ describe('updateInstallMessage', () => {
     );
   });
 
-  it('explains missing elevation support', () => {
-    expect(updateInstallMessage('elevation_helper_unavailable')).toBe(
-      'The update installer could not request permission to install. Reinstall Switchify PC from the latest installer.'
+  it('explains missing launcher support', () => {
+    expect(updateInstallMessage('update_launcher_unavailable')).toBe(
+      'The update launcher is missing. Reinstall Switchify PC from the latest installer.'
     );
+  });
+
+  it('explains UAC cancellation', () => {
+    expect(updateInstallMessage('uac_cancelled')).toBe('The update was cancelled before the installer could start.');
   });
 
   it('explains installer launch failures', () => {
     expect(updateInstallMessage('installer_launch_failed')).toBe(
       'The update installer could not be started. Download the update again or run the installer manually.'
+    );
+  });
+
+  it('explains missing installer process confirmation', () => {
+    expect(updateInstallMessage('installer_process_unavailable')).toBe(
+      'Windows did not confirm that the installer started. Switchify PC has been kept open.'
+    );
+  });
+
+  it('explains invalid launcher responses', () => {
+    expect(updateInstallMessage('update_launcher_invalid_response')).toBe(
+      'The update launcher returned an unexpected response. Switchify PC has been kept open.'
     );
   });
 });

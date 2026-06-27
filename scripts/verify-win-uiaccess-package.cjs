@@ -16,29 +16,23 @@ const executablePath = resolveProjectPath('dist', 'win-unpacked', 'Switchify PC.
 if (!fs.existsSync(executablePath)) {
   throw new Error(`Packaged executable not found: ${executablePath}`);
 }
-const helperPath = resolveProjectPath('dist', 'win-unpacked', 'resources', 'native', 'SwitchifyCursorOverlay.exe');
-if (!fs.existsSync(helperPath)) {
-  throw new Error(`Native cursor overlay helper not found: ${helperPath}`);
-}
-const bluetoothHelperPath = resolveProjectPath(
-  'dist',
-  'win-unpacked',
-  'resources',
-  'native',
-  'SwitchifyBluetoothTransport.exe'
-);
-if (!fs.existsSync(bluetoothHelperPath)) {
-  throw new Error(`Native Bluetooth transport helper not found: ${bluetoothHelperPath}`);
-}
-const textInputHelperPath = resolveProjectPath(
-  'dist',
-  'win-unpacked',
-  'resources',
-  'native',
-  'SwitchifyTextInput.exe'
-);
-if (!fs.existsSync(textInputHelperPath)) {
-  throw new Error(`Native text input helper not found: ${textInputHelperPath}`);
+const nativeHelpers = [
+  ['cursor overlay helper', resolveProjectPath('dist', 'win-unpacked', 'resources', 'native', 'SwitchifyCursorOverlay.exe')],
+  [
+    'Bluetooth transport helper',
+    resolveProjectPath('dist', 'win-unpacked', 'resources', 'native', 'SwitchifyBluetoothTransport.exe')
+  ],
+  ['text input helper', resolveProjectPath('dist', 'win-unpacked', 'resources', 'native', 'SwitchifyTextInput.exe')],
+  [
+    'update launcher helper',
+    resolveProjectPath('dist', 'win-unpacked', 'resources', 'native', 'SwitchifyUpdateLauncher.exe')
+  ]
+];
+
+for (const [name, helperPath] of nativeHelpers) {
+  if (!fs.existsSync(helperPath)) {
+    throw new Error(`Native ${name} not found: ${helperPath}`);
+  }
 }
 
 const mtExe = findWindowsSdkTool('mt.exe');
@@ -53,27 +47,16 @@ try {
 
   const signatureResult = runTool(signtoolExe, ['verify', '/pa', '/v', executablePath], { stdio: 'pipe' });
   const signatureOutput = `${signatureResult.stdout || ''}${signatureResult.stderr || ''}`;
-  const helperSignatureResult = runTool(signtoolExe, ['verify', '/pa', '/v', helperPath], { stdio: 'pipe' });
-  const helperSignatureOutput = `${helperSignatureResult.stdout || ''}${helperSignatureResult.stderr || ''}`;
-  const bluetoothHelperSignatureResult = runTool(signtoolExe, ['verify', '/pa', '/v', bluetoothHelperPath], {
-    stdio: 'pipe'
-  });
-  const bluetoothHelperSignatureOutput = `${bluetoothHelperSignatureResult.stdout || ''}${bluetoothHelperSignatureResult.stderr || ''}`;
-  const textInputHelperSignatureResult = runTool(signtoolExe, ['verify', '/pa', '/v', textInputHelperPath], {
-    stdio: 'pipe'
-  });
-  const textInputHelperSignatureOutput = `${textInputHelperSignatureResult.stdout || ''}${textInputHelperSignatureResult.stderr || ''}`;
-
   console.log(`manifest embedded: yes`);
   console.log(`uiAccess=true: ${hasUiAccess ? 'yes' : 'no'}`);
   console.log(`highestAvailable: ${hasHighestAvailable ? 'yes' : 'no'}`);
   console.log(`signature status: ${signatureOutput.includes('Successfully verified') ? 'valid' : 'check output above'}`);
-  console.log('cursor overlay helper: present');
-  console.log(`cursor overlay helper signature: ${helperSignatureOutput.includes('Successfully verified') ? 'valid' : 'check output above'}`);
-  console.log('Bluetooth transport helper: present');
-  console.log(`Bluetooth transport helper signature: ${bluetoothHelperSignatureOutput.includes('Successfully verified') ? 'valid' : 'check output above'}`);
-  console.log('text input helper: present');
-  console.log(`text input helper signature: ${textInputHelperSignatureOutput.includes('Successfully verified') ? 'valid' : 'check output above'}`);
+  for (const [name, helperPath] of nativeHelpers) {
+    const helperSignatureResult = runTool(signtoolExe, ['verify', '/pa', '/v', helperPath], { stdio: 'pipe' });
+    const helperSignatureOutput = `${helperSignatureResult.stdout || ''}${helperSignatureResult.stderr || ''}`;
+    console.log(`${name}: present`);
+    console.log(`${name} signature: ${helperSignatureOutput.includes('Successfully verified') ? 'valid' : 'check output above'}`);
+  }
   console.log('secure install location required: install per-machine under Program Files for uiAccess to take effect.');
 
   if (!hasUiAccess || !hasHighestAvailable) {

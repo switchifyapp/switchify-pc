@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { UpdateService, type ElectronUpdaterAdapter } from './update-service';
 import type { UpdateInstallerLaunchResult } from './update-installer-launcher';
 
@@ -241,6 +244,118 @@ describe('UpdateService', () => {
     error.mockRestore();
   });
 
+  it('returns update launcher unavailable and does not quit the app', async () => {
+    const updater = new FakeUpdater();
+    const launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({
+      ok: false,
+      reason: 'update_launcher_unavailable'
+    }));
+    const quitApp = vi.fn();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    updater.checkForUpdates.mockImplementation(async () => {
+      updater.emit('update-available', updateInfo({ version: '0.1.1' }));
+      return null;
+    });
+    updater.downloadUpdate.mockImplementation(async () => {
+      updater.emit('update-downloaded', updateInfo({ version: '0.1.1' }));
+      return ['C:\\cache\\installer.exe'];
+    });
+    const service = createService({ updater, launchInstaller, quitApp });
+    await service.checkForUpdates();
+    await service.downloadUpdate();
+
+    await expect(service.installDownloadedUpdate()).resolves.toEqual({
+      ok: false,
+      reason: 'update_launcher_unavailable'
+    });
+    expect(quitApp).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it('returns UAC cancellation and does not quit the app', async () => {
+    const updater = new FakeUpdater();
+    const launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({
+      ok: false,
+      reason: 'uac_cancelled'
+    }));
+    const quitApp = vi.fn();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    updater.checkForUpdates.mockImplementation(async () => {
+      updater.emit('update-available', updateInfo({ version: '0.1.1' }));
+      return null;
+    });
+    updater.downloadUpdate.mockImplementation(async () => {
+      updater.emit('update-downloaded', updateInfo({ version: '0.1.1' }));
+      return ['C:\\cache\\installer.exe'];
+    });
+    const service = createService({ updater, launchInstaller, quitApp });
+    await service.checkForUpdates();
+    await service.downloadUpdate();
+
+    await expect(service.installDownloadedUpdate()).resolves.toEqual({ ok: false, reason: 'uac_cancelled' });
+    expect(quitApp).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it('records install diagnostics without full installer paths', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'switchify-update-service-'));
+    const diagnosticsFilePath = join(tempDir, 'update-install-diagnostics.jsonl');
+    const updater = new FakeUpdater();
+    const launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({
+      ok: false,
+      reason: 'uac_cancelled'
+    }));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    updater.checkForUpdates.mockImplementation(async () => {
+      updater.emit('update-available', updateInfo({ version: '0.1.1' }));
+      return null;
+    });
+    updater.downloadUpdate.mockImplementation(async () => {
+      updater.emit('update-downloaded', updateInfo({ version: '0.1.1' }));
+      return ['C:\\cache\\installer.exe'];
+    });
+    const service = createService({ updater, launchInstaller, diagnosticsFilePath });
+    await service.checkForUpdates();
+    await service.downloadUpdate();
+
+    await service.installDownloadedUpdate();
+
+    const log = readFileSync(diagnosticsFilePath, 'utf8');
+    expect(log).toContain('"event":"install_requested"');
+    expect(log).toContain('"event":"uac_cancelled"');
+    expect(log).not.toContain('C:\\cache\\installer.exe');
+    error.mockRestore();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('cleans known updater cache files after successful launcher handoff', async () => {
+    const updater = new FakeUpdater();
+    const removeFile = vi.fn(async () => undefined);
+    const launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({ ok: true, pid: 1234 }));
+    updater.checkForUpdates.mockImplementation(async () => {
+      updater.emit('update-available', updateInfo({ version: '0.1.1' }));
+      return null;
+    });
+    updater.downloadUpdate.mockImplementation(async () => {
+      updater.emit('update-downloaded', updateInfo({ version: '0.1.1' }));
+      return ['C:\\Users\\owen\\AppData\\Local\\switchify-pc-updater\\pending\\Switchify-PC-Setup-0.1.1-x64.exe'];
+    });
+    const service = createService({ updater, launchInstaller, removeFile });
+    await service.checkForUpdates();
+    await service.downloadUpdate();
+
+    await service.installDownloadedUpdate();
+    await Promise.resolve();
+
+    expect(removeFile).toHaveBeenCalledWith(
+      'C:\\Users\\owen\\AppData\\Local\\switchify-pc-updater\\pending\\Switchify-PC-Setup-0.1.1-x64.exe'
+    );
+    expect(removeFile).toHaveBeenCalledWith(
+      'C:\\Users\\owen\\AppData\\Local\\switchify-pc-updater\\pending\\update-info.json'
+    );
+    expect(removeFile).toHaveBeenCalledWith('C:\\Users\\owen\\AppData\\Local\\switchify-pc-updater\\installer.exe');
+  });
+
   it('maps updater errors during checks to check_failed', async () => {
     const updater = new FakeUpdater();
     updater.checkForUpdates.mockImplementation(async () => {
@@ -279,12 +394,16 @@ function createService({
   updater = new FakeUpdater(),
   launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({ ok: true, pid: 1234 })),
   quitApp = vi.fn(),
+  diagnosticsFilePath = null,
+  removeFile = vi.fn(async () => undefined),
   isPackaged = true,
   platform = 'win32'
 }: {
   updater?: FakeUpdater;
   launchInstaller?: typeof import('./update-installer-launcher').launchWindowsUpdateInstaller;
   quitApp?: () => void;
+  diagnosticsFilePath?: string | null;
+  removeFile?: (path: string) => Promise<void>;
   isPackaged?: boolean;
   platform?: NodeJS.Platform;
 } = {}): UpdateService {
@@ -296,6 +415,8 @@ function createService({
     autoUpdater: updater,
     launchInstaller,
     quitApp,
+    diagnosticsFilePath,
+    removeFile,
     now: () => new Date('2026-06-12T12:00:00.000Z')
   });
 }

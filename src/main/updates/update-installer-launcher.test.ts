@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   launchWindowsUpdateInstaller,
@@ -8,8 +9,8 @@ import {
 } from './update-installer-launcher';
 
 class FakeSpawnProcess implements SpawnProcess {
-  pid = 1234;
-  readonly unref = vi.fn();
+  stdout = new PassThrough();
+  stderr = new PassThrough();
   private readonly errorListeners: Array<(error: Error) => void> = [];
   private readonly exitListeners: Array<(code: number | null, signal: NodeJS.Signals | null) => void> = [];
 
@@ -25,6 +26,10 @@ class FakeSpawnProcess implements SpawnProcess {
     }
 
     this.exitListeners.push(listener as (code: number | null, signal: NodeJS.Signals | null) => void);
+  }
+
+  writeStdout(value: string): void {
+    this.stdout.write(value);
   }
 
   emitError(error = new Error('failed')): void {
@@ -55,38 +60,36 @@ describe('launchWindowsUpdateInstaller', () => {
   it('returns installer_unavailable when installer file is missing', async () => {
     await expect(
       launch({
-        fileExists: (path) => path.endsWith('elevate.exe')
+        fileExists: (path) => path.endsWith('SwitchifyUpdateLauncher.exe')
       })
     ).resolves.toEqual({ ok: false, reason: 'installer_unavailable' });
   });
 
-  it('returns elevation_helper_unavailable when elevate.exe is missing', async () => {
+  it('returns update_launcher_unavailable when the launcher is missing', async () => {
     await expect(
       launch({
         fileExists: (path) => path.endsWith('installer.exe')
       })
-    ).resolves.toEqual({ ok: false, reason: 'elevation_helper_unavailable' });
+    ).resolves.toEqual({ ok: false, reason: 'update_launcher_unavailable' });
   });
 
-  it('spawns elevate.exe with installer arguments', async () => {
-    vi.useFakeTimers();
+  it('spawns the packaged update launcher with installer arguments', async () => {
     const child = new FakeSpawnProcess();
     const spawnInstaller = vi.fn<SpawnInstaller>(() => child);
 
-    const resultPromise = launch({ child, spawnInstaller, settleMs: 10 });
-    await vi.advanceTimersByTimeAsync(10);
+    const resultPromise = launch({ child, spawnInstaller });
+    child.writeStdout('{"ok":true,"status":"installer_started","pid":1234}\n');
+    child.emitExit(0);
 
     await expect(resultPromise).resolves.toEqual({ ok: true, pid: 1234 });
     expect(spawnInstaller).toHaveBeenCalledWith(
-      join('resources', 'elevate.exe'),
-      [join('cache', 'installer.exe'), ...UPDATE_INSTALLER_ARGS],
+      join('resources', 'native', 'SwitchifyUpdateLauncher.exe'),
+      ['--installer', join('cache', 'installer.exe'), '--args-json', JSON.stringify(UPDATE_INSTALLER_ARGS)],
       {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: false
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
       }
     );
-    expect(child.unref).toHaveBeenCalledTimes(1);
   });
 
   it('returns installer_launch_failed if spawn throws', async () => {
@@ -99,62 +102,76 @@ describe('launchWindowsUpdateInstaller', () => {
     ).resolves.toEqual({ ok: false, reason: 'installer_launch_failed' });
   });
 
-  it('returns installer_launch_failed if the child emits error before settling', async () => {
-    vi.useFakeTimers();
+  it('returns installer_launch_failed if the child emits error', async () => {
     const child = new FakeSpawnProcess();
-    const resultPromise = launch({ child, settleMs: 10 });
+    const resultPromise = launch({ child });
 
     child.emitError();
 
     await expect(resultPromise).resolves.toEqual({ ok: false, reason: 'installer_launch_failed' });
-    expect(child.unref).not.toHaveBeenCalled();
   });
 
-  it('returns installer_launch_failed if the child exits non-zero before settling', async () => {
+  it('returns installer_launch_failed if the helper times out', async () => {
     vi.useFakeTimers();
     const child = new FakeSpawnProcess();
-    const resultPromise = launch({ child, settleMs: 10 });
-
-    child.emitExit(1);
-
-    await expect(resultPromise).resolves.toEqual({ ok: false, reason: 'installer_launch_failed' });
-    expect(child.unref).not.toHaveBeenCalled();
-  });
-
-  it('returns success if the child exits cleanly before settling', async () => {
-    vi.useFakeTimers();
-    const child = new FakeSpawnProcess();
-    const resultPromise = launch({ child, settleMs: 10 });
-
-    child.emitExit(0);
-
-    await expect(resultPromise).resolves.toEqual({ ok: true, pid: 1234 });
-    expect(child.unref).toHaveBeenCalledTimes(1);
-  });
-
-  it('returns success if the child survives the settle period', async () => {
-    vi.useFakeTimers();
-    const child = new FakeSpawnProcess();
-    const resultPromise = launch({ child, settleMs: 10 });
+    const resultPromise = launch({ child, timeoutMs: 10 });
 
     await vi.advanceTimersByTimeAsync(10);
 
-    await expect(resultPromise).resolves.toEqual({ ok: true, pid: 1234 });
-    expect(child.unref).toHaveBeenCalledTimes(1);
+    await expect(resultPromise).resolves.toEqual({ ok: false, reason: 'installer_launch_failed' });
+  });
+
+  it('maps helper uac_cancelled output', async () => {
+    const child = new FakeSpawnProcess();
+    const resultPromise = launch({ child });
+
+    child.writeStdout('{"ok":false,"status":"uac_cancelled"}\n');
+    child.emitExit(4);
+
+    await expect(resultPromise).resolves.toEqual({ ok: false, reason: 'uac_cancelled' });
+  });
+
+  it('maps helper installer_process_unavailable output', async () => {
+    const child = new FakeSpawnProcess();
+    const resultPromise = launch({ child });
+
+    child.writeStdout('{"ok":false,"status":"installer_process_unavailable"}\n');
+    child.emitExit(6);
+
+    await expect(resultPromise).resolves.toEqual({ ok: false, reason: 'installer_process_unavailable' });
+  });
+
+  it('returns installer_launch_failed for non-zero exit without usable output', async () => {
+    const child = new FakeSpawnProcess();
+    const resultPromise = launch({ child });
+
+    child.emitExit(5);
+
+    await expect(resultPromise).resolves.toEqual({ ok: false, reason: 'installer_launch_failed' });
+  });
+
+  it('returns update_launcher_invalid_response for invalid success output', async () => {
+    const child = new FakeSpawnProcess();
+    const resultPromise = launch({ child });
+
+    child.writeStdout('not json\n');
+    child.emitExit(0);
+
+    await expect(resultPromise).resolves.toEqual({ ok: false, reason: 'update_launcher_invalid_response' });
   });
 });
 
 function launch({
   installerPath = join('cache', 'installer.exe'),
   resourcesPath = 'resources',
-  settleMs = 0,
+  timeoutMs = 1_000,
   child = new FakeSpawnProcess(),
   spawnInstaller = (() => child) as SpawnInstaller,
   fileExists = () => true
 }: {
   installerPath?: string | null;
   resourcesPath?: string;
-  settleMs?: number;
+  timeoutMs?: number;
   child?: FakeSpawnProcess;
   spawnInstaller?: SpawnInstaller;
   fileExists?: (path: string) => boolean;
@@ -162,7 +179,7 @@ function launch({
   return launchWindowsUpdateInstaller({
     installerPath,
     resourcesPath,
-    settleMs,
+    timeoutMs,
     spawnInstaller,
     fileExists
   });

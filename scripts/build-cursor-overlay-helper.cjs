@@ -21,6 +21,12 @@ const helpers = [
     projectPath: resolveProjectPath('native', 'text-input-helper', 'TextInputHelper.csproj'),
     outputDir: resolveProjectPath('build', 'native', 'text-input-helper', 'win-x64'),
     outputExeName: 'SwitchifyTextInput.exe'
+  },
+  {
+    name: 'update launcher helper',
+    projectPath: resolveProjectPath('native', 'update-launcher-helper', 'SwitchifyUpdateLauncher.csproj'),
+    outputDir: resolveProjectPath('build', 'native', 'update-launcher-helper', 'win-x64'),
+    outputExeName: 'SwitchifyUpdateLauncher.exe'
   }
 ];
 

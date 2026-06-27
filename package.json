@@ -10,8 +10,10 @@
     "native:build-overlay": "npm run native:build",
     "native:smoke-overlay": "node scripts/smoke-cursor-overlay-helper.cjs",
     "native:smoke-text": "node scripts/smoke-text-input-helper.cjs",
+    "native:smoke-update-launcher": "node scripts/smoke-update-launcher-helper.cjs",
     "package:win": "npm run build && npm run native:build && electron-builder --win --x64 --publish never && node scripts/sign-win-artifacts.cjs --update-latest-yml",
     "package:win:verify-uiaccess": "node scripts/verify-win-uiaccess-package.cjs",
+    "package:win:verify-updater-metadata": "node scripts/verify-latest-yml-admin-rights.cjs",
     "signing:create-dev-cert": "node scripts/create-dev-signing-cert.cjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run"

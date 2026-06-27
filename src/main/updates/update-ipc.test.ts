@@ -66,6 +66,7 @@ describe('registerUpdateIpc', () => {
     await expect(invokeInstall()).resolves.toEqual({ ok: false, reason: 'cancelled' });
     expect(confirmInstallDownloadedUpdate).toHaveBeenCalledTimes(1);
     expect(updateService.installDownloadedUpdate).not.toHaveBeenCalled();
+    expect(updateService.recordInstallCancelled).toHaveBeenCalledTimes(1);
   });
 
   it('delegates to the update service without confirmation when no update is downloaded', async () => {
@@ -127,7 +128,8 @@ function createUpdateService({
     })),
     checkForUpdates: vi.fn(),
     downloadUpdate: vi.fn(),
-    installDownloadedUpdate: vi.fn(async () => installResult)
+    installDownloadedUpdate: vi.fn(async () => installResult),
+    recordInstallCancelled: vi.fn()
   } as unknown as UpdateService;
 }
 

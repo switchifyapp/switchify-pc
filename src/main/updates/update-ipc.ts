@@ -49,6 +49,7 @@ export function registerUpdateIpc(
     }
 
     if (!(await confirmInstallDownloadedUpdate(event))) {
+      updateService.recordInstallCancelled();
       return { ok: false, reason: 'cancelled' };
     }
 
