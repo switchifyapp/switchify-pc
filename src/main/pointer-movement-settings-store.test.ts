@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -69,6 +69,14 @@ describe('JsonPointerMovementSettingsStore', () => {
     new JsonPointerMovementSettingsStore(settingsFile).save(DEFAULT_POINTER_MOVEMENT_SETTINGS);
 
     expect(JSON.parse(readFileSync(settingsFile, 'utf8'))).toEqual(DEFAULT_POINTER_MOVEMENT_SETTINGS);
+  });
+
+  it('leaves no temp files after saving', () => {
+    const settingsFile = settingsPath();
+
+    new JsonPointerMovementSettingsStore(settingsFile).save(DEFAULT_POINTER_MOVEMENT_SETTINGS);
+
+    expect(readdirSync(tempDir!).filter((name) => name.endsWith('.tmp'))).toEqual([]);
   });
 
   function store(): JsonPointerMovementSettingsStore {

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -69,5 +69,22 @@ describe('JsonCursorOverlaySettingsStore', () => {
       crosshairs: true,
       color: 'blue'
     });
+  });
+
+  it('creates parent directories when saving', () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'switchify-cursor-overlay-'));
+    const settingsFile = join(tempDir, 'nested', 'cursor-overlay-settings.json');
+
+    new JsonCursorOverlaySettingsStore(settingsFile).save(DEFAULT_CURSOR_OVERLAY_SETTINGS);
+
+    expect(JSON.parse(readFileSync(settingsFile, 'utf8'))).toEqual(DEFAULT_CURSOR_OVERLAY_SETTINGS);
+  });
+
+  it('leaves no temp files after saving', () => {
+    const settingsStore = store();
+
+    settingsStore.save(DEFAULT_CURSOR_OVERLAY_SETTINGS);
+
+    expect(readdirSync(tempDir!).filter((name) => name.endsWith('.tmp'))).toEqual([]);
   });
 });
