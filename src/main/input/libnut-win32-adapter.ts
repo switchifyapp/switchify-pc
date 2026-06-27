@@ -280,7 +280,7 @@ export function toLibnutKeyboardKey(key: KeyboardKey | ShortcutKey): string {
     case 'Shift':
       return 'shift';
     case 'Meta':
-      return 'command';
+      return 'win';
     case 'A':
     case 'C':
     case 'V':

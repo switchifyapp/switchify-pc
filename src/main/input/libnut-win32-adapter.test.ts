@@ -362,8 +362,8 @@ describe('toLibnutKeyboardKey', () => {
     expect(toLibnutKeyboardKey('F12')).toBe('f12');
   });
 
-  it('maps Meta to the libnut command key', () => {
-    expect(toLibnutKeyboardKey('Meta')).toBe('command');
+  it('maps Meta to the libnut Windows key', () => {
+    expect(toLibnutKeyboardKey('Meta')).toBe('win');
   });
 });
 

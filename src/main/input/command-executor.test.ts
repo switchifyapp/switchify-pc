@@ -132,6 +132,7 @@ describe('DesktopCommandExecutor', () => {
     await executor.execute(command('keyboard.key', { key: 'Enter' }));
     await executor.execute(command('keyboard.key', { key: 'F12' }));
     await executor.execute(command('keyboard.key', { key: 'Meta' }));
+    await executor.execute(command('keyboard.shortcut', { keys: ['Meta'] }));
     await executor.execute(command('keyboard.shortcut', { keys: ['Ctrl', 'C'] }));
     await executor.execute(command('keyboard.shortcut', { keys: ['Ctrl', 'F5'] }));
     await executor.execute(command('keyboard.typeText', { text: 'Hello' }));
@@ -144,6 +145,7 @@ describe('DesktopCommandExecutor', () => {
       { method: 'pressKey', args: ['Enter'] },
       { method: 'pressKey', args: ['F12'] },
       { method: 'pressKey', args: ['Meta'] },
+      { method: 'pressShortcut', args: [['Meta']] },
       { method: 'pressShortcut', args: [['Ctrl', 'C']] },
       { method: 'pressShortcut', args: [['Ctrl', 'F5']] },
       { method: 'typeText', args: ['Hello'] },
@@ -152,7 +154,7 @@ describe('DesktopCommandExecutor', () => {
     ]);
     expect(overlay.events).toHaveLength(0);
     expect(overlay.activeCount).toBe(0);
-    expect(overlay.hideCount).toBe(9);
+    expect(overlay.hideCount).toBe(10);
   });
 
   it('executes non-movement no-response commands without coalescing', async () => {
