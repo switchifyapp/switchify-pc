@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import type { SystemStartupSettings } from '../shared/system-startup';
-import type { UpdateState } from '../shared/update';
 import { SettingsView } from './components/SettingsPanel';
 import { WindowChrome } from './components/WindowTitleBar';
 import { settingsSectionFromHash } from './settings-route';
 import { updateInstallMessage } from './updates';
 import { useSwitchifyPcStatus } from './useSwitchifyPcStatus';
+import { useUpdateState } from './useUpdateState';
 
 export function SettingsApp(): ReactElement {
   const bridge = window.switchifyPc;
   const status = useSwitchifyPcStatus(bridge);
-  const [updateState, setUpdateState] = useState<UpdateState | null>(null);
+  const { updateState, setUpdateState } = useUpdateState(bridge);
   const [systemStartupSettings, setSystemStartupSettings] = useState<SystemStartupSettings | null>(null);
   const [isCheckingForUpdates, setIsCheckingForUpdates] = useState(false);
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
@@ -20,10 +20,9 @@ export function SettingsApp(): ReactElement {
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([bridge.getUpdateState(), bridge.getSystemStartupSettings()]).then(
-      ([updateState, systemStartupSettings]) => {
+    void bridge.getSystemStartupSettings().then(
+      (systemStartupSettings) => {
         if (!cancelled) {
-          setUpdateState(updateState);
           setSystemStartupSettings(systemStartupSettings);
         }
       }

@@ -1,8 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { UpdateService, type ElectronUpdaterAdapter } from './update-service';
+import {
+  INITIAL_UPDATE_POLL_DELAY_MS,
+  UPDATE_POLL_INTERVAL_MS,
+  UpdateService,
+  type ElectronUpdaterAdapter
+} from './update-service';
 import type { UpdateInstallerLaunchResult } from './update-installer-launcher';
 
 type Listener = (...args: unknown[]) => void;
@@ -29,6 +34,10 @@ class FakeUpdater implements ElectronUpdaterAdapter {
 }
 
 describe('UpdateService', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('disables automatic download and install-on-quit', () => {
     const updater = new FakeUpdater();
     createService({ updater });
@@ -53,6 +62,141 @@ describe('UpdateService', () => {
 
     expect(state.info.status).toBe('check_failed');
     expect(state.info.reason).toBe('not_supported');
+  });
+
+  it('starts automatic update checks after the initial delay', async () => {
+    vi.useFakeTimers();
+    const updater = new FakeUpdater();
+    const service = createService({ updater });
+
+    service.startAutomaticUpdateChecks();
+    await vi.advanceTimersByTimeAsync(INITIAL_UPDATE_POLL_DELAY_MS - 1);
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks for updates every hour', async () => {
+    vi.useFakeTimers();
+    const updater = new FakeUpdater();
+    const service = createService({ updater });
+
+    service.startAutomaticUpdateChecks();
+    await vi.advanceTimersByTimeAsync(INITIAL_UPDATE_POLL_DELAY_MS);
+
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(UPDATE_POLL_INTERVAL_MS);
+
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not start automatic checks in unpackaged builds', async () => {
+    vi.useFakeTimers();
+    const updater = new FakeUpdater();
+    const service = createService({ updater, isPackaged: false });
+
+    service.startAutomaticUpdateChecks();
+    await vi.advanceTimersByTimeAsync(UPDATE_POLL_INTERVAL_MS * 2);
+
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  it('does not start automatic checks on non-Windows platforms', async () => {
+    vi.useFakeTimers();
+    const updater = new FakeUpdater();
+    const service = createService({ updater, platform: 'darwin' });
+
+    service.startAutomaticUpdateChecks();
+    await vi.advanceTimersByTimeAsync(UPDATE_POLL_INTERVAL_MS * 2);
+
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  it('does not start duplicate polling timers', async () => {
+    vi.useFakeTimers();
+    const updater = new FakeUpdater();
+    const service = createService({ updater });
+
+    service.startAutomaticUpdateChecks();
+    service.startAutomaticUpdateChecks();
+    await vi.advanceTimersByTimeAsync(UPDATE_POLL_INTERVAL_MS);
+
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops automatic update checks', async () => {
+    vi.useFakeTimers();
+    const updater = new FakeUpdater();
+    const service = createService({ updater });
+
+    service.startAutomaticUpdateChecks();
+    service.stopAutomaticUpdateChecks();
+    await vi.advanceTimersByTimeAsync(UPDATE_POLL_INTERVAL_MS * 2);
+
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  it('automatic checks skip while another operation is active', async () => {
+    vi.useFakeTimers();
+    const updater = new FakeUpdater();
+    let resolveCheck: () => void = () => undefined;
+    updater.checkForUpdates.mockImplementation(() => new Promise((resolve) => {
+      resolveCheck = () => resolve(null);
+    }));
+    const service = createService({ updater });
+
+    service.startAutomaticUpdateChecks();
+    await vi.advanceTimersByTimeAsync(INITIAL_UPDATE_POLL_DELAY_MS);
+    await vi.advanceTimersByTimeAsync(UPDATE_POLL_INTERVAL_MS);
+
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+    resolveCheck();
+  });
+
+  it('automatic checks skip when an update is already downloaded', async () => {
+    vi.useFakeTimers();
+    const updater = new FakeUpdater();
+    updater.checkForUpdates.mockImplementation(async () => {
+      updater.emit('update-available', updateInfo({ version: '0.1.1' }));
+      return null;
+    });
+    updater.downloadUpdate.mockImplementation(async () => {
+      updater.emit('update-downloaded', updateInfo({ version: '0.1.1' }));
+      return ['C:\\cache\\installer.exe'];
+    });
+    const service = createService({ updater });
+    await service.checkForUpdates();
+    await service.downloadUpdate();
+    updater.checkForUpdates.mockClear();
+
+    service.startAutomaticUpdateChecks();
+    await vi.advanceTimersByTimeAsync(UPDATE_POLL_INTERVAL_MS);
+
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  it('notifies listeners when update state changes', async () => {
+    const updater = new FakeUpdater();
+    const onStateChanged = vi.fn();
+    updater.checkForUpdates.mockImplementation(async () => {
+      updater.emit('update-available', updateInfo({ version: '0.1.1' }));
+      return null;
+    });
+    const service = createService({ updater, onStateChanged });
+
+    await service.checkForUpdates();
+
+    expect(onStateChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        info: expect.objectContaining({
+          status: 'update_available',
+          latestVersion: '0.1.1'
+        })
+      })
+    );
   });
 
   it('maps update-not-available to up_to_date', async () => {
@@ -396,6 +540,7 @@ function createService({
   quitApp = vi.fn(),
   diagnosticsFilePath = null,
   removeFile = vi.fn(async () => undefined),
+  onStateChanged = vi.fn(),
   isPackaged = true,
   platform = 'win32'
 }: {
@@ -404,6 +549,7 @@ function createService({
   quitApp?: () => void;
   diagnosticsFilePath?: string | null;
   removeFile?: (path: string) => Promise<void>;
+  onStateChanged?: (state: import('../../shared/update').UpdateState) => void;
   isPackaged?: boolean;
   platform?: NodeJS.Platform;
 } = {}): UpdateService {
@@ -417,6 +563,7 @@ function createService({
     quitApp,
     diagnosticsFilePath,
     removeFile,
+    onStateChanged,
     now: () => new Date('2026-06-12T12:00:00.000Z')
   });
 }

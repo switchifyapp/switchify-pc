@@ -32,9 +32,17 @@ export type UpdateServiceOptions = {
   now?: () => Date;
   diagnosticsFilePath?: string | null;
   removeFile?: (path: string) => Promise<void>;
+  setInterval?: typeof setInterval;
+  clearInterval?: typeof clearInterval;
+  setTimeout?: typeof setTimeout;
+  clearTimeout?: typeof clearTimeout;
+  onStateChanged?: (state: UpdateState) => void;
 };
 
 type UpdateOperation = 'idle' | 'checking' | 'downloading';
+
+export const UPDATE_POLL_INTERVAL_MS = 60 * 60 * 1000;
+export const INITIAL_UPDATE_POLL_DELAY_MS = 30 * 1000;
 
 export class UpdateService {
   private readonly isPackaged: boolean;
@@ -46,11 +54,18 @@ export class UpdateService {
   private readonly now: () => Date;
   private readonly diagnosticsFilePath: string | null;
   private readonly removeFile: (path: string) => Promise<void>;
+  private readonly setPollInterval: typeof setInterval;
+  private readonly clearPollInterval: typeof clearInterval;
+  private readonly setPollTimeout: typeof setTimeout;
+  private readonly clearPollTimeout: typeof clearTimeout;
+  private readonly notifyStateChanged: (state: UpdateState) => void;
   private state: UpdateState;
   private operation: UpdateOperation = 'idle';
   private checkingPromise: Promise<UpdateState> | null = null;
   private downloadPromise: Promise<UpdateState> | null = null;
   private downloadedInstallerPath: string | null = null;
+  private pollInterval: NodeJS.Timeout | null = null;
+  private initialPollTimeout: NodeJS.Timeout | null = null;
 
   constructor(options: UpdateServiceOptions) {
     this.isPackaged = options.isPackaged;
@@ -62,6 +77,11 @@ export class UpdateService {
     this.now = options.now ?? (() => new Date());
     this.diagnosticsFilePath = options.diagnosticsFilePath ?? null;
     this.removeFile = options.removeFile ?? ((path) => rm(path, { force: true }));
+    this.setPollInterval = options.setInterval ?? setInterval;
+    this.clearPollInterval = options.clearInterval ?? clearInterval;
+    this.setPollTimeout = options.setTimeout ?? setTimeout;
+    this.clearPollTimeout = options.clearTimeout ?? clearTimeout;
+    this.notifyStateChanged = options.onStateChanged ?? (() => undefined);
     this.state = createInitialUpdateState(options.currentVersion);
 
     this.autoUpdater.autoDownload = false;
@@ -73,10 +93,36 @@ export class UpdateService {
     return cloneState(this.state);
   }
 
+  startAutomaticUpdateChecks(): void {
+    if (this.unsupportedReason()) return;
+    if (this.pollInterval || this.initialPollTimeout) return;
+
+    this.initialPollTimeout = this.setPollTimeout(() => {
+      this.initialPollTimeout = null;
+      void this.runAutomaticUpdateCheck();
+    }, INITIAL_UPDATE_POLL_DELAY_MS);
+
+    this.pollInterval = this.setPollInterval(() => {
+      void this.runAutomaticUpdateCheck();
+    }, UPDATE_POLL_INTERVAL_MS);
+  }
+
+  stopAutomaticUpdateChecks(): void {
+    if (this.initialPollTimeout) {
+      this.clearPollTimeout(this.initialPollTimeout);
+      this.initialPollTimeout = null;
+    }
+
+    if (this.pollInterval) {
+      this.clearPollInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
+  }
+
   checkForUpdates(): Promise<UpdateState> {
     const unsupportedReason = this.unsupportedReason();
     if (unsupportedReason) {
-      this.state = {
+      this.setState({
         ...this.state,
         info: {
           ...this.state.info,
@@ -85,7 +131,7 @@ export class UpdateService {
           reason: unsupportedReason
         },
         download: createIdleDownload()
-      };
+      });
       return Promise.resolve(this.getState());
     }
 
@@ -93,7 +139,7 @@ export class UpdateService {
 
     this.operation = 'checking';
     this.downloadedInstallerPath = null;
-    this.state = {
+    this.setState({
       info: {
         ...this.state.info,
         latestVersion: null,
@@ -104,14 +150,14 @@ export class UpdateService {
         reason: undefined
       },
       download: createIdleDownload()
-    };
+    });
 
     this.checkingPromise = this.autoUpdater
       .checkForUpdates()
       .then(() => this.getState())
       .catch((error) => {
         console.error('Switchify update check failed.', error);
-        this.state = {
+        this.setState({
           ...this.state,
           info: {
             ...this.state.info,
@@ -119,7 +165,7 @@ export class UpdateService {
             status: 'check_failed',
             reason: 'network_error'
           }
-        };
+        });
         return this.getState();
       })
       .finally(() => {
@@ -133,34 +179,34 @@ export class UpdateService {
   async downloadUpdate(): Promise<UpdateState> {
     const unsupportedReason = this.unsupportedReason();
     if (unsupportedReason) {
-      this.state = {
+      this.setState({
         ...this.state,
         download: {
           ...createIdleDownload(),
           status: 'download_failed',
           reason: unsupportedReason
         }
-      };
+      });
       return this.getState();
     }
 
     if (this.downloadPromise) return this.getState();
 
     if (this.state.info.status !== 'update_available') {
-      this.state = {
+      this.setState({
         ...this.state,
         download: {
           ...createIdleDownload(),
           status: 'download_failed',
           reason: 'not_available'
         }
-      };
+      });
       return this.getState();
     }
 
     this.operation = 'downloading';
     this.downloadedInstallerPath = null;
-    this.state = {
+    this.setState({
       ...this.state,
       download: {
         status: 'downloading',
@@ -168,7 +214,7 @@ export class UpdateService {
         totalBytes: null,
         percent: null
       }
-    };
+    });
 
     this.downloadPromise = this.autoUpdater
       .downloadUpdate()
@@ -179,14 +225,14 @@ export class UpdateService {
       .catch((error) => {
         console.error('Switchify update download failed.', error);
         this.downloadedInstallerPath = null;
-        this.state = {
+        this.setState({
           ...this.state,
           download: {
             ...this.state.download,
             status: 'download_failed',
             reason: 'network_error'
           }
-        };
+        });
         return this.getState();
       })
       .finally(() => {
@@ -233,20 +279,20 @@ export class UpdateService {
     this.autoUpdater.on('update-available', (rawInfo) => {
       const info = rawInfo as ElectronUpdateInfo;
       this.downloadedInstallerPath = null;
-      this.state = {
+      this.setState({
         info: updateInfo(this.state.info, info, {
           checkedAt: this.now().toISOString(),
           status: 'update_available',
           reason: undefined
         }),
         download: createIdleDownload()
-      };
+      });
     });
 
     this.autoUpdater.on('update-not-available', (rawInfo) => {
       const info = rawInfo as ElectronUpdateInfo;
       this.downloadedInstallerPath = null;
-      this.state = {
+      this.setState({
         ...this.state,
         info: updateInfo(this.state.info, info, {
           checkedAt: this.now().toISOString(),
@@ -255,7 +301,7 @@ export class UpdateService {
           reason: undefined
         }),
         download: createIdleDownload()
-      };
+      });
     });
 
     this.autoUpdater.on('download-progress', (rawProgress) => {
@@ -269,7 +315,7 @@ export class UpdateService {
             ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100))
             : null;
 
-      this.state = {
+      this.setState({
         ...this.state,
         download: {
           status: 'downloading',
@@ -277,12 +323,12 @@ export class UpdateService {
           totalBytes,
           percent
         }
-      };
+      });
     });
 
     this.autoUpdater.on('update-downloaded', (rawInfo) => {
       const info = rawInfo as ElectronUpdateInfo;
-      this.state = {
+      this.setState({
         ...this.state,
         info: updateInfo(this.state.info, info),
         download: {
@@ -291,25 +337,25 @@ export class UpdateService {
           totalBytes: this.state.download.totalBytes,
           percent: 100
         }
-      };
+      });
     });
 
     this.autoUpdater.on('error', (error) => {
       console.error('Switchify updater error.', error);
       if (this.operation === 'downloading') {
         this.downloadedInstallerPath = null;
-        this.state = {
+        this.setState({
           ...this.state,
           download: {
             ...this.state.download,
             status: 'download_failed',
             reason: 'network_error'
           }
-        };
+        });
         return;
       }
 
-      this.state = {
+      this.setState({
         ...this.state,
         info: {
           ...this.state.info,
@@ -317,8 +363,20 @@ export class UpdateService {
           status: 'check_failed',
           reason: 'network_error'
         }
-      };
+      });
     });
+  }
+
+  private async runAutomaticUpdateCheck(): Promise<void> {
+    if (this.operation !== 'idle') return;
+    if (this.state.download.status === 'downloading' || this.state.download.status === 'downloaded') return;
+
+    await this.checkForUpdates();
+  }
+
+  private setState(state: UpdateState): void {
+    this.state = state;
+    this.notifyStateChanged(this.getState());
   }
 
   private unsupportedReason(): 'not_packaged' | 'not_supported' | null {

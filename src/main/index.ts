@@ -3,8 +3,9 @@ import { autoUpdater } from 'electron-updater';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_BLUETOOTH_STATUS } from '../shared/bluetooth-status';
-import { SHOW_SETTINGS_SECTION_CHANNEL } from '../shared/ipc-channels';
+import { SHOW_SETTINGS_SECTION_CHANNEL, UPDATE_STATE_CHANGED_CHANNEL } from '../shared/ipc-channels';
 import type { SettingsSectionId } from '../shared/settings';
+import type { UpdateState } from '../shared/update';
 import { WindowsBluetoothTransport } from './bluetooth/bluetooth-transport';
 import { ControlService } from './control/control-service';
 import { CursorOverlay } from './cursor-overlay';
@@ -42,6 +43,7 @@ let tray: SwitchifyTray | null = null;
 let cursorOverlay: CursorOverlay | null = null;
 let bluetoothTransport: WindowsBluetoothTransport | null = null;
 let releaseHeldMouseButtons: (() => Promise<void>) | null = null;
+let updateService: UpdateService | null = null;
 let isQuitting = false;
 
 if (process.platform === 'win32' && app.isPackaged) {
@@ -240,6 +242,14 @@ function quitApp(): void {
   app.quit();
 }
 
+function broadcastUpdateState(state: UpdateState): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send(UPDATE_STATE_CHANGED_CHANNEL, state);
+    }
+  }
+}
+
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
@@ -360,17 +370,18 @@ if (!gotSingleInstanceLock) {
     registerAppWindowIpc();
     registerExternalUrlIpc();
     registerSystemStartupIpc(systemStartup);
-    registerUpdateIpc(
-      new UpdateService({
-        currentVersion: app.getVersion(),
-        isPackaged: app.isPackaged,
-        platform: process.platform,
-        resourcesPath: process.resourcesPath,
-        diagnosticsFilePath: join(app.getPath('userData'), 'update-install-diagnostics.jsonl'),
-        autoUpdater,
-        quitApp
-      })
-    );
+    updateService = new UpdateService({
+      currentVersion: app.getVersion(),
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      resourcesPath: process.resourcesPath,
+      diagnosticsFilePath: join(app.getPath('userData'), 'update-install-diagnostics.jsonl'),
+      autoUpdater,
+      quitApp,
+      onStateChanged: broadcastUpdateState
+    });
+    registerUpdateIpc(updateService);
+    updateService.startAutomaticUpdateChecks();
     void bluetoothTransport.start();
 
     mainWindow = createMainWindow({ showOnReady: !startHidden });
@@ -407,6 +418,7 @@ if (!gotSingleInstanceLock) {
 
     event.preventDefault();
     isQuitting = true;
+    updateService?.stopAutomaticUpdateChecks();
     void (releaseHeldMouseButtons?.() ?? Promise.resolve())
       .catch((error) => {
         console.warn(error instanceof Error ? error.message : 'Could not release held mouse buttons.');
@@ -419,6 +431,7 @@ if (!gotSingleInstanceLock) {
         bluetoothTransport?.stop();
         bluetoothTransport = null;
         releaseHeldMouseButtons = null;
+        updateService = null;
         controlService = null;
       })
       .finally(() => {

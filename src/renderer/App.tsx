@@ -1,13 +1,14 @@
-import { useEffect, useState, type ReactElement } from 'react';
-import type { UpdateState } from '../shared/update';
+import type { ReactElement } from 'react';
 import { AndroidDownloadPanel } from './components/AndroidDownloadPanel';
 import { PairingApprovalRequests } from './components/PairingApprovalRequests';
 import { PrimaryContent } from './components/PrimaryContent';
 import { StatusHeader } from './components/StatusHeader';
 import { TroubleshootingDetails } from './components/TroubleshootingDetails';
+import { UpdateBanner } from './components/UpdateBanner';
 import { WindowChrome } from './components/WindowTitleBar';
 import { SettingsApp } from './SettingsApp';
 import { useSwitchifyPcStatus } from './useSwitchifyPcStatus';
+import { useUpdateState } from './useUpdateState';
 
 export function App(): ReactElement {
   if (window.location.hash === '#/settings' || window.location.hash.startsWith('#/settings/')) {
@@ -20,29 +21,7 @@ export function App(): ReactElement {
 function MainApp(): ReactElement {
   const bridge = window.switchifyPc;
   const status = useSwitchifyPcStatus(bridge);
-  const [updateState, setUpdateState] = useState<UpdateState | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const refreshUpdateState = (): void => {
-      void bridge.getUpdateState().then((state) => {
-        if (!cancelled) {
-          setUpdateState(state);
-        }
-      });
-    };
-
-    refreshUpdateState();
-    const interval = window.setInterval(refreshUpdateState, 30_000);
-    window.addEventListener('focus', refreshUpdateState);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      window.removeEventListener('focus', refreshUpdateState);
-    };
-  }, [bridge]);
+  const { updateState } = useUpdateState(bridge);
 
   return (
     <WindowChrome
@@ -58,6 +37,8 @@ function MainApp(): ReactElement {
           appName={bridge.appName}
           onOpenSettings={bridge.openSettingsWindow}
         />
+
+        <UpdateBanner updateState={updateState} onOpenUpdates={() => bridge.openSettingsWindow('updates')} />
 
         <PairingApprovalRequests
           requests={status.pendingPairingRequests}
