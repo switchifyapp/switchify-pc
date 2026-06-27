@@ -94,8 +94,15 @@ function signWindowsExecutable(filePath) {
   runTool(signtoolExe, signingArgs);
 }
 
+const nativeHelperNames = [
+  'SwitchifyCursorOverlay.exe',
+  'SwitchifyBluetoothTransport.exe',
+  'SwitchifyTextInput.exe',
+  'SwitchifyUpdateLauncher.exe'
+];
+
 function signNativeHelpers(appOutDir) {
-  for (const helperName of ['SwitchifyCursorOverlay.exe', 'SwitchifyBluetoothTransport.exe', 'SwitchifyTextInput.exe']) {
+  for (const helperName of nativeHelperNames) {
     const helperPath = path.join(appOutDir, 'resources', 'native', helperName);
     if (!fs.existsSync(helperPath)) {
       throw new Error(`Native helper is missing from packaged resources: ${helperPath}`);
@@ -238,3 +245,4 @@ function createAzureSigningArgs(filePath, requireSigning) {
 }
 
 module.exports.createSigningArgs = createSigningArgs;
+module.exports.nativeHelperNames = nativeHelperNames;

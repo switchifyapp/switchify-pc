@@ -7,10 +7,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 const require = createRequire(import.meta.url);
 const {
   createSha512Base64,
+  ensureAdminRightsMetadata,
   updateLatestYmlForReferencedInstaller,
   updateLatestYmlForSignedInstaller
 } = require('../../scripts/sign-win-artifacts.cjs') as {
   createSha512Base64(filePath: string): string;
+  ensureAdminRightsMetadata(content: string): string;
   updateLatestYmlForReferencedInstaller(latestPath: string): void;
   updateLatestYmlForSignedInstaller(installerPath: string): void;
 };
@@ -48,6 +50,8 @@ describe('sign-win-artifacts updater metadata', () => {
     const latest = fs.readFileSync(latestPath, 'utf8');
     expect(latest.match(/^sha512: .+$/gm)).toEqual([`sha512: ${sha512}`]);
     expect(latest.match(/^\s+sha512: .+$/gm)).toEqual([`    sha512: ${sha512}`]);
+    expect(latest).toContain('isAdminRightsRequired: true');
+    expect(latest).toContain('    isAdminRightsRequired: true');
   });
 
   it('ignores latest.yml when it does not reference the signed installer', () => {
@@ -93,6 +97,8 @@ describe('sign-win-artifacts updater metadata', () => {
     const latest = fs.readFileSync(latestPath, 'utf8');
     expect(latest.match(/^sha512: .+$/gm)).toEqual([`sha512: ${sha512}`]);
     expect(latest.match(/^\s+sha512: .+$/gm)).toEqual([`    sha512: ${sha512}`]);
+    expect(latest).toContain('isAdminRightsRequired: true');
+    expect(latest).toContain('    isAdminRightsRequired: true');
   });
 
   it('does nothing when latest.yml is missing', () => {
@@ -126,6 +132,43 @@ describe('sign-win-artifacts updater metadata', () => {
     const latest = fs.readFileSync(latestPath, 'utf8');
     expect(latest.match(/^sha512: .+$/gm)).toEqual([`sha512: ${sha512}`]);
     expect(latest.match(/^\s+sha512: .+$/gm)).toEqual([`    sha512: ${sha512}`]);
+  });
+
+  it('adds admin-rights metadata to latest.yml', () => {
+    const latest = ensureAdminRightsMetadata(
+      [
+        'version: 0.1.1',
+        'files:',
+        '  - url: Switchify-PC-Setup-0.1.1-x64.exe',
+        '    sha512: file-checksum',
+        'path: Switchify-PC-Setup-0.1.1-x64.exe',
+        'sha512: path-checksum',
+        "releaseDate: '2026-06-27T12:00:00.000Z'"
+      ].join('\n')
+    );
+
+    expect(latest).toContain('isAdminRightsRequired: true');
+    expect(latest).toContain('    isAdminRightsRequired: true');
+    expect(latest.indexOf('isAdminRightsRequired: true')).toBeLessThan(latest.indexOf('releaseDate:'));
+  });
+
+  it('normalizes false admin-rights metadata to true without duplicating keys', () => {
+    const latest = ensureAdminRightsMetadata(
+      [
+        'version: 0.1.1',
+        'files:',
+        '  - url: Switchify-PC-Setup-0.1.1-x64.exe',
+        '    sha512: file-checksum',
+        '    isAdminRightsRequired: false',
+        'path: Switchify-PC-Setup-0.1.1-x64.exe',
+        'sha512: path-checksum',
+        'isAdminRightsRequired: false'
+      ].join('\n')
+    );
+
+    expect(latest.match(/^isAdminRightsRequired:/gm)).toEqual(['isAdminRightsRequired:']);
+    expect(latest.match(/^    isAdminRightsRequired:/gm)).toEqual(['    isAdminRightsRequired:']);
+    expect(latest).not.toContain('isAdminRightsRequired: false');
   });
 });
 

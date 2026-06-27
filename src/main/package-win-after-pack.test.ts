@@ -2,8 +2,9 @@ import { createRequire } from 'node:module';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
-const { createSigningArgs } = require('../../scripts/package-win-after-pack.cjs') as {
+const { createSigningArgs, nativeHelperNames } = require('../../scripts/package-win-after-pack.cjs') as {
   createSigningArgs: (filePath: string, options: { requireSigning: boolean }) => string[] | null;
+  nativeHelperNames: string[];
 };
 
 const originalEnv = { ...process.env };
@@ -79,6 +80,12 @@ describe('createSigningArgs', () => {
     expect(() => createSigningArgs('C:\\build\\Switchify PC.exe', { requireSigning: true })).toThrow(
       'Certum SimplySign signing requires SWITCHIFY_CERTUM_CERT_THUMBPRINT.'
     );
+  });
+});
+
+describe('native helper packaging', () => {
+  it('includes the update launcher helper in the signed helper list', () => {
+    expect(nativeHelperNames).toContain('SwitchifyUpdateLauncher.exe');
   });
 });
 

@@ -2,7 +2,10 @@ import { autoUpdater as defaultAutoUpdater } from 'electron-updater';
 import type { UpdateInfo as ElectronUpdateInfo, UpdateCheckResult } from 'electron-updater';
 import type { UpdateDownloadProgress, UpdateInfo, UpdateInstallResult, UpdateState } from '../../shared/update';
 import { createInitialUpdateState } from '../../shared/update';
-import { launchWindowsUpdateInstaller } from './update-installer-launcher';
+import { dirname, join, sep } from 'node:path';
+import { rm } from 'node:fs/promises';
+import { appendUpdateInstallDiagnostic, type UpdateInstallDiagnosticEvent } from './update-install-diagnostics';
+import { launchWindowsUpdateInstaller, type UpdateInstallerLaunchReason } from './update-installer-launcher';
 
 type ElectronDownloadProgress = {
   transferred?: number;
@@ -27,6 +30,8 @@ export type UpdateServiceOptions = {
   launchInstaller?: typeof launchWindowsUpdateInstaller;
   quitApp?: () => void;
   now?: () => Date;
+  diagnosticsFilePath?: string | null;
+  removeFile?: (path: string) => Promise<void>;
 };
 
 type UpdateOperation = 'idle' | 'checking' | 'downloading';
@@ -39,6 +44,8 @@ export class UpdateService {
   private readonly launchInstaller: typeof launchWindowsUpdateInstaller;
   private readonly quitApp: () => void;
   private readonly now: () => Date;
+  private readonly diagnosticsFilePath: string | null;
+  private readonly removeFile: (path: string) => Promise<void>;
   private state: UpdateState;
   private operation: UpdateOperation = 'idle';
   private checkingPromise: Promise<UpdateState> | null = null;
@@ -53,6 +60,8 @@ export class UpdateService {
     this.launchInstaller = options.launchInstaller ?? launchWindowsUpdateInstaller;
     this.quitApp = options.quitApp ?? (() => undefined);
     this.now = options.now ?? (() => new Date());
+    this.diagnosticsFilePath = options.diagnosticsFilePath ?? null;
+    this.removeFile = options.removeFile ?? ((path) => rm(path, { force: true }));
     this.state = createInitialUpdateState(options.currentVersion);
 
     this.autoUpdater.autoDownload = false;
@@ -150,6 +159,7 @@ export class UpdateService {
     }
 
     this.operation = 'downloading';
+    this.downloadedInstallerPath = null;
     this.state = {
       ...this.state,
       download: {
@@ -188,6 +198,7 @@ export class UpdateService {
   }
 
   async installDownloadedUpdate(): Promise<UpdateInstallResult> {
+    this.recordInstallDiagnostic('install_requested');
     const unsupportedReason = this.unsupportedReason();
     if (unsupportedReason) {
       return { ok: false, reason: unsupportedReason };
@@ -204,11 +215,18 @@ export class UpdateService {
 
     if (!result.ok) {
       console.error('Switchify update installer could not be started.', result.reason);
+      this.recordInstallDiagnostic(diagnosticEventForLaunchFailure(result.reason), result.reason);
       return { ok: false, reason: result.reason };
     }
 
+    this.recordInstallDiagnostic('installer_started');
+    void this.cleanDownloadedInstallerCache();
     this.quitApp();
     return { ok: true };
+  }
+
+  recordInstallCancelled(): void {
+    this.recordInstallDiagnostic('confirmation_cancelled');
   }
 
   private registerUpdaterEvents(): void {
@@ -227,6 +245,7 @@ export class UpdateService {
 
     this.autoUpdater.on('update-not-available', (rawInfo) => {
       const info = rawInfo as ElectronUpdateInfo;
+      this.downloadedInstallerPath = null;
       this.state = {
         ...this.state,
         info: updateInfo(this.state.info, info, {
@@ -307,11 +326,57 @@ export class UpdateService {
     if (this.platform !== 'win32') return 'not_supported';
     return null;
   }
+
+  private recordInstallDiagnostic(event: UpdateInstallDiagnosticEvent, reason?: string): void {
+    if (!this.diagnosticsFilePath) return;
+
+    appendUpdateInstallDiagnostic(this.diagnosticsFilePath, {
+      event,
+      at: this.now().toISOString(),
+      version: this.state.info.currentVersion,
+      ...(reason ? { reason } : {})
+    });
+  }
+
+  private async cleanDownloadedInstallerCache(): Promise<void> {
+    const installerPath = this.downloadedInstallerPath;
+    if (!installerPath) return;
+
+    try {
+      const pendingDir = dirname(installerPath);
+      if (!pendingDir.toLowerCase().endsWith(`${sep}pending`)) {
+        return;
+      }
+
+      await this.removeFile(installerPath);
+      await this.removeFile(join(pendingDir, 'update-info.json'));
+      await this.removeFile(join(dirname(pendingDir), 'installer.exe'));
+    } catch {
+      this.recordInstallDiagnostic('cache_cleanup_failed');
+    }
+  }
 }
 
 function firstInstallerPath(paths: string[]): string | null {
   return paths.find((path) => path.toLowerCase().endsWith('.exe')) ?? paths[0] ?? null;
 }
+
+function diagnosticEventForLaunchFailure(reason: UpdateInstallerLaunchReason): UpdateInstallDiagnosticEvent {
+  switch (reason) {
+    case 'installer_unavailable':
+      return 'installer_missing';
+    case 'update_launcher_unavailable':
+      return 'launcher_missing';
+    case 'uac_cancelled':
+      return 'uac_cancelled';
+    case 'installer_process_unavailable':
+      return 'installer_process_unavailable';
+    case 'installer_launch_failed':
+    case 'update_launcher_invalid_response':
+      return 'installer_launch_failed';
+  }
+}
+
 
 function updateInfo(
   previous: UpdateInfo,

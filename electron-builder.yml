@@ -32,6 +32,8 @@ extraResources:
     to: native/SwitchifyBluetoothTransport.exe
   - from: build/native/text-input-helper/win-x64/SwitchifyTextInput.exe
     to: native/SwitchifyTextInput.exe
+  - from: build/native/update-launcher-helper/win-x64/SwitchifyUpdateLauncher.exe
+    to: native/SwitchifyUpdateLauncher.exe
 
 win:
   icon: build/icon.ico

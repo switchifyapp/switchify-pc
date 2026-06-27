@@ -23,7 +23,8 @@ module.exports = async function signWindowsArtifacts(buildResult) {
 
   const installerArtifacts = artifacts.filter((artifactPath) => {
     const normalized = path.normalize(artifactPath);
-    return normalized.toLowerCase().endsWith('.exe') && !normalized.toLowerCase().includes(`${path.sep}win-unpacked${path.sep}`);
+    const lower = normalized.toLowerCase();
+    return lower.endsWith('.exe') && !lower.includes(`${path.sep}win-unpacked${path.sep}`) && !lower.endsWith('.__uninstaller.exe');
   });
 
   if (installerArtifacts.length === 0) {
@@ -68,11 +69,11 @@ function updateLatestYmlForSignedInstaller(installerPath) {
     return;
   }
 
-  const updated = content.replace(/^(\s*sha512:\s*).+$/gm, `$1${sha512}`);
-
-  if (updated === content) {
+  if (!/^(\s*sha512:\s*).+$/gm.test(content)) {
     throw new Error('latest.yml did not contain any sha512 entries to update.');
   }
+
+  const updated = ensureAdminRightsMetadata(content.replace(/^(\s*sha512:\s*).+$/gm, `$1${sha512}`));
 
   fs.writeFileSync(latestPath, updated);
   console.log(`Updated latest.yml sha512 for ${installerName}.`);
@@ -117,6 +118,84 @@ function referencesInstaller(content, installerName) {
   );
 }
 
+function ensureAdminRightsMetadata(content) {
+  let output = ensureTopLevelAdminRights(content);
+  output = ensureFileEntryAdminRights(output);
+  return output;
+}
+
+function ensureTopLevelAdminRights(content) {
+  if (/^isAdminRightsRequired:\s*(?:true|false)\s*$/m.test(content)) {
+    return content.replace(/^isAdminRightsRequired:\s*(?:true|false)\s*$/m, 'isAdminRightsRequired: true');
+  }
+
+  const releaseDateMatch = content.match(/^releaseDate:\s*.+$/m);
+  if (releaseDateMatch?.index !== undefined) {
+    const insertAt = releaseDateMatch.index;
+    return `${content.slice(0, insertAt)}isAdminRightsRequired: true\n${content.slice(insertAt)}`;
+  }
+
+  return `${content.replace(/\s*$/, '')}\nisAdminRightsRequired: true\n`;
+}
+
+function ensureFileEntryAdminRights(content) {
+  const lines = content.split(/\r?\n/);
+  const result = [];
+  let inFiles = false;
+  let inFirstFile = false;
+  let inserted = false;
+  let sawAdminLine = false;
+
+  for (const line of lines) {
+    if (line === 'files:') {
+      inFiles = true;
+      result.push(line);
+      continue;
+    }
+
+    if (inFiles && /^  -\s+url:/.test(line)) {
+      if (inFirstFile && !sawAdminLine && !inserted) {
+        result.push('    isAdminRightsRequired: true');
+        inserted = true;
+      }
+      inFirstFile = !inserted;
+      sawAdminLine = false;
+      result.push(line);
+      continue;
+    }
+
+    if (inFirstFile && /^    isAdminRightsRequired:\s*(?:true|false)\s*$/.test(line)) {
+      result.push('    isAdminRightsRequired: true');
+      sawAdminLine = true;
+      inserted = true;
+      inFirstFile = false;
+      continue;
+    }
+
+    if (inFirstFile && /^    [^ ].*:/.test(line)) {
+      result.push(line);
+      continue;
+    }
+
+    if (inFirstFile && (/^[^ ]/.test(line) || line === '')) {
+      if (!sawAdminLine && !inserted) {
+        result.push('    isAdminRightsRequired: true');
+        inserted = true;
+      }
+      inFirstFile = false;
+    }
+
+    result.push(line);
+  }
+
+  if (inFirstFile && !sawAdminLine && !inserted) {
+    result.push('    isAdminRightsRequired: true');
+  }
+
+  return result.join('\n');
+}
+
 module.exports.updateLatestYmlForSignedInstaller = updateLatestYmlForSignedInstaller;
 module.exports.updateLatestYmlForReferencedInstaller = updateLatestYmlForReferencedInstaller;
 module.exports.createSha512Base64 = createSha512Base64;
+module.exports.ensureAdminRightsMetadata = ensureAdminRightsMetadata;
