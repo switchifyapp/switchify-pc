@@ -131,6 +131,7 @@ describe('DesktopCommandExecutor', () => {
 
     await executor.execute(command('keyboard.key', { key: 'Enter' }));
     await executor.execute(command('keyboard.key', { key: 'F12' }));
+    await executor.execute(command('keyboard.key', { key: 'Meta' }));
     await executor.execute(command('keyboard.shortcut', { keys: ['Ctrl', 'C'] }));
     await executor.execute(command('keyboard.shortcut', { keys: ['Ctrl', 'F5'] }));
     await executor.execute(command('keyboard.typeText', { text: 'Hello' }));
@@ -142,6 +143,7 @@ describe('DesktopCommandExecutor', () => {
     expect(adapter.calls).toEqual([
       { method: 'pressKey', args: ['Enter'] },
       { method: 'pressKey', args: ['F12'] },
+      { method: 'pressKey', args: ['Meta'] },
       { method: 'pressShortcut', args: [['Ctrl', 'C']] },
       { method: 'pressShortcut', args: [['Ctrl', 'F5']] },
       { method: 'typeText', args: ['Hello'] },
@@ -150,7 +152,7 @@ describe('DesktopCommandExecutor', () => {
     ]);
     expect(overlay.events).toHaveLength(0);
     expect(overlay.activeCount).toBe(0);
-    expect(overlay.hideCount).toBe(8);
+    expect(overlay.hideCount).toBe(9);
   });
 
   it('executes non-movement no-response commands without coalescing', async () => {
@@ -200,6 +202,22 @@ describe('DesktopCommandExecutor', () => {
       { method: 'typeCharacter', args: ['H'] },
       { method: 'pressKey', args: ['Enter'] }
     ]);
+  });
+
+  it('streams Meta as a key before closing successfully', async () => {
+    const { adapter, executor } = createExecutor();
+
+    await expect(executor.execute(command('keyboard.textStream.open', { streamId: 'stream-1' }))).resolves.toEqual({
+      ok: true
+    });
+    await expect(
+      executor.execute(command('keyboard.textStream.key', { streamId: 'stream-1', seq: 0, key: 'Meta' }, { responseMode: 'none' }))
+    ).resolves.toEqual({ ok: true });
+    await expect(executor.execute(command('keyboard.textStream.close', { streamId: 'stream-1', expectedCount: 1 }))).resolves.toEqual({
+      ok: true
+    });
+
+    expect(adapter.calls).toEqual([{ method: 'pressKey', args: ['Meta'] }]);
   });
 
   it('streams ACKed text chunks before closing successfully', async () => {

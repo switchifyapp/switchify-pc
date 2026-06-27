@@ -27,6 +27,7 @@ export type KeyboardKey =
   | 'Escape'
   | 'Space'
   | 'Tab'
+  | 'Meta'
   | 'ArrowUp'
   | 'ArrowDown'
   | 'ArrowLeft'
@@ -279,6 +280,7 @@ const keyboardKeys = new Set<KeyboardKey>([
   'Escape',
   'Space',
   'Tab',
+  'Meta',
   'ArrowUp',
   'ArrowDown',
   'ArrowLeft',

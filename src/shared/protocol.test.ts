@@ -32,6 +32,7 @@ describe('protocol request validation', () => {
       { type: 'mouse.dragStart', payload: { button: 'left' } },
       { type: 'mouse.dragEnd', payload: { button: 'left' } },
       { type: 'keyboard.key', payload: { key: 'Enter' } },
+      { type: 'keyboard.key', payload: { key: 'Meta' } },
       { type: 'keyboard.shortcut', payload: { keys: ['Ctrl', 'C'] } },
       { type: 'keyboard.key', payload: { key: 'F1' } },
       { type: 'keyboard.key', payload: { key: 'F12' } },
@@ -41,6 +42,7 @@ describe('protocol request validation', () => {
       { type: 'keyboard.textStream.char', payload: { streamId: 'android-stream-1', seq: 0, text: 'H' } },
       { type: 'keyboard.textStream.chunk', payload: { streamId: 'android-stream-1', seq: 0, text: 'Hello' } },
       { type: 'keyboard.textStream.key', payload: { streamId: 'android-stream-1', seq: 1, key: 'Enter' } },
+      { type: 'keyboard.textStream.key', payload: { streamId: 'android-stream-1', seq: 2, key: 'Meta' } },
       { type: 'keyboard.textStream.close', payload: { streamId: 'android-stream-1', expectedCount: 2 } },
       { type: 'media.control', payload: { action: 'playPause' } },
       { type: 'window.control', payload: { action: 'switchNext' } },
@@ -63,11 +65,11 @@ describe('protocol request validation', () => {
       'mouse.scroll': { dx: 0, dy: -3 },
       'mouse.dragStart': { button: 'left' },
       'mouse.dragEnd': { button: 'left' },
-      'keyboard.key': { key: 'Enter' },
+      'keyboard.key': { key: 'Meta' },
       'keyboard.shortcut': { keys: ['Ctrl', 'C'] },
       'keyboard.typeText': { text: 'Hello' },
       'keyboard.textStream.char': { streamId: 'android-stream-1', seq: 0, text: 'H' },
-      'keyboard.textStream.key': { streamId: 'android-stream-1', seq: 1, key: 'Enter' },
+      'keyboard.textStream.key': { streamId: 'android-stream-1', seq: 1, key: 'Meta' },
       'media.control': { action: 'playPause' },
       'window.control': { action: 'switchNext' }
     };
@@ -112,6 +114,20 @@ describe('protocol request validation', () => {
         responseMode: 'eventually'
       })
     ).toMatchObject({ ok: false, error: 'invalid_payload' });
+  });
+
+  it('accepts Meta as a keyboard key', () => {
+    expect(validateProtocolRequest({ ...baseCommand, type: 'keyboard.key', payload: { key: 'Meta' } })).toMatchObject({
+      ok: true
+    });
+
+    expect(
+      validateProtocolRequest({
+        ...baseCommand,
+        type: 'keyboard.textStream.key',
+        payload: { streamId: 'stream-1', seq: 0, key: 'Meta' }
+      })
+    ).toMatchObject({ ok: true });
   });
 
   it('accepts pairing approval requests without command auth fields', () => {
