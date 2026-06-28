@@ -54,7 +54,7 @@ describe('appendUpdateInstallDiagnostic', () => {
     const filePath = tempFile();
 
     appendUpdateInstallDiagnostic(filePath, {
-      event: 'uac_cancelled',
+      event: 'installer_launch_failed',
       at: '2026-06-27T12:00:00.000Z',
       version: '0.1.18'
     });

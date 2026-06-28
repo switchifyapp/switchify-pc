@@ -22,11 +22,7 @@ const nativeHelpers = [
     'Bluetooth transport helper',
     resolveProjectPath('dist', 'win-unpacked', 'resources', 'native', 'SwitchifyBluetoothTransport.exe')
   ],
-  ['text input helper', resolveProjectPath('dist', 'win-unpacked', 'resources', 'native', 'SwitchifyTextInput.exe')],
-  [
-    'update launcher helper',
-    resolveProjectPath('dist', 'win-unpacked', 'resources', 'native', 'SwitchifyUpdateLauncher.exe')
-  ]
+  ['text input helper', resolveProjectPath('dist', 'win-unpacked', 'resources', 'native', 'SwitchifyTextInput.exe')]
 ];
 
 for (const [name, helperPath] of nativeHelpers) {

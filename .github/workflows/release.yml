@@ -88,9 +88,6 @@ jobs:
       - name: Smoke native cursor overlay helper
         run: npm run native:smoke-overlay
 
-      - name: Smoke native update launcher helper
-        run: npm run native:smoke-update-launcher
-
       - name: Package Windows installer
         run: npm run package:win
 

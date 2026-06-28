@@ -52,16 +52,8 @@ export function updateInstallMessage(reason: UpdateInstallFailureReason | null):
       return 'Updates are only supported on Windows.';
     case 'installer_unavailable':
       return 'The downloaded installer could not be found. Download the update again.';
-    case 'update_launcher_unavailable':
-      return 'The update launcher is missing. Reinstall Switchify PC from the latest installer.';
-    case 'uac_cancelled':
-      return 'The update was cancelled before the installer could start.';
     case 'installer_launch_failed':
-      return 'The update installer could not be started. Download the update again or run the installer manually.';
-    case 'installer_process_unavailable':
-      return 'Windows did not confirm that the installer started. Switchify PC has been kept open.';
-    case 'update_launcher_invalid_response':
-      return 'The update launcher returned an unexpected response. Switchify PC has been kept open.';
+      return 'The update installer could not be opened. Download the update again or run the installer manually.';
   }
 }
 

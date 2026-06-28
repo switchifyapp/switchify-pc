@@ -40,11 +40,7 @@ export type UpdateInstallFailureReason =
   | 'not_supported'
   | 'cancelled'
   | 'installer_unavailable'
-  | 'update_launcher_unavailable'
-  | 'uac_cancelled'
-  | 'installer_launch_failed'
-  | 'installer_process_unavailable'
-  | 'update_launcher_invalid_response';
+  | 'installer_launch_failed';
 
 export type UpdateInstallResult = { ok: true } | { ok: false; reason: UpdateInstallFailureReason };
 

@@ -84,8 +84,12 @@ describe('createSigningArgs', () => {
 });
 
 describe('native helper packaging', () => {
-  it('includes the update launcher helper in the signed helper list', () => {
-    expect(nativeHelperNames).toContain('SwitchifyUpdateLauncher.exe');
+  it('includes the packaged native helpers in the signed helper list', () => {
+    expect(nativeHelperNames).toEqual([
+      'SwitchifyCursorOverlay.exe',
+      'SwitchifyBluetoothTransport.exe',
+      'SwitchifyTextInput.exe'
+    ]);
   });
 });
 

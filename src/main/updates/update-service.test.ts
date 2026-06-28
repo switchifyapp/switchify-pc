@@ -286,10 +286,9 @@ describe('UpdateService', () => {
     expect(updater.quitAndInstall).not.toHaveBeenCalled();
   });
 
-  it('launches the downloaded installer and quits through the app cleanup path', async () => {
+  it('opens the downloaded installer and keeps the app running', async () => {
     const updater = new FakeUpdater();
-    const launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({ ok: true, pid: 1234 }));
-    const quitApp = vi.fn();
+    const launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({ ok: true }));
     updater.checkForUpdates.mockImplementation(async () => {
       updater.emit('update-available', updateInfo({ version: '0.1.1' }));
       return null;
@@ -298,22 +297,20 @@ describe('UpdateService', () => {
       updater.emit('update-downloaded', updateInfo({ version: '0.1.1' }));
       return ['C:\\Users\\owen\\AppData\\Local\\switchify-pc-updater\\pending\\Switchify-PC-Setup-0.1.1-x64.exe'];
     });
-    const service = createService({ updater, launchInstaller, quitApp });
+    const service = createService({ updater, launchInstaller });
     await service.checkForUpdates();
     await service.downloadUpdate();
 
     await expect(service.installDownloadedUpdate()).resolves.toEqual({ ok: true });
     expect(launchInstaller).toHaveBeenCalledWith({
-      installerPath: 'C:\\Users\\owen\\AppData\\Local\\switchify-pc-updater\\pending\\Switchify-PC-Setup-0.1.1-x64.exe',
-      resourcesPath: 'C:\\Program Files\\Switchify PC\\resources'
+      installerPath: 'C:\\Users\\owen\\AppData\\Local\\switchify-pc-updater\\pending\\Switchify-PC-Setup-0.1.1-x64.exe'
     });
-    expect(quitApp).toHaveBeenCalledTimes(1);
     expect(updater.quitAndInstall).not.toHaveBeenCalled();
   });
 
   it('uses the first downloaded path when no exe path is returned', async () => {
     const updater = new FakeUpdater();
-    const launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({ ok: true, pid: 1234 }));
+    const launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({ ok: true }));
     updater.checkForUpdates.mockImplementation(async () => {
       updater.emit('update-available', updateInfo({ version: '0.1.1' }));
       return null;
@@ -329,8 +326,7 @@ describe('UpdateService', () => {
     await service.installDownloadedUpdate();
 
     expect(launchInstaller).toHaveBeenCalledWith({
-      installerPath: 'C:\\cache\\download.bin',
-      resourcesPath: 'C:\\Program Files\\Switchify PC\\resources'
+      installerPath: 'C:\\cache\\download.bin'
     });
   });
 
@@ -340,7 +336,6 @@ describe('UpdateService', () => {
       ok: false,
       reason: 'installer_unavailable'
     }));
-    const quitApp = vi.fn();
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     updater.checkForUpdates.mockImplementation(async () => {
       updater.emit('update-available', updateInfo({ version: '0.1.1' }));
@@ -350,26 +345,23 @@ describe('UpdateService', () => {
       updater.emit('update-downloaded', updateInfo({ version: '0.1.1' }));
       return [];
     });
-    const service = createService({ updater, launchInstaller, quitApp });
+    const service = createService({ updater, launchInstaller });
     await service.checkForUpdates();
     await service.downloadUpdate();
 
     await expect(service.installDownloadedUpdate()).resolves.toEqual({ ok: false, reason: 'installer_unavailable' });
     expect(launchInstaller).toHaveBeenCalledWith({
-      installerPath: null,
-      resourcesPath: 'C:\\Program Files\\Switchify PC\\resources'
+      installerPath: null
     });
-    expect(quitApp).not.toHaveBeenCalled();
     error.mockRestore();
   });
 
-  it('returns launcher failures and does not quit the app', async () => {
+  it('returns installer_launch_failed and keeps running when open fails', async () => {
     const updater = new FakeUpdater();
     const launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({
       ok: false,
       reason: 'installer_launch_failed'
     }));
-    const quitApp = vi.fn();
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     updater.checkForUpdates.mockImplementation(async () => {
       updater.emit('update-available', updateInfo({ version: '0.1.1' }));
@@ -379,65 +371,11 @@ describe('UpdateService', () => {
       updater.emit('update-downloaded', updateInfo({ version: '0.1.1' }));
       return ['C:\\cache\\installer.exe'];
     });
-    const service = createService({ updater, launchInstaller, quitApp });
+    const service = createService({ updater, launchInstaller });
     await service.checkForUpdates();
     await service.downloadUpdate();
 
     await expect(service.installDownloadedUpdate()).resolves.toEqual({ ok: false, reason: 'installer_launch_failed' });
-    expect(quitApp).not.toHaveBeenCalled();
-    error.mockRestore();
-  });
-
-  it('returns update launcher unavailable and does not quit the app', async () => {
-    const updater = new FakeUpdater();
-    const launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({
-      ok: false,
-      reason: 'update_launcher_unavailable'
-    }));
-    const quitApp = vi.fn();
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    updater.checkForUpdates.mockImplementation(async () => {
-      updater.emit('update-available', updateInfo({ version: '0.1.1' }));
-      return null;
-    });
-    updater.downloadUpdate.mockImplementation(async () => {
-      updater.emit('update-downloaded', updateInfo({ version: '0.1.1' }));
-      return ['C:\\cache\\installer.exe'];
-    });
-    const service = createService({ updater, launchInstaller, quitApp });
-    await service.checkForUpdates();
-    await service.downloadUpdate();
-
-    await expect(service.installDownloadedUpdate()).resolves.toEqual({
-      ok: false,
-      reason: 'update_launcher_unavailable'
-    });
-    expect(quitApp).not.toHaveBeenCalled();
-    error.mockRestore();
-  });
-
-  it('returns UAC cancellation and does not quit the app', async () => {
-    const updater = new FakeUpdater();
-    const launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({
-      ok: false,
-      reason: 'uac_cancelled'
-    }));
-    const quitApp = vi.fn();
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    updater.checkForUpdates.mockImplementation(async () => {
-      updater.emit('update-available', updateInfo({ version: '0.1.1' }));
-      return null;
-    });
-    updater.downloadUpdate.mockImplementation(async () => {
-      updater.emit('update-downloaded', updateInfo({ version: '0.1.1' }));
-      return ['C:\\cache\\installer.exe'];
-    });
-    const service = createService({ updater, launchInstaller, quitApp });
-    await service.checkForUpdates();
-    await service.downloadUpdate();
-
-    await expect(service.installDownloadedUpdate()).resolves.toEqual({ ok: false, reason: 'uac_cancelled' });
-    expect(quitApp).not.toHaveBeenCalled();
     error.mockRestore();
   });
 
@@ -447,7 +385,7 @@ describe('UpdateService', () => {
     const updater = new FakeUpdater();
     const launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({
       ok: false,
-      reason: 'uac_cancelled'
+      reason: 'installer_launch_failed'
     }));
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     updater.checkForUpdates.mockImplementation(async () => {
@@ -466,38 +404,10 @@ describe('UpdateService', () => {
 
     const log = readFileSync(diagnosticsFilePath, 'utf8');
     expect(log).toContain('"event":"install_requested"');
-    expect(log).toContain('"event":"uac_cancelled"');
+    expect(log).toContain('"event":"installer_launch_failed"');
     expect(log).not.toContain('C:\\cache\\installer.exe');
     error.mockRestore();
     rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it('cleans known updater cache files after successful launcher handoff', async () => {
-    const updater = new FakeUpdater();
-    const removeFile = vi.fn(async () => undefined);
-    const launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({ ok: true, pid: 1234 }));
-    updater.checkForUpdates.mockImplementation(async () => {
-      updater.emit('update-available', updateInfo({ version: '0.1.1' }));
-      return null;
-    });
-    updater.downloadUpdate.mockImplementation(async () => {
-      updater.emit('update-downloaded', updateInfo({ version: '0.1.1' }));
-      return ['C:\\Users\\owen\\AppData\\Local\\switchify-pc-updater\\pending\\Switchify-PC-Setup-0.1.1-x64.exe'];
-    });
-    const service = createService({ updater, launchInstaller, removeFile });
-    await service.checkForUpdates();
-    await service.downloadUpdate();
-
-    await service.installDownloadedUpdate();
-    await Promise.resolve();
-
-    expect(removeFile).toHaveBeenCalledWith(
-      'C:\\Users\\owen\\AppData\\Local\\switchify-pc-updater\\pending\\Switchify-PC-Setup-0.1.1-x64.exe'
-    );
-    expect(removeFile).toHaveBeenCalledWith(
-      'C:\\Users\\owen\\AppData\\Local\\switchify-pc-updater\\pending\\update-info.json'
-    );
-    expect(removeFile).toHaveBeenCalledWith('C:\\Users\\owen\\AppData\\Local\\switchify-pc-updater\\installer.exe');
   });
 
   it('maps updater errors during checks to check_failed', async () => {
@@ -536,19 +446,15 @@ describe('UpdateService', () => {
 
 function createService({
   updater = new FakeUpdater(),
-  launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({ ok: true, pid: 1234 })),
-  quitApp = vi.fn(),
+  launchInstaller = vi.fn(async (): Promise<UpdateInstallerLaunchResult> => ({ ok: true })),
   diagnosticsFilePath = null,
-  removeFile = vi.fn(async () => undefined),
   onStateChanged = vi.fn(),
   isPackaged = true,
   platform = 'win32'
 }: {
   updater?: FakeUpdater;
   launchInstaller?: typeof import('./update-installer-launcher').launchWindowsUpdateInstaller;
-  quitApp?: () => void;
   diagnosticsFilePath?: string | null;
-  removeFile?: (path: string) => Promise<void>;
   onStateChanged?: (state: import('../../shared/update').UpdateState) => void;
   isPackaged?: boolean;
   platform?: NodeJS.Platform;
@@ -557,12 +463,9 @@ function createService({
     currentVersion: '0.1.0',
     isPackaged,
     platform,
-    resourcesPath: 'C:\\Program Files\\Switchify PC\\resources',
     autoUpdater: updater,
     launchInstaller,
-    quitApp,
     diagnosticsFilePath,
-    removeFile,
     onStateChanged,
     now: () => new Date('2026-06-12T12:00:00.000Z')
   });
