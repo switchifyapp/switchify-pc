@@ -17,7 +17,7 @@ export function cloneControlStatus(status: PcControlStatus): PcControlStatus {
   return {
     ...status,
     connectedClients: status.connectedClients.map((client) => ({ ...client })),
-    bluetooth: { ...status.bluetooth }
+    bluetooth: { ...status.bluetooth, system: { ...status.bluetooth.system } }
   };
 }
 

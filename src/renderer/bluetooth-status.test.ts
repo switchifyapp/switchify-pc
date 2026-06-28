@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { BluetoothStatus } from '../shared/bluetooth-status';
+import { DEFAULT_BLUETOOTH_STATUS, type BluetoothStatus } from '../shared/bluetooth-status';
 import {
   formatBluetoothDiagnosticEvent,
   formatBluetoothDisconnectReason,
-  formatBluetoothStatus
+  formatBluetoothStatus,
+  formatBluetoothSystemCapabilities,
+  formatBluetoothSystemRadioState
 } from './bluetooth-status';
 
 describe('formatBluetoothStatus', () => {
@@ -19,7 +21,66 @@ describe('formatBluetoothStatus', () => {
     expect(formatBluetoothStatus(bluetoothStatus({ status: 'unavailable', reason: 'adapter_off' }))).toBe('Bluetooth is off.');
   });
 
+  it('formats live system radio state', () => {
+    expect(formatBluetoothSystemRadioState(bluetoothStatus())).toBe('Bluetooth radio on.');
+    expect(
+      formatBluetoothSystemRadioState(
+        bluetoothStatus({
+          system: {
+            adapterPresent: true,
+            radioState: 'off',
+            isLowEnergySupported: true,
+            isPeripheralRoleSupported: true,
+            lastCheckedAt: 1,
+            lastChangedAt: 1
+          }
+        })
+      )
+    ).toBe('Bluetooth radio off.');
+    expect(
+      formatBluetoothSystemRadioState(
+        bluetoothStatus({
+          system: {
+            adapterPresent: true,
+            radioState: 'disabled',
+            isLowEnergySupported: true,
+            isPeripheralRoleSupported: true,
+            lastCheckedAt: 1,
+            lastChangedAt: 1
+          }
+        })
+      )
+    ).toBe('Bluetooth radio disabled.');
+    expect(formatBluetoothSystemRadioState(bluetoothStatus({ system: DEFAULT_BLUETOOTH_STATUS.system }))).toBe(
+      'Bluetooth adapter not found.'
+    );
+  });
+
+  it('formats live Bluetooth capabilities', () => {
+    expect(formatBluetoothSystemCapabilities(bluetoothStatus())).toBe('Bluetooth LE peripheral supported.');
+    expect(
+      formatBluetoothSystemCapabilities(
+        bluetoothStatus({
+          system: {
+            adapterPresent: true,
+            radioState: 'on',
+            isLowEnergySupported: true,
+            isPeripheralRoleSupported: false,
+            lastCheckedAt: 1,
+            lastChangedAt: 1
+          }
+        })
+      )
+    ).toBe('Bluetooth LE peripheral not supported.');
+    expect(formatBluetoothSystemCapabilities(bluetoothStatus({ system: DEFAULT_BLUETOOTH_STATUS.system }))).toBe(
+      'Bluetooth capabilities unknown.'
+    );
+  });
+
   it('formats safe diagnostic events', () => {
+    expect(formatBluetoothDiagnosticEvent('advertising_restarted')).toBe('Advertising restarted.');
+    expect(formatBluetoothDiagnosticEvent('system_radio_on')).toBe('Bluetooth turned on.');
+    expect(formatBluetoothDiagnosticEvent('system_radio_off')).toBe('Bluetooth turned off.');
     expect(formatBluetoothDiagnosticEvent('write_received')).toBe('Message received.');
     expect(formatBluetoothDiagnosticEvent('unsubscribed')).toBe('Device unsubscribed.');
     expect(formatBluetoothDiagnosticEvent('unsubscribe_grace_started')).toBe('Waiting for Bluetooth reconnect.');
@@ -31,6 +92,7 @@ describe('formatBluetoothStatus', () => {
     expect(formatBluetoothDisconnectReason('notification_unsubscribed')).toBe('Bluetooth connection lost.');
     expect(formatBluetoothDisconnectReason('client_requested')).toBe('Android device disconnected.');
     expect(formatBluetoothDisconnectReason('pc_requested')).toBe('Disconnected from this PC.');
+    expect(formatBluetoothDisconnectReason('adapter_off')).toBe('Bluetooth was turned off.');
     expect(formatBluetoothDisconnectReason(null)).toBe('Not recorded.');
   });
 
@@ -46,15 +108,15 @@ describe('formatBluetoothStatus', () => {
 
 function bluetoothStatus(overrides: Partial<BluetoothStatus> = {}): BluetoothStatus {
   return {
+    ...DEFAULT_BLUETOOTH_STATUS,
     status: 'ready',
-    reason: null,
-    connectedClientCount: 0,
-    lastError: null,
-    lastEvent: null,
-    lastEventAt: null,
-    recentEvents: [],
-    lastDisconnectReason: null,
-    lastDisconnectAt: null,
+    system: {
+      ...DEFAULT_BLUETOOTH_STATUS.system,
+      adapterPresent: true,
+      radioState: 'on',
+      isLowEnergySupported: true,
+      isPeripheralRoleSupported: true
+    },
     ...overrides
   };
 }

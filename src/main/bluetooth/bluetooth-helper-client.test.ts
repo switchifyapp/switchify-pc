@@ -81,18 +81,115 @@ describe('BluetoothHelperClient', () => {
       desktopId: 'desktop-1'
     });
     helper.stdout.write(`${JSON.stringify({ type: 'diagnostic', event: 'subscribed' })}\n`);
+    helper.stdout.write(`${JSON.stringify({ type: 'diagnostic', event: 'system_radio_on' })}\n`);
+    helper.stdout.write(`${JSON.stringify({ type: 'diagnostic', event: 'system_radio_off' })}\n`);
+    helper.stdout.write(`${JSON.stringify({ type: 'diagnostic', event: 'advertising_restarted' })}\n`);
     helper.stdout.write(`${JSON.stringify({ type: 'diagnostic', event: 'unsubscribed' })}\n`);
     helper.stdout.write(`${JSON.stringify({ type: 'diagnostic', event: 'unsubscribe_grace_timed_out' })}\n`);
     helper.stdout.write(`${JSON.stringify({ type: 'disconnected', connectionId: 'ble', reason: 'client_requested' })}\n`);
     helper.stdout.write(`${JSON.stringify({ type: 'disconnected', connectionId: 'ble', reason: 'notification_unsubscribed' })}\n`);
+    helper.stdout.write(`${JSON.stringify({ type: 'disconnected', connectionId: 'ble', reason: 'adapter_off' })}\n`);
 
     expect(events).toEqual([
       { type: 'diagnostic', event: 'subscribed' },
+      { type: 'diagnostic', event: 'system_radio_on' },
+      { type: 'diagnostic', event: 'system_radio_off' },
+      { type: 'diagnostic', event: 'advertising_restarted' },
       { type: 'diagnostic', event: 'unsubscribed' },
       { type: 'diagnostic', event: 'unsubscribe_grace_timed_out' },
       { type: 'disconnected', connectionId: 'ble', reason: 'client_requested' },
-      { type: 'disconnected', connectionId: 'ble', reason: 'notification_unsubscribed' }
+      { type: 'disconnected', connectionId: 'ble', reason: 'notification_unsubscribed' },
+      { type: 'disconnected', connectionId: 'ble', reason: 'adapter_off' }
     ]);
+  });
+
+  it('parses live system Bluetooth status events', () => {
+    const helper = createFakeProcess();
+    const events: BluetoothHelperEvent[] = [];
+    const client = new BluetoothHelperClient({
+      helperPath: 'package.json',
+      spawnProcess: () => helper.process,
+      onEvent: (event) => events.push(event)
+    });
+
+    client.start({
+      type: 'start',
+      serviceUuid: 'service',
+      rxCharacteristicUuid: 'rx',
+      txCharacteristicUuid: 'tx',
+      statusCharacteristicUuid: 'status',
+      displayName: 'Switchify PC',
+      desktopId: 'desktop-1'
+    });
+    helper.stdout.write(
+      `${JSON.stringify({
+        type: 'systemStatus',
+        adapterPresent: true,
+        radioState: 'on',
+        isLowEnergySupported: true,
+        isPeripheralRoleSupported: true,
+        deviceId: 'not-forwarded'
+      })}\n`
+    );
+    helper.stdout.write(
+      `${JSON.stringify({
+        type: 'systemStatus',
+        adapterPresent: false,
+        radioState: 'unknown',
+        isLowEnergySupported: null,
+        isPeripheralRoleSupported: null
+      })}\n`
+    );
+
+    expect(events).toEqual([
+      {
+        type: 'systemStatus',
+        adapterPresent: true,
+        radioState: 'on',
+        isLowEnergySupported: true,
+        isPeripheralRoleSupported: true
+      },
+      {
+        type: 'systemStatus',
+        adapterPresent: false,
+        radioState: 'unknown',
+        isLowEnergySupported: null,
+        isPeripheralRoleSupported: null
+      }
+    ]);
+  });
+
+  it('treats malformed system Bluetooth status as safe helper failure', () => {
+    const helper = createFakeProcess();
+    const failures: string[] = [];
+    const client = new BluetoothHelperClient({
+      helperPath: 'package.json',
+      spawnProcess: () => helper.process,
+      onEvent: vi.fn(),
+      onFailure: (message) => failures.push(message)
+    });
+
+    client.start({
+      type: 'start',
+      serviceUuid: 'service',
+      rxCharacteristicUuid: 'rx',
+      txCharacteristicUuid: 'tx',
+      statusCharacteristicUuid: 'status',
+      displayName: 'Switchify PC',
+      desktopId: 'desktop-1'
+    });
+    helper.stdout.write(
+      `${JSON.stringify({
+        type: 'systemStatus',
+        adapterPresent: true,
+        radioState: 'pairing-token',
+        isLowEnergySupported: true,
+        isPeripheralRoleSupported: true
+      })}\n`
+    );
+
+    expect(failures).toEqual(['Bluetooth helper returned malformed status output.']);
+    expect(helper.kill).toHaveBeenCalledTimes(1);
   });
 
   it('treats malformed diagnostic events as safe helper failure', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { BluetoothStatus } from '../shared/bluetooth-status';
+import { DEFAULT_BLUETOOTH_STATUS, type BluetoothStatus } from '../shared/bluetooth-status';
 import { bluetoothPrimaryCopy } from './bluetooth-primary';
 
 describe('bluetoothPrimaryCopy', () => {
@@ -20,7 +20,7 @@ describe('bluetoothPrimaryCopy', () => {
       bluetoothPrimaryCopy('ready-to-pair', bluetoothStatus({ status: 'unavailable', reason: 'adapter_off' }))
     ).toMatchObject({
       title: 'Bluetooth needs attention',
-      body: 'Turn on Bluetooth on this PC, then refresh.'
+      body: 'Turn on Bluetooth in Windows. Switchify PC will update when it is available.'
     });
   });
 
@@ -29,7 +29,53 @@ describe('bluetoothPrimaryCopy', () => {
       bluetoothPrimaryCopy('server-error', bluetoothStatus({ status: 'unavailable', reason: 'adapter_off' }))
     ).toMatchObject({
       title: 'Bluetooth needs attention',
-      body: 'Turn on Bluetooth on this PC, then refresh.'
+      body: 'Turn on Bluetooth in Windows. Switchify PC will update when it is available.'
+    });
+  });
+
+  it('formats live radio off state with automatic recovery copy', () => {
+    expect(
+      bluetoothPrimaryCopy(
+        'ready-to-pair',
+        bluetoothStatus({
+          status: 'unavailable',
+          reason: 'adapter_off',
+          system: {
+            adapterPresent: true,
+            radioState: 'off',
+            isLowEnergySupported: true,
+            isPeripheralRoleSupported: true,
+            lastCheckedAt: 1,
+            lastChangedAt: 1
+          }
+        })
+      )
+    ).toEqual({
+      title: 'Bluetooth is off',
+      body: 'Turn on Bluetooth in Windows. Switchify PC will reconnect automatically.',
+      tone: 'error'
+    });
+  });
+
+  it('formats restarting state when the radio is on', () => {
+    expect(
+      bluetoothPrimaryCopy(
+        'starting',
+        bluetoothStatus({
+          status: 'starting',
+          system: {
+            adapterPresent: true,
+            radioState: 'on',
+            isLowEnergySupported: true,
+            isPeripheralRoleSupported: true,
+            lastCheckedAt: 1,
+            lastChangedAt: 1
+          }
+        })
+      )
+    ).toMatchObject({
+      title: 'Getting Bluetooth ready...',
+      body: 'Switchify PC is restarting nearby device connection.'
     });
   });
 
@@ -61,15 +107,15 @@ describe('bluetoothPrimaryCopy', () => {
 
 function bluetoothStatus(overrides: Partial<BluetoothStatus> = {}): BluetoothStatus {
   return {
+    ...DEFAULT_BLUETOOTH_STATUS,
     status: 'ready',
-    reason: null,
-    connectedClientCount: 0,
-    lastError: null,
-    lastEvent: null,
-    lastEventAt: null,
-    recentEvents: [],
-    lastDisconnectReason: null,
-    lastDisconnectAt: null,
+    system: {
+      ...DEFAULT_BLUETOOTH_STATUS.system,
+      adapterPresent: true,
+      radioState: 'on',
+      isLowEnergySupported: true,
+      isPeripheralRoleSupported: true
+    },
     ...overrides
   };
 }

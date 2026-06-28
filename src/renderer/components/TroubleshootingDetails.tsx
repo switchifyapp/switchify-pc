@@ -4,7 +4,9 @@ import type { PcControlStatus } from '../../shared/server-status';
 import {
   formatBluetoothDiagnosticEvent,
   formatBluetoothDisconnectReason,
-  formatBluetoothStatus
+  formatBluetoothStatus,
+  formatBluetoothSystemCapabilities,
+  formatBluetoothSystemRadioState
 } from '../bluetooth-status';
 import { formatTimestamp } from '../format';
 import { DetailGrid, DetailItem, TroubleshootingSection } from './DetailGrid';
@@ -27,6 +29,16 @@ export function TroubleshootingDetails({
           <DetailGrid>
             <DetailItem label="Control status" value={serverStatus?.state ?? 'Unknown'} />
             <DetailItem label="Bluetooth" value={formatBluetoothStatus(serverStatus?.bluetooth)} />
+            <DetailItem label="System Bluetooth" value={formatBluetoothSystemRadioState(serverStatus?.bluetooth)} />
+            <DetailItem label="Bluetooth capabilities" value={formatBluetoothSystemCapabilities(serverStatus?.bluetooth)} />
+            <DetailItem
+              label="Bluetooth last checked"
+              value={formatTimestamp(serverStatus?.bluetooth.system.lastCheckedAt ?? null)}
+            />
+            <DetailItem
+              label="Bluetooth last changed"
+              value={formatTimestamp(serverStatus?.bluetooth.system.lastChangedAt ?? null)}
+            />
             <DetailItem label="Last Bluetooth event" value={formatBluetoothEvent(serverStatus)} />
             <DetailItem label="Recent Bluetooth events" value={formatBluetoothEvents(serverStatus)} />
             <DetailItem label="Last Bluetooth disconnect" value={formatBluetoothDisconnect(serverStatus)} />

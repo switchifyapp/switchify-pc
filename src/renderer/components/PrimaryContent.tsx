@@ -84,6 +84,9 @@ function BluetoothState({
 
 function bluetoothStatusLabel(status: BluetoothStatus | null): string {
   if (!status) return 'Bluetooth status unknown.';
+  if (!status.system.adapterPresent) return 'Bluetooth adapter not found.';
+  if (status.system.radioState === 'off') return 'Bluetooth radio off.';
+  if (status.system.radioState === 'disabled') return 'Bluetooth radio disabled.';
   if (status.status === 'ready') return 'Bluetooth ready.';
   if (status.status === 'connected') return 'Bluetooth device connected.';
   if (status.status === 'starting') return 'Starting Bluetooth...';

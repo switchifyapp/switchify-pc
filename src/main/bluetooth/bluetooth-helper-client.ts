@@ -4,6 +4,7 @@ import { validateBluetoothFrame, type BluetoothFrame } from '../../shared/blueto
 import type {
   BluetoothDiagnosticEvent,
   BluetoothDisconnectReason,
+  BluetoothSystemRadioState,
   BluetoothUnavailableReason
 } from '../../shared/bluetooth-status';
 import type { BluetoothHelperCommand, BluetoothHelperEvent } from './helper-protocol';
@@ -166,6 +167,16 @@ function parseHelperEvent(value: unknown): BluetoothHelperEvent | null {
         : null;
     case 'diagnostic':
       return isDiagnosticEvent(value.event) ? { type: 'diagnostic', event: value.event } : null;
+    case 'systemStatus':
+      return isSystemStatusEvent(value)
+        ? {
+            type: 'systemStatus',
+            adapterPresent: value.adapterPresent,
+            radioState: value.radioState,
+            isLowEnergySupported: value.isLowEnergySupported,
+            isPeripheralRoleSupported: value.isPeripheralRoleSupported
+          }
+        : null;
     case 'error':
       return typeof value.reason === 'string' ? { type: 'error', reason: value.reason } : null;
     default:
@@ -193,13 +204,17 @@ function isDisconnectReason(value: unknown): value is Exclude<BluetoothDisconnec
     value === 'client_requested' ||
     value === 'pc_requested' ||
     value === 'helper_stopped' ||
-    value === 'helper_error'
+    value === 'helper_error' ||
+    value === 'adapter_off'
   );
 }
 
 function isDiagnosticEvent(value: unknown): value is Exclude<BluetoothDiagnosticEvent, null> {
   return (
     value === 'advertising_started' ||
+    value === 'advertising_restarted' ||
+    value === 'system_radio_on' ||
+    value === 'system_radio_off' ||
     value === 'subscribed' ||
     value === 'unsubscribed' ||
     value === 'unsubscribe_grace_started' ||
@@ -207,6 +222,29 @@ function isDiagnosticEvent(value: unknown): value is Exclude<BluetoothDiagnostic
     value === 'unsubscribe_grace_timed_out' ||
     value === 'write_received'
   );
+}
+
+function isSystemStatusEvent(value: Record<string, unknown>): value is {
+  type: 'systemStatus';
+  adapterPresent: boolean;
+  radioState: BluetoothSystemRadioState;
+  isLowEnergySupported: boolean | null;
+  isPeripheralRoleSupported: boolean | null;
+} {
+  return (
+    typeof value.adapterPresent === 'boolean' &&
+    isBluetoothSystemRadioState(value.radioState) &&
+    isNullableBoolean(value.isLowEnergySupported) &&
+    isNullableBoolean(value.isPeripheralRoleSupported)
+  );
+}
+
+function isBluetoothSystemRadioState(value: unknown): value is BluetoothSystemRadioState {
+  return value === 'on' || value === 'off' || value === 'disabled' || value === 'unknown';
+}
+
+function isNullableBoolean(value: unknown): value is boolean | null {
+  return typeof value === 'boolean' || value === null;
 }
 
 function spawnBluetoothHelper(helperPath: string): ChildProcessWithoutNullStreams {

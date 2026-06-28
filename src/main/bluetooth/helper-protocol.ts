@@ -2,6 +2,7 @@ import type { BluetoothFrame } from '../../shared/bluetooth-frame';
 import type {
   BluetoothDiagnosticEvent,
   BluetoothDisconnectReason,
+  BluetoothSystemRadioState,
   BluetoothUnavailableReason
 } from '../../shared/bluetooth-status';
 
@@ -12,6 +13,13 @@ export type BluetoothHelperEvent =
   | { type: 'message'; connectionId: string; frame: BluetoothFrame }
   | { type: 'disconnected'; connectionId: string; reason: Exclude<BluetoothDisconnectReason, null> }
   | { type: 'diagnostic'; event: Exclude<BluetoothDiagnosticEvent, null> }
+  | {
+      type: 'systemStatus';
+      adapterPresent: boolean;
+      radioState: BluetoothSystemRadioState;
+      isLowEnergySupported: boolean | null;
+      isPeripheralRoleSupported: boolean | null;
+    }
   | { type: 'error'; reason: string };
 
 export type BluetoothHelperCommand =
