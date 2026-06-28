@@ -6,6 +6,7 @@ import {
   type BluetoothFrame
 } from '../../shared/bluetooth-frame';
 import {
+  DEFAULT_BLUETOOTH_SYSTEM_STATUS,
   type BluetoothDiagnosticEvent,
   type BluetoothStatus,
   type BluetoothUnavailableReason
@@ -48,7 +49,8 @@ export class WindowsBluetoothTransport {
     lastEventAt: null,
     recentEvents: [],
     lastDisconnectReason: null,
-    lastDisconnectAt: null
+    lastDisconnectAt: null,
+    system: DEFAULT_BLUETOOTH_SYSTEM_STATUS
   };
 
   constructor(private readonly options: WindowsBluetoothTransportOptions) {}
@@ -125,6 +127,9 @@ export class WindowsBluetoothTransport {
       case 'diagnostic':
         this.recordDiagnostic(event.event);
         return;
+      case 'systemStatus':
+        this.setSystemStatus(event);
+        return;
       case 'error':
         this.setStatus({ status: 'error', lastError: safeBluetoothError(event.reason) });
         return;
@@ -176,6 +181,45 @@ export class WindowsBluetoothTransport {
     for (const connectionId of [...this.connections.keys()]) {
       this.removeConnection(connectionId, reason);
     }
+  }
+
+  private setSystemStatus(event: Extract<BluetoothHelperEvent, { type: 'systemStatus' }>): void {
+    const at = Date.now();
+    const previous = this.status.system;
+    const changed =
+      previous.lastCheckedAt === null ||
+      previous.adapterPresent !== event.adapterPresent ||
+      previous.radioState !== event.radioState ||
+      previous.isLowEnergySupported !== event.isLowEnergySupported ||
+      previous.isPeripheralRoleSupported !== event.isPeripheralRoleSupported;
+
+    const system = {
+      adapterPresent: event.adapterPresent,
+      radioState: event.radioState,
+      isLowEnergySupported: event.isLowEnergySupported,
+      isPeripheralRoleSupported: event.isPeripheralRoleSupported,
+      lastCheckedAt: at,
+      lastChangedAt: changed ? at : previous.lastChangedAt
+    };
+
+    if (!event.adapterPresent) {
+      this.removeAllConnections('adapter_off');
+      this.setStatus({ system, status: 'unavailable', reason: 'unsupported', connectedClientCount: 0 });
+      return;
+    }
+
+    if (event.radioState === 'off' || event.radioState === 'disabled') {
+      this.removeAllConnections('adapter_off');
+      this.setStatus({ system, status: 'unavailable', reason: 'adapter_off', connectedClientCount: 0 });
+      return;
+    }
+
+    if (event.radioState === 'on' && this.status.status === 'unavailable' && this.status.reason === 'adapter_off') {
+      this.setStatus({ system, status: 'starting', reason: null, lastError: null });
+      return;
+    }
+
+    this.setStatus({ system });
   }
 
   private async handleFrame(connectionId: string, frame: BluetoothFrame): Promise<void> {

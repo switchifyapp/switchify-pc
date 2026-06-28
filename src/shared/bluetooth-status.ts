@@ -7,6 +7,17 @@ export type BluetoothTransportStatus =
   | 'error'
   | 'stopped';
 
+export type BluetoothSystemRadioState = 'on' | 'off' | 'disabled' | 'unknown';
+
+export type BluetoothSystemStatus = {
+  adapterPresent: boolean;
+  radioState: BluetoothSystemRadioState;
+  isLowEnergySupported: boolean | null;
+  isPeripheralRoleSupported: boolean | null;
+  lastCheckedAt: number | null;
+  lastChangedAt: number | null;
+};
+
 export type BluetoothUnavailableReason = 'unsupported' | 'permission_denied' | 'adapter_off' | 'startup_failed';
 
 export type BluetoothDisconnectReason =
@@ -15,10 +26,14 @@ export type BluetoothDisconnectReason =
   | 'pc_requested'
   | 'helper_stopped'
   | 'helper_error'
+  | 'adapter_off'
   | null;
 
 export type BluetoothDiagnosticEvent =
   | 'advertising_started'
+  | 'advertising_restarted'
+  | 'system_radio_on'
+  | 'system_radio_off'
   | 'subscribed'
   | 'unsubscribed'
   | 'unsubscribe_grace_started'
@@ -42,6 +57,16 @@ export type BluetoothStatus = {
   recentEvents: BluetoothDiagnosticRecord[];
   lastDisconnectReason: BluetoothDisconnectReason;
   lastDisconnectAt: number | null;
+  system: BluetoothSystemStatus;
+};
+
+export const DEFAULT_BLUETOOTH_SYSTEM_STATUS: BluetoothSystemStatus = {
+  adapterPresent: false,
+  radioState: 'unknown',
+  isLowEnergySupported: null,
+  isPeripheralRoleSupported: null,
+  lastCheckedAt: null,
+  lastChangedAt: null
 };
 
 export const DEFAULT_BLUETOOTH_STATUS: BluetoothStatus = {
@@ -53,6 +78,7 @@ export const DEFAULT_BLUETOOTH_STATUS: BluetoothStatus = {
   lastEventAt: null,
   recentEvents: [],
   lastDisconnectReason: null,
-  lastDisconnectAt: null
+  lastDisconnectAt: null,
+  system: DEFAULT_BLUETOOTH_SYSTEM_STATUS
 };
 

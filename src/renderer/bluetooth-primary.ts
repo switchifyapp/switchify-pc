@@ -24,6 +24,14 @@ export function bluetoothPrimaryCopy(state: DesktopUiState, bluetooth: Bluetooth
     };
   }
 
+  if (bluetooth?.system.radioState === 'off' || bluetooth?.system.radioState === 'disabled') {
+    return {
+      title: 'Bluetooth is off',
+      body: 'Turn on Bluetooth in Windows. Switchify PC will reconnect automatically.',
+      tone: 'error'
+    };
+  }
+
   if (bluetooth?.status === 'unavailable') {
     if (bluetooth.reason === 'permission_denied') {
       return {
@@ -33,9 +41,17 @@ export function bluetoothPrimaryCopy(state: DesktopUiState, bluetooth: Bluetooth
       };
     }
 
+    if (bluetooth.reason === 'adapter_off') {
+      return {
+        title: 'Bluetooth needs attention',
+        body: 'Turn on Bluetooth in Windows. Switchify PC will update when it is available.',
+        tone: 'error'
+      };
+    }
+
     return {
       title: 'Bluetooth needs attention',
-      body: 'Turn on Bluetooth on this PC, then refresh.',
+      body: 'Turn on Bluetooth in Windows. Switchify PC will reconnect automatically.',
       tone: 'error'
     };
   }
@@ -51,7 +67,10 @@ export function bluetoothPrimaryCopy(state: DesktopUiState, bluetooth: Bluetooth
   if (state === 'loading' || state === 'starting' || bluetooth?.status === 'starting') {
     return {
       title: 'Getting Bluetooth ready...',
-      body: 'Switchify PC is preparing nearby device connection.',
+      body:
+        bluetooth?.system.radioState === 'on'
+          ? 'Switchify PC is restarting nearby device connection.'
+          : 'Switchify PC is preparing nearby device connection.',
       tone: 'working'
     };
   }

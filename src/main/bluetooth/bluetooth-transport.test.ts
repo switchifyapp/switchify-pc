@@ -156,9 +156,191 @@ describe('WindowsBluetoothTransport', () => {
       lastError: 'helper crashed'
     });
   });
+
+  it('includes live system Bluetooth status with checked and changed timestamps', async () => {
+    const { controlService, fakeHelper, transport } = createTransport();
+
+    await transport.start();
+    fakeHelper.emit({
+      type: 'systemStatus',
+      adapterPresent: true,
+      radioState: 'on',
+      isLowEnergySupported: true,
+      isPeripheralRoleSupported: true
+    });
+
+    expect(controlService.getStatus().bluetooth.system).toEqual({
+      adapterPresent: true,
+      radioState: 'on',
+      isLowEnergySupported: true,
+      isPeripheralRoleSupported: true,
+      lastCheckedAt: now,
+      lastChangedAt: now
+    });
+  });
+
+  it('updates checked timestamp without changing changed timestamp for identical system status', async () => {
+    const { controlService, fakeHelper, transport } = createTransport();
+
+    await transport.start();
+    fakeHelper.emit({
+      type: 'systemStatus',
+      adapterPresent: true,
+      radioState: 'on',
+      isLowEnergySupported: true,
+      isPeripheralRoleSupported: true
+    });
+    vi.mocked(Date.now).mockReturnValue(now + 5_000);
+    fakeHelper.emit({
+      type: 'systemStatus',
+      adapterPresent: true,
+      radioState: 'on',
+      isLowEnergySupported: true,
+      isPeripheralRoleSupported: true
+    });
+
+    expect(controlService.getStatus().bluetooth.system).toMatchObject({
+      lastCheckedAt: now + 5_000,
+      lastChangedAt: now
+    });
+  });
+
+  it('updates changed timestamp when system radio state changes', async () => {
+    const { controlService, fakeHelper, transport } = createTransport();
+
+    await transport.start();
+    fakeHelper.emit({
+      type: 'systemStatus',
+      adapterPresent: true,
+      radioState: 'on',
+      isLowEnergySupported: true,
+      isPeripheralRoleSupported: true
+    });
+    vi.mocked(Date.now).mockReturnValue(now + 5_000);
+    fakeHelper.emit({
+      type: 'systemStatus',
+      adapterPresent: true,
+      radioState: 'off',
+      isLowEnergySupported: true,
+      isPeripheralRoleSupported: true
+    });
+
+    expect(controlService.getStatus().bluetooth.system).toMatchObject({
+      radioState: 'off',
+      lastCheckedAt: now + 5_000,
+      lastChangedAt: now + 5_000
+    });
+  });
+
+  it('removes active connections when the system radio turns off', async () => {
+    const { controlService, fakeHelper, transport } = createTransport();
+
+    await transport.start();
+    fakeHelper.emit({ type: 'connected', connectionId: 'ble', label: 'Bluetooth device' });
+    fakeHelper.emit({
+      type: 'systemStatus',
+      adapterPresent: true,
+      radioState: 'off',
+      isLowEnergySupported: true,
+      isPeripheralRoleSupported: true
+    });
+
+    expect(controlService.getStatus().bluetooth).toMatchObject({
+      status: 'unavailable',
+      reason: 'adapter_off',
+      connectedClientCount: 0,
+      lastDisconnectReason: 'adapter_off',
+      lastDisconnectAt: now
+    });
+    expect(controlService.getStatus().connectedClients).toEqual([]);
+  });
+
+  it('moves to starting when the system radio comes back on after adapter off', async () => {
+    const { controlService, fakeHelper, transport } = createTransport();
+
+    await transport.start();
+    fakeHelper.emit({
+      type: 'systemStatus',
+      adapterPresent: true,
+      radioState: 'off',
+      isLowEnergySupported: true,
+      isPeripheralRoleSupported: true
+    });
+    fakeHelper.emit({
+      type: 'systemStatus',
+      adapterPresent: true,
+      radioState: 'on',
+      isLowEnergySupported: true,
+      isPeripheralRoleSupported: true
+    });
+
+    expect(controlService.getStatus().bluetooth).toMatchObject({
+      status: 'starting',
+      reason: null
+    });
+
+    fakeHelper.emit({ type: 'ready' });
+
+    expect(controlService.getStatus().bluetooth).toMatchObject({
+      status: 'ready',
+      reason: null
+    });
+  });
+
+  it('reports unsupported when the system adapter is missing', async () => {
+    const { controlService, fakeHelper, transport } = createTransport();
+
+    await transport.start();
+    fakeHelper.emit({
+      type: 'systemStatus',
+      adapterPresent: false,
+      radioState: 'unknown',
+      isLowEnergySupported: null,
+      isPeripheralRoleSupported: null
+    });
+
+    expect(controlService.getStatus().bluetooth).toMatchObject({
+      status: 'unavailable',
+      reason: 'unsupported',
+      connectedClientCount: 0,
+      system: {
+        adapterPresent: false,
+        radioState: 'unknown',
+        isLowEnergySupported: null,
+        isPeripheralRoleSupported: null,
+        lastCheckedAt: now,
+        lastChangedAt: now
+      }
+    });
+  });
+
+  it('notifies status listeners when system Bluetooth status changes', async () => {
+    const statusChanges: unknown[] = [];
+    const { fakeHelper, transport } = createTransport({
+      onStatusChange: (status) => statusChanges.push(status)
+    });
+
+    await transport.start();
+    fakeHelper.emit({
+      type: 'systemStatus',
+      adapterPresent: true,
+      radioState: 'on',
+      isLowEnergySupported: true,
+      isPeripheralRoleSupported: true
+    });
+
+    expect(statusChanges).toEqual([
+      expect.objectContaining({
+        status: 'starting'
+      }),
+      expect.objectContaining({
+        system: expect.objectContaining({ radioState: 'on' })
+      })
+    ]);
+  });
 });
 
-function createTransport(): {
+function createTransport(options: Pick<ConstructorParameters<typeof WindowsBluetoothTransport>[0], 'onStatusChange'> = {}): {
   controlService: ControlService;
   fakeHelper: FakeBluetoothHelper;
   transport: WindowsBluetoothTransport;
@@ -185,6 +367,7 @@ function createTransport(): {
     getDesktopId: () => Promise.resolve('desktop-1'),
     displayName: 'Switchify PC',
     helperPath: 'fake-helper.exe',
+    ...options,
     createHelper: (options) => {
       fakeHelper.onEvent = options.onEvent;
       fakeHelper.onFailure = options.onFailure ?? (() => {});

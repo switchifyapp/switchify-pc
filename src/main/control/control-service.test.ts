@@ -139,6 +139,34 @@ describe('ControlService', () => {
     });
     expect(service.getStatus().state).toBe('ready');
   });
+
+  it('preserves live Bluetooth system status in control status', () => {
+    const service = createControlService();
+
+    service.setBluetoothStatus({
+      ...DEFAULT_BLUETOOTH_STATUS,
+      status: 'unavailable',
+      reason: 'adapter_off',
+      system: {
+        adapterPresent: true,
+        radioState: 'off',
+        isLowEnergySupported: true,
+        isPeripheralRoleSupported: true,
+        lastCheckedAt: now,
+        lastChangedAt: now
+      }
+    });
+
+    expect(service.getStatus().bluetooth.system).toEqual({
+      adapterPresent: true,
+      radioState: 'off',
+      isLowEnergySupported: true,
+      isPeripheralRoleSupported: true,
+      lastCheckedAt: now,
+      lastChangedAt: now
+    });
+    expect(service.getStatus().state).toBe('error');
+  });
 });
 
 function createControlService(

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
+using Windows.Devices.Radios;
 using Windows.Storage.Streams;
 
 namespace SwitchifyBluetoothTransport;
@@ -11,6 +12,7 @@ internal sealed class BluetoothGattBridge
 {
     private const string ConnectionId = "ble";
     private static readonly TimeSpan DisconnectGracePeriod = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan SystemStatusPollInterval = TimeSpan.FromSeconds(5);
 
     private GattServiceProvider? serviceProvider;
     private GattLocalCharacteristic? txCharacteristic;
@@ -19,30 +21,79 @@ internal sealed class BluetoothGattBridge
     private string statusPayload = "{}";
     private bool connected;
     private CancellationTokenSource? disconnectGrace;
+    private StartCommand? activeStartCommand;
+    private BluetoothAdapter? currentAdapter;
+    private Radio? currentRadio;
+    private CancellationTokenSource? systemStatusPolling;
+    private string? lastSystemStatusKey;
+    private bool restartInProgress;
 
     public async Task StartAsync(StartCommand command)
     {
         Stop();
+        activeStartCommand = command;
+        var snapshot = await StartSystemStatusMonitoringAsync();
+        EmitSystemStatus(snapshot, force: true);
 
-        var adapter = await BluetoothAdapter.GetDefaultAsync();
-        if (adapter is null)
+        if (!snapshot.AdapterPresent)
         {
             HelperProtocol.WriteEvent(new { type = "unavailable", reason = "unsupported" });
             return;
         }
 
-        if (!adapter.IsLowEnergySupported)
+        if (snapshot.IsLowEnergySupported != true || snapshot.IsPeripheralRoleSupported != true)
         {
             HelperProtocol.WriteEvent(new { type = "unavailable", reason = "unsupported" });
             return;
         }
 
-        if (!adapter.IsPeripheralRoleSupported)
+        if (snapshot.RadioState is "off" or "disabled")
         {
-            HelperProtocol.WriteEvent(new { type = "unavailable", reason = "unsupported" });
+            HelperProtocol.WriteEvent(new { type = "unavailable", reason = "adapter_off" });
             return;
         }
 
+        await StartAdvertisingAsync(command, restarted: false);
+    }
+
+    public void Stop()
+    {
+        StopSystemStatusMonitoring();
+        activeStartCommand = null;
+        CancelDisconnectGrace();
+        if (connected)
+        {
+            EmitDisconnected("helper_stopped");
+        }
+
+        StopAdvertisingOnly();
+    }
+
+    public async Task SendAsync(SendCommand command)
+    {
+        if (command.ConnectionId != ConnectionId || txCharacteristic is null)
+        {
+            return;
+        }
+
+        var json = JsonSerializer.Serialize(command.Frame, HelperProtocol.JsonOptions);
+        var bytes = Encoding.UTF8.GetBytes(json);
+        await txCharacteristic.NotifyValueAsync(bytes.AsBuffer());
+    }
+
+    public void Disconnect(string connectionId)
+    {
+        if (connectionId != ConnectionId || !connected)
+        {
+            return;
+        }
+
+        CancelDisconnectGrace();
+        EmitDisconnected("pc_requested");
+    }
+
+    private async Task StartAdvertisingAsync(StartCommand command, bool restarted)
+    {
         statusPayload = JsonSerializer.Serialize(
             new
             {
@@ -80,18 +131,12 @@ internal sealed class BluetoothGattBridge
             }
         );
 
-        HelperProtocol.WriteEvent(new { type = "diagnostic", @event = "advertising_started" });
+        HelperProtocol.WriteEvent(new { type = "diagnostic", @event = restarted ? "advertising_restarted" : "advertising_started" });
         HelperProtocol.WriteEvent(new { type = "ready" });
     }
 
-    public void Stop()
+    private void StopAdvertisingOnly()
     {
-        CancelDisconnectGrace();
-        if (connected)
-        {
-            EmitDisconnected("helper_stopped");
-        }
-
         serviceProvider?.StopAdvertising();
         serviceProvider = null;
         rxCharacteristic = null;
@@ -99,27 +144,185 @@ internal sealed class BluetoothGattBridge
         statusCharacteristic = null;
     }
 
-    public async Task SendAsync(SendCommand command)
+    private async Task<AdapterSnapshot> StartSystemStatusMonitoringAsync()
     {
-        if (command.ConnectionId != ConnectionId || txCharacteristic is null)
-        {
-            return;
-        }
+        StopSystemStatusMonitoring();
+        systemStatusPolling = new CancellationTokenSource();
+        var token = systemStatusPolling.Token;
+        var snapshot = await ReadAdapterSnapshotAsync();
 
-        var json = JsonSerializer.Serialize(command.Frame, HelperProtocol.JsonOptions);
-        var bytes = Encoding.UTF8.GetBytes(json);
-        await txCharacteristic.NotifyValueAsync(bytes.AsBuffer());
+        _ = Task.Run(async () =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(SystemStatusPollInterval, token);
+                    if (token.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    var current = await ReadAdapterSnapshotAsync();
+                    await HandleSystemStatusChangeAsync(current);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch
+                {
+                    var unknown = new AdapterSnapshot(false, "unknown", null, null);
+                    await HandleSystemStatusChangeAsync(unknown);
+                }
+            }
+        }, token);
+
+        return snapshot;
     }
 
-    public void Disconnect(string connectionId)
+    private void StopSystemStatusMonitoring()
     {
-        if (connectionId != ConnectionId || !connected)
+        systemStatusPolling?.Cancel();
+        systemStatusPolling?.Dispose();
+        systemStatusPolling = null;
+        DetachRadioStateChanged();
+        currentAdapter = null;
+        lastSystemStatusKey = null;
+    }
+
+    private async Task<AdapterSnapshot> ReadAdapterSnapshotAsync()
+    {
+        try
+        {
+            var adapter = await BluetoothAdapter.GetDefaultAsync();
+            if (adapter is null)
+            {
+                DetachRadioStateChanged();
+                currentAdapter = null;
+                return new AdapterSnapshot(false, "unknown", null, null);
+            }
+
+            currentAdapter = adapter;
+            var radio = await adapter.GetRadioAsync();
+            if (!ReferenceEquals(currentRadio, radio))
+            {
+                DetachRadioStateChanged();
+                if (radio is not null)
+                {
+                    AttachRadioStateChanged(radio);
+                }
+            }
+
+            return new AdapterSnapshot(
+                true,
+                RadioStateToProtocol(radio?.State),
+                adapter.IsLowEnergySupported,
+                adapter.IsPeripheralRoleSupported
+            );
+        }
+        catch
+        {
+            return new AdapterSnapshot(false, "unknown", null, null);
+        }
+    }
+
+    private void AttachRadioStateChanged(Radio radio)
+    {
+        currentRadio = radio;
+        currentRadio.StateChanged += OnRadioStateChanged;
+    }
+
+    private void DetachRadioStateChanged()
+    {
+        if (currentRadio is not null)
+        {
+            currentRadio.StateChanged -= OnRadioStateChanged;
+            currentRadio = null;
+        }
+    }
+
+    private async void OnRadioStateChanged(Radio sender, object args)
+    {
+        var snapshot = await ReadAdapterSnapshotAsync();
+        await HandleSystemStatusChangeAsync(snapshot);
+    }
+
+    private void EmitSystemStatus(AdapterSnapshot snapshot, bool force = false)
+    {
+        var key = $"{snapshot.AdapterPresent}|{snapshot.RadioState}|{snapshot.IsLowEnergySupported}|{snapshot.IsPeripheralRoleSupported}";
+        if (!force && key == lastSystemStatusKey)
         {
             return;
         }
 
-        CancelDisconnectGrace();
-        EmitDisconnected("pc_requested");
+        lastSystemStatusKey = key;
+        HelperProtocol.WriteEvent(new
+        {
+            type = "systemStatus",
+            adapterPresent = snapshot.AdapterPresent,
+            radioState = snapshot.RadioState,
+            isLowEnergySupported = snapshot.IsLowEnergySupported,
+            isPeripheralRoleSupported = snapshot.IsPeripheralRoleSupported
+        });
+    }
+
+    private async Task HandleSystemStatusChangeAsync(AdapterSnapshot snapshot)
+    {
+        var previousKey = lastSystemStatusKey;
+        EmitSystemStatus(snapshot);
+        var changed = previousKey != lastSystemStatusKey;
+        if (!changed)
+        {
+            return;
+        }
+
+        if (!snapshot.AdapterPresent || snapshot.IsLowEnergySupported != true || snapshot.IsPeripheralRoleSupported != true)
+        {
+            if (connected)
+            {
+                EmitDisconnected("adapter_off");
+            }
+            StopAdvertisingOnly();
+            HelperProtocol.WriteEvent(new { type = "unavailable", reason = "unsupported" });
+            return;
+        }
+
+        if (snapshot.RadioState is "off" or "disabled")
+        {
+            HelperProtocol.WriteEvent(new { type = "diagnostic", @event = "system_radio_off" });
+            if (connected)
+            {
+                EmitDisconnected("adapter_off");
+            }
+            StopAdvertisingOnly();
+            HelperProtocol.WriteEvent(new { type = "unavailable", reason = "adapter_off" });
+            return;
+        }
+
+        if (snapshot.RadioState == "on")
+        {
+            HelperProtocol.WriteEvent(new { type = "diagnostic", @event = "system_radio_on" });
+            await RestartAdvertisingIfPossibleAsync();
+        }
+    }
+
+    private async Task RestartAdvertisingIfPossibleAsync()
+    {
+        if (restartInProgress || activeStartCommand is null || serviceProvider is not null)
+        {
+            return;
+        }
+
+        restartInProgress = true;
+        try
+        {
+            await StartAdvertisingAsync(activeStartCommand, restarted: true);
+        }
+        finally
+        {
+            restartInProgress = false;
+        }
     }
 
     private async Task<GattLocalCharacteristic?> CreateRxCharacteristicAsync(Guid uuid)
@@ -337,4 +540,22 @@ internal sealed class BluetoothGattBridge
         disconnectGrace = null;
         HelperProtocol.WriteEvent(new { type = "disconnected", connectionId = ConnectionId, reason });
     }
+
+    private static string RadioStateToProtocol(RadioState? state)
+    {
+        return state switch
+        {
+            RadioState.On => "on",
+            RadioState.Off => "off",
+            RadioState.Disabled => "disabled",
+            _ => "unknown"
+        };
+    }
+
+    private sealed record AdapterSnapshot(
+        bool AdapterPresent,
+        string RadioState,
+        bool? IsLowEnergySupported,
+        bool? IsPeripheralRoleSupported
+    );
 }
