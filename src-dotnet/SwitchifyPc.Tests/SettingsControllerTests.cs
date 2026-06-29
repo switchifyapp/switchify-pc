@@ -148,6 +148,50 @@ public sealed class SettingsControllerTests
     }
 
     [Fact]
+    public async Task ForgetPairedDeviceRemovesPersistedDeviceAndRefreshesViewModel()
+    {
+        SettingsViewModel viewModel = new();
+        MemoryPairingStore pairingStore = new(new PairingState(
+            "desktop-1",
+            [
+                new PairedDevice("device-1", "Pixel 9", "secret-token-1", 3_723_000, null),
+                new PairedDevice("device-2", "Galaxy Tab", "secret-token-2", 3_724_000, null)
+            ]));
+        SettingsController controller = CreateController(viewModel, pairingStore: pairingStore);
+        await controller.LoadAsync();
+
+        bool removed = await controller.ForgetPairedDeviceAsync("device-1");
+
+        Assert.True(removed);
+        PairingState state = await pairingStore.LoadAsync();
+        Assert.DoesNotContain(state.PairedDevices, device => device.DeviceId == "device-1");
+        PairedDevice remaining = Assert.Single(state.PairedDevices);
+        Assert.Equal("device-2", remaining.DeviceId);
+        PairedDeviceSettingsView view = Assert.Single(viewModel.PairedDevices);
+        Assert.Equal("Galaxy Tab", view.DeviceName);
+        Assert.Equal("1 paired device.", viewModel.PairedDevicesMessage);
+    }
+
+    [Fact]
+    public async Task ForgetPairedDeviceReturnsFalseForMissingDevice()
+    {
+        SettingsViewModel viewModel = new();
+        MemoryPairingStore pairingStore = new(new PairingState(
+            "desktop-1",
+            [
+                new PairedDevice("device-1", "Pixel 9", "secret-token", 3_723_000, null)
+            ]));
+        SettingsController controller = CreateController(viewModel, pairingStore: pairingStore);
+        await controller.LoadAsync();
+
+        bool removed = await controller.ForgetPairedDeviceAsync("missing-device");
+
+        Assert.False(removed);
+        Assert.Single((await pairingStore.LoadAsync()).PairedDevices);
+        Assert.Single(viewModel.PairedDevices);
+    }
+
+    [Fact]
     public void ApplyUpdateStateUpdatesViewModelFromPushEvents()
     {
         SettingsViewModel viewModel = new();

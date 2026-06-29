@@ -1,6 +1,7 @@
 using System.Windows;
 using SwitchifyPc.Core.Ui;
 using SwitchifyPc.Core.Updates;
+using WpfButton = System.Windows.Controls.Button;
 using WpfCheckBox = System.Windows.Controls.CheckBox;
 using WpfComboBox = System.Windows.Controls.ComboBox;
 using WpfMessageBox = System.Windows.MessageBox;
@@ -61,6 +62,24 @@ public partial class SettingsWindow : Window
     private void PointerScale150_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(150);
 
     private void PointerScale200_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(200);
+
+    private async void ForgetPairedDevice_Click(object sender, RoutedEventArgs e)
+    {
+        if (controller is null || sender is not WpfButton { Tag: string deviceId }) return;
+
+        await RunActionAsync(async () =>
+        {
+            bool removed = await controller.ForgetPairedDeviceAsync(deviceId);
+            if (!removed)
+            {
+                WpfMessageBox.Show(
+                    "That saved device is no longer available.",
+                    "Saved devices",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }, "That saved device could not be forgotten.");
+    }
 
     private void CursorOverlayEnabled_Click(object sender, RoutedEventArgs e)
     {

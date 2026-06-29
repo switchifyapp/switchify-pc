@@ -103,6 +103,12 @@
                                             <TextBlock Margin="0,4,0,0"
                                                        Text="{Binding LastSeenAt, StringFormat=Last seen {0}}"
                                                        Style="{StaticResource MutedText}" />
+                                            <Button Margin="0,8,0,0"
+                                                    Padding="12,6"
+                                                    HorizontalAlignment="Right"
+                                                    Tag="{Binding DeviceId}"
+                                                    Click="ForgetPairedDevice_Click"
+                                                    Content="Forget" />
                                         </StackPanel>
                                     </Grid>
                                 </Border>

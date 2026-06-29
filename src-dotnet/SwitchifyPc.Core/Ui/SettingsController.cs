@@ -38,8 +38,7 @@ public sealed class SettingsController
         viewModel.SetPointerMovementSettings(pointerMovementSettings.Load());
         viewModel.SetCursorOverlaySettings(cursorOverlaySettings.Load());
         viewModel.SetUpdateState(updates.GetState());
-        viewModel.SetPairedDevices(PairingStateHelpers.ToPairedDeviceViews(
-            await pairingStore.LoadAsync().ConfigureAwait(false)));
+        await RefreshPairedDevicesAsync().ConfigureAwait(false);
     }
 
     public async Task SetStartWithSystemAsync(bool enabled)
@@ -105,6 +104,23 @@ public sealed class SettingsController
         viewModel.SetUpdateState(state);
     }
 
+    public async Task<bool> ForgetPairedDeviceAsync(string deviceId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) return false;
+
+        PairingState state = await pairingStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+        if (PairingStateHelpers.FindPairedDevice(state, deviceId) is null)
+        {
+            await RefreshPairedDevicesAsync(cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        PairingState next = PairingStateHelpers.RemovePairedDevice(state, deviceId);
+        await pairingStore.SaveAsync(next, cancellationToken).ConfigureAwait(false);
+        viewModel.SetPairedDevices(PairingStateHelpers.ToPairedDeviceViews(next));
+        return true;
+    }
+
     private CursorOverlaySettings SaveCursorOverlay(CursorOverlaySettings settings)
     {
         CursorOverlaySettings saved = cursorOverlaySettings.Save(settings);
@@ -115,5 +131,11 @@ public sealed class SettingsController
     private CursorOverlaySettings CurrentCursorOverlaySettings()
     {
         return viewModel.CursorOverlaySettings;
+    }
+
+    private async Task RefreshPairedDevicesAsync(CancellationToken cancellationToken = default)
+    {
+        viewModel.SetPairedDevices(PairingStateHelpers.ToPairedDeviceViews(
+            await pairingStore.LoadAsync(cancellationToken).ConfigureAwait(false)));
     }
 }
