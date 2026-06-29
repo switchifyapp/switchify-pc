@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Threading;
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
@@ -18,6 +19,7 @@ using SwitchifyPc.Windows.CursorOverlay;
 using SwitchifyPc.Windows.Input;
 using SwitchifyPc.Windows.Startup;
 using SwitchifyPc.Windows.Updates;
+using SwitchifyPc.Protocol;
 
 namespace SwitchifyPc.App;
 
@@ -38,6 +40,7 @@ public partial class App : System.Windows.Application
     private WindowsBluetoothGattServer? bluetoothServer;
     private BluetoothRemoteFrameProcessor? bluetoothFrameProcessor;
     private WindowsCursorOverlayNotifier? cursorOverlay;
+    private DispatcherTimer? pairingExpiryTimer;
     private bool isQuitting;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -68,6 +71,7 @@ public partial class App : System.Windows.Application
         bluetoothStatusTracker = new BluetoothStatusTracker(onStatusChanged: UpdateBluetoothState);
         RefreshPairingApprovals();
         updateService.StartAutomaticUpdateChecks();
+        StartPairingExpiryTimer();
         _ = StartBluetoothAsync();
         _ = RecordStartupDiagnosticsAsync(e.Args, launchOptions.StartHidden);
         trayIcon = new NativeTrayIcon(ShowMainWindow, ShowSettingsWindow, QuitApplication);
@@ -86,6 +90,8 @@ public partial class App : System.Windows.Application
         existingInstanceSignal = null;
         updateService?.StopAutomaticUpdateChecks();
         updateService = null;
+        pairingExpiryTimer?.Stop();
+        pairingExpiryTimer = null;
         bluetoothServer?.Dispose();
         bluetoothServer = null;
         cursorOverlay?.Dispose();
@@ -278,31 +284,14 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        foreach (BluetoothRemoteFrameOutput output in result.OutgoingMessages)
-        {
-            foreach (var frame in output.ResponseFrames)
-            {
-                await bluetoothServer.SendAsync(output.ConnectionId, frame);
-            }
-
-            if (output.CloseConnection)
-            {
-                bluetoothServer.Disconnect(output.ConnectionId);
-            }
-        }
+        await SendBluetoothOutputsAsync(result.OutgoingMessages);
     }
 
     private async Task AcceptPairingApprovalAsync(string requestId)
     {
         if (bluetoothFrameProcessor is not null && bluetoothServer is not null)
         {
-            foreach (BluetoothRemoteFrameOutput output in await bluetoothFrameProcessor.AcceptPairingRequestAsync(requestId))
-            {
-                foreach (var frame in output.ResponseFrames)
-                {
-                    await bluetoothServer.SendAsync(output.ConnectionId, frame);
-                }
-            }
+            await SendBluetoothOutputsAsync(await bluetoothFrameProcessor.AcceptPairingRequestAsync(requestId));
         }
         else
         {
@@ -317,18 +306,7 @@ public partial class App : System.Windows.Application
     {
         if (bluetoothFrameProcessor is not null && bluetoothServer is not null)
         {
-            foreach (BluetoothRemoteFrameOutput output in bluetoothFrameProcessor.RejectPairingRequest(requestId))
-            {
-                foreach (var frame in output.ResponseFrames)
-                {
-                    _ = bluetoothServer.SendAsync(output.ConnectionId, frame);
-                }
-
-                if (output.CloseConnection)
-                {
-                    bluetoothServer.Disconnect(output.ConnectionId);
-                }
-            }
+            _ = SendBluetoothOutputsAsync(bluetoothFrameProcessor.RejectPairingRequest(requestId));
         }
         else
         {
@@ -336,6 +314,43 @@ public partial class App : System.Windows.Application
         }
 
         RefreshPairingApprovals();
+    }
+
+    private void StartPairingExpiryTimer()
+    {
+        pairingExpiryTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(5)
+        };
+        pairingExpiryTimer.Tick += async (_, _) =>
+        {
+            if (bluetoothFrameProcessor is not null)
+            {
+                await SendBluetoothOutputsAsync(bluetoothFrameProcessor.ExpirePendingPairingRequests());
+                bluetoothFrameProcessor.ClearExpiredPartials();
+            }
+
+            RefreshPairingApprovals();
+        };
+        pairingExpiryTimer.Start();
+    }
+
+    private async Task SendBluetoothOutputsAsync(IReadOnlyList<BluetoothRemoteFrameOutput> outputs)
+    {
+        if (bluetoothServer is null) return;
+
+        foreach (BluetoothRemoteFrameOutput output in outputs)
+        {
+            foreach (BluetoothFrame frame in output.ResponseFrames)
+            {
+                await bluetoothServer.SendAsync(output.ConnectionId, frame);
+            }
+
+            if (output.CloseConnection)
+            {
+                bluetoothServer.Disconnect(output.ConnectionId);
+            }
+        }
     }
 
     private void RefreshPairingApprovals()
