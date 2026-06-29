@@ -30,6 +30,7 @@ public static class WindowsInputMapper
     public const ushort VkVolumeMute = 0xAD;
     public const ushort VkVolumeDown = 0xAE;
     public const ushort VkVolumeUp = 0xAF;
+    public const ushort VkF4 = 0x73;
 
     public static ushort MouseButtonVirtualKey(string button)
     {
