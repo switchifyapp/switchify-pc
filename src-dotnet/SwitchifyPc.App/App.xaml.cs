@@ -1,6 +1,7 @@
 using System.Windows;
 using System.IO;
 using System.Net.Http;
+using System.Reflection;
 using SwitchifyPc.Core.Bluetooth;
 using SwitchifyPc.Core.Control;
 using SwitchifyPc.Core.Input;
@@ -22,7 +23,9 @@ namespace SwitchifyPc.App;
 
 public partial class App : System.Windows.Application
 {
-    private const string CurrentVersion = "0.2.0";
+    private static readonly string CurrentVersion = typeof(App).Assembly
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            .Split('+', 2, StringSplitOptions.RemoveEmptyEntries)[0] ?? "0.2.0";
 
     private SingleInstanceService? singleInstance;
     private WindowsExistingInstanceSignal? existingInstanceSignal;

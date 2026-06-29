@@ -10,11 +10,10 @@ const {
 } = require('./win-signing-tools.cjs');
 const { createSigningArgs } = require('./package-win-after-pack.cjs');
 
-const packageJson = require('../package.json');
-
 const stageOnly = process.argv.includes('--stage-only');
 const skipSign = process.argv.includes('--skip-sign');
-const version = packageJson.version;
+const appProjectPath = resolveProjectPath('src-dotnet', 'SwitchifyPc.App', 'SwitchifyPc.App.csproj');
+const version = readDotnetAppVersion(appProjectPath);
 const publishDir = resolveProjectPath(
   'src-dotnet',
   'SwitchifyPc.App',
@@ -30,6 +29,7 @@ const installerName = `Switchify-PC-Setup-${version}-x64.exe`;
 const installerPath = path.join(distDir, installerName);
 
 runDotnetPublish();
+resetPackageArtifacts();
 resetDirectory(stageDir);
 copyDirectory(publishDir, stageDir);
 verifyStagedApp();
@@ -56,7 +56,7 @@ function runDotnetPublish() {
     'dotnet',
     [
       'publish',
-      resolveProjectPath('src-dotnet', 'SwitchifyPc.App', 'SwitchifyPc.App.csproj'),
+      appProjectPath,
       '-c',
       'Release',
       '-r',
@@ -74,6 +74,16 @@ function runDotnetPublish() {
 function resetDirectory(directory) {
   fs.rmSync(directory, { recursive: true, force: true });
   fs.mkdirSync(directory, { recursive: true });
+}
+
+function resetPackageArtifacts() {
+  fs.mkdirSync(distDir, { recursive: true });
+  fs.rmSync(path.join(distDir, 'latest.yml'), { force: true });
+  for (const entry of fs.readdirSync(distDir)) {
+    if (/^Switchify-PC-Setup-.+-x64\.exe$/i.test(entry)) {
+      fs.rmSync(path.join(distDir, entry), { force: true });
+    }
+  }
 }
 
 function copyDirectory(from, to) {
@@ -199,4 +209,14 @@ function createSha512Base64(filePath) {
 
 function toYamlPath(value) {
   return JSON.stringify(value.replace(/\\/g, '/'));
+}
+
+function readDotnetAppVersion(projectPath) {
+  const content = fs.readFileSync(projectPath, 'utf8');
+  const match = content.match(/<Version>([^<]+)<\/Version>/);
+  if (!match || !match[1].trim()) {
+    throw new Error(`Could not read C# app <Version> from ${projectPath}.`);
+  }
+
+  return match[1].trim();
 }

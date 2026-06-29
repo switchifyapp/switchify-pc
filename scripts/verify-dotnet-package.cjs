@@ -2,14 +2,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { resolveProjectPath } = require('./win-signing-tools.cjs');
 
-const packageJson = require('../package.json');
-
 const distDir = resolveProjectPath('dist-dotnet');
 const stageDir = path.join(distDir, 'win-unpacked');
 const appExe = path.join(stageDir, 'Switchify PC.exe');
 const builderDebug = path.join(distDir, 'builder-debug.yml');
 const latestYml = path.join(distDir, 'latest.yml');
-const expectedInstaller = path.join(distDir, `Switchify-PC-Setup-${packageJson.version}-x64.exe`);
+const appProjectPath = resolveProjectPath('src-dotnet', 'SwitchifyPc.App', 'SwitchifyPc.App.csproj');
+const appVersion = readDotnetAppVersion(appProjectPath);
+const expectedInstaller = path.join(distDir, `Switchify-PC-Setup-${appVersion}-x64.exe`);
 const installerScript = resolveProjectPath('installer', 'SwitchifyPc.DotNet.nsi');
 
 assertExists(appExe, 'staged C# app executable');
@@ -21,7 +21,7 @@ if (fs.existsSync(expectedInstaller) || fs.existsSync(latestYml)) {
   assertExists(expectedInstaller, 'C# NSIS installer');
   assertExists(latestYml, 'C# updater metadata');
   const latest = fs.readFileSync(latestYml, 'utf8');
-  assertIncludes(latest, `version: ${packageJson.version}`, 'latest.yml version');
+  assertIncludes(latest, `version: ${appVersion}`, 'latest.yml version');
   assertIncludes(latest, `path: ${path.basename(expectedInstaller)}`, 'latest.yml installer path');
   assertRegex(latest, /^isAdminRightsRequired:\s*true\s*$/m, 'top-level admin metadata');
   assertRegex(latest, /^    isAdminRightsRequired:\s*true\s*$/m, 'file-entry admin metadata');
@@ -76,4 +76,14 @@ function assertRegex(content, regex, label) {
   if (!regex.test(content)) {
     throw new Error(`${label} is missing.`);
   }
+}
+
+function readDotnetAppVersion(projectPath) {
+  const content = fs.readFileSync(projectPath, 'utf8');
+  const match = content.match(/<Version>([^<]+)<\/Version>/);
+  if (!match || !match[1].trim()) {
+    throw new Error(`Could not read C# app <Version> from ${projectPath}.`);
+  }
+
+  return match[1].trim();
 }
