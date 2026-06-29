@@ -63,7 +63,12 @@ public sealed record UpdateState(UpdateInfo Info, UpdateDownloadProgress Downloa
         new(UpdateDownloadStatus.Idle, 0, null, null);
 }
 
-public sealed record AvailableUpdate(string Version, string? ReleaseName, string? ReleaseNotes);
+public sealed record AvailableUpdate(
+    string Version,
+    string? ReleaseName,
+    string? ReleaseNotes,
+    string? InstallerAssetName = null,
+    string? InstallerDownloadUrl = null);
 
 public sealed record UpdateCheckOutcome(bool UpdateAvailable, AvailableUpdate? Update, UpdateFailureReason? FailureReason = null)
 {
