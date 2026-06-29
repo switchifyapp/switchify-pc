@@ -1,13 +1,162 @@
 using System.Windows;
 using SwitchifyPc.Core.Ui;
+using SwitchifyPc.Core.Updates;
+using WpfCheckBox = System.Windows.Controls.CheckBox;
+using WpfComboBox = System.Windows.Controls.ComboBox;
+using WpfMessageBox = System.Windows.MessageBox;
+using WpfSelectionChangedEventArgs = System.Windows.Controls.SelectionChangedEventArgs;
 
 namespace SwitchifyPc.App;
 
 public partial class SettingsWindow : Window
 {
+    private readonly SettingsController? controller;
+    private bool isLoaded;
+    private bool isApplyingSettings;
+
+    public SettingsWindow(SettingsController controller) : this(controller.ViewModel)
+    {
+        this.controller = controller;
+    }
+
     public SettingsWindow(SettingsViewModel? viewModel = null)
     {
         InitializeComponent();
         DataContext = viewModel ?? new SettingsViewModel();
+        Loaded += SettingsWindow_Loaded;
+    }
+
+    private async void SettingsWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (isLoaded) return;
+        isLoaded = true;
+        if (controller is null) return;
+
+        await RunActionAsync(async () =>
+        {
+            isApplyingSettings = true;
+            try
+            {
+                await controller.LoadAsync();
+            }
+            finally
+            {
+                isApplyingSettings = false;
+            }
+        }, "Settings could not be loaded.");
+    }
+
+    private async void StartWithSystem_Click(object sender, RoutedEventArgs e)
+    {
+        if (controller is null || isApplyingSettings || sender is not WpfCheckBox checkBox) return;
+        await RunActionAsync(
+            () => controller.SetStartWithSystemAsync(checkBox.IsChecked == true),
+            "Start with system could not be changed.");
+    }
+
+    private void PointerScale50_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(50);
+
+    private void PointerScale100_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(100);
+
+    private void PointerScale150_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(150);
+
+    private void PointerScale200_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(200);
+
+    private void CursorOverlayEnabled_Click(object sender, RoutedEventArgs e)
+    {
+        if (!isApplyingSettings && controller is not null && sender is WpfCheckBox checkBox)
+        {
+            controller.SetCursorOverlayEnabled(checkBox.IsChecked == true);
+        }
+    }
+
+    private void CursorOverlayCrosshairs_Click(object sender, RoutedEventArgs e)
+    {
+        if (!isApplyingSettings && controller is not null && sender is WpfCheckBox checkBox)
+        {
+            controller.SetCursorOverlayCrosshairs(checkBox.IsChecked == true);
+        }
+    }
+
+    private void CursorOverlaySize_SelectionChanged(object sender, WpfSelectionChangedEventArgs e)
+    {
+        if (!isApplyingSettings) SaveSelectedValue(sender, value => controller?.SetCursorOverlaySize(value));
+    }
+
+    private void CursorOverlayVisibility_SelectionChanged(object sender, WpfSelectionChangedEventArgs e)
+    {
+        if (!isApplyingSettings) SaveSelectedValue(sender, value => controller?.SetCursorOverlayVisibility(value));
+    }
+
+    private void CursorOverlayColor_SelectionChanged(object sender, WpfSelectionChangedEventArgs e)
+    {
+        if (!isApplyingSettings) SaveSelectedValue(sender, value => controller?.SetCursorOverlayColor(value));
+    }
+
+    private async void CheckForUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        if (controller is null) return;
+        await RunActionAsync(
+            () => controller.CheckForUpdatesAsync(),
+            "Updates could not be checked.");
+    }
+
+    private async void DownloadUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (controller is null) return;
+        await RunActionAsync(
+            () => controller.DownloadUpdateAsync(),
+            "The update could not be downloaded.");
+    }
+
+    private async void InstallUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (controller is null) return;
+        await RunActionAsync(async () =>
+        {
+            UpdateInstallResult result = await controller.InstallDownloadedUpdateAsync();
+            if (!result.Ok)
+            {
+                WpfMessageBox.Show(
+                    UpdateInstallMessage(result.Reason),
+                    "Update installer",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }, "The update installer could not be opened.");
+    }
+
+    private static void SaveSelectedValue(object sender, Action<string> save)
+    {
+        if (sender is WpfComboBox { SelectedValue: string value })
+        {
+            save(value);
+        }
+    }
+
+    private async Task RunActionAsync(Func<Task> action, string failureMessage)
+    {
+        try
+        {
+            await action();
+        }
+        catch
+        {
+            WpfMessageBox.Show(failureMessage, "Switchify PC settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private static string UpdateInstallMessage(UpdateInstallFailureReason? reason)
+    {
+        return reason switch
+        {
+            UpdateInstallFailureReason.NotDownloaded => "The update is not downloaded yet.",
+            UpdateInstallFailureReason.NotPackaged => "Updates are only available in the installed app.",
+            UpdateInstallFailureReason.NotSupported => "Updates are only supported on Windows.",
+            UpdateInstallFailureReason.Cancelled => "The update was cancelled.",
+            UpdateInstallFailureReason.InstallerUnavailable => "The downloaded installer could not be found. Download the update again.",
+            UpdateInstallFailureReason.InstallerLaunchFailed => "The update installer could not be opened. Download the update again or run the installer manually.",
+            _ => "The update installer could not be opened."
+        };
     }
 }

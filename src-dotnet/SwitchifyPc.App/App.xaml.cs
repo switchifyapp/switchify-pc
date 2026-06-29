@@ -1,14 +1,25 @@
 using System.Windows;
+using System.IO;
+using System.Net.Http;
+using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Core.AppLifecycle;
+using SwitchifyPc.Core.Startup;
+using SwitchifyPc.Core.Ui;
+using SwitchifyPc.Core.Updates;
 using SwitchifyPc.Windows.AppLifecycle;
+using SwitchifyPc.Windows.Startup;
+using SwitchifyPc.Windows.Updates;
 
 namespace SwitchifyPc.App;
 
 public partial class App : System.Windows.Application
 {
+    private const string CurrentVersion = "0.2.0";
+
     private SingleInstanceService? singleInstance;
     private NativeTrayIcon? trayIcon;
     private SettingsWindow? settingsWindow;
+    private UpdateService? updateService;
     private bool isQuitting;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -26,6 +37,8 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        updateService = CreateUpdateService();
+        updateService.StartAutomaticUpdateChecks();
         trayIcon = new NativeTrayIcon(ShowMainWindow, ShowSettingsWindow, QuitApplication);
 
         if (decision.ShowMainWindow)
@@ -38,6 +51,8 @@ public partial class App : System.Windows.Application
     {
         singleInstance?.Stop();
         singleInstance = null;
+        updateService?.StopAutomaticUpdateChecks();
+        updateService = null;
         trayIcon?.Dispose();
         trayIcon = null;
         settingsWindow = null;
@@ -83,7 +98,7 @@ public partial class App : System.Windows.Application
 
     private SettingsWindow CreateSettingsWindow()
     {
-        SettingsWindow window = new();
+        SettingsWindow window = new(CreateSettingsController());
         window.Closing += (_, eventArgs) =>
         {
             if (isQuitting) return;
@@ -92,5 +107,48 @@ public partial class App : System.Windows.Application
         };
 
         return window;
+    }
+
+    private SettingsController CreateSettingsController()
+    {
+        SettingsViewModel viewModel = new();
+        string userDataDirectory = UserDataDirectory();
+        return new SettingsController(
+            viewModel,
+            new SystemStartupService(
+                platform: "win32",
+                isPackaged: IsInstalledApp(),
+                executablePath: Environment.ProcessPath ?? string.Empty,
+                startupRegistry: new WindowsStartupRegistry(),
+                startupCommandFor: WindowsStartupRegistry.StartupCommandFor),
+            new JsonPointerMovementSettingsStore(Path.Combine(userDataDirectory, "pointer-movement-settings.json")),
+            new JsonCursorOverlaySettingsStore(Path.Combine(userDataDirectory, "cursor-overlay-settings.json")),
+            updateService ?? CreateUpdateService());
+    }
+
+    private UpdateService CreateUpdateService()
+    {
+        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string cacheDirectory = Path.Combine(localAppData, "switchify-pc-updater");
+        return new UpdateService(new UpdateServiceOptions(
+            CurrentVersion: CurrentVersion,
+            IsPackaged: IsInstalledApp(),
+            Platform: "win32",
+            Backend: new GitHubReleaseUpdateBackend(new HttpClient(), "switchifyapp", "switchify-pc", cacheDirectory),
+            InstallerLauncher: new WindowsUpdateInstallerLauncher()));
+    }
+
+    private static string UserDataDirectory()
+    {
+        string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        return Path.Combine(appData, "switchify-pc");
+    }
+
+    private static bool IsInstalledApp()
+    {
+        string? executablePath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(executablePath)) return false;
+        string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        return executablePath.StartsWith(programFiles, StringComparison.OrdinalIgnoreCase);
     }
 }

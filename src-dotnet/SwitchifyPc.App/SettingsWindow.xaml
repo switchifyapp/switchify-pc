@@ -55,7 +55,8 @@
                     <TextBlock Text="General" Style="{StaticResource SectionTitle}" />
                     <CheckBox Margin="0,14,0,0"
                               Content="Start with system"
-                              IsChecked="{Binding StartWithSystem}"
+                              Click="StartWithSystem_Click"
+                              IsChecked="{Binding StartWithSystem, Mode=OneWay}"
                               IsEnabled="{Binding StartWithSystemSupported}" />
                     <TextBlock Margin="0,8,0,0"
                                Text="{Binding StartWithSystemMessage}"
@@ -81,7 +82,15 @@
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Scale" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding PointerScalePercent, StringFormat={}{0:0}%}" Style="{StaticResource DetailValue}" />
+                        <StackPanel Grid.Row="0" Grid.Column="1">
+                            <TextBlock Text="{Binding PointerScalePercent, StringFormat={}{0:0}%}" Style="{StaticResource DetailValue}" />
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button Content="50%" Padding="12,6" Click="PointerScale50_Click" />
+                                <Button Content="100%" Margin="8,0,0,0" Padding="12,6" Click="PointerScale100_Click" />
+                                <Button Content="150%" Margin="8,0,0,0" Padding="12,6" Click="PointerScale150_Click" />
+                                <Button Content="200%" Margin="8,0,0,0" Padding="12,6" Click="PointerScale200_Click" />
+                            </StackPanel>
+                        </StackPanel>
                         <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Text="Small" Style="{StaticResource DetailLabel}" />
                         <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Text="{Binding PointerSmall}" Style="{StaticResource DetailValue}" />
                         <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Text="Medium" Style="{StaticResource DetailLabel}" />
@@ -108,15 +117,57 @@
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Enabled" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding CursorOverlayEnabled}" Style="{StaticResource DetailValue}" />
+                        <CheckBox Grid.Row="0" Grid.Column="1"
+                                  Content="Show cursor overlay"
+                                  Click="CursorOverlayEnabled_Click"
+                                  IsChecked="{Binding CursorOverlayEnabled, Mode=OneWay}" />
                         <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Text="Size" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Text="{Binding CursorOverlaySize}" Style="{StaticResource DetailValue}" />
+                        <ComboBox Grid.Row="1"
+                                  Grid.Column="1"
+                                  Margin="0,8,0,0"
+                                  Width="180"
+                                  HorizontalAlignment="Left"
+                                  SelectedValuePath="Tag"
+                                  SelectedValue="{Binding CursorOverlaySettings.Size, Mode=OneWay}"
+                                  SelectionChanged="CursorOverlaySize_SelectionChanged">
+                            <ComboBoxItem Content="Small" Tag="small" />
+                            <ComboBoxItem Content="Medium" Tag="medium" />
+                            <ComboBoxItem Content="Large" Tag="large" />
+                        </ComboBox>
                         <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Text="Visibility" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" Text="{Binding CursorOverlayVisibility}" Style="{StaticResource DetailValue}" />
+                        <ComboBox Grid.Row="2"
+                                  Grid.Column="1"
+                                  Margin="0,8,0,0"
+                                  Width="180"
+                                  HorizontalAlignment="Left"
+                                  SelectedValuePath="Tag"
+                                  SelectedValue="{Binding CursorOverlaySettings.Visibility, Mode=OneWay}"
+                                  SelectionChanged="CursorOverlayVisibility_SelectionChanged">
+                            <ComboBoxItem Content="On input" Tag="onInput" />
+                            <ComboBoxItem Content="While controlling" Tag="whileControlling" />
+                        </ComboBox>
                         <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,8,0,0" Text="Crosshairs" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" Text="{Binding CursorOverlayCrosshairs}" Style="{StaticResource DetailValue}" />
+                        <CheckBox Grid.Row="3"
+                                  Grid.Column="1"
+                                  Margin="0,8,0,0"
+                                  Content="Show crosshairs"
+                                  Click="CursorOverlayCrosshairs_Click"
+                                  IsChecked="{Binding CursorOverlayCrosshairs, Mode=OneWay}" />
                         <TextBlock Grid.Row="4" Grid.Column="0" Margin="0,8,0,0" Text="Color" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" Text="{Binding CursorOverlayColor}" Style="{StaticResource DetailValue}" />
+                        <ComboBox Grid.Row="4"
+                                  Grid.Column="1"
+                                  Margin="0,8,0,0"
+                                  Width="180"
+                                  HorizontalAlignment="Left"
+                                  SelectedValuePath="Tag"
+                                  SelectedValue="{Binding CursorOverlaySettings.Color, Mode=OneWay}"
+                                  SelectionChanged="CursorOverlayColor_SelectionChanged">
+                            <ComboBoxItem Content="Red" Tag="red" />
+                            <ComboBoxItem Content="Green" Tag="green" />
+                            <ComboBoxItem Content="Blue" Tag="blue" />
+                            <ComboBoxItem Content="Yellow" Tag="yellow" />
+                            <ComboBoxItem Content="White" Tag="white" />
+                        </ComboBox>
                     </Grid>
                 </StackPanel>
             </Border>
@@ -131,12 +182,18 @@
                                Text="{Binding UpdateDownloadMessage}"
                                Style="{StaticResource MutedText}" />
                     <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                        <Button Content="Download update"
+                        <Button Content="Check for updates"
                                 Padding="14,8"
+                                Click="CheckForUpdates_Click" />
+                        <Button Content="Download update"
+                                Margin="10,0,0,0"
+                                Padding="14,8"
+                                Click="DownloadUpdate_Click"
                                 IsEnabled="{Binding CanDownloadUpdate}" />
                         <Button Content="Install update"
                                 Margin="10,0,0,0"
                                 Padding="14,8"
+                                Click="InstallUpdate_Click"
                                 IsEnabled="{Binding CanInstallUpdate}" />
                     </StackPanel>
                 </StackPanel>
