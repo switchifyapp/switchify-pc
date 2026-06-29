@@ -289,7 +289,7 @@ const pointerMovementSizeOptions: Array<{ value: PointerMovementSizeKey; label: 
   { value: 'large', label: 'Large' }
 ];
 
-const pointerMovementScaleOptions = [50, 75, 100, 125, 150, 175, 200];
+const pointerMovementScaleOptions = [25, 50, 75, 100, 125, 150, 175, 200];
 
 function PointerMovementPreview({ settings }: { settings: PointerMovementSettings }): ReactElement {
   const normalizedSettings = normalizePointerMovementSettings(settings);

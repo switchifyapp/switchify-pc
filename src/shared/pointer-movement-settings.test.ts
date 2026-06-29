@@ -17,7 +17,7 @@ describe('normalizePointerMovementSettings', () => {
   });
 
   it('clamps scale values below the minimum', () => {
-    expect(normalizePointerMovementSettings({ scalePercent: 10 })).toEqual({ scalePercent: 50 });
+    expect(normalizePointerMovementSettings({ scalePercent: 10 })).toEqual({ scalePercent: 25 });
   });
 
   it('clamps scale values above the maximum', () => {

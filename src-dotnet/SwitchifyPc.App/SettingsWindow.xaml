@@ -139,10 +139,10 @@
                         <StackPanel Grid.Row="0" Grid.Column="1">
                             <TextBlock Text="{Binding PointerScalePercent, StringFormat={}{0:0}%}" Style="{StaticResource DetailValue}" />
                             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                                <Button Content="50%" Padding="12,6" Click="PointerScale50_Click" />
+                                <Button Content="25%" Padding="12,6" Click="PointerScale25_Click" />
+                                <Button Content="50%" Margin="8,0,0,0" Padding="12,6" Click="PointerScale50_Click" />
+                                <Button Content="75%" Margin="8,0,0,0" Padding="12,6" Click="PointerScale75_Click" />
                                 <Button Content="100%" Margin="8,0,0,0" Padding="12,6" Click="PointerScale100_Click" />
-                                <Button Content="150%" Margin="8,0,0,0" Padding="12,6" Click="PointerScale150_Click" />
-                                <Button Content="200%" Margin="8,0,0,0" Padding="12,6" Click="PointerScale200_Click" />
                             </StackPanel>
                         </StackPanel>
                         <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Text="Small" Style="{StaticResource DetailLabel}" />

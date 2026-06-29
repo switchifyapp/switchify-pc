@@ -15,7 +15,7 @@ public sealed record PointerMovementSettings(double ScalePercent);
 
 public static class PointerMovementSettingsModel
 {
-    public const double PointerMovementScaleMin = 50;
+    public const double PointerMovementScaleMin = 25;
     public const double PointerMovementScaleMax = 200;
     public const double PointerMovementScaleStep = 5;
 

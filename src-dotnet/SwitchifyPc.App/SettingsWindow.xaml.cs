@@ -55,13 +55,13 @@ public partial class SettingsWindow : Window
             "Start with system could not be changed.");
     }
 
+    private void PointerScale25_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(25);
+
     private void PointerScale50_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(50);
 
+    private void PointerScale75_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(75);
+
     private void PointerScale100_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(100);
-
-    private void PointerScale150_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(150);
-
-    private void PointerScale200_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(200);
 
     private async void ForgetPairedDevice_Click(object sender, RoutedEventArgs e)
     {
