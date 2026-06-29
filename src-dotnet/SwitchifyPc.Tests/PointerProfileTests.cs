@@ -1,5 +1,6 @@
 using SwitchifyPc.Core.Input;
 using SwitchifyPc.Protocol;
+using InputPoint = SwitchifyPc.Core.Input.Point;
 
 namespace SwitchifyPc.Tests;
 
@@ -9,7 +10,7 @@ public sealed class PointerProfileTests
     public void CreatesStableBaselineDeltasForScaledDisplay()
     {
         PointerMovementProfile profile = PointerProfile.Create(new PointerProfileInput(
-            new Point(100, 100),
+            new InputPoint(100, 100),
             new DisplayInfo(new Bounds(0, 0, 1280, 720), 1.5)));
 
         Assert.Equal("0:0:1280:720:1.5", profile.DisplayId);
@@ -23,7 +24,7 @@ public sealed class PointerProfileTests
     public void PreservesCurrentFeelOn1080pAtOneX()
     {
         RecommendedDeltas deltas = PointerProfile.Create(new PointerProfileInput(
-            new Point(100, 100),
+            new InputPoint(100, 100),
             new DisplayInfo(new Bounds(0, 0, 1920, 1080), 1))).RecommendedDeltas;
 
         Assert.Equal(new RecommendedDeltas(49, 130, 281), deltas);
@@ -33,7 +34,7 @@ public sealed class PointerProfileTests
     public void DividesStableBaselineDeltasByScaleFactor()
     {
         RecommendedDeltas deltas = PointerProfile.Create(new PointerProfileInput(
-            new Point(100, 100),
+            new InputPoint(100, 100),
             new DisplayInfo(new Bounds(0, 0, 3840, 2160), 2))).RecommendedDeltas;
 
         Assert.Equal(new RecommendedDeltas(24, 65, 140), deltas);
@@ -43,7 +44,7 @@ public sealed class PointerProfileTests
     public void KeepsRecommendedDeltasBelowMax()
     {
         RecommendedDeltas deltas = PointerProfile.Create(new PointerProfileInput(
-            new Point(100, 100),
+            new InputPoint(100, 100),
             new DisplayInfo(new Bounds(0, 0, 3840, 2160), 0.25),
             ProtocolConstants.MaxPointerDelta)).RecommendedDeltas;
 
@@ -56,10 +57,10 @@ public sealed class PointerProfileTests
     public void FallsBackForInvalidScaleAndKeepsNegativeDisplayCoordinates()
     {
         PointerMovementProfile invalidScale = PointerProfile.Create(new PointerProfileInput(
-            new Point(100, 100),
+            new InputPoint(100, 100),
             new DisplayInfo(new Bounds(0, 0, 1280, 720), 0)));
         PointerMovementProfile negativeDisplay = PointerProfile.Create(new PointerProfileInput(
-            new Point(-100, 100),
+            new InputPoint(-100, 100),
             new DisplayInfo(new Bounds(-1920, 0, 1920, 1080), 1.25)));
 
         Assert.Equal(1, invalidScale.ScaleFactor);

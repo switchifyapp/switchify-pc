@@ -13,6 +13,7 @@ using SwitchifyPc.Core.Ui;
 using SwitchifyPc.Core.Updates;
 using SwitchifyPc.Windows.AppLifecycle;
 using SwitchifyPc.Windows.Bluetooth;
+using SwitchifyPc.Windows.CursorOverlay;
 using SwitchifyPc.Windows.Input;
 using SwitchifyPc.Windows.Startup;
 using SwitchifyPc.Windows.Updates;
@@ -33,6 +34,7 @@ public partial class App : System.Windows.Application
     private BluetoothStatusTracker? bluetoothStatusTracker;
     private WindowsBluetoothGattServer? bluetoothServer;
     private BluetoothRemoteFrameProcessor? bluetoothFrameProcessor;
+    private WindowsCursorOverlayNotifier? cursorOverlay;
     private bool isQuitting;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -83,6 +85,8 @@ public partial class App : System.Windows.Application
         updateService = null;
         bluetoothServer?.Dispose();
         bluetoothServer = null;
+        cursorOverlay?.Dispose();
+        cursorOverlay = null;
         bluetoothFrameProcessor = null;
         bluetoothStatusTracker = null;
         pairingApprovalManager = null;
@@ -197,11 +201,13 @@ public partial class App : System.Windows.Application
             JsonPairingStore pairingStore = new(Path.Combine(userDataDirectory, "pairing-state.json"));
             string desktopId = await new PairingManager(pairingStore).GetDesktopIdAsync();
             JsonPointerMovementSettingsStore pointerSettingsStore = new(Path.Combine(userDataDirectory, "pointer-movement-settings.json"));
+            JsonCursorOverlaySettingsStore cursorOverlaySettingsStore = new(Path.Combine(userDataDirectory, "cursor-overlay-settings.json"));
             SendInputWindowsNativeInput nativeInput = new();
             WindowsDesktopInputAdapter inputAdapter = new(nativeInput, pointerSettingsStore.Load());
+            cursorOverlay = new WindowsCursorOverlayNotifier(nativeInput, cursorOverlaySettingsStore);
             ControlSession controlSession = new(
                 new CommandAuthValidator(pairingStore),
-                new DesktopCommandExecutor(inputAdapter),
+                new DesktopCommandExecutor(inputAdapter, cursorOverlay),
                 new WindowsPointerProfileProvider(nativeInput, pointerSettingsStore));
 
             pairingApprovalManager ??= new PairingApprovalManager(pairingStore);
