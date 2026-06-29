@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Http;
 using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Core.AppLifecycle;
+using SwitchifyPc.Core.Diagnostics;
 using SwitchifyPc.Core.Startup;
 using SwitchifyPc.Core.Ui;
 using SwitchifyPc.Core.Updates;
@@ -29,7 +30,8 @@ public partial class App : System.Windows.Application
 
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
         singleInstance = new SingleInstanceService(new WindowsSingleInstanceLockFactory());
-        SingleInstanceDecision decision = singleInstance.Start(AppLaunchOptions.Parse(e.Args));
+        AppLaunchOptions launchOptions = AppLaunchOptions.Parse(e.Args);
+        SingleInstanceDecision decision = singleInstance.Start(launchOptions);
 
         if (!decision.IsPrimaryInstance)
         {
@@ -40,6 +42,7 @@ public partial class App : System.Windows.Application
 
         updateService = CreateUpdateService();
         updateService.StartAutomaticUpdateChecks();
+        _ = RecordStartupDiagnosticsAsync(e.Args, launchOptions.StartHidden);
         trayIcon = new NativeTrayIcon(ShowMainWindow, ShowSettingsWindow, QuitApplication);
 
         if (decision.ShowMainWindow)
@@ -117,15 +120,20 @@ public partial class App : System.Windows.Application
         string userDataDirectory = UserDataDirectory();
         return new SettingsController(
             viewModel,
-            new SystemStartupService(
-                platform: "win32",
-                isPackaged: IsInstalledApp(),
-                executablePath: Environment.ProcessPath ?? string.Empty,
-                startupRegistry: new WindowsStartupRegistry(),
-                startupCommandFor: WindowsStartupRegistry.StartupCommandFor),
+            CreateStartupService(),
             new JsonPointerMovementSettingsStore(Path.Combine(userDataDirectory, "pointer-movement-settings.json")),
             new JsonCursorOverlaySettingsStore(Path.Combine(userDataDirectory, "cursor-overlay-settings.json")),
             updateService ?? CreateUpdateService());
+    }
+
+    private SystemStartupService CreateStartupService()
+    {
+        return new SystemStartupService(
+            platform: "win32",
+            isPackaged: IsInstalledApp(),
+            executablePath: Environment.ProcessPath ?? string.Empty,
+            startupRegistry: new WindowsStartupRegistry(),
+            startupCommandFor: WindowsStartupRegistry.StartupCommandFor);
     }
 
     private UpdateService CreateUpdateService()
@@ -158,5 +166,28 @@ public partial class App : System.Windows.Application
     private void UpdateMainWindowState(UpdateState state)
     {
         Dispatcher.BeginInvoke(() => mainWindowViewModel.SetUpdateState(state));
+    }
+
+    private async Task RecordStartupDiagnosticsAsync(string[] argv, bool startHidden)
+    {
+        try
+        {
+            SystemStartupSettings startupSettings = await CreateStartupService().GetSettingsAsync();
+            JsonlDiagnostics.AppendStartupDiagnostics(
+                Path.Combine(UserDataDirectory(), "startup-diagnostics.jsonl"),
+                new StartupDiagnosticsEntry(
+                    StartedAt: DateTimeOffset.UtcNow.ToString("O"),
+                    Version: CurrentVersion,
+                    IsPackaged: IsInstalledApp(),
+                    Platform: "win32",
+                    ExecutablePath: Environment.ProcessPath ?? string.Empty,
+                    Argv: argv,
+                    StartHidden: startHidden,
+                    StartupRegistration: JsonlDiagnostics.RegistrationFromSettings(startupSettings)));
+        }
+        catch
+        {
+            // Diagnostics must not block app startup.
+        }
     }
 }
