@@ -142,6 +142,37 @@ public sealed class RemoteControlSessionTests
         Assert.Equal(["pressKey:Meta"], context.Adapter.Calls);
     }
 
+    [Fact]
+    public async Task DelegatesShortcutTextMediaAndWindowCommandsToCommandSession()
+    {
+        TestContext context = CreateContext();
+
+        RemoteSessionResult shortcut = await context.Session.ProcessMessageAsync(
+            "ble-1",
+            SignedCommand("keyboard.shortcut", new { keys = new[] { "Meta" } }, id: "command-1"));
+        RemoteSessionResult text = await context.Session.ProcessMessageAsync(
+            "ble-1",
+            SignedCommand("keyboard.typeText", new { text = "Hello" }, id: "command-2"));
+        RemoteSessionResult media = await context.Session.ProcessMessageAsync(
+            "ble-1",
+            SignedCommand("media.control", new { action = "playPause" }, id: "command-3"));
+        RemoteSessionResult window = await context.Session.ProcessMessageAsync(
+            "ble-1",
+            SignedCommand("window.control", new { action = "showDesktop" }, id: "command-4"));
+
+        Assert.All(
+            new[] { shortcut, text, media, window },
+            result => Assert.Equal("ble-1", Assert.Single(result.OutgoingMessages).ConnectionId));
+        Assert.Equal(
+            [
+                "pressShortcut:Meta",
+                "typeText:Hello",
+                "mediaControl:playPause",
+                "controlWindow:showDesktop"
+            ],
+            context.Adapter.Calls);
+    }
+
     private static TestContext CreateContext(Func<double>? now = null, Func<string>? createToken = null)
     {
         MemoryPairingStore store = new(new PairingState(
