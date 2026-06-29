@@ -109,6 +109,39 @@ public sealed class GitHubReleaseUpdateBackendTests : IDisposable
     }
 
     [Fact]
+    public async Task IgnoresOlderReleases()
+    {
+        FakeHttpHandler handler = new();
+        handler.EnqueueJson("""
+        [
+          {
+            "tag_name": "v0.1.20",
+            "name": "Current",
+            "body": "",
+            "draft": false,
+            "prerelease": false,
+            "assets": [{ "name": "Switchify-PC-Setup-0.1.20-x64.exe", "browser_download_url": "https://example.test/current.exe" }]
+          },
+          {
+            "tag_name": "v0.1.19",
+            "name": "Older",
+            "body": "",
+            "draft": false,
+            "prerelease": false,
+            "assets": [{ "name": "Switchify-PC-Setup-0.1.19-x64.exe", "browser_download_url": "https://example.test/older.exe" }]
+          }
+        ]
+        """);
+        GitHubReleaseUpdateBackend backend = CreateBackend(handler);
+
+        UpdateCheckOutcome outcome = await backend.CheckForUpdatesAsync("0.1.20");
+
+        Assert.False(outcome.UpdateAvailable);
+        Assert.Null(outcome.Update);
+        Assert.Null(outcome.FailureReason);
+    }
+
+    [Fact]
     public async Task ReportsNetworkFailureForUnsuccessfulReleaseResponse()
     {
         FakeHttpHandler handler = new();
@@ -151,6 +184,30 @@ public sealed class GitHubReleaseUpdateBackendTests : IDisposable
         Assert.Equal(100, progress.Last().Percent);
         Assert.Equal("https://example.test/Switchify-PC-Setup-0.2.0-x64.exe", handler.Requests.Single().RequestUri?.ToString());
         Assert.DoesNotContain(Directory.EnumerateFiles(tempDir), path => path.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task DownloadUsesOnlyInstallerFileNameInsideCache()
+    {
+        FakeHttpHandler handler = new();
+        handler.Enqueue(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(Encoding.UTF8.GetBytes("installer"))
+        });
+        GitHubReleaseUpdateBackend backend = CreateBackend(handler);
+
+        UpdateDownloadOutcome outcome = await backend.DownloadUpdateAsync(
+            new AvailableUpdate(
+                Version: "0.2.0",
+                ReleaseName: null,
+                ReleaseNotes: null,
+                InstallerAssetName: @"..\Switchify-PC-Setup-0.2.0-x64.exe",
+                InstallerDownloadUrl: "https://example.test/Switchify-PC-Setup-0.2.0-x64.exe"),
+            new ProgressCollector([]));
+
+        Assert.Null(outcome.FailureReason);
+        Assert.Equal(Path.Combine(tempDir, "Switchify-PC-Setup-0.2.0-x64.exe"), outcome.InstallerPath);
+        Assert.True(File.Exists(outcome.InstallerPath));
     }
 
     [Fact]
