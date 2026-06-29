@@ -9,6 +9,8 @@ build/*
 out/
 native/**/bin/
 native/**/obj/
+src-dotnet/**/bin/
+src-dotnet/**/obj/
 .certs/*
 !.certs/.gitkeep
 .env

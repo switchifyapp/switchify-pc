@@ -6,6 +6,10 @@
   "scripts": {
     "dev": "node scripts/dev.cjs",
     "build": "electron-vite build",
+    "dotnet:restore": "dotnet restore src-dotnet/SwitchifyPc.sln",
+    "dotnet:build": "dotnet build src-dotnet/SwitchifyPc.sln -c Release --no-restore",
+    "dotnet:test": "dotnet test src-dotnet/SwitchifyPc.sln -c Release --no-build",
+    "dotnet:publish": "dotnet publish src-dotnet/SwitchifyPc.App/SwitchifyPc.App.csproj -c Release -r win-x64 --self-contained true",
     "native:build": "node scripts/build-cursor-overlay-helper.cjs",
     "native:build-overlay": "npm run native:build",
     "native:smoke-overlay": "node scripts/smoke-cursor-overlay-helper.cjs",

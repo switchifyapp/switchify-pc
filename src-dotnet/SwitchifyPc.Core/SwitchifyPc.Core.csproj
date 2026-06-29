@@ -1,0 +1,7 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\SwitchifyPc.Protocol\SwitchifyPc.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>
