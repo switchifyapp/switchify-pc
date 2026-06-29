@@ -77,10 +77,10 @@ SectionEnd
 Function PromptForRunningApp
   check:
   DetailPrint "Checking whether Switchify PC is running..."
-  nsExec::ExecToStack 'tasklist /FI "IMAGENAME eq Switchify PC.exe" /NH'
+  nsExec::ExecToStack 'cmd /c tasklist /FI "IMAGENAME eq Switchify PC.exe" /NH | find /I "Switchify PC.exe" >NUL'
   Pop $0
   Pop $1
-  ${If} $1 != "INFO: No tasks are running which match the specified criteria."
+  ${If} $0 == 0
     MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Switchify PC appears to be running. Close Switchify PC, then click Retry to continue installing." IDRETRY check IDCANCEL cancel
     cancel:
     Abort
@@ -90,10 +90,10 @@ FunctionEnd
 Function un.PromptForRunningApp
   check:
   DetailPrint "Checking whether Switchify PC is running..."
-  nsExec::ExecToStack 'tasklist /FI "IMAGENAME eq Switchify PC.exe" /NH'
+  nsExec::ExecToStack 'cmd /c tasklist /FI "IMAGENAME eq Switchify PC.exe" /NH | find /I "Switchify PC.exe" >NUL'
   Pop $0
   Pop $1
-  ${If} $1 != "INFO: No tasks are running which match the specified criteria."
+  ${If} $0 == 0
     MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Switchify PC appears to be running. Close Switchify PC, then click Retry to continue uninstalling." IDRETRY check IDCANCEL cancel
     cancel:
     Abort

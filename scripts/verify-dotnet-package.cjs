@@ -10,9 +10,11 @@ const appExe = path.join(stageDir, 'Switchify PC.exe');
 const builderDebug = path.join(distDir, 'builder-debug.yml');
 const latestYml = path.join(distDir, 'latest.yml');
 const expectedInstaller = path.join(distDir, `Switchify-PC-Setup-${packageJson.version}-x64.exe`);
+const installerScript = resolveProjectPath('installer', 'SwitchifyPc.DotNet.nsi');
 
 assertExists(appExe, 'staged C# app executable');
 assertExists(builderDebug, 'C# builder debug metadata');
+assertInstallerScript();
 assertNoElectronRuntime();
 
 if (fs.existsSync(expectedInstaller) || fs.existsSync(latestYml)) {
@@ -46,6 +48,22 @@ function assertNoElectronRuntime() {
       throw new Error(`C# package contains Electron runtime marker: ${marker}`);
     }
   }
+}
+
+function assertInstallerScript() {
+  assertExists(installerScript, 'C# NSIS installer script');
+  const content = fs.readFileSync(installerScript, 'utf8');
+  assertIncludes(content, 'RequestExecutionLevel admin', 'installer elevation requirement');
+  assertIncludes(content, 'InstallDir "$PROGRAMFILES64\\Switchify PC"', 'installer Program Files target');
+  assertIncludes(content, '!define MUI_FINISHPAGE_RUN "$INSTDIR\\Switchify PC.exe"', 'installer run-after-finish behavior');
+  assertIncludes(content, 'Call PromptForRunningApp', 'installer running-app prompt');
+  assertIncludes(content, 'Call un.PromptForRunningApp', 'uninstaller running-app prompt');
+  assertIncludes(content, 'find /I "Switchify PC.exe"', 'installer process detection');
+  assertIncludes(
+    content,
+    'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Switchify PC',
+    'installer uninstall registry key'
+  );
 }
 
 function assertIncludes(content, expected, label) {
