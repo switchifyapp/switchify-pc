@@ -191,6 +191,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         {
             Forms.Application.EnableVisualStyles();
             using OverlayForm form = new();
+            _ = form.Handle;
             formReady.SetResult(form);
             Forms.Application.Run();
         }

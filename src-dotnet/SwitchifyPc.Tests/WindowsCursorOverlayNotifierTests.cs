@@ -15,9 +15,24 @@ public sealed class WindowsCursorOverlayNotifierTests
         notifier.Hide();
     }
 
-    private sealed class FakeCursorOverlaySettings : ICursorOverlaySettingsStore
+    [Fact]
+    public void CanStartFollowingBeforeOverlayWindowIsShown()
     {
-        public CursorOverlaySettings Load() => CursorOverlaySettingsModel.Default with { Enabled = false };
+        using WindowsCursorOverlayNotifier notifier = new(
+            new FakeNativeInput(),
+            new FakeCursorOverlaySettings(CursorOverlaySettingsModel.Default with
+            {
+                Enabled = true,
+                Visibility = "whileControlling"
+            }));
+
+        notifier.MarkControlActive();
+        Thread.Sleep(150);
+    }
+
+    private sealed class FakeCursorOverlaySettings(CursorOverlaySettings? settings = null) : ICursorOverlaySettingsStore
+    {
+        public CursorOverlaySettings Load() => settings ?? CursorOverlaySettingsModel.Default with { Enabled = false };
 
         public CursorOverlaySettings Save(CursorOverlaySettings settings) => CursorOverlaySettingsModel.Normalize(settings);
     }
