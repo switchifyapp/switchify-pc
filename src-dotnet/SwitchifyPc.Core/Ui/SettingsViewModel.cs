@@ -152,6 +152,20 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         return "Could not download the update.";
     }
 
+    public static string InstallMessage(UpdateInstallFailureReason? reason)
+    {
+        return reason switch
+        {
+            UpdateInstallFailureReason.NotDownloaded => "The update is not downloaded yet.",
+            UpdateInstallFailureReason.NotPackaged => "Updates are only available in the installed app.",
+            UpdateInstallFailureReason.NotSupported => "Updates are only supported on Windows.",
+            UpdateInstallFailureReason.Cancelled => "The update was cancelled.",
+            UpdateInstallFailureReason.InstallerUnavailable => "The downloaded installer could not be found. Download the update again.",
+            UpdateInstallFailureReason.InstallerLaunchFailed => "The update installer could not be opened. Download the update again or run the installer manually.",
+            _ => "The update installer could not be opened."
+        };
+    }
+
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

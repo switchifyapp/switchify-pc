@@ -110,6 +110,22 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void MapsUpdateInstallFailureMessages()
+    {
+        Assert.Equal("The update is not downloaded yet.", SettingsViewModel.InstallMessage(UpdateInstallFailureReason.NotDownloaded));
+        Assert.Equal("Updates are only available in the installed app.", SettingsViewModel.InstallMessage(UpdateInstallFailureReason.NotPackaged));
+        Assert.Equal("Updates are only supported on Windows.", SettingsViewModel.InstallMessage(UpdateInstallFailureReason.NotSupported));
+        Assert.Equal("The update was cancelled.", SettingsViewModel.InstallMessage(UpdateInstallFailureReason.Cancelled));
+        Assert.Equal(
+            "The downloaded installer could not be found. Download the update again.",
+            SettingsViewModel.InstallMessage(UpdateInstallFailureReason.InstallerUnavailable));
+        Assert.Equal(
+            "The update installer could not be opened. Download the update again or run the installer manually.",
+            SettingsViewModel.InstallMessage(UpdateInstallFailureReason.InstallerLaunchFailed));
+        Assert.Equal("The update installer could not be opened.", SettingsViewModel.InstallMessage(null));
+    }
+
+    [Fact]
     public void RaisesChangedProperties()
     {
         SettingsViewModel viewModel = new();

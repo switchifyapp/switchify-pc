@@ -112,13 +112,21 @@ public partial class SettingsWindow : Window
     private async void InstallUpdate_Click(object sender, RoutedEventArgs e)
     {
         if (controller is null) return;
+        MessageBoxResult confirmation = WpfMessageBox.Show(
+            "Open the downloaded Switchify PC installer?\n\nThe installer will open in Windows and may ask you to close Switchify PC before continuing. If you rely on Switchify to control this computer, make sure you have another way to complete the installer before continuing.",
+            "Install update?",
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Warning,
+            MessageBoxResult.Cancel);
+        if (confirmation != MessageBoxResult.OK) return;
+
         await RunActionAsync(async () =>
         {
             UpdateInstallResult result = await controller.InstallDownloadedUpdateAsync();
             if (!result.Ok)
             {
                 WpfMessageBox.Show(
-                    UpdateInstallMessage(result.Reason),
+                    SettingsViewModel.InstallMessage(result.Reason),
                     "Update installer",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
@@ -146,17 +154,4 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private static string UpdateInstallMessage(UpdateInstallFailureReason? reason)
-    {
-        return reason switch
-        {
-            UpdateInstallFailureReason.NotDownloaded => "The update is not downloaded yet.",
-            UpdateInstallFailureReason.NotPackaged => "Updates are only available in the installed app.",
-            UpdateInstallFailureReason.NotSupported => "Updates are only supported on Windows.",
-            UpdateInstallFailureReason.Cancelled => "The update was cancelled.",
-            UpdateInstallFailureReason.InstallerUnavailable => "The downloaded installer could not be found. Download the update again.",
-            UpdateInstallFailureReason.InstallerLaunchFailed => "The update installer could not be opened. Download the update again or run the installer manually.",
-            _ => "The update installer could not be opened."
-        };
-    }
 }
