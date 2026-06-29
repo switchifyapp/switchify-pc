@@ -148,6 +148,51 @@ public sealed class UpdateServiceTests
     }
 
     [Fact]
+    public void AutomaticPollingDoesNotStartDuplicateTimers()
+    {
+        FakeUpdateScheduler scheduler = new();
+        UpdateService service = CreateService(new FakeUpdateBackend(), scheduler: scheduler);
+
+        service.StartAutomaticUpdateChecks();
+        service.StartAutomaticUpdateChecks();
+
+        Assert.Single(scheduler.OneShot);
+        Assert.Single(scheduler.Recurring);
+    }
+
+    [Fact]
+    public async Task StopAutomaticPollingDisposesScheduledChecks()
+    {
+        FakeUpdateBackend backend = new();
+        FakeUpdateScheduler scheduler = new();
+        UpdateService service = CreateService(backend, scheduler: scheduler);
+
+        service.StartAutomaticUpdateChecks();
+        service.StopAutomaticUpdateChecks();
+        await scheduler.OneShot[0].RunAsync();
+        await scheduler.Recurring[0].RunAsync();
+
+        Assert.Equal(0, backend.CheckCalls);
+    }
+
+    [Fact]
+    public async Task AutomaticPollingSkipsOverlappingChecks()
+    {
+        FakeUpdateBackend backend = new() { CompleteChecksManually = true };
+        FakeUpdateScheduler scheduler = new();
+        UpdateService service = CreateService(backend, scheduler: scheduler);
+        service.StartAutomaticUpdateChecks();
+
+        Task firstCheck = scheduler.OneShot[0].RunAsync();
+        await backend.WaitForCheckStartAsync();
+        await scheduler.Recurring[0].RunAsync();
+        backend.CompletePendingCheck(UpdateCheckOutcome.UpToDate());
+        await firstCheck;
+
+        Assert.Equal(1, backend.CheckCalls);
+    }
+
+    [Fact]
     public void AutomaticPollingDoesNotStartWhenUnsupported()
     {
         FakeUpdateScheduler scheduler = new();
@@ -203,11 +248,32 @@ public sealed class UpdateServiceTests
         public int DownloadCalls { get; private set; }
         public UpdateCheckOutcome CheckOutcome { get; init; } = UpdateCheckOutcome.UpToDate();
         public UpdateDownloadOutcome DownloadOutcome { get; init; } = UpdateDownloadOutcome.Downloaded(@"C:\cache\setup.exe");
+        public bool CompleteChecksManually { get; init; }
+
+        private TaskCompletionSource<UpdateCheckOutcome>? pendingCheck;
+        private readonly TaskCompletionSource checkStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<UpdateCheckOutcome> CheckForUpdatesAsync(string currentVersion, CancellationToken cancellationToken = default)
         {
             CheckCalls++;
+            checkStarted.TrySetResult();
+            if (CompleteChecksManually)
+            {
+                pendingCheck = new TaskCompletionSource<UpdateCheckOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+                return pendingCheck.Task;
+            }
+
             return Task.FromResult(CheckOutcome);
+        }
+
+        public Task WaitForCheckStartAsync()
+        {
+            return checkStarted.Task;
+        }
+
+        public void CompletePendingCheck(UpdateCheckOutcome outcome)
+        {
+            pendingCheck?.SetResult(outcome);
         }
 
         public Task<UpdateDownloadOutcome> DownloadUpdateAsync(
