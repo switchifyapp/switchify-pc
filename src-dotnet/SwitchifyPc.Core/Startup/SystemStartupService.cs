@@ -18,7 +18,14 @@ public interface IStartupRegistry
 
 public sealed record StartupRegistrySnapshot(string? Command, string StartupApproved);
 
-public sealed class SystemStartupService
+public interface ISystemStartupSettingsService
+{
+    Task<SystemStartupSettings> GetSettingsAsync();
+
+    Task<SystemStartupSettings> SetStartWithSystemAsync(bool enabled);
+}
+
+public sealed class SystemStartupService : ISystemStartupSettingsService
 {
     public const string StartHiddenArg = "--start-hidden";
     public const string StartupValueName = "app.switchify.pc";

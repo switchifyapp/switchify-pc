@@ -22,6 +22,17 @@ public interface IUpdatePollScheduler
     IDisposable ScheduleRecurring(TimeSpan interval, Func<Task> callback);
 }
 
+public interface IUpdateSettingsService
+{
+    UpdateState GetState();
+
+    Task<UpdateState> CheckForUpdatesAsync(CancellationToken cancellationToken = default);
+
+    Task<UpdateState> DownloadUpdateAsync(CancellationToken cancellationToken = default);
+
+    Task<UpdateInstallResult> InstallDownloadedUpdateAsync(CancellationToken cancellationToken = default);
+}
+
 public sealed class TimerUpdatePollScheduler : IUpdatePollScheduler
 {
     public IDisposable ScheduleOnce(TimeSpan delay, Func<Task> callback)
@@ -42,7 +53,7 @@ public sealed class TimerUpdatePollScheduler : IUpdatePollScheduler
     }
 }
 
-public sealed class UpdateService
+public sealed class UpdateService : IUpdateSettingsService
 {
     public static readonly TimeSpan PollInterval = TimeSpan.FromHours(1);
     public static readonly TimeSpan InitialPollDelay = TimeSpan.FromSeconds(30);

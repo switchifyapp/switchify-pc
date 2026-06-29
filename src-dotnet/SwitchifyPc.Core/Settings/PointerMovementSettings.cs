@@ -178,7 +178,14 @@ public static class PointerMovementSettingsModel
     }
 }
 
-public sealed class JsonPointerMovementSettingsStore
+public interface IPointerMovementSettingsStore
+{
+    PointerMovementSettings Load();
+
+    PointerMovementSettings Save(PointerMovementSettings settings);
+}
+
+public sealed class JsonPointerMovementSettingsStore : IPointerMovementSettingsStore
 {
     private readonly string filePath;
     private readonly Action<string> warn;

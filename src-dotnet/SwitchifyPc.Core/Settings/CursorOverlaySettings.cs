@@ -119,7 +119,14 @@ public static class CursorOverlaySettingsModel
     }
 }
 
-public sealed class JsonCursorOverlaySettingsStore
+public interface ICursorOverlaySettingsStore
+{
+    CursorOverlaySettings Load();
+
+    CursorOverlaySettings Save(CursorOverlaySettings settings);
+}
+
+public sealed class JsonCursorOverlaySettingsStore : ICursorOverlaySettingsStore
 {
     private readonly string filePath;
     private readonly Action<string> warn;

@@ -54,6 +54,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public double PointerScalePercent => PointerMovementSettingsModel.ScalePercentFor(pointerMovementSettings);
 
+    public PointerMovementSettings PointerMovementSettings => pointerMovementSettings;
+
     public string PointerSmall => $"{PointerMovementSettingsModel.PercentageFor(pointerMovementSettings, PointerMovementSizeKey.Small):0.#}%";
 
     public string PointerMedium => $"{PointerMovementSettingsModel.PercentageFor(pointerMovementSettings, PointerMovementSizeKey.Medium):0.#}%";
@@ -61,6 +63,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public string PointerLarge => $"{PointerMovementSettingsModel.PercentageFor(pointerMovementSettings, PointerMovementSizeKey.Large):0.#}%";
 
     public bool CursorOverlayEnabled => cursorOverlaySettings.Enabled;
+
+    public CursorOverlaySettings CursorOverlaySettings => cursorOverlaySettings;
 
     public string CursorOverlaySize => cursorOverlaySettings.Size;
 
@@ -91,6 +95,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public void SetPointerMovementSettings(PointerMovementSettings settings)
     {
         pointerMovementSettings = PointerMovementSettingsModel.Normalize(settings);
+        OnPropertyChanged(nameof(PointerMovementSettings));
         OnPropertyChanged(nameof(PointerScalePercent));
         OnPropertyChanged(nameof(PointerSmall));
         OnPropertyChanged(nameof(PointerMedium));
@@ -100,6 +105,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public void SetCursorOverlaySettings(CursorOverlaySettings settings)
     {
         cursorOverlaySettings = CursorOverlaySettingsModel.Normalize(settings);
+        OnPropertyChanged(nameof(CursorOverlaySettings));
         OnPropertyChanged(nameof(CursorOverlayEnabled));
         OnPropertyChanged(nameof(CursorOverlaySize));
         OnPropertyChanged(nameof(CursorOverlayVisibility));
