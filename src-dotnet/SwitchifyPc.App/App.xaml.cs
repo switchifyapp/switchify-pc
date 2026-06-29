@@ -169,6 +169,7 @@ public partial class App : System.Windows.Application
     private void ShowSettingsWindow()
     {
         settingsWindow ??= CreateSettingsWindow();
+        CenterWindow(settingsWindow);
         settingsWindow.Show();
         settingsWindow.WindowState = WindowState.Normal;
         settingsWindow.Activate();
@@ -185,6 +186,12 @@ public partial class App : System.Windows.Application
         };
 
         return window;
+    }
+
+    private static void CenterWindow(Window window)
+    {
+        window.Left = SystemParameters.WorkArea.Left + (SystemParameters.WorkArea.Width - window.Width) / 2;
+        window.Top = SystemParameters.WorkArea.Top + (SystemParameters.WorkArea.Height - window.Height) / 2;
     }
 
     private SettingsController CreateSettingsController()

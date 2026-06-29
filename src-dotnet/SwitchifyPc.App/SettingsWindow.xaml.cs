@@ -63,6 +63,16 @@ public partial class SettingsWindow : Window
 
     private void PointerScale100_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(100);
 
+    private void SectionNav_Checked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string section }) return;
+
+        GeneralPanel.Visibility = section == "general" ? Visibility.Visible : Visibility.Collapsed;
+        PointerPanel.Visibility = section == "pointer" ? Visibility.Visible : Visibility.Collapsed;
+        CursorPanel.Visibility = section == "cursor" ? Visibility.Visible : Visibility.Collapsed;
+        UpdatesPanel.Visibility = section == "updates" ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private async void ForgetPairedDevice_Click(object sender, RoutedEventArgs e)
     {
         if (controller is null || sender is not WpfButton { Tag: string deviceId }) return;
