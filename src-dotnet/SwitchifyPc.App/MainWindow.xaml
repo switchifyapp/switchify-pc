@@ -12,6 +12,7 @@
         Width="920"
         FontFamily="Segoe UI"
         Background="#F5F4F7"
+        WindowStartupLocation="CenterScreen"
         d:DataContext="{d:DesignInstance Type=ui:MainWindowViewModel, IsDesignTimeCreatable=True}">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
