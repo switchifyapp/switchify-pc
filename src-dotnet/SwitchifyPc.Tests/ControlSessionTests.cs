@@ -82,7 +82,8 @@ public sealed class ControlSessionTests
     public async Task DisconnectingReleasesHeldMouseButtons()
     {
         FakeInputAdapter adapter = new();
-        ControlSession session = CreateSession(adapter);
+        FakeCursorOverlay overlay = new();
+        ControlSession session = CreateSession(adapter, overlay);
 
         await session.ProcessMessageAsync(SignedCommand("mouse.dragStart", new { button = "left" }, id: "request-1"));
         ControlSessionResult result = await session.ProcessMessageAsync(SignedCommand("connection.disconnecting", new { }, id: "request-2"));
@@ -94,6 +95,9 @@ public sealed class ControlSessionTests
                 "setMouseButtonDown:left:False"
             ],
             adapter.Calls);
+        Assert.Equal([true, false], overlay.DragActiveChanges);
+        Assert.Equal(1, overlay.HideCount);
+        Assert.Equal(1, overlay.EndSessionCount);
     }
 
     [Fact]
@@ -107,7 +111,7 @@ public sealed class ControlSessionTests
         AssertError(result, "request-1", "adapter_failure");
     }
 
-    private static ControlSession CreateSession(FakeInputAdapter adapter)
+    private static ControlSession CreateSession(FakeInputAdapter adapter, ICursorOverlayNotifier? cursorOverlay = null)
     {
         MemoryPairingStore store = new(new PairingState(
             DesktopId: "desktop-1",
@@ -126,7 +130,7 @@ public sealed class ControlSessionTests
 
         return new ControlSession(
             new CommandAuthValidator(store, () => Now),
-            new DesktopCommandExecutor(adapter),
+            new DesktopCommandExecutor(adapter, cursorOverlay),
             new FixedPointerProfileProvider(profile));
     }
 
@@ -253,6 +257,36 @@ public sealed class ControlSessionTests
         {
             Calls.Add($"controlWindow:{action}");
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeCursorOverlay : ICursorOverlayNotifier
+    {
+        public List<bool> DragActiveChanges { get; } = [];
+        public int HideCount { get; private set; }
+        public int EndSessionCount { get; private set; }
+
+        public void Show(string eventName)
+        {
+        }
+
+        public void Hide()
+        {
+            HideCount += 1;
+        }
+
+        public void EndControlSession()
+        {
+            EndSessionCount += 1;
+        }
+
+        public void MarkControlActive()
+        {
+        }
+
+        public void SetDragActive(bool active)
+        {
+            DragActiveChanges.Add(active);
         }
     }
 }

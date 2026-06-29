@@ -147,6 +147,17 @@ public sealed class DesktopCommandExecutorTests
         Assert.Equal(2, overlay.HideCount);
     }
 
+    [Fact]
+    public void EndControlSessionHidesCursorOverlaySession()
+    {
+        FakeCursorOverlay overlay = new();
+        DesktopCommandExecutor executor = new(new FakeInputAdapter(), overlay);
+
+        executor.EndControlSession();
+
+        Assert.Equal(1, overlay.EndSessionCount);
+    }
+
     private static JsonElement Command(string type, object payload, string? responseMode = null)
     {
         Dictionary<string, object?> command = new(StringComparer.Ordinal)
@@ -244,6 +255,7 @@ public sealed class DesktopCommandExecutorTests
         public List<bool> DragActiveChanges { get; } = [];
         public int ActiveCount { get; private set; }
         public int HideCount { get; private set; }
+        public int EndSessionCount { get; private set; }
 
         public void Show(string eventName)
         {
@@ -253,6 +265,11 @@ public sealed class DesktopCommandExecutorTests
         public void Hide()
         {
             HideCount += 1;
+        }
+
+        public void EndControlSession()
+        {
+            EndSessionCount += 1;
         }
 
         public void MarkControlActive()

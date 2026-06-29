@@ -39,6 +39,7 @@ public partial class App : System.Windows.Application
     private BluetoothStatusTracker? bluetoothStatusTracker;
     private WindowsBluetoothGattServer? bluetoothServer;
     private BluetoothRemoteFrameProcessor? bluetoothFrameProcessor;
+    private DesktopCommandExecutor? commandExecutor;
     private WindowsCursorOverlayNotifier? cursorOverlay;
     private DispatcherTimer? pairingExpiryTimer;
     private bool isQuitting;
@@ -102,6 +103,7 @@ public partial class App : System.Windows.Application
         bluetoothServer = null;
         cursorOverlay?.Dispose();
         cursorOverlay = null;
+        commandExecutor = null;
         bluetoothFrameProcessor = null;
         bluetoothStatusTracker = null;
         pairingApprovalManager = null;
@@ -237,9 +239,10 @@ public partial class App : System.Windows.Application
             SendInputWindowsNativeInput nativeInput = new();
             WindowsDesktopInputAdapter inputAdapter = new(nativeInput, pointerSettingsStore.Load());
             cursorOverlay = new WindowsCursorOverlayNotifier(nativeInput, cursorOverlaySettingsStore);
+            commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay);
             ControlSession controlSession = new(
                 new CommandAuthValidator(pairingStore),
-                new DesktopCommandExecutor(inputAdapter, cursorOverlay),
+                commandExecutor,
                 new WindowsPointerProfileProvider(nativeInput, pointerSettingsStore));
 
             pairingApprovalManager ??= new PairingApprovalManager(pairingStore);
@@ -276,8 +279,17 @@ public partial class App : System.Windows.Application
                     bluetoothStatusTracker.AddConnection(connected.ConnectionId);
                     break;
                 case BluetoothDisconnectedEvent disconnected:
-                    bluetoothStatusTracker.RemoveConnection(disconnected.ConnectionId, disconnected.Reason);
+                    BluetoothStatus status = bluetoothStatusTracker.RemoveConnection(disconnected.ConnectionId, disconnected.Reason);
                     bluetoothFrameProcessor?.RemoveConnection(disconnected.ConnectionId);
+                    if (status.ConnectedClientCount == 0)
+                    {
+                        if (commandExecutor is not null)
+                        {
+                            await commandExecutor.ReleaseHeldMouseButtonsAsync();
+                        }
+
+                        cursorOverlay?.EndControlSession();
+                    }
                     break;
                 case BluetoothDiagnosticEvent diagnostic:
                     bluetoothStatusTracker.RecordDiagnostic(diagnostic.Event);

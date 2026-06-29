@@ -87,6 +87,12 @@ public sealed class DesktopCommandExecutor
         cursorOverlay?.Hide();
     }
 
+    public void EndControlSession()
+    {
+        activeDragButton = null;
+        cursorOverlay?.EndControlSession();
+    }
+
     private async Task<CommandExecutionResult> MoveMouseAsync(JsonElement payload, CancellationToken cancellationToken)
     {
         double dx = payload.GetProperty("dx").GetDouble();

@@ -79,6 +79,7 @@ public sealed class ControlSession
         if (type == "connection.disconnecting")
         {
             await commandExecutor.ReleaseHeldMouseButtonsAsync(cancellationToken).ConfigureAwait(false);
+            commandExecutor.EndControlSession();
             return AckOrNoResponse(request);
         }
 

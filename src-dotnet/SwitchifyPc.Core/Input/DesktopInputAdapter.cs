@@ -29,6 +29,7 @@ public interface ICursorOverlayNotifier
 {
     void Show(string eventName);
     void Hide();
+    void EndControlSession();
     void MarkControlActive();
     void SetDragActive(bool active);
 }

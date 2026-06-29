@@ -45,6 +45,16 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         }
     }
 
+    public void EndControlSession()
+    {
+        lock (sync)
+        {
+            dragActive = false;
+        }
+
+        Hide();
+    }
+
     public void MarkControlActive()
     {
         CursorOverlaySettings settings = settingsStore.Load();
