@@ -7,6 +7,8 @@ namespace SwitchifyPc.App;
 public partial class App : System.Windows.Application
 {
     private SingleInstanceService? singleInstance;
+    private NativeTrayIcon? trayIcon;
+    private bool isQuitting;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -23,6 +25,8 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        trayIcon = new NativeTrayIcon(ShowMainWindow, QuitApplication);
+
         if (decision.ShowMainWindow)
         {
             ShowMainWindow();
@@ -33,14 +37,37 @@ public partial class App : System.Windows.Application
     {
         singleInstance?.Stop();
         singleInstance = null;
+        trayIcon?.Dispose();
+        trayIcon = null;
         base.OnExit(e);
     }
 
     private void ShowMainWindow()
     {
-        SwitchifyPc.App.MainWindow window = new();
-        window.Closed += (_, _) => Shutdown();
+        Window window = MainWindow ?? CreateMainWindow();
         MainWindow = window;
+
         window.Show();
+        window.WindowState = WindowState.Normal;
+        window.Activate();
+    }
+
+    private Window CreateMainWindow()
+    {
+        SwitchifyPc.App.MainWindow window = new();
+        window.Closing += (_, eventArgs) =>
+        {
+            if (isQuitting) return;
+            eventArgs.Cancel = true;
+            window.Hide();
+        };
+
+        return window;
+    }
+
+    private void QuitApplication()
+    {
+        isQuitting = true;
+        Shutdown();
     }
 }
