@@ -23,6 +23,11 @@ jobs:
           node-version: 25
           cache: npm
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
       - name: Install dependencies
         run: npm ci
 
@@ -40,3 +45,18 @@ jobs:
 
       - name: Smoke native cursor overlay helper
         run: npm run native:smoke-overlay
+
+      - name: Restore C# solution
+        run: npm run dotnet:restore
+
+      - name: Build C# solution
+        run: npm run dotnet:build
+
+      - name: Test C# solution
+        run: npm run dotnet:test
+
+      - name: Stage C# Windows package
+        run: npm run dotnet:package:win:stage
+
+      - name: Verify staged C# Windows package
+        run: npm run dotnet:package:win:verify
