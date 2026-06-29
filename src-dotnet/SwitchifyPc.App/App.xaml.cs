@@ -1,6 +1,7 @@
 using System.Windows;
 using System.IO;
 using System.Net.Http;
+using SwitchifyPc.Core.Pairing;
 using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Core.AppLifecycle;
 using SwitchifyPc.Core.Diagnostics;
@@ -22,6 +23,7 @@ public partial class App : System.Windows.Application
     private SettingsWindow? settingsWindow;
     private MainWindowViewModel mainWindowViewModel = new();
     private UpdateService? updateService;
+    private PairingApprovalManager? pairingApprovalManager;
     private bool isQuitting;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -41,6 +43,8 @@ public partial class App : System.Windows.Application
         }
 
         updateService = CreateUpdateService();
+        pairingApprovalManager = CreatePairingApprovalManager();
+        RefreshPairingApprovals();
         updateService.StartAutomaticUpdateChecks();
         _ = RecordStartupDiagnosticsAsync(e.Args, launchOptions.StartHidden);
         trayIcon = new NativeTrayIcon(ShowMainWindow, ShowSettingsWindow, QuitApplication);
@@ -57,6 +61,7 @@ public partial class App : System.Windows.Application
         singleInstance = null;
         updateService?.StopAutomaticUpdateChecks();
         updateService = null;
+        pairingApprovalManager = null;
         trayIcon?.Dispose();
         trayIcon = null;
         settingsWindow = null;
@@ -76,7 +81,12 @@ public partial class App : System.Windows.Application
     private Window CreateMainWindow()
     {
         mainWindowViewModel.SetUpdateState(updateService?.GetState() ?? UpdateState.CreateInitial(CurrentVersion));
-        SwitchifyPc.App.MainWindow window = new(mainWindowViewModel, ShowSettingsWindow);
+        RefreshPairingApprovals();
+        SwitchifyPc.App.MainWindow window = new(
+            mainWindowViewModel,
+            ShowSettingsWindow,
+            AcceptPairingApprovalAsync,
+            RejectPairingApproval);
         window.Closing += (_, eventArgs) =>
         {
             if (isQuitting) return;
@@ -147,6 +157,30 @@ public partial class App : System.Windows.Application
             Backend: new GitHubReleaseUpdateBackend(new HttpClient(), "switchifyapp", "switchify-pc", cacheDirectory),
             InstallerLauncher: new WindowsUpdateInstallerLauncher(),
             OnStateChanged: UpdateMainWindowState));
+    }
+
+    private PairingApprovalManager CreatePairingApprovalManager()
+    {
+        return new PairingApprovalManager(new JsonPairingStore(Path.Combine(UserDataDirectory(), "pairing-state.json")));
+    }
+
+    private async Task AcceptPairingApprovalAsync(string requestId)
+    {
+        if (pairingApprovalManager is null) return;
+        await pairingApprovalManager.AcceptAsync(requestId);
+        RefreshPairingApprovals();
+    }
+
+    private void RejectPairingApproval(string requestId)
+    {
+        pairingApprovalManager?.Reject(requestId);
+        RefreshPairingApprovals();
+    }
+
+    private void RefreshPairingApprovals()
+    {
+        mainWindowViewModel.SetPairingApprovals(
+            pairingApprovalManager?.ListPendingRequestViews() ?? []);
     }
 
     private static string UserDataDirectory()

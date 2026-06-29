@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using SwitchifyPc.Core.Bluetooth;
+using SwitchifyPc.Core.Pairing;
 using SwitchifyPc.Core.Updates;
 
 namespace SwitchifyPc.Core.Ui;
@@ -14,6 +15,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         System = BluetoothStatusModel.DefaultSystemStatus with { AdapterPresent = true, RadioState = "unknown" }
     };
     private UpdateState updateState = UpdateState.CreateInitial("0.2.0");
+    private IReadOnlyList<PendingPairingApprovalView> pairingApprovals = [];
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -45,6 +47,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public string UpdateBannerTone => MainWindowCopy.UpdateBanner(updateState)?.Tone ?? "";
 
+    public bool HasPairingApprovals => pairingApprovals.Count > 0;
+
+    public IReadOnlyList<PendingPairingApprovalView> PairingApprovals => pairingApprovals;
+
     public void SetBluetoothState(DesktopUiState state, BluetoothStatus status)
     {
         desktopState = state;
@@ -60,6 +66,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(UpdateBannerBody));
         OnPropertyChanged(nameof(UpdateBannerButtonText));
         OnPropertyChanged(nameof(UpdateBannerTone));
+    }
+
+    public void SetPairingApprovals(IReadOnlyList<PendingPairingApprovalView> approvals)
+    {
+        pairingApprovals = approvals
+            .Select(approval => approval with { })
+            .ToArray();
+        OnPropertyChanged(nameof(HasPairingApprovals));
+        OnPropertyChanged(nameof(PairingApprovals));
     }
 
     private void NotifyStatusChanged()

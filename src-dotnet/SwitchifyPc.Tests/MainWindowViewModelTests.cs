@@ -1,4 +1,5 @@
 using SwitchifyPc.Core.Bluetooth;
+using SwitchifyPc.Core.Pairing;
 using SwitchifyPc.Core.Ui;
 using SwitchifyPc.Core.Updates;
 
@@ -66,5 +67,47 @@ public sealed class MainWindowViewModelTests
         Assert.Equal("Open updates", viewModel.UpdateBannerButtonText);
         Assert.Contains(nameof(MainWindowViewModel.HasUpdateBanner), changed);
         Assert.Contains(nameof(MainWindowViewModel.UpdateBannerTitle), changed);
+    }
+
+    [Fact]
+    public void UpdatesPairingApprovalProperties()
+    {
+        MainWindowViewModel viewModel = new();
+        List<string?> changed = [];
+        viewModel.PropertyChanged += (_, eventArgs) => changed.Add(eventArgs.PropertyName);
+
+        viewModel.SetPairingApprovals([
+            new PendingPairingApprovalView(
+                "approval-1",
+                "Pixel 9",
+                "123456",
+                1_724_000_000_000,
+                1_724_000_120_000,
+                "192.168.1.50")
+        ]);
+
+        Assert.True(viewModel.HasPairingApprovals);
+        PendingPairingApprovalView approval = Assert.Single(viewModel.PairingApprovals);
+        Assert.Equal("approval-1", approval.RequestId);
+        Assert.Equal("Pixel 9", approval.DeviceName);
+        Assert.Equal("123456", approval.VerificationCode);
+        Assert.Contains(nameof(MainWindowViewModel.HasPairingApprovals), changed);
+        Assert.Contains(nameof(MainWindowViewModel.PairingApprovals), changed);
+    }
+
+    [Fact]
+    public void ClonesPairingApprovalList()
+    {
+        MainWindowViewModel viewModel = new();
+        List<PendingPairingApprovalView> approvals =
+        [
+            new("approval-1", "Pixel 9", "123456", 1, 2, null)
+        ];
+
+        viewModel.SetPairingApprovals(approvals);
+        approvals.Clear();
+
+        Assert.True(viewModel.HasPairingApprovals);
+        Assert.Single(viewModel.PairingApprovals);
     }
 }

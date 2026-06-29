@@ -88,6 +88,62 @@
             </Border>
 
             <Border Margin="0,14,0,0"
+                    Style="{StaticResource PanelBorder}"
+                    Visibility="{Binding HasPairingApprovals, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <StackPanel>
+                    <TextBlock Text="Pairing requests"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="#111827" />
+                    <ItemsControl Margin="0,12,0,0"
+                                  ItemsSource="{Binding PairingApprovals}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,0,0,10"
+                                        Padding="12"
+                                        BorderBrush="#D6DAE2"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        Background="#F9FAFB">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding DeviceName}"
+                                                       FontSize="14"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="#111827" />
+                                            <TextBlock Margin="0,4,0,0"
+                                                       Text="{Binding VerificationCode, StringFormat=Verification code {0}}"
+                                                       Foreground="#374151"
+                                                       FontSize="13"
+                                                       FontWeight="SemiBold" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1"
+                                                    Orientation="Horizontal"
+                                                    Margin="16,0,0,0"
+                                                    VerticalAlignment="Center">
+                                            <Button Padding="14,8"
+                                                    Tag="{Binding RequestId}"
+                                                    Click="AcceptPairing_Click"
+                                                    Content="Accept" />
+                                            <Button Margin="8,0,0,0"
+                                                    Padding="14,8"
+                                                    Tag="{Binding RequestId}"
+                                                    Click="RejectPairing_Click"
+                                                    Content="Reject" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <Border Margin="0,14,0,0"
                     Style="{StaticResource PanelBorder}">
                 <StackPanel>
                     <TextBlock Text="Troubleshooting"
