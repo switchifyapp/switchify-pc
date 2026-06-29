@@ -19,6 +19,7 @@ public partial class App : System.Windows.Application
     private SingleInstanceService? singleInstance;
     private NativeTrayIcon? trayIcon;
     private SettingsWindow? settingsWindow;
+    private MainWindowViewModel mainWindowViewModel = new();
     private UpdateService? updateService;
     private bool isQuitting;
 
@@ -71,7 +72,8 @@ public partial class App : System.Windows.Application
 
     private Window CreateMainWindow()
     {
-        SwitchifyPc.App.MainWindow window = new();
+        mainWindowViewModel.SetUpdateState(updateService?.GetState() ?? UpdateState.CreateInitial(CurrentVersion));
+        SwitchifyPc.App.MainWindow window = new(mainWindowViewModel, ShowSettingsWindow);
         window.Closing += (_, eventArgs) =>
         {
             if (isQuitting) return;
@@ -135,7 +137,8 @@ public partial class App : System.Windows.Application
             IsPackaged: IsInstalledApp(),
             Platform: "win32",
             Backend: new GitHubReleaseUpdateBackend(new HttpClient(), "switchifyapp", "switchify-pc", cacheDirectory),
-            InstallerLauncher: new WindowsUpdateInstallerLauncher()));
+            InstallerLauncher: new WindowsUpdateInstallerLauncher(),
+            OnStateChanged: UpdateMainWindowState));
     }
 
     private static string UserDataDirectory()
@@ -150,5 +153,10 @@ public partial class App : System.Windows.Application
         if (string.IsNullOrWhiteSpace(executablePath)) return false;
         string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
         return executablePath.StartsWith(programFiles, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void UpdateMainWindowState(UpdateState state)
+    {
+        Dispatcher.BeginInvoke(() => mainWindowViewModel.SetUpdateState(state));
     }
 }
