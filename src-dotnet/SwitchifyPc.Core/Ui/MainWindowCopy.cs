@@ -19,6 +19,30 @@ public sealed record UpdateBannerCopy(string Title, string Body, string Tone, st
 
 public static class MainWindowCopy
 {
+    public static string StatusBadgeTone(DesktopUiState state)
+    {
+        return state switch
+        {
+            DesktopUiState.Connected => "connected",
+            DesktopUiState.ServerError => "error",
+            DesktopUiState.Loading or DesktopUiState.Starting or DesktopUiState.WaitingForDevice or DesktopUiState.NotRunning => "waiting",
+            _ => "ready"
+        };
+    }
+
+    public static string StatusBadgeLabel(DesktopUiState state)
+    {
+        return state switch
+        {
+            DesktopUiState.Connected => "Connected",
+            DesktopUiState.ServerError => "Needs attention",
+            DesktopUiState.WaitingForDevice => "Waiting",
+            DesktopUiState.NotRunning => "Not running",
+            DesktopUiState.Loading or DesktopUiState.Starting => "Starting...",
+            _ => "Ready"
+        };
+    }
+
     public static BluetoothPrimaryCopy BluetoothPrimary(DesktopUiState state, BluetoothStatus? bluetooth)
     {
         if (state == DesktopUiState.Connected)

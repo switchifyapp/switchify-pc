@@ -10,188 +10,382 @@
         MinWidth="760"
         Height="620"
         Width="920"
+        FontFamily="Segoe UI"
+        Background="#F5F4F7"
         d:DataContext="{d:DesignInstance Type=ui:MainWindowViewModel, IsDesignTimeCreatable=True}">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
-        <Style x:Key="PanelBorder" TargetType="Border">
-            <Setter Property="Background" Value="White" />
-            <Setter Property="BorderBrush" Value="#D6DAE2" />
+
+        <SolidColorBrush x:Key="BrandPrimary" Color="#D32F2F" />
+        <SolidColorBrush x:Key="BrandPrimaryHover" Color="#B3261E" />
+        <SolidColorBrush x:Key="Surface" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="SurfaceMuted" Color="#F3F2F6" />
+        <SolidColorBrush x:Key="Text" Color="#1C1B1F" />
+        <SolidColorBrush x:Key="TextMuted" Color="#49454F" />
+        <SolidColorBrush x:Key="BorderColor" Color="#E2E0E8" />
+        <SolidColorBrush x:Key="StatusOk" Color="#2E7D32" />
+        <SolidColorBrush x:Key="StatusWarn" Color="#C49A2C" />
+        <SolidColorBrush x:Key="StatusError" Color="#BA1A1A" />
+        <SolidColorBrush x:Key="AccentContainer" Color="#FFDAD6" />
+        <SolidColorBrush x:Key="OnAccentContainer" Color="#410002" />
+
+        <Style TargetType="Button">
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Padding" Value="16,0" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="Padding" Value="20" />
+            <Setter Property="Background" Value="{StaticResource Surface}" />
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Cursor" Value="Hand" />
         </Style>
-        <Style x:Key="MutedText" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#5F6B7A" />
+
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="BorderBrush" Value="{StaticResource BrandPrimary}" />
+            <Setter Property="Background" Value="{StaticResource BrandPrimary}" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+
+        <Style x:Key="MainCard" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Surface}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="16" />
+            <Setter Property="Padding" Value="32" />
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect BlurRadius="42"
+                                      Direction="270"
+                                      Opacity="0.08"
+                                      ShadowDepth="8"
+                                      Color="#1C1B1F" />
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SubtlePanel" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource SurfaceMuted}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="12" />
+        </Style>
+
+        <Style x:Key="StatusPanel" TargetType="Border" BasedOn="{StaticResource SubtlePanel}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding StatusTone}" Value="ready">
+                    <Setter Property="BorderBrush" Value="#8BB88E" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding StatusTone}" Value="working">
+                    <Setter Property="BorderBrush" Value="#D8C06B" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding StatusTone}" Value="error">
+                    <Setter Property="BorderBrush" Value="#D08A8A" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="StatusBadge" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Surface}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="999" />
+            <Setter Property="Padding" Value="12,7" />
+        </Style>
+
+        <Style x:Key="StatusDot" TargetType="Ellipse">
+            <Setter Property="Width" Value="9" />
+            <Setter Property="Height" Value="9" />
+            <Setter Property="Fill" Value="{StaticResource TextMuted}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding StatusBadgeTone}" Value="ready">
+                    <Setter Property="Fill" Value="{StaticResource StatusOk}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding StatusBadgeTone}" Value="connected">
+                    <Setter Property="Fill" Value="{StaticResource StatusOk}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding StatusBadgeTone}" Value="waiting">
+                    <Setter Property="Fill" Value="{StaticResource StatusWarn}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding StatusBadgeTone}" Value="error">
+                    <Setter Property="Fill" Value="{StaticResource StatusError}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="PrimaryStatusDot" TargetType="Ellipse">
+            <Setter Property="Width" Value="10" />
+            <Setter Property="Height" Value="10" />
+            <Setter Property="Fill" Value="{StaticResource StatusOk}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding StatusTone}" Value="working">
+                    <Setter Property="Fill" Value="{StaticResource StatusWarn}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding StatusTone}" Value="error">
+                    <Setter Property="Fill" Value="{StaticResource StatusError}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="DetailLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+
+        <Style x:Key="DetailValue" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
-        <Style x:Key="DetailLabel" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#6B7280" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-        </Style>
-        <Style x:Key="DetailValue" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#1F2937" />
-            <Setter Property="FontSize" Value="13" />
+
+        <Style x:Key="MutedText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="LineHeight" Value="21" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
     </Window.Resources>
 
-    <ScrollViewer Background="#F6F7F9">
-        <StackPanel Margin="24" MaxWidth="920">
-            <TextBlock Text="{Binding AppTitle}"
-                       FontSize="24"
-                       FontWeight="SemiBold"
-                       Foreground="#1F2937" />
-
-            <Border Margin="0,18,0,0"
-                    Style="{StaticResource PanelBorder}">
+    <ScrollViewer Background="#F5F4F7"
+                  HorizontalScrollBarVisibility="Disabled"
+                  VerticalScrollBarVisibility="Auto">
+        <Grid MinHeight="560"
+              Margin="32">
+            <Border MaxWidth="720"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Style="{StaticResource MainCard}">
                 <StackPanel>
-                    <TextBlock Text="{Binding StatusTitle}"
-                               FontSize="20"
-                               FontWeight="SemiBold"
-                               Foreground="#111827" />
-                    <TextBlock Margin="0,8,0,0"
-                               Text="{Binding StatusBody}"
-                               Style="{StaticResource MutedText}" />
-                    <TextBlock Margin="0,12,0,0"
-                               Text="{Binding BluetoothStatus}"
-                               Foreground="#374151"
-                               FontSize="13"
-                               FontWeight="SemiBold" />
-                </StackPanel>
-            </Border>
-
-            <Border Margin="0,14,0,0"
-                    Style="{StaticResource PanelBorder}"
-                    Visibility="{Binding HasUpdateBanner, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel>
-                        <TextBlock Text="{Binding UpdateBannerTitle}"
-                                   FontSize="15"
-                                   FontWeight="SemiBold"
-                                   Foreground="#111827" />
-                        <TextBlock Margin="0,4,0,0"
-                                   Text="{Binding UpdateBannerBody}"
-                                   Style="{StaticResource MutedText}" />
-                    </StackPanel>
-                    <Button Grid.Column="1"
-                            Margin="16,0,0,0"
-                            Padding="14,8"
-                            Click="OpenUpdates_Click"
-                            Content="{Binding UpdateBannerButtonText}" />
-                </Grid>
-            </Border>
-
-            <Border Margin="0,14,0,0"
-                    Style="{StaticResource PanelBorder}"
-                    Visibility="{Binding HasPairingApprovals, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <StackPanel>
-                    <TextBlock Text="Pairing requests"
-                               FontSize="16"
-                               FontWeight="SemiBold"
-                               Foreground="#111827" />
-                    <ItemsControl Margin="0,12,0,0"
-                                  ItemsSource="{Binding PairingApprovals}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Margin="0,0,0,10"
-                                        Padding="12"
-                                        BorderBrush="#D6DAE2"
-                                        BorderThickness="1"
-                                        CornerRadius="6"
-                                        Background="#F9FAFB">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding DeviceName}"
-                                                       FontSize="14"
-                                                       FontWeight="SemiBold"
-                                                       Foreground="#111827" />
-                                            <TextBlock Margin="0,4,0,0"
-                                                       Text="{Binding VerificationCode, StringFormat=Verification code {0}}"
-                                                       Foreground="#374151"
-                                                       FontSize="13"
-                                                       FontWeight="SemiBold" />
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1"
-                                                    Orientation="Horizontal"
-                                                    Margin="16,0,0,0"
-                                                    VerticalAlignment="Center">
-                                            <Button Padding="14,8"
-                                                    Tag="{Binding RequestId}"
-                                                    Click="AcceptPairing_Click"
-                                                    Content="Accept" />
-                                            <Button Margin="8,0,0,0"
-                                                    Padding="14,8"
-                                                    Tag="{Binding RequestId}"
-                                                    Click="RejectPairing_Click"
-                                                    Content="Reject" />
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-            </Border>
-
-            <Border Margin="0,14,0,0"
-                    Style="{StaticResource PanelBorder}">
-                <StackPanel>
-                    <TextBlock Text="Troubleshooting"
-                               FontSize="16"
-                               FontWeight="SemiBold"
-                               Foreground="#111827" />
-                    <Grid Margin="0,12,0,0">
+                    <Grid Margin="0,0,0,30">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="180" />
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="System Bluetooth" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SystemBluetooth}" Style="{StaticResource DetailValue}" />
+                        <StackPanel>
+                            <TextBlock Text="Desktop companion"
+                                       Foreground="{StaticResource TextMuted}"
+                                       FontSize="12"
+                                       FontWeight="Bold"
+                                       TextOptions.TextFormattingMode="Display" />
+                            <TextBlock Margin="0,6,0,0"
+                                       Text="{Binding AppTitle}"
+                                       Foreground="{StaticResource Text}"
+                                       FontSize="30"
+                                       FontWeight="Bold" />
+                        </StackPanel>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Text="Bluetooth capabilities" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Text="{Binding BluetoothCapabilities}" Style="{StaticResource DetailValue}" />
-
-                        <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Text="Bluetooth last checked" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" Text="{Binding BluetoothLastChecked}" Style="{StaticResource DetailValue}" />
-
-                        <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,8,0,0" Text="Bluetooth last changed" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" Text="{Binding BluetoothLastChanged}" Style="{StaticResource DetailValue}" />
-
-                        <TextBlock Grid.Row="4" Grid.Column="0" Margin="0,8,0,0" Text="Last Bluetooth event" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" Text="{Binding LastBluetoothEvent}" Style="{StaticResource DetailValue}" />
-
-                        <TextBlock Grid.Row="5" Grid.Column="0" Margin="0,8,0,0" Text="Recent Bluetooth events" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="5" Grid.Column="1" Margin="0,8,0,0" Text="{Binding RecentBluetoothEvents}" Style="{StaticResource DetailValue}" />
-
-                        <TextBlock Grid.Row="6" Grid.Column="0" Margin="0,8,0,0" Text="Last disconnect" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="6" Grid.Column="1" Margin="0,8,0,0" Text="{Binding LastDisconnectReason}" Style="{StaticResource DetailValue}" />
-
-                        <TextBlock Grid.Row="7" Grid.Column="0" Margin="0,8,0,0" Text="Recent Bluetooth error" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="7" Grid.Column="1" Margin="0,8,0,0" Text="{Binding RecentBluetoothError}" Style="{StaticResource DetailValue}" />
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Top">
+                            <Button Content="Settings"
+                                    Padding="16,0"
+                                    Click="OpenSettings_Click" />
+                            <Border Margin="8,0,0,0"
+                                    Style="{StaticResource StatusBadge}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Style="{StaticResource StatusDot}" />
+                                    <TextBlock Margin="8,0,0,0"
+                                               VerticalAlignment="Center"
+                                               Text="{Binding StatusBadgeLabel}"
+                                               Foreground="{StaticResource Text}"
+                                               FontSize="13"
+                                               FontWeight="Bold" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
                     </Grid>
+
+                    <Border Margin="0,0,0,16"
+                            Style="{StaticResource StatusPanel}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding StatusTitle}"
+                                       TextAlignment="Center"
+                                       Foreground="{StaticResource Text}"
+                                       FontSize="23"
+                                       FontWeight="Bold"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Margin="0,12,0,0"
+                                       Text="{Binding StatusBody}"
+                                       TextAlignment="Center"
+                                       Style="{StaticResource MutedText}" />
+
+                            <Border Margin="0,18,0,0"
+                                    MinHeight="56"
+                                    Style="{StaticResource SubtlePanel}">
+                                <StackPanel Orientation="Horizontal"
+                                            HorizontalAlignment="Center">
+                                    <Ellipse VerticalAlignment="Center"
+                                             Style="{StaticResource PrimaryStatusDot}" />
+                                    <TextBlock Margin="10,0,0,0"
+                                               VerticalAlignment="Center"
+                                               Text="{Binding BluetoothStatus}"
+                                               Foreground="{StaticResource Text}"
+                                               FontSize="14"
+                                               FontWeight="Bold" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Margin="0,14,0,0"
+                                    Padding="14,12"
+                                    HorizontalAlignment="Center"
+                                    MinWidth="280"
+                                    Style="{StaticResource SubtlePanel}"
+                                    Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <StackPanel>
+                                    <TextBlock Text="Device connected"
+                                               TextAlignment="Center"
+                                               Foreground="{StaticResource Text}"
+                                               FontSize="14"
+                                               FontWeight="Bold" />
+                                    <TextBlock Margin="0,4,0,0"
+                                               Text="{Binding ConnectedDeviceSummary}"
+                                               TextAlignment="Center"
+                                               Style="{StaticResource MutedText}" />
+                                </StackPanel>
+                            </Border>
+
+                            <Button Margin="0,16,0,0"
+                                    HorizontalAlignment="Center"
+                                    Content="Disconnect device"
+                                    Click="Disconnect_Click"
+                                    Style="{StaticResource PrimaryButton}"
+                                    Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Margin="0,0,0,16"
+                            Style="{StaticResource SubtlePanel}"
+                            Visibility="{Binding HasUpdateBanner, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="{Binding UpdateBannerTitle}"
+                                           FontSize="15"
+                                           FontWeight="Bold"
+                                           Foreground="{StaticResource Text}" />
+                                <TextBlock Margin="0,4,0,0"
+                                           Text="{Binding UpdateBannerBody}"
+                                           Style="{StaticResource MutedText}" />
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Margin="16,0,0,0"
+                                    Content="{Binding UpdateBannerButtonText}"
+                                    Click="OpenUpdates_Click" />
+                        </Grid>
+                    </Border>
+
+                    <Border Margin="0,0,0,20"
+                            Background="{StaticResource AccentContainer}"
+                            BorderBrush="{StaticResource BrandPrimary}"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            Padding="16"
+                            Visibility="{Binding HasPairingApprovals, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel>
+                            <TextBlock Text="Pairing requests"
+                                       FontSize="18"
+                                       FontWeight="Bold"
+                                       Foreground="{StaticResource OnAccentContainer}" />
+                            <ItemsControl Margin="0,12,0,0"
+                                          ItemsSource="{Binding PairingApprovals}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Margin="0,0,0,10"
+                                                Padding="12"
+                                                BorderBrush="{StaticResource BrandPrimary}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Background="White">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding DeviceName}"
+                                                               FontSize="14"
+                                                               FontWeight="Bold"
+                                                               Foreground="{StaticResource Text}" />
+                                                    <TextBlock Margin="0,4,0,0"
+                                                               Text="{Binding VerificationCode, StringFormat=Verification code {0}}"
+                                                               Foreground="{StaticResource Text}"
+                                                               FontSize="13"
+                                                               FontWeight="Bold" />
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="1"
+                                                            Orientation="Horizontal"
+                                                            Margin="16,0,0,0"
+                                                            VerticalAlignment="Center">
+                                                    <Button Padding="14,0"
+                                                            Tag="{Binding RequestId}"
+                                                            Click="AcceptPairing_Click"
+                                                            Content="Accept"
+                                                            Style="{StaticResource PrimaryButton}" />
+                                                    <Button Margin="8,0,0,0"
+                                                            Padding="14,0"
+                                                            Tag="{Binding RequestId}"
+                                                            Click="RejectPairing_Click"
+                                                            Content="Reject" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <Expander Header="Troubleshooting"
+                              Foreground="{StaticResource Text}"
+                              FontWeight="Bold">
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="System Bluetooth" Style="{StaticResource DetailLabel}" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SystemBluetooth}" Style="{StaticResource DetailValue}" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Text="Bluetooth capabilities" Style="{StaticResource DetailLabel}" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Text="{Binding BluetoothCapabilities}" Style="{StaticResource DetailValue}" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Text="Bluetooth last checked" Style="{StaticResource DetailLabel}" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" Text="{Binding BluetoothLastChecked}" Style="{StaticResource DetailValue}" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,8,0,0" Text="Bluetooth last changed" Style="{StaticResource DetailLabel}" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" Text="{Binding BluetoothLastChanged}" Style="{StaticResource DetailValue}" />
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Margin="0,8,0,0" Text="Last Bluetooth event" Style="{StaticResource DetailLabel}" />
+                            <TextBlock Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" Text="{Binding LastBluetoothEvent}" Style="{StaticResource DetailValue}" />
+
+                            <TextBlock Grid.Row="5" Grid.Column="0" Margin="0,8,0,0" Text="Recent Bluetooth events" Style="{StaticResource DetailLabel}" />
+                            <TextBlock Grid.Row="5" Grid.Column="1" Margin="0,8,0,0" Text="{Binding RecentBluetoothEvents}" Style="{StaticResource DetailValue}" />
+
+                            <TextBlock Grid.Row="6" Grid.Column="0" Margin="0,8,0,0" Text="Last disconnect" Style="{StaticResource DetailLabel}" />
+                            <TextBlock Grid.Row="6" Grid.Column="1" Margin="0,8,0,0" Text="{Binding LastDisconnectReason}" Style="{StaticResource DetailValue}" />
+
+                            <TextBlock Grid.Row="7" Grid.Column="0" Margin="0,8,0,0" Text="Recent Bluetooth error" Style="{StaticResource DetailLabel}" />
+                            <TextBlock Grid.Row="7" Grid.Column="1" Margin="0,8,0,0" Text="{Binding RecentBluetoothError}" Style="{StaticResource DetailValue}" />
+                        </Grid>
+                    </Expander>
                 </StackPanel>
             </Border>
-        </StackPanel>
+        </Grid>
     </ScrollViewer>
 </Window>

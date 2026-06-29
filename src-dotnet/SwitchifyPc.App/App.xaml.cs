@@ -130,6 +130,8 @@ public partial class App : System.Windows.Application
         SwitchifyPc.App.MainWindow window = new(
             mainWindowViewModel,
             ShowSettingsWindow,
+            ShowSettingsWindow,
+            DisconnectBluetoothDevices,
             AcceptPairingApprovalAsync,
             RejectPairingApproval);
         window.Closing += (_, eventArgs) =>

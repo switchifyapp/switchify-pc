@@ -15,6 +15,9 @@ public sealed class MainWindowViewModelTests
         Assert.Equal("Switchify PC", viewModel.AppTitle);
         Assert.Equal("Getting Bluetooth ready...", viewModel.StatusTitle);
         Assert.Equal("Switchify PC is preparing nearby device connection.", viewModel.StatusBody);
+        Assert.Equal("Starting...", viewModel.StatusBadgeLabel);
+        Assert.Equal("waiting", viewModel.StatusBadgeTone);
+        Assert.False(viewModel.IsConnected);
         Assert.Equal("Bluetooth radio state unknown.", viewModel.SystemBluetooth);
         Assert.False(viewModel.HasUpdateBanner);
     }
@@ -51,6 +54,7 @@ public sealed class MainWindowViewModelTests
             });
 
         Assert.Equal("Bluetooth is off", viewModel.StatusTitle);
+        Assert.Equal("Starting...", viewModel.StatusBadgeLabel);
         Assert.Equal("Bluetooth radio off.", viewModel.SystemBluetooth);
         Assert.Equal("01:02:03", viewModel.BluetoothLastChecked);
         Assert.Equal("01:02:03", viewModel.BluetoothLastChanged);
@@ -59,11 +63,33 @@ public sealed class MainWindowViewModelTests
         Assert.Equal("Bluetooth was turned off. 01:02:03", viewModel.LastDisconnectReason);
         Assert.Equal("startup_failed", viewModel.RecentBluetoothError);
         Assert.Contains(nameof(MainWindowViewModel.StatusTitle), changed);
+        Assert.Contains(nameof(MainWindowViewModel.StatusBadgeLabel), changed);
         Assert.Contains(nameof(MainWindowViewModel.BluetoothStatus), changed);
+        Assert.Contains(nameof(MainWindowViewModel.IsConnected), changed);
         Assert.Contains(nameof(MainWindowViewModel.BluetoothLastChecked), changed);
         Assert.Contains(nameof(MainWindowViewModel.BluetoothLastChanged), changed);
         Assert.Contains(nameof(MainWindowViewModel.RecentBluetoothEvents), changed);
         Assert.Contains(nameof(MainWindowViewModel.RecentBluetoothError), changed);
+    }
+
+    [Fact]
+    public void ExposesConnectedStateForMainWindowActions()
+    {
+        MainWindowViewModel viewModel = new();
+
+        viewModel.SetBluetoothState(
+            DesktopUiState.Connected,
+            BluetoothStatusModel.DefaultStatus with
+            {
+                Status = "connected",
+                ConnectedClientCount = 2,
+                System = BluetoothStatusModel.DefaultSystemStatus with { AdapterPresent = true, RadioState = "on" }
+            });
+
+        Assert.True(viewModel.IsConnected);
+        Assert.Equal("Connected", viewModel.StatusBadgeLabel);
+        Assert.Equal("connected", viewModel.StatusBadgeTone);
+        Assert.Equal("2 devices connected.", viewModel.ConnectedDeviceSummary);
     }
 
     [Fact]

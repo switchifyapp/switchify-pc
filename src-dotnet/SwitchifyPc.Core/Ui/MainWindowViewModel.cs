@@ -27,7 +27,17 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public string StatusTone => MainWindowCopy.BluetoothPrimary(desktopState, bluetooth).Tone;
 
+    public string StatusBadgeLabel => MainWindowCopy.StatusBadgeLabel(desktopState);
+
+    public string StatusBadgeTone => MainWindowCopy.StatusBadgeTone(desktopState);
+
     public string BluetoothStatus => MainWindowCopy.BluetoothStatusLabel(bluetooth);
+
+    public bool IsConnected => desktopState == DesktopUiState.Connected;
+
+    public string ConnectedDeviceSummary => bluetooth.ConnectedClientCount == 1
+        ? "Connected now."
+        : $"{bluetooth.ConnectedClientCount} devices connected.";
 
     public string SystemBluetooth => MainWindowCopy.BluetoothSystemRadioState(bluetooth);
 
@@ -90,7 +100,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(StatusTitle));
         OnPropertyChanged(nameof(StatusBody));
         OnPropertyChanged(nameof(StatusTone));
+        OnPropertyChanged(nameof(StatusBadgeLabel));
+        OnPropertyChanged(nameof(StatusBadgeTone));
         OnPropertyChanged(nameof(BluetoothStatus));
+        OnPropertyChanged(nameof(IsConnected));
+        OnPropertyChanged(nameof(ConnectedDeviceSummary));
         OnPropertyChanged(nameof(SystemBluetooth));
         OnPropertyChanged(nameof(BluetoothCapabilities));
         OnPropertyChanged(nameof(BluetoothLastChecked));

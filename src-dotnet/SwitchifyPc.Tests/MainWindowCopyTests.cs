@@ -14,6 +14,12 @@ public sealed class MainWindowCopyTests
         Assert.Equal("Your device is connected", copy.Title);
         Assert.Equal("You can control this PC from Switchify over Bluetooth.", copy.Body);
         Assert.Equal("ready", copy.Tone);
+        Assert.Equal("Connected", MainWindowCopy.StatusBadgeLabel(DesktopUiState.Connected));
+        Assert.Equal("connected", MainWindowCopy.StatusBadgeTone(DesktopUiState.Connected));
+        Assert.Equal("Starting...", MainWindowCopy.StatusBadgeLabel(DesktopUiState.Starting));
+        Assert.Equal("waiting", MainWindowCopy.StatusBadgeTone(DesktopUiState.Starting));
+        Assert.Equal("Needs attention", MainWindowCopy.StatusBadgeLabel(DesktopUiState.ServerError));
+        Assert.Equal("error", MainWindowCopy.StatusBadgeTone(DesktopUiState.ServerError));
     }
 
     [Fact]
