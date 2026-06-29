@@ -3,9 +3,7 @@ using SwitchifyPc.Core.Ui;
 using SwitchifyPc.Core.Updates;
 using WpfButton = System.Windows.Controls.Button;
 using WpfCheckBox = System.Windows.Controls.CheckBox;
-using WpfComboBox = System.Windows.Controls.ComboBox;
 using WpfMessageBox = System.Windows.MessageBox;
-using WpfSelectionChangedEventArgs = System.Windows.Controls.SelectionChangedEventArgs;
 
 namespace SwitchifyPc.App;
 
@@ -55,13 +53,13 @@ public partial class SettingsWindow : Window
             "Start with system could not be changed.");
     }
 
-    private void PointerScale25_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(25);
+    private void PointerScale25_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetPointerScalePercent(25));
 
-    private void PointerScale50_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(50);
+    private void PointerScale50_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetPointerScalePercent(50));
 
-    private void PointerScale75_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(75);
+    private void PointerScale75_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetPointerScalePercent(75));
 
-    private void PointerScale100_Click(object sender, RoutedEventArgs e) => controller?.SetPointerScalePercent(100);
+    private void PointerScale100_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetPointerScalePercent(100));
 
     private void SectionNav_Checked(object sender, RoutedEventArgs e)
     {
@@ -69,7 +67,6 @@ public partial class SettingsWindow : Window
 
         GeneralPanel.Visibility = section == "general" ? Visibility.Visible : Visibility.Collapsed;
         PointerPanel.Visibility = section == "pointer" ? Visibility.Visible : Visibility.Collapsed;
-        CursorPanel.Visibility = section == "cursor" ? Visibility.Visible : Visibility.Collapsed;
         UpdatesPanel.Visibility = section == "updates" ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -107,20 +104,25 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private void CursorOverlaySize_SelectionChanged(object sender, WpfSelectionChangedEventArgs e)
-    {
-        if (!isApplyingSettings) SaveSelectedValue(sender, value => controller?.SetCursorOverlaySize(value));
-    }
+    private void CursorOverlaySizeSmall_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetCursorOverlaySize("small"));
 
-    private void CursorOverlayVisibility_SelectionChanged(object sender, WpfSelectionChangedEventArgs e)
-    {
-        if (!isApplyingSettings) SaveSelectedValue(sender, value => controller?.SetCursorOverlayVisibility(value));
-    }
+    private void CursorOverlaySizeMedium_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetCursorOverlaySize("medium"));
 
-    private void CursorOverlayColor_SelectionChanged(object sender, WpfSelectionChangedEventArgs e)
-    {
-        if (!isApplyingSettings) SaveSelectedValue(sender, value => controller?.SetCursorOverlayColor(value));
-    }
+    private void CursorOverlaySizeLarge_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetCursorOverlaySize("large"));
+
+    private void CursorOverlayVisibilityOnInput_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetCursorOverlayVisibility("onInput"));
+
+    private void CursorOverlayVisibilityWhileControlling_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetCursorOverlayVisibility("whileControlling"));
+
+    private void CursorOverlayColorRed_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetCursorOverlayColor("red"));
+
+    private void CursorOverlayColorGreen_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetCursorOverlayColor("green"));
+
+    private void CursorOverlayColorBlue_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetCursorOverlayColor("blue"));
+
+    private void CursorOverlayColorYellow_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetCursorOverlayColor("yellow"));
+
+    private void CursorOverlayColorWhite_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetCursorOverlayColor("white"));
 
     private async void CheckForUpdates_Click(object sender, RoutedEventArgs e)
     {
@@ -163,12 +165,10 @@ public partial class SettingsWindow : Window
         }, "The update installer could not be opened.");
     }
 
-    private static void SaveSelectedValue(object sender, Action<string> save)
+    private void SaveIfReady(Action save)
     {
-        if (sender is WpfComboBox { SelectedValue: string value })
-        {
-            save(value);
-        }
+        if (controller is null || isApplyingSettings) return;
+        save();
     }
 
     private async Task RunActionAsync(Func<Task> action, string failureMessage)

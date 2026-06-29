@@ -61,6 +61,13 @@ public sealed class SettingsViewModelTests
         Assert.Equal("7%", viewModel.PointerSmall);
         Assert.Equal("18%", viewModel.PointerMedium);
         Assert.Equal("39%", viewModel.PointerLarge);
+
+        viewModel.SetPointerMovementSettings(new PointerMovementSettings(50));
+
+        Assert.False(viewModel.IsPointerScale25);
+        Assert.True(viewModel.IsPointerScale50);
+        Assert.False(viewModel.IsPointerScale75);
+        Assert.False(viewModel.IsPointerScale100);
     }
 
     [Fact]
@@ -80,6 +87,16 @@ public sealed class SettingsViewModelTests
         Assert.Equal("While controlling", viewModel.CursorOverlayVisibility);
         Assert.True(viewModel.CursorOverlayCrosshairs);
         Assert.Equal("Blue", viewModel.CursorOverlayColor);
+        Assert.False(viewModel.IsCursorOverlaySizeSmall);
+        Assert.False(viewModel.IsCursorOverlaySizeMedium);
+        Assert.True(viewModel.IsCursorOverlaySizeLarge);
+        Assert.False(viewModel.IsCursorOverlayVisibilityOnInput);
+        Assert.True(viewModel.IsCursorOverlayVisibilityWhileControlling);
+        Assert.False(viewModel.IsCursorOverlayColorRed);
+        Assert.False(viewModel.IsCursorOverlayColorGreen);
+        Assert.True(viewModel.IsCursorOverlayColorBlue);
+        Assert.False(viewModel.IsCursorOverlayColorYellow);
+        Assert.False(viewModel.IsCursorOverlayColorWhite);
     }
 
     [Fact]
@@ -160,6 +177,7 @@ public sealed class SettingsViewModelTests
         viewModel.SetPointerMovementSettings(new PointerMovementSettings(50));
 
         Assert.Contains(nameof(SettingsViewModel.PointerScalePercent), changed);
+        Assert.Contains(nameof(SettingsViewModel.IsPointerScale50), changed);
         Assert.Contains(nameof(SettingsViewModel.PointerSmall), changed);
         Assert.Contains(nameof(SettingsViewModel.PointerMedium), changed);
         Assert.Contains(nameof(SettingsViewModel.PointerLarge), changed);

@@ -72,6 +72,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public double PointerScalePercent => PointerMovementSettingsModel.ScalePercentFor(pointerMovementSettings);
 
+    public bool IsPointerScale25 => Math.Abs(PointerScalePercent - 25) < 0.1;
+
+    public bool IsPointerScale50 => Math.Abs(PointerScalePercent - 50) < 0.1;
+
+    public bool IsPointerScale75 => Math.Abs(PointerScalePercent - 75) < 0.1;
+
+    public bool IsPointerScale100 => Math.Abs(PointerScalePercent - 100) < 0.1;
+
     public PointerMovementSettings PointerMovementSettings => pointerMovementSettings;
 
     public string PointerSmall => $"{PointerMovementSettingsModel.PercentageFor(pointerMovementSettings, PointerMovementSizeKey.Small):0.#}%";
@@ -86,11 +94,31 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public string CursorOverlaySize => cursorOverlaySettings.Size;
 
+    public bool IsCursorOverlaySizeSmall => cursorOverlaySettings.Size == "small";
+
+    public bool IsCursorOverlaySizeMedium => cursorOverlaySettings.Size == "medium";
+
+    public bool IsCursorOverlaySizeLarge => cursorOverlaySettings.Size == "large";
+
     public string CursorOverlayVisibility => cursorOverlaySettings.Visibility == "whileControlling" ? "While controlling" : "On input";
+
+    public bool IsCursorOverlayVisibilityOnInput => cursorOverlaySettings.Visibility == "onInput";
+
+    public bool IsCursorOverlayVisibilityWhileControlling => cursorOverlaySettings.Visibility == "whileControlling";
 
     public bool CursorOverlayCrosshairs => cursorOverlaySettings.Crosshairs;
 
     public string CursorOverlayColor => CursorOverlaySettingsModel.Colors[cursorOverlaySettings.Color].Label;
+
+    public bool IsCursorOverlayColorRed => cursorOverlaySettings.Color == "red";
+
+    public bool IsCursorOverlayColorGreen => cursorOverlaySettings.Color == "green";
+
+    public bool IsCursorOverlayColorBlue => cursorOverlaySettings.Color == "blue";
+
+    public bool IsCursorOverlayColorYellow => cursorOverlaySettings.Color == "yellow";
+
+    public bool IsCursorOverlayColorWhite => cursorOverlaySettings.Color == "white";
 
     public string UpdateStatusMessage => UpdateCheckMessage(updateState.Info);
 
@@ -129,6 +157,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         pointerMovementSettings = PointerMovementSettingsModel.Normalize(settings);
         OnPropertyChanged(nameof(PointerMovementSettings));
         OnPropertyChanged(nameof(PointerScalePercent));
+        OnPropertyChanged(nameof(IsPointerScale25));
+        OnPropertyChanged(nameof(IsPointerScale50));
+        OnPropertyChanged(nameof(IsPointerScale75));
+        OnPropertyChanged(nameof(IsPointerScale100));
         OnPropertyChanged(nameof(PointerSmall));
         OnPropertyChanged(nameof(PointerMedium));
         OnPropertyChanged(nameof(PointerLarge));
@@ -140,9 +172,19 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CursorOverlaySettings));
         OnPropertyChanged(nameof(CursorOverlayEnabled));
         OnPropertyChanged(nameof(CursorOverlaySize));
+        OnPropertyChanged(nameof(IsCursorOverlaySizeSmall));
+        OnPropertyChanged(nameof(IsCursorOverlaySizeMedium));
+        OnPropertyChanged(nameof(IsCursorOverlaySizeLarge));
         OnPropertyChanged(nameof(CursorOverlayVisibility));
+        OnPropertyChanged(nameof(IsCursorOverlayVisibilityOnInput));
+        OnPropertyChanged(nameof(IsCursorOverlayVisibilityWhileControlling));
         OnPropertyChanged(nameof(CursorOverlayCrosshairs));
         OnPropertyChanged(nameof(CursorOverlayColor));
+        OnPropertyChanged(nameof(IsCursorOverlayColorRed));
+        OnPropertyChanged(nameof(IsCursorOverlayColorGreen));
+        OnPropertyChanged(nameof(IsCursorOverlayColorBlue));
+        OnPropertyChanged(nameof(IsCursorOverlayColorYellow));
+        OnPropertyChanged(nameof(IsCursorOverlayColorWhite));
     }
 
     public void SetUpdateState(UpdateState state)
