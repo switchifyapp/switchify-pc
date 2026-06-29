@@ -27,4 +27,22 @@ public sealed class WindowsBluetoothGattServerTests
 
         Assert.Empty(events);
     }
+
+    [Theory]
+    [InlineData("notification_unsubscribed")]
+    [InlineData("pc_requested")]
+    [InlineData("client_requested")]
+    public void ClientDisconnectReasonsRestartAdvertising(string reason)
+    {
+        Assert.True(WindowsBluetoothGattServer.ShouldRestartAdvertisingAfterDisconnect(reason));
+    }
+
+    [Theory]
+    [InlineData("adapter_off")]
+    [InlineData("helper_stopped")]
+    [InlineData("helper_error")]
+    public void ShutdownAndRadioDisconnectReasonsDoNotRestartAdvertising(string reason)
+    {
+        Assert.False(WindowsBluetoothGattServer.ShouldRestartAdvertisingAfterDisconnect(reason));
+    }
 }

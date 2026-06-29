@@ -569,6 +569,46 @@ public sealed class WindowsBluetoothGattServer : IDisposable
         disconnectGrace?.Dispose();
         disconnectGrace = null;
         emit(new BluetoothDisconnectedEvent(ConnectionId, reason));
+
+        if (ShouldRestartAdvertisingAfterDisconnect(reason))
+        {
+            _ = RestartAdvertisingAfterClientDisconnectAsync();
+        }
+    }
+
+    public static bool ShouldRestartAdvertisingAfterDisconnect(string reason)
+    {
+        return reason is "notification_unsubscribed" or "pc_requested" or "client_requested";
+    }
+
+    private async Task RestartAdvertisingAfterClientDisconnectAsync()
+    {
+        if (disposed || restartInProgress || activeOptions is null)
+        {
+            return;
+        }
+
+        restartInProgress = true;
+        try
+        {
+            AdapterSnapshot snapshot = await ReadAdapterSnapshotAsync().ConfigureAwait(false);
+            EmitSystemStatus(snapshot);
+
+            if (!snapshot.AdapterPresent ||
+                snapshot.IsLowEnergySupported != true ||
+                snapshot.IsPeripheralRoleSupported != true ||
+                snapshot.RadioState != "on")
+            {
+                return;
+            }
+
+            StopAdvertisingOnly();
+            await StartAdvertisingAsync(activeOptions, restarted: true).ConfigureAwait(false);
+        }
+        finally
+        {
+            restartInProgress = false;
+        }
     }
 
     private static string RadioStateToProtocol(RadioState? state)
