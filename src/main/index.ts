@@ -374,10 +374,8 @@ if (!gotSingleInstanceLock) {
       currentVersion: app.getVersion(),
       isPackaged: app.isPackaged,
       platform: process.platform,
-      resourcesPath: process.resourcesPath,
       diagnosticsFilePath: join(app.getPath('userData'), 'update-install-diagnostics.jsonl'),
       autoUpdater,
-      quitApp,
       onStateChanged: broadcastUpdateState
     });
     registerUpdateIpc(updateService);

@@ -2,8 +2,6 @@ import { autoUpdater as defaultAutoUpdater } from 'electron-updater';
 import type { UpdateInfo as ElectronUpdateInfo, UpdateCheckResult } from 'electron-updater';
 import type { UpdateDownloadProgress, UpdateInfo, UpdateInstallResult, UpdateState } from '../../shared/update';
 import { createInitialUpdateState } from '../../shared/update';
-import { dirname, join, sep } from 'node:path';
-import { rm } from 'node:fs/promises';
 import { appendUpdateInstallDiagnostic, type UpdateInstallDiagnosticEvent } from './update-install-diagnostics';
 import { launchWindowsUpdateInstaller, type UpdateInstallerLaunchReason } from './update-installer-launcher';
 
@@ -25,13 +23,10 @@ export type UpdateServiceOptions = {
   currentVersion: string;
   isPackaged: boolean;
   platform: NodeJS.Platform;
-  resourcesPath: string;
   autoUpdater?: ElectronUpdaterAdapter;
   launchInstaller?: typeof launchWindowsUpdateInstaller;
-  quitApp?: () => void;
   now?: () => Date;
   diagnosticsFilePath?: string | null;
-  removeFile?: (path: string) => Promise<void>;
   setInterval?: typeof setInterval;
   clearInterval?: typeof clearInterval;
   setTimeout?: typeof setTimeout;
@@ -47,13 +42,10 @@ export const INITIAL_UPDATE_POLL_DELAY_MS = 30 * 1000;
 export class UpdateService {
   private readonly isPackaged: boolean;
   private readonly platform: NodeJS.Platform;
-  private readonly resourcesPath: string;
   private readonly autoUpdater: ElectronUpdaterAdapter;
   private readonly launchInstaller: typeof launchWindowsUpdateInstaller;
-  private readonly quitApp: () => void;
   private readonly now: () => Date;
   private readonly diagnosticsFilePath: string | null;
-  private readonly removeFile: (path: string) => Promise<void>;
   private readonly setPollInterval: typeof setInterval;
   private readonly clearPollInterval: typeof clearInterval;
   private readonly setPollTimeout: typeof setTimeout;
@@ -70,13 +62,10 @@ export class UpdateService {
   constructor(options: UpdateServiceOptions) {
     this.isPackaged = options.isPackaged;
     this.platform = options.platform;
-    this.resourcesPath = options.resourcesPath;
     this.autoUpdater = options.autoUpdater ?? defaultAutoUpdater;
     this.launchInstaller = options.launchInstaller ?? launchWindowsUpdateInstaller;
-    this.quitApp = options.quitApp ?? (() => undefined);
     this.now = options.now ?? (() => new Date());
     this.diagnosticsFilePath = options.diagnosticsFilePath ?? null;
-    this.removeFile = options.removeFile ?? ((path) => rm(path, { force: true }));
     this.setPollInterval = options.setInterval ?? setInterval;
     this.clearPollInterval = options.clearInterval ?? clearInterval;
     this.setPollTimeout = options.setTimeout ?? setTimeout;
@@ -254,20 +243,15 @@ export class UpdateService {
       return { ok: false, reason: 'not_downloaded' };
     }
 
-    const result = await this.launchInstaller({
-      installerPath: this.downloadedInstallerPath,
-      resourcesPath: this.resourcesPath
-    });
+    const result = await this.launchInstaller({ installerPath: this.downloadedInstallerPath });
 
     if (!result.ok) {
-      console.error('Switchify update installer could not be started.', result.reason);
+      console.error('Switchify update installer could not be opened.', result.reason);
       this.recordInstallDiagnostic(diagnosticEventForLaunchFailure(result.reason), result.reason);
       return { ok: false, reason: result.reason };
     }
 
     this.recordInstallDiagnostic('installer_started');
-    void this.cleanDownloadedInstallerCache();
-    this.quitApp();
     return { ok: true };
   }
 
@@ -396,23 +380,6 @@ export class UpdateService {
     });
   }
 
-  private async cleanDownloadedInstallerCache(): Promise<void> {
-    const installerPath = this.downloadedInstallerPath;
-    if (!installerPath) return;
-
-    try {
-      const pendingDir = dirname(installerPath);
-      if (!pendingDir.toLowerCase().endsWith(`${sep}pending`)) {
-        return;
-      }
-
-      await this.removeFile(installerPath);
-      await this.removeFile(join(pendingDir, 'update-info.json'));
-      await this.removeFile(join(dirname(pendingDir), 'installer.exe'));
-    } catch {
-      this.recordInstallDiagnostic('cache_cleanup_failed');
-    }
-  }
 }
 
 function firstInstallerPath(paths: string[]): string | null {
@@ -423,14 +390,7 @@ function diagnosticEventForLaunchFailure(reason: UpdateInstallerLaunchReason): U
   switch (reason) {
     case 'installer_unavailable':
       return 'installer_missing';
-    case 'update_launcher_unavailable':
-      return 'launcher_missing';
-    case 'uac_cancelled':
-      return 'uac_cancelled';
-    case 'installer_process_unavailable':
-      return 'installer_process_unavailable';
     case 'installer_launch_failed':
-    case 'update_launcher_invalid_response':
       return 'installer_launch_failed';
   }
 }

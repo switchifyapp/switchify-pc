@@ -97,8 +97,7 @@ function signWindowsExecutable(filePath) {
 const nativeHelperNames = [
   'SwitchifyCursorOverlay.exe',
   'SwitchifyBluetoothTransport.exe',
-  'SwitchifyTextInput.exe',
-  'SwitchifyUpdateLauncher.exe'
+  'SwitchifyTextInput.exe'
 ];
 
 function signNativeHelpers(appOutDir) {

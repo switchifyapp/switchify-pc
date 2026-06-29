@@ -5,12 +5,8 @@ export type UpdateInstallDiagnosticEvent =
   | 'install_requested'
   | 'confirmation_cancelled'
   | 'installer_missing'
-  | 'launcher_missing'
-  | 'uac_cancelled'
   | 'installer_launch_failed'
-  | 'installer_process_unavailable'
-  | 'installer_started'
-  | 'cache_cleanup_failed';
+  | 'installer_started';
 
 export type UpdateInstallDiagnosticEntry = {
   event: UpdateInstallDiagnosticEvent;
