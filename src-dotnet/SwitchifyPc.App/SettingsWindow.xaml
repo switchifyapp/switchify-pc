@@ -1,0 +1,146 @@
+<Window x:Class="SwitchifyPc.App.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:ui="clr-namespace:SwitchifyPc.Core.Ui;assembly=SwitchifyPc.Core"
+        mc:Ignorable="d"
+        Title="Switchify PC settings"
+        MinHeight="560"
+        MinWidth="720"
+        Height="680"
+        Width="860"
+        d:DataContext="{d:DesignInstance Type=ui:SettingsViewModel, IsDesignTimeCreatable=True}">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <Style x:Key="PanelBorder" TargetType="Border">
+            <Setter Property="Background" Value="White" />
+            <Setter Property="BorderBrush" Value="#D6DAE2" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="20" />
+            <Setter Property="Margin" Value="0,0,0,14" />
+        </Style>
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#111827" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="MutedText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#5F6B7A" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="DetailLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#6B7280" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="DetailValue" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#1F2937" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </Window.Resources>
+
+    <ScrollViewer Background="#F6F7F9">
+        <StackPanel Margin="24" MaxWidth="860">
+            <TextBlock Text="Settings"
+                       FontSize="24"
+                       FontWeight="SemiBold"
+                       Foreground="#1F2937" />
+
+            <Border Style="{StaticResource PanelBorder}" Margin="0,18,0,14">
+                <StackPanel>
+                    <TextBlock Text="General" Style="{StaticResource SectionTitle}" />
+                    <CheckBox Margin="0,14,0,0"
+                              Content="Start with system"
+                              IsChecked="{Binding StartWithSystem}"
+                              IsEnabled="{Binding StartWithSystemSupported}" />
+                    <TextBlock Margin="0,8,0,0"
+                               Text="{Binding StartWithSystemMessage}"
+                               Style="{StaticResource MutedText}" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBorder}">
+                <StackPanel>
+                    <TextBlock Text="Pointer" Style="{StaticResource SectionTitle}" />
+                    <TextBlock Margin="0,6,0,0"
+                               Text="Choose how Android pointer steps map to this display."
+                               Style="{StaticResource MutedText}" />
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Scale" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding PointerScalePercent, StringFormat={}{0:0}%}" Style="{StaticResource DetailValue}" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Text="Small" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Text="{Binding PointerSmall}" Style="{StaticResource DetailValue}" />
+                        <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Text="Medium" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" Text="{Binding PointerMedium}" Style="{StaticResource DetailValue}" />
+                        <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,8,0,0" Text="Large" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" Text="{Binding PointerLarge}" Style="{StaticResource DetailValue}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBorder}">
+                <StackPanel>
+                    <TextBlock Text="Cursor overlay" Style="{StaticResource SectionTitle}" />
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Enabled" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding CursorOverlayEnabled}" Style="{StaticResource DetailValue}" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Text="Size" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Text="{Binding CursorOverlaySize}" Style="{StaticResource DetailValue}" />
+                        <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Text="Visibility" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" Text="{Binding CursorOverlayVisibility}" Style="{StaticResource DetailValue}" />
+                        <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,8,0,0" Text="Crosshairs" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" Text="{Binding CursorOverlayCrosshairs}" Style="{StaticResource DetailValue}" />
+                        <TextBlock Grid.Row="4" Grid.Column="0" Margin="0,8,0,0" Text="Color" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" Text="{Binding CursorOverlayColor}" Style="{StaticResource DetailValue}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBorder}">
+                <StackPanel>
+                    <TextBlock Text="Updates" Style="{StaticResource SectionTitle}" />
+                    <TextBlock Margin="0,10,0,0"
+                               Text="{Binding UpdateStatusMessage}"
+                               Style="{StaticResource DetailValue}" />
+                    <TextBlock Margin="0,6,0,0"
+                               Text="{Binding UpdateDownloadMessage}"
+                               Style="{StaticResource MutedText}" />
+                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                        <Button Content="Download update"
+                                Padding="14,8"
+                                IsEnabled="{Binding CanDownloadUpdate}" />
+                        <Button Content="Install update"
+                                Margin="10,0,0,0"
+                                Padding="14,8"
+                                IsEnabled="{Binding CanInstallUpdate}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

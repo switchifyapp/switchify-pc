@@ -6,10 +6,11 @@ public sealed class NativeTrayIcon : IDisposable
 {
     private readonly Forms.NotifyIcon notifyIcon;
 
-    public NativeTrayIcon(Action showMainWindow, Action quit)
+    public NativeTrayIcon(Action showMainWindow, Action showSettingsWindow, Action quit)
     {
         Forms.ContextMenuStrip menu = new();
         menu.Items.Add("Show Switchify PC", null, (_, _) => showMainWindow());
+        menu.Items.Add("Open settings", null, (_, _) => showSettingsWindow());
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Quit", null, (_, _) => quit());
 

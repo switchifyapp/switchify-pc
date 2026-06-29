@@ -8,6 +8,7 @@ public partial class App : System.Windows.Application
 {
     private SingleInstanceService? singleInstance;
     private NativeTrayIcon? trayIcon;
+    private SettingsWindow? settingsWindow;
     private bool isQuitting;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -25,7 +26,7 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        trayIcon = new NativeTrayIcon(ShowMainWindow, QuitApplication);
+        trayIcon = new NativeTrayIcon(ShowMainWindow, ShowSettingsWindow, QuitApplication);
 
         if (decision.ShowMainWindow)
         {
@@ -39,6 +40,7 @@ public partial class App : System.Windows.Application
         singleInstance = null;
         trayIcon?.Dispose();
         trayIcon = null;
+        settingsWindow = null;
         base.OnExit(e);
     }
 
@@ -69,5 +71,26 @@ public partial class App : System.Windows.Application
     {
         isQuitting = true;
         Shutdown();
+    }
+
+    private void ShowSettingsWindow()
+    {
+        settingsWindow ??= CreateSettingsWindow();
+        settingsWindow.Show();
+        settingsWindow.WindowState = WindowState.Normal;
+        settingsWindow.Activate();
+    }
+
+    private SettingsWindow CreateSettingsWindow()
+    {
+        SettingsWindow window = new();
+        window.Closing += (_, eventArgs) =>
+        {
+            if (isQuitting) return;
+            eventArgs.Cancel = true;
+            window.Hide();
+        };
+
+        return window;
     }
 }
