@@ -2,6 +2,7 @@ using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Core.Startup;
 using SwitchifyPc.Core.Ui;
 using SwitchifyPc.Core.Updates;
+using SwitchifyPc.Core.Pairing;
 
 namespace SwitchifyPc.Tests;
 
@@ -79,6 +80,30 @@ public sealed class SettingsViewModelTests
         Assert.Equal("While controlling", viewModel.CursorOverlayVisibility);
         Assert.True(viewModel.CursorOverlayCrosshairs);
         Assert.Equal("Blue", viewModel.CursorOverlayColor);
+    }
+
+    [Fact]
+    public void MapsPairedDevicesWithoutTokens()
+    {
+        SettingsViewModel viewModel = new();
+
+        Assert.False(viewModel.HasPairedDevices);
+        Assert.Equal("No paired devices.", viewModel.PairedDevicesMessage);
+
+        viewModel.SetPairedDevices(
+        [
+            new PairedDeviceView("device-1", "Pixel 9", 3_723_000, 3_724_000),
+            new PairedDeviceView("device-2", "Galaxy Tab", 3_725_000, null)
+        ]);
+
+        Assert.True(viewModel.HasPairedDevices);
+        Assert.Equal("2 paired devices.", viewModel.PairedDevicesMessage);
+        Assert.Equal(2, viewModel.PairedDevices.Count);
+        Assert.Equal("Pixel 9", viewModel.PairedDevices[0].DeviceName);
+        Assert.Equal("01:02:03", viewModel.PairedDevices[0].PairedAt);
+        Assert.Equal("01:02:04", viewModel.PairedDevices[0].LastSeenAt);
+        Assert.Equal("Not yet.", viewModel.PairedDevices[1].LastSeenAt);
+        Assert.DoesNotContain("token", string.Join("\n", viewModel.PairedDevices), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

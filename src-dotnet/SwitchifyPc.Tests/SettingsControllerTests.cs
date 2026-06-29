@@ -2,6 +2,7 @@ using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Core.Startup;
 using SwitchifyPc.Core.Ui;
 using SwitchifyPc.Core.Updates;
+using SwitchifyPc.Core.Pairing;
 
 namespace SwitchifyPc.Tests;
 
@@ -31,14 +32,23 @@ public sealed class SettingsControllerTests
                 LatestVersion = "0.2.0"
             }
         });
+        MemoryPairingStore pairing = new(new PairingState(
+            "desktop-1",
+            [
+                new PairedDevice("device-1", "Pixel 9", "secret-token", 3_723_000, 3_724_000)
+            ]));
 
-        await new SettingsController(viewModel, startup, pointer, cursor, updates).LoadAsync();
+        await new SettingsController(viewModel, startup, pointer, cursor, updates, pairing).LoadAsync();
 
         Assert.True(viewModel.StartWithSystem);
         Assert.Equal(150, viewModel.PointerScalePercent);
         Assert.False(viewModel.CursorOverlayEnabled);
         Assert.Equal("Blue", viewModel.CursorOverlayColor);
         Assert.Equal("Switchify PC is up to date.", viewModel.UpdateStatusMessage);
+        Assert.Equal("1 paired device.", viewModel.PairedDevicesMessage);
+        PairedDeviceSettingsView device = Assert.Single(viewModel.PairedDevices);
+        Assert.Equal("Pixel 9", device.DeviceName);
+        Assert.DoesNotContain("secret", device.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -160,14 +170,16 @@ public sealed class SettingsControllerTests
         FakeStartupSettings? startup = null,
         FakePointerSettings? pointer = null,
         FakeCursorOverlaySettings? cursor = null,
-        FakeUpdates? updates = null)
+        FakeUpdates? updates = null,
+        IPairingStore? pairingStore = null)
     {
         return new SettingsController(
             viewModel,
             startup ?? new FakeStartupSettings(new SystemStartupSettings(false, false, true, "unpackaged")),
             pointer ?? new FakePointerSettings(PointerMovementSettingsModel.Default),
             cursor ?? new FakeCursorOverlaySettings(CursorOverlaySettingsModel.Default),
-            updates ?? new FakeUpdates(UpdateState.CreateInitial("0.2.0")));
+            updates ?? new FakeUpdates(UpdateState.CreateInitial("0.2.0")),
+            pairingStore ?? new MemoryPairingStore());
     }
 
     private sealed class FakeStartupSettings(SystemStartupSettings initial) : ISystemStartupSettingsService

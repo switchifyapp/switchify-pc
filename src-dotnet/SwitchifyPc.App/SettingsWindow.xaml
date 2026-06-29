@@ -66,6 +66,54 @@
 
             <Border Style="{StaticResource PanelBorder}">
                 <StackPanel>
+                    <TextBlock Text="Paired devices" Style="{StaticResource SectionTitle}" />
+                    <TextBlock Margin="0,8,0,0"
+                               Text="{Binding PairedDevicesMessage}"
+                               Style="{StaticResource MutedText}" />
+                    <ItemsControl Margin="0,12,0,0"
+                                  ItemsSource="{Binding PairedDevices}"
+                                  Visibility="{Binding HasPairedDevices, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,0,0,10"
+                                        Padding="12"
+                                        BorderBrush="#D6DAE2"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        Background="#F9FAFB">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding DeviceName}"
+                                                       FontSize="14"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="#111827" />
+                                            <TextBlock Margin="0,4,0,0"
+                                                       Text="{Binding DeviceId}"
+                                                       Style="{StaticResource MutedText}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1"
+                                                    Margin="16,0,0,0"
+                                                    VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding PairedAt, StringFormat=Paired {0}}"
+                                                       Style="{StaticResource DetailValue}" />
+                                            <TextBlock Margin="0,4,0,0"
+                                                       Text="{Binding LastSeenAt, StringFormat=Last seen {0}}"
+                                                       Style="{StaticResource MutedText}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBorder}">
+                <StackPanel>
                     <TextBlock Text="Pointer" Style="{StaticResource SectionTitle}" />
                     <TextBlock Margin="0,6,0,0"
                                Text="Choose how Android pointer steps map to this display."

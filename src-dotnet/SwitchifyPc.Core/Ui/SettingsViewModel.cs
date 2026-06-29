@@ -1,10 +1,17 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using SwitchifyPc.Core.Pairing;
 using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Core.Startup;
 using SwitchifyPc.Core.Updates;
 
 namespace SwitchifyPc.Core.Ui;
+
+public sealed record PairedDeviceSettingsView(
+    string DeviceId,
+    string DeviceName,
+    string PairedAt,
+    string LastSeenAt);
 
 public sealed class SettingsViewModel : INotifyPropertyChanged
 {
@@ -16,6 +23,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private PointerMovementSettings pointerMovementSettings = PointerMovementSettingsModel.Default;
     private CursorOverlaySettings cursorOverlaySettings = CursorOverlaySettingsModel.Default;
     private UpdateState updateState = UpdateState.CreateInitial("0.2.0");
+    private IReadOnlyList<PairedDeviceSettingsView> pairedDevices = [];
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -51,6 +59,16 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 : "Switchify PC will not start when you sign in.";
         }
     }
+
+    public IReadOnlyList<PairedDeviceSettingsView> PairedDevices => pairedDevices;
+
+    public bool HasPairedDevices => pairedDevices.Count > 0;
+
+    public string PairedDevicesMessage => pairedDevices.Count == 0
+        ? "No paired devices."
+        : pairedDevices.Count == 1
+            ? "1 paired device."
+            : $"{pairedDevices.Count} paired devices.";
 
     public double PointerScalePercent => PointerMovementSettingsModel.ScalePercentFor(pointerMovementSettings);
 
@@ -90,6 +108,20 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(StartWithSystem));
         OnPropertyChanged(nameof(StartWithSystemSupported));
         OnPropertyChanged(nameof(StartWithSystemMessage));
+    }
+
+    public void SetPairedDevices(IReadOnlyList<PairedDeviceView> devices)
+    {
+        pairedDevices = devices
+            .Select(device => new PairedDeviceSettingsView(
+                device.DeviceId,
+                device.DeviceName,
+                MainWindowCopy.Timestamp(device.PairedAt),
+                MainWindowCopy.Timestamp(device.LastSeenAt)))
+            .ToArray();
+        OnPropertyChanged(nameof(PairedDevices));
+        OnPropertyChanged(nameof(HasPairedDevices));
+        OnPropertyChanged(nameof(PairedDevicesMessage));
     }
 
     public void SetPointerMovementSettings(PointerMovementSettings settings)

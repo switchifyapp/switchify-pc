@@ -1,6 +1,7 @@
 using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Core.Startup;
 using SwitchifyPc.Core.Updates;
+using SwitchifyPc.Core.Pairing;
 
 namespace SwitchifyPc.Core.Ui;
 
@@ -11,19 +12,22 @@ public sealed class SettingsController
     private readonly IPointerMovementSettingsStore pointerMovementSettings;
     private readonly ICursorOverlaySettingsStore cursorOverlaySettings;
     private readonly IUpdateSettingsService updates;
+    private readonly IPairingStore pairingStore;
 
     public SettingsController(
         SettingsViewModel viewModel,
         ISystemStartupSettingsService startupSettings,
         IPointerMovementSettingsStore pointerMovementSettings,
         ICursorOverlaySettingsStore cursorOverlaySettings,
-        IUpdateSettingsService updates)
+        IUpdateSettingsService updates,
+        IPairingStore pairingStore)
     {
         this.viewModel = viewModel;
         this.startupSettings = startupSettings;
         this.pointerMovementSettings = pointerMovementSettings;
         this.cursorOverlaySettings = cursorOverlaySettings;
         this.updates = updates;
+        this.pairingStore = pairingStore;
     }
 
     public SettingsViewModel ViewModel => viewModel;
@@ -34,6 +38,8 @@ public sealed class SettingsController
         viewModel.SetPointerMovementSettings(pointerMovementSettings.Load());
         viewModel.SetCursorOverlaySettings(cursorOverlaySettings.Load());
         viewModel.SetUpdateState(updates.GetState());
+        viewModel.SetPairedDevices(PairingStateHelpers.ToPairedDeviceViews(
+            await pairingStore.LoadAsync().ConfigureAwait(false)));
     }
 
     public async Task SetStartWithSystemAsync(bool enabled)

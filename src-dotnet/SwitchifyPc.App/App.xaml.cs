@@ -192,7 +192,8 @@ public partial class App : System.Windows.Application
             CreateStartupService(),
             new JsonPointerMovementSettingsStore(Path.Combine(userDataDirectory, "pointer-movement-settings.json")),
             new JsonCursorOverlaySettingsStore(Path.Combine(userDataDirectory, "cursor-overlay-settings.json")),
-            updateService ?? CreateUpdateService());
+            updateService ?? CreateUpdateService(),
+            new JsonPairingStore(Path.Combine(userDataDirectory, "pairing-state.json")));
     }
 
     private SystemStartupService CreateStartupService()
