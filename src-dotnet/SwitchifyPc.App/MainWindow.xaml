@@ -160,6 +160,8 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="System Bluetooth" Style="{StaticResource DetailLabel}" />
@@ -168,11 +170,17 @@
                         <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Text="Bluetooth capabilities" Style="{StaticResource DetailLabel}" />
                         <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Text="{Binding BluetoothCapabilities}" Style="{StaticResource DetailValue}" />
 
-                        <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Text="Last Bluetooth event" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" Text="{Binding LastBluetoothEvent}" Style="{StaticResource DetailValue}" />
+                        <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Text="Bluetooth last checked" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" Text="{Binding BluetoothLastChecked}" Style="{StaticResource DetailValue}" />
 
-                        <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,8,0,0" Text="Last disconnect" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" Text="{Binding LastDisconnectReason}" Style="{StaticResource DetailValue}" />
+                        <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,8,0,0" Text="Bluetooth last changed" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" Text="{Binding BluetoothLastChanged}" Style="{StaticResource DetailValue}" />
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Margin="0,8,0,0" Text="Last Bluetooth event" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" Text="{Binding LastBluetoothEvent}" Style="{StaticResource DetailValue}" />
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Margin="0,8,0,0" Text="Last disconnect" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="5" Grid.Column="1" Margin="0,8,0,0" Text="{Binding LastDisconnectReason}" Style="{StaticResource DetailValue}" />
                     </Grid>
                 </StackPanel>
             </Border>

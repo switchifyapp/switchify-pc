@@ -33,6 +33,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public string BluetoothCapabilities => MainWindowCopy.BluetoothSystemCapabilities(bluetooth);
 
+    public string BluetoothLastChecked => MainWindowCopy.Timestamp(bluetooth.System.LastCheckedAt);
+
+    public string BluetoothLastChanged => MainWindowCopy.Timestamp(bluetooth.System.LastChangedAt);
+
     public string LastBluetoothEvent => MainWindowCopy.BluetoothDiagnosticEvent(bluetooth.LastEvent);
 
     public string LastDisconnectReason => MainWindowCopy.BluetoothDisconnectReason(bluetooth.LastDisconnectReason);
@@ -85,6 +89,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(BluetoothStatus));
         OnPropertyChanged(nameof(SystemBluetooth));
         OnPropertyChanged(nameof(BluetoothCapabilities));
+        OnPropertyChanged(nameof(BluetoothLastChecked));
+        OnPropertyChanged(nameof(BluetoothLastChanged));
         OnPropertyChanged(nameof(LastBluetoothEvent));
         OnPropertyChanged(nameof(LastDisconnectReason));
     }

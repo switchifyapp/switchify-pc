@@ -32,17 +32,27 @@ public sealed class MainWindowViewModelTests
             {
                 Status = "unavailable",
                 Reason = "adapter_off",
-                System = BluetoothStatusModel.DefaultSystemStatus with { AdapterPresent = true, RadioState = "off" },
+                System = BluetoothStatusModel.DefaultSystemStatus with
+                {
+                    AdapterPresent = true,
+                    RadioState = "off",
+                    LastCheckedAt = 3_723_000,
+                    LastChangedAt = 3_723_000
+                },
                 LastEvent = "system_radio_off",
                 LastDisconnectReason = "adapter_off"
             });
 
         Assert.Equal("Bluetooth is off", viewModel.StatusTitle);
         Assert.Equal("Bluetooth radio off.", viewModel.SystemBluetooth);
+        Assert.Equal("01:02:03", viewModel.BluetoothLastChecked);
+        Assert.Equal("01:02:03", viewModel.BluetoothLastChanged);
         Assert.Equal("Bluetooth turned off.", viewModel.LastBluetoothEvent);
         Assert.Equal("Bluetooth was turned off.", viewModel.LastDisconnectReason);
         Assert.Contains(nameof(MainWindowViewModel.StatusTitle), changed);
         Assert.Contains(nameof(MainWindowViewModel.BluetoothStatus), changed);
+        Assert.Contains(nameof(MainWindowViewModel.BluetoothLastChecked), changed);
+        Assert.Contains(nameof(MainWindowViewModel.BluetoothLastChanged), changed);
     }
 
     [Fact]

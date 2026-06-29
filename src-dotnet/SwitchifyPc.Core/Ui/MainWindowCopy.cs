@@ -147,6 +147,21 @@ public static class MainWindowCopy
             : "Bluetooth LE peripheral not supported.";
     }
 
+    public static string Timestamp(double? value)
+    {
+        if (value is null or <= 0) return "Not yet.";
+
+        try
+        {
+            DateTimeOffset timestamp = DateTimeOffset.FromUnixTimeMilliseconds(Convert.ToInt64(value.Value));
+            return timestamp.ToLocalTime().ToString("HH:mm:ss");
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return "Not yet.";
+        }
+    }
+
     public static string BluetoothDiagnosticEvent(string? diagnosticEvent)
     {
         return diagnosticEvent switch

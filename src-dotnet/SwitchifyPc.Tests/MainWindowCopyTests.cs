@@ -64,6 +64,9 @@ public sealed class MainWindowCopyTests
         Assert.Equal("Bluetooth radio on.", MainWindowCopy.BluetoothSystemRadioState(Status(system: BluetoothSystemOn())));
         Assert.Equal("Bluetooth LE peripheral supported.", MainWindowCopy.BluetoothSystemCapabilities(Status(system: BluetoothSystemOn())));
         Assert.Equal("Bluetooth LE peripheral not supported.", MainWindowCopy.BluetoothSystemCapabilities(Status(system: BluetoothSystemOn() with { IsPeripheralRoleSupported = false })));
+        Assert.Equal("Not yet.", MainWindowCopy.Timestamp(null));
+        Assert.Equal("Not yet.", MainWindowCopy.Timestamp(0));
+        Assert.Equal("01:02:03", MainWindowCopy.Timestamp(3_723_000));
         Assert.Equal("Bluetooth turned on.", MainWindowCopy.BluetoothDiagnosticEvent("system_radio_on"));
         Assert.Equal("Advertising restarted.", MainWindowCopy.BluetoothDiagnosticEvent("advertising_restarted"));
         Assert.Equal("Bluetooth was turned off.", MainWindowCopy.BluetoothDisconnectReason("adapter_off"));
