@@ -7,251 +7,436 @@
         mc:Ignorable="d"
         Title="Switchify PC settings"
         MinHeight="560"
-        MinWidth="720"
-        Height="680"
-        Width="860"
+        MinWidth="760"
+        Height="690"
+        Width="900"
+        FontFamily="Segoe UI"
+        Background="#F5F4F7"
         d:DataContext="{d:DesignInstance Type=ui:SettingsViewModel, IsDesignTimeCreatable=True}">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
-        <Style x:Key="PanelBorder" TargetType="Border">
-            <Setter Property="Background" Value="White" />
-            <Setter Property="BorderBrush" Value="#D6DAE2" />
+
+        <SolidColorBrush x:Key="BrandPrimary" Color="#D32F2F" />
+        <SolidColorBrush x:Key="Surface" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="SurfaceMuted" Color="#F3F2F6" />
+        <SolidColorBrush x:Key="Text" Color="#1C1B1F" />
+        <SolidColorBrush x:Key="TextMuted" Color="#49454F" />
+        <SolidColorBrush x:Key="BorderColor" Color="#E2E0E8" />
+        <SolidColorBrush x:Key="Danger" Color="#BA1A1A" />
+
+        <Style TargetType="Button">
+            <Setter Property="MinHeight" Value="38" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="Padding" Value="20" />
-            <Setter Property="Margin" Value="0,0,0,14" />
+            <Setter Property="Background" Value="{StaticResource Surface}" />
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                MinHeight="{TemplateBinding MinHeight}"
+                                Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource BrandPrimary}" />
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource SurfaceMuted}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.55" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
+
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="BorderBrush" Value="{StaticResource BrandPrimary}" />
+            <Setter Property="Background" Value="{StaticResource BrandPrimary}" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+
+        <Style x:Key="SectionCard" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Surface}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Padding" Value="18" />
+        </Style>
+
+        <Style x:Key="SubtleCard" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource SurfaceMuted}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="12" />
+        </Style>
+
         <Style x:Key="SectionTitle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#111827" />
-            <Setter Property="FontSize" Value="16" />
-            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="FontWeight" Value="Bold" />
         </Style>
+
         <Style x:Key="MutedText" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#5F6B7A" />
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
             <Setter Property="FontSize" Value="13" />
+            <Setter Property="LineHeight" Value="19" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
+
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+
         <Style x:Key="DetailLabel" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#6B7280" />
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="FontWeight" Value="Bold" />
         </Style>
+
         <Style x:Key="DetailValue" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#1F2937" />
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="MinWidth" Value="180" />
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+        </Style>
+
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+
+        <Style TargetType="TabItem">
+            <Setter Property="MinHeight" Value="42" />
+            <Setter Property="Margin" Value="0,0,0,4" />
+            <Setter Property="Padding" Value="14,10" />
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="Root"
+                                Margin="{TemplateBinding Margin}"
+                                Padding="{TemplateBinding Padding}"
+                                Background="Transparent"
+                                BorderBrush="Transparent"
+                                BorderThickness="1"
+                                CornerRadius="10">
+                            <ContentPresenter ContentSource="Header" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource SurfaceMuted}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource Surface}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource BrandPrimary}" />
+                                <Setter Property="Foreground" Value="{StaticResource BrandPrimary}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Window.Resources>
 
-    <ScrollViewer Background="#F6F7F9">
-        <StackPanel Margin="24" MaxWidth="860">
+    <Grid Background="#F5F4F7"
+          Margin="28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
             <TextBlock Text="Settings"
-                       FontSize="24"
-                       FontWeight="SemiBold"
-                       Foreground="#1F2937" />
+                       FontSize="28"
+                       FontWeight="Bold"
+                       Foreground="{StaticResource Text}" />
+            <TextBlock Margin="0,6,0,0"
+                       Text="Tune how Switchify starts, connects, and controls this PC."
+                       Style="{StaticResource MutedText}" />
+        </StackPanel>
 
-            <Border Style="{StaticResource PanelBorder}" Margin="0,18,0,14">
-                <StackPanel>
-                    <TextBlock Text="General" Style="{StaticResource SectionTitle}" />
-                    <CheckBox Margin="0,14,0,0"
-                              Content="Start with system"
-                              Click="StartWithSystem_Click"
-                              IsChecked="{Binding StartWithSystem, Mode=OneWay}"
-                              IsEnabled="{Binding StartWithSystemSupported}" />
-                    <TextBlock Margin="0,8,0,0"
-                               Text="{Binding StartWithSystemMessage}"
-                               Style="{StaticResource MutedText}" />
-                </StackPanel>
-            </Border>
+        <TabControl Grid.Row="1"
+                    Margin="0,22,0,0"
+                    TabStripPlacement="Left">
+            <TabItem Header="General">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="24,0,0,0"
+                                Width="560">
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+                                <TextBlock Text="General" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Margin="0,6,0,0"
+                                           Text="Control whether Switchify PC starts quietly when you sign in."
+                                           Style="{StaticResource MutedText}" />
+                                <Border Margin="0,16,0,0" Style="{StaticResource SubtleCard}">
+                                    <StackPanel>
+                                        <CheckBox Content="Start with system"
+                                                  Click="StartWithSystem_Click"
+                                                  IsChecked="{Binding StartWithSystem, Mode=OneWay}"
+                                                  IsEnabled="{Binding StartWithSystemSupported}" />
+                                        <TextBlock Margin="0,8,0,0"
+                                                   Text="{Binding StartWithSystemMessage}"
+                                                   Style="{StaticResource MutedText}" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Border>
 
-            <Border Style="{StaticResource PanelBorder}">
-                <StackPanel>
-                    <TextBlock Text="Paired devices" Style="{StaticResource SectionTitle}" />
-                    <TextBlock Margin="0,8,0,0"
-                               Text="{Binding PairedDevicesMessage}"
-                               Style="{StaticResource MutedText}" />
-                    <ItemsControl Margin="0,12,0,0"
-                                  ItemsSource="{Binding PairedDevices}"
-                                  Visibility="{Binding HasPairedDevices, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Margin="0,0,0,10"
-                                        Padding="12"
-                                        BorderBrush="#D6DAE2"
-                                        BorderThickness="1"
-                                        CornerRadius="6"
-                                        Background="#F9FAFB">
+                        <Border Margin="0,14,0,0" Style="{StaticResource SectionCard}">
+                            <StackPanel>
+                                <TextBlock Text="Paired devices" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Margin="0,6,0,0"
+                                           Text="{Binding PairedDevicesMessage}"
+                                           Style="{StaticResource MutedText}" />
+                                <ItemsControl Margin="0,14,0,0"
+                                              ItemsSource="{Binding PairedDevices}"
+                                              Visibility="{Binding HasPairedDevices, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,0,0,10" Style="{StaticResource SubtleCard}">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding DeviceName}"
+                                                                   FontSize="14"
+                                                                   FontWeight="Bold"
+                                                                   Foreground="{StaticResource Text}" />
+                                                        <TextBlock Margin="0,4,0,0"
+                                                                   Text="{Binding DeviceId}"
+                                                                   Style="{StaticResource MutedText}" />
+                                                        <TextBlock Margin="0,4,0,0"
+                                                                   Text="{Binding LastSeenAt, StringFormat=Last seen {0}}"
+                                                                   Style="{StaticResource MutedText}" />
+                                                    </StackPanel>
+                                                    <Button Grid.Column="1"
+                                                            Margin="16,0,0,0"
+                                                            VerticalAlignment="Center"
+                                                            Tag="{Binding DeviceId}"
+                                                            Click="ForgetPairedDevice_Click"
+                                                            Content="Forget" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Pointer">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="24,0,0,0"
+                                Width="560">
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+                                <TextBlock Text="Movement distance" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Margin="0,6,0,0"
+                                           Text="Choose how Android pointer steps map to this display."
+                                           Style="{StaticResource MutedText}" />
+
+                                <Border Margin="0,16,0,0" Style="{StaticResource SubtleCard}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Scale" Style="{StaticResource FieldLabel}" />
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="{Binding PointerScalePercent, StringFormat={}{0:0}%}"
+                                                       Style="{StaticResource DetailValue}" />
+                                            <UniformGrid Margin="0,10,0,0"
+                                                         Columns="4">
+                                                <Button Content="25%" Margin="0,0,6,0" Click="PointerScale25_Click" />
+                                                <Button Content="50%" Margin="0,0,6,0" Click="PointerScale50_Click" />
+                                                <Button Content="75%" Margin="0,0,6,0" Click="PointerScale75_Click" />
+                                                <Button Content="100%" Click="PointerScale100_Click" />
+                                            </UniformGrid>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
+                                <Border Margin="0,12,0,0" Style="{StaticResource SubtleCard}">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding DeviceName}"
-                                                       FontSize="14"
-                                                       FontWeight="SemiBold"
-                                                       Foreground="#111827" />
-                                            <TextBlock Margin="0,4,0,0"
-                                                       Text="{Binding DeviceId}"
-                                                       Style="{StaticResource MutedText}" />
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1"
-                                                    Margin="16,0,0,0"
-                                                    VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding PairedAt, StringFormat=Paired {0}}"
-                                                       Style="{StaticResource DetailValue}" />
-                                            <TextBlock Margin="0,4,0,0"
-                                                       Text="{Binding LastSeenAt, StringFormat=Last seen {0}}"
-                                                       Style="{StaticResource MutedText}" />
-                                            <Button Margin="0,8,0,0"
-                                                    Padding="12,6"
-                                                    HorizontalAlignment="Right"
-                                                    Tag="{Binding DeviceId}"
-                                                    Click="ForgetPairedDevice_Click"
-                                                    Content="Forget" />
-                                        </StackPanel>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Small" Style="{StaticResource DetailLabel}" />
+                                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding PointerSmall}" Style="{StaticResource DetailValue}" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Text="Medium" Style="{StaticResource DetailLabel}" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Text="{Binding PointerMedium}" Style="{StaticResource DetailValue}" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Text="Large" Style="{StaticResource DetailLabel}" />
+                                        <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" Text="{Binding PointerLarge}" Style="{StaticResource DetailValue}" />
                                     </Grid>
                                 </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource PanelBorder}">
-                <StackPanel>
-                    <TextBlock Text="Pointer" Style="{StaticResource SectionTitle}" />
-                    <TextBlock Margin="0,6,0,0"
-                               Text="Choose how Android pointer steps map to this display."
-                               Style="{StaticResource MutedText}" />
-                    <Grid Margin="0,14,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="160" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Scale" Style="{StaticResource DetailLabel}" />
-                        <StackPanel Grid.Row="0" Grid.Column="1">
-                            <TextBlock Text="{Binding PointerScalePercent, StringFormat={}{0:0}%}" Style="{StaticResource DetailValue}" />
-                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                                <Button Content="25%" Padding="12,6" Click="PointerScale25_Click" />
-                                <Button Content="50%" Margin="8,0,0,0" Padding="12,6" Click="PointerScale50_Click" />
-                                <Button Content="75%" Margin="8,0,0,0" Padding="12,6" Click="PointerScale75_Click" />
-                                <Button Content="100%" Margin="8,0,0,0" Padding="12,6" Click="PointerScale100_Click" />
                             </StackPanel>
-                        </StackPanel>
-                        <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Text="Small" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Text="{Binding PointerSmall}" Style="{StaticResource DetailValue}" />
-                        <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Text="Medium" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" Text="{Binding PointerMedium}" Style="{StaticResource DetailValue}" />
-                        <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,8,0,0" Text="Large" Style="{StaticResource DetailLabel}" />
-                        <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" Text="{Binding PointerLarge}" Style="{StaticResource DetailValue}" />
-                    </Grid>
-                </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource PanelBorder}">
-                <StackPanel>
-                    <TextBlock Text="Cursor overlay" Style="{StaticResource SectionTitle}" />
-                    <Grid Margin="0,14,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="160" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Enabled" Style="{StaticResource DetailLabel}" />
-                        <CheckBox Grid.Row="0" Grid.Column="1"
-                                  Content="Show cursor overlay"
-                                  Click="CursorOverlayEnabled_Click"
-                                  IsChecked="{Binding CursorOverlayEnabled, Mode=OneWay}" />
-                        <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Text="Size" Style="{StaticResource DetailLabel}" />
-                        <ComboBox Grid.Row="1"
-                                  Grid.Column="1"
-                                  Margin="0,8,0,0"
-                                  Width="180"
-                                  HorizontalAlignment="Left"
-                                  SelectedValuePath="Tag"
-                                  SelectedValue="{Binding CursorOverlaySettings.Size, Mode=OneWay}"
-                                  SelectionChanged="CursorOverlaySize_SelectionChanged">
-                            <ComboBoxItem Content="Small" Tag="small" />
-                            <ComboBoxItem Content="Medium" Tag="medium" />
-                            <ComboBoxItem Content="Large" Tag="large" />
-                        </ComboBox>
-                        <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Text="Visibility" Style="{StaticResource DetailLabel}" />
-                        <ComboBox Grid.Row="2"
-                                  Grid.Column="1"
-                                  Margin="0,8,0,0"
-                                  Width="180"
-                                  HorizontalAlignment="Left"
-                                  SelectedValuePath="Tag"
-                                  SelectedValue="{Binding CursorOverlaySettings.Visibility, Mode=OneWay}"
-                                  SelectionChanged="CursorOverlayVisibility_SelectionChanged">
-                            <ComboBoxItem Content="On input" Tag="onInput" />
-                            <ComboBoxItem Content="While controlling" Tag="whileControlling" />
-                        </ComboBox>
-                        <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,8,0,0" Text="Crosshairs" Style="{StaticResource DetailLabel}" />
-                        <CheckBox Grid.Row="3"
-                                  Grid.Column="1"
-                                  Margin="0,8,0,0"
-                                  Content="Show crosshairs"
-                                  Click="CursorOverlayCrosshairs_Click"
-                                  IsChecked="{Binding CursorOverlayCrosshairs, Mode=OneWay}" />
-                        <TextBlock Grid.Row="4" Grid.Column="0" Margin="0,8,0,0" Text="Color" Style="{StaticResource DetailLabel}" />
-                        <ComboBox Grid.Row="4"
-                                  Grid.Column="1"
-                                  Margin="0,8,0,0"
-                                  Width="180"
-                                  HorizontalAlignment="Left"
-                                  SelectedValuePath="Tag"
-                                  SelectedValue="{Binding CursorOverlaySettings.Color, Mode=OneWay}"
-                                  SelectionChanged="CursorOverlayColor_SelectionChanged">
-                            <ComboBoxItem Content="Red" Tag="red" />
-                            <ComboBoxItem Content="Green" Tag="green" />
-                            <ComboBoxItem Content="Blue" Tag="blue" />
-                            <ComboBoxItem Content="Yellow" Tag="yellow" />
-                            <ComboBoxItem Content="White" Tag="white" />
-                        </ComboBox>
-                    </Grid>
-                </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource PanelBorder}">
-                <StackPanel>
-                    <TextBlock Text="Updates" Style="{StaticResource SectionTitle}" />
-                    <TextBlock Margin="0,10,0,0"
-                               Text="{Binding UpdateStatusMessage}"
-                               Style="{StaticResource DetailValue}" />
-                    <TextBlock Margin="0,6,0,0"
-                               Text="{Binding UpdateDownloadMessage}"
-                               Style="{StaticResource MutedText}" />
-                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                        <Button Content="Check for updates"
-                                Padding="14,8"
-                                Click="CheckForUpdates_Click" />
-                        <Button Content="Download update"
-                                Margin="10,0,0,0"
-                                Padding="14,8"
-                                Click="DownloadUpdate_Click"
-                                IsEnabled="{Binding CanDownloadUpdate}" />
-                        <Button Content="Install update"
-                                Margin="10,0,0,0"
-                                Padding="14,8"
-                                Click="InstallUpdate_Click"
-                                IsEnabled="{Binding CanInstallUpdate}" />
+                        </Border>
                     </StackPanel>
-                </StackPanel>
-            </Border>
-        </StackPanel>
-    </ScrollViewer>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Cursor overlay">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="24,0,0,0"
+                                Width="560">
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+                                <TextBlock Text="Cursor overlay" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Margin="0,6,0,0"
+                                           Text="Adjust the visual cursor marker shown while controlling this PC."
+                                           Style="{StaticResource MutedText}" />
+
+                                <Border Margin="0,16,0,0" Style="{StaticResource SubtleCard}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Enabled" Style="{StaticResource FieldLabel}" />
+                                        <CheckBox Grid.Row="0" Grid.Column="1"
+                                                  Content="Show cursor overlay"
+                                                  Click="CursorOverlayEnabled_Click"
+                                                  IsChecked="{Binding CursorOverlayEnabled, Mode=OneWay}" />
+
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,12,0,0" Text="Size" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox Grid.Row="1"
+                                                  Grid.Column="1"
+                                                  Margin="0,12,0,0"
+                                                  SelectedValuePath="Tag"
+                                                  SelectedValue="{Binding CursorOverlaySettings.Size, Mode=OneWay}"
+                                                  SelectionChanged="CursorOverlaySize_SelectionChanged">
+                                            <ComboBoxItem Content="Small" Tag="small" />
+                                            <ComboBoxItem Content="Medium" Tag="medium" />
+                                            <ComboBoxItem Content="Large" Tag="large" />
+                                        </ComboBox>
+
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,12,0,0" Text="Visibility" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox Grid.Row="2"
+                                                  Grid.Column="1"
+                                                  Margin="0,12,0,0"
+                                                  SelectedValuePath="Tag"
+                                                  SelectedValue="{Binding CursorOverlaySettings.Visibility, Mode=OneWay}"
+                                                  SelectionChanged="CursorOverlayVisibility_SelectionChanged">
+                                            <ComboBoxItem Content="On input" Tag="onInput" />
+                                            <ComboBoxItem Content="While controlling" Tag="whileControlling" />
+                                        </ComboBox>
+
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,12,0,0" Text="Crosshairs" Style="{StaticResource FieldLabel}" />
+                                        <CheckBox Grid.Row="3"
+                                                  Grid.Column="1"
+                                                  Margin="0,12,0,0"
+                                                  Content="Show crosshairs"
+                                                  Click="CursorOverlayCrosshairs_Click"
+                                                  IsChecked="{Binding CursorOverlayCrosshairs, Mode=OneWay}" />
+
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Margin="0,12,0,0" Text="Color" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox Grid.Row="4"
+                                                  Grid.Column="1"
+                                                  Margin="0,12,0,0"
+                                                  SelectedValuePath="Tag"
+                                                  SelectedValue="{Binding CursorOverlaySettings.Color, Mode=OneWay}"
+                                                  SelectionChanged="CursorOverlayColor_SelectionChanged">
+                                            <ComboBoxItem Content="Red" Tag="red" />
+                                            <ComboBoxItem Content="Green" Tag="green" />
+                                            <ComboBoxItem Content="Blue" Tag="blue" />
+                                            <ComboBoxItem Content="Yellow" Tag="yellow" />
+                                            <ComboBoxItem Content="White" Tag="white" />
+                                        </ComboBox>
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Updates">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="24,0,0,0"
+                                Width="560">
+                        <Border Style="{StaticResource SectionCard}">
+                            <StackPanel>
+                                <TextBlock Text="Updates" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Margin="0,6,0,0"
+                                           Text="Check, download, and open Switchify PC updates."
+                                           Style="{StaticResource MutedText}" />
+
+                                <Border Margin="0,16,0,0" Style="{StaticResource SubtleCard}">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding UpdateStatusMessage}" Style="{StaticResource DetailValue}" />
+                                        <TextBlock Margin="0,6,0,0"
+                                                   Text="{Binding UpdateDownloadMessage}"
+                                                   Style="{StaticResource MutedText}" />
+                                        <WrapPanel Margin="0,14,0,0">
+                                            <Button Content="Check for updates"
+                                                    Margin="0,0,10,8"
+                                                    Click="CheckForUpdates_Click" />
+                                            <Button Content="Download update"
+                                                    Margin="0,0,10,8"
+                                                    Click="DownloadUpdate_Click"
+                                                    IsEnabled="{Binding CanDownloadUpdate}" />
+                                            <Button Content="Install update"
+                                                    Margin="0,0,10,8"
+                                                    Click="InstallUpdate_Click"
+                                                    Style="{StaticResource PrimaryButton}"
+                                                    IsEnabled="{Binding CanInstallUpdate}" />
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </Grid>
 </Window>
