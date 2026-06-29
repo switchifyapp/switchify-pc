@@ -122,6 +122,11 @@ public sealed class WindowsBluetoothGattServer : IDisposable
         EmitDisconnected("pc_requested");
     }
 
+    public void DisconnectAll()
+    {
+        Disconnect(ConnectionId);
+    }
+
     public void Dispose()
     {
         if (disposed) return;

@@ -74,7 +74,13 @@ public partial class App : System.Windows.Application
         StartPairingExpiryTimer();
         _ = StartBluetoothAsync();
         _ = RecordStartupDiagnosticsAsync(e.Args, launchOptions.StartHidden);
-        trayIcon = new NativeTrayIcon(ShowMainWindow, ShowSettingsWindow, QuitApplication);
+        trayIcon = new NativeTrayIcon(
+            ShowMainWindow,
+            ShowSettingsWindow,
+            TrayStatusText,
+            CanDisconnectBluetoothDevices,
+            DisconnectBluetoothDevices,
+            QuitApplication);
 
         if (decision.ShowMainWindow)
         {
@@ -138,6 +144,22 @@ public partial class App : System.Windows.Application
     {
         isQuitting = true;
         Shutdown();
+    }
+
+    private string TrayStatusText()
+    {
+        BluetoothStatus status = bluetoothStatusTracker?.Status ?? BluetoothStatusModel.DefaultStatus;
+        return $"Status: {MainWindowCopy.BluetoothStatusLabel(status)}";
+    }
+
+    private bool CanDisconnectBluetoothDevices()
+    {
+        return bluetoothStatusTracker?.Status.ConnectedClientCount > 0;
+    }
+
+    private void DisconnectBluetoothDevices()
+    {
+        bluetoothServer?.DisconnectAll();
     }
 
     private void ShowSettingsWindow()
