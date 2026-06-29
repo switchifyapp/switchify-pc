@@ -1,4 +1,5 @@
 using SwitchifyPc.Core.AppLifecycle;
+using SwitchifyPc.Windows.AppLifecycle;
 
 namespace SwitchifyPc.Tests;
 
@@ -70,6 +71,29 @@ public sealed class AppLifecycleTests
         service.Stop();
 
         Assert.True(appLock.Disposed);
+    }
+
+    [Fact]
+    public async Task ExistingInstanceSignalNotifiesListener()
+    {
+        string signalName = $@"Local\SwitchifyPc.Tests.{Guid.NewGuid()}";
+        using WindowsExistingInstanceSignal listener = new(signalName);
+        using WindowsExistingInstanceSignal signaler = new(signalName);
+        TaskCompletionSource notified = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        listener.Start(() => notified.TrySetResult());
+
+        Assert.True(signaler.SignalShowMainWindow());
+
+        Task completed = await Task.WhenAny(notified.Task, Task.Delay(TimeSpan.FromSeconds(2)));
+        Assert.Same(notified.Task, completed);
+    }
+
+    [Fact]
+    public void ExistingInstanceSignalReturnsFalseWhenNoListenerExists()
+    {
+        using WindowsExistingInstanceSignal signaler = new($@"Local\SwitchifyPc.Tests.{Guid.NewGuid()}");
+
+        Assert.False(signaler.SignalShowMainWindow());
     }
 
     private sealed class FakeLockFactory : ISingleInstanceLockFactory

@@ -19,6 +19,7 @@ public partial class App : System.Windows.Application
     private const string CurrentVersion = "0.2.0";
 
     private SingleInstanceService? singleInstance;
+    private WindowsExistingInstanceSignal? existingInstanceSignal;
     private NativeTrayIcon? trayIcon;
     private SettingsWindow? settingsWindow;
     private MainWindowViewModel mainWindowViewModel = new();
@@ -37,11 +38,18 @@ public partial class App : System.Windows.Application
 
         if (!decision.IsPrimaryInstance)
         {
-            // TODO: signal the primary instance to show its main window for normal second launches.
+            if (decision.ExistingInstanceAction == ExistingInstanceAction.ShowMainWindow)
+            {
+                using WindowsExistingInstanceSignal signal = new();
+                signal.SignalShowMainWindow();
+            }
+
             Shutdown();
             return;
         }
 
+        existingInstanceSignal = new WindowsExistingInstanceSignal();
+        existingInstanceSignal.Start(() => Dispatcher.BeginInvoke(ShowMainWindow));
         updateService = CreateUpdateService();
         pairingApprovalManager = CreatePairingApprovalManager();
         RefreshPairingApprovals();
@@ -59,6 +67,8 @@ public partial class App : System.Windows.Application
     {
         singleInstance?.Stop();
         singleInstance = null;
+        existingInstanceSignal?.Dispose();
+        existingInstanceSignal = null;
         updateService?.StopAutomaticUpdateChecks();
         updateService = null;
         pairingApprovalManager = null;
