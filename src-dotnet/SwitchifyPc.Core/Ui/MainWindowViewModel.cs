@@ -1,0 +1,81 @@
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using SwitchifyPc.Core.Bluetooth;
+using SwitchifyPc.Core.Updates;
+
+namespace SwitchifyPc.Core.Ui;
+
+public sealed class MainWindowViewModel : INotifyPropertyChanged
+{
+    private DesktopUiState desktopState = DesktopUiState.Starting;
+    private BluetoothStatus bluetooth = BluetoothStatusModel.DefaultStatus with
+    {
+        Status = "starting",
+        System = BluetoothStatusModel.DefaultSystemStatus with { AdapterPresent = true, RadioState = "unknown" }
+    };
+    private UpdateState updateState = UpdateState.CreateInitial("0.2.0");
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string AppTitle => "Switchify PC";
+
+    public string StatusTitle => MainWindowCopy.BluetoothPrimary(desktopState, bluetooth).Title;
+
+    public string StatusBody => MainWindowCopy.BluetoothPrimary(desktopState, bluetooth).Body;
+
+    public string StatusTone => MainWindowCopy.BluetoothPrimary(desktopState, bluetooth).Tone;
+
+    public string BluetoothStatus => MainWindowCopy.BluetoothStatusLabel(bluetooth);
+
+    public string SystemBluetooth => MainWindowCopy.BluetoothSystemRadioState(bluetooth);
+
+    public string BluetoothCapabilities => MainWindowCopy.BluetoothSystemCapabilities(bluetooth);
+
+    public string LastBluetoothEvent => MainWindowCopy.BluetoothDiagnosticEvent(bluetooth.LastEvent);
+
+    public string LastDisconnectReason => MainWindowCopy.BluetoothDisconnectReason(bluetooth.LastDisconnectReason);
+
+    public bool HasUpdateBanner => MainWindowCopy.UpdateBanner(updateState) is not null;
+
+    public string UpdateBannerTitle => MainWindowCopy.UpdateBanner(updateState)?.Title ?? "";
+
+    public string UpdateBannerBody => MainWindowCopy.UpdateBanner(updateState)?.Body ?? "";
+
+    public string UpdateBannerButtonText => MainWindowCopy.UpdateBanner(updateState)?.ButtonText ?? "Open updates";
+
+    public string UpdateBannerTone => MainWindowCopy.UpdateBanner(updateState)?.Tone ?? "";
+
+    public void SetBluetoothState(DesktopUiState state, BluetoothStatus status)
+    {
+        desktopState = state;
+        bluetooth = status;
+        NotifyStatusChanged();
+    }
+
+    public void SetUpdateState(UpdateState state)
+    {
+        updateState = state;
+        OnPropertyChanged(nameof(HasUpdateBanner));
+        OnPropertyChanged(nameof(UpdateBannerTitle));
+        OnPropertyChanged(nameof(UpdateBannerBody));
+        OnPropertyChanged(nameof(UpdateBannerButtonText));
+        OnPropertyChanged(nameof(UpdateBannerTone));
+    }
+
+    private void NotifyStatusChanged()
+    {
+        OnPropertyChanged(nameof(StatusTitle));
+        OnPropertyChanged(nameof(StatusBody));
+        OnPropertyChanged(nameof(StatusTone));
+        OnPropertyChanged(nameof(BluetoothStatus));
+        OnPropertyChanged(nameof(SystemBluetooth));
+        OnPropertyChanged(nameof(BluetoothCapabilities));
+        OnPropertyChanged(nameof(LastBluetoothEvent));
+        OnPropertyChanged(nameof(LastDisconnectReason));
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+}

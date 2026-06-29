@@ -3,34 +3,122 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:ui="clr-namespace:SwitchifyPc.Core.Ui;assembly=SwitchifyPc.Core"
         mc:Ignorable="d"
         Title="Switchify PC"
-        MinHeight="420"
-        MinWidth="720"
-        Height="520"
-        Width="840">
-    <Grid Background="#F6F7F9">
-        <Border Margin="24"
-                Padding="24"
-                Background="White"
-                BorderBrush="#D6DAE2"
-                BorderThickness="1"
-                CornerRadius="8">
-            <StackPanel>
-                <TextBlock Text="Switchify PC"
-                           FontSize="24"
-                           FontWeight="SemiBold"
-                           Foreground="#1F2937" />
-                <TextBlock Margin="0,8,0,0"
-                           Text="C# native app scaffold for the 0.2.0 migration."
-                           FontSize="14"
-                           Foreground="#4B5563" />
-                <TextBlock Margin="0,18,0,0"
-                           Text="This window is temporary while protocol, pairing, Bluetooth, input, tray, settings, startup, update, and packaging parity are ported."
-                           FontSize="13"
-                           Foreground="#6B7280"
-                           TextWrapping="Wrap" />
-            </StackPanel>
-        </Border>
-    </Grid>
+        MinHeight="520"
+        MinWidth="760"
+        Height="620"
+        Width="920"
+        d:DataContext="{d:DesignInstance Type=ui:MainWindowViewModel, IsDesignTimeCreatable=True}">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <Style x:Key="PanelBorder" TargetType="Border">
+            <Setter Property="Background" Value="White" />
+            <Setter Property="BorderBrush" Value="#D6DAE2" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="20" />
+        </Style>
+        <Style x:Key="MutedText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#5F6B7A" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="DetailLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#6B7280" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="DetailValue" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#1F2937" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </Window.Resources>
+
+    <ScrollViewer Background="#F6F7F9">
+        <StackPanel Margin="24" MaxWidth="920">
+            <TextBlock Text="{Binding AppTitle}"
+                       FontSize="24"
+                       FontWeight="SemiBold"
+                       Foreground="#1F2937" />
+
+            <Border Margin="0,18,0,0"
+                    Style="{StaticResource PanelBorder}">
+                <StackPanel>
+                    <TextBlock Text="{Binding StatusTitle}"
+                               FontSize="20"
+                               FontWeight="SemiBold"
+                               Foreground="#111827" />
+                    <TextBlock Margin="0,8,0,0"
+                               Text="{Binding StatusBody}"
+                               Style="{StaticResource MutedText}" />
+                    <TextBlock Margin="0,12,0,0"
+                               Text="{Binding BluetoothStatus}"
+                               Foreground="#374151"
+                               FontSize="13"
+                               FontWeight="SemiBold" />
+                </StackPanel>
+            </Border>
+
+            <Border Margin="0,14,0,0"
+                    Style="{StaticResource PanelBorder}"
+                    Visibility="{Binding HasUpdateBanner, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="{Binding UpdateBannerTitle}"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"
+                                   Foreground="#111827" />
+                        <TextBlock Margin="0,4,0,0"
+                                   Text="{Binding UpdateBannerBody}"
+                                   Style="{StaticResource MutedText}" />
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            Margin="16,0,0,0"
+                            Padding="14,8"
+                            Content="{Binding UpdateBannerButtonText}" />
+                </Grid>
+            </Border>
+
+            <Border Margin="0,14,0,0"
+                    Style="{StaticResource PanelBorder}">
+                <StackPanel>
+                    <TextBlock Text="Troubleshooting"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="#111827" />
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="180" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="System Bluetooth" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SystemBluetooth}" Style="{StaticResource DetailValue}" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Text="Bluetooth capabilities" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Text="{Binding BluetoothCapabilities}" Style="{StaticResource DetailValue}" />
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Text="Last Bluetooth event" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" Text="{Binding LastBluetoothEvent}" Style="{StaticResource DetailValue}" />
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,8,0,0" Text="Last disconnect" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" Text="{Binding LastDisconnectReason}" Style="{StaticResource DetailValue}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
 </Window>
