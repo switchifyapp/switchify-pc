@@ -70,6 +70,19 @@ public sealed class MainWindowCopyTests
         Assert.Equal("Bluetooth turned on.", MainWindowCopy.BluetoothDiagnosticEvent("system_radio_on"));
         Assert.Equal("Advertising restarted.", MainWindowCopy.BluetoothDiagnosticEvent("advertising_restarted"));
         Assert.Equal("Bluetooth was turned off.", MainWindowCopy.BluetoothDisconnectReason("adapter_off"));
+        Assert.Equal(
+            "Bluetooth turned on. 01:02:03",
+            MainWindowCopy.BluetoothEventSummary(Status(lastEvent: "system_radio_on", lastEventAt: 3_723_000)));
+        Assert.Equal(
+            "Bluetooth turned on. 01:02:03 Advertising restarted. 01:02:04",
+            MainWindowCopy.BluetoothRecentEvents(Status(recentEvents:
+            [
+                new BluetoothDiagnosticRecord("system_radio_on", 3_723_000),
+                new BluetoothDiagnosticRecord("advertising_restarted", 3_724_000)
+            ])));
+        Assert.Equal(
+            "Bluetooth was turned off. 01:02:03",
+            MainWindowCopy.BluetoothDisconnectSummary(Status(lastDisconnectReason: "adapter_off", lastDisconnectAt: 3_723_000)));
     }
 
     [Fact]
@@ -114,12 +127,22 @@ public sealed class MainWindowCopyTests
         string status = "disabled",
         string? reason = null,
         int connectedClientCount = 0,
-        BluetoothSystemStatus? system = null) =>
+        BluetoothSystemStatus? system = null,
+        string? lastEvent = null,
+        double? lastEventAt = null,
+        IReadOnlyList<BluetoothDiagnosticRecord>? recentEvents = null,
+        string? lastDisconnectReason = null,
+        double? lastDisconnectAt = null) =>
         BluetoothStatusModel.DefaultStatus with
         {
             Status = status,
             Reason = reason,
             ConnectedClientCount = connectedClientCount,
-            System = system ?? BluetoothStatusModel.DefaultSystemStatus
+            System = system ?? BluetoothStatusModel.DefaultSystemStatus,
+            LastEvent = lastEvent,
+            LastEventAt = lastEventAt,
+            RecentEvents = recentEvents ?? [],
+            LastDisconnectReason = lastDisconnectReason,
+            LastDisconnectAt = lastDisconnectAt
         };
 }

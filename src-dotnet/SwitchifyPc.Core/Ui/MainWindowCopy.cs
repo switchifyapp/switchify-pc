@@ -180,6 +180,19 @@ public static class MainWindowCopy
         };
     }
 
+    public static string BluetoothEventSummary(BluetoothStatus? status)
+    {
+        if (status?.LastEvent is null) return "Not recorded.";
+        return $"{BluetoothDiagnosticEvent(status.LastEvent)} {Timestamp(status.LastEventAt)}";
+    }
+
+    public static string BluetoothRecentEvents(BluetoothStatus? status)
+    {
+        IReadOnlyList<BluetoothDiagnosticRecord> events = status?.RecentEvents ?? [];
+        if (events.Count == 0) return "Not recorded.";
+        return string.Join(" ", events.Select(item => $"{BluetoothDiagnosticEvent(item.Event)} {Timestamp(item.At)}"));
+    }
+
     public static string BluetoothDisconnectReason(string? reason)
     {
         return reason switch
@@ -192,6 +205,12 @@ public static class MainWindowCopy
             "adapter_off" => "Bluetooth was turned off.",
             _ => "Not recorded."
         };
+    }
+
+    public static string BluetoothDisconnectSummary(BluetoothStatus? status)
+    {
+        if (status?.LastDisconnectReason is null) return "Not recorded.";
+        return $"{BluetoothDisconnectReason(status.LastDisconnectReason)} {Timestamp(status.LastDisconnectAt)}";
     }
 
     public static UpdateBannerCopy? UpdateBanner(UpdateState? state)

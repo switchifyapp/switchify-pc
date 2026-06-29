@@ -40,19 +40,27 @@ public sealed class MainWindowViewModelTests
                     LastChangedAt = 3_723_000
                 },
                 LastEvent = "system_radio_off",
-                LastDisconnectReason = "adapter_off"
+                LastEventAt = 3_723_000,
+                RecentEvents =
+                [
+                    new BluetoothDiagnosticRecord("system_radio_off", 3_723_000)
+                ],
+                LastDisconnectReason = "adapter_off",
+                LastDisconnectAt = 3_723_000
             });
 
         Assert.Equal("Bluetooth is off", viewModel.StatusTitle);
         Assert.Equal("Bluetooth radio off.", viewModel.SystemBluetooth);
         Assert.Equal("01:02:03", viewModel.BluetoothLastChecked);
         Assert.Equal("01:02:03", viewModel.BluetoothLastChanged);
-        Assert.Equal("Bluetooth turned off.", viewModel.LastBluetoothEvent);
-        Assert.Equal("Bluetooth was turned off.", viewModel.LastDisconnectReason);
+        Assert.Equal("Bluetooth turned off. 01:02:03", viewModel.LastBluetoothEvent);
+        Assert.Equal("Bluetooth turned off. 01:02:03", viewModel.RecentBluetoothEvents);
+        Assert.Equal("Bluetooth was turned off. 01:02:03", viewModel.LastDisconnectReason);
         Assert.Contains(nameof(MainWindowViewModel.StatusTitle), changed);
         Assert.Contains(nameof(MainWindowViewModel.BluetoothStatus), changed);
         Assert.Contains(nameof(MainWindowViewModel.BluetoothLastChecked), changed);
         Assert.Contains(nameof(MainWindowViewModel.BluetoothLastChanged), changed);
+        Assert.Contains(nameof(MainWindowViewModel.RecentBluetoothEvents), changed);
     }
 
     [Fact]
