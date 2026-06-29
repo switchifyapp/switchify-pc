@@ -163,6 +163,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="System Bluetooth" Style="{StaticResource DetailLabel}" />
@@ -185,6 +186,9 @@
 
                         <TextBlock Grid.Row="6" Grid.Column="0" Margin="0,8,0,0" Text="Last disconnect" Style="{StaticResource DetailLabel}" />
                         <TextBlock Grid.Row="6" Grid.Column="1" Margin="0,8,0,0" Text="{Binding LastDisconnectReason}" Style="{StaticResource DetailValue}" />
+
+                        <TextBlock Grid.Row="7" Grid.Column="0" Margin="0,8,0,0" Text="Recent Bluetooth error" Style="{StaticResource DetailLabel}" />
+                        <TextBlock Grid.Row="7" Grid.Column="1" Margin="0,8,0,0" Text="{Binding RecentBluetoothError}" Style="{StaticResource DetailValue}" />
                     </Grid>
                 </StackPanel>
             </Border>

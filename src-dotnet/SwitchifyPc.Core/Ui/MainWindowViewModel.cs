@@ -43,6 +43,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public string LastDisconnectReason => MainWindowCopy.BluetoothDisconnectSummary(bluetooth);
 
+    public string RecentBluetoothError => MainWindowCopy.BluetoothRecentError(bluetooth);
+
     public bool HasUpdateBanner => MainWindowCopy.UpdateBanner(updateState) is not null;
 
     public string UpdateBannerTitle => MainWindowCopy.UpdateBanner(updateState)?.Title ?? "";
@@ -96,6 +98,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(LastBluetoothEvent));
         OnPropertyChanged(nameof(RecentBluetoothEvents));
         OnPropertyChanged(nameof(LastDisconnectReason));
+        OnPropertyChanged(nameof(RecentBluetoothError));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

@@ -213,6 +213,13 @@ public static class MainWindowCopy
         return $"{BluetoothDisconnectReason(status.LastDisconnectReason)} {Timestamp(status.LastDisconnectAt)}";
     }
 
+    public static string BluetoothRecentError(BluetoothStatus? status)
+    {
+        return string.IsNullOrWhiteSpace(status?.LastError)
+            ? "No recent errors."
+            : status.LastError;
+    }
+
     public static UpdateBannerCopy? UpdateBanner(UpdateState? state)
     {
         if (state is null) return null;

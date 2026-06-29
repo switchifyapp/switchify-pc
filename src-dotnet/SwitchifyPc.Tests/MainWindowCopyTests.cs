@@ -83,6 +83,8 @@ public sealed class MainWindowCopyTests
         Assert.Equal(
             "Bluetooth was turned off. 01:02:03",
             MainWindowCopy.BluetoothDisconnectSummary(Status(lastDisconnectReason: "adapter_off", lastDisconnectAt: 3_723_000)));
+        Assert.Equal("No recent errors.", MainWindowCopy.BluetoothRecentError(Status()));
+        Assert.Equal("startup_failed", MainWindowCopy.BluetoothRecentError(Status(lastError: "startup_failed")));
     }
 
     [Fact]
@@ -132,7 +134,8 @@ public sealed class MainWindowCopyTests
         double? lastEventAt = null,
         IReadOnlyList<BluetoothDiagnosticRecord>? recentEvents = null,
         string? lastDisconnectReason = null,
-        double? lastDisconnectAt = null) =>
+        double? lastDisconnectAt = null,
+        string? lastError = null) =>
         BluetoothStatusModel.DefaultStatus with
         {
             Status = status,
@@ -143,6 +146,7 @@ public sealed class MainWindowCopyTests
             LastEventAt = lastEventAt,
             RecentEvents = recentEvents ?? [],
             LastDisconnectReason = lastDisconnectReason,
-            LastDisconnectAt = lastDisconnectAt
+            LastDisconnectAt = lastDisconnectAt,
+            LastError = lastError
         };
 }
