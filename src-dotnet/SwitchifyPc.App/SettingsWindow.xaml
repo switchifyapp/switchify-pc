@@ -456,8 +456,9 @@
                                                       IsChecked="{Binding CursorOverlayCrosshairs, Mode=OneWay}" />
 
                                             <TextBlock Grid.Row="4" Grid.Column="0" Margin="0,14,0,0" Text="Color" Style="{StaticResource DetailLabel}" />
-                                            <UniformGrid Grid.Row="4" Grid.Column="1" Margin="0,14,0,0" Columns="5">
+                                            <WrapPanel Grid.Row="4" Grid.Column="1" Margin="0,14,0,0">
                                                 <RadioButton AutomationProperties.Name="Red"
+                                                             Width="104"
                                                              GroupName="CursorOverlayColor"
                                                              IsChecked="{Binding IsCursorOverlayColorRed, Mode=OneWay}"
                                                              Checked="CursorOverlayColorRed_Checked"
@@ -468,6 +469,7 @@
                                                     </StackPanel>
                                                 </RadioButton>
                                                 <RadioButton AutomationProperties.Name="Green"
+                                                             Width="104"
                                                              GroupName="CursorOverlayColor"
                                                              IsChecked="{Binding IsCursorOverlayColorGreen, Mode=OneWay}"
                                                              Checked="CursorOverlayColorGreen_Checked"
@@ -478,6 +480,7 @@
                                                     </StackPanel>
                                                 </RadioButton>
                                                 <RadioButton AutomationProperties.Name="Blue"
+                                                             Width="104"
                                                              GroupName="CursorOverlayColor"
                                                              IsChecked="{Binding IsCursorOverlayColorBlue, Mode=OneWay}"
                                                              Checked="CursorOverlayColorBlue_Checked"
@@ -488,6 +491,7 @@
                                                     </StackPanel>
                                                 </RadioButton>
                                                 <RadioButton AutomationProperties.Name="Yellow"
+                                                             Width="104"
                                                              GroupName="CursorOverlayColor"
                                                              IsChecked="{Binding IsCursorOverlayColorYellow, Mode=OneWay}"
                                                              Checked="CursorOverlayColorYellow_Checked"
@@ -498,6 +502,7 @@
                                                     </StackPanel>
                                                 </RadioButton>
                                                 <RadioButton AutomationProperties.Name="White"
+                                                             Width="104"
                                                              GroupName="CursorOverlayColor"
                                                              IsChecked="{Binding IsCursorOverlayColorWhite, Mode=OneWay}"
                                                              Checked="CursorOverlayColorWhite_Checked"
@@ -507,7 +512,7 @@
                                                         <TextBlock Margin="6,0,0,0" Text="White" />
                                                     </StackPanel>
                                                 </RadioButton>
-                                            </UniformGrid>
+                                            </WrapPanel>
                                         </Grid>
                                     </StackPanel>
                                 </Border>
