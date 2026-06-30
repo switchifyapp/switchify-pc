@@ -123,6 +123,24 @@ public sealed class CommandAuthTests
     }
 
     [Fact]
+    public async Task AcceptsApostropheTextPayloadWithAndroidCompatibleAuthProof()
+    {
+        CommandAuthValidator validator = new(CreateStore(), () => Now);
+
+        AuthValidationResult result = await validator.ValidateAsync(CreateTextCommand("apostrophe-1", "'", "W0OLnbhllDOCd0Gf_00WLpHRvfidYjHeY69nbcmTFYA"));
+
+        Assert.True(result.Ok, result.Reason);
+    }
+
+    [Fact]
+    public void EscapesTextPayloadsLikeAndroidProtocolAuth()
+    {
+        Assert.Equal("W0OLnbhllDOCd0Gf_00WLpHRvfidYjHeY69nbcmTFYA", CommandAuth.CreateCommandAuthProof(CreateTextCommand("apostrophe-1", "'"), Token));
+        Assert.Equal("UfVuw9DJjDofw7UeXBZcIFAu5V2YSkEfJ5p0h8_z2UY", CommandAuth.CreateCommandAuthProof(CreateTextCommand("backslash-1", "\\"), Token));
+        Assert.Equal("syal1vfAvjac7RNhm8S_2fj-Edk5k1KkGeIMc7eBelw", CommandAuth.CreateCommandAuthProof(CreateTextCommand("html-1", "<>&'"), Token));
+    }
+
+    [Fact]
     public void MatchesKnownTypeScriptAuthFixtures()
     {
         Assert.Equal("g2ZSWFSZkawXgBIpFkAsXgdZ2a4np-QT7t8Y5yj7Wf0", CommandAuth.CreateCommandAuthProof(CreateCommand(), Token));
@@ -163,6 +181,20 @@ public sealed class CommandAuthTests
             ["payload"] = new Dictionary<string, object?> { ["dx"] = 12, ["dy"] = -6 },
             ["auth"] = ""
         }, overrides);
+    }
+
+    private static JsonElement CreateTextCommand(string id, string text, string? authOverride = null)
+    {
+        return CreateSignedCommand(new Dictionary<string, object?>
+        {
+            ["version"] = ProtocolConstants.ProtocolVersion,
+            ["id"] = id,
+            ["deviceId"] = "android-1",
+            ["timestamp"] = Now,
+            ["type"] = "keyboard.typeText",
+            ["payload"] = new Dictionary<string, object?> { ["text"] = text },
+            ["auth"] = authOverride ?? ""
+        }, authOverride is null ? null : new Dictionary<string, object?> { ["auth"] = authOverride });
     }
 
     private static JsonElement CreateSignedCommand(Dictionary<string, object?> command, Dictionary<string, object?>? overrides)

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using SwitchifyPc.Protocol;
 
@@ -37,7 +38,7 @@ public static class CommandAuth
         {
             JsonValueKind.Object => StableObjectStringify(value),
             JsonValueKind.Array => $"[{string.Join(",", value.EnumerateArray().Select(StableStringify))}]",
-            JsonValueKind.String => JsonSerializer.Serialize(value.GetString()),
+            JsonValueKind.String => JsonSerializer.Serialize(value.GetString(), CanonicalJsonOptions),
             JsonValueKind.Number => NumberString(value),
             JsonValueKind.True => "true",
             JsonValueKind.False => "false",
@@ -59,7 +60,7 @@ public static class CommandAuth
             ",",
             value.EnumerateObject()
                 .OrderBy(property => property.Name, StringComparer.Ordinal)
-                .Select(property => $"{JsonSerializer.Serialize(property.Name)}:{StableStringify(property.Value)}")) + "}";
+                .Select(property => $"{JsonSerializer.Serialize(property.Name, CanonicalJsonOptions)}:{StableStringify(property.Value)}")) + "}";
     }
 
     private static string CommandResponseMode(JsonElement command)
@@ -101,6 +102,11 @@ public static class CommandAuth
             .Replace("+", "-", StringComparison.Ordinal)
             .Replace("/", "_", StringComparison.Ordinal);
     }
+
+    private static readonly JsonSerializerOptions CanonicalJsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
 }
 
 public sealed record AuthValidationResult
