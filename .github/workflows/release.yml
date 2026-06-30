@@ -45,20 +45,19 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
         with:
-          node-version: 25
-          cache: npm
+          dotnet-version: 8.0.x
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Restore
+        run: dotnet restore src/SwitchifyPc.sln
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Build
+        run: dotnet build src/SwitchifyPc.sln -c Release --no-restore
 
       - name: Test
-        run: npm test
+        run: dotnet test src/SwitchifyPc.sln -c Release --no-build
 
       - name: Verify Certum signing certificate
         shell: powershell
@@ -73,34 +72,34 @@ jobs:
             Select-Object -First 1
 
           if (-not $cert) {
-            throw "Certum code-signing certificate $thumbprint was not found in Cert:\CurrentUser\My. Make sure SimplySign Desktop is logged in before running the release."
+            throw "Certum code-signing certificate was not found in Cert:\CurrentUser\My. Make sure SimplySign Desktop is logged in before running the release."
           }
 
           if (-not $cert.HasPrivateKey) {
-            throw "Certum certificate $thumbprint is present but has no private key."
+            throw "Certum certificate is present but has no private key."
           }
 
           Write-Host "Using Certum signing certificate: $($cert.Subject)"
 
-      - name: Build native cursor overlay helper
-        run: npm run native:build-overlay
-
-      - name: Smoke native cursor overlay helper
-        run: npm run native:smoke-overlay
-
       - name: Package Windows installer
-        run: npm run package:win
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Package-Windows.ps1
 
       - name: Verify updater metadata
-        run: npm run package:win:verify-updater-metadata
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Verify-UpdaterMetadata.ps1
 
-      - name: Verify release tag matches package version
+      - name: Verify release tag matches app version
         shell: powershell
         run: |
-          $package = Get-Content package.json | ConvertFrom-Json
-          $expectedTag = "v$($package.version)"
+          [xml]$project = Get-Content src\SwitchifyPc.App\SwitchifyPc.App.csproj
+          $version = $project.Project.PropertyGroup.Version | Select-Object -First 1
+          if (-not $version) {
+            throw 'Could not read C# app project version.'
+          }
+          $expectedTag = "v$version"
           if ($env:RELEASE_TAG -ne $expectedTag) {
-            throw "Release tag $env:RELEASE_TAG does not match package.json version $expectedTag."
+            throw "Release tag $env:RELEASE_TAG does not match app version $expectedTag."
           }
 
       - name: Publish GitHub release

@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Switchify PC is the desktop companion app for Switchify Android. Its first target is a Windows-first Electron app that accepts authenticated local WebSocket commands from the Android app and turns them into PC mouse, keyboard, text, media, and status actions.
+Switchify PC is the Windows-native C#/.NET WPF desktop companion app for Switchify Android. It accepts authenticated Bluetooth commands from the Android app and turns them into PC mouse, keyboard, text, media, window, and status actions.
 
 The app should be treated as a trusted local control agent. Be conservative with networking, authentication, logging, and desktop input behavior.
 
@@ -10,21 +10,21 @@ The app should be treated as a trusted local control agent. Be conservative with
 
 - Every change needs a GitHub issue before implementation.
 - Every change needs its own branch from `main`.
-- Branch names should be short and scoped, for example `chore/electron-scaffold-1`, `feat/pairing-auth-3`, or `fix/ws-reconnect`.
+- Branch names should be short and scoped, for example `chore/dotnet-package-1`, `feat/pairing-auth-3`, or `fix/bluetooth-reconnect`.
 - Keep pull requests tightly scoped to one issue wherever possible.
 - Do not mix implementation work with broad refactors unless the issue explicitly calls for it.
 - Prefer existing project patterns once the app scaffold exists.
 - Before creating a milestone, verify whether the intended milestone already exists.
 - Reuse an existing open milestone instead of creating a duplicate.
 - Create a release milestone only when it is missing.
-- Do not create future release milestones casually. The active release milestone should normally be the next version after `package.json`.
-- Before release work starts, verify the target milestone name exactly matches the version being released, for example `Release 0.1.8` for `package.json` version `0.1.8`.
+- Do not create future release milestones casually. The active release milestone should normally be the next version after the C# app project `<Version>`.
+- Before release work starts, verify the target milestone name exactly matches the version being released, for example `Release 0.2.0` for app project version `0.2.0`.
 
 ## Development standards
 
-- Use TypeScript for app code.
-- Keep Electron main-process code, renderer code, and shared protocol code clearly separated.
-- Keep OS input execution behind a narrow adapter interface so protocol handling is not tied directly to a native automation library.
+- Use C#/.NET for app code.
+- Keep WPF app composition, core protocol/control logic, and Windows-specific integrations clearly separated.
+- Keep OS input execution behind a narrow adapter interface so protocol handling is not tied directly to Win32 APIs.
 - Validate all WebSocket messages at runtime before using them.
 - Prefer small, testable modules for protocol parsing, pairing, auth, command routing, and desktop input mapping.
 - Do not log pairing tokens, shared secrets, raw auth headers, or full typed text payloads.
@@ -47,13 +47,12 @@ The app should be treated as a trusted local control agent. Be conservative with
 - Convert native automation failures into structured command errors.
 - Manual Windows smoke testing matters for input changes because unit tests should use fake adapters instead of controlling the real OS.
 
-## Electron app guidance
+## Windows app guidance
 
-- The main process owns WebSocket server lifecycle, pairing/auth state, tray behavior, and desktop input execution.
-- The renderer shows pairing, connection status, server status, and recent non-sensitive errors.
-- Communicate between renderer and main process through explicit IPC channels.
+- The app owns Bluetooth lifecycle, pairing/auth state, tray behavior, update checks, and desktop input execution.
+- The UI shows pairing, connection status, Bluetooth status, update state, and recent non-sensitive errors.
 - Keep the app useful from the tray: show window, server status, disconnect, and quit.
-- Avoid blocking the Electron main process with long-running work.
+- Avoid blocking the UI thread with long-running work.
 
 ## Design language
 
@@ -68,8 +67,9 @@ The app should be treated as a trusted local control agent. Be conservative with
 Before pushing implementation changes, run the most relevant checks available for the current scaffold. As the repo matures, this should normally include:
 
 ```powershell
-npm test
-npm run build
+dotnet restore src/SwitchifyPc.sln
+dotnet build src/SwitchifyPc.sln -c Release --no-restore
+dotnet test src/SwitchifyPc.sln -c Release --no-build
 ```
 
 For desktop input or packaging changes, also run the relevant manual smoke path:
@@ -85,14 +85,14 @@ For desktop input or packaging changes, also run the relevant manual smoke path:
 
 Only the maintainer should publish releases.
 
-Release builds are published from tags named `vX.Y.Z`, where `X.Y.Z` must match `package.json`.
+Release builds are published from tags named `vX.Y.Z`, where `X.Y.Z` must match `src/SwitchifyPc.App/SwitchifyPc.App.csproj` `<Version>`.
 
 Before creating a release milestone, verify whether the intended milestone already exists. Reuse an existing open milestone. Create the milestone only if it is missing. If the milestone exists but is closed, reopen it only when the work truly belongs in that release.
 
 The release workflow is `.github/workflows/release.yml`. It runs on the self-hosted Windows signing runner with the `switchify-signing` label. The runner is expected to have:
 
 - Windows.
-- Node and npm.
+- .NET SDK.
 - GitHub CLI authentication available to the workflow.
 - Windows SDK signing tools available, including `signtool`.
 - The Certum SimplySign certificate available in `Cert:\CurrentUser\My`.
@@ -113,8 +113,8 @@ $env:SWITCHIFY_CERTUM_TIMESTAMP_URL = "http://time.certum.pl"
 Before creating or pushing a release tag, the maintainer or agent must verify all of the following and stop if any check fails:
 
 - Local `main` is clean and up to date with `origin/main`.
-- `package.json` version is the exact version being released.
-- The release tag is exactly `vX.Y.Z`, where `X.Y.Z` equals `package.json`.
+- The C# app project `<Version>` is the exact version being released.
+- The release tag is exactly `vX.Y.Z`, where `X.Y.Z` equals the C# app project `<Version>`.
 - The release issue and release PR are assigned to milestone `Release X.Y.Z`.
 - The milestone `Release X.Y.Z` exists and has no unrelated open issues.
 - The self-hosted runner with label `switchify-signing` is online and not busy.
@@ -124,9 +124,10 @@ Before creating or pushing a release tag, the maintainer or agent must verify al
 Use commands like these for preflight checks. Do not print, document, or commit the real certificate thumbprint.
 
 ```powershell
-$packageVersion = node -p "require('./package.json').version"
-$expectedTag = "v$packageVersion"
-$expectedMilestone = "Release $packageVersion"
+[xml]$project = Get-Content src/SwitchifyPc.App/SwitchifyPc.App.csproj
+$projectVersion = $project.Project.PropertyGroup.Version | Select-Object -First 1
+$expectedTag = "v$projectVersion"
+$expectedMilestone = "Release $projectVersion"
 
 git status --short --branch
 git pull --ff-only
@@ -175,22 +176,23 @@ If the thumbprint is available only as a GitHub repository variable, the maintai
 
 The release workflow:
 
-- installs dependencies with `npm ci`
-- runs `npm run typecheck`
-- runs `npm test`
+- restores the C# solution
+- builds the C# solution
+- runs C# tests
 - verifies the Certum signing certificate
-- builds native helpers
-- packages the Windows x64 NSIS installer with `npm run package:win`
-- verifies the tag matches `package.json`
+- packages the Windows x64 NSIS installer with `pwsh scripts/Package-Windows.ps1`
+- verifies updater metadata
+- verifies the tag matches the C# app project `<Version>`
 - uploads all top-level `dist` release assets to GitHub Releases, including the signed installer and updater metadata
 
-Local packaging with `npm run package:win` creates artifacts under `dist`. It does not publish a GitHub release.
+Local packaging with `pwsh scripts/Package-Windows.ps1` creates artifacts under `dist`. It does not publish a GitHub release.
 
 Before publishing a release, the maintainer should run or confirm the Windows smoke path:
 
 - signed installer verifies with Authenticode
 - installer installs per-machine under `C:\Program Files\Switchify PC\`
-- `npm run package:win:verify-uiaccess` passes
+- `pwsh scripts/Verify-DotnetPackage.ps1` passes
+- `pwsh scripts/Verify-UpdaterMetadata.ps1` passes
 - app launches and stays running
 - tray menu works
 - Bluetooth pairing works
@@ -212,7 +214,7 @@ Do not push a release tag until the release PR with the matching version bump ha
 
 Do not tag if:
 
-- `package.json` does not match the intended tag.
+- The C# app project `<Version>` does not match the intended tag.
 - The release issue or PR milestone does not match `Release X.Y.Z`.
 - The signing runner is offline or busy.
 - The Certum certificate cannot be verified locally.

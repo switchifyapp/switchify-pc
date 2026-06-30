@@ -6,11 +6,11 @@
 !endif
 
 !ifndef SOURCE_DIR
-!define SOURCE_DIR "..\dist-dotnet\win-unpacked"
+!define SOURCE_DIR "..\dist\win-unpacked"
 !endif
 
 !ifndef OUTPUT_EXE
-!define OUTPUT_EXE "..\dist-dotnet\Switchify-PC-Setup-${VERSION}-x64.exe"
+!define OUTPUT_EXE "..\dist\Switchify-PC-Setup-${VERSION}-x64.exe"
 !endif
 
 Name "Switchify PC"
