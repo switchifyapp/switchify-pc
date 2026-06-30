@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\SwitchifyPc.Core\SwitchifyPc.Core.csproj" />
+    <ProjectReference Include="..\SwitchifyPc.Protocol\SwitchifyPc.Protocol.csproj" />
+    <ProjectReference Include="..\SwitchifyPc.Windows\SwitchifyPc.Windows.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishTrimmed>false</PublishTrimmed>
+    <AssemblyName>Switchify PC</AssemblyName>
+    <RootNamespace>SwitchifyPc.App</RootNamespace>
+    <ApplicationIcon>..\..\build\icon.ico</ApplicationIcon>
+    <Version>0.2.0</Version>
+    <AssemblyVersion>0.2.0.0</AssemblyVersion>
+    <FileVersion>0.2.0.0</FileVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="..\..\build\icon.ico" Link="Assets\icon.ico" />
+  </ItemGroup>
+
+</Project>

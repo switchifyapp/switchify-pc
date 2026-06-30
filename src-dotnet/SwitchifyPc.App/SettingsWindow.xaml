@@ -1,0 +1,559 @@
+<Window x:Class="SwitchifyPc.App.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:ui="clr-namespace:SwitchifyPc.Core.Ui;assembly=SwitchifyPc.Core"
+        mc:Ignorable="d"
+        Title="Switchify PC settings"
+        MinHeight="560"
+        MinWidth="760"
+        Height="690"
+        Width="900"
+        ResizeMode="NoResize"
+        Icon="Assets/icon.ico"
+        FontFamily="Segoe UI"
+        Background="#F5F4F7"
+        WindowStartupLocation="CenterScreen"
+        d:DataContext="{d:DesignInstance Type=ui:SettingsViewModel, IsDesignTimeCreatable=True}">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
+        <SolidColorBrush x:Key="BrandPrimary" Color="#D32F2F" />
+        <SolidColorBrush x:Key="Surface" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="SurfaceMuted" Color="#F3F2F6" />
+        <SolidColorBrush x:Key="Text" Color="#1C1B1F" />
+        <SolidColorBrush x:Key="TextMuted" Color="#49454F" />
+        <SolidColorBrush x:Key="BorderColor" Color="#E2E0E8" />
+
+        <Style TargetType="Button">
+            <Setter Property="MinHeight" Value="38" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Background" Value="{StaticResource Surface}" />
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                MinHeight="{TemplateBinding MinHeight}"
+                                Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource BrandPrimary}" />
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource SurfaceMuted}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.55" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="BorderBrush" Value="{StaticResource BrandPrimary}" />
+            <Setter Property="Background" Value="{StaticResource BrandPrimary}" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+
+        <Style x:Key="PanelBorder" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Surface}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Padding" Value="18" />
+        </Style>
+
+        <Style x:Key="SubtlePanel" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource SurfaceMuted}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="12" />
+        </Style>
+
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+
+        <Style x:Key="MutedText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="LineHeight" Value="19" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="DetailLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+
+        <Style x:Key="DetailValue" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+
+        <Style x:Key="NavRadio" TargetType="RadioButton">
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Margin" Value="0,0,0,4" />
+            <Setter Property="Padding" Value="12,0" />
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Root"
+                                MinHeight="{TemplateBinding MinHeight}"
+                                Padding="{TemplateBinding Padding}"
+                                Background="Transparent"
+                                BorderBrush="Transparent"
+                                BorderThickness="1"
+                                CornerRadius="10">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource SurfaceMuted}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource Surface}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource BrandPrimary}" />
+                                <Setter Property="Foreground" Value="{StaticResource BrandPrimary}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SegmentRadio" TargetType="RadioButton">
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="Padding" Value="12,0" />
+            <Setter Property="Background" Value="{StaticResource Surface}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Root"
+                                MinHeight="{TemplateBinding MinHeight}"
+                                Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="9">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource BrandPrimary}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#FFF1F1" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource BrandPrimary}" />
+                                <Setter Property="Foreground" Value="{StaticResource BrandPrimary}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ScrollBar">
+            <Setter Property="Width" Value="10" />
+            <Setter Property="MinWidth" Value="10" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Background="#F5F4F7" Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="Settings"
+                       FontSize="18"
+                       FontWeight="Bold"
+                       Foreground="{StaticResource Text}" />
+            <TextBlock Margin="0,4,0,18"
+                       Text="Tune how Switchify starts, connects, and controls this PC."
+                       Style="{StaticResource MutedText}" />
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="190" />
+                <ColumnDefinition Width="24" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Background="{StaticResource Surface}"
+                    BorderBrush="{StaticResource BorderColor}"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="8"
+                    VerticalAlignment="Top">
+                <StackPanel>
+                    <RadioButton Content="General"
+                                 GroupName="SettingsSections"
+                                 IsChecked="True"
+                                 Style="{StaticResource NavRadio}"
+                                 Tag="general"
+                                 Checked="SectionNav_Checked" />
+                    <RadioButton Content="Pointer and cursor"
+                                 GroupName="SettingsSections"
+                                 Style="{StaticResource NavRadio}"
+                                 Tag="pointer"
+                                 Checked="SectionNav_Checked" />
+                    <RadioButton Content="Updates"
+                                 GroupName="SettingsSections"
+                                 Style="{StaticResource NavRadio}"
+                                 Tag="updates"
+                                 Checked="SectionNav_Checked" />
+                </StackPanel>
+            </Border>
+
+            <ScrollViewer Grid.Column="2"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto">
+                <Grid>
+                    <StackPanel x:Name="GeneralPanel">
+                        <Border Style="{StaticResource PanelBorder}">
+                            <StackPanel>
+                                <TextBlock Text="General" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Margin="0,6,0,0"
+                                           Text="Control startup behavior and saved Android devices."
+                                           Style="{StaticResource MutedText}" />
+
+                                <Border Margin="0,16,0,0" Style="{StaticResource SubtlePanel}">
+                                    <StackPanel>
+                                        <CheckBox Content="Start with system"
+                                                  Click="StartWithSystem_Click"
+                                                  IsChecked="{Binding StartWithSystem, Mode=OneWay}"
+                                                  IsEnabled="{Binding StartWithSystemSupported}" />
+                                        <TextBlock Margin="0,8,0,0"
+                                                   Text="{Binding StartWithSystemMessage}"
+                                                   Style="{StaticResource MutedText}" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Margin="0,14,0,0" Style="{StaticResource PanelBorder}">
+                            <StackPanel>
+                                <TextBlock Text="Paired devices" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Margin="0,6,0,0"
+                                           Text="{Binding PairedDevicesMessage}"
+                                           Style="{StaticResource MutedText}" />
+                                <ItemsControl Margin="0,14,0,0"
+                                              ItemsSource="{Binding PairedDevices}"
+                                              Visibility="{Binding HasPairedDevices, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,0,0,10" Style="{StaticResource SubtlePanel}">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding DeviceName}"
+                                                                   FontSize="14"
+                                                                   FontWeight="Bold"
+                                                                   Foreground="{StaticResource Text}" />
+                                                        <TextBlock Margin="0,4,0,0"
+                                                                   Text="{Binding LastSeenAt, StringFormat=Last seen {0}}"
+                                                                   Style="{StaticResource MutedText}" />
+                                                    </StackPanel>
+                                                    <Button Grid.Column="1"
+                                                            Margin="16,0,0,0"
+                                                            VerticalAlignment="Center"
+                                                            Tag="{Binding DeviceId}"
+                                                            Click="ForgetPairedDevice_Click"
+                                                            Content="Forget" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel x:Name="PointerPanel" Visibility="Collapsed">
+                        <Border Style="{StaticResource PanelBorder}">
+                            <StackPanel>
+                                <TextBlock Text="Pointer and cursor" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Margin="0,6,0,0"
+                                           Text="Tune movement distance and the visual cursor marker used while controlling this PC."
+                                           Style="{StaticResource MutedText}" />
+
+                                <Border Margin="0,16,0,0" Style="{StaticResource SubtlePanel}">
+                                    <StackPanel>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="Movement distance" Style="{StaticResource DetailLabel}" />
+                                                <TextBlock Margin="0,4,0,0"
+                                                           Text="Choose how far each Android pointer step moves on this display."
+                                                           Style="{StaticResource MutedText}" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1"
+                                                       Margin="16,0,0,0"
+                                                       VerticalAlignment="Top"
+                                                       Text="{Binding PointerScalePercent, StringFormat={}{0:0}%}"
+                                                       Style="{StaticResource DetailValue}" />
+                                        </Grid>
+
+                                        <UniformGrid Margin="0,14,0,0" Columns="4">
+                                            <RadioButton Content="25%"
+                                                         GroupName="PointerScale"
+                                                         IsChecked="{Binding IsPointerScale25, Mode=OneWay}"
+                                                         Checked="PointerScale25_Checked"
+                                                         Style="{StaticResource SegmentRadio}" />
+                                            <RadioButton Content="50%"
+                                                         GroupName="PointerScale"
+                                                         IsChecked="{Binding IsPointerScale50, Mode=OneWay}"
+                                                         Checked="PointerScale50_Checked"
+                                                         Style="{StaticResource SegmentRadio}" />
+                                            <RadioButton Content="75%"
+                                                         GroupName="PointerScale"
+                                                         IsChecked="{Binding IsPointerScale75, Mode=OneWay}"
+                                                         Checked="PointerScale75_Checked"
+                                                         Style="{StaticResource SegmentRadio}" />
+                                            <RadioButton Content="100%"
+                                                         GroupName="PointerScale"
+                                                         IsChecked="{Binding IsPointerScale100, Mode=OneWay}"
+                                                         Checked="PointerScale100_Checked"
+                                                         Style="{StaticResource SegmentRadio}" />
+                                        </UniformGrid>
+
+                                        <Grid Margin="0,16,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Margin="0,0,8,0" Style="{StaticResource PanelBorder}" Padding="12">
+                                                <StackPanel>
+                                                    <TextBlock Text="Small" Style="{StaticResource DetailLabel}" />
+                                                    <TextBlock Margin="0,4,0,0" Text="{Binding PointerSmall}" Style="{StaticResource DetailValue}" />
+                                                </StackPanel>
+                                            </Border>
+                                            <Border Grid.Column="1" Margin="0,0,8,0" Style="{StaticResource PanelBorder}" Padding="12">
+                                                <StackPanel>
+                                                    <TextBlock Text="Medium" Style="{StaticResource DetailLabel}" />
+                                                    <TextBlock Margin="0,4,0,0" Text="{Binding PointerMedium}" Style="{StaticResource DetailValue}" />
+                                                </StackPanel>
+                                            </Border>
+                                            <Border Grid.Column="2" Style="{StaticResource PanelBorder}" Padding="12">
+                                                <StackPanel>
+                                                    <TextBlock Text="Large" Style="{StaticResource DetailLabel}" />
+                                                    <TextBlock Margin="0,4,0,0" Text="{Binding PointerLarge}" Style="{StaticResource DetailValue}" />
+                                                </StackPanel>
+                                            </Border>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Margin="0,14,0,0" Style="{StaticResource SubtlePanel}">
+                                    <StackPanel>
+                                        <TextBlock Text="Cursor overlay" Style="{StaticResource DetailLabel}" />
+                                        <TextBlock Margin="0,4,0,0"
+                                                   Text="Control when the overlay appears, how large it is, and the color it uses."
+                                                   Style="{StaticResource MutedText}" />
+
+                                        <Grid Margin="0,14,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="150" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Overlay" Style="{StaticResource DetailLabel}" />
+                                            <CheckBox Grid.Row="0" Grid.Column="1"
+                                                      Content="Show cursor overlay"
+                                                      Click="CursorOverlayEnabled_Click"
+                                                      IsChecked="{Binding CursorOverlayEnabled, Mode=OneWay}" />
+
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,14,0,0" Text="Visibility" Style="{StaticResource DetailLabel}" />
+                                            <UniformGrid Grid.Row="1" Grid.Column="1" Margin="0,14,0,0" Columns="2">
+                                                <RadioButton Content="On input"
+                                                             GroupName="CursorOverlayVisibility"
+                                                             IsChecked="{Binding IsCursorOverlayVisibilityOnInput, Mode=OneWay}"
+                                                             Checked="CursorOverlayVisibilityOnInput_Checked"
+                                                             Style="{StaticResource SegmentRadio}" />
+                                                <RadioButton Content="While controlling"
+                                                             GroupName="CursorOverlayVisibility"
+                                                             IsChecked="{Binding IsCursorOverlayVisibilityWhileControlling, Mode=OneWay}"
+                                                             Checked="CursorOverlayVisibilityWhileControlling_Checked"
+                                                             Style="{StaticResource SegmentRadio}" />
+                                            </UniformGrid>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,14,0,0" Text="Size" Style="{StaticResource DetailLabel}" />
+                                            <UniformGrid Grid.Row="2" Grid.Column="1" Margin="0,14,0,0" Columns="3">
+                                                <RadioButton Content="Small"
+                                                             GroupName="CursorOverlaySize"
+                                                             IsChecked="{Binding IsCursorOverlaySizeSmall, Mode=OneWay}"
+                                                             Checked="CursorOverlaySizeSmall_Checked"
+                                                             Style="{StaticResource SegmentRadio}" />
+                                                <RadioButton Content="Medium"
+                                                             GroupName="CursorOverlaySize"
+                                                             IsChecked="{Binding IsCursorOverlaySizeMedium, Mode=OneWay}"
+                                                             Checked="CursorOverlaySizeMedium_Checked"
+                                                             Style="{StaticResource SegmentRadio}" />
+                                                <RadioButton Content="Large"
+                                                             GroupName="CursorOverlaySize"
+                                                             IsChecked="{Binding IsCursorOverlaySizeLarge, Mode=OneWay}"
+                                                             Checked="CursorOverlaySizeLarge_Checked"
+                                                             Style="{StaticResource SegmentRadio}" />
+                                            </UniformGrid>
+
+                                            <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,14,0,0" Text="Crosshairs" Style="{StaticResource DetailLabel}" />
+                                            <CheckBox Grid.Row="3" Grid.Column="1" Margin="0,14,0,0"
+                                                      Content="Show crosshairs"
+                                                      Click="CursorOverlayCrosshairs_Click"
+                                                      IsChecked="{Binding CursorOverlayCrosshairs, Mode=OneWay}" />
+
+                                            <TextBlock Grid.Row="4" Grid.Column="0" Margin="0,14,0,0" Text="Color" Style="{StaticResource DetailLabel}" />
+                                            <WrapPanel Grid.Row="4" Grid.Column="1" Margin="0,14,0,0">
+                                                <RadioButton AutomationProperties.Name="Red"
+                                                             Width="104"
+                                                             GroupName="CursorOverlayColor"
+                                                             IsChecked="{Binding IsCursorOverlayColorRed, Mode=OneWay}"
+                                                             Checked="CursorOverlayColorRed_Checked"
+                                                             Style="{StaticResource SegmentRadio}">
+                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                        <Border Width="12" Height="12" CornerRadius="6" Background="#D32F2F" />
+                                                        <TextBlock Margin="6,0,0,0" Text="Red" />
+                                                    </StackPanel>
+                                                </RadioButton>
+                                                <RadioButton AutomationProperties.Name="Green"
+                                                             Width="104"
+                                                             GroupName="CursorOverlayColor"
+                                                             IsChecked="{Binding IsCursorOverlayColorGreen, Mode=OneWay}"
+                                                             Checked="CursorOverlayColorGreen_Checked"
+                                                             Style="{StaticResource SegmentRadio}">
+                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                        <Border Width="12" Height="12" CornerRadius="6" Background="#84FF91" />
+                                                        <TextBlock Margin="6,0,0,0" Text="Green" />
+                                                    </StackPanel>
+                                                </RadioButton>
+                                                <RadioButton AutomationProperties.Name="Blue"
+                                                             Width="104"
+                                                             GroupName="CursorOverlayColor"
+                                                             IsChecked="{Binding IsCursorOverlayColorBlue, Mode=OneWay}"
+                                                             Checked="CursorOverlayColorBlue_Checked"
+                                                             Style="{StaticResource SegmentRadio}">
+                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                        <Border Width="12" Height="12" CornerRadius="6" Background="#64A6FF" />
+                                                        <TextBlock Margin="6,0,0,0" Text="Blue" />
+                                                    </StackPanel>
+                                                </RadioButton>
+                                                <RadioButton AutomationProperties.Name="Yellow"
+                                                             Width="104"
+                                                             GroupName="CursorOverlayColor"
+                                                             IsChecked="{Binding IsCursorOverlayColorYellow, Mode=OneWay}"
+                                                             Checked="CursorOverlayColorYellow_Checked"
+                                                             Style="{StaticResource SegmentRadio}">
+                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                        <Border Width="12" Height="12" CornerRadius="6" Background="#FFD166" />
+                                                        <TextBlock Margin="6,0,0,0" Text="Yellow" />
+                                                    </StackPanel>
+                                                </RadioButton>
+                                                <RadioButton AutomationProperties.Name="White"
+                                                             Width="104"
+                                                             GroupName="CursorOverlayColor"
+                                                             IsChecked="{Binding IsCursorOverlayColorWhite, Mode=OneWay}"
+                                                             Checked="CursorOverlayColorWhite_Checked"
+                                                             Style="{StaticResource SegmentRadio}">
+                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                        <Border Width="12" Height="12" CornerRadius="6" Background="#FFFFFF" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" />
+                                                        <TextBlock Margin="6,0,0,0" Text="White" />
+                                                    </StackPanel>
+                                                </RadioButton>
+                                            </WrapPanel>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel x:Name="UpdatesPanel" Visibility="Collapsed">
+                        <Border Style="{StaticResource PanelBorder}">
+                            <StackPanel>
+                                <TextBlock Text="Updates" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Margin="0,6,0,0"
+                                           Text="Check, download, and open Switchify PC updates."
+                                           Style="{StaticResource MutedText}" />
+                                <Border Margin="0,16,0,0" Style="{StaticResource SubtlePanel}">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding UpdateStatusMessage}" Style="{StaticResource DetailValue}" />
+                                        <TextBlock Margin="0,6,0,0"
+                                                   Text="{Binding UpdateDownloadMessage}"
+                                                   Style="{StaticResource MutedText}" />
+                                        <WrapPanel Margin="0,14,0,0">
+                                            <Button Content="Check for updates"
+                                                    Margin="0,0,10,8"
+                                                    Click="CheckForUpdates_Click" />
+                                            <Button Content="Download update"
+                                                    Margin="0,0,10,8"
+                                                    Click="DownloadUpdate_Click"
+                                                    IsEnabled="{Binding CanDownloadUpdate}" />
+                                            <Button Content="Install update"
+                                                    Margin="0,0,10,8"
+                                                    Click="InstallUpdate_Click"
+                                                    Style="{StaticResource PrimaryButton}"
+                                                    IsEnabled="{Binding CanInstallUpdate}" />
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Window>

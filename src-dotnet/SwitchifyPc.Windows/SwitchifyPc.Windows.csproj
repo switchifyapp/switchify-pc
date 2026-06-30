@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SwitchifyPc.Core\SwitchifyPc.Core.csproj" />
+    <ProjectReference Include="..\SwitchifyPc.Protocol\SwitchifyPc.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>

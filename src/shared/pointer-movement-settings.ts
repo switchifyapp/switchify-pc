@@ -14,7 +14,7 @@ export const DEFAULT_POINTER_MOVEMENT_SETTINGS: PointerMovementSettings = {
   scalePercent: 100
 };
 
-export const POINTER_MOVEMENT_SCALE_MIN = 50;
+export const POINTER_MOVEMENT_SCALE_MIN = 25;
 export const POINTER_MOVEMENT_SCALE_MAX = 200;
 export const POINTER_MOVEMENT_SCALE_STEP = 5;
 
