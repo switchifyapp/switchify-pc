@@ -174,16 +174,13 @@
         </Style>
     </Window.Resources>
 
-    <ScrollViewer Background="#F5F4F7"
-                  HorizontalScrollBarVisibility="Disabled"
-                  VerticalScrollBarVisibility="Auto">
-        <Grid MinHeight="560"
-              Margin="32">
-            <Border MaxWidth="720"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Style="{StaticResource MainCard}">
-                <StackPanel>
+    <Grid Background="#F5F4F7" Margin="24">
+        <Border HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                Style="{StaticResource MainCard}">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto">
+                <StackPanel MinWidth="0">
                     <Grid Margin="0,0,0,30">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -412,7 +409,7 @@
                         </Grid>
                     </Expander>
                 </StackPanel>
-            </Border>
-        </Grid>
-    </ScrollViewer>
+            </ScrollViewer>
+        </Border>
+    </Grid>
 </Window>
