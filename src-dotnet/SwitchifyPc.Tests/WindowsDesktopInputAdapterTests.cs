@@ -49,7 +49,7 @@ public sealed class WindowsDesktopInputAdapterTests
 
         await adapter.ScrollMouseAsync(0.1, -3);
 
-        Assert.Equal(new PointerDelta(1, -24), native.Scrolled);
+        Assert.Equal(new PointerDelta(1, -12), native.Scrolled);
     }
 
     [Fact]
