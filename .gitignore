@@ -6,8 +6,6 @@ build/*
 !build/icon.png
 !build/win-uiaccess.manifest
 out/
-native/**/bin/
-native/**/obj/
 src/**/bin/
 src/**/obj/
 .certs/*
