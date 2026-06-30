@@ -23,7 +23,6 @@ jobs:
     runs-on: [self-hosted, windows, switchify-signing]
 
     env:
-      DOTNET_INSTALL_DIR: ${{ runner.temp }}\dotnet
       SWITCHIFY_SIGNING_MODE: certum-simplysign
       SWITCHIFY_CERTUM_CERT_THUMBPRINT: ${{ vars.CERTUM_CERT_THUMBPRINT }}
       SWITCHIFY_CERTUM_TIMESTAMP_URL: http://time.certum.pl
@@ -48,6 +47,8 @@ jobs:
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}\dotnet
         with:
           dotnet-version: 8.0.x
 
