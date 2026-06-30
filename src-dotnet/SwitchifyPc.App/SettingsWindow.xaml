@@ -11,6 +11,7 @@
         Height="690"
         Width="900"
         ResizeMode="NoResize"
+        Icon="Assets/icon.ico"
         FontFamily="Segoe UI"
         Background="#F5F4F7"
         WindowStartupLocation="CenterScreen"

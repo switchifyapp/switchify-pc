@@ -10,6 +10,7 @@
         MinWidth="760"
         Height="620"
         Width="920"
+        Icon="Assets/icon.ico"
         FontFamily="Segoe UI"
         Background="#F5F4F7"
         WindowStartupLocation="CenterScreen"

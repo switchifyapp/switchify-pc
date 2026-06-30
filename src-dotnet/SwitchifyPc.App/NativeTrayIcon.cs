@@ -37,7 +37,7 @@ public sealed class NativeTrayIcon : IDisposable
 
         notifyIcon = new Forms.NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = LoadAppIcon(),
             Text = "Switchify PC",
             ContextMenuStrip = menu,
             Visible = true
@@ -50,5 +50,16 @@ public sealed class NativeTrayIcon : IDisposable
         notifyIcon.Visible = false;
         notifyIcon.ContextMenuStrip?.Dispose();
         notifyIcon.Dispose();
+    }
+
+    private static System.Drawing.Icon LoadAppIcon()
+    {
+        string? processPath = Environment.ProcessPath;
+        if (processPath is { Length: > 0 } && System.IO.File.Exists(processPath))
+        {
+            return System.Drawing.Icon.ExtractAssociatedIcon(processPath) ?? System.Drawing.SystemIcons.Application;
+        }
+
+        return System.Drawing.SystemIcons.Application;
     }
 }
