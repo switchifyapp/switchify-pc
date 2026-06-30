@@ -42,9 +42,10 @@ public sealed class WindowsPointerMovementTests
     [Fact]
     public void CalculatesNativeScrollDelta()
     {
-        Assert.Equal(new PointerDelta(0, -12), WindowsPointerMovement.CalculateNativeScrollDelta(new PointerDelta(0, -3)));
+        Assert.Equal(new PointerDelta(0, -2), WindowsPointerMovement.CalculateNativeScrollDelta(new PointerDelta(0, -5)));
+        Assert.Equal(new PointerDelta(0, 2), WindowsPointerMovement.CalculateNativeScrollDelta(new PointerDelta(0, 5)));
         Assert.Equal(new PointerDelta(1, 0), WindowsPointerMovement.CalculateNativeScrollDelta(new PointerDelta(0.1, 0)));
         Assert.Equal(new PointerDelta(0, 1), WindowsPointerMovement.CalculateNativeScrollDelta(new PointerDelta(0, 0.1)));
-        Assert.Equal(new PointerDelta(0, -3), WindowsPointerMovement.CalculateNativeScrollDelta(new PointerDelta(0, -3), 0));
+        Assert.Equal(new PointerDelta(0, -5), WindowsPointerMovement.CalculateNativeScrollDelta(new PointerDelta(0, -5), 0));
     }
 }

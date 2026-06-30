@@ -9,7 +9,7 @@ public sealed record PointerPosition(double X, double Y);
 
 public static class WindowsPointerMovement
 {
-    public const double NativeScrollDeltaMultiplier = 4;
+    public const double NativeScrollDeltaMultiplier = 0.4;
     public const double ReferencePointerShortEdge = 1080;
 
     private static readonly IReadOnlyDictionary<PointerMovementSizeKey, double> BaselinePointerDeltas =

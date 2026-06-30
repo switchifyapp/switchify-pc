@@ -47,9 +47,20 @@ public sealed class WindowsDesktopInputAdapterTests
         FakeNativeInput native = new();
         WindowsDesktopInputAdapter adapter = new(native);
 
-        await adapter.ScrollMouseAsync(0.1, -3);
+        await adapter.ScrollMouseAsync(0, -5);
 
-        Assert.Equal(new PointerDelta(1, -12), native.Scrolled);
+        Assert.Equal(new PointerDelta(0, -2), native.Scrolled);
+    }
+
+    [Fact]
+    public async Task ScrollsSmallNonZeroDeltaByAtLeastOneDetent()
+    {
+        FakeNativeInput native = new();
+        WindowsDesktopInputAdapter adapter = new(native);
+
+        await adapter.ScrollMouseAsync(0.1, 0);
+
+        Assert.Equal(new PointerDelta(1, 0), native.Scrolled);
     }
 
     [Fact]
