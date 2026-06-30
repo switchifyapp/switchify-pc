@@ -172,6 +172,11 @@
             <Setter Property="LineHeight" Value="21" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
+
+        <Style TargetType="ScrollBar">
+            <Setter Property="Width" Value="10" />
+            <Setter Property="MinWidth" Value="10" />
+        </Style>
     </Window.Resources>
 
     <Grid Background="#F5F4F7" Margin="24">
