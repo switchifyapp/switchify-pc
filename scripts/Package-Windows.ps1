@@ -159,7 +159,6 @@ Write-BuilderDebug
 
 $appExe = Join-Path $stageDir 'Switchify PC.exe'
 if (-not $SkipSign) {
-  Invoke-EmbedUiAccessManifest -ExecutablePath $appExe
   Invoke-SignFile -FilePath $appExe -RequireSigning $true
 }
 
