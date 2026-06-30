@@ -84,7 +84,142 @@ function redactSensitiveArgs(args) {
   });
 }
 
+function createSigningArgs(filePath, { requireSigning }) {
+  if (!isWindows()) return null;
+
+  if (process.env.SWITCHIFY_SIGNING_MODE === 'certum-simplysign') {
+    return createCertumSimplySignArgs(filePath, requireSigning);
+  }
+
+  if (process.env.SWITCHIFY_SIGNING_MODE === 'azure') {
+    return createAzureSigningArgs(filePath, requireSigning);
+  }
+
+  const devArgs = createDevPfxSigningArgs(filePath);
+  if (devArgs) return devArgs;
+
+  const devStoreArgs = createDevStoreSigningArgs(filePath);
+  if (devStoreArgs) return devStoreArgs;
+
+  const azureArgs = createAzureSigningArgs(filePath, false);
+  if (azureArgs) return azureArgs;
+
+  if (process.env.SWITCHIFY_ALLOW_UNSIGNED_UIACCESS_PACKAGE === '1' && !requireSigning) return null;
+  if (process.env.SWITCHIFY_ALLOW_UNSIGNED_UIACCESS_PACKAGE === '1') {
+    console.warn('WARNING: Producing an unsigned uiAccess package because SWITCHIFY_ALLOW_UNSIGNED_UIACCESS_PACKAGE=1.');
+    return null;
+  }
+
+  throw new Error(
+    'Signing is required for uiAccess packaging. Set SWITCHIFY_DEV_CERT_PASSWORD with a dev PFX, run the dev certificate script, or configure Azure Artifact Signing.'
+  );
+}
+
+function createCertumSimplySignArgs(filePath, requireSigning) {
+  const thumbprint = normalizeThumbprint(process.env.SWITCHIFY_CERTUM_CERT_THUMBPRINT || '');
+
+  if (!thumbprint) {
+    if (requireSigning && process.env.SWITCHIFY_SIGNING_MODE === 'certum-simplysign') {
+      throw new Error('Certum SimplySign signing requires SWITCHIFY_CERTUM_CERT_THUMBPRINT.');
+    }
+    return null;
+  }
+
+  return [
+    'sign',
+    '/v',
+    '/fd',
+    'SHA256',
+    '/sha1',
+    thumbprint,
+    '/tr',
+    process.env.SWITCHIFY_CERTUM_TIMESTAMP_URL || 'http://time.certum.pl',
+    '/td',
+    'SHA256',
+    filePath
+  ];
+}
+
+function createDevPfxSigningArgs(filePath) {
+  const password = process.env.SWITCHIFY_DEV_CERT_PASSWORD;
+  const pfxPath = process.env.SWITCHIFY_DEV_CERT_PFX || resolveProjectPath('.certs', 'switchify-dev-code-signing.pfx');
+  const thumbprint = resolveDevCertificateThumbprint(pfxPath);
+
+  if (!password || !fs.existsSync(pfxPath)) return null;
+
+  const args = ['sign', '/fd', 'SHA256', '/f', pfxPath, '/p', password];
+  if (thumbprint) {
+    args.push('/sha1', thumbprint);
+  }
+  if (process.env.SWITCHIFY_SIGN_SKIP_TIMESTAMP !== '1') {
+    args.push('/tr', 'http://timestamp.digicert.com', '/td', 'SHA256');
+  }
+  args.push(filePath);
+  return args;
+}
+
+function createDevStoreSigningArgs(filePath) {
+  const thumbprint = resolveDevCertificateThumbprint(
+    process.env.SWITCHIFY_DEV_CERT_PFX || resolveProjectPath('.certs', 'switchify-dev-code-signing.pfx')
+  );
+
+  if (!thumbprint) return null;
+
+  const args = ['sign', '/fd', 'SHA256', '/sha1', thumbprint];
+  if (process.env.SWITCHIFY_SIGN_SKIP_TIMESTAMP !== '1') {
+    args.push('/tr', 'http://timestamp.digicert.com', '/td', 'SHA256');
+  }
+  args.push(filePath);
+  return args;
+}
+
+function resolveDevCertificateThumbprint(pfxPath) {
+  if (process.env.SWITCHIFY_DEV_CERT_THUMBPRINT) {
+    return normalizeThumbprint(process.env.SWITCHIFY_DEV_CERT_THUMBPRINT);
+  }
+
+  const thumbprintPath = path.join(path.dirname(pfxPath), 'switchify-dev-code-signing.thumbprint');
+  if (!fs.existsSync(thumbprintPath)) return null;
+
+  return normalizeThumbprint(fs.readFileSync(thumbprintPath, 'utf8'));
+}
+
+function normalizeThumbprint(value) {
+  const thumbprint = value.replace(/[^a-fA-F0-9]/g, '').toUpperCase();
+  return thumbprint.length > 0 ? thumbprint : null;
+}
+
+function createAzureSigningArgs(filePath, requireSigning) {
+  const dlibPath = process.env.SWITCHIFY_AZURE_SIGNING_DLIB;
+  const metadataPath = process.env.SWITCHIFY_AZURE_SIGNING_METADATA;
+
+  if (!dlibPath || !metadataPath) {
+    if (requireSigning && process.env.SWITCHIFY_SIGNING_MODE === 'azure') {
+      throw new Error('Azure Artifact Signing requires SWITCHIFY_AZURE_SIGNING_DLIB and SWITCHIFY_AZURE_SIGNING_METADATA.');
+    }
+    return null;
+  }
+
+  return [
+    'sign',
+    '/v',
+    '/debug',
+    '/fd',
+    'SHA256',
+    '/tr',
+    'http://timestamp.acs.microsoft.com',
+    '/td',
+    'SHA256',
+    '/dlib',
+    dlibPath,
+    '/dmdf',
+    metadataPath,
+    filePath
+  ];
+}
+
 module.exports = {
+  createSigningArgs,
   findWindowsSdkTool,
   isWindows,
   resolveProjectPath,

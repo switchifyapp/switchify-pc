@@ -3,12 +3,12 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const {
+  createSigningArgs,
   findWindowsSdkTool,
   isWindows,
   resolveProjectPath,
   runTool
 } = require('./win-signing-tools.cjs');
-const { createSigningArgs } = require('./package-win-after-pack.cjs');
 
 const stageOnly = process.argv.includes('--stage-only');
 const skipSign = process.argv.includes('--skip-sign');
