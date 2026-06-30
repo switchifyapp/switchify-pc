@@ -85,6 +85,10 @@ jobs:
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Package-Windows.ps1
 
+      - name: Verify Windows package
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Verify-DotnetPackage.ps1
+
       - name: Verify updater metadata
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Verify-UpdaterMetadata.ps1
