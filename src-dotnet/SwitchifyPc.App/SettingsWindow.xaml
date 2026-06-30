@@ -10,6 +10,7 @@
         MinWidth="760"
         Height="690"
         Width="900"
+        ResizeMode="NoResize"
         FontFamily="Segoe UI"
         Background="#F5F4F7"
         WindowStartupLocation="CenterScreen"
