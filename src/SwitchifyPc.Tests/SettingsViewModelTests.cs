@@ -31,11 +31,60 @@ public sealed class SettingsViewModelTests
             Registration: new StartupRegistration(
                 ExpectedCommand: "\"C:\\Program Files\\Switchify PC\\Switchify PC.exe\" --start-hidden",
                 RegisteredCommand: "\"C:\\Program Files\\Switchify PC\\Switchify PC.exe\" --start-hidden",
-                StartupApproved: "enabled")));
+                StartupApproved: "missing"),
+            TaskRegistration: new StartupTaskRegistration(
+                TaskName: "Switchify PC",
+                Exists: true,
+                Enabled: true,
+                ExpectedExecutablePath: "C:\\Program Files\\Switchify PC\\Switchify PC.exe",
+                RegisteredExecutablePath: "C:\\Program Files\\Switchify PC\\Switchify PC.exe",
+                ExpectedArguments: ["--start-hidden"],
+                RegisteredArguments: ["--start-hidden"],
+                LastRunResult: "0")));
 
         Assert.True(viewModel.StartWithSystem);
         Assert.True(viewModel.StartWithSystemSupported);
         Assert.Equal("Switchify PC will start hidden when you sign in.", viewModel.StartWithSystemMessage);
+    }
+
+    [Fact]
+    public void MapsScheduledTaskStartupRepairMessages()
+    {
+        SettingsViewModel viewModel = new();
+
+        viewModel.SetStartupSettings(new SystemStartupSettings(
+            Supported: true,
+            StartWithSystem: false,
+            StartsHidden: true,
+            Reason: null,
+            TaskRegistration: new StartupTaskRegistration(
+                TaskName: "Switchify PC",
+                Exists: true,
+                Enabled: false,
+                ExpectedExecutablePath: "C:\\Program Files\\Switchify PC\\Switchify PC.exe",
+                RegisteredExecutablePath: "C:\\Program Files\\Switchify PC\\Switchify PC.exe",
+                ExpectedArguments: ["--start-hidden"],
+                RegisteredArguments: ["--start-hidden"],
+                LastRunResult: null)));
+
+        Assert.Equal("Start with system is disabled in Windows Task Scheduler.", viewModel.StartWithSystemMessage);
+
+        viewModel.SetStartupSettings(new SystemStartupSettings(
+            Supported: true,
+            StartWithSystem: false,
+            StartsHidden: true,
+            Reason: null,
+            TaskRegistration: new StartupTaskRegistration(
+                TaskName: "Switchify PC",
+                Exists: true,
+                Enabled: true,
+                ExpectedExecutablePath: "C:\\Program Files\\Switchify PC\\Switchify PC.exe",
+                RegisteredExecutablePath: "C:\\Old\\Switchify PC.exe",
+                ExpectedArguments: ["--start-hidden"],
+                RegisteredArguments: ["--start-hidden"],
+                LastRunResult: null)));
+
+        Assert.Equal("Start with system is registered to an older app path. Turn it off and on again to repair it.", viewModel.StartWithSystemMessage);
 
         viewModel.SetStartupSettings(new SystemStartupSettings(
             Supported: true,
@@ -43,11 +92,11 @@ public sealed class SettingsViewModelTests
             StartsHidden: true,
             Reason: null,
             Registration: new StartupRegistration(
-                ExpectedCommand: "new",
-                RegisteredCommand: "old",
+                ExpectedCommand: "\"C:\\Program Files\\Switchify PC\\Switchify PC.exe\" --start-hidden",
+                RegisteredCommand: "\"C:\\Program Files\\Switchify PC\\Switchify PC.exe\" --start-hidden",
                 StartupApproved: "enabled")));
 
-        Assert.Equal("Start with system is registered to an older app path. Turn it off and on again to repair it.", viewModel.StartWithSystemMessage);
+        Assert.Equal("Start with system is using an older Windows startup registration. Turn it off and on again to repair it.", viewModel.StartWithSystemMessage);
     }
 
     [Fact]

@@ -23,6 +23,10 @@ public sealed class JsonlDiagnosticsTests : IDisposable
         Assert.Equal("0.2.0", root.GetProperty("version").GetString());
         Assert.True(root.GetProperty("startHidden").GetBoolean());
         Assert.True(root.GetProperty("startupRegistration").GetProperty("startWithSystem").GetBoolean());
+        Assert.True(root.GetProperty("startupTask").GetProperty("exists").GetBoolean());
+        Assert.True(root.GetProperty("startupTask").GetProperty("enabled").GetBoolean());
+        Assert.Equal("C:\\Program Files\\Switchify PC\\Switchify PC.exe", root.GetProperty("startupTask").GetProperty("registeredExecutablePath").GetString());
+        Assert.Equal("--start-hidden", root.GetProperty("startupTask").GetProperty("registeredArguments")[0].GetString());
     }
 
     [Fact]
@@ -143,6 +147,34 @@ public sealed class JsonlDiagnosticsTests : IDisposable
         Assert.Equal("\"C:\\Program Files\\Switchify PC\\Switchify PC.exe\" --start-hidden", registration.RegisteredCommand);
     }
 
+    [Fact]
+    public void TaskFromSettingsUsesNonSensitiveStartupFields()
+    {
+        SystemStartupSettings settings = new(
+            Supported: true,
+            StartWithSystem: true,
+            StartsHidden: true,
+            Reason: null,
+            TaskRegistration: new StartupTaskRegistration(
+                TaskName: "Switchify PC",
+                Exists: true,
+                Enabled: true,
+                ExpectedExecutablePath: "C:\\Program Files\\Switchify PC\\Switchify PC.exe",
+                RegisteredExecutablePath: "C:\\Program Files\\Switchify PC\\Switchify PC.exe",
+                ExpectedArguments: ["--start-hidden"],
+                RegisteredArguments: ["--start-hidden"],
+                LastRunResult: "0"));
+
+        StartupTaskDiagnostics? task = JsonlDiagnostics.TaskFromSettings(settings);
+
+        Assert.NotNull(task);
+        Assert.True(task.Exists);
+        Assert.True(task.Enabled);
+        Assert.Equal("C:\\Program Files\\Switchify PC\\Switchify PC.exe", task.RegisteredExecutablePath);
+        Assert.Equal(["--start-hidden"], task.RegisteredArguments);
+        Assert.Equal("0", task.LastRunResult);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(tempDir))
@@ -164,7 +196,13 @@ public sealed class JsonlDiagnosticsTests : IDisposable
             StartupRegistration: new StartupDiagnosticsRegistration(
                 StartWithSystem: true,
                 RegisteredCommand: "\"C:\\Program Files\\Switchify PC\\Switchify PC.exe\" --start-hidden",
-                StartupApproved: "enabled"));
+                StartupApproved: "enabled"),
+            StartupTask: new StartupTaskDiagnostics(
+                Exists: true,
+                Enabled: true,
+                RegisteredExecutablePath: "C:\\Program Files\\Switchify PC\\Switchify PC.exe",
+                RegisteredArguments: ["--start-hidden"],
+                LastRunResult: "0"));
     }
 
     private static string[] ReadLines(string filePath)

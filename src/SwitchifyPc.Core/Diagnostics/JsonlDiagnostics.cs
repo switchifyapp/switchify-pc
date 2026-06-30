@@ -12,12 +12,20 @@ public sealed record StartupDiagnosticsEntry(
     string ExecutablePath,
     IReadOnlyList<string> Argv,
     bool StartHidden,
-    StartupDiagnosticsRegistration? StartupRegistration = null);
+    StartupDiagnosticsRegistration? StartupRegistration = null,
+    StartupTaskDiagnostics? StartupTask = null);
 
 public sealed record StartupDiagnosticsRegistration(
     bool StartWithSystem,
     string? RegisteredCommand,
     string StartupApproved);
+
+public sealed record StartupTaskDiagnostics(
+    bool Exists,
+    bool Enabled,
+    string? RegisteredExecutablePath,
+    IReadOnlyList<string> RegisteredArguments,
+    string? LastRunResult);
 
 public sealed record UpdateInstallDiagnosticEntry(
     string Event,
@@ -75,6 +83,18 @@ public static class JsonlDiagnostics
                 settings.StartWithSystem,
                 settings.Registration.RegisteredCommand,
                 settings.Registration.StartupApproved);
+    }
+
+    public static StartupTaskDiagnostics? TaskFromSettings(SystemStartupSettings settings)
+    {
+        return settings.TaskRegistration is null
+            ? null
+            : new StartupTaskDiagnostics(
+                settings.TaskRegistration.Exists,
+                settings.TaskRegistration.Enabled,
+                settings.TaskRegistration.RegisteredExecutablePath,
+                settings.TaskRegistration.RegisteredArguments,
+                settings.TaskRegistration.LastRunResult);
     }
 
     private static void AppendBounded(string filePath, IReadOnlyList<string> existing, string nextLine, int maxLines)

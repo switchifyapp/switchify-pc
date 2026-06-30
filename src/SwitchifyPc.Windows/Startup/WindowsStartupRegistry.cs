@@ -125,7 +125,7 @@ public sealed class WindowsStartupRegistry : IStartupRegistry
         return error is RegistryCommandException { ExitCode: 1 } || output.Contains("unable to find", StringComparison.Ordinal) || output.Contains("cannot find", StringComparison.Ordinal);
     }
 
-    private static async Task<CommandResult> RunCommandAsync(string file, IReadOnlyList<string> args)
+    internal static async Task<CommandResult> RunCommandAsync(string file, IReadOnlyList<string> args)
     {
         ProcessStartInfo startInfo = new(file)
         {

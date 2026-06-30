@@ -74,7 +74,7 @@ public partial class App : System.Windows.Application
         updateService.StartAutomaticUpdateChecks();
         StartPairingExpiryTimer();
         _ = StartBluetoothAsync();
-        _ = RecordStartupDiagnosticsAsync(e.Args, launchOptions.StartHidden);
+        _ = InitializeStartupRegistrationAsync(e.Args, launchOptions.StartHidden);
         trayIcon = new NativeTrayIcon(
             ShowMainWindow,
             ShowSettingsWindow,
@@ -213,7 +213,8 @@ public partial class App : System.Windows.Application
             platform: "win32",
             isPackaged: IsInstalledApp(),
             executablePath: Environment.ProcessPath ?? string.Empty,
-            startupRegistry: new WindowsStartupRegistry(),
+            startupTask: new WindowsStartupTask(),
+            legacyStartupRegistry: new WindowsStartupRegistry(),
             startupCommandFor: WindowsStartupRegistry.StartupCommandFor);
     }
 
@@ -436,6 +437,26 @@ public partial class App : System.Windows.Application
         Dispatcher.BeginInvoke(() => mainWindowViewModel.SetBluetoothState(desktopState, status));
     }
 
+    private async Task InitializeStartupRegistrationAsync(string[] argv, bool startHidden)
+    {
+        await RepairStartupRegistrationAsync();
+        await RecordStartupDiagnosticsAsync(argv, startHidden);
+    }
+
+    private async Task RepairStartupRegistrationAsync()
+    {
+        try
+        {
+            await CreateStartupService().RepairLegacyStartupRegistrationAsync();
+        }
+        catch (Exception error)
+        {
+            Console.WriteLine(string.IsNullOrWhiteSpace(error.Message)
+                ? "Could not repair startup registration."
+                : error.Message);
+        }
+    }
+
     private async Task RecordStartupDiagnosticsAsync(string[] argv, bool startHidden)
     {
         try
@@ -451,7 +472,8 @@ public partial class App : System.Windows.Application
                     ExecutablePath: Environment.ProcessPath ?? string.Empty,
                     Argv: argv,
                     StartHidden: startHidden,
-                    StartupRegistration: JsonlDiagnostics.RegistrationFromSettings(startupSettings)));
+                    StartupRegistration: JsonlDiagnostics.RegistrationFromSettings(startupSettings),
+                    StartupTask: JsonlDiagnostics.TaskFromSettings(startupSettings)));
         }
         catch
         {

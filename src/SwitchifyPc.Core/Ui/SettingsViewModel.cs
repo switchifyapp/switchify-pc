@@ -42,16 +42,23 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                     : "Start with system is not available on this platform.";
             }
 
-            if (startupSettings.Registration?.StartupApproved == "disabled")
+            if (startupSettings.TaskRegistration is { Exists: true, Enabled: false })
             {
-                return "Start with system is disabled in Windows Startup settings.";
+                return "Start with system is disabled in Windows Task Scheduler.";
             }
 
             if (!startupSettings.StartWithSystem &&
-                !string.IsNullOrWhiteSpace(startupSettings.Registration?.RegisteredCommand) &&
-                startupSettings.Registration.RegisteredCommand != startupSettings.Registration.ExpectedCommand)
+                startupSettings.TaskRegistration is { Exists: true } taskRegistration &&
+                (!string.Equals(taskRegistration.RegisteredExecutablePath, taskRegistration.ExpectedExecutablePath, StringComparison.Ordinal) ||
+                 !taskRegistration.RegisteredArguments.SequenceEqual(taskRegistration.ExpectedArguments, StringComparer.Ordinal)))
             {
                 return "Start with system is registered to an older app path. Turn it off and on again to repair it.";
+            }
+
+            if (!startupSettings.StartWithSystem &&
+                !string.IsNullOrWhiteSpace(startupSettings.Registration?.RegisteredCommand))
+            {
+                return "Start with system is using an older Windows startup registration. Turn it off and on again to repair it.";
             }
 
             return startupSettings.StartWithSystem
