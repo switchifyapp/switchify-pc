@@ -36,46 +36,40 @@ If the main window is closed, Switchify PC continues running from the tray. Use 
 
 ## Development
 
-Install dependencies:
+Restore the C# solution:
 
 ```powershell
-npm install
+dotnet restore src/SwitchifyPc.sln
 ```
 
-Run the Electron app in development mode:
+Build the app:
 
 ```powershell
-npm run dev
+dotnet build src/SwitchifyPc.sln -c Release --no-restore
 ```
 
-Build the compiled Electron output:
+Run tests:
 
 ```powershell
-npm run build
-```
-
-Build the native Windows cursor overlay helper:
-
-```powershell
-npm run native:build-overlay
-```
-
-Run checks before pushing implementation changes:
-
-```powershell
-npm run typecheck
-npm test
+dotnet test src/SwitchifyPc.sln -c Release --no-build
 ```
 
 ## Windows packaging
 
-Create a local Windows x64 package:
+Stage a local Windows x64 package without signing:
 
 ```powershell
-npm run package:win
+pwsh scripts/Package-Windows.ps1 -StageOnly -SkipSign
+pwsh scripts/Verify-DotnetPackage.ps1
 ```
 
-The package script runs `npm run build` and `npm run native:build-overlay` first, then creates an unpacked Windows artifact in `dist/win-unpacked` and a per-machine NSIS installer in `dist`.
+Create a local Windows x64 installer:
+
+```powershell
+pwsh scripts/Package-Windows.ps1
+pwsh scripts/Verify-DotnetPackage.ps1
+pwsh scripts/Verify-UpdaterMetadata.ps1
+```
 
 Local packaging builds artifacts under `dist`. It does not publish a GitHub release.
 
@@ -90,33 +84,16 @@ Windows only honors `uiAccess` when all of these are true:
 - The executable is installed in a secure location such as `C:\Program Files\Switchify PC\`.
 - Signing happens after icon and manifest resource embedding.
 
-The packaged Windows app also disables the Chromium GPU child-process sandbox at startup. Without that switch, Electron's GPU child process can fail to launch under `uiAccess=true`, causing the app to exit even when the manifest, signature, and install location are valid.
-
-Packaged Windows builds include `SwitchifyCursorOverlay.exe`, a native self-contained cursor overlay helper under app resources. The Electron app controls it over stdin JSON lines so cursor feedback can render as a per-pixel-alpha ring over protected UI. If the helper cannot start, Switchify PC falls back to the Electron overlay instead of failing input commands.
-
-Development builds can use a local certificate chain trusted on the test machine. The script creates a local dev root CA, creates a code-signing leaf certificate, exports the leaf PFX, stores the leaf thumbprint for `signtool`, and imports trust material into the current user and local machine certificate stores. Accept the UAC prompt so Windows can trust the certificate machine-wide for `uiAccess`.
+Development builds can use a local code-signing certificate through the signing environment variables supported by `scripts/WinSigningTools.psm1`. Then package and verify:
 
 ```powershell
-$env:SWITCHIFY_DEV_CERT_PASSWORD = "choose-a-local-password"
-npm run signing:create-dev-cert
+$env:SWITCHIFY_DEV_CERT_PASSWORD = "<local-password>"
+pwsh scripts/Package-Windows.ps1
+pwsh scripts/Verify-DotnetPackage.ps1
+pwsh scripts/Verify-UpdaterMetadata.ps1
 ```
 
-Then package and verify:
-
-```powershell
-$env:SWITCHIFY_DEV_CERT_PASSWORD = "same-password"
-npm run package:win
-npm run package:win:verify-uiaccess
-```
-
-Run the generated installer from `dist` and install per-machine. To verify the installed Program Files copy launches and stays running, use:
-
-```powershell
-$env:SWITCHIFY_VERIFY_INSTALLED_LAUNCH = "1"
-npm run package:win:verify-uiaccess
-```
-
-Running from `npm run dev`, `dist/win-unpacked`, AppData, Downloads, or the repo does not prove that `uiAccess` is active.
+Run the generated installer from `dist` and install per-machine. Running from the repo, `dist/win-unpacked`, AppData, or Downloads does not prove that `uiAccess` is active.
 
 Self-signed certificates are for development and testing only. Production users should not be asked to trust a self-signed certificate manually.
 
@@ -138,17 +115,17 @@ The release workflow expects the Certum certificate to be available in `Cert:\Cu
 
 Only the maintainer should publish releases.
 
-Release builds are published from tags named `vX.Y.Z`, where `X.Y.Z` matches `package.json`.
+Release builds are published from tags named `vX.Y.Z`, where `X.Y.Z` matches the C# app project `<Version>`.
 
 The release workflow runs on the self-hosted Windows signing runner with the `switchify-signing` label. It:
 
-- installs dependencies with `npm ci`
-- runs `npm run typecheck`
-- runs `npm test`
+- restores the C# solution
+- builds the C# solution
+- runs C# tests
 - verifies the Certum signing certificate
-- builds native helpers
 - packages the Windows x64 NSIS installer
-- verifies the tag matches `package.json`
+- verifies updater metadata
+- verifies the tag matches the C# app project version
 - uploads the installer and update metadata to GitHub Releases
 
 The maintainer can publish a release by pushing an annotated tag:
@@ -182,7 +159,7 @@ Use this checklist after packaging changes and before publishing any installer:
 - Tray menu opens and can show the main window.
 - Main window shows Android download QR/link before a device is connected.
 - Android download link opens externally in the browser.
-- Bluetooth helper starts and reports a safe status.
+- Bluetooth starts and reports a safe status.
 - No QR/manual local-network connection UI appears for pairing or control.
 - No local IP address or WebSocket address appears in Settings or troubleshooting.
 - Pairing approval requests appear and can be accepted or rejected.
@@ -202,7 +179,7 @@ Use this checklist after packaging changes and before publishing any installer:
 - Settings > Updates can check for updates in packaged builds.
 - Downloaded updates show an `Install update` action.
 - Disconnect all removes active Bluetooth sessions.
-- Quit exits the app, removes the tray icon, and exits the native cursor overlay helper.
+- Quit exits the app and removes the tray icon.
 
 ## License
 
