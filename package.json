@@ -1,11 +1,8 @@
 {
   "name": "switchify-pc",
-  "version": "0.1.20",
+  "version": "0.2.0",
   "description": "Desktop companion app for Switchify Android.",
-  "main": "out/main/index.js",
   "scripts": {
-    "dev": "node scripts/dev.cjs",
-    "build": "electron-vite build",
     "dotnet:restore": "dotnet restore src-dotnet/SwitchifyPc.sln",
     "dotnet:build": "dotnet build src-dotnet/SwitchifyPc.sln -c Release --no-restore",
     "dotnet:test": "dotnet test src-dotnet/SwitchifyPc.sln -c Release --no-build",
@@ -13,19 +10,9 @@
     "dotnet:package:win": "node scripts/package-dotnet-win.cjs",
     "dotnet:package:win:stage": "node scripts/package-dotnet-win.cjs --stage-only --skip-sign",
     "dotnet:package:win:verify": "node scripts/verify-dotnet-package.cjs",
-    "native:build": "node scripts/build-cursor-overlay-helper.cjs",
-    "native:build-overlay": "npm run native:build",
-    "native:smoke-overlay": "node scripts/smoke-cursor-overlay-helper.cjs",
-    "native:smoke-text": "node scripts/smoke-text-input-helper.cjs",
-    "package:win": "npm run build && npm run native:build && electron-builder --win --x64 --publish never && node scripts/sign-win-artifacts.cjs --update-latest-yml",
-    "package:win:verify-uiaccess": "node scripts/verify-win-uiaccess-package.cjs",
-    "package:win:verify-updater-metadata": "node scripts/verify-latest-yml-admin-rights.cjs",
-    "signing:create-dev-cert": "node scripts/create-dev-signing-cert.cjs",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
-    "test": "vitest run"
+    "package:win:verify-updater-metadata": "node scripts/verify-latest-yml-admin-rights.cjs"
   },
   "keywords": [
-    "electron",
     "switchify",
     "accessibility",
     "desktop-control"
@@ -40,24 +27,5 @@
   },
   "bugs": {
     "url": "https://github.com/switchifyapp/switchify-pc/issues"
-  },
-  "devDependencies": {
-    "@types/node": "^25.9.1",
-    "@types/react": "^19.2.15",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.2.0",
-    "electron": "^39.8.10",
-    "electron-builder": "^26.8.1",
-    "electron-vite": "^5.0.0",
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6",
-    "typescript": "^6.0.3",
-    "vite": "^7.3.3",
-    "vitest": "^4.1.8"
-  },
-  "dependencies": {
-    "@nut-tree-fork/libnut-win32": "^2.7.5",
-    "electron-updater": "^6.8.9",
-    "lucide-react": "^1.21.0"
   }
 }
