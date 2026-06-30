@@ -33,8 +33,8 @@ jobs:
 
       - name: Stage Windows package
         shell: pwsh
-        run: pwsh scripts/Package-Windows.ps1 -StageOnly -SkipSign
+        run: ./scripts/Package-Windows.ps1 -StageOnly -SkipSign
 
       - name: Verify staged Windows package
         shell: pwsh
-        run: pwsh scripts/Verify-DotnetPackage.ps1
+        run: ./scripts/Verify-DotnetPackage.ps1
