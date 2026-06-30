@@ -450,7 +450,8 @@
 
                                             <TextBlock Grid.Row="4" Grid.Column="0" Margin="0,14,0,0" Text="Color" Style="{StaticResource DetailLabel}" />
                                             <UniformGrid Grid.Row="4" Grid.Column="1" Margin="0,14,0,0" Columns="5">
-                                                <RadioButton GroupName="CursorOverlayColor"
+                                                <RadioButton AutomationProperties.Name="Red"
+                                                             GroupName="CursorOverlayColor"
                                                              IsChecked="{Binding IsCursorOverlayColorRed, Mode=OneWay}"
                                                              Checked="CursorOverlayColorRed_Checked"
                                                              Style="{StaticResource SegmentRadio}">
@@ -459,7 +460,8 @@
                                                         <TextBlock Margin="6,0,0,0" Text="Red" />
                                                     </StackPanel>
                                                 </RadioButton>
-                                                <RadioButton GroupName="CursorOverlayColor"
+                                                <RadioButton AutomationProperties.Name="Green"
+                                                             GroupName="CursorOverlayColor"
                                                              IsChecked="{Binding IsCursorOverlayColorGreen, Mode=OneWay}"
                                                              Checked="CursorOverlayColorGreen_Checked"
                                                              Style="{StaticResource SegmentRadio}">
@@ -468,7 +470,8 @@
                                                         <TextBlock Margin="6,0,0,0" Text="Green" />
                                                     </StackPanel>
                                                 </RadioButton>
-                                                <RadioButton GroupName="CursorOverlayColor"
+                                                <RadioButton AutomationProperties.Name="Blue"
+                                                             GroupName="CursorOverlayColor"
                                                              IsChecked="{Binding IsCursorOverlayColorBlue, Mode=OneWay}"
                                                              Checked="CursorOverlayColorBlue_Checked"
                                                              Style="{StaticResource SegmentRadio}">
@@ -477,7 +480,8 @@
                                                         <TextBlock Margin="6,0,0,0" Text="Blue" />
                                                     </StackPanel>
                                                 </RadioButton>
-                                                <RadioButton GroupName="CursorOverlayColor"
+                                                <RadioButton AutomationProperties.Name="Yellow"
+                                                             GroupName="CursorOverlayColor"
                                                              IsChecked="{Binding IsCursorOverlayColorYellow, Mode=OneWay}"
                                                              Checked="CursorOverlayColorYellow_Checked"
                                                              Style="{StaticResource SegmentRadio}">
@@ -486,7 +490,8 @@
                                                         <TextBlock Margin="6,0,0,0" Text="Yellow" />
                                                     </StackPanel>
                                                 </RadioButton>
-                                                <RadioButton GroupName="CursorOverlayColor"
+                                                <RadioButton AutomationProperties.Name="White"
+                                                             GroupName="CursorOverlayColor"
                                                              IsChecked="{Binding IsCursorOverlayColorWhite, Mode=OneWay}"
                                                              Checked="CursorOverlayColorWhite_Checked"
                                                              Style="{StaticResource SegmentRadio}">

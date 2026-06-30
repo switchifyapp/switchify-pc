@@ -38,6 +38,17 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
 
     public void Hide()
     {
+        CursorOverlaySettings settings = settingsStore.Load();
+        if (settings.Enabled && settings.Visibility == "whileControlling" && IsFollowing())
+        {
+            return;
+        }
+
+        HideOverlay();
+    }
+
+    private void HideOverlay()
+    {
         StopFollowing();
         if (overlayThread.IsValueCreated)
         {
@@ -52,7 +63,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
             dragActive = false;
         }
 
-        Hide();
+        HideOverlay();
     }
 
     public void MarkControlActive()
@@ -109,7 +120,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
                 CursorOverlaySettings settings = settingsStore.Load();
                 if (!settings.Enabled || !ShouldFollowCursor(settings))
                 {
-                    Hide();
+                    HideOverlay();
                     return;
                 }
 
@@ -124,6 +135,14 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         {
             followTimer?.Dispose();
             followTimer = null;
+        }
+    }
+
+    private bool IsFollowing()
+    {
+        lock (sync)
+        {
+            return followTimer is not null;
         }
     }
 

@@ -2,6 +2,7 @@ using SwitchifyPc.Core.Input;
 using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Windows.CursorOverlay;
 using SwitchifyPc.Windows.Input;
+using System.Reflection;
 
 namespace SwitchifyPc.Tests;
 
@@ -28,6 +29,38 @@ public sealed class WindowsCursorOverlayNotifierTests
 
         notifier.MarkControlActive();
         Thread.Sleep(150);
+    }
+
+    [Fact]
+    public void HideDoesNotStopWhileControllingOverlayUntilSessionEnds()
+    {
+        using WindowsCursorOverlayNotifier notifier = new(
+            new FakeNativeInput(),
+            new FakeCursorOverlaySettings(CursorOverlaySettingsModel.Default with
+            {
+                Enabled = true,
+                Visibility = "whileControlling"
+            }));
+
+        notifier.MarkControlActive();
+        Thread.Sleep(50);
+
+        Assert.True(IsFollowing(notifier));
+
+        notifier.Hide();
+
+        Assert.True(IsFollowing(notifier));
+
+        notifier.EndControlSession();
+
+        Assert.False(IsFollowing(notifier));
+    }
+
+    private static bool IsFollowing(WindowsCursorOverlayNotifier notifier)
+    {
+        FieldInfo? field = typeof(WindowsCursorOverlayNotifier).GetField("followTimer", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return field.GetValue(notifier) is not null;
     }
 
     private sealed class FakeCursorOverlaySettings(CursorOverlaySettings? settings = null) : ICursorOverlaySettingsStore
