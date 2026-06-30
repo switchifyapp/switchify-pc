@@ -205,7 +205,7 @@ function Get-CertumSigningArguments {
     $timestamp = 'http://time.certum.pl'
   }
 
-  return @('sign', '/v', '/fd', 'SHA256', '/sha1', $thumbprint, '/tr', $timestamp, '/td', 'SHA256', $FilePath)
+  return @('sign', '/fd', 'SHA256', '/sha1', $thumbprint, '/tr', $timestamp, '/td', 'SHA256', $FilePath)
 }
 
 function Get-DevPfxSigningArguments {
@@ -300,8 +300,6 @@ function Get-AzureSigningArguments {
 
   return @(
     'sign',
-    '/v',
-    '/debug',
     '/fd',
     'SHA256',
     '/tr',
