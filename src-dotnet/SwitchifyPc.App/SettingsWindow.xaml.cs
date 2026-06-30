@@ -12,6 +12,7 @@ public partial class SettingsWindow : Window
     private readonly SettingsController? controller;
     private bool isLoaded;
     private bool isApplyingSettings;
+    private bool settingsLoaded;
 
     public SettingsWindow(SettingsController controller) : this(controller.ViewModel)
     {
@@ -37,6 +38,7 @@ public partial class SettingsWindow : Window
             try
             {
                 await controller.LoadAsync();
+                settingsLoaded = true;
             }
             finally
             {
@@ -47,7 +49,7 @@ public partial class SettingsWindow : Window
 
     private async void StartWithSystem_Click(object sender, RoutedEventArgs e)
     {
-        if (controller is null || isApplyingSettings || sender is not WpfCheckBox checkBox) return;
+        if (controller is null || isApplyingSettings || !settingsLoaded || sender is not WpfCheckBox checkBox) return;
         await RunActionAsync(
             () => controller.SetStartWithSystemAsync(checkBox.IsChecked == true),
             "Start with system could not be changed.");
@@ -90,7 +92,7 @@ public partial class SettingsWindow : Window
 
     private void CursorOverlayEnabled_Click(object sender, RoutedEventArgs e)
     {
-        if (!isApplyingSettings && controller is not null && sender is WpfCheckBox checkBox)
+        if (!isApplyingSettings && settingsLoaded && controller is not null && sender is WpfCheckBox checkBox)
         {
             controller.SetCursorOverlayEnabled(checkBox.IsChecked == true);
         }
@@ -98,7 +100,7 @@ public partial class SettingsWindow : Window
 
     private void CursorOverlayCrosshairs_Click(object sender, RoutedEventArgs e)
     {
-        if (!isApplyingSettings && controller is not null && sender is WpfCheckBox checkBox)
+        if (!isApplyingSettings && settingsLoaded && controller is not null && sender is WpfCheckBox checkBox)
         {
             controller.SetCursorOverlayCrosshairs(checkBox.IsChecked == true);
         }
@@ -167,7 +169,7 @@ public partial class SettingsWindow : Window
 
     private void SaveIfReady(Action save)
     {
-        if (controller is null || isApplyingSettings) return;
+        if (controller is null || isApplyingSettings || !settingsLoaded) return;
         save();
     }
 
