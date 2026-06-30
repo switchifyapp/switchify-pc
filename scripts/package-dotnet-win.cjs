@@ -12,10 +12,10 @@ const {
 
 const stageOnly = process.argv.includes('--stage-only');
 const skipSign = process.argv.includes('--skip-sign');
-const appProjectPath = resolveProjectPath('src-dotnet', 'SwitchifyPc.App', 'SwitchifyPc.App.csproj');
+const appProjectPath = resolveProjectPath('src', 'SwitchifyPc.App', 'SwitchifyPc.App.csproj');
 const version = readDotnetAppVersion(appProjectPath);
 const publishDir = resolveProjectPath(
-  'src-dotnet',
+  'src',
   'SwitchifyPc.App',
   'bin',
   'Release',
