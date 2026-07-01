@@ -3,6 +3,10 @@ using SwitchifyPc.Core.Startup;
 
 namespace SwitchifyPc.Windows.Startup;
 
+public sealed record StartupTaskQueryDetails(
+    string? LastRunResult,
+    bool? Enabled);
+
 public sealed class WindowsStartupTask : IStartupTask
 {
     public const string StartupTaskName = "Switchify PC";
@@ -19,22 +23,21 @@ public sealed class WindowsStartupTask : IStartupTask
 
     public async Task<StartupTaskSnapshot> GetAsync(string taskName)
     {
-        string? lastRunResult = await QueryLastRunResultAsync(taskName);
+        StartupTaskQueryDetails details = await QueryTaskDetailsAsync(taskName);
 
         try
         {
             CommandResult result = await commandRunner("schtasks.exe", ["/Query", "/TN", taskName, "/XML"]);
-            StartupTaskSnapshot snapshot = ParseTaskXml(result.Stdout, lastRunResult);
-            return snapshot with { LastRunResult = lastRunResult };
+            return ParseTaskXml(result.Stdout, details.LastRunResult, details.Enabled);
         }
         catch (Exception error) when (IsMissingTaskError(error))
         {
-            return new StartupTaskSnapshot(false, false, null, [], lastRunResult);
+            return new StartupTaskSnapshot(false, false, null, [], details.LastRunResult);
         }
         catch (Exception error) when (error is System.Xml.XmlException or InvalidOperationException)
         {
             warn("Switchify startup task could not be read.");
-            return new StartupTaskSnapshot(true, false, null, [], lastRunResult);
+            return new StartupTaskSnapshot(true, false, null, [], details.LastRunResult);
         }
     }
 
@@ -81,7 +84,7 @@ public sealed class WindowsStartupTask : IStartupTask
         return string.Join(" ", new[] { $"\"{executablePath}\"" }.Concat(args));
     }
 
-    public static StartupTaskSnapshot ParseTaskXml(string xml, string? lastRunResult = null)
+    public static StartupTaskSnapshot ParseTaskXml(string xml, string? lastRunResult = null, bool? enabledOverride = null)
     {
         XDocument document = XDocument.Parse(xml);
         XElement root = document.Root ?? throw new InvalidOperationException("Task XML is empty.");
@@ -95,10 +98,14 @@ public sealed class WindowsStartupTask : IStartupTask
             command = splitCommand;
             arguments = splitArguments;
         }
+        else
+        {
+            command = UnquoteCommand(command);
+        }
 
         return new StartupTaskSnapshot(
             Exists: true,
-            Enabled: string.Equals(enabledText, "true", StringComparison.OrdinalIgnoreCase),
+            Enabled: enabledOverride ?? (enabledText is null || string.Equals(enabledText, "true", StringComparison.OrdinalIgnoreCase)),
             ExecutablePath: string.IsNullOrWhiteSpace(command) ? null : command,
             Arguments: arguments,
             LastRunResult: lastRunResult);
@@ -106,30 +113,49 @@ public sealed class WindowsStartupTask : IStartupTask
 
     public static string? ParseLastRunResult(string output)
     {
+        return ParseTaskDetails(output).LastRunResult;
+    }
+
+    public static StartupTaskQueryDetails ParseTaskDetails(string output)
+    {
+        string? lastRunResult = null;
+        bool? enabled = null;
+
         foreach (string line in output.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries))
         {
             int separator = line.IndexOf(':', StringComparison.Ordinal);
             if (separator <= 0) continue;
 
             string key = line[..separator].Trim();
-            if (!key.Equals("Last Result", StringComparison.OrdinalIgnoreCase)) continue;
-
-            return line[(separator + 1)..].Trim();
+            string value = line[(separator + 1)..].Trim();
+            if (key.Equals("Last Result", StringComparison.OrdinalIgnoreCase))
+            {
+                lastRunResult = value;
+            }
+            else if (key.Equals("Scheduled Task State", StringComparison.OrdinalIgnoreCase))
+            {
+                enabled = value switch
+                {
+                    _ when value.Equals("Enabled", StringComparison.OrdinalIgnoreCase) => true,
+                    _ when value.Equals("Disabled", StringComparison.OrdinalIgnoreCase) => false,
+                    _ => enabled
+                };
+            }
         }
 
-        return null;
+        return new StartupTaskQueryDetails(lastRunResult, enabled);
     }
 
-    private async Task<string?> QueryLastRunResultAsync(string taskName)
+    private async Task<StartupTaskQueryDetails> QueryTaskDetailsAsync(string taskName)
     {
         try
         {
             CommandResult result = await commandRunner("schtasks.exe", ["/Query", "/TN", taskName, "/FO", "LIST", "/V"]);
-            return ParseLastRunResult(result.Stdout);
+            return ParseTaskDetails(result.Stdout);
         }
         catch
         {
-            return null;
+            return new StartupTaskQueryDetails(null, null);
         }
     }
 
@@ -167,6 +193,14 @@ public sealed class WindowsStartupTask : IStartupTask
         executablePath = command[1..closingQuote];
         args = SplitArguments(command[(closingQuote + 1)..]);
         return true;
+    }
+
+    private static string? UnquoteCommand(string? command)
+    {
+        if (string.IsNullOrWhiteSpace(command)) return command;
+        return command.Length >= 2 && command.StartsWith('"') && command.EndsWith('"')
+            ? command[1..^1]
+            : command;
     }
 
     private static bool IsMissingTaskError(Exception error)

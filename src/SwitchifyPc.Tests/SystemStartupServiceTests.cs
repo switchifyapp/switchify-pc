@@ -60,6 +60,22 @@ public sealed class SystemStartupServiceTests
     }
 
     [Fact]
+    public async Task ReportsEnabledForHealthyTaskWhenWindowsXmlOmitsEnabled()
+    {
+        StartupTaskSnapshot taskParsedFromWindowsXml = new(
+            Exists: true,
+            Enabled: true,
+            ExecutablePath: ExecutablePath,
+            Arguments: ["--start-hidden"],
+            LastRunResult: "0");
+
+        SystemStartupSettings settings = await CreateService(new FakeStartupTask(taskParsedFromWindowsXml), new FakeStartupRegistry()).GetSettingsAsync();
+
+        Assert.True(settings.StartWithSystem);
+        Assert.True(settings.TaskRegistration?.Enabled);
+    }
+
+    [Fact]
     public async Task ReportsDisabledForMissingDisabledStalePathOrStaleArguments()
     {
         Assert.False((await CreateService(new FakeStartupTask(new StartupTaskSnapshot(false, false, null, [], null)), new FakeStartupRegistry()).GetSettingsAsync()).StartWithSystem);
