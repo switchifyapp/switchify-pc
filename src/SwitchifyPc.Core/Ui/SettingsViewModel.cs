@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using SwitchifyPc.Core.Pairing;
 using SwitchifyPc.Core.Settings;
@@ -131,6 +132,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public string? UpdateDownloadMessage => DownloadMessage(updateState.Download);
 
+    public bool IsUpdateDownloading => updateState.Download.Status == UpdateDownloadStatus.Downloading;
+
+    public bool IsUpdateDownloadIndeterminate => IsUpdateDownloading && updateState.Download.Percent is null;
+
+    public int UpdateDownloadPercent => Math.Clamp(updateState.Download.Percent ?? 0, 0, 100);
+
+    public string UpdateDownloadProgressText => DownloadProgressText(updateState.Download);
+
     public bool CanDownloadUpdate =>
         updateState.Info.Status == UpdateCheckStatus.UpdateAvailable &&
         updateState.Download.Status is UpdateDownloadStatus.Idle or UpdateDownloadStatus.DownloadFailed;
@@ -199,6 +208,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         updateState = state;
         OnPropertyChanged(nameof(UpdateStatusMessage));
         OnPropertyChanged(nameof(UpdateDownloadMessage));
+        OnPropertyChanged(nameof(IsUpdateDownloading));
+        OnPropertyChanged(nameof(IsUpdateDownloadIndeterminate));
+        OnPropertyChanged(nameof(UpdateDownloadPercent));
+        OnPropertyChanged(nameof(UpdateDownloadProgressText));
         OnPropertyChanged(nameof(CanDownloadUpdate));
         OnPropertyChanged(nameof(CanInstallUpdate));
     }
@@ -224,13 +237,46 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         if (download.Status == UpdateDownloadStatus.Idle) return null;
         if (download.Status == UpdateDownloadStatus.Downloading)
         {
-            return download.Percent is null ? "Downloading..." : $"Downloading {download.Percent}%.";
+            return "Downloading update...";
         }
 
         if (download.Status == UpdateDownloadStatus.Downloaded) return "Update downloaded and ready to install.";
         if (download.Reason == UpdateFailureReason.NotPackaged) return "Updates are only available in packaged builds.";
         if (download.Reason == UpdateFailureReason.NotSupported) return "Updates are not available on this platform.";
         return "Could not download the update.";
+    }
+
+    public static string DownloadProgressText(UpdateDownloadProgress download)
+    {
+        if (download.Status != UpdateDownloadStatus.Downloading) return string.Empty;
+
+        bool hasDownloadedBytes = download.DownloadedBytes > 0;
+        bool hasTotalBytes = download.TotalBytes is > 0;
+        string? percent = download.Percent is null
+            ? null
+            : $"{Math.Clamp(download.Percent.Value, 0, 100).ToString(CultureInfo.InvariantCulture)}%";
+
+        if (percent is not null && hasDownloadedBytes && hasTotalBytes)
+        {
+            return $"Downloading {percent} ({FormatBytes(download.DownloadedBytes)} of {FormatBytes(download.TotalBytes!.Value)}).";
+        }
+
+        if (percent is not null)
+        {
+            return $"Downloading {percent}.";
+        }
+
+        if (hasDownloadedBytes && hasTotalBytes)
+        {
+            return $"Downloading {FormatBytes(download.DownloadedBytes)} of {FormatBytes(download.TotalBytes!.Value)}.";
+        }
+
+        if (hasDownloadedBytes)
+        {
+            return $"Downloading {FormatBytes(download.DownloadedBytes)}.";
+        }
+
+        return "Downloading...";
     }
 
     public static string InstallMessage(UpdateInstallFailureReason? reason)
@@ -250,5 +296,22 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024)
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"{bytes} B");
+        }
+
+        double kilobytes = bytes / 1024d;
+        if (kilobytes < 1024)
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"{kilobytes:0.0} KB");
+        }
+
+        double megabytes = kilobytes / 1024d;
+        return string.Create(CultureInfo.InvariantCulture, $"{megabytes:0.0} MB");
     }
 }

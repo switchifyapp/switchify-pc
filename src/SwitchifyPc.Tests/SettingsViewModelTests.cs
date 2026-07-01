@@ -201,6 +201,76 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void ShowsDeterminateDownloadProgress()
+    {
+        SettingsViewModel viewModel = new();
+
+        viewModel.SetUpdateState(UpdateState.CreateInitial("0.2.3") with
+        {
+            Download = new UpdateDownloadProgress(UpdateDownloadStatus.Downloading, 20_971_520, 52_428_800, 40)
+        });
+
+        Assert.True(viewModel.IsUpdateDownloading);
+        Assert.False(viewModel.IsUpdateDownloadIndeterminate);
+        Assert.Equal(40, viewModel.UpdateDownloadPercent);
+        Assert.Equal("Downloading update...", viewModel.UpdateDownloadMessage);
+        Assert.Equal("Downloading 40% (20.0 MB of 50.0 MB).", viewModel.UpdateDownloadProgressText);
+    }
+
+    [Fact]
+    public void ShowsIndeterminateDownloadProgressWhenPercentIsUnknown()
+    {
+        SettingsViewModel viewModel = new();
+
+        viewModel.SetUpdateState(UpdateState.CreateInitial("0.2.3") with
+        {
+            Download = new UpdateDownloadProgress(UpdateDownloadStatus.Downloading, 20_971_520, null, null)
+        });
+
+        Assert.True(viewModel.IsUpdateDownloading);
+        Assert.True(viewModel.IsUpdateDownloadIndeterminate);
+        Assert.Equal(0, viewModel.UpdateDownloadPercent);
+        Assert.Equal("Downloading 20.0 MB.", viewModel.UpdateDownloadProgressText);
+    }
+
+    [Fact]
+    public void HidesDownloadProgressWhenDownloaded()
+    {
+        SettingsViewModel viewModel = new();
+
+        viewModel.SetUpdateState(UpdateState.CreateInitial("0.2.3") with
+        {
+            Download = new UpdateDownloadProgress(UpdateDownloadStatus.Downloaded, 52_428_800, 52_428_800, 100)
+        });
+
+        Assert.False(viewModel.IsUpdateDownloading);
+        Assert.False(viewModel.IsUpdateDownloadIndeterminate);
+        Assert.Equal(100, viewModel.UpdateDownloadPercent);
+        Assert.Equal("Update downloaded and ready to install.", viewModel.UpdateDownloadMessage);
+        Assert.Equal(string.Empty, viewModel.UpdateDownloadProgressText);
+    }
+
+    [Fact]
+    public void HidesDownloadProgressWhenFailed()
+    {
+        SettingsViewModel viewModel = new();
+
+        viewModel.SetUpdateState(UpdateState.CreateInitial("0.2.3") with
+        {
+            Download = new UpdateDownloadProgress(
+                UpdateDownloadStatus.DownloadFailed,
+                20_971_520,
+                52_428_800,
+                40,
+                UpdateFailureReason.NetworkError)
+        });
+
+        Assert.False(viewModel.IsUpdateDownloading);
+        Assert.Equal("Could not download the update.", viewModel.UpdateDownloadMessage);
+        Assert.Equal(string.Empty, viewModel.UpdateDownloadProgressText);
+    }
+
+    [Fact]
     public void MapsUpdateInstallFailureMessages()
     {
         Assert.Equal("The update is not downloaded yet.", SettingsViewModel.InstallMessage(UpdateInstallFailureReason.NotDownloaded));
@@ -224,11 +294,19 @@ public sealed class SettingsViewModelTests
         viewModel.PropertyChanged += (_, eventArgs) => changed.Add(eventArgs.PropertyName);
 
         viewModel.SetPointerMovementSettings(new PointerMovementSettings(50));
+        viewModel.SetUpdateState(UpdateState.CreateInitial("0.2.3") with
+        {
+            Download = new UpdateDownloadProgress(UpdateDownloadStatus.Downloading, 1024, 2048, 50)
+        });
 
         Assert.Contains(nameof(SettingsViewModel.PointerScalePercent), changed);
         Assert.Contains(nameof(SettingsViewModel.IsPointerScale50), changed);
         Assert.Contains(nameof(SettingsViewModel.PointerSmall), changed);
         Assert.Contains(nameof(SettingsViewModel.PointerMedium), changed);
         Assert.Contains(nameof(SettingsViewModel.PointerLarge), changed);
+        Assert.Contains(nameof(SettingsViewModel.IsUpdateDownloading), changed);
+        Assert.Contains(nameof(SettingsViewModel.IsUpdateDownloadIndeterminate), changed);
+        Assert.Contains(nameof(SettingsViewModel.UpdateDownloadPercent), changed);
+        Assert.Contains(nameof(SettingsViewModel.UpdateDownloadProgressText), changed);
     }
 }
