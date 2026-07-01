@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <Resource Include="..\..\build\icon.ico" Link="Assets\icon.ico" />
+    <Resource Include="Assets\android-download-qr.png" />
   </ItemGroup>
 
 </Project>

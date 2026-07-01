@@ -16,6 +16,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     };
     private UpdateState updateState = UpdateState.CreateInitial("0.2.0");
     private IReadOnlyList<PendingPairingApprovalView> pairingApprovals = [];
+    private bool androidDownloadPromptInitialized;
+    private bool androidDownloadDismissed;
+    private bool hasPairedDevices;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -69,6 +72,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public IReadOnlyList<PendingPairingApprovalView> PairingApprovals => pairingApprovals;
 
+    public string AndroidDownloadUrl => AndroidDownloadPrompt.GooglePlayUrl;
+
+    public bool HasAndroidDownloadPrompt =>
+        androidDownloadPromptInitialized &&
+        !androidDownloadDismissed &&
+        !hasPairedDevices &&
+        !HasPairingApprovals &&
+        !IsConnected;
+
     public void SetBluetoothState(DesktopUiState state, BluetoothStatus status)
     {
         desktopState = state;
@@ -93,6 +105,23 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             .ToArray();
         OnPropertyChanged(nameof(HasPairingApprovals));
         OnPropertyChanged(nameof(PairingApprovals));
+        OnPropertyChanged(nameof(HasAndroidDownloadPrompt));
+    }
+
+    public void SetAndroidDownloadPromptState(bool dismissed, bool hasPairedDevices)
+    {
+        androidDownloadPromptInitialized = true;
+        androidDownloadDismissed = dismissed;
+        this.hasPairedDevices = hasPairedDevices;
+        OnPropertyChanged(nameof(HasAndroidDownloadPrompt));
+        OnPropertyChanged(nameof(AndroidDownloadUrl));
+    }
+
+    public void DismissAndroidDownloadPrompt()
+    {
+        androidDownloadPromptInitialized = true;
+        androidDownloadDismissed = true;
+        OnPropertyChanged(nameof(HasAndroidDownloadPrompt));
     }
 
     private void NotifyStatusChanged()
@@ -113,6 +142,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(RecentBluetoothEvents));
         OnPropertyChanged(nameof(LastDisconnectReason));
         OnPropertyChanged(nameof(RecentBluetoothError));
+        OnPropertyChanged(nameof(HasAndroidDownloadPrompt));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
