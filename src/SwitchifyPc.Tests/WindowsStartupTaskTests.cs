@@ -75,6 +75,81 @@ public sealed class WindowsStartupTaskTests
     }
 
     [Fact]
+    public void ParsesEnabledStateFromVerboseTaskOutput()
+    {
+        string output = """
+        TaskName: \Switchify PC
+        Scheduled Task State: Enabled
+        Last Result: 0
+        """;
+
+        StartupTaskQueryDetails details = WindowsStartupTask.ParseTaskDetails(output);
+
+        Assert.True(details.Enabled);
+        Assert.Equal("0", details.LastRunResult);
+    }
+
+    [Fact]
+    public void ParsesDisabledStateFromVerboseTaskOutput()
+    {
+        string output = """
+        TaskName: \Switchify PC
+        Scheduled Task State: Disabled
+        Last Result: 1
+        """;
+
+        StartupTaskQueryDetails details = WindowsStartupTask.ParseTaskDetails(output);
+
+        Assert.False(details.Enabled);
+        Assert.Equal("1", details.LastRunResult);
+    }
+
+    [Fact]
+    public void TreatsMissingXmlEnabledAsEnabled()
+    {
+        StartupTaskSnapshot snapshot = WindowsStartupTask.ParseTaskXml(TaskXmlWithoutEnabled());
+
+        Assert.True(snapshot.Enabled);
+        Assert.Equal("C:\\Program Files\\Switchify PC\\Switchify PC.exe", snapshot.ExecutablePath);
+        Assert.Equal(["--start-hidden"], snapshot.Arguments);
+    }
+
+    [Fact]
+    public void VerboseDisabledStateOverridesMissingXmlEnabled()
+    {
+        StartupTaskSnapshot snapshot = WindowsStartupTask.ParseTaskXml(TaskXmlWithoutEnabled(), enabledOverride: false);
+
+        Assert.False(snapshot.Enabled);
+    }
+
+    [Fact]
+    public async Task GetAsyncUsesVerboseEnabledStateWhenXmlOmitsEnabled()
+    {
+        WindowsStartupTask task = new((_, args) =>
+        {
+            if (args.Contains("/XML"))
+            {
+                return Task.FromResult(new CommandResult(TaskXmlWithoutEnabled(), ""));
+            }
+
+            return Task.FromResult(new CommandResult(
+                """
+                TaskName: \Switchify PC
+                Scheduled Task State: Enabled
+                Last Result: 0
+                """,
+                ""));
+        });
+
+        StartupTaskSnapshot snapshot = await task.GetAsync("Switchify PC");
+
+        Assert.True(snapshot.Enabled);
+        Assert.Equal("C:\\Program Files\\Switchify PC\\Switchify PC.exe", snapshot.ExecutablePath);
+        Assert.Equal(["--start-hidden"], snapshot.Arguments);
+        Assert.Equal("0", snapshot.LastRunResult);
+    }
+
+    [Fact]
     public void ParsesDisabledScheduledTaskXml()
     {
         StartupTaskSnapshot snapshot = WindowsStartupTask.ParseTaskXml(TaskXml(enabled: false));
@@ -140,6 +215,23 @@ public sealed class WindowsStartupTaskTests
           <Actions>
             <Exec>
               <Command>C:\Program Files\Switchify PC\Switchify PC.exe</Command>
+              <Arguments>--start-hidden</Arguments>
+            </Exec>
+          </Actions>
+        </Task>
+        """;
+    }
+
+    private static string TaskXmlWithoutEnabled()
+    {
+        return """
+        <Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+          <Settings>
+            <DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>
+          </Settings>
+          <Actions>
+            <Exec>
+              <Command>"C:\Program Files\Switchify PC\Switchify PC.exe"</Command>
               <Arguments>--start-hidden</Arguments>
             </Exec>
           </Actions>
