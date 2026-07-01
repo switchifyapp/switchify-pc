@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Threading;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
@@ -139,7 +140,10 @@ public partial class App : System.Windows.Application
             ShowSettingsWindow,
             DisconnectBluetoothDevices,
             AcceptPairingApprovalAsync,
-            RejectPairingApproval);
+            RejectPairingApproval,
+            OpenAndroidDownloadUrl,
+            DismissAndroidDownloadPrompt);
+        _ = RefreshAndroidDownloadPromptStateAsync();
         window.Closing += (_, eventArgs) =>
         {
             if (isQuitting) return;
@@ -240,6 +244,11 @@ public partial class App : System.Windows.Application
     private PairingApprovalManager CreatePairingApprovalManager()
     {
         return new PairingApprovalManager(new JsonPairingStore(Path.Combine(UserDataDirectory(), "pairing-state.json")));
+    }
+
+    private JsonMainWindowPromptSettingsStore CreateMainWindowPromptSettingsStore()
+    {
+        return new JsonMainWindowPromptSettingsStore(Path.Combine(UserDataDirectory(), "main-window-prompt-settings.json"));
     }
 
     private async Task StartBluetoothAsync()
@@ -352,6 +361,7 @@ public partial class App : System.Windows.Application
         }
 
         RefreshPairingApprovals();
+        _ = RefreshAndroidDownloadPromptStateAsync();
     }
 
     private void RejectPairingApproval(string requestId)
@@ -366,6 +376,41 @@ public partial class App : System.Windows.Application
         }
 
         RefreshPairingApprovals();
+    }
+
+    private async Task RefreshAndroidDownloadPromptStateAsync()
+    {
+        MainWindowPromptSettings settings = CreateMainWindowPromptSettingsStore().Load();
+        PairingState pairingState = await new JsonPairingStore(Path.Combine(UserDataDirectory(), "pairing-state.json")).LoadAsync();
+
+        await Dispatcher.BeginInvoke(() => mainWindowViewModel.SetAndroidDownloadPromptState(
+            settings.AndroidDownloadDismissed,
+            pairingState.PairedDevices.Count > 0));
+    }
+
+    private void OpenAndroidDownloadUrl()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(AndroidDownloadPrompt.GooglePlayUrl)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+            System.Windows.MessageBox.Show(
+                "Could not open Google Play.",
+                "Switchify for Android",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
+    private void DismissAndroidDownloadPrompt()
+    {
+        CreateMainWindowPromptSettingsStore().Save(new MainWindowPromptSettings(AndroidDownloadDismissed: true));
+        mainWindowViewModel.DismissAndroidDownloadPrompt();
     }
 
     private void StartPairingExpiryTimer()
