@@ -543,10 +543,10 @@
                                                    Style="{StaticResource MutedText}" />
                                         <StackPanel Margin="0,10,0,0"
                                                     Visibility="{Binding IsUpdateDownloading, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                            <ProgressBar Value="{Binding UpdateDownloadPercent}"
-                                                         IsIndeterminate="{Binding IsUpdateDownloadIndeterminate}" />
+                                            <ProgressBar Value="{Binding UpdateDownloadPercent, Mode=OneWay}"
+                                                         IsIndeterminate="{Binding IsUpdateDownloadIndeterminate, Mode=OneWay}" />
                                             <TextBlock Margin="0,6,0,0"
-                                                       Text="{Binding UpdateDownloadProgressText}"
+                                                       Text="{Binding UpdateDownloadProgressText, Mode=OneWay}"
                                                        Style="{StaticResource MutedText}" />
                                         </StackPanel>
                                         <WrapPanel Margin="0,14,0,0">
