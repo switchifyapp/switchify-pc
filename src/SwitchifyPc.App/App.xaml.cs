@@ -293,6 +293,7 @@ public partial class App : System.Windows.Application
                     break;
                 case BluetoothConnectedEvent connected:
                     bluetoothStatusTracker.AddConnection(connected.ConnectionId);
+                    HideMainWindowAfterDeviceConnected();
                     break;
                 case BluetoothDisconnectedEvent disconnected:
                     BluetoothStatus status = bluetoothStatusTracker.RemoveConnection(disconnected.ConnectionId, disconnected.Reason);
@@ -427,6 +428,20 @@ public partial class App : System.Windows.Application
     private void UpdateMainWindowState(UpdateState state)
     {
         Dispatcher.BeginInvoke(() => mainWindowViewModel.SetUpdateState(state));
+    }
+
+    private void HideMainWindowAfterDeviceConnected()
+    {
+        if (MainWindow is not { IsVisible: true } window) return;
+
+        if (!MainWindowAutoHidePolicy.ShouldHideAfterDeviceConnected(
+            isMainWindowVisible: true,
+            hasPairingApprovals: mainWindowViewModel.HasPairingApprovals))
+        {
+            return;
+        }
+
+        window.Hide();
     }
 
     private void UpdateBluetoothState(BluetoothStatus status)
