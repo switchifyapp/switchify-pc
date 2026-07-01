@@ -55,10 +55,14 @@ public partial class App : System.Windows.Application
 
         if (!decision.IsPrimaryInstance)
         {
+            using WindowsExistingInstanceSignal signal = new();
             if (decision.ExistingInstanceAction == ExistingInstanceAction.ShowMainWindow)
             {
-                using WindowsExistingInstanceSignal signal = new();
                 signal.SignalShowMainWindow();
+            }
+            else if (decision.ExistingInstanceAction == ExistingInstanceAction.QuitForInstall)
+            {
+                signal.SignalQuitForInstall();
             }
 
             Shutdown();
@@ -66,7 +70,9 @@ public partial class App : System.Windows.Application
         }
 
         existingInstanceSignal = new WindowsExistingInstanceSignal();
-        existingInstanceSignal.Start(() => Dispatcher.BeginInvoke(ShowMainWindow));
+        existingInstanceSignal.Start(
+            () => Dispatcher.BeginInvoke(ShowMainWindow),
+            () => Dispatcher.BeginInvoke(QuitApplication));
         updateService = CreateUpdateService();
         pairingApprovalManager = CreatePairingApprovalManager();
         bluetoothStatusTracker = new BluetoothStatusTracker(onStatusChanged: UpdateBluetoothState);

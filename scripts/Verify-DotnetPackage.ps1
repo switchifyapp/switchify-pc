@@ -44,9 +44,11 @@ function Assert-InstallerScript {
   Assert-Includes -Content $content -Expected 'RequestExecutionLevel admin' -Label 'installer elevation requirement'
   Assert-Includes -Content $content -Expected 'InstallDir "$PROGRAMFILES64\Switchify PC"' -Label 'installer Program Files target'
   Assert-Includes -Content $content -Expected '!define MUI_FINISHPAGE_RUN "$INSTDIR\Switchify PC.exe"' -Label 'installer run-after-finish behavior'
-  Assert-Includes -Content $content -Expected 'Call PromptForRunningApp' -Label 'installer running-app prompt'
-  Assert-Includes -Content $content -Expected 'Call un.PromptForRunningApp' -Label 'uninstaller running-app prompt'
-  Assert-Includes -Content $content -Expected 'find /I "Switchify PC.exe"' -Label 'installer process detection'
+  Assert-Includes -Content $content -Expected 'Call CloseRunningAppForInstall' -Label 'installer running-app close flow'
+  Assert-Includes -Content $content -Expected 'Call un.CloseRunningAppForInstall' -Label 'uninstaller running-app close flow'
+  Assert-Includes -Content $content -Expected 'find /I "${APP_EXE}"' -Label 'installer process detection'
+  Assert-Includes -Content $content -Expected '--quit-for-install' -Label 'installer graceful app quit signal'
+  Assert-Includes -Content $content -Expected 'taskkill /IM "${APP_EXE}" /F /T' -Label 'installer force-close fallback'
   Assert-Includes -Content $content -Expected 'Software\Microsoft\Windows\CurrentVersion\Uninstall\Switchify PC' -Label 'installer uninstall registry key'
 }
 
