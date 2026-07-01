@@ -96,3 +96,5 @@ public sealed record UpdateInstallerLaunchResult(bool Ok, UpdateInstallFailureRe
     public static UpdateInstallerLaunchResult Success() => new(true);
     public static UpdateInstallerLaunchResult Failure(UpdateInstallFailureReason reason) => new(false, reason);
 }
+
+public sealed record UpdateInstallerLaunchOptions(bool Silent);

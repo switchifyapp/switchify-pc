@@ -49,6 +49,10 @@ function Assert-InstallerScript {
   Assert-Includes -Content $content -Expected 'find /I "${APP_EXE}"' -Label 'installer process detection'
   Assert-Includes -Content $content -Expected '--quit-for-install' -Label 'installer graceful app quit signal'
   Assert-Includes -Content $content -Expected 'taskkill /IM "${APP_EXE}" /F /T' -Label 'installer force-close fallback'
+  Assert-Includes -Content $content -Expected 'IfSilent' -Label 'installer silent-mode handling'
+  Assert-Includes -Content $content -Expected 'Exec ''"$INSTDIR\${APP_EXE}"''' -Label 'installer silent relaunch'
+  Assert-Includes -Content $content -Expected 'silent_force_close:' -Label 'installer silent force-close path'
+  Assert-Includes -Content $content -Expected 'SetErrorLevel 1' -Label 'installer silent failure exit code'
   Assert-Includes -Content $content -Expected 'Software\Microsoft\Windows\CurrentVersion\Uninstall\Switchify PC' -Label 'installer uninstall registry key'
 }
 

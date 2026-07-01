@@ -29,7 +29,10 @@ public sealed class WindowsUpdateInstallerLauncher : IUpdateInstallerLauncher
         this.fileExists = fileExists ?? File.Exists;
     }
 
-    public Task<UpdateInstallerLaunchResult> LaunchAsync(string? installerPath, CancellationToken cancellationToken = default)
+    public Task<UpdateInstallerLaunchResult> LaunchAsync(
+        string? installerPath,
+        UpdateInstallerLaunchOptions options,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(installerPath) || !fileExists(installerPath))
         {
@@ -42,6 +45,7 @@ public sealed class WindowsUpdateInstallerLauncher : IUpdateInstallerLauncher
             ProcessStartInfo startInfo = new()
             {
                 FileName = installerPath,
+                Arguments = options.Silent ? "/S" : string.Empty,
                 UseShellExecute = true,
                 WindowStyle = ProcessWindowStyle.Normal,
                 WorkingDirectory = Path.GetDirectoryName(installerPath) ?? string.Empty

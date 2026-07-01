@@ -12,7 +12,10 @@ public interface IUpdateBackend
 
 public interface IUpdateInstallerLauncher
 {
-    Task<UpdateInstallerLaunchResult> LaunchAsync(string? installerPath, CancellationToken cancellationToken = default);
+    Task<UpdateInstallerLaunchResult> LaunchAsync(
+        string? installerPath,
+        UpdateInstallerLaunchOptions options,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IUpdatePollScheduler
@@ -228,7 +231,9 @@ public sealed class UpdateService : IUpdateSettingsService
             installerPath = downloadedInstallerPath;
         }
 
-        UpdateInstallerLaunchResult result = await installerLauncher.LaunchAsync(installerPath, cancellationToken).ConfigureAwait(false);
+        UpdateInstallerLaunchResult result = await installerLauncher
+            .LaunchAsync(installerPath, new UpdateInstallerLaunchOptions(Silent: true), cancellationToken)
+            .ConfigureAwait(false);
         return result.Ok
             ? UpdateInstallResult.Success()
             : UpdateInstallResult.Failure(result.Reason ?? UpdateInstallFailureReason.InstallerLaunchFailed);
