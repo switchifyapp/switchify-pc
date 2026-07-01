@@ -12,7 +12,9 @@ public sealed class WindowsUpdateInstallerLauncherTests
         FakeProcessShell shell = new();
         WindowsUpdateInstallerLauncher launcher = new(shell, _ => false);
 
-        UpdateInstallerLaunchResult result = await launcher.LaunchAsync(@"C:\cache\missing.exe");
+        UpdateInstallerLaunchResult result = await launcher.LaunchAsync(
+            @"C:\cache\missing.exe",
+            new UpdateInstallerLaunchOptions(Silent: false));
 
         Assert.False(result.Ok);
         Assert.Equal(UpdateInstallFailureReason.InstallerUnavailable, result.Reason);
@@ -25,7 +27,9 @@ public sealed class WindowsUpdateInstallerLauncherTests
         FakeProcessShell shell = new();
         WindowsUpdateInstallerLauncher launcher = new(shell, _ => true);
 
-        UpdateInstallerLaunchResult result = await launcher.LaunchAsync(null);
+        UpdateInstallerLaunchResult result = await launcher.LaunchAsync(
+            null,
+            new UpdateInstallerLaunchOptions(Silent: false));
 
         Assert.False(result.Ok);
         Assert.Equal(UpdateInstallFailureReason.InstallerUnavailable, result.Reason);
@@ -38,14 +42,34 @@ public sealed class WindowsUpdateInstallerLauncherTests
         FakeProcessShell shell = new();
         WindowsUpdateInstallerLauncher launcher = new(shell, _ => true);
 
-        UpdateInstallerLaunchResult result = await launcher.LaunchAsync(@"C:\cache\Switchify-PC-Setup-0.2.0-x64.exe");
+        UpdateInstallerLaunchResult result = await launcher.LaunchAsync(
+            @"C:\cache\Switchify-PC-Setup-0.2.0-x64.exe",
+            new UpdateInstallerLaunchOptions(Silent: false));
 
         Assert.True(result.Ok);
         Assert.NotNull(shell.LastStartInfo);
         Assert.Equal(@"C:\cache\Switchify-PC-Setup-0.2.0-x64.exe", shell.LastStartInfo.FileName);
+        Assert.Equal(string.Empty, shell.LastStartInfo.Arguments);
         Assert.True(shell.LastStartInfo.UseShellExecute);
         Assert.Equal(ProcessWindowStyle.Normal, shell.LastStartInfo.WindowStyle);
         Assert.Equal(@"C:\cache", shell.LastStartInfo.WorkingDirectory);
+    }
+
+    [Fact]
+    public async Task LaunchesSilentInstallerWithNsisSilentArgument()
+    {
+        FakeProcessShell shell = new();
+        WindowsUpdateInstallerLauncher launcher = new(shell, _ => true);
+
+        UpdateInstallerLaunchResult result = await launcher.LaunchAsync(
+            @"C:\cache\Switchify-PC-Setup-0.2.0-x64.exe",
+            new UpdateInstallerLaunchOptions(Silent: true));
+
+        Assert.True(result.Ok);
+        Assert.NotNull(shell.LastStartInfo);
+        Assert.Equal("/S", shell.LastStartInfo.Arguments);
+        Assert.True(shell.LastStartInfo.UseShellExecute);
+        Assert.Equal(ProcessWindowStyle.Normal, shell.LastStartInfo.WindowStyle);
     }
 
     [Fact]
@@ -54,7 +78,9 @@ public sealed class WindowsUpdateInstallerLauncherTests
         FakeProcessShell shell = new() { StartResult = false };
         WindowsUpdateInstallerLauncher launcher = new(shell, _ => true);
 
-        UpdateInstallerLaunchResult result = await launcher.LaunchAsync(@"C:\cache\setup.exe");
+        UpdateInstallerLaunchResult result = await launcher.LaunchAsync(
+            @"C:\cache\setup.exe",
+            new UpdateInstallerLaunchOptions(Silent: false));
 
         Assert.False(result.Ok);
         Assert.Equal(UpdateInstallFailureReason.InstallerLaunchFailed, result.Reason);
@@ -66,7 +92,9 @@ public sealed class WindowsUpdateInstallerLauncherTests
         FakeProcessShell shell = new() { ThrowOnStart = true };
         WindowsUpdateInstallerLauncher launcher = new(shell, _ => true);
 
-        UpdateInstallerLaunchResult result = await launcher.LaunchAsync(@"C:\cache\setup.exe");
+        UpdateInstallerLaunchResult result = await launcher.LaunchAsync(
+            @"C:\cache\setup.exe",
+            new UpdateInstallerLaunchOptions(Silent: false));
 
         Assert.False(result.Ok);
         Assert.Equal(UpdateInstallFailureReason.InstallerLaunchFailed, result.Reason);

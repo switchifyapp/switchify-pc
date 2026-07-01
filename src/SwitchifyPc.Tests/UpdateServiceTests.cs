@@ -103,6 +103,7 @@ public sealed class UpdateServiceTests
         Assert.True(result.Ok);
         Assert.Equal(1, launcher.LaunchCalls);
         Assert.Equal(@"C:\cache\Switchify-PC-Setup-0.2.0-x64.exe", launcher.LastInstallerPath);
+        Assert.Equal(new UpdateInstallerLaunchOptions(Silent: true), launcher.LastOptions);
         Assert.Equal(UpdateDownloadStatus.Downloaded, service.GetState().Download.Status);
     }
 
@@ -291,12 +292,17 @@ public sealed class UpdateServiceTests
     {
         public int LaunchCalls { get; private set; }
         public string? LastInstallerPath { get; private set; }
+        public UpdateInstallerLaunchOptions? LastOptions { get; private set; }
         public UpdateInstallerLaunchResult Result { get; init; } = UpdateInstallerLaunchResult.Success();
 
-        public Task<UpdateInstallerLaunchResult> LaunchAsync(string? installerPath, CancellationToken cancellationToken = default)
+        public Task<UpdateInstallerLaunchResult> LaunchAsync(
+            string? installerPath,
+            UpdateInstallerLaunchOptions options,
+            CancellationToken cancellationToken = default)
         {
             LaunchCalls++;
             LastInstallerPath = installerPath;
+            LastOptions = options;
             return Task.FromResult(Result);
         }
     }

@@ -66,6 +66,10 @@ Section "Switchify PC" SecMain
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Switchify PC" "UninstallString" "$INSTDIR\Uninstall.exe"
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Switchify PC" "NoModify" 1
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Switchify PC" "NoRepair" 1
+
+  IfSilent 0 done
+  Exec '"$INSTDIR\${APP_EXE}"'
+  done:
 SectionEnd
 
 Section "Uninstall"
@@ -117,6 +121,20 @@ Function CloseRunningAppForInstall
   ${If} $0 == 0
     Return
   ${EndIf}
+
+  IfSilent silent_force_close force_prompt
+
+  silent_force_close:
+  DetailPrint "Closing Switchify PC..."
+  nsExec::ExecToStack 'cmd /c taskkill /IM "${APP_EXE}" /F /T >NUL 2>NUL'
+  Pop $0
+  Pop $1
+  Call WaitForAppExit
+  ${If} $0 == 0
+    Return
+  ${EndIf}
+  SetErrorLevel 1
+  Abort
 
   force_prompt:
   MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "Switchify PC needs to close before installation can continue.$\r$\n$\r$\nClick OK to close Switchify PC and continue installing, or Cancel to stop the installer." IDOK force_close IDCANCEL cancel
@@ -175,6 +193,20 @@ Function un.CloseRunningAppForInstall
   ${If} $0 == 0
     Return
   ${EndIf}
+
+  IfSilent silent_force_close force_prompt
+
+  silent_force_close:
+  DetailPrint "Closing Switchify PC..."
+  nsExec::ExecToStack 'cmd /c taskkill /IM "${APP_EXE}" /F /T >NUL 2>NUL'
+  Pop $0
+  Pop $1
+  Call un.WaitForAppExit
+  ${If} $0 == 0
+    Return
+  ${EndIf}
+  SetErrorLevel 1
+  Abort
 
   force_prompt:
   MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "Switchify PC needs to close before uninstalling can continue.$\r$\n$\r$\nClick OK to close Switchify PC and continue uninstalling, or Cancel to stop the uninstaller." IDOK force_close IDCANCEL cancel
