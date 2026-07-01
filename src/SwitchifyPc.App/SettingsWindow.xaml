@@ -193,6 +193,14 @@
             <Setter Property="Width" Value="10" />
             <Setter Property="MinWidth" Value="10" />
         </Style>
+
+        <Style TargetType="ProgressBar">
+            <Setter Property="Height" Value="10" />
+            <Setter Property="Minimum" Value="0" />
+            <Setter Property="Maximum" Value="100" />
+            <Setter Property="Foreground" Value="{StaticResource BrandPrimary}" />
+            <Setter Property="Background" Value="{StaticResource BorderColor}" />
+        </Style>
     </Window.Resources>
 
     <Grid Background="#F5F4F7" Margin="24">
@@ -533,6 +541,14 @@
                                         <TextBlock Margin="0,6,0,0"
                                                    Text="{Binding UpdateDownloadMessage}"
                                                    Style="{StaticResource MutedText}" />
+                                        <StackPanel Margin="0,10,0,0"
+                                                    Visibility="{Binding IsUpdateDownloading, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <ProgressBar Value="{Binding UpdateDownloadPercent}"
+                                                         IsIndeterminate="{Binding IsUpdateDownloadIndeterminate}" />
+                                            <TextBlock Margin="0,6,0,0"
+                                                       Text="{Binding UpdateDownloadProgressText}"
+                                                       Style="{StaticResource MutedText}" />
+                                        </StackPanel>
                                         <WrapPanel Margin="0,14,0,0">
                                             <Button Content="Check for updates"
                                                     Margin="0,0,10,8"
