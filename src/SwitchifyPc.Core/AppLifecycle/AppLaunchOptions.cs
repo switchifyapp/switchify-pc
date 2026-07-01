@@ -1,12 +1,15 @@
 namespace SwitchifyPc.Core.AppLifecycle;
 
-public sealed record AppLaunchOptions(bool StartHidden)
+public sealed record AppLaunchOptions(bool StartHidden, bool QuitForInstall = false)
 {
     public const string StartHiddenArg = "--start-hidden";
+    public const string QuitForInstallArg = "--quit-for-install";
 
     public static AppLaunchOptions Parse(IEnumerable<string> args)
     {
-        return new AppLaunchOptions(args.Any(arg => string.Equals(arg, StartHiddenArg, StringComparison.OrdinalIgnoreCase)));
+        return new AppLaunchOptions(
+            StartHidden: args.Any(arg => string.Equals(arg, StartHiddenArg, StringComparison.OrdinalIgnoreCase)),
+            QuitForInstall: args.Any(arg => string.Equals(arg, QuitForInstallArg, StringComparison.OrdinalIgnoreCase)));
     }
 }
 
@@ -14,7 +17,8 @@ public enum ExistingInstanceAction
 {
     None,
     ShowMainWindow,
-    ExitQuietly
+    ExitQuietly,
+    QuitForInstall
 }
 
 public sealed record SingleInstanceDecision(bool IsPrimaryInstance, bool ShowMainWindow, ExistingInstanceAction ExistingInstanceAction);
@@ -46,6 +50,16 @@ public sealed class SingleInstanceService
         activeLock = lockFactory.TryAcquire(LockName);
         if (activeLock.IsAcquired)
         {
+            if (options.QuitForInstall)
+            {
+                activeLock.Dispose();
+                activeLock = null;
+                return new SingleInstanceDecision(
+                    IsPrimaryInstance: false,
+                    ShowMainWindow: false,
+                    ExistingInstanceAction: ExistingInstanceAction.ExitQuietly);
+            }
+
             return new SingleInstanceDecision(
                 IsPrimaryInstance: true,
                 ShowMainWindow: !options.StartHidden,
@@ -57,7 +71,11 @@ public sealed class SingleInstanceService
         return new SingleInstanceDecision(
             IsPrimaryInstance: false,
             ShowMainWindow: false,
-            ExistingInstanceAction: options.StartHidden ? ExistingInstanceAction.ExitQuietly : ExistingInstanceAction.ShowMainWindow);
+            ExistingInstanceAction: options.QuitForInstall
+                ? ExistingInstanceAction.QuitForInstall
+                : options.StartHidden
+                    ? ExistingInstanceAction.ExitQuietly
+                    : ExistingInstanceAction.ShowMainWindow);
     }
 
     public void Stop()

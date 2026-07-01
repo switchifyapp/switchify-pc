@@ -14,6 +14,14 @@ public sealed class AppLifecycleTests
     }
 
     [Fact]
+    public void ParsesQuitForInstallArgument()
+    {
+        Assert.False(AppLaunchOptions.Parse([]).QuitForInstall);
+        Assert.True(AppLaunchOptions.Parse(["--quit-for-install"]).QuitForInstall);
+        Assert.True(AppLaunchOptions.Parse(["--QUIT-FOR-INSTALL"]).QuitForInstall);
+    }
+
+    [Fact]
     public void PrimaryNormalLaunchShowsMainWindow()
     {
         SingleInstanceService service = new(new FakeLockFactory(acquired: true));
@@ -35,6 +43,20 @@ public sealed class AppLifecycleTests
         Assert.True(decision.IsPrimaryInstance);
         Assert.False(decision.ShowMainWindow);
         Assert.Equal(ExistingInstanceAction.None, decision.ExistingInstanceAction);
+    }
+
+    [Fact]
+    public void PrimaryQuitForInstallLaunchExitsQuietly()
+    {
+        FakeLock appLock = new(acquired: true);
+        SingleInstanceService service = new(new FakeLockFactory(appLock));
+
+        SingleInstanceDecision decision = service.Start(new AppLaunchOptions(StartHidden: false, QuitForInstall: true));
+
+        Assert.False(decision.IsPrimaryInstance);
+        Assert.False(decision.ShowMainWindow);
+        Assert.Equal(ExistingInstanceAction.ExitQuietly, decision.ExistingInstanceAction);
+        Assert.True(appLock.Disposed);
     }
 
     [Fact]
@@ -62,6 +84,18 @@ public sealed class AppLifecycleTests
     }
 
     [Fact]
+    public void SecondQuitForInstallLaunchRequestsExistingInstanceQuit()
+    {
+        SingleInstanceService service = new(new FakeLockFactory(acquired: false));
+
+        SingleInstanceDecision decision = service.Start(new AppLaunchOptions(StartHidden: false, QuitForInstall: true));
+
+        Assert.False(decision.IsPrimaryInstance);
+        Assert.False(decision.ShowMainWindow);
+        Assert.Equal(ExistingInstanceAction.QuitForInstall, decision.ExistingInstanceAction);
+    }
+
+    [Fact]
     public void StopDisposesAcquiredLock()
     {
         FakeLock appLock = new(acquired: true);
@@ -76,11 +110,12 @@ public sealed class AppLifecycleTests
     [Fact]
     public async Task ExistingInstanceSignalNotifiesListener()
     {
-        string signalName = $@"Local\SwitchifyPc.Tests.{Guid.NewGuid()}";
-        using WindowsExistingInstanceSignal listener = new(signalName);
-        using WindowsExistingInstanceSignal signaler = new(signalName);
+        string showSignalName = $@"Local\SwitchifyPc.Tests.Show.{Guid.NewGuid()}";
+        string quitSignalName = $@"Local\SwitchifyPc.Tests.Quit.{Guid.NewGuid()}";
+        using WindowsExistingInstanceSignal listener = new(showSignalName, quitSignalName);
+        using WindowsExistingInstanceSignal signaler = new(showSignalName, quitSignalName);
         TaskCompletionSource notified = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        listener.Start(() => notified.TrySetResult());
+        listener.Start(() => notified.TrySetResult(), () => { });
 
         Assert.True(signaler.SignalShowMainWindow());
 
@@ -89,11 +124,30 @@ public sealed class AppLifecycleTests
     }
 
     [Fact]
+    public async Task ExistingInstanceSignalNotifiesQuitListener()
+    {
+        string showSignalName = $@"Local\SwitchifyPc.Tests.Show.{Guid.NewGuid()}";
+        string quitSignalName = $@"Local\SwitchifyPc.Tests.Quit.{Guid.NewGuid()}";
+        using WindowsExistingInstanceSignal listener = new(showSignalName, quitSignalName);
+        using WindowsExistingInstanceSignal signaler = new(showSignalName, quitSignalName);
+        TaskCompletionSource notified = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        listener.Start(() => { }, () => notified.TrySetResult());
+
+        Assert.True(signaler.SignalQuitForInstall());
+
+        Task completed = await Task.WhenAny(notified.Task, Task.Delay(TimeSpan.FromSeconds(2)));
+        Assert.Same(notified.Task, completed);
+    }
+
+    [Fact]
     public void ExistingInstanceSignalReturnsFalseWhenNoListenerExists()
     {
-        using WindowsExistingInstanceSignal signaler = new($@"Local\SwitchifyPc.Tests.{Guid.NewGuid()}");
+        using WindowsExistingInstanceSignal signaler = new(
+            $@"Local\SwitchifyPc.Tests.Show.{Guid.NewGuid()}",
+            $@"Local\SwitchifyPc.Tests.Quit.{Guid.NewGuid()}");
 
         Assert.False(signaler.SignalShowMainWindow());
+        Assert.False(signaler.SignalQuitForInstall());
     }
 
     private sealed class FakeLockFactory : ISingleInstanceLockFactory

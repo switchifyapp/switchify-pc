@@ -146,7 +146,7 @@ public partial class SettingsWindow : Window
     {
         if (controller is null) return;
         MessageBoxResult confirmation = WpfMessageBox.Show(
-            "Open the downloaded Switchify PC installer?\n\nThe installer will open in Windows and may ask you to close Switchify PC before continuing. If you rely on Switchify to control this computer, make sure you have another way to complete the installer before continuing.",
+            "Open the downloaded Switchify PC installer?\n\nThe installer will open in Windows and may close Switchify PC while the update is installed. If you rely on Switchify to control this computer, make sure you have another way to complete the installer before continuing.",
             "Install update?",
             MessageBoxButton.OKCancel,
             MessageBoxImage.Warning,
