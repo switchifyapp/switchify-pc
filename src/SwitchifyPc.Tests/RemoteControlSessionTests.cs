@@ -24,6 +24,7 @@ public sealed class RemoteControlSessionTests
             remoteAddress: "192.168.1.50");
 
         Assert.Empty(result.OutgoingMessages);
+        Assert.False(result.ShouldAutoHideMainWindow);
         PendingPairingApprovalView approval = Assert.Single(context.ApprovalManager.ListPendingRequestViews());
         Assert.Equal("request-1", approval.RequestId);
         Assert.Equal("Pixel 9", approval.DeviceName);
@@ -135,11 +136,72 @@ public sealed class RemoteControlSessionTests
             "ble-1",
             SignedCommand("keyboard.key", new { key = "Meta" }));
 
+        Assert.False(result.ShouldAutoHideMainWindow);
         RemoteSessionOutgoingMessage outgoing = Assert.Single(result.OutgoingMessages);
         Assert.Equal("ble-1", outgoing.ConnectionId);
         using JsonDocument response = JsonDocument.Parse(outgoing.ResponseJson);
         Assert.Equal("ack", response.RootElement.GetProperty("type").GetString());
         Assert.Equal(["pressKey:Meta"], context.Adapter.Calls);
+    }
+
+    [Fact]
+    public async Task PreviouslyUsedDeviceCommandRequestsAutoHide()
+    {
+        TestContext context = CreateContext(lastSeenAt: Now - 500);
+
+        RemoteSessionResult result = await context.Session.ProcessMessageAsync(
+            "ble-1",
+            SignedCommand("keyboard.key", new { key = "Meta" }));
+
+        Assert.True(result.ShouldAutoHideMainWindow);
+    }
+
+    [Fact]
+    public async Task NewlyPairedDeviceConnectionDoesNotAutoHideDuringFirstSession()
+    {
+        TestContext context = CreateContext();
+
+        RemoteSessionResult first = await context.Session.ProcessMessageAsync(
+            "ble-1",
+            SignedCommand("keyboard.key", new { key = "Meta" }, id: "command-1"));
+        RemoteSessionResult second = await context.Session.ProcessMessageAsync(
+            "ble-1",
+            SignedCommand("connection.ping", new { }, id: "command-2"));
+
+        Assert.False(first.ShouldAutoHideMainWindow);
+        Assert.False(second.ShouldAutoHideMainWindow);
+        Assert.Equal(Now, (await context.Store.LoadAsync()).PairedDevices[0].LastSeenAt);
+    }
+
+    [Fact]
+    public async Task PreviouslyUsedDeviceReconnectCanAutoHide()
+    {
+        TestContext context = CreateContext();
+        await context.Session.ProcessMessageAsync(
+            "ble-1",
+            SignedCommand("keyboard.key", new { key = "Meta" }, id: "command-1"));
+        context.Session.RemoveConnection("ble-1");
+
+        RemoteSessionResult result = await context.Session.ProcessMessageAsync(
+            "ble-2",
+            SignedCommand("connection.ping", new { }, id: "command-2"));
+
+        Assert.True(result.ShouldAutoHideMainWindow);
+    }
+
+    [Fact]
+    public async Task RemoveConnectionClearsAutoHideEligibility()
+    {
+        TestContext context = CreateContext(lastSeenAt: Now - 500);
+        Assert.True((await context.Session.ProcessMessageAsync(
+            "ble-1",
+            SignedCommand("keyboard.key", new { key = "Meta" }, id: "command-1"))).ShouldAutoHideMainWindow);
+
+        context.Session.RemoveConnection("ble-1");
+
+        Assert.True((await context.Session.ProcessMessageAsync(
+            "ble-1",
+            SignedCommand("connection.ping", new { }, id: "command-2"))).ShouldAutoHideMainWindow);
     }
 
     [Fact]
@@ -173,13 +235,13 @@ public sealed class RemoteControlSessionTests
             context.Adapter.Calls);
     }
 
-    private static TestContext CreateContext(Func<double>? now = null, Func<string>? createToken = null)
+    private static TestContext CreateContext(Func<double>? now = null, Func<string>? createToken = null, double? lastSeenAt = null)
     {
         MemoryPairingStore store = new(new PairingState(
             DesktopId: "desktop-1",
             PairedDevices:
             [
-                new PairedDevice(DeviceId, "Phone", Token, PairedAt: 1, LastSeenAt: null)
+                new PairedDevice(DeviceId, "Phone", Token, PairedAt: 1, lastSeenAt)
             ]));
         FakeInputAdapter adapter = new();
         PairingApprovalManager approvalManager = new(store, now ?? (() => Now), createToken);
@@ -204,7 +266,7 @@ public sealed class RemoteControlSessionTests
             commandSession,
             () => pendingChangeCount += 1);
 
-        return new TestContext(session, approvalManager, adapter, () => pendingChangeCount);
+        return new TestContext(session, approvalManager, adapter, store, () => pendingChangeCount);
     }
 
     private static string PairingRequest(
@@ -270,6 +332,7 @@ public sealed class RemoteControlSessionTests
         RemoteControlSession Session,
         PairingApprovalManager ApprovalManager,
         FakeInputAdapter Adapter,
+        MemoryPairingStore Store,
         Func<int> GetPendingChangeCount)
     {
         public int PendingChangeCount => GetPendingChangeCount();

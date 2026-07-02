@@ -31,6 +31,7 @@ public sealed class BluetoothRemoteFrameProcessorTests
         }
 
         Assert.True(result.MessageComplete);
+        Assert.False(result.ShouldAutoHideMainWindow);
         BluetoothRemoteFrameOutput output = Assert.Single(result.OutgoingMessages);
         Assert.Equal("ble-1", output.ConnectionId);
         Assert.False(output.CloseConnection);
@@ -52,6 +53,7 @@ public sealed class BluetoothRemoteFrameProcessorTests
         }
 
         Assert.True(result.MessageComplete);
+        Assert.False(result.ShouldAutoHideMainWindow);
         Assert.Empty(result.OutgoingMessages);
         Assert.Equal("192.168.1.50", Assert.Single(context.ApprovalManager.ListPendingRequestViews()).RemoteAddress);
 
@@ -63,6 +65,47 @@ public sealed class BluetoothRemoteFrameProcessorTests
         using JsonDocument response = Reassemble(output.ResponseFrames);
         Assert.Equal("pairing.complete", response.RootElement.GetProperty("type").GetString());
         Assert.Equal("new-token", response.RootElement.GetProperty("payload").GetProperty("token").GetString());
+    }
+
+    [Fact]
+    public async Task ReassembledCommandFromPreviouslyUsedDeviceRequestsAutoHide()
+    {
+        TestContext context = CreateContext(lastSeenAt: Now - 500);
+        BluetoothRemoteFrameProcessor processor = new(context.Session, maxResponseFramePayloadBytes: 20);
+        IReadOnlyList<BluetoothFrame> frames = BluetoothFrameCodec.CreateFrames(
+            SignedCommand("keyboard.key", new { key = "Meta" }),
+            "incoming-1",
+            maxPayloadBytes: 40);
+
+        BluetoothRemoteFrameResult result = BluetoothRemoteFrameResult.Incomplete();
+        foreach (BluetoothFrame frame in frames)
+        {
+            result = await processor.AcceptAsync("ble-1", frame);
+        }
+
+        Assert.True(result.MessageComplete);
+        Assert.True(result.ShouldAutoHideMainWindow);
+    }
+
+    [Fact]
+    public async Task NewPairedDeviceDoesNotRequestAutoHideForRepeatedMessagesOnSameConnection()
+    {
+        TestContext context = CreateContext();
+        BluetoothRemoteFrameProcessor processor = new(context.Session);
+
+        BluetoothRemoteFrameResult first = await AcceptAllFramesAsync(
+            processor,
+            "ble-1",
+            BluetoothFrameCodec.CreateFrames(SignedCommand("keyboard.key", new { key = "Meta" }, id: "command-1")));
+        BluetoothRemoteFrameResult second = await AcceptAllFramesAsync(
+            processor,
+            "ble-1",
+            BluetoothFrameCodec.CreateFrames(SignedCommand("connection.ping", new { }, id: "command-2")));
+
+        Assert.True(first.MessageComplete);
+        Assert.True(second.MessageComplete);
+        Assert.False(first.ShouldAutoHideMainWindow);
+        Assert.False(second.ShouldAutoHideMainWindow);
     }
 
     [Fact]
@@ -121,13 +164,13 @@ public sealed class BluetoothRemoteFrameProcessorTests
         Assert.Empty(context.ApprovalManager.ListPendingRequests());
     }
 
-    private static TestContext CreateContext(Func<string>? createToken = null)
+    private static TestContext CreateContext(Func<string>? createToken = null, double? lastSeenAt = null)
     {
         MemoryPairingStore store = new(new PairingState(
             DesktopId: "desktop-1",
             PairedDevices:
             [
-                new PairedDevice(DeviceId, "Phone", Token, PairedAt: 1, LastSeenAt: null)
+                new PairedDevice(DeviceId, "Phone", Token, PairedAt: 1, lastSeenAt)
             ]));
         FakeInputAdapter adapter = new();
         PairingApprovalManager approvalManager = new(store, () => Now, createToken);
@@ -161,6 +204,20 @@ public sealed class BluetoothRemoteFrameProcessorTests
 
         Assert.True(result.Ok);
         return JsonDocument.Parse(result.Message!);
+    }
+
+    private static async Task<BluetoothRemoteFrameResult> AcceptAllFramesAsync(
+        BluetoothRemoteFrameProcessor processor,
+        string connectionId,
+        IReadOnlyList<BluetoothFrame> frames)
+    {
+        BluetoothRemoteFrameResult result = BluetoothRemoteFrameResult.Incomplete();
+        foreach (BluetoothFrame frame in frames)
+        {
+            result = await processor.AcceptAsync(connectionId, frame);
+        }
+
+        return result;
     }
 
     private static void AssertResponseType(IReadOnlyList<BluetoothFrame> frames, string expectedType)

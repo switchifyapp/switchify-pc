@@ -302,7 +302,6 @@ public partial class App : System.Windows.Application
                     break;
                 case BluetoothConnectedEvent connected:
                     bluetoothStatusTracker.AddConnection(connected.ConnectionId);
-                    HideMainWindowAfterDeviceConnected();
                     break;
                 case BluetoothDisconnectedEvent disconnected:
                     BluetoothStatus status = bluetoothStatusTracker.RemoveConnection(disconnected.ConnectionId, disconnected.Reason);
@@ -346,6 +345,11 @@ public partial class App : System.Windows.Application
         }
 
         await SendBluetoothOutputsAsync(result.OutgoingMessages);
+
+        if (result.ShouldAutoHideMainWindow)
+        {
+            HideMainWindowAfterPreviouslyUsedDeviceControl();
+        }
     }
 
     private async Task AcceptPairingApprovalAsync(string requestId)
@@ -475,13 +479,14 @@ public partial class App : System.Windows.Application
         Dispatcher.BeginInvoke(() => mainWindowViewModel.SetUpdateState(state));
     }
 
-    private void HideMainWindowAfterDeviceConnected()
+    private void HideMainWindowAfterPreviouslyUsedDeviceControl()
     {
         if (MainWindow is not { IsVisible: true } window) return;
 
-        if (!MainWindowAutoHidePolicy.ShouldHideAfterDeviceConnected(
+        if (!MainWindowAutoHidePolicy.ShouldHideAfterPreviouslyUsedDeviceControl(
             isMainWindowVisible: true,
-            hasPairingApprovals: mainWindowViewModel.HasPairingApprovals))
+            hasPairingApprovals: mainWindowViewModel.HasPairingApprovals,
+            isPreviouslyUsedDeviceSession: true))
         {
             return;
         }

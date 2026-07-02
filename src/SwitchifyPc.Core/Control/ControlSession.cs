@@ -6,9 +6,13 @@ using SwitchifyPc.Protocol;
 
 namespace SwitchifyPc.Core.Control;
 
-public sealed record ControlSessionResult(string? ResponseJson)
+public sealed record ControlSessionResult(
+    string? ResponseJson,
+    string? AuthenticatedDeviceId = null,
+    bool AuthenticatedDeviceWasPreviouslyUsed = false)
 {
     public bool HasResponse => ResponseJson is not null;
+    public bool HasAuthenticatedDevice => AuthenticatedDeviceId is not null;
 
     public static ControlSessionResult NoResponse { get; } = new((string?)null);
 
@@ -80,24 +84,37 @@ public sealed class ControlSession
         {
             await commandExecutor.ReleaseHeldMouseButtonsAsync(cancellationToken).ConfigureAwait(false);
             commandExecutor.EndControlSession();
-            return AckOrNoResponse(request);
+            return WithAuth(AckOrNoResponse(request), auth);
         }
 
         if (type == "pointer.profile")
         {
-            return ResponseOrNoResponse(request, PointerProfileResponse(request.GetProperty("id").GetString() ?? "", pointerProfileProvider.GetPointerProfile()));
+            return WithAuth(
+                ResponseOrNoResponse(request, PointerProfileResponse(request.GetProperty("id").GetString() ?? "", pointerProfileProvider.GetPointerProfile())),
+                auth);
         }
 
         CommandExecutionResult result = await commandExecutor.ExecuteAsync(auth.Command.Value, cancellationToken).ConfigureAwait(false);
         if (!result.Ok)
         {
-            return ControlSessionResult.Response(ErrorResponse(
-                RequestIdOrNull(request),
-                result.Code ?? "command_failed",
-                result.Message ?? "Command failed."));
+            return WithAuth(
+                ControlSessionResult.Response(ErrorResponse(
+                    RequestIdOrNull(request),
+                    result.Code ?? "command_failed",
+                    result.Message ?? "Command failed.")),
+                auth);
         }
 
-        return AckOrNoResponse(request);
+        return WithAuth(AckOrNoResponse(request), auth);
+    }
+
+    private static ControlSessionResult WithAuth(ControlSessionResult result, AuthValidationResult auth)
+    {
+        return result with
+        {
+            AuthenticatedDeviceId = auth.DeviceId,
+            AuthenticatedDeviceWasPreviouslyUsed = auth.DeviceWasPreviouslyUsed
+        };
     }
 
     private static JsonDocument? TryParse(string rawMessage, out JsonObject? error)

@@ -111,25 +111,29 @@ public static class CommandAuth
 
 public sealed record AuthValidationResult
 {
-    private AuthValidationResult(bool ok, JsonElement? command, string? reason)
+    private AuthValidationResult(bool ok, JsonElement? command, string? reason, string? deviceId, bool deviceWasPreviouslyUsed)
     {
         Ok = ok;
         Command = command;
         Reason = reason;
+        DeviceId = deviceId;
+        DeviceWasPreviouslyUsed = deviceWasPreviouslyUsed;
     }
 
     public bool Ok { get; }
     public JsonElement? Command { get; }
     public string? Reason { get; }
+    public string? DeviceId { get; }
+    public bool DeviceWasPreviouslyUsed { get; }
 
-    public static AuthValidationResult Valid(JsonElement command)
+    public static AuthValidationResult Valid(JsonElement command, string deviceId, bool deviceWasPreviouslyUsed)
     {
-        return new AuthValidationResult(true, command.Clone(), null);
+        return new AuthValidationResult(true, command.Clone(), null, deviceId, deviceWasPreviouslyUsed);
     }
 
     public static AuthValidationResult Invalid(string reason)
     {
-        return new AuthValidationResult(false, null, reason);
+        return new AuthValidationResult(false, null, reason, null, false);
     }
 }
 
@@ -181,9 +185,10 @@ public sealed class CommandAuthValidator
             return AuthValidationResult.Invalid("invalid_auth");
         }
 
+        bool deviceWasPreviouslyUsed = pairedDevice.LastSeenAt is not null;
         seenRequestIds[replayKey] = now() + CommandAuth.ReplayCacheTtlMs;
         await store.SaveAsync(UpdateLastSeen(state, deviceId, now()), cancellationToken);
-        return AuthValidationResult.Valid(value);
+        return AuthValidationResult.Valid(value, deviceId, deviceWasPreviouslyUsed);
     }
 
     private void PruneReplayCache()

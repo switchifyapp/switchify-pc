@@ -19,6 +19,22 @@ public sealed class CommandAuthTests
         AuthValidationResult result = await validator.ValidateAsync(command);
 
         Assert.True(result.Ok, result.Reason);
+        Assert.Equal("android-1", result.DeviceId);
+        Assert.False(result.DeviceWasPreviouslyUsed);
+        Assert.Equal(Now, (await store.LoadAsync()).PairedDevices[0].LastSeenAt);
+    }
+
+    [Fact]
+    public async Task ReportsPreviouslyUsedDeviceWhenLastSeenAlreadyExists()
+    {
+        MemoryPairingStore store = CreateStore(lastSeenAt: Now - 500);
+        CommandAuthValidator validator = new(store, () => Now);
+
+        AuthValidationResult result = await validator.ValidateAsync(CreateCommand());
+
+        Assert.True(result.Ok, result.Reason);
+        Assert.Equal("android-1", result.DeviceId);
+        Assert.True(result.DeviceWasPreviouslyUsed);
         Assert.Equal(Now, (await store.LoadAsync()).PairedDevices[0].LastSeenAt);
     }
 
@@ -31,6 +47,8 @@ public sealed class CommandAuthTests
 
         Assert.False(result.Ok);
         Assert.Equal("unknown_device", result.Reason);
+        Assert.Null(result.DeviceId);
+        Assert.False(result.DeviceWasPreviouslyUsed);
     }
 
     [Fact]
@@ -43,6 +61,8 @@ public sealed class CommandAuthTests
 
         Assert.False(result.Ok);
         Assert.Equal("invalid_auth", result.Reason);
+        Assert.Null(result.DeviceId);
+        Assert.False(result.DeviceWasPreviouslyUsed);
         Assert.Null((await store.LoadAsync()).PairedDevices[0].LastSeenAt);
     }
 
@@ -148,11 +168,11 @@ public sealed class CommandAuthTests
         Assert.Equal("pt4LxoCG9dZGwACgwRdlnbo5hG3VIg4w1JHbfPaln8E", CommandAuth.CreateCommandAuthProof(CreateMouseMoveCommand(new Dictionary<string, object?> { ["responseMode"] = "none" }), Token));
     }
 
-    private static MemoryPairingStore CreateStore()
+    private static MemoryPairingStore CreateStore(double? lastSeenAt = null)
     {
         return new MemoryPairingStore(new PairingState(
             "desktop-1",
-            [new PairedDevice("android-1", "Android device", Token, Now - 1000, null)]));
+            [new PairedDevice("android-1", "Android device", Token, Now - 1000, lastSeenAt)]));
     }
 
     private static JsonElement CreateCommand(Dictionary<string, object?>? overrides = null)

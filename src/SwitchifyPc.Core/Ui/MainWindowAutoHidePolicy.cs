@@ -2,10 +2,13 @@ namespace SwitchifyPc.Core.Ui;
 
 public static class MainWindowAutoHidePolicy
 {
-    public static bool ShouldHideAfterDeviceConnected(
+    public static bool ShouldHideAfterPreviouslyUsedDeviceControl(
         bool isMainWindowVisible,
-        bool hasPairingApprovals)
+        bool hasPairingApprovals,
+        bool isPreviouslyUsedDeviceSession)
     {
-        return isMainWindowVisible && !hasPairingApprovals;
+        return isMainWindowVisible &&
+            isPreviouslyUsedDeviceSession &&
+            !hasPairingApprovals;
     }
 }

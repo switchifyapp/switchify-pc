@@ -11,14 +11,17 @@ public sealed record BluetoothRemoteFrameOutput(
 public sealed record BluetoothRemoteFrameResult(
     bool MessageComplete,
     string? ErrorReason,
-    IReadOnlyList<BluetoothRemoteFrameOutput> OutgoingMessages)
+    IReadOnlyList<BluetoothRemoteFrameOutput> OutgoingMessages,
+    bool ShouldAutoHideMainWindow = false)
 {
-    public static BluetoothRemoteFrameResult Incomplete(string? reason = null) => new(false, reason, []);
+    public static BluetoothRemoteFrameResult Incomplete(string? reason = null) => new(false, reason, [], false);
 
-    public static BluetoothRemoteFrameResult Complete(IReadOnlyList<BluetoothRemoteFrameOutput> outgoingMessages) =>
-        new(true, null, outgoingMessages);
+    public static BluetoothRemoteFrameResult Complete(
+        IReadOnlyList<BluetoothRemoteFrameOutput> outgoingMessages,
+        bool shouldAutoHideMainWindow = false) =>
+        new(true, null, outgoingMessages, shouldAutoHideMainWindow);
 
-    public static BluetoothRemoteFrameResult Error(string reason) => new(true, reason, []);
+    public static BluetoothRemoteFrameResult Error(string reason) => new(true, reason, [], false);
 }
 
 public sealed class BluetoothRemoteFrameProcessor
@@ -63,7 +66,9 @@ public sealed class BluetoothRemoteFrameProcessor
             reassembly.Message ?? "",
             remoteAddress,
             cancellationToken).ConfigureAwait(false);
-        return BluetoothRemoteFrameResult.Complete(FrameOutgoingMessages(sessionResult));
+        return BluetoothRemoteFrameResult.Complete(
+            FrameOutgoingMessages(sessionResult),
+            sessionResult.ShouldAutoHideMainWindow);
     }
 
     public Task<IReadOnlyList<BluetoothRemoteFrameOutput>> AcceptPairingRequestAsync(
