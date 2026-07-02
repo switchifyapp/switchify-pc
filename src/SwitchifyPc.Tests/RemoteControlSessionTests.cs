@@ -25,6 +25,9 @@ public sealed class RemoteControlSessionTests
 
         Assert.Empty(result.OutgoingMessages);
         Assert.False(result.ShouldAutoHideMainWindow);
+        Assert.Null(result.AuthenticatedConnectionId);
+        Assert.Null(result.AuthenticatedDeviceId);
+        Assert.Null(result.AuthFailureReason);
         PendingPairingApprovalView approval = Assert.Single(context.ApprovalManager.ListPendingRequestViews());
         Assert.Equal("request-1", approval.RequestId);
         Assert.Equal("Pixel 9", approval.DeviceName);
@@ -50,6 +53,9 @@ public sealed class RemoteControlSessionTests
         Assert.Equal(DeviceId, response.RootElement.GetProperty("payload").GetProperty("deviceId").GetString());
         Assert.Equal("new-token", response.RootElement.GetProperty("payload").GetProperty("token").GetString());
         Assert.True(ProtocolValidator.ValidateProtocolResponse(response.RootElement).Ok);
+        Assert.Null(result.AuthenticatedConnectionId);
+        Assert.Null(result.AuthenticatedDeviceId);
+        Assert.Null(result.AuthFailureReason);
         Assert.Empty(context.ApprovalManager.ListPendingRequests());
     }
 
@@ -137,11 +143,31 @@ public sealed class RemoteControlSessionTests
             SignedCommand("keyboard.key", new { key = "Meta" }));
 
         Assert.False(result.ShouldAutoHideMainWindow);
+        Assert.Equal("ble-1", result.AuthenticatedConnectionId);
+        Assert.Equal(DeviceId, result.AuthenticatedDeviceId);
+        Assert.Null(result.AuthFailureReason);
         RemoteSessionOutgoingMessage outgoing = Assert.Single(result.OutgoingMessages);
         Assert.Equal("ble-1", outgoing.ConnectionId);
         using JsonDocument response = JsonDocument.Parse(outgoing.ResponseJson);
         Assert.Equal("ack", response.RootElement.GetProperty("type").GetString());
         Assert.Equal(["pressKey:Meta"], context.Adapter.Calls);
+    }
+
+    [Fact]
+    public async Task UnknownAuthenticatedCommandReportsAuthFailureWithoutMarkingConnectionAuthenticated()
+    {
+        TestContext context = CreateContext();
+
+        RemoteSessionResult result = await context.Session.ProcessMessageAsync(
+            "ble-1",
+            SignedCommand("connection.ping", new { }, deviceId: "android-unknown", token: "unknown-token"));
+
+        RemoteSessionOutgoingMessage outgoing = Assert.Single(result.OutgoingMessages);
+        Assert.Equal("ble-1", outgoing.ConnectionId);
+        AssertError(outgoing.ResponseJson, "command-1", "unknown_device", "Command authentication failed.");
+        Assert.Null(result.AuthenticatedConnectionId);
+        Assert.Null(result.AuthenticatedDeviceId);
+        Assert.Equal("unknown_device", result.AuthFailureReason);
     }
 
     [Fact]
@@ -292,13 +318,18 @@ public sealed class RemoteControlSessionTests
         return request.ToJsonString();
     }
 
-    private static string SignedCommand(string type, object payload, string id = "command-1")
+    private static string SignedCommand(
+        string type,
+        object payload,
+        string id = "command-1",
+        string deviceId = DeviceId,
+        string token = Token)
     {
         JsonObject command = new()
         {
             ["version"] = ProtocolConstants.ProtocolVersion,
             ["id"] = id,
-            ["deviceId"] = DeviceId,
+            ["deviceId"] = deviceId,
             ["timestamp"] = Now,
             ["type"] = type,
             ["payload"] = JsonSerializer.SerializeToNode(payload),
@@ -306,7 +337,7 @@ public sealed class RemoteControlSessionTests
         };
 
         using JsonDocument unsignedDocument = JsonDocument.Parse(command.ToJsonString());
-        command["auth"] = CommandAuth.CreateCommandAuthProof(unsignedDocument.RootElement, Token);
+        command["auth"] = CommandAuth.CreateCommandAuthProof(unsignedDocument.RootElement, token);
         return command.ToJsonString();
     }
 

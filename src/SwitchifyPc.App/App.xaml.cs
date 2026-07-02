@@ -301,7 +301,7 @@ public partial class App : System.Windows.Application
                     bluetoothStatusTracker.SetUnavailable(unavailable.Reason);
                     break;
                 case BluetoothConnectedEvent connected:
-                    bluetoothStatusTracker.AddConnection(connected.ConnectionId);
+                    bluetoothStatusTracker.RecordDiagnostic("transport_connected");
                     break;
                 case BluetoothDisconnectedEvent disconnected:
                     BluetoothStatus status = bluetoothStatusTracker.RemoveConnection(disconnected.ConnectionId, disconnected.Reason);
@@ -345,11 +345,35 @@ public partial class App : System.Windows.Application
         }
 
         await SendBluetoothOutputsAsync(result.OutgoingMessages);
+        if (result.AuthenticatedConnectionId is not null)
+        {
+            bluetoothStatusTracker?.AddConnection(result.AuthenticatedConnectionId);
+        }
+        else if (result.AuthFailureReason is not null)
+        {
+            bluetoothStatusTracker?.RecordDiagnostic("unauthenticated_command_rejected");
+            string? authFailureMessage = AuthFailureMessage(result.AuthFailureReason);
+            if (authFailureMessage is not null)
+            {
+                bluetoothStatusTracker?.SetError(authFailureMessage);
+            }
+        }
 
         if (result.ShouldAutoHideMainWindow)
         {
             HideMainWindowAfterPreviouslyUsedDeviceControl();
         }
+    }
+
+    private static string? AuthFailureMessage(string reason)
+    {
+        return reason switch
+        {
+            "unknown_device" => "Bluetooth device is not approved in Switchify. Open Switchify on Android and request access.",
+            "invalid_auth" => "Switchify access expired. Request access again from Android.",
+            "expired_timestamp" => "Switchify command timestamp was stale. Check the device time and reconnect.",
+            _ => null
+        };
     }
 
     private async Task AcceptPairingApprovalAsync(string requestId)

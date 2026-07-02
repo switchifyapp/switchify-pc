@@ -12,7 +12,7 @@ public sealed class MainWindowCopyTests
         BluetoothPrimaryCopy copy = MainWindowCopy.BluetoothPrimary(DesktopUiState.Connected, BluetoothStatusModel.DefaultStatus);
 
         Assert.Equal("Your device is connected", copy.Title);
-        Assert.Equal("You can control this PC from Switchify over Bluetooth.", copy.Body);
+        Assert.Equal("Switchify is approved and connected over Bluetooth.", copy.Body);
         Assert.Equal("ready", copy.Tone);
         Assert.Equal("Connected", MainWindowCopy.StatusBadgeLabel(DesktopUiState.Connected));
         Assert.Equal("connected", MainWindowCopy.StatusBadgeTone(DesktopUiState.Connected));
@@ -75,6 +75,8 @@ public sealed class MainWindowCopyTests
         Assert.Equal("01:02:03", MainWindowCopy.Timestamp(3_723_000));
         Assert.Equal("Bluetooth turned on.", MainWindowCopy.BluetoothDiagnosticEvent("system_radio_on"));
         Assert.Equal("Advertising restarted.", MainWindowCopy.BluetoothDiagnosticEvent("advertising_restarted"));
+        Assert.Equal("Bluetooth transport connected.", MainWindowCopy.BluetoothDiagnosticEvent("transport_connected"));
+        Assert.Equal("Unapproved Bluetooth command rejected.", MainWindowCopy.BluetoothDiagnosticEvent("unauthenticated_command_rejected"));
         Assert.Equal("Bluetooth was turned off.", MainWindowCopy.BluetoothDisconnectReason("adapter_off"));
         Assert.Equal(
             "Bluetooth turned on. 01:02:03",

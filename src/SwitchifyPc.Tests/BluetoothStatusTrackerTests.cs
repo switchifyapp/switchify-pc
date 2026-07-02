@@ -85,6 +85,22 @@ public sealed class BluetoothStatusTrackerTests
     }
 
     [Fact]
+    public void TransportConnectedDiagnosticDoesNotMarkAppConnected()
+    {
+        BluetoothStatusTracker tracker = new(() => 1000);
+        tracker.SetReady();
+
+        BluetoothStatus diagnosticStatus = tracker.RecordDiagnostic("transport_connected");
+        BluetoothStatus connectedStatus = tracker.AddConnection("ble");
+
+        Assert.Equal("ready", diagnosticStatus.Status);
+        Assert.Equal(0, diagnosticStatus.ConnectedClientCount);
+        Assert.Equal("transport_connected", diagnosticStatus.LastEvent);
+        Assert.Equal("connected", connectedStatus.Status);
+        Assert.Equal(1, connectedStatus.ConnectedClientCount);
+    }
+
+    [Fact]
     public void NotifiesOnStatusChange()
     {
         List<BluetoothStatus> changes = [];
