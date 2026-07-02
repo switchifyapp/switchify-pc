@@ -19,6 +19,7 @@ public sealed class SettingsControllerTests
             Reason: null,
             Registration: null));
         FakePointerSettings pointer = new(new PointerMovementSettings(150));
+        FakeMouseRepeatSettings mouseRepeat = new(new MouseRepeatSettings(false, 500));
         FakeCursorOverlaySettings cursor = new(CursorOverlaySettingsModel.Default with
         {
             Enabled = false,
@@ -38,10 +39,12 @@ public sealed class SettingsControllerTests
                 new PairedDevice("device-1", "Pixel 9", "secret-token", 3_723_000, 3_724_000)
             ]));
 
-        await new SettingsController(viewModel, startup, pointer, cursor, updates, pairing).LoadAsync();
+        await new SettingsController(viewModel, startup, pointer, mouseRepeat, cursor, updates, pairing).LoadAsync();
 
         Assert.True(viewModel.StartWithSystem);
         Assert.Equal(150, viewModel.PointerScalePercent);
+        Assert.False(viewModel.MouseRepeatEnabled);
+        Assert.Equal(500, viewModel.MouseRepeatIntervalMs);
         Assert.False(viewModel.CursorOverlayEnabled);
         Assert.Equal("Blue", viewModel.CursorOverlayColor);
         Assert.Equal("Switchify PC is up to date.", viewModel.UpdateStatusMessage);
@@ -80,6 +83,24 @@ public sealed class SettingsControllerTests
         Assert.Equal("9%", viewModel.PointerSmall);
         Assert.Equal("24%", viewModel.PointerMedium);
         Assert.Equal("50%", viewModel.PointerLarge);
+    }
+
+    [Fact]
+    public async Task SetMouseRepeatSettingsSavesNormalizedValuesAndUpdatesViewModel()
+    {
+        SettingsViewModel viewModel = new();
+        FakeMouseRepeatSettings mouseRepeat = new(MouseRepeatSettingsModel.Default);
+        SettingsController controller = CreateController(viewModel, mouseRepeat: mouseRepeat);
+        await controller.LoadAsync();
+
+        MouseRepeatSettings saved = controller.SetMouseRepeatEnabled(false);
+        saved = controller.SetMouseRepeatIntervalMs(47);
+
+        Assert.False(saved.Enabled);
+        Assert.Equal(100, saved.IntervalMs);
+        Assert.Equal(saved, mouseRepeat.Saved);
+        Assert.False(viewModel.MouseRepeatEnabled);
+        Assert.Equal("0.1 s", viewModel.MouseRepeatInterval);
     }
 
     [Fact]
@@ -213,6 +234,7 @@ public sealed class SettingsControllerTests
         SettingsViewModel viewModel,
         FakeStartupSettings? startup = null,
         FakePointerSettings? pointer = null,
+        FakeMouseRepeatSettings? mouseRepeat = null,
         FakeCursorOverlaySettings? cursor = null,
         FakeUpdates? updates = null,
         IPairingStore? pairingStore = null)
@@ -221,6 +243,7 @@ public sealed class SettingsControllerTests
             viewModel,
             startup ?? new FakeStartupSettings(new SystemStartupSettings(false, false, true, "unpackaged")),
             pointer ?? new FakePointerSettings(PointerMovementSettingsModel.Default),
+            mouseRepeat ?? new FakeMouseRepeatSettings(MouseRepeatSettingsModel.Default),
             cursor ?? new FakeCursorOverlaySettings(CursorOverlaySettingsModel.Default),
             updates ?? new FakeUpdates(UpdateState.CreateInitial("0.2.0")),
             pairingStore ?? new MemoryPairingStore());
@@ -258,6 +281,22 @@ public sealed class SettingsControllerTests
         public PointerMovementSettings Save(PointerMovementSettings next)
         {
             settings = PointerMovementSettingsModel.Normalize(next);
+            Saved = settings;
+            return settings;
+        }
+    }
+
+    private sealed class FakeMouseRepeatSettings(MouseRepeatSettings initial) : IMouseRepeatSettingsStore
+    {
+        private MouseRepeatSettings settings = initial;
+
+        public MouseRepeatSettings? Saved { get; private set; }
+
+        public MouseRepeatSettings Load() => settings;
+
+        public MouseRepeatSettings Save(MouseRepeatSettings next)
+        {
+            settings = MouseRepeatSettingsModel.Normalize(next);
             Saved = settings;
             return settings;
         }

@@ -22,6 +22,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         StartsHidden: true,
         Reason: "unpackaged");
     private PointerMovementSettings pointerMovementSettings = PointerMovementSettingsModel.Default;
+    private MouseRepeatSettings mouseRepeatSettings = MouseRepeatSettingsModel.Default;
     private CursorOverlaySettings cursorOverlaySettings = CursorOverlaySettingsModel.Default;
     private UpdateState updateState = UpdateState.CreateInitial("0.2.0");
     private IReadOnlyList<PairedDeviceSettingsView> pairedDevices = [];
@@ -95,6 +96,22 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public string PointerMedium => $"{PointerMovementSettingsModel.PercentageFor(pointerMovementSettings, PointerMovementSizeKey.Medium):0.#}%";
 
     public string PointerLarge => $"{PointerMovementSettingsModel.PercentageFor(pointerMovementSettings, PointerMovementSizeKey.Large):0.#}%";
+
+    public MouseRepeatSettings MouseRepeatSettings => mouseRepeatSettings;
+
+    public bool MouseRepeatEnabled => mouseRepeatSettings.Enabled;
+
+    public int MouseRepeatIntervalMs => mouseRepeatSettings.IntervalMs;
+
+    public string MouseRepeatInterval => $"{mouseRepeatSettings.IntervalMs / 1000d:0.##} s";
+
+    public bool IsMouseRepeatInterval100 => mouseRepeatSettings.IntervalMs == 100;
+
+    public bool IsMouseRepeatInterval250 => mouseRepeatSettings.IntervalMs == 250;
+
+    public bool IsMouseRepeatInterval500 => mouseRepeatSettings.IntervalMs == 500;
+
+    public bool IsMouseRepeatInterval1000 => mouseRepeatSettings.IntervalMs == 1000;
 
     public bool CursorOverlayEnabled => cursorOverlaySettings.Enabled;
 
@@ -180,6 +197,19 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(PointerSmall));
         OnPropertyChanged(nameof(PointerMedium));
         OnPropertyChanged(nameof(PointerLarge));
+    }
+
+    public void SetMouseRepeatSettings(MouseRepeatSettings settings)
+    {
+        mouseRepeatSettings = MouseRepeatSettingsModel.Normalize(settings);
+        OnPropertyChanged(nameof(MouseRepeatSettings));
+        OnPropertyChanged(nameof(MouseRepeatEnabled));
+        OnPropertyChanged(nameof(MouseRepeatIntervalMs));
+        OnPropertyChanged(nameof(MouseRepeatInterval));
+        OnPropertyChanged(nameof(IsMouseRepeatInterval100));
+        OnPropertyChanged(nameof(IsMouseRepeatInterval250));
+        OnPropertyChanged(nameof(IsMouseRepeatInterval500));
+        OnPropertyChanged(nameof(IsMouseRepeatInterval1000));
     }
 
     public void SetCursorOverlaySettings(CursorOverlaySettings settings)

@@ -137,6 +137,7 @@ public sealed class RemoteControlSession
 
     public void RemoveConnection(string connectionId)
     {
+        _ = commandSession.StopAllRepeatsAsync();
         autoHideEligibleByConnectionId.Remove(connectionId);
         string[] requestIds = pendingConnectionsByRequestId
             .Where(entry => entry.Value.ConnectionId == connectionId)

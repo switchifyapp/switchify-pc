@@ -180,7 +180,7 @@ public sealed class BluetoothRemoteFrameProcessorTests
             Bounds: new Bounds(0, 0, 1920, 1080),
             MaxDelta: ProtocolConstants.MaxPointerDelta,
             RecommendedDeltas: new RecommendedDeltas(49, 130, 281),
-            Capabilities: new PointerCapabilities(true, ProtocolConstants.NoAckControlCommandTypes.ToArray(), ProtocolConstants.CommandTypes.ToArray()));
+            Capabilities: TestPointerCapabilities());
         ControlSession controlSession = new(
             new CommandAuthValidator(store, () => Now),
             new DesktopCommandExecutor(adapter),
@@ -191,6 +191,15 @@ public sealed class BluetoothRemoteFrameProcessorTests
             controlSession);
 
         return new TestContext(session, approvalManager, adapter);
+    }
+
+    private static PointerCapabilities TestPointerCapabilities()
+    {
+        return new PointerCapabilities(
+            true,
+            ProtocolConstants.NoAckControlCommandTypes.ToArray(),
+            ProtocolConstants.CommandTypes.ToArray(),
+            new MouseRepeatCapabilities(true, true, 250, 100, 2000));
     }
 
     private static JsonDocument Reassemble(IReadOnlyList<BluetoothFrame> frames)

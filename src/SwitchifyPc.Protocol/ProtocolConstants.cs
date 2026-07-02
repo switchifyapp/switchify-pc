@@ -19,6 +19,8 @@ public static class ProtocolConstants
         "mouse.doubleClick",
         "mouse.rightClick",
         "mouse.scroll",
+        "mouse.repeat.start",
+        "mouse.repeat.stop",
         "mouse.dragStart",
         "mouse.dragEnd",
         "keyboard.key",

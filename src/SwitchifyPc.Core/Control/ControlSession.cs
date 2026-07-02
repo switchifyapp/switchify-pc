@@ -43,15 +43,18 @@ public sealed class ControlSession
     private readonly CommandAuthValidator authValidator;
     private readonly DesktopCommandExecutor commandExecutor;
     private readonly IPointerProfileProvider pointerProfileProvider;
+    private readonly MouseRepeatController? mouseRepeatController;
 
     public ControlSession(
         CommandAuthValidator authValidator,
         DesktopCommandExecutor commandExecutor,
-        IPointerProfileProvider pointerProfileProvider)
+        IPointerProfileProvider pointerProfileProvider,
+        MouseRepeatController? mouseRepeatController = null)
     {
         this.authValidator = authValidator;
         this.commandExecutor = commandExecutor;
         this.pointerProfileProvider = pointerProfileProvider;
+        this.mouseRepeatController = mouseRepeatController;
     }
 
     public async Task<ControlSessionResult> ProcessMessageAsync(string rawMessage, CancellationToken cancellationToken = default)
@@ -78,12 +81,18 @@ public sealed class ControlSession
         AuthValidationResult auth = await authValidator.ValidateAsync(request, cancellationToken).ConfigureAwait(false);
         if (!auth.Ok || auth.Command is null)
         {
+            if (TryGetRequestDeviceId(request, out string? failedDeviceId))
+            {
+                await StopRepeatAsync(failedDeviceId!).ConfigureAwait(false);
+            }
+
             return ControlSessionResult.Response(ErrorResponse(RequestIdOrNull(request), auth.Reason ?? "invalid_auth", "Command authentication failed."))
                 with { AuthFailureReason = auth.Reason ?? "invalid_auth" };
         }
 
         if (type == "connection.disconnecting")
         {
+            await StopRepeatAsync(auth.DeviceId ?? "").ConfigureAwait(false);
             await commandExecutor.ReleaseHeldMouseButtonsAsync(cancellationToken).ConfigureAwait(false);
             commandExecutor.EndControlSession();
             return WithAuth(AckOrNoResponse(request), auth);
@@ -96,7 +105,33 @@ public sealed class ControlSession
                 auth);
         }
 
-        CommandExecutionResult result = await commandExecutor.ExecuteAsync(auth.Command.Value, cancellationToken).ConfigureAwait(false);
+        CommandExecutionResult result;
+        if (type == "mouse.repeat.start")
+        {
+            if (mouseRepeatController is null)
+            {
+                result = CommandExecutionResult.Failure("unsupported_command", "Mouse repeat is not available.");
+            }
+            else
+            {
+                result = await mouseRepeatController.StartAsync(auth.DeviceId ?? "", request.GetProperty("payload").GetProperty("command"), cancellationToken).ConfigureAwait(false);
+            }
+        }
+        else if (type == "mouse.repeat.stop")
+        {
+            await StopRepeatAsync(auth.DeviceId ?? "").ConfigureAwait(false);
+            result = CommandExecutionResult.Success;
+        }
+        else
+        {
+            if (type is not ("connection.ping" or "pointer.profile"))
+            {
+                await StopRepeatAsync(auth.DeviceId ?? "").ConfigureAwait(false);
+            }
+
+            result = await commandExecutor.ExecuteAsync(auth.Command.Value, cancellationToken).ConfigureAwait(false);
+        }
+
         if (!result.Ok)
         {
             return WithAuth(
@@ -109,6 +144,8 @@ public sealed class ControlSession
 
         return WithAuth(AckOrNoResponse(request), auth);
     }
+
+    public Task StopAllRepeatsAsync() => mouseRepeatController?.StopAllAsync() ?? Task.CompletedTask;
 
     private static ControlSessionResult WithAuth(ControlSessionResult result, AuthValidationResult auth)
     {
@@ -152,6 +189,25 @@ public sealed class ControlSession
         return request.TryGetProperty("responseMode", out JsonElement responseMode) &&
             responseMode.ValueKind == JsonValueKind.String &&
             responseMode.GetString() == "none";
+    }
+
+    private Task StopRepeatAsync(string deviceId)
+    {
+        return string.IsNullOrWhiteSpace(deviceId) || mouseRepeatController is null
+            ? Task.CompletedTask
+            : mouseRepeatController.StopAsync(deviceId);
+    }
+
+    private static bool TryGetRequestDeviceId(JsonElement request, out string? deviceId)
+    {
+        deviceId = null;
+        if (!request.TryGetProperty("deviceId", out JsonElement deviceIdElement) || deviceIdElement.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        deviceId = deviceIdElement.GetString();
+        return !string.IsNullOrWhiteSpace(deviceId);
     }
 
     private static JsonObject ErrorResponse(string? id, string code, string message)
@@ -198,7 +254,15 @@ public sealed class ControlSession
                 {
                     ["noAckMouseMove"] = profile.Capabilities.NoAckMouseMove,
                     ["noAckCommands"] = new JsonArray(profile.Capabilities.NoAckCommands.Select(command => JsonValue.Create(command)).ToArray<JsonNode?>()),
-                    ["supportedCommands"] = new JsonArray(profile.Capabilities.SupportedCommands.Select(command => JsonValue.Create(command)).ToArray<JsonNode?>())
+                    ["supportedCommands"] = new JsonArray(profile.Capabilities.SupportedCommands.Select(command => JsonValue.Create(command)).ToArray<JsonNode?>()),
+                    ["mouseRepeat"] = new JsonObject
+                    {
+                        ["supported"] = profile.Capabilities.MouseRepeat.Supported,
+                        ["enabled"] = profile.Capabilities.MouseRepeat.Enabled,
+                        ["intervalMs"] = profile.Capabilities.MouseRepeat.IntervalMs,
+                        ["minIntervalMs"] = profile.Capabilities.MouseRepeat.MinIntervalMs,
+                        ["maxIntervalMs"] = profile.Capabilities.MouseRepeat.MaxIntervalMs
+                    }
                 }
             },
             ["error"] = null

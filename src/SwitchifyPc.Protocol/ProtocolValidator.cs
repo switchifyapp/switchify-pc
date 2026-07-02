@@ -135,6 +135,9 @@ public static partial class ProtocolValidator
         {
             "mouse.move" => ValidateBoundedNumbers(payload, ["dx", "dy"], ProtocolConstants.MaxPointerDelta),
             "mouse.scroll" => ValidateBoundedNumbers(payload, ["dx", "dy"], ProtocolConstants.MaxScrollDelta),
+            "mouse.repeat.start" => ValidateMouseRepeatStartPayload(payload),
+            "mouse.repeat.stop" =>
+                ObjectPropertyCount(payload) == 0 ? Valid(payload) : Invalid("invalid_payload", "Payload must be empty."),
             "mouse.click" or "mouse.doubleClick" or "mouse.dragStart" or "mouse.dragEnd" =>
                 TryGetString(payload, "button", out string? button) && ProtocolConstants.MouseButtons.Contains(button)
                     ? Valid(payload)
@@ -340,9 +343,48 @@ public static partial class ProtocolValidator
             {
                 return Invalid("invalid_payload", "Supported commands capability is invalid.");
             }
+
+            if (capabilities.TryGetProperty("mouseRepeat", out JsonElement mouseRepeat) && !ValidateMouseRepeatCapability(mouseRepeat))
+            {
+                return Invalid("invalid_payload", "Mouse repeat capability is invalid.");
+            }
         }
 
         return Valid(payload);
+    }
+
+    private static ProtocolValidationResult ValidateMouseRepeatStartPayload(JsonElement payload)
+    {
+        if (ObjectPropertyCount(payload) != 1 ||
+            !payload.TryGetProperty("command", out JsonElement command) ||
+            !IsObject(command) ||
+            !TryGetNonEmptyString(command, "type", out string? type) ||
+            !TryGetObject(command, "payload", out JsonElement commandPayload) ||
+            ObjectPropertyCount(command) != 2)
+        {
+            return Invalid("invalid_payload", "Mouse repeat command is invalid.");
+        }
+
+        return type switch
+        {
+            "mouse.move" => ValidateBoundedNumbers(commandPayload, ["dx", "dy"], ProtocolConstants.MaxPointerDelta),
+            "mouse.scroll" => ValidateBoundedNumbers(commandPayload, ["dx", "dy"], ProtocolConstants.MaxScrollDelta),
+            _ => Invalid("invalid_payload", "Mouse repeat command type is invalid.")
+        };
+    }
+
+    private static bool ValidateMouseRepeatCapability(JsonElement mouseRepeat)
+    {
+        return IsObject(mouseRepeat) &&
+            TryGetBoolean(mouseRepeat, "supported", out _) &&
+            TryGetBoolean(mouseRepeat, "enabled", out _) &&
+            TryGetInteger(mouseRepeat, "intervalMs", out int intervalMs) &&
+            intervalMs >= 100 &&
+            intervalMs <= 2000 &&
+            TryGetInteger(mouseRepeat, "minIntervalMs", out int minIntervalMs) &&
+            minIntervalMs >= 1 &&
+            TryGetInteger(mouseRepeat, "maxIntervalMs", out int maxIntervalMs) &&
+            maxIntervalMs >= minIntervalMs;
     }
 
     private static bool ValidateCommandArrayCapability(JsonElement capabilities, string propertyName, IReadOnlySet<string> allowed)

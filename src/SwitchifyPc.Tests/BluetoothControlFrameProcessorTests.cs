@@ -118,12 +118,21 @@ public sealed class BluetoothControlFrameProcessorTests
             Bounds: new Bounds(0, 0, 1920, 1080),
             MaxDelta: ProtocolConstants.MaxPointerDelta,
             RecommendedDeltas: new RecommendedDeltas(49, 130, 281),
-            Capabilities: new PointerCapabilities(true, ProtocolConstants.NoAckControlCommandTypes.ToArray(), ProtocolConstants.CommandTypes.ToArray()));
+            Capabilities: TestPointerCapabilities());
 
         return new ControlSession(
             new CommandAuthValidator(store, () => Now),
             new DesktopCommandExecutor(adapter),
             new FixedPointerProfileProvider(profile));
+    }
+
+    private static PointerCapabilities TestPointerCapabilities()
+    {
+        return new PointerCapabilities(
+            true,
+            ProtocolConstants.NoAckControlCommandTypes.ToArray(),
+            ProtocolConstants.CommandTypes.ToArray(),
+            new MouseRepeatCapabilities(true, true, 250, 100, 2000));
     }
 
     private static string SignedCommand(string type, object payload, string id = "request-1", string? responseMode = null)

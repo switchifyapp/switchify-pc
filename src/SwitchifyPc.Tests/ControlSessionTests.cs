@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using SwitchifyPc.Core.Control;
 using SwitchifyPc.Core.Input;
 using SwitchifyPc.Core.Pairing;
+using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Protocol;
 
 namespace SwitchifyPc.Tests;
@@ -97,6 +98,29 @@ public sealed class ControlSessionTests
     }
 
     [Fact]
+    public async Task AuthenticatedRepeatStartExecutesInitialCommandAndStopAcknowledges()
+    {
+        FakeInputAdapter adapter = new();
+        ControlSession session = CreateSession(adapter, mouseRepeatSettings: new FakeMouseRepeatSettings(MouseRepeatSettingsModel.Default));
+
+        ControlSessionResult start = await session.ProcessMessageAsync(SignedCommand(
+            "mouse.repeat.start",
+            new
+            {
+                command = new
+                {
+                    type = "mouse.move",
+                    payload = new { dx = 4, dy = 5 }
+                }
+            }));
+        ControlSessionResult stop = await session.ProcessMessageAsync(SignedCommand("mouse.repeat.stop", new { }, id: "request-2"));
+
+        Assert.True(start.HasResponse);
+        Assert.True(stop.HasResponse);
+        Assert.Equal(["moveMouseBy:4,5"], adapter.Calls);
+    }
+
+    [Fact]
     public async Task DisconnectingReleasesHeldMouseButtons()
     {
         FakeInputAdapter adapter = new();
@@ -129,7 +153,11 @@ public sealed class ControlSessionTests
         AssertError(result, "request-1", "adapter_failure");
     }
 
-    private static ControlSession CreateSession(FakeInputAdapter adapter, ICursorOverlayNotifier? cursorOverlay = null, double? lastSeenAt = null)
+    private static ControlSession CreateSession(
+        FakeInputAdapter adapter,
+        ICursorOverlayNotifier? cursorOverlay = null,
+        double? lastSeenAt = null,
+        IMouseRepeatSettingsStore? mouseRepeatSettings = null)
     {
         MemoryPairingStore store = new(new PairingState(
             DesktopId: "desktop-1",
@@ -144,12 +172,38 @@ public sealed class ControlSessionTests
             Bounds: new Bounds(0, 0, 1920, 1080),
             MaxDelta: ProtocolConstants.MaxPointerDelta,
             RecommendedDeltas: new RecommendedDeltas(49, 130, 281),
-            Capabilities: new PointerCapabilities(true, ProtocolConstants.NoAckControlCommandTypes.ToArray(), ProtocolConstants.CommandTypes.ToArray()));
+            Capabilities: TestPointerCapabilities());
+
+        DesktopCommandExecutor executor = new(adapter, cursorOverlay);
+        MouseRepeatController? repeatController = mouseRepeatSettings is null
+            ? null
+            : new MouseRepeatController(executor, mouseRepeatSettings, (_, cancellationToken) => Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken));
 
         return new ControlSession(
             new CommandAuthValidator(store, () => Now),
-            new DesktopCommandExecutor(adapter, cursorOverlay),
-            new FixedPointerProfileProvider(profile));
+            executor,
+            new FixedPointerProfileProvider(profile),
+            repeatController);
+    }
+
+    private static PointerCapabilities TestPointerCapabilities()
+    {
+        return new PointerCapabilities(
+            true,
+            ProtocolConstants.NoAckControlCommandTypes.ToArray(),
+            ProtocolConstants.CommandTypes.ToArray(),
+            new MouseRepeatCapabilities(true, true, 250, 100, 2000));
+    }
+
+    private sealed class FakeMouseRepeatSettings(MouseRepeatSettings settings) : IMouseRepeatSettingsStore
+    {
+        public MouseRepeatSettings Load() => settings;
+
+        public MouseRepeatSettings Save(MouseRepeatSettings next)
+        {
+            settings = MouseRepeatSettingsModel.Normalize(next);
+            return settings;
+        }
     }
 
     private static string SignedCommand(

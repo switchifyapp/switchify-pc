@@ -63,6 +63,22 @@ public partial class SettingsWindow : Window
 
     private void PointerScale100_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetPointerScalePercent(100));
 
+    private void MouseRepeatEnabled_Click(object sender, RoutedEventArgs e)
+    {
+        if (!isApplyingSettings && settingsLoaded && controller is not null && sender is WpfCheckBox checkBox)
+        {
+            controller.SetMouseRepeatEnabled(checkBox.IsChecked == true);
+        }
+    }
+
+    private void MouseRepeatInterval100_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatIntervalMs(100));
+
+    private void MouseRepeatInterval250_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatIntervalMs(250));
+
+    private void MouseRepeatInterval500_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatIntervalMs(500));
+
+    private void MouseRepeatInterval1000_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatIntervalMs(1000));
+
     private void SectionNav_Checked(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: string section }) return;

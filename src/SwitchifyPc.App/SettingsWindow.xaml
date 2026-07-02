@@ -432,6 +432,71 @@
 
                                 <Border Margin="0,14,0,0" Style="{StaticResource SubtlePanel}">
                                     <StackPanel>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="Mouse repeat" Style="{StaticResource DetailLabel}" />
+                                                <TextBlock Margin="0,4,0,0"
+                                                           Text="Repeat mouse movement and scrolling until the next switch press."
+                                                           Style="{StaticResource MutedText}" />
+                                            </StackPanel>
+                                            <CheckBox Grid.Column="1"
+                                                      Margin="16,0,0,0"
+                                                      VerticalAlignment="Top"
+                                                      Content="Enabled"
+                                                      Click="MouseRepeatEnabled_Click"
+                                                      IsChecked="{Binding MouseRepeatEnabled, Mode=OneWay}" />
+                                        </Grid>
+
+                                        <Grid Margin="0,14,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="Repeat interval" Style="{StaticResource DetailLabel}" />
+                                                <TextBlock Margin="0,4,0,0"
+                                                           Text="Time between repeated mouse actions."
+                                                           Style="{StaticResource MutedText}" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1"
+                                                       Margin="16,0,0,0"
+                                                       VerticalAlignment="Top"
+                                                       Text="{Binding MouseRepeatInterval}"
+                                                       Style="{StaticResource DetailValue}" />
+                                        </Grid>
+
+                                        <UniformGrid Margin="0,14,0,0" Columns="4"
+                                                     IsEnabled="{Binding MouseRepeatEnabled}">
+                                            <RadioButton Content="0.1 s"
+                                                         GroupName="MouseRepeatInterval"
+                                                         IsChecked="{Binding IsMouseRepeatInterval100, Mode=OneWay}"
+                                                         Checked="MouseRepeatInterval100_Checked"
+                                                         Style="{StaticResource SegmentRadio}" />
+                                            <RadioButton Content="0.25 s"
+                                                         GroupName="MouseRepeatInterval"
+                                                         IsChecked="{Binding IsMouseRepeatInterval250, Mode=OneWay}"
+                                                         Checked="MouseRepeatInterval250_Checked"
+                                                         Style="{StaticResource SegmentRadio}" />
+                                            <RadioButton Content="0.5 s"
+                                                         GroupName="MouseRepeatInterval"
+                                                         IsChecked="{Binding IsMouseRepeatInterval500, Mode=OneWay}"
+                                                         Checked="MouseRepeatInterval500_Checked"
+                                                         Style="{StaticResource SegmentRadio}" />
+                                            <RadioButton Content="1 s"
+                                                         GroupName="MouseRepeatInterval"
+                                                         IsChecked="{Binding IsMouseRepeatInterval1000, Mode=OneWay}"
+                                                         Checked="MouseRepeatInterval1000_Checked"
+                                                         Style="{StaticResource SegmentRadio}" />
+                                        </UniformGrid>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Margin="0,14,0,0" Style="{StaticResource SubtlePanel}">
+                                    <StackPanel>
                                         <TextBlock Text="Cursor overlay" Style="{StaticResource DetailLabel}" />
                                         <TextBlock Margin="0,4,0,0"
                                                    Text="Control when the overlay appears, how large it is, and the color it uses."

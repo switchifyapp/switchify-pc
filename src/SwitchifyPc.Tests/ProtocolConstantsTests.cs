@@ -33,6 +33,8 @@ public sealed class ProtocolConstantsTests
             "mouse.doubleClick",
             "mouse.rightClick",
             "mouse.scroll",
+            "mouse.repeat.start",
+            "mouse.repeat.stop",
             "mouse.dragStart",
             "mouse.dragEnd",
             "keyboard.key",
@@ -57,5 +59,12 @@ public sealed class ProtocolConstantsTests
     public void IncludesPairingRequestType()
     {
         Assert.Contains("pairing.request", ProtocolConstants.PairingRequestTypes);
+    }
+
+    [Fact]
+    public void RepeatCommandsRequireAckResponses()
+    {
+        Assert.DoesNotContain("mouse.repeat.start", ProtocolConstants.NoAckControlCommandTypes);
+        Assert.DoesNotContain("mouse.repeat.stop", ProtocolConstants.NoAckControlCommandTypes);
     }
 }
