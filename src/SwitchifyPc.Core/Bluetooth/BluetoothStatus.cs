@@ -72,7 +72,9 @@ public static class BluetoothStatusModel
         "unsubscribe_grace_started",
         "unsubscribe_grace_cancelled",
         "unsubscribe_grace_timed_out",
-        "write_received"
+        "write_received",
+        "transport_connected",
+        "unauthenticated_command_rejected"
     };
 
     public static readonly BluetoothSystemStatus DefaultSystemStatus = new(

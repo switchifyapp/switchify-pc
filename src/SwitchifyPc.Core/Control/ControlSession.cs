@@ -9,7 +9,8 @@ namespace SwitchifyPc.Core.Control;
 public sealed record ControlSessionResult(
     string? ResponseJson,
     string? AuthenticatedDeviceId = null,
-    bool AuthenticatedDeviceWasPreviouslyUsed = false)
+    bool AuthenticatedDeviceWasPreviouslyUsed = false,
+    string? AuthFailureReason = null)
 {
     public bool HasResponse => ResponseJson is not null;
     public bool HasAuthenticatedDevice => AuthenticatedDeviceId is not null;
@@ -77,7 +78,8 @@ public sealed class ControlSession
         AuthValidationResult auth = await authValidator.ValidateAsync(request, cancellationToken).ConfigureAwait(false);
         if (!auth.Ok || auth.Command is null)
         {
-            return ControlSessionResult.Response(ErrorResponse(RequestIdOrNull(request), auth.Reason ?? "invalid_auth", "Command authentication failed."));
+            return ControlSessionResult.Response(ErrorResponse(RequestIdOrNull(request), auth.Reason ?? "invalid_auth", "Command authentication failed."))
+                with { AuthFailureReason = auth.Reason ?? "invalid_auth" };
         }
 
         if (type == "connection.disconnecting")

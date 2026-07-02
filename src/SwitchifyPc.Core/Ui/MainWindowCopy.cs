@@ -49,7 +49,7 @@ public static class MainWindowCopy
         {
             return new BluetoothPrimaryCopy(
                 "Your device is connected",
-                "You can control this PC from Switchify over Bluetooth.",
+                "Switchify is approved and connected over Bluetooth.",
                 "ready");
         }
 
@@ -200,6 +200,8 @@ public static class MainWindowCopy
             "unsubscribe_grace_cancelled" => "Bluetooth reconnect resumed.",
             "unsubscribe_grace_timed_out" => "Bluetooth reconnect timed out.",
             "write_received" => "Message received.",
+            "transport_connected" => "Bluetooth transport connected.",
+            "unauthenticated_command_rejected" => "Unapproved Bluetooth command rejected.",
             _ => "Not recorded."
         };
     }

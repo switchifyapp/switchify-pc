@@ -8,7 +8,10 @@ public sealed record RemoteSessionOutgoingMessage(string ConnectionId, string Re
 
 public sealed record RemoteSessionResult(
     IReadOnlyList<RemoteSessionOutgoingMessage> OutgoingMessages,
-    bool ShouldAutoHideMainWindow = false)
+    bool ShouldAutoHideMainWindow = false,
+    string? AuthenticatedConnectionId = null,
+    string? AuthenticatedDeviceId = null,
+    string? AuthFailureReason = null)
 {
     public static RemoteSessionResult None { get; } = new([], false);
 
@@ -69,7 +72,10 @@ public sealed class RemoteControlSession
             commandResult.HasResponse
                 ? [new RemoteSessionOutgoingMessage(connectionId, commandResult.ResponseJson!)]
                 : [],
-            shouldAutoHide);
+            shouldAutoHide,
+            commandResult.HasAuthenticatedDevice ? connectionId : null,
+            commandResult.AuthenticatedDeviceId,
+            commandResult.AuthFailureReason);
     }
 
     public async Task<RemoteSessionResult> AcceptPairingRequestAsync(
