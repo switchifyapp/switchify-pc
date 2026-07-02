@@ -22,9 +22,25 @@ public sealed class ControlSessionTests
         ControlSessionResult result = await session.ProcessMessageAsync(SignedCommand("keyboard.key", new { key = "Meta" }));
 
         Assert.True(result.HasResponse);
+        Assert.True(result.HasAuthenticatedDevice);
+        Assert.Equal(DeviceId, result.AuthenticatedDeviceId);
+        Assert.False(result.AuthenticatedDeviceWasPreviouslyUsed);
         using JsonDocument response = JsonDocument.Parse(result.ResponseJson!);
         Assert.Equal("ack", response.RootElement.GetProperty("type").GetString());
         Assert.Equal(["pressKey:Meta"], adapter.Calls);
+    }
+
+    [Fact]
+    public async Task PreservesPreviouslyUsedDeviceMetadataForAuthenticatedCommands()
+    {
+        FakeInputAdapter adapter = new();
+        ControlSession session = CreateSession(adapter, lastSeenAt: Now - 500);
+
+        ControlSessionResult result = await session.ProcessMessageAsync(SignedCommand("keyboard.key", new { key = "Meta" }));
+
+        Assert.True(result.HasAuthenticatedDevice);
+        Assert.Equal(DeviceId, result.AuthenticatedDeviceId);
+        Assert.True(result.AuthenticatedDeviceWasPreviouslyUsed);
     }
 
     [Fact]
@@ -61,6 +77,8 @@ public sealed class ControlSessionTests
 
         AssertError(unknown, "request-1", "unknown_device");
         AssertError(invalidAuth, "request-1", "invalid_auth");
+        Assert.False(unknown.HasAuthenticatedDevice);
+        Assert.False(invalidAuth.HasAuthenticatedDevice);
     }
 
     [Fact]
@@ -111,13 +129,13 @@ public sealed class ControlSessionTests
         AssertError(result, "request-1", "adapter_failure");
     }
 
-    private static ControlSession CreateSession(FakeInputAdapter adapter, ICursorOverlayNotifier? cursorOverlay = null)
+    private static ControlSession CreateSession(FakeInputAdapter adapter, ICursorOverlayNotifier? cursorOverlay = null, double? lastSeenAt = null)
     {
         MemoryPairingStore store = new(new PairingState(
             DesktopId: "desktop-1",
             PairedDevices:
             [
-                new PairedDevice(DeviceId, "Phone", Token, PairedAt: 1, LastSeenAt: null)
+                new PairedDevice(DeviceId, "Phone", Token, PairedAt: 1, lastSeenAt)
             ]));
 
         PointerMovementProfile profile = new(

@@ -6,11 +6,13 @@ namespace SwitchifyPc.Core.Control;
 
 public sealed record RemoteSessionOutgoingMessage(string ConnectionId, string ResponseJson, bool CloseConnection = false);
 
-public sealed record RemoteSessionResult(IReadOnlyList<RemoteSessionOutgoingMessage> OutgoingMessages)
+public sealed record RemoteSessionResult(
+    IReadOnlyList<RemoteSessionOutgoingMessage> OutgoingMessages,
+    bool ShouldAutoHideMainWindow = false)
 {
-    public static RemoteSessionResult None { get; } = new([]);
+    public static RemoteSessionResult None { get; } = new([], false);
 
-    public static RemoteSessionResult One(RemoteSessionOutgoingMessage message) => new([message]);
+    public static RemoteSessionResult One(RemoteSessionOutgoingMessage message) => new([message], false);
 }
 
 public sealed class RemoteControlSession
@@ -20,6 +22,7 @@ public sealed class RemoteControlSession
     private readonly ControlSession commandSession;
     private readonly Action? onPendingPairingRequestsChanged;
     private readonly Dictionary<string, PendingConnection> pendingConnectionsByRequestId = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, bool> autoHideEligibleByConnectionId = new(StringComparer.Ordinal);
 
     public RemoteControlSession(
         PairingManager pairingManager,
@@ -61,9 +64,12 @@ public sealed class RemoteControlSession
         }
 
         ControlSessionResult commandResult = await commandSession.ProcessMessageAsync(rawMessage, cancellationToken).ConfigureAwait(false);
-        return commandResult.HasResponse
-            ? RemoteSessionResult.One(new RemoteSessionOutgoingMessage(connectionId, commandResult.ResponseJson!))
-            : RemoteSessionResult.None;
+        bool shouldAutoHide = ShouldAutoHideForCommandResult(connectionId, commandResult);
+        return new RemoteSessionResult(
+            commandResult.HasResponse
+                ? [new RemoteSessionOutgoingMessage(connectionId, commandResult.ResponseJson!)]
+                : [],
+            shouldAutoHide);
     }
 
     public async Task<RemoteSessionResult> AcceptPairingRequestAsync(
@@ -125,6 +131,7 @@ public sealed class RemoteControlSession
 
     public void RemoveConnection(string connectionId)
     {
+        autoHideEligibleByConnectionId.Remove(connectionId);
         string[] requestIds = pendingConnectionsByRequestId
             .Where(entry => entry.Value.ConnectionId == connectionId)
             .Select(entry => entry.Key)
@@ -191,6 +198,22 @@ public sealed class RemoteControlSession
         }
 
         return pendingConnection;
+    }
+
+    private bool ShouldAutoHideForCommandResult(string connectionId, ControlSessionResult commandResult)
+    {
+        if (!commandResult.HasAuthenticatedDevice)
+        {
+            return false;
+        }
+
+        if (!autoHideEligibleByConnectionId.TryGetValue(connectionId, out bool eligible))
+        {
+            eligible = commandResult.AuthenticatedDeviceWasPreviouslyUsed;
+            autoHideEligibleByConnectionId[connectionId] = eligible;
+        }
+
+        return eligible;
     }
 
     private static JsonDocument? TryParse(string rawMessage, out string? errorResponse)

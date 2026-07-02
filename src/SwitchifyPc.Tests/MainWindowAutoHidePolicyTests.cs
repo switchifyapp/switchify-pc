@@ -5,26 +5,38 @@ namespace SwitchifyPc.Tests;
 public sealed class MainWindowAutoHidePolicyTests
 {
     [Fact]
-    public void HidesVisibleMainWindowWhenDeviceConnects()
+    public void HidesVisibleMainWindowForPreviouslyUsedDeviceControl()
     {
-        Assert.True(MainWindowAutoHidePolicy.ShouldHideAfterDeviceConnected(
+        Assert.True(MainWindowAutoHidePolicy.ShouldHideAfterPreviouslyUsedDeviceControl(
             isMainWindowVisible: true,
-            hasPairingApprovals: false));
+            hasPairingApprovals: false,
+            isPreviouslyUsedDeviceSession: true));
     }
 
     [Fact]
     public void DoesNotHideWhenMainWindowIsAlreadyHidden()
     {
-        Assert.False(MainWindowAutoHidePolicy.ShouldHideAfterDeviceConnected(
+        Assert.False(MainWindowAutoHidePolicy.ShouldHideAfterPreviouslyUsedDeviceControl(
             isMainWindowVisible: false,
-            hasPairingApprovals: false));
+            hasPairingApprovals: false,
+            isPreviouslyUsedDeviceSession: true));
     }
 
     [Fact]
     public void DoesNotHideWhenPairingApprovalIsVisible()
     {
-        Assert.False(MainWindowAutoHidePolicy.ShouldHideAfterDeviceConnected(
+        Assert.False(MainWindowAutoHidePolicy.ShouldHideAfterPreviouslyUsedDeviceControl(
             isMainWindowVisible: true,
-            hasPairingApprovals: true));
+            hasPairingApprovals: true,
+            isPreviouslyUsedDeviceSession: true));
+    }
+
+    [Fact]
+    public void DoesNotHideForNewDeviceSession()
+    {
+        Assert.False(MainWindowAutoHidePolicy.ShouldHideAfterPreviouslyUsedDeviceControl(
+            isMainWindowVisible: true,
+            hasPairingApprovals: false,
+            isPreviouslyUsedDeviceSession: false));
     }
 }
