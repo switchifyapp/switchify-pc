@@ -41,6 +41,7 @@ public partial class App : System.Windows.Application
     private WindowsBluetoothGattServer? bluetoothServer;
     private BluetoothRemoteFrameProcessor? bluetoothFrameProcessor;
     private DesktopCommandExecutor? commandExecutor;
+    private MouseRepeatController? mouseRepeatController;
     private WindowsCursorOverlayNotifier? cursorOverlay;
     private DispatcherTimer? pairingExpiryTimer;
     private bool isQuitting;
@@ -106,6 +107,8 @@ public partial class App : System.Windows.Application
         updateService = null;
         pairingExpiryTimer?.Stop();
         pairingExpiryTimer = null;
+        mouseRepeatController?.StopAllAsync().GetAwaiter().GetResult();
+        mouseRepeatController = null;
         bluetoothServer?.Dispose();
         bluetoothServer = null;
         cursorOverlay?.Dispose();
@@ -212,6 +215,7 @@ public partial class App : System.Windows.Application
             viewModel,
             CreateStartupService(),
             new JsonPointerMovementSettingsStore(Path.Combine(userDataDirectory, "pointer-movement-settings.json")),
+            new JsonMouseRepeatSettingsStore(Path.Combine(userDataDirectory, "mouse-repeat-settings.json")),
             new JsonCursorOverlaySettingsStore(Path.Combine(userDataDirectory, "cursor-overlay-settings.json")),
             updateService ?? CreateUpdateService(),
             new JsonPairingStore(Path.Combine(userDataDirectory, "pairing-state.json")));
@@ -260,15 +264,18 @@ public partial class App : System.Windows.Application
             JsonPairingStore pairingStore = new(Path.Combine(userDataDirectory, "pairing-state.json"));
             string desktopId = await new PairingManager(pairingStore).GetDesktopIdAsync();
             JsonPointerMovementSettingsStore pointerSettingsStore = new(Path.Combine(userDataDirectory, "pointer-movement-settings.json"));
+            JsonMouseRepeatSettingsStore mouseRepeatSettingsStore = new(Path.Combine(userDataDirectory, "mouse-repeat-settings.json"));
             JsonCursorOverlaySettingsStore cursorOverlaySettingsStore = new(Path.Combine(userDataDirectory, "cursor-overlay-settings.json"));
             SendInputWindowsNativeInput nativeInput = new();
             WindowsDesktopInputAdapter inputAdapter = new(nativeInput, pointerSettingsStore.Load());
             cursorOverlay = new WindowsCursorOverlayNotifier(nativeInput, cursorOverlaySettingsStore);
             commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay);
+            mouseRepeatController = new MouseRepeatController(commandExecutor, mouseRepeatSettingsStore);
             ControlSession controlSession = new(
                 new CommandAuthValidator(pairingStore),
                 commandExecutor,
-                new WindowsPointerProfileProvider(nativeInput, pointerSettingsStore));
+                new WindowsPointerProfileProvider(nativeInput, pointerSettingsStore, mouseRepeatSettingsStore),
+                mouseRepeatController);
 
             pairingApprovalManager ??= new PairingApprovalManager(pairingStore);
             RemoteControlSession remoteSession = new(
@@ -308,6 +315,11 @@ public partial class App : System.Windows.Application
                     bluetoothFrameProcessor?.RemoveConnection(disconnected.ConnectionId);
                     if (status.ConnectedClientCount == 0)
                     {
+                        if (mouseRepeatController is not null)
+                        {
+                            await mouseRepeatController.StopAllAsync();
+                        }
+
                         if (commandExecutor is not null)
                         {
                             await commandExecutor.ReleaseHeldMouseButtonsAsync();

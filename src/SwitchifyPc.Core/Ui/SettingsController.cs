@@ -10,6 +10,7 @@ public sealed class SettingsController
     private readonly SettingsViewModel viewModel;
     private readonly ISystemStartupSettingsService startupSettings;
     private readonly IPointerMovementSettingsStore pointerMovementSettings;
+    private readonly IMouseRepeatSettingsStore mouseRepeatSettings;
     private readonly ICursorOverlaySettingsStore cursorOverlaySettings;
     private readonly IUpdateSettingsService updates;
     private readonly IPairingStore pairingStore;
@@ -18,6 +19,7 @@ public sealed class SettingsController
         SettingsViewModel viewModel,
         ISystemStartupSettingsService startupSettings,
         IPointerMovementSettingsStore pointerMovementSettings,
+        IMouseRepeatSettingsStore mouseRepeatSettings,
         ICursorOverlaySettingsStore cursorOverlaySettings,
         IUpdateSettingsService updates,
         IPairingStore pairingStore)
@@ -25,6 +27,7 @@ public sealed class SettingsController
         this.viewModel = viewModel;
         this.startupSettings = startupSettings;
         this.pointerMovementSettings = pointerMovementSettings;
+        this.mouseRepeatSettings = mouseRepeatSettings;
         this.cursorOverlaySettings = cursorOverlaySettings;
         this.updates = updates;
         this.pairingStore = pairingStore;
@@ -36,9 +39,24 @@ public sealed class SettingsController
     {
         viewModel.SetStartupSettings(await startupSettings.GetSettingsAsync().ConfigureAwait(false));
         viewModel.SetPointerMovementSettings(pointerMovementSettings.Load());
+        viewModel.SetMouseRepeatSettings(mouseRepeatSettings.Load());
         viewModel.SetCursorOverlaySettings(cursorOverlaySettings.Load());
         viewModel.SetUpdateState(updates.GetState());
         await RefreshPairedDevicesAsync().ConfigureAwait(false);
+    }
+
+    public MouseRepeatSettings SetMouseRepeatEnabled(bool enabled)
+    {
+        MouseRepeatSettings saved = mouseRepeatSettings.Save(CurrentMouseRepeatSettings() with { Enabled = enabled });
+        viewModel.SetMouseRepeatSettings(saved);
+        return saved;
+    }
+
+    public MouseRepeatSettings SetMouseRepeatIntervalMs(int intervalMs)
+    {
+        MouseRepeatSettings saved = mouseRepeatSettings.Save(CurrentMouseRepeatSettings() with { IntervalMs = intervalMs });
+        viewModel.SetMouseRepeatSettings(saved);
+        return saved;
     }
 
     public async Task SetStartWithSystemAsync(bool enabled)
@@ -131,6 +149,11 @@ public sealed class SettingsController
     private CursorOverlaySettings CurrentCursorOverlaySettings()
     {
         return viewModel.CursorOverlaySettings;
+    }
+
+    private MouseRepeatSettings CurrentMouseRepeatSettings()
+    {
+        return viewModel.MouseRepeatSettings;
     }
 
     private async Task RefreshPairedDevicesAsync(CancellationToken cancellationToken = default)

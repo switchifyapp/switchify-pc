@@ -8,7 +8,8 @@ public sealed record Bounds(double X, double Y, double Width, double Height);
 public sealed record DisplayInfo(Bounds Bounds, double ScaleFactor);
 public sealed record PointerProfileInput(Point Cursor, DisplayInfo Display, int? MaxDelta = null);
 public sealed record RecommendedDeltas(int Small, int Medium, int Large);
-public sealed record PointerCapabilities(bool NoAckMouseMove, IReadOnlyList<string> NoAckCommands, IReadOnlyList<string> SupportedCommands);
+public sealed record MouseRepeatCapabilities(bool Supported, bool Enabled, int IntervalMs, int MinIntervalMs, int MaxIntervalMs);
+public sealed record PointerCapabilities(bool NoAckMouseMove, IReadOnlyList<string> NoAckCommands, IReadOnlyList<string> SupportedCommands, MouseRepeatCapabilities MouseRepeat);
 public sealed record PointerMovementProfile(
     string DisplayId,
     double ScaleFactor,
@@ -47,12 +48,20 @@ public static class PointerProfile
                 SupportedCommands:
                 [
                     .. ProtocolConstants.NoAckControlCommandTypes,
+                    "mouse.repeat.start",
+                    "mouse.repeat.stop",
                     "keyboard.textStream.open",
                     "keyboard.textStream.chunk",
                     "keyboard.textStream.close",
                     "connection.ping",
                     "pointer.profile"
-                ]));
+                ],
+                MouseRepeat: new MouseRepeatCapabilities(
+                    Supported: true,
+                    Enabled: MouseRepeatSettingsModel.Default.Enabled,
+                    IntervalMs: MouseRepeatSettingsModel.Default.IntervalMs,
+                    MinIntervalMs: MouseRepeatSettingsModel.MinIntervalMs,
+                    MaxIntervalMs: MouseRepeatSettingsModel.MaxIntervalMs)));
     }
 
     private static Bounds NormalizeBounds(Bounds bounds)

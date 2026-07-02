@@ -279,7 +279,7 @@ public sealed class RemoteControlSessionTests
             Bounds: new Bounds(0, 0, 1920, 1080),
             MaxDelta: ProtocolConstants.MaxPointerDelta,
             RecommendedDeltas: new RecommendedDeltas(49, 130, 281),
-            Capabilities: new PointerCapabilities(true, ProtocolConstants.NoAckControlCommandTypes.ToArray(), ProtocolConstants.CommandTypes.ToArray()));
+            Capabilities: TestPointerCapabilities());
 
         ControlSession commandSession = new(
             new CommandAuthValidator(store, () => Now),
@@ -293,6 +293,15 @@ public sealed class RemoteControlSessionTests
             () => pendingChangeCount += 1);
 
         return new TestContext(session, approvalManager, adapter, store, () => pendingChangeCount);
+    }
+
+    private static PointerCapabilities TestPointerCapabilities()
+    {
+        return new PointerCapabilities(
+            true,
+            ProtocolConstants.NoAckControlCommandTypes.ToArray(),
+            ProtocolConstants.CommandTypes.ToArray(),
+            new MouseRepeatCapabilities(true, true, 250, 100, 2000));
     }
 
     private static string PairingRequest(
