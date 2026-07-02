@@ -118,8 +118,7 @@ Before creating or pushing a release tag, the maintainer or agent must verify al
 - The release issue and release PR are assigned to milestone `Release X.Y.Z`.
 - The milestone `Release X.Y.Z` exists and has no unrelated open issues.
 - The self-hosted runner with label `switchify-signing` is online and not busy.
-- The Certum signing certificate thumbprint is available out-of-band or through the configured repository variable.
-- The matching certificate exists in `Cert:\CurrentUser\My`, has a private key, and SimplySign is logged in.
+- The production signing configuration is available to the release workflow.
 
 Use commands like these for preflight checks. Do not print, document, or commit the real certificate thumbprint.
 
@@ -145,19 +144,6 @@ $runner = (gh api repos/switchifyapp/switchify-pc/actions/runners | ConvertFrom-
 if (-not $runner -or $runner.status -ne 'online' -or $runner.busy) {
   throw 'The switchify-signing runner is not ready.'
 }
-
-$thumbprint = $env:SWITCHIFY_CERTUM_CERT_THUMBPRINT -replace '[^a-fA-F0-9]', ''
-if (-not $thumbprint) {
-  throw 'SWITCHIFY_CERTUM_CERT_THUMBPRINT is not set in this shell. Do not hard-code it.'
-}
-
-$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
-  Where-Object { $_.Thumbprint -eq $thumbprint } |
-  Select-Object -First 1
-
-if (-not $cert -or -not $cert.HasPrivateKey) {
-  throw 'The Certum signing certificate is missing or has no private key.'
-}
 ```
 
 When preparing the next milestone, verify first and create only if missing:
@@ -172,7 +158,7 @@ if (-not $existing) {
 }
 ```
 
-If the thumbprint is available only as a GitHub repository variable, the maintainer may verify that the variable exists without printing its value, then verify the local certificate with the thumbprint supplied privately.
+The release workflow verifies the configured Certum signing certificate on the signing runner before packaging production installers.
 
 The release workflow:
 
@@ -217,7 +203,7 @@ Do not tag if:
 - The C# app project `<Version>` does not match the intended tag.
 - The release issue or PR milestone does not match `Release X.Y.Z`.
 - The signing runner is offline or busy.
-- The Certum certificate cannot be verified locally.
+- The production signing configuration is not available to the release workflow.
 
 After the release workflow succeeds:
 
