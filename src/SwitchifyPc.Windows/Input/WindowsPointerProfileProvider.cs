@@ -45,7 +45,9 @@ public sealed class WindowsPointerProfileProvider : IPointerProfileProvider
                 MouseRepeat: new MouseRepeatCapabilities(
                     Supported: true,
                     Enabled: mouseRepeatSettings.Enabled,
-                    IntervalMs: mouseRepeatSettings.IntervalMs,
+                    IntervalMs: mouseRepeatSettings.MoveIntervalMs,
+                    MoveIntervalMs: mouseRepeatSettings.MoveIntervalMs,
+                    ScrollIntervalMs: mouseRepeatSettings.ScrollIntervalMs,
                     MinIntervalMs: MouseRepeatSettingsModel.MinIntervalMs,
                     MaxIntervalMs: MouseRepeatSettingsModel.MaxIntervalMs)));
     }

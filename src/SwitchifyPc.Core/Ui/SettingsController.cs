@@ -52,9 +52,16 @@ public sealed class SettingsController
         return saved;
     }
 
-    public MouseRepeatSettings SetMouseRepeatIntervalMs(int intervalMs)
+    public MouseRepeatSettings SetMouseRepeatMoveIntervalMs(int intervalMs)
     {
-        MouseRepeatSettings saved = mouseRepeatSettings.Save(CurrentMouseRepeatSettings() with { IntervalMs = intervalMs });
+        MouseRepeatSettings saved = mouseRepeatSettings.Save(CurrentMouseRepeatSettings() with { MoveIntervalMs = intervalMs });
+        viewModel.SetMouseRepeatSettings(saved);
+        return saved;
+    }
+
+    public MouseRepeatSettings SetMouseRepeatScrollIntervalMs(int intervalMs)
+    {
+        MouseRepeatSettings saved = mouseRepeatSettings.Save(CurrentMouseRepeatSettings() with { ScrollIntervalMs = intervalMs });
         viewModel.SetMouseRepeatSettings(saved);
         return saved;
     }

@@ -301,7 +301,7 @@ public sealed class RemoteControlSessionTests
             true,
             ProtocolConstants.NoAckControlCommandTypes.ToArray(),
             ProtocolConstants.CommandTypes.ToArray(),
-            new MouseRepeatCapabilities(true, true, 250, 100, 2000));
+            new MouseRepeatCapabilities(true, true, 250, 250, 250, 100, 2000));
     }
 
     private static string PairingRequest(

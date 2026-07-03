@@ -4,7 +4,7 @@ using SwitchifyPc.Core.Storage;
 
 namespace SwitchifyPc.Core.Settings;
 
-public sealed record MouseRepeatSettings(bool Enabled, int IntervalMs);
+public sealed record MouseRepeatSettings(bool Enabled, int MoveIntervalMs, int ScrollIntervalMs);
 
 public static class MouseRepeatSettingsModel
 {
@@ -14,11 +14,15 @@ public static class MouseRepeatSettingsModel
     public const int MaxIntervalMs = 2000;
     public const int IntervalStepMs = 50;
 
-    public static readonly MouseRepeatSettings Default = new(DefaultEnabled, DefaultIntervalMs);
+    public static readonly MouseRepeatSettings Default = new(DefaultEnabled, DefaultIntervalMs, DefaultIntervalMs);
 
     public static MouseRepeatSettings Normalize(MouseRepeatSettings settings)
     {
-        return settings with { IntervalMs = NormalizeInterval(settings.IntervalMs) };
+        return settings with
+        {
+            MoveIntervalMs = NormalizeInterval(settings.MoveIntervalMs),
+            ScrollIntervalMs = NormalizeInterval(settings.ScrollIntervalMs)
+        };
     }
 
     public static MouseRepeatSettings Normalize(JsonNode? value)
@@ -35,14 +39,28 @@ public static class MouseRepeatSettingsModel
             enabled = enabledValue;
         }
 
-        int intervalMs = DefaultIntervalMs;
+        int legacyIntervalMs = DefaultIntervalMs;
         if (candidate.TryGetPropertyValue("intervalMs", out JsonNode? intervalNode) &&
             TryGetInteger(intervalNode, out int intervalValue))
         {
-            intervalMs = intervalValue;
+            legacyIntervalMs = intervalValue;
         }
 
-        return Normalize(new MouseRepeatSettings(enabled, intervalMs));
+        int moveIntervalMs = legacyIntervalMs;
+        if (candidate.TryGetPropertyValue("moveIntervalMs", out JsonNode? moveIntervalNode) &&
+            TryGetInteger(moveIntervalNode, out int moveIntervalValue))
+        {
+            moveIntervalMs = moveIntervalValue;
+        }
+
+        int scrollIntervalMs = legacyIntervalMs;
+        if (candidate.TryGetPropertyValue("scrollIntervalMs", out JsonNode? scrollIntervalNode) &&
+            TryGetInteger(scrollIntervalNode, out int scrollIntervalValue))
+        {
+            scrollIntervalMs = scrollIntervalValue;
+        }
+
+        return Normalize(new MouseRepeatSettings(enabled, moveIntervalMs, scrollIntervalMs));
     }
 
     public static JsonObject ToJsonObject(MouseRepeatSettings settings)
@@ -51,7 +69,8 @@ public static class MouseRepeatSettingsModel
         return new JsonObject
         {
             ["enabled"] = normalized.Enabled,
-            ["intervalMs"] = normalized.IntervalMs
+            ["moveIntervalMs"] = normalized.MoveIntervalMs,
+            ["scrollIntervalMs"] = normalized.ScrollIntervalMs
         };
     }
 

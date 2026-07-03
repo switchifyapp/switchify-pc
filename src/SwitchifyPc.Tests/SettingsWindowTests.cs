@@ -1,4 +1,7 @@
 using System.Threading;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 using SwitchifyPc.App;
 using SwitchifyPc.Core.Ui;
 using SwitchifyPc.Core.Updates;
@@ -35,6 +38,32 @@ public sealed class SettingsWindowTests
         });
     }
 
+    [Fact]
+    public void SettingsWindowShowsSeparateMouseRepeatIntervals()
+    {
+        RunOnSta(() =>
+        {
+            SettingsViewModel viewModel = new();
+            SettingsWindow window = new(viewModel);
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                IReadOnlyList<string> text = TextBlocks(window);
+                Assert.Contains("Movement repeat interval", text);
+                Assert.Contains("Time between repeated pointer movements.", text);
+                Assert.Contains("Scroll repeat interval", text);
+                Assert.Contains("Time between repeated scroll actions.", text);
+                Assert.DoesNotContain("Repeat Interval", text);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
     private static void RunOnSta(Action action)
     {
         Exception? exception = null;
@@ -55,5 +84,25 @@ public sealed class SettingsWindowTests
         thread.Join();
 
         if (exception is not null) throw exception;
+    }
+
+    private static IReadOnlyList<string> TextBlocks(DependencyObject root)
+    {
+        List<string> text = [];
+        CollectTextBlocks(root, text);
+        return text;
+    }
+
+    private static void CollectTextBlocks(DependencyObject node, List<string> text)
+    {
+        if (node is TextBlock textBlock)
+        {
+            text.Add(textBlock.Text);
+        }
+
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++)
+        {
+            CollectTextBlocks(VisualTreeHelper.GetChild(node, index), text);
+        }
     }
 }

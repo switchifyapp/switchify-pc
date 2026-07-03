@@ -375,16 +375,31 @@ public static partial class ProtocolValidator
 
     private static bool ValidateMouseRepeatCapability(JsonElement mouseRepeat)
     {
-        return IsObject(mouseRepeat) &&
-            TryGetBoolean(mouseRepeat, "supported", out _) &&
-            TryGetBoolean(mouseRepeat, "enabled", out _) &&
-            TryGetInteger(mouseRepeat, "intervalMs", out int intervalMs) &&
-            intervalMs >= 100 &&
-            intervalMs <= 2000 &&
-            TryGetInteger(mouseRepeat, "minIntervalMs", out int minIntervalMs) &&
-            minIntervalMs >= 1 &&
-            TryGetInteger(mouseRepeat, "maxIntervalMs", out int maxIntervalMs) &&
-            maxIntervalMs >= minIntervalMs;
+        if (!IsObject(mouseRepeat) ||
+            !TryGetBoolean(mouseRepeat, "supported", out _) ||
+            !TryGetBoolean(mouseRepeat, "enabled", out _) ||
+            !TryGetInteger(mouseRepeat, "intervalMs", out int intervalMs) ||
+            intervalMs < 100 ||
+            intervalMs > 2000 ||
+            !TryGetInteger(mouseRepeat, "minIntervalMs", out int minIntervalMs) ||
+            minIntervalMs < 1 ||
+            !TryGetInteger(mouseRepeat, "maxIntervalMs", out int maxIntervalMs) ||
+            maxIntervalMs < minIntervalMs)
+        {
+            return false;
+        }
+
+        return ValidateOptionalInterval(mouseRepeat, "moveIntervalMs", minIntervalMs, maxIntervalMs) &&
+            ValidateOptionalInterval(mouseRepeat, "scrollIntervalMs", minIntervalMs, maxIntervalMs);
+    }
+
+    private static bool ValidateOptionalInterval(JsonElement value, string propertyName, int minIntervalMs, int maxIntervalMs)
+    {
+        return !value.TryGetProperty(propertyName, out JsonElement interval) ||
+            interval.ValueKind == JsonValueKind.Number &&
+            interval.TryGetInt32(out int intervalMs) &&
+            intervalMs >= minIntervalMs &&
+            intervalMs <= maxIntervalMs;
     }
 
     private static bool ValidateCommandArrayCapability(JsonElement capabilities, string propertyName, IReadOnlySet<string> allowed)

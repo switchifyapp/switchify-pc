@@ -71,13 +71,21 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private void MouseRepeatInterval100_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatIntervalMs(100));
+    private void MouseRepeatMoveInterval100_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatMoveIntervalMs(100));
 
-    private void MouseRepeatInterval250_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatIntervalMs(250));
+    private void MouseRepeatMoveInterval250_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatMoveIntervalMs(250));
 
-    private void MouseRepeatInterval500_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatIntervalMs(500));
+    private void MouseRepeatMoveInterval500_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatMoveIntervalMs(500));
 
-    private void MouseRepeatInterval1000_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatIntervalMs(1000));
+    private void MouseRepeatMoveInterval1000_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatMoveIntervalMs(1000));
+
+    private void MouseRepeatScrollInterval100_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatScrollIntervalMs(100));
+
+    private void MouseRepeatScrollInterval250_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatScrollIntervalMs(250));
+
+    private void MouseRepeatScrollInterval500_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatScrollIntervalMs(500));
+
+    private void MouseRepeatScrollInterval1000_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatScrollIntervalMs(1000));
 
     private void SectionNav_Checked(object sender, RoutedEventArgs e)
     {

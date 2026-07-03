@@ -192,7 +192,7 @@ public sealed class ControlSessionTests
             true,
             ProtocolConstants.NoAckControlCommandTypes.ToArray(),
             ProtocolConstants.CommandTypes.ToArray(),
-            new MouseRepeatCapabilities(true, true, 250, 100, 2000));
+            new MouseRepeatCapabilities(true, true, 250, 250, 250, 100, 2000));
     }
 
     private sealed class FakeMouseRepeatSettings(MouseRepeatSettings settings) : IMouseRepeatSettingsStore

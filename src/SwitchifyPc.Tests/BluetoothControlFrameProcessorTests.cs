@@ -132,7 +132,7 @@ public sealed class BluetoothControlFrameProcessorTests
             true,
             ProtocolConstants.NoAckControlCommandTypes.ToArray(),
             ProtocolConstants.CommandTypes.ToArray(),
-            new MouseRepeatCapabilities(true, true, 250, 100, 2000));
+            new MouseRepeatCapabilities(true, true, 250, 250, 250, 100, 2000));
     }
 
     private static string SignedCommand(string type, object payload, string id = "request-1", string? responseMode = null)
