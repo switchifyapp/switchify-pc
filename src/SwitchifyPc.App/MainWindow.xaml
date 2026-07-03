@@ -142,36 +142,6 @@
             </Style.Triggers>
         </Style>
 
-        <Style x:Key="StatusBadge" TargetType="Border">
-            <Setter Property="Background" Value="{DynamicResource Surface}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderColor}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="Padding" Value="10,8" />
-            <Setter Property="MinHeight" Value="40" />
-            <Setter Property="MinWidth" Value="112" />
-        </Style>
-
-        <Style x:Key="StatusDot" TargetType="Ellipse">
-            <Setter Property="Width" Value="9" />
-            <Setter Property="Height" Value="9" />
-            <Setter Property="Fill" Value="{DynamicResource TextMuted}" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding StatusBadgeTone}" Value="ready">
-                    <Setter Property="Fill" Value="{DynamicResource StatusOk}" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding StatusBadgeTone}" Value="connected">
-                    <Setter Property="Fill" Value="{DynamicResource StatusOk}" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding StatusBadgeTone}" Value="waiting">
-                    <Setter Property="Fill" Value="{DynamicResource StatusWarn}" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding StatusBadgeTone}" Value="error">
-                    <Setter Property="Fill" Value="{DynamicResource StatusError}" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
         <Style x:Key="PrimaryStatusDot" TargetType="Ellipse">
             <Setter Property="Width" Value="10" />
             <Setter Property="Height" Value="10" />
@@ -219,7 +189,10 @@
 
         <chrome:SwitchifyTitleBar Grid.Row="0"
                                   TitleText="Switchify PC"
-                                  ShowMinimizeButton="True" />
+                                  ShowMinimizeButton="True"
+                                  ShowStatusBadge="True"
+                                  StatusText="{Binding StatusBadgeLabel}"
+                                  StatusTone="{Binding StatusBadgeTone}" />
 
         <Grid Grid.Row="1" Background="{DynamicResource ChromeBackground}">
             <Border Margin="0,96,0,0"
@@ -256,23 +229,6 @@
                             <Button Content="Settings"
                                     Padding="16,0"
                                     Click="OpenSettings_Click" />
-                            <Border Margin="8,0,0,0"
-                                    Style="{StaticResource StatusBadge}">
-                                <Grid VerticalAlignment="Center">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <Ellipse Style="{StaticResource StatusDot}" />
-                                    <TextBlock Grid.Column="1"
-                                               Margin="8,0,0,0"
-                                               VerticalAlignment="Center"
-                                               Text="{Binding StatusBadgeLabel}"
-                                               Foreground="{DynamicResource Text}"
-                                               FontSize="12"
-                                               FontWeight="SemiBold" />
-                                </Grid>
-                            </Border>
                         </StackPanel>
                     </Grid>
 

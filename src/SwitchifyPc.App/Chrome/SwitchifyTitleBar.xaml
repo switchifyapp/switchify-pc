@@ -69,11 +69,32 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="TitleBarStatusDot" TargetType="Ellipse">
+            <Setter Property="Width" Value="8" />
+            <Setter Property="Height" Value="8" />
+            <Setter Property="Fill" Value="{DynamicResource ChromeSubtleForeground}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding StatusTone, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="ready">
+                    <Setter Property="Fill" Value="{DynamicResource StatusOk}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding StatusTone, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="connected">
+                    <Setter Property="Fill" Value="{DynamicResource StatusOk}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding StatusTone, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="waiting">
+                    <Setter Property="Fill" Value="{DynamicResource StatusWarn}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding StatusTone, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="error">
+                    <Setter Property="Fill" Value="{DynamicResource StatusError}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
 
@@ -93,7 +114,40 @@
                        Foreground="{DynamicResource ChromeForeground}" />
         </StackPanel>
 
-        <StackPanel Grid.Column="1"
+        <Border x:Name="TitleBarStatusBadge"
+                Grid.Column="1"
+                Height="28"
+                MaxWidth="220"
+                Margin="8,0,8,0"
+                Padding="10,0"
+                VerticalAlignment="Center"
+                Background="#22FFFFFF"
+                BorderBrush="{DynamicResource ChromeSubtleForeground}"
+                BorderThickness="1"
+                CornerRadius="14"
+                AutomationProperties.AutomationId="TitleBarStatusBadge"
+                AutomationProperties.Name="{Binding StatusText, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                Visibility="{Binding ShowStatusBadge, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Ellipse x:Name="TitleBarStatusDot"
+                         VerticalAlignment="Center"
+                         Style="{StaticResource TitleBarStatusDot}" />
+                <TextBlock Grid.Column="1"
+                           Margin="8,0,0,0"
+                           VerticalAlignment="Center"
+                           Text="{Binding StatusText, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource ChromeForeground}"
+                           FontSize="12"
+                           FontWeight="SemiBold" />
+            </Grid>
+        </Border>
+
+        <StackPanel Grid.Column="2"
                     Orientation="Horizontal">
             <Button x:Name="MinimizeButton"
                     Content="-"
