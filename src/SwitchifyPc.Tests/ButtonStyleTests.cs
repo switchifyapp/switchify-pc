@@ -8,6 +8,7 @@ using WpfControlTemplate = System.Windows.Controls.ControlTemplate;
 
 namespace SwitchifyPc.Tests;
 
+[Collection(WpfTestCollection.Name)]
 public sealed class ButtonStyleTests
 {
     [Fact]
