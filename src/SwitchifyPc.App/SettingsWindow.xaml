@@ -259,6 +259,7 @@
 
         <Border Grid.Row="1"
                 Grid.RowSpan="2"
+                Margin="0,80,0,0"
                 Background="#F5F4F7" />
 
         <StackPanel Grid.Row="1" Margin="24,24,24,0">

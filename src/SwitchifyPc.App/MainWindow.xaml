@@ -234,7 +234,9 @@
                                   TitleText="Switchify PC"
                                   ShowMinimizeButton="True" />
 
-        <Grid Grid.Row="1" Background="#F5F4F7">
+        <Grid Grid.Row="1" Background="#D32F2F">
+            <Border Margin="0,96,0,0"
+                    Background="#F5F4F7" />
             <Grid Margin="24">
                 <Border HorizontalAlignment="Stretch"
                 VerticalAlignment="Stretch"
