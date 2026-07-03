@@ -4,7 +4,9 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using SwitchifyPc.App.Chrome;
+using SwitchifyPc.App.Themes;
 using WpfButton = System.Windows.Controls.Button;
+using WpfColor = System.Windows.Media.Color;
 
 namespace SwitchifyPc.Tests;
 
@@ -16,6 +18,7 @@ public sealed class SwitchifyTitleBarTests
     {
         RunOnSta(() =>
         {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
             SwitchifyTitleBar titleBar = new()
             {
                 TitleText = "Switchify PC test"
@@ -45,6 +48,7 @@ public sealed class SwitchifyTitleBarTests
     {
         RunOnSta(() =>
         {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
             SwitchifyTitleBar titleBar = new();
             Window window = new()
             {
@@ -74,6 +78,7 @@ public sealed class SwitchifyTitleBarTests
     {
         RunOnSta(() =>
         {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
             bool closingCalled = false;
             SwitchifyTitleBar titleBar = new();
             Window window = new()
@@ -108,6 +113,7 @@ public sealed class SwitchifyTitleBarTests
     {
         RunOnSta(() =>
         {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
             SwitchifyTitleBar titleBar = new()
             {
                 ShowMinimizeButton = false
@@ -125,6 +131,37 @@ public sealed class SwitchifyTitleBarTests
 
                 WpfButton minimize = Assert.IsType<WpfButton>(ButtonByAutomationName(window, "Minimize"));
                 Assert.Equal(Visibility.Collapsed, minimize.Visibility);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void UsesDarkChromeBackgroundResource()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Dark);
+            SwitchifyTitleBar titleBar = new()
+            {
+                TitleText = "Switchify PC dark"
+            };
+            Window window = new()
+            {
+                Content = titleBar,
+                Width = 320,
+                Height = 120
+            };
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                SolidColorBrush background = Assert.IsType<SolidColorBrush>(titleBar.Background);
+                Assert.Equal(WpfColor.FromRgb(0xA8, 0x23, 0x1C), background.Color);
             }
             finally
             {

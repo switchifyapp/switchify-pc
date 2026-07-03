@@ -14,6 +14,7 @@ using SwitchifyPc.Core.Diagnostics;
 using SwitchifyPc.Core.Startup;
 using SwitchifyPc.Core.Ui;
 using SwitchifyPc.Core.Updates;
+using SwitchifyPc.App.Themes;
 using SwitchifyPc.Windows.AppLifecycle;
 using SwitchifyPc.Windows.Bluetooth;
 using SwitchifyPc.Windows.CursorOverlay;
@@ -44,6 +45,7 @@ public partial class App : System.Windows.Application
     private MouseRepeatController? mouseRepeatController;
     private WindowsCursorOverlayNotifier? cursorOverlay;
     private DispatcherTimer? pairingExpiryTimer;
+    private AppThemeManager? themeManager;
     private bool isQuitting;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -75,6 +77,8 @@ public partial class App : System.Windows.Application
         existingInstanceSignal.Start(
             () => Dispatcher.BeginInvoke(ShowMainWindow),
             () => Dispatcher.BeginInvoke(QuitApplication));
+        themeManager = AppThemeManager.ForCurrentApplication(new WindowsAppThemeProvider());
+        themeManager.Start();
         updateService = CreateUpdateService();
         pairingApprovalManager = CreatePairingApprovalManager();
         bluetoothStatusTracker = new BluetoothStatusTracker(onStatusChanged: UpdateBluetoothState);
@@ -113,6 +117,8 @@ public partial class App : System.Windows.Application
         bluetoothServer = null;
         cursorOverlay?.Dispose();
         cursorOverlay = null;
+        themeManager?.Dispose();
+        themeManager = null;
         commandExecutor = null;
         bluetoothFrameProcessor = null;
         bluetoothStatusTracker = null;

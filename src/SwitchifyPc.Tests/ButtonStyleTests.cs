@@ -16,6 +16,7 @@ public sealed class ButtonStyleTests
     {
         RunOnSta(() =>
         {
+            WpfTestApplication.ApplyTheme(SwitchifyPc.App.Themes.AppTheme.Light);
             MainWindow window = new();
             try
             {
@@ -33,6 +34,7 @@ public sealed class ButtonStyleTests
     {
         RunOnSta(() =>
         {
+            WpfTestApplication.ApplyTheme(SwitchifyPc.App.Themes.AppTheme.Light);
             SettingsWindow window = new();
             try
             {
@@ -50,7 +52,6 @@ public sealed class ButtonStyleTests
         Style style = Assert.IsType<Style>(element.FindResource("PrimaryButton"));
         Assert.Null(style.BasedOn);
 
-        SolidColorBrush hoverBrush = Assert.IsType<SolidColorBrush>(element.FindResource("BrandPrimaryHover"));
         WpfControlTemplate template = Assert.IsType<WpfControlTemplate>(
             Assert.Single(style.Setters.OfType<Setter>(), setter => setter.Property == WpfControl.TemplateProperty).Value);
         Trigger hoverTrigger = Assert.IsType<Trigger>(
@@ -59,11 +60,17 @@ public sealed class ButtonStyleTests
         Assert.Contains(hoverTrigger.Setters.OfType<Setter>(), setter =>
             setter.TargetName == "Root" &&
             setter.Property == WpfBorder.BackgroundProperty &&
-            ReferenceEquals(setter.Value, hoverBrush));
+            IsDynamicResource(setter.Value, "BrandPrimaryHover"));
         Assert.Contains(hoverTrigger.Setters.OfType<Setter>(), setter =>
             setter.TargetName == "Root" &&
             setter.Property == WpfBorder.BorderBrushProperty &&
-            ReferenceEquals(setter.Value, hoverBrush));
+            IsDynamicResource(setter.Value, "BrandPrimaryHover"));
+    }
+
+    private static bool IsDynamicResource(object value, string resourceKey)
+    {
+        return value is DynamicResourceExtension resource &&
+            string.Equals(resource.ResourceKey?.ToString(), resourceKey, StringComparison.Ordinal);
     }
 
     private static void RunOnSta(Action action)

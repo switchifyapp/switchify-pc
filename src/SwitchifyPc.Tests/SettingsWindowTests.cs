@@ -5,9 +5,11 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shell;
 using SwitchifyPc.App;
+using SwitchifyPc.App.Themes;
 using SwitchifyPc.Core.Ui;
 using SwitchifyPc.Core.Updates;
 using WpfButton = System.Windows.Controls.Button;
+using WpfColor = System.Windows.Media.Color;
 
 namespace SwitchifyPc.Tests;
 
@@ -19,6 +21,7 @@ public sealed class SettingsWindowTests
     {
         RunOnSta(() =>
         {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
             SettingsViewModel viewModel = new();
             viewModel.SetUpdateState(UpdateState.CreateInitial("0.2.4") with
             {
@@ -47,6 +50,7 @@ public sealed class SettingsWindowTests
     {
         RunOnSta(() =>
         {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
             SettingsViewModel viewModel = new();
             SettingsWindow window = new(viewModel);
             try
@@ -73,6 +77,7 @@ public sealed class SettingsWindowTests
     {
         RunOnSta(() =>
         {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
             SettingsWindow window = new(new SettingsViewModel());
             try
             {
@@ -85,6 +90,30 @@ public sealed class SettingsWindowTests
                 Assert.Contains("Switchify PC settings", TextBlocks(window));
                 Assert.NotNull(ButtonByAutomationName(window, "Minimize"));
                 Assert.NotNull(ButtonByAutomationName(window, "Close"));
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void SettingsWindowLoadsWithDarkTheme()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Dark);
+            SettingsWindow window = new(new SettingsViewModel());
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                Assert.Contains("Switchify PC settings", TextBlocks(window));
+                Assert.Contains("Settings", TextBlocks(window));
+                SolidColorBrush appBackground = Assert.IsType<SolidColorBrush>(window.FindResource("AppBackground"));
+                Assert.Equal(WpfColor.FromRgb(0x14, 0x13, 0x18), appBackground.Color);
             }
             finally
             {
