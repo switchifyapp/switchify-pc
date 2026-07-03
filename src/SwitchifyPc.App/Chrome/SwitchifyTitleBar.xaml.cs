@@ -21,6 +21,24 @@ public partial class SwitchifyTitleBar : WpfUserControl
         typeof(SwitchifyTitleBar),
         new PropertyMetadata(true));
 
+    public static readonly DependencyProperty StatusTextProperty = DependencyProperty.Register(
+        nameof(StatusText),
+        typeof(string),
+        typeof(SwitchifyTitleBar),
+        new PropertyMetadata(null));
+
+    public static readonly DependencyProperty StatusToneProperty = DependencyProperty.Register(
+        nameof(StatusTone),
+        typeof(string),
+        typeof(SwitchifyTitleBar),
+        new PropertyMetadata(null));
+
+    public static readonly DependencyProperty ShowStatusBadgeProperty = DependencyProperty.Register(
+        nameof(ShowStatusBadge),
+        typeof(bool),
+        typeof(SwitchifyTitleBar),
+        new PropertyMetadata(false));
+
     public SwitchifyTitleBar()
     {
         InitializeComponent();
@@ -36,6 +54,24 @@ public partial class SwitchifyTitleBar : WpfUserControl
     {
         get => (bool)GetValue(ShowMinimizeButtonProperty);
         set => SetValue(ShowMinimizeButtonProperty, value);
+    }
+
+    public string? StatusText
+    {
+        get => (string?)GetValue(StatusTextProperty);
+        set => SetValue(StatusTextProperty, value);
+    }
+
+    public string? StatusTone
+    {
+        get => (string?)GetValue(StatusToneProperty);
+        set => SetValue(StatusToneProperty, value);
+    }
+
+    public bool ShowStatusBadge
+    {
+        get => (bool)GetValue(ShowStatusBadgeProperty);
+        set => SetValue(ShowStatusBadgeProperty, value);
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)

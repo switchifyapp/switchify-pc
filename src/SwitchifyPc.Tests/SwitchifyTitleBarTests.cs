@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using SwitchifyPc.App.Chrome;
 using SwitchifyPc.App.Themes;
 using WpfButton = System.Windows.Controls.Button;
@@ -140,6 +141,104 @@ public sealed class SwitchifyTitleBarTests
     }
 
     [Fact]
+    public void StatusBadgeIsHiddenByDefault()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            SwitchifyTitleBar titleBar = new();
+            Window window = new()
+            {
+                Content = titleBar,
+                Width = 420,
+                Height = 120
+            };
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                FrameworkElement? badge = ElementByAutomationId(window, "TitleBarStatusBadge");
+                Assert.True(badge is null || badge.Visibility != Visibility.Visible);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ShowsStatusBadgeWhenEnabled()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            SwitchifyTitleBar titleBar = new()
+            {
+                ShowStatusBadge = true,
+                StatusText = "Connected",
+                StatusTone = "connected"
+            };
+            Window window = new()
+            {
+                Content = titleBar,
+                Width = 420,
+                Height = 120
+            };
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                Assert.Contains("Connected", TextBlocks(window));
+                FrameworkElement badge = Assert.IsType<Border>(ElementByAutomationId(window, "TitleBarStatusBadge"));
+                Assert.Equal(Visibility.Visible, badge.Visibility);
+                Assert.Equal("Connected", AutomationProperties.GetName(badge));
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void StatusBadgeUsesWarningTone()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            SwitchifyTitleBar titleBar = new()
+            {
+                ShowStatusBadge = true,
+                StatusText = "Starting...",
+                StatusTone = "waiting"
+            };
+            Window window = new()
+            {
+                Content = titleBar,
+                Width = 420,
+                Height = 120
+            };
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                Ellipse dot = Assert.IsType<Ellipse>(ElementByName(window, "TitleBarStatusDot"));
+                SolidColorBrush fill = Assert.IsType<SolidColorBrush>(dot.Fill);
+                SolidColorBrush warning = Assert.IsType<SolidColorBrush>(titleBar.FindResource("StatusWarn"));
+                Assert.Equal(warning.Color, fill.Color);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
     public void UsesDarkChromeBackgroundResource()
     {
         RunOnSta(() =>
@@ -215,6 +314,36 @@ public sealed class SwitchifyTitleBarTests
                 AutomationProperties.GetName(button) == name)
             {
                 result = button;
+            }
+        });
+        return result;
+    }
+
+    private static FrameworkElement? ElementByAutomationId(DependencyObject root, string automationId)
+    {
+        FrameworkElement? result = null;
+        Collect(root, node =>
+        {
+            if (result is null &&
+                node is FrameworkElement element &&
+                AutomationProperties.GetAutomationId(element) == automationId)
+            {
+                result = element;
+            }
+        });
+        return result;
+    }
+
+    private static FrameworkElement? ElementByName(DependencyObject root, string name)
+    {
+        FrameworkElement? result = null;
+        Collect(root, node =>
+        {
+            if (result is null &&
+                node is FrameworkElement element &&
+                element.Name == name)
+            {
+                result = element;
             }
         });
         return result;
