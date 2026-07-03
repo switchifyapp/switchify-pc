@@ -12,22 +12,20 @@ public sealed record BluetoothRemoteFrameResult(
     bool MessageComplete,
     string? ErrorReason,
     IReadOnlyList<BluetoothRemoteFrameOutput> OutgoingMessages,
-    bool ShouldAutoHideMainWindow = false,
     string? AuthenticatedConnectionId = null,
     string? AuthenticatedDeviceId = null,
     string? AuthFailureReason = null)
 {
-    public static BluetoothRemoteFrameResult Incomplete(string? reason = null) => new(false, reason, [], false);
+    public static BluetoothRemoteFrameResult Incomplete(string? reason = null) => new(false, reason, []);
 
     public static BluetoothRemoteFrameResult Complete(
         IReadOnlyList<BluetoothRemoteFrameOutput> outgoingMessages,
-        bool shouldAutoHideMainWindow = false,
         string? authenticatedConnectionId = null,
         string? authenticatedDeviceId = null,
         string? authFailureReason = null) =>
-        new(true, null, outgoingMessages, shouldAutoHideMainWindow, authenticatedConnectionId, authenticatedDeviceId, authFailureReason);
+        new(true, null, outgoingMessages, authenticatedConnectionId, authenticatedDeviceId, authFailureReason);
 
-    public static BluetoothRemoteFrameResult Error(string reason) => new(true, reason, [], false);
+    public static BluetoothRemoteFrameResult Error(string reason) => new(true, reason, []);
 }
 
 public sealed class BluetoothRemoteFrameProcessor
@@ -74,7 +72,6 @@ public sealed class BluetoothRemoteFrameProcessor
             cancellationToken).ConfigureAwait(false);
         return BluetoothRemoteFrameResult.Complete(
             FrameOutgoingMessages(sessionResult),
-            sessionResult.ShouldAutoHideMainWindow,
             sessionResult.AuthenticatedConnectionId,
             sessionResult.AuthenticatedDeviceId,
             sessionResult.AuthFailureReason);

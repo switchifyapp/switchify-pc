@@ -31,7 +31,8 @@ public sealed class BluetoothRemoteFrameProcessorTests
         }
 
         Assert.True(result.MessageComplete);
-        Assert.False(result.ShouldAutoHideMainWindow);
+        Assert.Equal("ble-1", result.AuthenticatedConnectionId);
+        Assert.Equal(DeviceId, result.AuthenticatedDeviceId);
         BluetoothRemoteFrameOutput output = Assert.Single(result.OutgoingMessages);
         Assert.Equal("ble-1", output.ConnectionId);
         Assert.False(output.CloseConnection);
@@ -53,7 +54,6 @@ public sealed class BluetoothRemoteFrameProcessorTests
         }
 
         Assert.True(result.MessageComplete);
-        Assert.False(result.ShouldAutoHideMainWindow);
         Assert.Empty(result.OutgoingMessages);
         Assert.Equal("192.168.1.50", Assert.Single(context.ApprovalManager.ListPendingRequestViews()).RemoteAddress);
 
@@ -68,7 +68,7 @@ public sealed class BluetoothRemoteFrameProcessorTests
     }
 
     [Fact]
-    public async Task ReassembledCommandFromPreviouslyUsedDeviceRequestsAutoHide()
+    public async Task ReassembledCommandFromPreviouslyUsedDevicePropagatesAuthenticatedConnection()
     {
         TestContext context = CreateContext(lastSeenAt: Now - 500);
         BluetoothRemoteFrameProcessor processor = new(context.Session, maxResponseFramePayloadBytes: 20);
@@ -84,11 +84,15 @@ public sealed class BluetoothRemoteFrameProcessorTests
         }
 
         Assert.True(result.MessageComplete);
-        Assert.True(result.ShouldAutoHideMainWindow);
+        Assert.Equal("ble-1", result.AuthenticatedConnectionId);
+        Assert.Equal(DeviceId, result.AuthenticatedDeviceId);
+        BluetoothRemoteFrameOutput output = Assert.Single(result.OutgoingMessages);
+        Assert.Equal("ble-1", output.ConnectionId);
+        AssertResponseType(output.ResponseFrames, "ack");
     }
 
     [Fact]
-    public async Task NewPairedDeviceDoesNotRequestAutoHideForRepeatedMessagesOnSameConnection()
+    public async Task NewPairedDeviceRepeatedMessagesCompleteOnSameConnection()
     {
         TestContext context = CreateContext();
         BluetoothRemoteFrameProcessor processor = new(context.Session);
@@ -104,8 +108,8 @@ public sealed class BluetoothRemoteFrameProcessorTests
 
         Assert.True(first.MessageComplete);
         Assert.True(second.MessageComplete);
-        Assert.False(first.ShouldAutoHideMainWindow);
-        Assert.False(second.ShouldAutoHideMainWindow);
+        Assert.Equal("ble-1", first.AuthenticatedConnectionId);
+        Assert.Equal("ble-1", second.AuthenticatedConnectionId);
     }
 
     [Fact]

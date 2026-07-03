@@ -371,10 +371,6 @@ public partial class App : System.Windows.Application
             }
         }
 
-        if (result.ShouldAutoHideMainWindow)
-        {
-            HideMainWindowAfterPreviouslyUsedDeviceControl();
-        }
     }
 
     private static string? AuthFailureMessage(string reason)
@@ -513,21 +509,6 @@ public partial class App : System.Windows.Application
     private void UpdateMainWindowState(UpdateState state)
     {
         Dispatcher.BeginInvoke(() => mainWindowViewModel.SetUpdateState(state));
-    }
-
-    private void HideMainWindowAfterPreviouslyUsedDeviceControl()
-    {
-        if (MainWindow is not { IsVisible: true } window) return;
-
-        if (!MainWindowAutoHidePolicy.ShouldHideAfterPreviouslyUsedDeviceControl(
-            isMainWindowVisible: true,
-            hasPairingApprovals: mainWindowViewModel.HasPairingApprovals,
-            isPreviouslyUsedDeviceSession: true))
-        {
-            return;
-        }
-
-        window.Hide();
     }
 
     private void UpdateBluetoothState(BluetoothStatus status)
