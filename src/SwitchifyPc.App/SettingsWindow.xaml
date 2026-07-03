@@ -15,7 +15,7 @@
         ResizeMode="NoResize"
         Icon="Assets/icon.ico"
         FontFamily="Segoe UI"
-        Background="#D32F2F"
+        Background="{DynamicResource ChromeBackground}"
         WindowStyle="None"
         WindowStartupLocation="CenterScreen"
         d:DataContext="{d:DesignInstance Type=ui:SettingsViewModel, IsDesignTimeCreatable=True}">
@@ -30,21 +30,13 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
 
-        <SolidColorBrush x:Key="BrandPrimary" Color="#D32F2F" />
-        <SolidColorBrush x:Key="BrandPrimaryHover" Color="#B3261E" />
-        <SolidColorBrush x:Key="Surface" Color="#FFFFFF" />
-        <SolidColorBrush x:Key="SurfaceMuted" Color="#F3F2F6" />
-        <SolidColorBrush x:Key="Text" Color="#1C1B1F" />
-        <SolidColorBrush x:Key="TextMuted" Color="#49454F" />
-        <SolidColorBrush x:Key="BorderColor" Color="#E2E0E8" />
-
         <Style TargetType="Button">
             <Setter Property="MinHeight" Value="38" />
             <Setter Property="Padding" Value="14,0" />
-            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderColor}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Background" Value="{StaticResource Surface}" />
-            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="Background" Value="{DynamicResource Surface}" />
+            <Setter Property="Foreground" Value="{DynamicResource Text}" />
             <Setter Property="FontWeight" Value="Bold" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Template">
@@ -63,8 +55,8 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource BrandPrimary}" />
-                                <Setter TargetName="Root" Property="Background" Value="{StaticResource SurfaceMuted}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource BrandPrimary}" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource SurfaceMuted}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Root" Property="Opacity" Value="0.55" />
@@ -78,10 +70,10 @@
         <Style x:Key="PrimaryButton" TargetType="Button">
             <Setter Property="MinHeight" Value="38" />
             <Setter Property="Padding" Value="14,0" />
-            <Setter Property="BorderBrush" Value="{StaticResource BrandPrimary}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BrandPrimary}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Background" Value="{StaticResource BrandPrimary}" />
-            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Background" Value="{DynamicResource BrandPrimary}" />
+            <Setter Property="Foreground" Value="{DynamicResource ChromeForeground}" />
             <Setter Property="FontWeight" Value="Bold" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Template">
@@ -100,8 +92,8 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="{StaticResource BrandPrimaryHover}" />
-                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource BrandPrimaryHover}" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource BrandPrimaryHover}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource BrandPrimaryHover}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Root" Property="Opacity" Value="0.55" />
@@ -113,48 +105,48 @@
         </Style>
 
         <Style x:Key="PanelBorder" TargetType="Border">
-            <Setter Property="Background" Value="{StaticResource Surface}" />
-            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="Background" Value="{DynamicResource Surface}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderColor}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="12" />
             <Setter Property="Padding" Value="18" />
         </Style>
 
         <Style x:Key="SubtlePanel" TargetType="Border">
-            <Setter Property="Background" Value="{StaticResource SurfaceMuted}" />
-            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceMuted}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderColor}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="10" />
             <Setter Property="Padding" Value="12" />
         </Style>
 
         <Style x:Key="SectionTitle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="Foreground" Value="{DynamicResource Text}" />
             <Setter Property="FontSize" Value="17" />
             <Setter Property="FontWeight" Value="Bold" />
         </Style>
 
         <Style x:Key="MutedText" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="LineHeight" Value="19" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
 
         <Style x:Key="DetailLabel" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="FontWeight" Value="Bold" />
         </Style>
 
         <Style x:Key="DetailValue" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="Foreground" Value="{DynamicResource Text}" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
 
         <Style TargetType="CheckBox">
-            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="Foreground" Value="{DynamicResource Text}" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
@@ -163,7 +155,7 @@
             <Setter Property="MinHeight" Value="40" />
             <Setter Property="Margin" Value="0,0,0,4" />
             <Setter Property="Padding" Value="12,0" />
-            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="Foreground" Value="{DynamicResource Text}" />
             <Setter Property="FontWeight" Value="Bold" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Template">
@@ -180,12 +172,12 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="{StaticResource SurfaceMuted}" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource SurfaceMuted}" />
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="{StaticResource Surface}" />
-                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource BrandPrimary}" />
-                                <Setter Property="Foreground" Value="{StaticResource BrandPrimary}" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource Surface}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource BrandPrimary}" />
+                                <Setter Property="Foreground" Value="{DynamicResource BrandPrimary}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -197,10 +189,10 @@
             <Setter Property="MinHeight" Value="36" />
             <Setter Property="Margin" Value="0,0,6,0" />
             <Setter Property="Padding" Value="12,0" />
-            <Setter Property="Background" Value="{StaticResource Surface}" />
-            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}" />
+            <Setter Property="Background" Value="{DynamicResource Surface}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderColor}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="Foreground" Value="{DynamicResource Text}" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="FontWeight" Value="Bold" />
             <Setter Property="Cursor" Value="Hand" />
@@ -219,12 +211,12 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource BrandPrimary}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource BrandPrimary}" />
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="#FFF1F1" />
-                                <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource BrandPrimary}" />
-                                <Setter Property="Foreground" Value="{StaticResource BrandPrimary}" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource SegmentSelectedBackground}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource BrandPrimary}" />
+                                <Setter Property="Foreground" Value="{DynamicResource BrandPrimary}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -241,12 +233,12 @@
             <Setter Property="Height" Value="10" />
             <Setter Property="Minimum" Value="0" />
             <Setter Property="Maximum" Value="100" />
-            <Setter Property="Foreground" Value="{StaticResource BrandPrimary}" />
-            <Setter Property="Background" Value="{StaticResource BorderColor}" />
+            <Setter Property="Foreground" Value="{DynamicResource BrandPrimary}" />
+            <Setter Property="Background" Value="{DynamicResource BorderColor}" />
         </Style>
     </Window.Resources>
 
-    <Grid Background="#D32F2F">
+    <Grid Background="{DynamicResource ChromeBackground}">
         <Grid.RowDefinitions>
             <RowDefinition Height="44" />
             <RowDefinition Height="Auto" />
@@ -260,16 +252,16 @@
         <Border Grid.Row="1"
                 Grid.RowSpan="2"
                 Margin="0,80,0,0"
-                Background="#F5F4F7" />
+                Background="{DynamicResource AppBackground}" />
 
         <StackPanel Grid.Row="1" Margin="24,24,24,0">
             <TextBlock Text="Settings"
                        FontSize="18"
                        FontWeight="Bold"
-                       Foreground="White" />
+                       Foreground="{DynamicResource ChromeForeground}" />
             <TextBlock Margin="0,4,0,18"
                        Text="Tune how Switchify starts, connects, and controls this PC."
-                       Foreground="#FDE8E8"
+                       Foreground="{DynamicResource ChromeSubtleForeground}"
                        Style="{StaticResource MutedText}" />
         </StackPanel>
 
@@ -280,8 +272,8 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Border Background="{StaticResource Surface}"
-                    BorderBrush="{StaticResource BorderColor}"
+            <Border Background="{DynamicResource Surface}"
+                    BorderBrush="{DynamicResource BorderColor}"
                     BorderThickness="1"
                     CornerRadius="12"
                     Padding="8"
@@ -353,7 +345,7 @@
                                                         <TextBlock Text="{Binding DeviceName}"
                                                                    FontSize="14"
                                                                    FontWeight="Bold"
-                                                                   Foreground="{StaticResource Text}" />
+                                                                   Foreground="{DynamicResource Text}" />
                                                         <TextBlock Margin="0,4,0,0"
                                                                    Text="{Binding LastSeenAt, StringFormat=Last seen {0}}"
                                                                    Style="{StaticResource MutedText}" />
@@ -677,7 +669,7 @@
                                                              Checked="CursorOverlayColorWhite_Checked"
                                                              Style="{StaticResource SegmentRadio}">
                                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                                        <Border Width="12" Height="12" CornerRadius="6" Background="#FFFFFF" BorderBrush="{StaticResource BorderColor}" BorderThickness="1" />
+                                                        <Border Width="12" Height="12" CornerRadius="6" Background="#FFFFFF" BorderBrush="{DynamicResource BorderColor}" BorderThickness="1" />
                                                         <TextBlock Margin="6,0,0,0" Text="White" />
                                                     </StackPanel>
                                                 </RadioButton>

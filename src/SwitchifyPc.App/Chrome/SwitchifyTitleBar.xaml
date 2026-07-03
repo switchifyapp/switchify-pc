@@ -3,8 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
              Height="44"
-             Background="#D32F2F"
-             Foreground="White"
+             Background="{DynamicResource ChromeBackground}"
+             Foreground="{DynamicResource ChromeForeground}"
              shell:WindowChrome.IsHitTestVisibleInChrome="True"
              MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
     <UserControl.Resources>
@@ -16,7 +16,7 @@
             <Setter Property="Padding" Value="0" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Foreground" Value="{DynamicResource ChromeForeground}" />
             <Setter Property="FontSize" Value="15" />
             <Setter Property="FontFamily" Value="Segoe UI" />
             <Setter Property="Cursor" Value="Hand" />
@@ -31,10 +31,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="#B3261E" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource ChromeBackgroundHover}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="#8F1D18" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource ChromeBackgroundPressed}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Root" Property="Opacity" Value="0.45" />
@@ -56,10 +56,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="#C42B1C" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource ChromeCloseHover}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="#8F1D18" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource ChromeClosePressed}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Root" Property="Opacity" Value="0.45" />
@@ -90,7 +90,7 @@
                        TextTrimming="CharacterEllipsis"
                        FontSize="13"
                        FontWeight="SemiBold"
-                       Foreground="White" />
+                       Foreground="{DynamicResource ChromeForeground}" />
         </StackPanel>
 
         <StackPanel Grid.Column="1"

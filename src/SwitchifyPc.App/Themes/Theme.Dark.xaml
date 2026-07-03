@@ -1,0 +1,25 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="BrandPrimary" Color="#D65A52" />
+    <SolidColorBrush x:Key="BrandPrimaryHover" Color="#E06B63" />
+    <SolidColorBrush x:Key="ChromeBackground" Color="#A8231C" />
+    <SolidColorBrush x:Key="ChromeBackgroundHover" Color="#8F1D18" />
+    <SolidColorBrush x:Key="ChromeBackgroundPressed" Color="#6F1511" />
+    <SolidColorBrush x:Key="ChromeCloseHover" Color="#C42B1C" />
+    <SolidColorBrush x:Key="ChromeClosePressed" Color="#8F1D18" />
+    <SolidColorBrush x:Key="ChromeForeground" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="ChromeSubtleForeground" Color="#FFDAD6" />
+    <SolidColorBrush x:Key="AppBackground" Color="#141318" />
+    <SolidColorBrush x:Key="Surface" Color="#1F1F23" />
+    <SolidColorBrush x:Key="SurfaceMuted" Color="#2A292F" />
+    <SolidColorBrush x:Key="Text" Color="#F4EFF4" />
+    <SolidColorBrush x:Key="TextMuted" Color="#CAC4D0" />
+    <SolidColorBrush x:Key="BorderColor" Color="#45424B" />
+    <SolidColorBrush x:Key="StatusOk" Color="#81C784" />
+    <SolidColorBrush x:Key="StatusWarn" Color="#E0B84D" />
+    <SolidColorBrush x:Key="StatusError" Color="#FFB4AB" />
+    <SolidColorBrush x:Key="AccentContainer" Color="#5B1B18" />
+    <SolidColorBrush x:Key="OnAccentContainer" Color="#FFDAD6" />
+    <SolidColorBrush x:Key="SegmentSelectedBackground" Color="#3B2424" />
+    <SolidColorBrush x:Key="ShadowColor" Color="#000000" />
+</ResourceDictionary>
