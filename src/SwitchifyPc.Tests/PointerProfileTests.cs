@@ -17,7 +17,11 @@ public sealed class PointerProfileTests
         Assert.Equal(new RecommendedDeltas(32, 86, 187), profile.RecommendedDeltas);
         Assert.True(profile.Capabilities.NoAckMouseMove);
         Assert.Contains("keyboard.textStream.char", profile.Capabilities.NoAckCommands);
+        Assert.Contains("keyboard.modifierDown", profile.Capabilities.NoAckCommands);
+        Assert.Contains("keyboard.modifierUp", profile.Capabilities.NoAckCommands);
         Assert.Contains("keyboard.textStream.open", profile.Capabilities.SupportedCommands);
+        Assert.Contains("keyboard.modifierDown", profile.Capabilities.SupportedCommands);
+        Assert.Contains("keyboard.modifierUp", profile.Capabilities.SupportedCommands);
         Assert.Equal(250, profile.Capabilities.MouseRepeat.IntervalMs);
         Assert.Equal(250, profile.Capabilities.MouseRepeat.MoveIntervalMs);
         Assert.Equal(250, profile.Capabilities.MouseRepeat.ScrollIntervalMs);

@@ -38,6 +38,8 @@ public sealed class ProtocolConstantsTests
             "mouse.dragStart",
             "mouse.dragEnd",
             "keyboard.key",
+            "keyboard.modifierDown",
+            "keyboard.modifierUp",
             "keyboard.shortcut",
             "keyboard.typeText",
             "keyboard.textStream.open",
@@ -66,5 +68,15 @@ public sealed class ProtocolConstantsTests
     {
         Assert.DoesNotContain("mouse.repeat.start", ProtocolConstants.NoAckControlCommandTypes);
         Assert.DoesNotContain("mouse.repeat.stop", ProtocolConstants.NoAckControlCommandTypes);
+    }
+
+    [Fact]
+    public void ModifierCommandsCanUseNoAckResponses()
+    {
+        Assert.Contains("keyboard.modifierDown", ProtocolConstants.NoAckControlCommandTypes);
+        Assert.Contains("keyboard.modifierUp", ProtocolConstants.NoAckControlCommandTypes);
+        Assert.Equal(
+            ["Alt", "Ctrl", "Meta", "Shift"],
+            ProtocolConstants.ModifierKeys.Order(StringComparer.Ordinal));
     }
 }

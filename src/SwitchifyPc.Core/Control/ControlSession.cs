@@ -86,6 +86,8 @@ public sealed class ControlSession
                 await StopRepeatAsync(failedDeviceId!).ConfigureAwait(false);
             }
 
+            await commandExecutor.ReleaseHeldInputsAsync(cancellationToken).ConfigureAwait(false);
+            commandExecutor.EndControlSession();
             return ControlSessionResult.Response(ErrorResponse(RequestIdOrNull(request), auth.Reason ?? "invalid_auth", "Command authentication failed."))
                 with { AuthFailureReason = auth.Reason ?? "invalid_auth" };
         }
@@ -93,7 +95,7 @@ public sealed class ControlSession
         if (type == "connection.disconnecting")
         {
             await StopRepeatAsync(auth.DeviceId ?? "").ConfigureAwait(false);
-            await commandExecutor.ReleaseHeldMouseButtonsAsync(cancellationToken).ConfigureAwait(false);
+            await commandExecutor.ReleaseHeldInputsAsync(cancellationToken).ConfigureAwait(false);
             commandExecutor.EndControlSession();
             return WithAuth(AckOrNoResponse(request), auth);
         }
@@ -146,6 +148,13 @@ public sealed class ControlSession
     }
 
     public Task StopAllRepeatsAsync() => mouseRepeatController?.StopAllAsync() ?? Task.CompletedTask;
+
+    public async Task EndControlSessionAsync(CancellationToken cancellationToken = default)
+    {
+        await StopAllRepeatsAsync().ConfigureAwait(false);
+        await commandExecutor.ReleaseHeldInputsAsync(cancellationToken).ConfigureAwait(false);
+        commandExecutor.EndControlSession();
+    }
 
     private static ControlSessionResult WithAuth(ControlSessionResult result, AuthValidationResult auth)
     {

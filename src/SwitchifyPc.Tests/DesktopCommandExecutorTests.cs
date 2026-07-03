@@ -123,6 +123,98 @@ public sealed class DesktopCommandExecutorTests
     }
 
     [Fact]
+    public async Task TracksModifierStateAndUpdatesOverlay()
+    {
+        FakeInputAdapter adapter = new();
+        FakeModifierOverlay modifierOverlay = new();
+        DesktopCommandExecutor executor = new(adapter, modifierOverlay: modifierOverlay);
+
+        await executor.ExecuteAsync(Command("keyboard.modifierDown", new { key = "Shift" }));
+        await executor.ExecuteAsync(Command("keyboard.modifierDown", new { key = "Ctrl" }));
+        await executor.ExecuteAsync(Command("keyboard.modifierDown", new { key = "Meta" }));
+        await executor.ExecuteAsync(Command("keyboard.modifierDown", new { key = "Ctrl" }));
+        await executor.ExecuteAsync(Command("keyboard.modifierUp", new { key = "Ctrl" }));
+        await executor.ExecuteAsync(Command("keyboard.modifierUp", new { key = "Alt" }));
+        await executor.ExecuteAsync(Command("keyboard.modifierUp", new { key = "Shift" }));
+        await executor.ExecuteAsync(Command("keyboard.modifierUp", new { key = "Meta" }));
+
+        Assert.Equal(
+            [
+                "setKeyDown:Shift:True",
+                "setKeyDown:Ctrl:True",
+                "setKeyDown:Meta:True",
+                "setKeyDown:Ctrl:False",
+                "setKeyDown:Shift:False",
+                "setKeyDown:Meta:False"
+            ],
+            adapter.Calls);
+        Assert.Equal(
+            [
+                ["Shift"],
+                ["Ctrl", "Shift"],
+                ["Ctrl", "Shift", "Start"],
+                ["Shift", "Start"],
+                ["Start"],
+                []
+            ],
+            modifierOverlay.Changes);
+    }
+
+    [Fact]
+    public async Task ReleaseHeldInputsReleasesDragAndModifiers()
+    {
+        FakeInputAdapter adapter = new();
+        FakeCursorOverlay cursorOverlay = new();
+        FakeModifierOverlay modifierOverlay = new();
+        DesktopCommandExecutor executor = new(adapter, cursorOverlay, modifierOverlay: modifierOverlay);
+
+        await executor.ExecuteAsync(Command("mouse.dragStart", new { button = "left" }));
+        await executor.ExecuteAsync(Command("keyboard.modifierDown", new { key = "Ctrl" }));
+        await executor.ExecuteAsync(Command("keyboard.modifierDown", new { key = "Meta" }));
+        await executor.ReleaseHeldInputsAsync();
+
+        Assert.Equal(
+            [
+                "setMouseButtonDown:left:True",
+                "setKeyDown:Ctrl:True",
+                "setKeyDown:Meta:True",
+                "setMouseButtonDown:left:False",
+                "setKeyDown:Meta:False",
+                "setKeyDown:Ctrl:False"
+            ],
+            adapter.Calls);
+        Assert.Equal([true, false], cursorOverlay.DragActiveChanges);
+        Assert.Equal(["Ctrl"], modifierOverlay.Changes[0]);
+        Assert.Equal(["Ctrl", "Start"], modifierOverlay.Changes[1]);
+        Assert.Equal(["Ctrl"], modifierOverlay.Changes[2]);
+        Assert.Equal([], modifierOverlay.Changes[3]);
+    }
+
+    [Fact]
+    public async Task ModifierFailuresKeepOverlayConsistent()
+    {
+        FakeInputAdapter downFailure = new() { ThrowOnSetKeyDown = true };
+        FakeModifierOverlay downOverlay = new();
+        DesktopCommandExecutor downExecutor = new(downFailure, modifierOverlay: downOverlay);
+
+        CommandExecutionResult down = await downExecutor.ExecuteAsync(Command("keyboard.modifierDown", new { key = "Ctrl" }));
+
+        Assert.False(down.Ok);
+        Assert.Empty(downOverlay.Changes);
+
+        FakeInputAdapter upFailure = new();
+        FakeModifierOverlay upOverlay = new();
+        DesktopCommandExecutor upExecutor = new(upFailure, modifierOverlay: upOverlay);
+        await upExecutor.ExecuteAsync(Command("keyboard.modifierDown", new { key = "Ctrl" }));
+        upFailure.ThrowOnSetKeyDown = true;
+
+        CommandExecutionResult up = await upExecutor.ExecuteAsync(Command("keyboard.modifierUp", new { key = "Ctrl" }));
+
+        Assert.False(up.Ok);
+        Assert.Equal([["Ctrl"], []], upOverlay.Changes);
+    }
+
+    [Fact]
     public async Task RejectsUnsafePayloads()
     {
         DesktopCommandExecutor executor = new(new FakeInputAdapter());
@@ -151,11 +243,13 @@ public sealed class DesktopCommandExecutorTests
     public void EndControlSessionHidesCursorOverlaySession()
     {
         FakeCursorOverlay overlay = new();
-        DesktopCommandExecutor executor = new(new FakeInputAdapter(), overlay);
+        FakeModifierOverlay modifierOverlay = new();
+        DesktopCommandExecutor executor = new(new FakeInputAdapter(), overlay, modifierOverlay: modifierOverlay);
 
         executor.EndControlSession();
 
         Assert.Equal(1, overlay.EndSessionCount);
+        Assert.Equal(1, modifierOverlay.EndSessionCount);
     }
 
     private static JsonElement Command(string type, object payload, string? responseMode = null)
@@ -181,6 +275,7 @@ public sealed class DesktopCommandExecutorTests
     private sealed class FakeInputAdapter : IDesktopInputAdapter
     {
         public List<string> Calls { get; } = [];
+        public bool ThrowOnSetKeyDown { get; set; }
 
         public Task MoveMouseByAsync(double dx, double dy, CancellationToken cancellationToken = default)
         {
@@ -215,6 +310,17 @@ public sealed class DesktopCommandExecutorTests
         public Task PressKeyAsync(string key, CancellationToken cancellationToken = default)
         {
             Calls.Add($"pressKey:{key}");
+            return Task.CompletedTask;
+        }
+
+        public Task SetKeyDownAsync(string key, bool down, CancellationToken cancellationToken = default)
+        {
+            if (ThrowOnSetKeyDown)
+            {
+                throw new DesktopInputException("adapter_failure", "Set key failed.");
+            }
+
+            Calls.Add($"setKeyDown:{key}:{down}");
             return Task.CompletedTask;
         }
 
@@ -280,6 +386,22 @@ public sealed class DesktopCommandExecutorTests
         public void SetDragActive(bool active)
         {
             DragActiveChanges.Add(active);
+        }
+    }
+
+    private sealed class FakeModifierOverlay : IModifierKeyOverlayNotifier
+    {
+        public List<IReadOnlyList<string>> Changes { get; } = [];
+        public int EndSessionCount { get; private set; }
+
+        public void SetActiveModifiers(IReadOnlyCollection<string> activeModifiers)
+        {
+            Changes.Add(activeModifiers.ToArray());
+        }
+
+        public void EndControlSession()
+        {
+            EndSessionCount += 1;
         }
     }
 }

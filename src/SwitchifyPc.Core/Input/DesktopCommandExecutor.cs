@@ -15,14 +15,21 @@ public sealed class DesktopCommandExecutor
 
     private readonly IDesktopInputAdapter adapter;
     private readonly ICursorOverlayNotifier? cursorOverlay;
+    private readonly IModifierKeyOverlayNotifier? modifierOverlay;
     private readonly Func<double> now;
     private readonly Dictionary<string, TextInputStreamState> textInputStreams = new(StringComparer.Ordinal);
+    private readonly HashSet<string> activeModifierKeys = new(StringComparer.Ordinal);
     private string? activeDragButton;
 
-    public DesktopCommandExecutor(IDesktopInputAdapter adapter, ICursorOverlayNotifier? cursorOverlay = null, Func<double>? now = null)
+    public DesktopCommandExecutor(
+        IDesktopInputAdapter adapter,
+        ICursorOverlayNotifier? cursorOverlay = null,
+        Func<double>? now = null,
+        IModifierKeyOverlayNotifier? modifierOverlay = null)
     {
         this.adapter = adapter;
         this.cursorOverlay = cursorOverlay;
+        this.modifierOverlay = modifierOverlay;
         this.now = now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     }
 
@@ -52,6 +59,8 @@ public sealed class DesktopCommandExecutor
                 "mouse.rightClick" => await RightClickMouseAsync(cancellationToken),
                 "mouse.scroll" => await ScrollMouseAsync(payload, cancellationToken),
                 "keyboard.key" => await PressKeyAsync(payload.GetProperty("key").GetString() ?? "", cancellationToken),
+                "keyboard.modifierDown" => await SetModifierAsync(payload.GetProperty("key").GetString() ?? "", down: true, cancellationToken),
+                "keyboard.modifierUp" => await SetModifierAsync(payload.GetProperty("key").GetString() ?? "", down: false, cancellationToken),
                 "keyboard.shortcut" => await PressShortcutAsync(payload.GetProperty("keys"), cancellationToken),
                 "keyboard.typeText" => await TypeTextAsync(payload.GetProperty("text").GetString() ?? "", cancellationToken),
                 "keyboard.textStream.open" => OpenTextInputStream(command.GetProperty("deviceId").GetString() ?? "", payload.GetProperty("streamId").GetString() ?? ""),
@@ -79,18 +88,21 @@ public sealed class DesktopCommandExecutor
 
     public async Task ReleaseHeldMouseButtonsAsync(CancellationToken cancellationToken = default)
     {
-        if (activeDragButton is null) return;
-        string button = activeDragButton;
-        await adapter.SetMouseButtonDownAsync(button, false, cancellationToken);
-        activeDragButton = null;
-        cursorOverlay?.SetDragActive(false);
-        cursorOverlay?.Hide();
+        await ReleaseHeldInputsAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task ReleaseHeldInputsAsync(CancellationToken cancellationToken = default)
+    {
+        await ReleaseHeldMouseButtonAsync(cancellationToken).ConfigureAwait(false);
+        await ReleaseHeldModifiersAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public void EndControlSession()
     {
         activeDragButton = null;
+        activeModifierKeys.Clear();
         cursorOverlay?.EndControlSession();
+        modifierOverlay?.EndControlSession();
     }
 
     private async Task<CommandExecutionResult> MoveMouseAsync(JsonElement payload, CancellationToken cancellationToken)
@@ -169,6 +181,37 @@ public sealed class DesktopCommandExecutor
     {
         await adapter.PressKeyAsync(key, cancellationToken);
         return CommandExecutionResult.Success;
+    }
+
+    private async Task<CommandExecutionResult> SetModifierAsync(string key, bool down, CancellationToken cancellationToken)
+    {
+        if (down)
+        {
+            if (activeModifierKeys.Contains(key))
+            {
+                return CommandExecutionResult.Success;
+            }
+
+            await adapter.SetKeyDownAsync(key, true, cancellationToken);
+            activeModifierKeys.Add(key);
+            UpdateModifierOverlay();
+            return CommandExecutionResult.Success;
+        }
+
+        if (!activeModifierKeys.Remove(key))
+        {
+            return CommandExecutionResult.Success;
+        }
+
+        try
+        {
+            await adapter.SetKeyDownAsync(key, false, cancellationToken);
+            return CommandExecutionResult.Success;
+        }
+        finally
+        {
+            UpdateModifierOverlay();
+        }
     }
 
     private async Task<CommandExecutionResult> PressShortcutAsync(JsonElement keysElement, CancellationToken cancellationToken)
@@ -308,6 +351,56 @@ public sealed class DesktopCommandExecutor
     private static bool IsMouseCommand(string type)
     {
         return type is "mouse.move" or "mouse.click" or "mouse.doubleClick" or "mouse.rightClick" or "mouse.scroll" or "mouse.dragStart" or "mouse.dragEnd";
+    }
+
+    private async Task ReleaseHeldMouseButtonAsync(CancellationToken cancellationToken)
+    {
+        if (activeDragButton is null) return;
+        string button = activeDragButton;
+        activeDragButton = null;
+        await adapter.SetMouseButtonDownAsync(button, false, cancellationToken);
+        cursorOverlay?.SetDragActive(false);
+        cursorOverlay?.Hide();
+    }
+
+    private async Task ReleaseHeldModifiersAsync(CancellationToken cancellationToken)
+    {
+        foreach (string key in new[] { "Meta", "Shift", "Alt", "Ctrl" })
+        {
+            if (!activeModifierKeys.Remove(key)) continue;
+            try
+            {
+                await adapter.SetKeyDownAsync(key, false, cancellationToken);
+            }
+            finally
+            {
+                UpdateModifierOverlay();
+            }
+        }
+    }
+
+    private void UpdateModifierOverlay()
+    {
+        modifierOverlay?.SetActiveModifiers(ActiveModifierLabels());
+    }
+
+    private IReadOnlyList<string> ActiveModifierLabels()
+    {
+        List<string> labels = [];
+        foreach (string key in new[] { "Ctrl", "Alt", "Shift", "Meta" })
+        {
+            if (activeModifierKeys.Contains(key))
+            {
+                labels.Add(DisplayModifierLabel(key));
+            }
+        }
+
+        return labels;
+    }
+
+    private static string DisplayModifierLabel(string key)
+    {
+        return key == "Meta" ? "Start" : key;
     }
 
     private static string TextInputStreamKey(string deviceId, string streamId)

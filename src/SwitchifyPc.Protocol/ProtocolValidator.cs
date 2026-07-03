@@ -148,6 +148,10 @@ public static partial class ProtocolValidator
                 TryGetString(payload, "key", out string? key) && ProtocolConstants.KeyboardKeys.Contains(key)
                     ? Valid(payload)
                     : Invalid("invalid_payload", "Keyboard key is invalid."),
+            "keyboard.modifierDown" or "keyboard.modifierUp" =>
+                TryGetString(payload, "key", out string? modifierKey) && ProtocolConstants.ModifierKeys.Contains(modifierKey)
+                    ? Valid(payload)
+                    : Invalid("invalid_payload", "Modifier key is invalid."),
             "keyboard.shortcut" => ValidateShortcutPayload(payload),
             "keyboard.typeText" =>
                 TryGetString(payload, "text", out string? text) && IsSafeTextPayload(text)
