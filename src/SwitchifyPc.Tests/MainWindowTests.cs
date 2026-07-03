@@ -1,10 +1,16 @@
 using System.Threading;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Shell;
 using SwitchifyPc.App;
 using SwitchifyPc.Core.Ui;
+using WpfButton = System.Windows.Controls.Button;
 
 namespace SwitchifyPc.Tests;
 
+[Collection(WpfTestCollection.Name)]
 public sealed class MainWindowTests
 {
     [Fact]
@@ -23,6 +29,30 @@ public sealed class MainWindowTests
                 string assemblyName = Uri.EscapeDataString(typeof(MainWindow).Assembly.GetName().Name ?? "Switchify PC");
                 Uri qrUri = new($"pack://application:,,,/{assemblyName};component/Assets/android-download-qr.png", UriKind.Absolute);
                 Assert.NotNull(System.Windows.Application.GetResourceStream(qrUri));
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void MainWindowUsesCustomChrome()
+    {
+        RunOnSta(() =>
+        {
+            MainWindow window = new(new MainWindowViewModel());
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                Assert.Equal(WindowStyle.None, window.WindowStyle);
+                Assert.NotNull(WindowChrome.GetWindowChrome(window));
+                Assert.Contains("Switchify PC", TextBlocks(window));
+                Assert.NotNull(ButtonByAutomationName(window, "Minimize"));
+                Assert.NotNull(ButtonByAutomationName(window, "Close"));
             }
             finally
             {
@@ -51,5 +81,42 @@ public sealed class MainWindowTests
         thread.Join();
 
         if (exception is not null) throw exception;
+    }
+
+    private static IReadOnlyList<string> TextBlocks(DependencyObject root)
+    {
+        List<string> text = [];
+        Collect(root, node =>
+        {
+            if (node is TextBlock textBlock)
+            {
+                text.Add(textBlock.Text);
+            }
+        });
+        return text;
+    }
+
+    private static WpfButton? ButtonByAutomationName(DependencyObject root, string name)
+    {
+        WpfButton? result = null;
+        Collect(root, node =>
+        {
+            if (result is null &&
+                node is WpfButton button &&
+                AutomationProperties.GetName(button) == name)
+            {
+                result = button;
+            }
+        });
+        return result;
+    }
+
+    private static void Collect(DependencyObject node, Action<DependencyObject> visit)
+    {
+        visit(node);
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++)
+        {
+            Collect(VisualTreeHelper.GetChild(node, index), visit);
+        }
     }
 }

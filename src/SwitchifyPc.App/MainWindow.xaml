@@ -4,6 +4,8 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:ui="clr-namespace:SwitchifyPc.Core.Ui;assembly=SwitchifyPc.Core"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        xmlns:chrome="clr-namespace:SwitchifyPc.App.Chrome"
         mc:Ignorable="d"
         Title="Switchify PC"
         MinHeight="520"
@@ -13,8 +15,17 @@
         Icon="Assets/icon.ico"
         FontFamily="Segoe UI"
         Background="#F5F4F7"
+        WindowStyle="None"
         WindowStartupLocation="CenterScreen"
         d:DataContext="{d:DesignInstance Type=ui:MainWindowViewModel, IsDesignTimeCreatable=True}">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="44"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            ResizeBorderThickness="6"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
+
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
 
@@ -213,8 +224,18 @@
         </Style>
     </Window.Resources>
 
-    <Grid Background="#F5F4F7" Margin="24">
-        <Border HorizontalAlignment="Stretch"
+    <Grid Background="#F5F4F7">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="44" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <chrome:SwitchifyTitleBar Grid.Row="0"
+                                  TitleText="Switchify PC"
+                                  ShowMinimizeButton="True" />
+
+        <Grid Grid.Row="1" Margin="24">
+            <Border HorizontalAlignment="Stretch"
                 VerticalAlignment="Stretch"
                 Style="{StaticResource MainCard}">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled"
@@ -497,6 +518,7 @@
                     </Expander>
                 </StackPanel>
             </ScrollViewer>
-        </Border>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

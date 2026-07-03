@@ -4,6 +4,8 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:ui="clr-namespace:SwitchifyPc.Core.Ui;assembly=SwitchifyPc.Core"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        xmlns:chrome="clr-namespace:SwitchifyPc.App.Chrome"
         mc:Ignorable="d"
         Title="Switchify PC settings"
         MinHeight="560"
@@ -14,8 +16,17 @@
         Icon="Assets/icon.ico"
         FontFamily="Segoe UI"
         Background="#F5F4F7"
+        WindowStyle="None"
         WindowStartupLocation="CenterScreen"
         d:DataContext="{d:DesignInstance Type=ui:SettingsViewModel, IsDesignTimeCreatable=True}">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="44"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            ResizeBorderThickness="6"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
+
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
 
@@ -235,13 +246,18 @@
         </Style>
     </Window.Resources>
 
-    <Grid Background="#F5F4F7" Margin="24">
+    <Grid Background="#F5F4F7">
         <Grid.RowDefinitions>
+            <RowDefinition Height="44" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <StackPanel>
+        <chrome:SwitchifyTitleBar Grid.Row="0"
+                                  TitleText="Switchify PC settings"
+                                  ShowMinimizeButton="True" />
+
+        <StackPanel Grid.Row="1" Margin="24,24,24,0">
             <TextBlock Text="Settings"
                        FontSize="18"
                        FontWeight="Bold"
@@ -251,7 +267,7 @@
                        Style="{StaticResource MutedText}" />
         </StackPanel>
 
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="2" Margin="24,0,24,24">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="190" />
                 <ColumnDefinition Width="24" />
