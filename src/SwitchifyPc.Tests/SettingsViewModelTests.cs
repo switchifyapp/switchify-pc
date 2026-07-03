@@ -120,6 +120,24 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void MapsMouseRepeatSettings()
+    {
+        SettingsViewModel viewModel = new();
+
+        viewModel.SetMouseRepeatSettings(new MouseRepeatSettings(false, 100, 1000));
+
+        Assert.False(viewModel.MouseRepeatEnabled);
+        Assert.Equal(100, viewModel.MouseRepeatMoveIntervalMs);
+        Assert.Equal("0.1 s", viewModel.MouseRepeatMoveInterval);
+        Assert.True(viewModel.IsMouseRepeatMoveInterval100);
+        Assert.False(viewModel.IsMouseRepeatMoveInterval250);
+        Assert.Equal(1000, viewModel.MouseRepeatScrollIntervalMs);
+        Assert.Equal("1 s", viewModel.MouseRepeatScrollInterval);
+        Assert.True(viewModel.IsMouseRepeatScrollInterval1000);
+        Assert.False(viewModel.IsMouseRepeatScrollInterval500);
+    }
+
+    [Fact]
     public void MapsCursorOverlaySettings()
     {
         SettingsViewModel viewModel = new();
@@ -294,6 +312,7 @@ public sealed class SettingsViewModelTests
         viewModel.PropertyChanged += (_, eventArgs) => changed.Add(eventArgs.PropertyName);
 
         viewModel.SetPointerMovementSettings(new PointerMovementSettings(50));
+        viewModel.SetMouseRepeatSettings(new MouseRepeatSettings(false, 100, 1000));
         viewModel.SetUpdateState(UpdateState.CreateInitial("0.2.3") with
         {
             Download = new UpdateDownloadProgress(UpdateDownloadStatus.Downloading, 1024, 2048, 50)
@@ -304,6 +323,10 @@ public sealed class SettingsViewModelTests
         Assert.Contains(nameof(SettingsViewModel.PointerSmall), changed);
         Assert.Contains(nameof(SettingsViewModel.PointerMedium), changed);
         Assert.Contains(nameof(SettingsViewModel.PointerLarge), changed);
+        Assert.Contains(nameof(SettingsViewModel.MouseRepeatMoveInterval), changed);
+        Assert.Contains(nameof(SettingsViewModel.MouseRepeatScrollInterval), changed);
+        Assert.Contains(nameof(SettingsViewModel.IsMouseRepeatMoveInterval100), changed);
+        Assert.Contains(nameof(SettingsViewModel.IsMouseRepeatScrollInterval1000), changed);
         Assert.Contains(nameof(SettingsViewModel.IsUpdateDownloading), changed);
         Assert.Contains(nameof(SettingsViewModel.IsUpdateDownloadIndeterminate), changed);
         Assert.Contains(nameof(SettingsViewModel.UpdateDownloadPercent), changed);

@@ -260,6 +260,8 @@ public sealed class ControlSession
                         ["supported"] = profile.Capabilities.MouseRepeat.Supported,
                         ["enabled"] = profile.Capabilities.MouseRepeat.Enabled,
                         ["intervalMs"] = profile.Capabilities.MouseRepeat.IntervalMs,
+                        ["moveIntervalMs"] = profile.Capabilities.MouseRepeat.MoveIntervalMs,
+                        ["scrollIntervalMs"] = profile.Capabilities.MouseRepeat.ScrollIntervalMs,
                         ["minIntervalMs"] = profile.Capabilities.MouseRepeat.MinIntervalMs,
                         ["maxIntervalMs"] = profile.Capabilities.MouseRepeat.MaxIntervalMs
                     }

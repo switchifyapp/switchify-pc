@@ -18,6 +18,9 @@ public sealed class PointerProfileTests
         Assert.True(profile.Capabilities.NoAckMouseMove);
         Assert.Contains("keyboard.textStream.char", profile.Capabilities.NoAckCommands);
         Assert.Contains("keyboard.textStream.open", profile.Capabilities.SupportedCommands);
+        Assert.Equal(250, profile.Capabilities.MouseRepeat.IntervalMs);
+        Assert.Equal(250, profile.Capabilities.MouseRepeat.MoveIntervalMs);
+        Assert.Equal(250, profile.Capabilities.MouseRepeat.ScrollIntervalMs);
     }
 
     [Fact]

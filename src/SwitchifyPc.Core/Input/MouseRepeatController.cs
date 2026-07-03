@@ -101,7 +101,7 @@ public sealed class MouseRepeatController
                     return;
                 }
 
-                await delay(settings.IntervalMs, repeat.Cancellation).ConfigureAwait(false);
+                await delay(IntervalFor(settings, repeat.Command.RootElement), repeat.Cancellation).ConfigureAwait(false);
                 if (repeat.Cancellation.IsCancellationRequested) return;
 
                 settings = settingsStore.Load();
@@ -146,6 +146,13 @@ public sealed class MouseRepeatController
         }
 
         return Task.CompletedTask;
+    }
+
+    private static int IntervalFor(MouseRepeatSettings settings, JsonElement command)
+    {
+        return command.GetProperty("type").GetString() == "mouse.scroll"
+            ? settings.ScrollIntervalMs
+            : settings.MoveIntervalMs;
     }
 
     private sealed class ActiveRepeat

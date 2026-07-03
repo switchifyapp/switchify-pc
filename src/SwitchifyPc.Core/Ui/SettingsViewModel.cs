@@ -101,17 +101,29 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public bool MouseRepeatEnabled => mouseRepeatSettings.Enabled;
 
-    public int MouseRepeatIntervalMs => mouseRepeatSettings.IntervalMs;
+    public int MouseRepeatMoveIntervalMs => mouseRepeatSettings.MoveIntervalMs;
 
-    public string MouseRepeatInterval => $"{mouseRepeatSettings.IntervalMs / 1000d:0.##} s";
+    public string MouseRepeatMoveInterval => FormatSeconds(mouseRepeatSettings.MoveIntervalMs);
 
-    public bool IsMouseRepeatInterval100 => mouseRepeatSettings.IntervalMs == 100;
+    public bool IsMouseRepeatMoveInterval100 => mouseRepeatSettings.MoveIntervalMs == 100;
 
-    public bool IsMouseRepeatInterval250 => mouseRepeatSettings.IntervalMs == 250;
+    public bool IsMouseRepeatMoveInterval250 => mouseRepeatSettings.MoveIntervalMs == 250;
 
-    public bool IsMouseRepeatInterval500 => mouseRepeatSettings.IntervalMs == 500;
+    public bool IsMouseRepeatMoveInterval500 => mouseRepeatSettings.MoveIntervalMs == 500;
 
-    public bool IsMouseRepeatInterval1000 => mouseRepeatSettings.IntervalMs == 1000;
+    public bool IsMouseRepeatMoveInterval1000 => mouseRepeatSettings.MoveIntervalMs == 1000;
+
+    public int MouseRepeatScrollIntervalMs => mouseRepeatSettings.ScrollIntervalMs;
+
+    public string MouseRepeatScrollInterval => FormatSeconds(mouseRepeatSettings.ScrollIntervalMs);
+
+    public bool IsMouseRepeatScrollInterval100 => mouseRepeatSettings.ScrollIntervalMs == 100;
+
+    public bool IsMouseRepeatScrollInterval250 => mouseRepeatSettings.ScrollIntervalMs == 250;
+
+    public bool IsMouseRepeatScrollInterval500 => mouseRepeatSettings.ScrollIntervalMs == 500;
+
+    public bool IsMouseRepeatScrollInterval1000 => mouseRepeatSettings.ScrollIntervalMs == 1000;
 
     public bool CursorOverlayEnabled => cursorOverlaySettings.Enabled;
 
@@ -204,12 +216,18 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         mouseRepeatSettings = MouseRepeatSettingsModel.Normalize(settings);
         OnPropertyChanged(nameof(MouseRepeatSettings));
         OnPropertyChanged(nameof(MouseRepeatEnabled));
-        OnPropertyChanged(nameof(MouseRepeatIntervalMs));
-        OnPropertyChanged(nameof(MouseRepeatInterval));
-        OnPropertyChanged(nameof(IsMouseRepeatInterval100));
-        OnPropertyChanged(nameof(IsMouseRepeatInterval250));
-        OnPropertyChanged(nameof(IsMouseRepeatInterval500));
-        OnPropertyChanged(nameof(IsMouseRepeatInterval1000));
+        OnPropertyChanged(nameof(MouseRepeatMoveIntervalMs));
+        OnPropertyChanged(nameof(MouseRepeatMoveInterval));
+        OnPropertyChanged(nameof(IsMouseRepeatMoveInterval100));
+        OnPropertyChanged(nameof(IsMouseRepeatMoveInterval250));
+        OnPropertyChanged(nameof(IsMouseRepeatMoveInterval500));
+        OnPropertyChanged(nameof(IsMouseRepeatMoveInterval1000));
+        OnPropertyChanged(nameof(MouseRepeatScrollIntervalMs));
+        OnPropertyChanged(nameof(MouseRepeatScrollInterval));
+        OnPropertyChanged(nameof(IsMouseRepeatScrollInterval100));
+        OnPropertyChanged(nameof(IsMouseRepeatScrollInterval250));
+        OnPropertyChanged(nameof(IsMouseRepeatScrollInterval500));
+        OnPropertyChanged(nameof(IsMouseRepeatScrollInterval1000));
     }
 
     public void SetCursorOverlaySettings(CursorOverlaySettings settings)
@@ -326,6 +344,11 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    private static string FormatSeconds(int milliseconds)
+    {
+        return string.Create(CultureInfo.InvariantCulture, $"{milliseconds / 1000d:0.##} s");
     }
 
     private static string FormatBytes(long bytes)
