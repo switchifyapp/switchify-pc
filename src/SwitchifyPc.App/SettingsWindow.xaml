@@ -15,7 +15,7 @@
         ResizeMode="NoResize"
         Icon="Assets/icon.ico"
         FontFamily="Segoe UI"
-        Background="#F5F4F7"
+        Background="#D32F2F"
         WindowStyle="None"
         WindowStartupLocation="CenterScreen"
         d:DataContext="{d:DesignInstance Type=ui:SettingsViewModel, IsDesignTimeCreatable=True}">
@@ -246,7 +246,7 @@
         </Style>
     </Window.Resources>
 
-    <Grid Background="#F5F4F7">
+    <Grid Background="#D32F2F">
         <Grid.RowDefinitions>
             <RowDefinition Height="44" />
             <RowDefinition Height="Auto" />
@@ -256,6 +256,10 @@
         <chrome:SwitchifyTitleBar Grid.Row="0"
                                   TitleText="Switchify PC settings"
                                   ShowMinimizeButton="True" />
+
+        <Border Grid.Row="1"
+                Grid.RowSpan="2"
+                Background="#F5F4F7" />
 
         <StackPanel Grid.Row="1" Margin="24,24,24,0">
             <TextBlock Text="Settings"

@@ -14,7 +14,7 @@
         Width="920"
         Icon="Assets/icon.ico"
         FontFamily="Segoe UI"
-        Background="#F5F4F7"
+        Background="#D32F2F"
         WindowStyle="None"
         WindowStartupLocation="CenterScreen"
         d:DataContext="{d:DesignInstance Type=ui:MainWindowViewModel, IsDesignTimeCreatable=True}">
@@ -224,7 +224,7 @@
         </Style>
     </Window.Resources>
 
-    <Grid Background="#F5F4F7">
+    <Grid Background="#D32F2F">
         <Grid.RowDefinitions>
             <RowDefinition Height="44" />
             <RowDefinition Height="*" />
@@ -234,8 +234,9 @@
                                   TitleText="Switchify PC"
                                   ShowMinimizeButton="True" />
 
-        <Grid Grid.Row="1" Margin="24">
-            <Border HorizontalAlignment="Stretch"
+        <Grid Grid.Row="1" Background="#F5F4F7">
+            <Grid Margin="24">
+                <Border HorizontalAlignment="Stretch"
                 VerticalAlignment="Stretch"
                 Style="{StaticResource MainCard}">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled"
@@ -518,7 +519,8 @@
                     </Expander>
                 </StackPanel>
             </ScrollViewer>
-            </Border>
+                </Border>
+            </Grid>
         </Grid>
     </Grid>
 </Window>
