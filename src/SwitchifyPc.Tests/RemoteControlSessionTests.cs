@@ -24,7 +24,6 @@ public sealed class RemoteControlSessionTests
             remoteAddress: "192.168.1.50");
 
         Assert.Empty(result.OutgoingMessages);
-        Assert.False(result.ShouldAutoHideMainWindow);
         Assert.Null(result.AuthenticatedConnectionId);
         Assert.Null(result.AuthenticatedDeviceId);
         Assert.Null(result.AuthFailureReason);
@@ -142,7 +141,6 @@ public sealed class RemoteControlSessionTests
             "ble-1",
             SignedCommand("keyboard.key", new { key = "Meta" }));
 
-        Assert.False(result.ShouldAutoHideMainWindow);
         Assert.Equal("ble-1", result.AuthenticatedConnectionId);
         Assert.Equal(DeviceId, result.AuthenticatedDeviceId);
         Assert.Null(result.AuthFailureReason);
@@ -171,63 +169,18 @@ public sealed class RemoteControlSessionTests
     }
 
     [Fact]
-    public async Task PreviouslyUsedDeviceCommandRequestsAutoHide()
-    {
-        TestContext context = CreateContext(lastSeenAt: Now - 500);
-
-        RemoteSessionResult result = await context.Session.ProcessMessageAsync(
-            "ble-1",
-            SignedCommand("keyboard.key", new { key = "Meta" }));
-
-        Assert.True(result.ShouldAutoHideMainWindow);
-    }
-
-    [Fact]
-    public async Task NewlyPairedDeviceConnectionDoesNotAutoHideDuringFirstSession()
+    public async Task AuthenticatedCommandsUpdateLastSeenAt()
     {
         TestContext context = CreateContext();
 
-        RemoteSessionResult first = await context.Session.ProcessMessageAsync(
-            "ble-1",
-            SignedCommand("keyboard.key", new { key = "Meta" }, id: "command-1"));
-        RemoteSessionResult second = await context.Session.ProcessMessageAsync(
-            "ble-1",
-            SignedCommand("connection.ping", new { }, id: "command-2"));
-
-        Assert.False(first.ShouldAutoHideMainWindow);
-        Assert.False(second.ShouldAutoHideMainWindow);
-        Assert.Equal(Now, (await context.Store.LoadAsync()).PairedDevices[0].LastSeenAt);
-    }
-
-    [Fact]
-    public async Task PreviouslyUsedDeviceReconnectCanAutoHide()
-    {
-        TestContext context = CreateContext();
         await context.Session.ProcessMessageAsync(
             "ble-1",
             SignedCommand("keyboard.key", new { key = "Meta" }, id: "command-1"));
-        context.Session.RemoveConnection("ble-1");
-
-        RemoteSessionResult result = await context.Session.ProcessMessageAsync(
-            "ble-2",
+        await context.Session.ProcessMessageAsync(
+            "ble-1",
             SignedCommand("connection.ping", new { }, id: "command-2"));
 
-        Assert.True(result.ShouldAutoHideMainWindow);
-    }
-
-    [Fact]
-    public async Task RemoveConnectionClearsAutoHideEligibility()
-    {
-        TestContext context = CreateContext(lastSeenAt: Now - 500);
-        Assert.True((await context.Session.ProcessMessageAsync(
-            "ble-1",
-            SignedCommand("keyboard.key", new { key = "Meta" }, id: "command-1"))).ShouldAutoHideMainWindow);
-
-        context.Session.RemoveConnection("ble-1");
-
-        Assert.True((await context.Session.ProcessMessageAsync(
-            "ble-1",
-            SignedCommand("connection.ping", new { }, id: "command-2"))).ShouldAutoHideMainWindow);
+        Assert.Equal(Now, (await context.Store.LoadAsync()).PairedDevices[0].LastSeenAt);
     }
 
     [Fact]
