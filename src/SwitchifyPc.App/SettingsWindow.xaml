@@ -266,9 +266,10 @@
             <TextBlock Text="Settings"
                        FontSize="18"
                        FontWeight="Bold"
-                       Foreground="{StaticResource Text}" />
+                       Foreground="White" />
             <TextBlock Margin="0,4,0,18"
                        Text="Tune how Switchify starts, connects, and controls this PC."
+                       Foreground="#FDE8E8"
                        Style="{StaticResource MutedText}" />
         </StackPanel>
 
