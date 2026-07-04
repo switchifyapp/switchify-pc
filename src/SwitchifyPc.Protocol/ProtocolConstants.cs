@@ -104,7 +104,7 @@ public static class ProtocolConstants
     };
 
     public static readonly IReadOnlySet<string> ShortcutKeys = new HashSet<string>(
-        KeyboardKeys.Concat(["Ctrl", "Alt", "Shift", "Meta", "A", "C", "V", "X", "Z", "Y"]),
+        KeyboardKeys.Concat(["Ctrl", "Alt", "Shift", "Meta"]).Concat(Enumerable.Range('A', 26).Select(code => ((char)code).ToString())),
         StringComparer.Ordinal);
 
     public static readonly IReadOnlySet<string> ModifierKeys = new HashSet<string>(StringComparer.Ordinal)

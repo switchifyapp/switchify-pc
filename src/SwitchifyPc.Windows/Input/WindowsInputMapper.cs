@@ -65,7 +65,7 @@ public static class WindowsInputMapper
             "Alt" => VkAlt,
             "Shift" => VkShift,
             "Meta" => VkLeftWindows,
-            "A" or "C" or "V" or "X" or "Y" or "Z" => key[0],
+            _ when IsUppercaseLetterKey(key) => key[0],
             _ when IsFunctionKey(key, out ushort virtualKey) => virtualKey,
             _ => throw new ArgumentOutOfRangeException(nameof(key), key, null)
         };
@@ -105,5 +105,10 @@ public static class WindowsInputMapper
 
         virtualKey = (ushort)(VkF1 + functionIndex - 1);
         return true;
+    }
+
+    private static bool IsUppercaseLetterKey(string key)
+    {
+        return key.Length == 1 && key[0] is >= 'A' and <= 'Z';
     }
 }

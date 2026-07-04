@@ -206,7 +206,8 @@ public sealed class RemoteControlSessionTests
             result => Assert.Equal("ble-1", Assert.Single(result.OutgoingMessages).ConnectionId));
         Assert.Equal(
             [
-                "pressShortcut:Meta",
+                "setKeyDown:Meta:True",
+                "setKeyDown:Meta:False",
                 "typeText:Hello",
                 "mediaControl:playPause",
                 "controlWindow:showDesktop"
