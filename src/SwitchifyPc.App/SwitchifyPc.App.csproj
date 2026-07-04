@@ -19,7 +19,7 @@
     <RootNamespace>SwitchifyPc.App</RootNamespace>
     <ApplicationIcon>..\..\build\icon.ico</ApplicationIcon>
     <ApplicationManifest>..\..\build\win-uiaccess.manifest</ApplicationManifest>
-    <Version>0.3.0</Version>
+    <Version>0.3.1</Version>
     <AssemblyVersion>0.2.2.0</AssemblyVersion>
     <FileVersion>0.2.2.0</FileVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
