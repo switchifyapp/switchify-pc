@@ -124,12 +124,13 @@ public sealed class WindowsModifierKeyOverlayNotifier : IModifierKeyOverlayNotif
     {
         private const int MarginPx = 16;
         private const int PaddingPx = 14;
-        private const int ChipPaddingX = 12;
-        private const int ChipHeight = 28;
+        private const int ChipPaddingX = 14;
+        private const int ChipHeight = 32;
         private const int GapPx = 8;
         private static readonly Color PanelColor = Color.FromArgb(0x1F, 0x1F, 0x23);
         private static readonly Color BrandRed = Color.FromArgb(0xD3, 0x2F, 0x2F);
         private readonly IWindowsNativeInput nativeInput;
+        private readonly Font chipFont;
 
         public OverlayForm(IWindowsNativeInput nativeInput)
         {
@@ -146,6 +147,7 @@ public sealed class WindowsModifierKeyOverlayNotifier : IModifierKeyOverlayNotif
             ShowInTaskbar = false;
             StartPosition = Forms.FormStartPosition.Manual;
             TopMost = true;
+            chipFont = new Font(Font.FontFamily, 9.5f, FontStyle.Bold);
         }
 
         protected override bool ShowWithoutActivation => true;
@@ -177,8 +179,8 @@ public sealed class WindowsModifierKeyOverlayNotifier : IModifierKeyOverlayNotif
             int x = PaddingPx;
             foreach (string label in activeModifiers)
             {
-                SizeF textSize = graphics.MeasureString(label, Font);
-                int width = (int)Math.Ceiling(textSize.Width) + ChipPaddingX * 2;
+                SizeF textSize = graphics.MeasureString(label, chipFont);
+                int width = (int)Math.Ceiling(textSize.Width) + ChipPaddingX * 2 + 2;
                 Forms.Label chip = new()
                 {
                     AutoSize = false,
@@ -186,7 +188,7 @@ public sealed class WindowsModifierKeyOverlayNotifier : IModifierKeyOverlayNotif
                     ForeColor = Color.White,
                     Text = label,
                     TextAlign = ContentAlignment.MiddleCenter,
-                    Font = new Font(Font.FontFamily, 9.0f, FontStyle.Bold),
+                    Font = chipFont,
                     Bounds = new Rectangle(x, PaddingPx, width, ChipHeight)
                 };
                 Controls.Add(chip);
@@ -213,6 +215,16 @@ public sealed class WindowsModifierKeyOverlayNotifier : IModifierKeyOverlayNotif
             using Pen border = new(BrandRed, 1);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             e.Graphics.DrawPath(border, RoundedRectangle(new Rectangle(0, 0, ClientSize.Width - 1, ClientSize.Height - 1), 8));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                chipFont.Dispose();
+            }
+
+            base.Dispose(disposing);
         }
 
         private void Reposition()
