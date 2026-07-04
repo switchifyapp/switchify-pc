@@ -148,6 +148,7 @@ public sealed class DesktopCommandExecutor
 
     private async Task<CommandExecutionResult> ClickMouseAsync(string button, CancellationToken cancellationToken)
     {
+        await ReleaseDragBeforeClickAsync(cancellationToken);
         await adapter.ClickMouseAsync(button, cancellationToken);
         cursorOverlay?.Show("click");
         return CommandExecutionResult.Success;
@@ -155,6 +156,7 @@ public sealed class DesktopCommandExecutor
 
     private async Task<CommandExecutionResult> DoubleClickMouseAsync(string button, CancellationToken cancellationToken)
     {
+        await ReleaseDragBeforeClickAsync(cancellationToken);
         await adapter.DoubleClickMouseAsync(button, cancellationToken);
         cursorOverlay?.Show("click");
         return CommandExecutionResult.Success;
@@ -162,6 +164,7 @@ public sealed class DesktopCommandExecutor
 
     private async Task<CommandExecutionResult> RightClickMouseAsync(CancellationToken cancellationToken)
     {
+        await ReleaseDragBeforeClickAsync(cancellationToken);
         await adapter.ClickMouseAsync("right", cancellationToken);
         cursorOverlay?.Show("click");
         return CommandExecutionResult.Success;
@@ -386,6 +389,15 @@ public sealed class DesktopCommandExecutor
         await adapter.SetMouseButtonDownAsync(button, false, cancellationToken);
         cursorOverlay?.SetDragActive(false);
         cursorOverlay?.Hide();
+    }
+
+    private async Task ReleaseDragBeforeClickAsync(CancellationToken cancellationToken)
+    {
+        if (activeDragButton is null) return;
+        string button = activeDragButton;
+        activeDragButton = null;
+        await adapter.SetMouseButtonDownAsync(button, false, cancellationToken);
+        cursorOverlay?.SetDragActive(false);
     }
 
     private async Task ReleaseHeldModifiersAsync(CancellationToken cancellationToken)

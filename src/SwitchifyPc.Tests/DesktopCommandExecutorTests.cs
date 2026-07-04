@@ -180,6 +180,106 @@ public sealed class DesktopCommandExecutorTests
     }
 
     [Fact]
+    public async Task ClickReleasesActiveDragBeforeClick()
+    {
+        FakeInputAdapter adapter = new();
+        FakeCursorOverlay overlay = new();
+        DesktopCommandExecutor executor = new(adapter, overlay);
+
+        await executor.ExecuteAsync(Command("mouse.dragStart", new { button = "left" }));
+        await executor.ExecuteAsync(Command("mouse.click", new { button = "left" }));
+
+        Assert.Equal(
+            [
+                "setMouseButtonDown:left:True",
+                "setMouseButtonDown:left:False",
+                "clickMouse:left"
+            ],
+            adapter.Calls);
+        Assert.Equal([true, false], overlay.DragActiveChanges);
+        Assert.Equal(["drag", "click"], overlay.Events);
+    }
+
+    [Fact]
+    public async Task RightClickReleasesActiveDragBeforeClick()
+    {
+        FakeInputAdapter adapter = new();
+        FakeCursorOverlay overlay = new();
+        DesktopCommandExecutor executor = new(adapter, overlay);
+
+        await executor.ExecuteAsync(Command("mouse.dragStart", new { button = "left" }));
+        await executor.ExecuteAsync(Command("mouse.rightClick", new { }));
+
+        Assert.Equal(
+            [
+                "setMouseButtonDown:left:True",
+                "setMouseButtonDown:left:False",
+                "clickMouse:right"
+            ],
+            adapter.Calls);
+        Assert.Equal([true, false], overlay.DragActiveChanges);
+    }
+
+    [Fact]
+    public async Task DoubleClickReleasesActiveDragBeforeClick()
+    {
+        FakeInputAdapter adapter = new();
+        FakeCursorOverlay overlay = new();
+        DesktopCommandExecutor executor = new(adapter, overlay);
+
+        await executor.ExecuteAsync(Command("mouse.dragStart", new { button = "left" }));
+        await executor.ExecuteAsync(Command("mouse.doubleClick", new { button = "middle" }));
+
+        Assert.Equal(
+            [
+                "setMouseButtonDown:left:True",
+                "setMouseButtonDown:left:False",
+                "doubleClickMouse:middle"
+            ],
+            adapter.Calls);
+        Assert.Equal([true, false], overlay.DragActiveChanges);
+    }
+
+    [Fact]
+    public async Task MoveDoesNotReleaseActiveDrag()
+    {
+        FakeInputAdapter adapter = new();
+        FakeCursorOverlay overlay = new();
+        DesktopCommandExecutor executor = new(adapter, overlay);
+
+        await executor.ExecuteAsync(Command("mouse.dragStart", new { button = "left" }));
+        await executor.ExecuteAsync(Command("mouse.move", new { dx = 5, dy = 0 }));
+
+        Assert.Equal(
+            [
+                "setMouseButtonDown:left:True",
+                "moveMouseBy:5,0"
+            ],
+            adapter.Calls);
+        Assert.Equal([true], overlay.DragActiveChanges);
+        Assert.Equal(["drag", "drag"], overlay.Events);
+    }
+
+    [Fact]
+    public async Task ScrollDoesNotReleaseActiveDrag()
+    {
+        FakeInputAdapter adapter = new();
+        FakeCursorOverlay overlay = new();
+        DesktopCommandExecutor executor = new(adapter, overlay);
+
+        await executor.ExecuteAsync(Command("mouse.dragStart", new { button = "left" }));
+        await executor.ExecuteAsync(Command("mouse.scroll", new { dx = 0, dy = -3 }));
+
+        Assert.Equal(
+            [
+                "setMouseButtonDown:left:True",
+                "scrollMouse:0,-3"
+            ],
+            adapter.Calls);
+        Assert.Equal([true], overlay.DragActiveChanges);
+    }
+
+    [Fact]
     public async Task TracksModifierStateAndUpdatesOverlay()
     {
         FakeInputAdapter adapter = new();
