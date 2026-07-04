@@ -24,6 +24,18 @@ public sealed class ProtocolConstantsTests
     }
 
     [Fact]
+    public void ShortcutKeysIncludeUppercaseAlphabetOnly()
+    {
+        foreach (string key in Enumerable.Range('A', 26).Select(code => ((char)code).ToString()))
+        {
+            Assert.Contains(key, ProtocolConstants.ShortcutKeys);
+        }
+
+        Assert.DoesNotContain("a", ProtocolConstants.ShortcutKeys);
+        Assert.Equal(6, ProtocolConstants.MaxShortcutKeys);
+    }
+
+    [Fact]
     public void IncludesCurrentCommandTypes()
     {
         string[] expected =

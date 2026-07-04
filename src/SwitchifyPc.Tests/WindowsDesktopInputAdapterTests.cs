@@ -75,6 +75,34 @@ public sealed class WindowsDesktopInputAdapterTests
     }
 
     [Fact]
+    public async Task MapsUppercaseShortcutLettersToVirtualKeys()
+    {
+        FakeNativeInput native = new();
+        WindowsDesktopInputAdapter adapter = new(native);
+
+        await adapter.PressShortcutAsync(["A", "M", "Z"]);
+
+        Assert.Equal(
+            [
+                "key:65:down",
+                "key:77:down",
+                "key:90:down",
+                "key:90:up",
+                "key:77:up",
+                "key:65:up"
+            ],
+            native.Calls);
+    }
+
+    [Fact]
+    public async Task RejectsLowercaseShortcutLetters()
+    {
+        WindowsDesktopInputAdapter adapter = new(new FakeNativeInput());
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => adapter.PressShortcutAsync(["a"]));
+    }
+
+    [Fact]
     public async Task SetsModifierKeysDownAndUp()
     {
         FakeNativeInput native = new();

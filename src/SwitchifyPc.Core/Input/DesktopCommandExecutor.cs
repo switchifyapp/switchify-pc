@@ -222,8 +222,33 @@ public sealed class DesktopCommandExecutor
             return CommandExecutionResult.Failure("unsafe_payload", "Shortcut key count is invalid.");
         }
 
-        await adapter.PressShortcutAsync(keys, cancellationToken);
+        await PressShortcutRespectingHeldModifiersAsync(keys, cancellationToken);
         return CommandExecutionResult.Success;
+    }
+
+    private async Task PressShortcutRespectingHeldModifiersAsync(IReadOnlyList<string> keys, CancellationToken cancellationToken)
+    {
+        List<string> temporaryKeys = [];
+        try
+        {
+            foreach (string key in keys)
+            {
+                if (activeModifierKeys.Contains(key))
+                {
+                    continue;
+                }
+
+                await adapter.SetKeyDownAsync(key, true, cancellationToken).ConfigureAwait(false);
+                temporaryKeys.Add(key);
+            }
+        }
+        finally
+        {
+            foreach (string key in temporaryKeys.AsEnumerable().Reverse())
+            {
+                await adapter.SetKeyDownAsync(key, false, cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 
     private async Task<CommandExecutionResult> TypeTextAsync(string text, CancellationToken cancellationToken)

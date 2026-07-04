@@ -51,14 +51,71 @@ public sealed class DesktopCommandExecutorTests
         Assert.Equal(
             [
                 "pressKey:Meta",
-                "pressShortcut:Meta",
-                "pressShortcut:Ctrl+C",
+                "setKeyDown:Meta:True",
+                "setKeyDown:Meta:False",
+                "setKeyDown:Ctrl:True",
+                "setKeyDown:C:True",
+                "setKeyDown:C:False",
+                "setKeyDown:Ctrl:False",
                 "typeText:Hello",
                 "mediaControl:playPause",
                 "controlWindow:switchNext"
             ],
             adapter.Calls);
         Assert.Equal(7, overlay.HideCount);
+    }
+
+    [Fact]
+    public async Task KeyboardShortcutsUseTemporaryKeyDownAndUp()
+    {
+        FakeInputAdapter adapter = new();
+        DesktopCommandExecutor executor = new(adapter);
+
+        await executor.ExecuteAsync(Command("keyboard.shortcut", new { keys = new[] { "Ctrl", "C" } }));
+
+        Assert.Equal(
+            [
+                "setKeyDown:Ctrl:True",
+                "setKeyDown:C:True",
+                "setKeyDown:C:False",
+                "setKeyDown:Ctrl:False"
+            ],
+            adapter.Calls);
+    }
+
+    [Fact]
+    public async Task KeyboardShortcutsDoNotReleaseHeldModifiers()
+    {
+        FakeInputAdapter adapter = new();
+        FakeModifierOverlay modifierOverlay = new();
+        DesktopCommandExecutor executor = new(adapter, modifierOverlay: modifierOverlay);
+
+        await executor.ExecuteAsync(Command("keyboard.modifierDown", new { key = "Ctrl" }));
+        await executor.ExecuteAsync(Command("keyboard.shortcut", new { keys = new[] { "Ctrl", "C" } }));
+        await executor.ExecuteAsync(Command("keyboard.modifierDown", new { key = "Shift" }));
+        await executor.ExecuteAsync(Command("keyboard.shortcut", new { keys = new[] { "Ctrl", "Shift", "Z" } }));
+        await executor.ExecuteAsync(Command("keyboard.shortcut", new { keys = new[] { "Ctrl", "Alt", "F" } }));
+
+        Assert.Equal(
+            [
+                "setKeyDown:Ctrl:True",
+                "setKeyDown:C:True",
+                "setKeyDown:C:False",
+                "setKeyDown:Shift:True",
+                "setKeyDown:Z:True",
+                "setKeyDown:Z:False",
+                "setKeyDown:Alt:True",
+                "setKeyDown:F:True",
+                "setKeyDown:F:False",
+                "setKeyDown:Alt:False"
+            ],
+            adapter.Calls);
+        Assert.Equal(["Ctrl", "Shift"], modifierOverlay.Changes.Last());
+
+        await executor.ReleaseHeldInputsAsync();
+
+        Assert.EndsWith("setKeyDown:Shift:False", adapter.Calls[^2]);
+        Assert.EndsWith("setKeyDown:Ctrl:False", adapter.Calls[^1]);
     }
 
     [Fact]
