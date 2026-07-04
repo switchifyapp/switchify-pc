@@ -19,6 +19,7 @@ using SwitchifyPc.Windows.AppLifecycle;
 using SwitchifyPc.Windows.Bluetooth;
 using SwitchifyPc.Windows.CursorOverlay;
 using SwitchifyPc.Windows.Input;
+using SwitchifyPc.Windows.ModifierOverlay;
 using SwitchifyPc.Windows.Startup;
 using SwitchifyPc.Windows.Updates;
 using SwitchifyPc.Protocol;
@@ -44,6 +45,7 @@ public partial class App : System.Windows.Application
     private DesktopCommandExecutor? commandExecutor;
     private MouseRepeatController? mouseRepeatController;
     private WindowsCursorOverlayNotifier? cursorOverlay;
+    private WindowsModifierKeyOverlayNotifier? modifierOverlay;
     private DispatcherTimer? pairingExpiryTimer;
     private AppThemeManager? themeManager;
     private bool isQuitting;
@@ -117,6 +119,8 @@ public partial class App : System.Windows.Application
         bluetoothServer = null;
         cursorOverlay?.Dispose();
         cursorOverlay = null;
+        modifierOverlay?.Dispose();
+        modifierOverlay = null;
         themeManager?.Dispose();
         themeManager = null;
         commandExecutor = null;
@@ -275,7 +279,8 @@ public partial class App : System.Windows.Application
             SendInputWindowsNativeInput nativeInput = new();
             WindowsDesktopInputAdapter inputAdapter = new(nativeInput, pointerSettingsStore.Load());
             cursorOverlay = new WindowsCursorOverlayNotifier(nativeInput, cursorOverlaySettingsStore);
-            commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay);
+            modifierOverlay = new WindowsModifierKeyOverlayNotifier(nativeInput);
+            commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay, modifierOverlay: modifierOverlay);
             mouseRepeatController = new MouseRepeatController(commandExecutor, mouseRepeatSettingsStore);
             ControlSession controlSession = new(
                 new CommandAuthValidator(pairingStore),
@@ -328,10 +333,11 @@ public partial class App : System.Windows.Application
 
                         if (commandExecutor is not null)
                         {
-                            await commandExecutor.ReleaseHeldMouseButtonsAsync();
+                            await commandExecutor.ReleaseHeldInputsAsync();
                         }
 
                         cursorOverlay?.EndControlSession();
+                        modifierOverlay?.EndControlSession();
                     }
                     break;
                 case BluetoothDiagnosticEvent diagnostic:

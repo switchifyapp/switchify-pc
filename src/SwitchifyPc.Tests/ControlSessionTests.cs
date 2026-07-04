@@ -57,6 +57,20 @@ public sealed class ControlSessionTests
     }
 
     [Fact]
+    public async Task AuthenticatedModifierCommandsRouteToExecutor()
+    {
+        FakeInputAdapter adapter = new();
+        ControlSession session = CreateSession(adapter);
+
+        ControlSessionResult down = await session.ProcessMessageAsync(SignedCommand("keyboard.modifierDown", new { key = "Ctrl" }));
+        ControlSessionResult up = await session.ProcessMessageAsync(SignedCommand("keyboard.modifierUp", new { key = "Ctrl" }, id: "request-2"));
+
+        Assert.True(down.HasResponse);
+        Assert.True(up.HasResponse);
+        Assert.Equal(["setKeyDown:Ctrl:True", "setKeyDown:Ctrl:False"], adapter.Calls);
+    }
+
+    [Fact]
     public async Task RejectsInvalidJsonAndMalformedPayloads()
     {
         ControlSession session = CreateSession(new FakeInputAdapter());
@@ -121,24 +135,27 @@ public sealed class ControlSessionTests
     }
 
     [Fact]
-    public async Task DisconnectingReleasesHeldMouseButtons()
+    public async Task DisconnectingReleasesHeldInputs()
     {
         FakeInputAdapter adapter = new();
         FakeCursorOverlay overlay = new();
         ControlSession session = CreateSession(adapter, overlay);
 
         await session.ProcessMessageAsync(SignedCommand("mouse.dragStart", new { button = "left" }, id: "request-1"));
-        ControlSessionResult result = await session.ProcessMessageAsync(SignedCommand("connection.disconnecting", new { }, id: "request-2"));
+        await session.ProcessMessageAsync(SignedCommand("keyboard.modifierDown", new { key = "Ctrl" }, id: "request-2"));
+        ControlSessionResult result = await session.ProcessMessageAsync(SignedCommand("connection.disconnecting", new { }, id: "request-3"));
 
         Assert.True(result.HasResponse);
         Assert.Equal(
             [
                 "setMouseButtonDown:left:True",
-                "setMouseButtonDown:left:False"
+                "setKeyDown:Ctrl:True",
+                "setMouseButtonDown:left:False",
+                "setKeyDown:Ctrl:False"
             ],
             adapter.Calls);
         Assert.Equal([true, false], overlay.DragActiveChanges);
-        Assert.Equal(1, overlay.HideCount);
+        Assert.Equal(2, overlay.HideCount);
         Assert.Equal(1, overlay.EndSessionCount);
     }
 
@@ -298,6 +315,12 @@ public sealed class ControlSessionTests
         {
             if (ThrowOnPressKey) throw new DesktopInputException("adapter_failure", "Key failed.");
             Calls.Add($"pressKey:{key}");
+            return Task.CompletedTask;
+        }
+
+        public Task SetKeyDownAsync(string key, bool down, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"setKeyDown:{key}:{down}");
             return Task.CompletedTask;
         }
 

@@ -75,6 +75,14 @@ public sealed class WindowsDesktopInputAdapter : IDesktopInputAdapter
         await TapKeyAsync(virtualKey, cancellationToken).ConfigureAwait(false);
     }
 
+    public Task SetKeyDownAsync(string key, bool down, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ushort virtualKey = WindowsInputMapper.KeyboardVirtualKey(key);
+        nativeInput.SetKeyDown(virtualKey, down);
+        return Task.CompletedTask;
+    }
+
     public async Task PressShortcutAsync(IReadOnlyList<string> keys, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

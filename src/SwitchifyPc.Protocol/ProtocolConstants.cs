@@ -24,6 +24,8 @@ public static class ProtocolConstants
         "mouse.dragStart",
         "mouse.dragEnd",
         "keyboard.key",
+        "keyboard.modifierDown",
+        "keyboard.modifierUp",
         "keyboard.shortcut",
         "keyboard.typeText",
         "keyboard.textStream.open",
@@ -53,6 +55,8 @@ public static class ProtocolConstants
         "mouse.dragStart",
         "mouse.dragEnd",
         "keyboard.key",
+        "keyboard.modifierDown",
+        "keyboard.modifierUp",
         "keyboard.shortcut",
         "keyboard.typeText",
         "keyboard.textStream.char",
@@ -102,6 +106,14 @@ public static class ProtocolConstants
     public static readonly IReadOnlySet<string> ShortcutKeys = new HashSet<string>(
         KeyboardKeys.Concat(["Ctrl", "Alt", "Shift", "Meta", "A", "C", "V", "X", "Z", "Y"]),
         StringComparer.Ordinal);
+
+    public static readonly IReadOnlySet<string> ModifierKeys = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "Ctrl",
+        "Alt",
+        "Shift",
+        "Meta"
+    };
 
     public static readonly IReadOnlySet<string> MediaActions = new HashSet<string>(StringComparer.Ordinal)
     {

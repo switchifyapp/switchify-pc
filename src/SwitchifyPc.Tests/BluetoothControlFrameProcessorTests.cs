@@ -198,6 +198,12 @@ public sealed class BluetoothControlFrameProcessorTests
             return Task.CompletedTask;
         }
 
+        public Task SetKeyDownAsync(string key, bool down, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"setKeyDown:{key}:{down}");
+            return Task.CompletedTask;
+        }
+
         public Task PressShortcutAsync(IReadOnlyList<string> keys, CancellationToken cancellationToken = default)
         {
             Calls.Add($"pressShortcut:{string.Join("+", keys)}");

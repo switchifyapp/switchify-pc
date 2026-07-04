@@ -75,6 +75,35 @@ public sealed class WindowsDesktopInputAdapterTests
     }
 
     [Fact]
+    public async Task SetsModifierKeysDownAndUp()
+    {
+        FakeNativeInput native = new();
+        WindowsDesktopInputAdapter adapter = new(native);
+
+        await adapter.SetKeyDownAsync("Ctrl", true);
+        await adapter.SetKeyDownAsync("Alt", true);
+        await adapter.SetKeyDownAsync("Shift", true);
+        await adapter.SetKeyDownAsync("Meta", true);
+        await adapter.SetKeyDownAsync("Meta", false);
+        await adapter.SetKeyDownAsync("Shift", false);
+        await adapter.SetKeyDownAsync("Alt", false);
+        await adapter.SetKeyDownAsync("Ctrl", false);
+
+        Assert.Equal(
+            [
+                "key:17:down",
+                "key:18:down",
+                "key:16:down",
+                "key:91:down",
+                "key:91:up",
+                "key:16:up",
+                "key:18:up",
+                "key:17:up"
+            ],
+            native.Calls);
+    }
+
+    [Fact]
     public async Task PressesShortcutsDownInOrderAndUpInReverse()
     {
         FakeNativeInput native = new();

@@ -257,6 +257,8 @@ public sealed class MouseRepeatControllerTests
 
         public Task PressKeyAsync(string key, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
+        public Task SetKeyDownAsync(string key, bool down, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
         public Task PressShortcutAsync(IReadOnlyList<string> keys, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task TypeTextAsync(string text, CancellationToken cancellationToken = default) => Task.CompletedTask;

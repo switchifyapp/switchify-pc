@@ -8,6 +8,7 @@ public interface IDesktopInputAdapter
     Task DoubleClickMouseAsync(string button, CancellationToken cancellationToken = default);
     Task ScrollMouseAsync(double dx, double dy, CancellationToken cancellationToken = default);
     Task PressKeyAsync(string key, CancellationToken cancellationToken = default);
+    Task SetKeyDownAsync(string key, bool down, CancellationToken cancellationToken = default);
     Task PressShortcutAsync(IReadOnlyList<string> keys, CancellationToken cancellationToken = default);
     Task TypeTextAsync(string text, CancellationToken cancellationToken = default);
     Task TypeCharacterAsync(string text, CancellationToken cancellationToken = default);
@@ -32,4 +33,10 @@ public interface ICursorOverlayNotifier
     void EndControlSession();
     void MarkControlActive();
     void SetDragActive(bool active);
+}
+
+public interface IModifierKeyOverlayNotifier
+{
+    void SetActiveModifiers(IReadOnlyCollection<string> activeModifiers);
+    void EndControlSession();
 }

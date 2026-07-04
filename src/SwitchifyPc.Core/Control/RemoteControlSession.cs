@@ -133,7 +133,7 @@ public sealed class RemoteControlSession
 
     public void RemoveConnection(string connectionId)
     {
-        _ = commandSession.StopAllRepeatsAsync();
+        _ = commandSession.EndControlSessionAsync();
         string[] requestIds = pendingConnectionsByRequestId
             .Where(entry => entry.Value.ConnectionId == connectionId)
             .Select(entry => entry.Key)
