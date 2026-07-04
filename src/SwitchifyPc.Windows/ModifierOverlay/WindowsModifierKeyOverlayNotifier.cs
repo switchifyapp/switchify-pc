@@ -123,10 +123,10 @@ public sealed class WindowsModifierKeyOverlayNotifier : IModifierKeyOverlayNotif
     private sealed class OverlayForm : Forms.Form
     {
         private const int MarginPx = 16;
-        private const int PaddingPx = 10;
-        private const int ChipPaddingX = 10;
-        private const int ChipHeight = 24;
-        private const int GapPx = 6;
+        private const int PaddingPx = 14;
+        private const int ChipPaddingX = 12;
+        private const int ChipHeight = 28;
+        private const int GapPx = 8;
         private static readonly Color PanelColor = Color.FromArgb(0x1F, 0x1F, 0x23);
         private static readonly Color BrandRed = Color.FromArgb(0xD3, 0x2F, 0x2F);
         private readonly IWindowsNativeInput nativeInput;
