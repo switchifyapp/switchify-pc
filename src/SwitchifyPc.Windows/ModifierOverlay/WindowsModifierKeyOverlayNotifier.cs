@@ -123,10 +123,10 @@ public sealed class WindowsModifierKeyOverlayNotifier : IModifierKeyOverlayNotif
     private sealed class OverlayForm : Forms.Form
     {
         private const int MarginPx = 16;
-        private const int PaddingPx = 14;
-        private const int ChipPaddingX = 14;
-        private const int ChipHeight = 32;
-        private const int GapPx = 8;
+        private const int PaddingPx = 16;
+        private const int ChipPaddingX = 18;
+        private const int ChipHeight = 38;
+        private const int GapPx = 10;
         private static readonly Color PanelColor = Color.FromArgb(0x1F, 0x1F, 0x23);
         private static readonly Color BrandRed = Color.FromArgb(0xD3, 0x2F, 0x2F);
         private readonly IWindowsNativeInput nativeInput;
@@ -147,7 +147,7 @@ public sealed class WindowsModifierKeyOverlayNotifier : IModifierKeyOverlayNotif
             ShowInTaskbar = false;
             StartPosition = Forms.FormStartPosition.Manual;
             TopMost = true;
-            chipFont = new Font(Font.FontFamily, 9.5f, FontStyle.Bold);
+            chipFont = new Font(Font.FontFamily, 10.0f, FontStyle.Bold);
         }
 
         protected override bool ShowWithoutActivation => true;
@@ -175,12 +175,15 @@ public sealed class WindowsModifierKeyOverlayNotifier : IModifierKeyOverlayNotif
                 return;
             }
 
-            using Graphics graphics = CreateGraphics();
             int x = PaddingPx;
             foreach (string label in activeModifiers)
             {
-                SizeF textSize = graphics.MeasureString(label, chipFont);
-                int width = (int)Math.Ceiling(textSize.Width) + ChipPaddingX * 2 + 2;
+                Size textSize = Forms.TextRenderer.MeasureText(
+                    label,
+                    chipFont,
+                    Size.Empty,
+                    Forms.TextFormatFlags.NoPadding | Forms.TextFormatFlags.SingleLine);
+                int width = Math.Max(MinimumChipWidth(label), textSize.Width + ChipPaddingX * 2);
                 Forms.Label chip = new()
                 {
                     AutoSize = false,
@@ -201,6 +204,18 @@ public sealed class WindowsModifierKeyOverlayNotifier : IModifierKeyOverlayNotif
             Reposition();
             Show();
             ApplyTopMostNoActivate();
+        }
+
+        private static int MinimumChipWidth(string label)
+        {
+            return label switch
+            {
+                "Ctrl" => 68,
+                "Alt" => 60,
+                "Shift" => 74,
+                "Start" => 74,
+                _ => 68
+            };
         }
 
         public void HideOverlay()
