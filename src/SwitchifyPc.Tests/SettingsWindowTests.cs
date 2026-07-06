@@ -73,6 +73,27 @@ public sealed class SettingsWindowTests
     }
 
     [Fact]
+    public void SettingsWindowShowsFivePercentPointerScale()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            SettingsWindow window = new(new SettingsViewModel());
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                Assert.Contains("5%", RadioButtonContent(window));
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
     public void SettingsWindowUsesCustomChrome()
     {
         RunOnSta(() =>
@@ -177,6 +198,19 @@ public sealed class SettingsWindowTests
             }
         });
         return result;
+    }
+
+    private static IReadOnlyList<string> RadioButtonContent(DependencyObject root)
+    {
+        List<string> content = [];
+        Collect(root, node =>
+        {
+            if (node is System.Windows.Controls.RadioButton { Content: string text })
+            {
+                content.Add(text);
+            }
+        });
+        return content;
     }
 
     private static void Collect(DependencyObject node, Action<DependencyObject> visit)

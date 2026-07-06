@@ -113,6 +113,7 @@ public sealed class SettingsViewModelTests
 
         viewModel.SetPointerMovementSettings(new PointerMovementSettings(50));
 
+        Assert.False(viewModel.IsPointerScale5);
         Assert.False(viewModel.IsPointerScale25);
         Assert.True(viewModel.IsPointerScale50);
         Assert.False(viewModel.IsPointerScale75);
@@ -319,6 +320,7 @@ public sealed class SettingsViewModelTests
         });
 
         Assert.Contains(nameof(SettingsViewModel.PointerScalePercent), changed);
+        Assert.Contains(nameof(SettingsViewModel.IsPointerScale5), changed);
         Assert.Contains(nameof(SettingsViewModel.IsPointerScale50), changed);
         Assert.Contains(nameof(SettingsViewModel.PointerSmall), changed);
         Assert.Contains(nameof(SettingsViewModel.PointerMedium), changed);

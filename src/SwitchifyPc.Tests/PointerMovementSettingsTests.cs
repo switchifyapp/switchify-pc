@@ -20,7 +20,8 @@ public sealed class PointerMovementSettingsTests : IDisposable
     {
         Assert.Equal(PointerMovementSettingsModel.Default, PointerMovementSettingsModel.Normalize((JsonNode?)null));
         Assert.Equal(new PointerMovementSettings(125), PointerMovementSettingsModel.Normalize(JsonNode.Parse("""{"scalePercent":125}""")));
-        Assert.Equal(new PointerMovementSettings(25), PointerMovementSettingsModel.Normalize(JsonNode.Parse("""{"scalePercent":10}""")));
+        Assert.Equal(new PointerMovementSettings(5), PointerMovementSettingsModel.Normalize(JsonNode.Parse("""{"scalePercent":1}""")));
+        Assert.Equal(new PointerMovementSettings(10), PointerMovementSettingsModel.Normalize(JsonNode.Parse("""{"scalePercent":10}""")));
         Assert.Equal(new PointerMovementSettings(225), PointerMovementSettingsModel.Normalize(JsonNode.Parse("""{"scalePercent":1000}""")));
         Assert.Equal(new PointerMovementSettings(125), PointerMovementSettingsModel.Normalize(JsonNode.Parse("""{"scalePercent":123}""")));
         Assert.Equal(PointerMovementSettingsModel.Default, PointerMovementSettingsModel.Normalize(JsonNode.Parse("""{"scalePercent":"125"}""")));

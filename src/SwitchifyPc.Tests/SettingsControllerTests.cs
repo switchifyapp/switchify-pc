@@ -87,6 +87,21 @@ public sealed class SettingsControllerTests
     }
 
     [Fact]
+    public void SetPointerScaleSavesMinimumValue()
+    {
+        SettingsViewModel viewModel = new();
+        FakePointerSettings pointer = new(PointerMovementSettingsModel.Default);
+        SettingsController controller = CreateController(viewModel, pointer: pointer);
+
+        PointerMovementSettings saved = controller.SetPointerScalePercent(1);
+
+        Assert.Equal(5, saved.ScalePercent);
+        Assert.Equal(new PointerMovementSettings(5), pointer.Saved);
+        Assert.Equal(5, viewModel.PointerScalePercent);
+        Assert.True(viewModel.IsPointerScale5);
+    }
+
+    [Fact]
     public async Task SetMouseRepeatSettingsSavesNormalizedValuesAndUpdatesViewModel()
     {
         SettingsViewModel viewModel = new();

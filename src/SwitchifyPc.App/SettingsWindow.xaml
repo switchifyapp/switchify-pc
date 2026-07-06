@@ -393,7 +393,12 @@
                                                        Style="{StaticResource DetailValue}" />
                                         </Grid>
 
-                                        <UniformGrid Margin="0,14,0,0" Columns="4">
+                                        <UniformGrid Margin="0,14,0,0" Columns="5">
+                                            <RadioButton Content="5%"
+                                                         GroupName="PointerScale"
+                                                         IsChecked="{Binding IsPointerScale5, Mode=OneWay}"
+                                                         Checked="PointerScale5_Checked"
+                                                         Style="{StaticResource SegmentRadio}" />
                                             <RadioButton Content="25%"
                                                          GroupName="PointerScale"
                                                          IsChecked="{Binding IsPointerScale25, Mode=OneWay}"

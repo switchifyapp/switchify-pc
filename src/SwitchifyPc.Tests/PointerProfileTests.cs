@@ -28,7 +28,7 @@ public sealed class PointerProfileTests
         Assert.True(profile.Capabilities.PointerSpeed.Supported);
         Assert.True(profile.Capabilities.PointerSpeed.SetSupported);
         Assert.Equal(100, profile.Capabilities.PointerSpeed.ScalePercent);
-        Assert.Equal(25, profile.Capabilities.PointerSpeed.MinScalePercent);
+        Assert.Equal(5, profile.Capabilities.PointerSpeed.MinScalePercent);
         Assert.Equal(225, profile.Capabilities.PointerSpeed.MaxScalePercent);
         Assert.Equal(5, profile.Capabilities.PointerSpeed.StepPercent);
         Assert.Equal(128, profile.Capabilities.PointerSpeed.BaseMoveDelta);
