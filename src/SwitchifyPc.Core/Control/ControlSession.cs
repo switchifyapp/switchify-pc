@@ -273,6 +273,16 @@ public sealed class ControlSession
                         ["scrollIntervalMs"] = profile.Capabilities.MouseRepeat.ScrollIntervalMs,
                         ["minIntervalMs"] = profile.Capabilities.MouseRepeat.MinIntervalMs,
                         ["maxIntervalMs"] = profile.Capabilities.MouseRepeat.MaxIntervalMs
+                    },
+                    ["pointerSpeed"] = new JsonObject
+                    {
+                        ["supported"] = profile.Capabilities.PointerSpeed.Supported,
+                        ["scalePercent"] = profile.Capabilities.PointerSpeed.ScalePercent,
+                        ["minScalePercent"] = profile.Capabilities.PointerSpeed.MinScalePercent,
+                        ["maxScalePercent"] = profile.Capabilities.PointerSpeed.MaxScalePercent,
+                        ["stepPercent"] = profile.Capabilities.PointerSpeed.StepPercent,
+                        ["baseMoveDelta"] = profile.Capabilities.PointerSpeed.BaseMoveDelta,
+                        ["effectiveMoveDelta"] = profile.Capabilities.PointerSpeed.EffectiveMoveDelta
                     }
                 }
             },

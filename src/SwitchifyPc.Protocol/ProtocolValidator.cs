@@ -352,6 +352,11 @@ public static partial class ProtocolValidator
             {
                 return Invalid("invalid_payload", "Mouse repeat capability is invalid.");
             }
+
+            if (capabilities.TryGetProperty("pointerSpeed", out JsonElement pointerSpeed) && !ValidatePointerSpeedCapability(pointerSpeed))
+            {
+                return Invalid("invalid_payload", "Pointer speed capability is invalid.");
+            }
         }
 
         return Valid(payload);
@@ -404,6 +409,28 @@ public static partial class ProtocolValidator
             interval.TryGetInt32(out int intervalMs) &&
             intervalMs >= minIntervalMs &&
             intervalMs <= maxIntervalMs;
+    }
+
+    private static bool ValidatePointerSpeedCapability(JsonElement pointerSpeed)
+    {
+        if (!IsObject(pointerSpeed) ||
+            !TryGetBoolean(pointerSpeed, "supported", out _) ||
+            !TryGetPositiveFiniteNumber(pointerSpeed, "scalePercent", out double scalePercent) ||
+            !TryGetPositiveFiniteNumber(pointerSpeed, "minScalePercent", out double minScalePercent) ||
+            !TryGetPositiveFiniteNumber(pointerSpeed, "maxScalePercent", out double maxScalePercent) ||
+            !TryGetPositiveFiniteNumber(pointerSpeed, "stepPercent", out _) ||
+            !TryGetInteger(pointerSpeed, "baseMoveDelta", out int baseMoveDelta) ||
+            baseMoveDelta <= 0 ||
+            !TryGetInteger(pointerSpeed, "effectiveMoveDelta", out int effectiveMoveDelta) ||
+            effectiveMoveDelta <= 0)
+        {
+            return false;
+        }
+
+        return minScalePercent <= scalePercent &&
+            scalePercent <= maxScalePercent &&
+            baseMoveDelta <= ProtocolConstants.MaxPointerDelta &&
+            effectiveMoveDelta <= ProtocolConstants.MaxPointerDelta;
     }
 
     private static bool ValidateCommandArrayCapability(JsonElement capabilities, string propertyName, IReadOnlySet<string> allowed)

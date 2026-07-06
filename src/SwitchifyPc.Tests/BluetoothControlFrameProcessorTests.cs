@@ -4,6 +4,7 @@ using SwitchifyPc.Core.Bluetooth;
 using SwitchifyPc.Core.Control;
 using SwitchifyPc.Core.Input;
 using SwitchifyPc.Core.Pairing;
+using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Protocol;
 
 namespace SwitchifyPc.Tests;
@@ -132,7 +133,8 @@ public sealed class BluetoothControlFrameProcessorTests
             true,
             ProtocolConstants.NoAckControlCommandTypes.ToArray(),
             ProtocolConstants.CommandTypes.ToArray(),
-            new MouseRepeatCapabilities(true, true, 250, 250, 250, 100, 2000));
+            new MouseRepeatCapabilities(true, true, 250, 250, 250, 100, 2000),
+            PointerProfile.PointerSpeedFor(PointerMovementSettingsModel.Default));
     }
 
     private static string SignedCommand(string type, object payload, string id = "request-1", string? responseMode = null)
