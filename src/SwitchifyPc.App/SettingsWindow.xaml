@@ -370,7 +370,7 @@
                             <StackPanel>
                                 <TextBlock Text="Pointer and cursor" Style="{StaticResource SectionTitle}" />
                                 <TextBlock Margin="0,6,0,0"
-                                           Text="Tune movement distance and the visual cursor marker used while controlling this PC."
+                                           Text="Tune pointer speed and the visual cursor marker used while controlling this PC."
                                            Style="{StaticResource MutedText}" />
 
                                 <Border Margin="0,16,0,0" Style="{StaticResource SubtlePanel}">
@@ -381,9 +381,9 @@
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <StackPanel>
-                                                <TextBlock Text="Movement distance" Style="{StaticResource DetailLabel}" />
+                                                <TextBlock Text="Pointer speed" Style="{StaticResource DetailLabel}" />
                                                 <TextBlock Margin="0,4,0,0"
-                                                           Text="Choose how far each Android pointer step moves on this display."
+                                                           Text="Choose how quickly Android pointer movement moves on this display."
                                                            Style="{StaticResource MutedText}" />
                                             </StackPanel>
                                             <TextBlock Grid.Column="1"

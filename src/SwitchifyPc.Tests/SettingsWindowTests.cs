@@ -94,6 +94,33 @@ public sealed class SettingsWindowTests
     }
 
     [Fact]
+    public void SettingsWindowUsesPointerSpeedCopy()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            SettingsWindow window = new(new SettingsViewModel());
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                IReadOnlyList<string> text = TextBlocks(window);
+                Assert.Contains("Tune pointer speed and the visual cursor marker used while controlling this PC.", text);
+                Assert.Contains("Pointer speed", text);
+                Assert.Contains("Choose how quickly Android pointer movement moves on this display.", text);
+                Assert.DoesNotContain("Tune movement distance and the visual cursor marker used while controlling this PC.", text);
+                Assert.DoesNotContain("Movement distance", text);
+                Assert.DoesNotContain("Choose how far each Android pointer step moves on this display.", text);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
     public void SettingsWindowUsesCustomChrome()
     {
         RunOnSta(() =>
