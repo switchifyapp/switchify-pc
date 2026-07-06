@@ -144,6 +144,10 @@ public static partial class ProtocolValidator
                     : Invalid("invalid_payload", "Mouse button is invalid."),
             "mouse.rightClick" or "connection.ping" or "connection.disconnecting" or "pointer.profile" =>
                 ObjectPropertyCount(payload) == 0 ? Valid(payload) : Invalid("invalid_payload", "Payload must be empty."),
+            "pointer.speed.set" =>
+                TryGetPositiveFiniteNumber(payload, "scalePercent", out _) && ObjectPropertyCount(payload) == 1
+                    ? Valid(payload)
+                    : Invalid("invalid_payload", "Pointer speed is invalid."),
             "keyboard.key" =>
                 TryGetString(payload, "key", out string? key) && ProtocolConstants.KeyboardKeys.Contains(key)
                     ? Valid(payload)
@@ -415,6 +419,7 @@ public static partial class ProtocolValidator
     {
         if (!IsObject(pointerSpeed) ||
             !TryGetBoolean(pointerSpeed, "supported", out _) ||
+            !TryGetBoolean(pointerSpeed, "setSupported", out _) ||
             !TryGetPositiveFiniteNumber(pointerSpeed, "scalePercent", out double scalePercent) ||
             !TryGetPositiveFiniteNumber(pointerSpeed, "minScalePercent", out double minScalePercent) ||
             !TryGetPositiveFiniteNumber(pointerSpeed, "maxScalePercent", out double maxScalePercent) ||

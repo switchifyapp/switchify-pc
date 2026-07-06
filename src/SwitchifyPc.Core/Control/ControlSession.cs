@@ -44,17 +44,20 @@ public sealed class ControlSession
     private readonly DesktopCommandExecutor commandExecutor;
     private readonly IPointerProfileProvider pointerProfileProvider;
     private readonly MouseRepeatController? mouseRepeatController;
+    private readonly PointerSpeedController? pointerSpeedController;
 
     public ControlSession(
         CommandAuthValidator authValidator,
         DesktopCommandExecutor commandExecutor,
         IPointerProfileProvider pointerProfileProvider,
-        MouseRepeatController? mouseRepeatController = null)
+        MouseRepeatController? mouseRepeatController = null,
+        PointerSpeedController? pointerSpeedController = null)
     {
         this.authValidator = authValidator;
         this.commandExecutor = commandExecutor;
         this.pointerProfileProvider = pointerProfileProvider;
         this.mouseRepeatController = mouseRepeatController;
+        this.pointerSpeedController = pointerSpeedController;
     }
 
     public async Task<ControlSessionResult> ProcessMessageAsync(string rawMessage, CancellationToken cancellationToken = default)
@@ -124,9 +127,21 @@ public sealed class ControlSession
             await StopRepeatAsync(auth.DeviceId ?? "").ConfigureAwait(false);
             result = CommandExecutionResult.Success;
         }
+        else if (type == "pointer.speed.set")
+        {
+            if (pointerSpeedController is null)
+            {
+                result = CommandExecutionResult.Failure("unsupported_command", "Pointer speed settings are not available.");
+            }
+            else
+            {
+                pointerSpeedController.SetScalePercent(request.GetProperty("payload").GetProperty("scalePercent").GetDouble());
+                result = CommandExecutionResult.Success;
+            }
+        }
         else
         {
-            if (type is not ("connection.ping" or "pointer.profile"))
+            if (type is not ("connection.ping" or "pointer.profile" or "pointer.speed.set"))
             {
                 await StopRepeatAsync(auth.DeviceId ?? "").ConfigureAwait(false);
             }
@@ -277,6 +292,7 @@ public sealed class ControlSession
                     ["pointerSpeed"] = new JsonObject
                     {
                         ["supported"] = profile.Capabilities.PointerSpeed.Supported,
+                        ["setSupported"] = profile.Capabilities.PointerSpeed.SetSupported,
                         ["scalePercent"] = profile.Capabilities.PointerSpeed.ScalePercent,
                         ["minScalePercent"] = profile.Capabilities.PointerSpeed.MinScalePercent,
                         ["maxScalePercent"] = profile.Capabilities.PointerSpeed.MaxScalePercent,

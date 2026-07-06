@@ -42,6 +42,7 @@ public sealed class ProtocolValidatorTests
             new { type = "media.control", payload = new { action = "playPause" } },
             new { type = "window.control", payload = new { action = "switchNext" } },
             new { type = "pointer.profile", payload = new { } },
+            new { type = "pointer.speed.set", payload = new { scalePercent = 125 } },
             new { type = "connection.ping", payload = new { } },
             new { type = "connection.disconnecting", payload = new { } }
         ];
@@ -89,6 +90,7 @@ public sealed class ProtocolValidatorTests
             ("connection.ping", new { }),
             ("connection.disconnecting", new { }),
             ("pointer.profile", new { }),
+            ("pointer.speed.set", new { scalePercent = 125 }),
             ("keyboard.textStream.open", new { streamId = "stream-1" }),
             ("keyboard.textStream.chunk", new { streamId = "stream-1", seq = 0, text = "Hello" }),
             ("keyboard.textStream.close", new { streamId = "stream-1", expectedCount = 0 })
@@ -157,6 +159,9 @@ public sealed class ProtocolValidatorTests
             BaseCommand("keyboard.textStream.key", new { streamId = "stream-1", seq = 0, key = "F13" }),
             BaseCommand("keyboard.textStream.close", new { streamId = "stream-1", expectedCount = -1 }),
             BaseCommand("pointer.profile", new { includeDisplays = true }),
+            BaseCommand("pointer.speed.set", new { }),
+            BaseCommand("pointer.speed.set", new { scalePercent = "125" }),
+            BaseCommand("pointer.speed.set", new { scalePercent = -1 }),
             BaseCommand("connection.disconnecting", new { reason = "leaving" })
         ];
 
@@ -215,6 +220,7 @@ public sealed class ProtocolValidatorTests
                     pointerSpeed = new
                     {
                         supported = true,
+                        setSupported = true,
                         scalePercent = 100,
                         minScalePercent = 25,
                         maxScalePercent = 225,
@@ -251,6 +257,7 @@ public sealed class ProtocolValidatorTests
                     pointerSpeed = new
                     {
                         supported = true,
+                        setSupported = true,
                         scalePercent = 300,
                         minScalePercent = 25,
                         maxScalePercent = 225,
@@ -265,6 +272,40 @@ public sealed class ProtocolValidatorTests
 
         Assert.False(result.Ok);
         Assert.Equal("invalid_payload", result.Error);
+
+        ProtocolValidationResult malformedSetSupportedResult = ProtocolValidator.ValidateProtocolResponse(Json(new
+        {
+            version = ProtocolConstants.ProtocolVersion,
+            id = "profile-1",
+            type = "pointer.profile",
+            ok = true,
+            payload = new
+            {
+                displayId = "0:0:1280:720:1.5",
+                scaleFactor = 1.5,
+                bounds = new { x = 0, y = 0, width = 1280, height = 720 },
+                maxDelta = ProtocolConstants.MaxPointerDelta,
+                recommendedDeltas = new { small = 50, medium = 130, large = 252 },
+                capabilities = new
+                {
+                    pointerSpeed = new
+                    {
+                        supported = true,
+                        setSupported = "yes",
+                        scalePercent = 100,
+                        minScalePercent = 25,
+                        maxScalePercent = 225,
+                        stepPercent = 5,
+                        baseMoveDelta = 128,
+                        effectiveMoveDelta = 128
+                    }
+                }
+            },
+            error = (object?)null
+        }));
+
+        Assert.False(malformedSetSupportedResult.Ok);
+        Assert.Equal("invalid_payload", malformedSetSupportedResult.Error);
     }
 
     [Fact]

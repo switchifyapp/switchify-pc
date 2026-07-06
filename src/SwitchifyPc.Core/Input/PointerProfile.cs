@@ -18,6 +18,7 @@ public sealed record MouseRepeatCapabilities(
     int MaxIntervalMs);
 public sealed record PointerSpeedCapabilities(
     bool Supported,
+    bool SetSupported,
     double ScalePercent,
     double MinScalePercent,
     double MaxScalePercent,
@@ -116,6 +117,7 @@ public static class PointerProfile
         double scalePercent = PointerMovementSettingsModel.ScalePercentFor(settings);
         return new PointerSpeedCapabilities(
             Supported: true,
+            SetSupported: true,
             ScalePercent: scalePercent,
             MinScalePercent: PointerMovementSettingsModel.PointerMovementScaleMin,
             MaxScalePercent: PointerMovementSettingsModel.PointerMovementScaleMax,

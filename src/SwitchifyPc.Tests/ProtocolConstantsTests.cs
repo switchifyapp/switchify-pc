@@ -62,6 +62,7 @@ public sealed class ProtocolConstantsTests
             "media.control",
             "window.control",
             "pointer.profile",
+            "pointer.speed.set",
             "connection.ping",
             "connection.disconnecting"
         ];
@@ -80,6 +81,7 @@ public sealed class ProtocolConstantsTests
     {
         Assert.DoesNotContain("mouse.repeat.start", ProtocolConstants.NoAckControlCommandTypes);
         Assert.DoesNotContain("mouse.repeat.stop", ProtocolConstants.NoAckControlCommandTypes);
+        Assert.DoesNotContain("pointer.speed.set", ProtocolConstants.NoAckControlCommandTypes);
     }
 
     [Fact]
