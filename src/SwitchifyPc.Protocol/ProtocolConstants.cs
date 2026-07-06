@@ -36,6 +36,7 @@ public static class ProtocolConstants
         "media.control",
         "window.control",
         "pointer.profile",
+        "pointer.speed.set",
         "connection.ping",
         "connection.disconnecting"
     };

@@ -55,6 +55,8 @@ public partial class SettingsWindow : Window
             "Start with system could not be changed.");
     }
 
+    private void PointerScale5_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetPointerScalePercent(5));
+
     private void PointerScale25_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetPointerScalePercent(25));
 
     private void PointerScale50_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetPointerScalePercent(50));

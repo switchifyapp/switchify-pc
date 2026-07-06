@@ -16,7 +16,21 @@ public sealed record MouseRepeatCapabilities(
     int ScrollIntervalMs,
     int MinIntervalMs,
     int MaxIntervalMs);
-public sealed record PointerCapabilities(bool NoAckMouseMove, IReadOnlyList<string> NoAckCommands, IReadOnlyList<string> SupportedCommands, MouseRepeatCapabilities MouseRepeat);
+public sealed record PointerSpeedCapabilities(
+    bool Supported,
+    bool SetSupported,
+    double ScalePercent,
+    double MinScalePercent,
+    double MaxScalePercent,
+    double StepPercent,
+    int BaseMoveDelta,
+    int EffectiveMoveDelta);
+public sealed record PointerCapabilities(
+    bool NoAckMouseMove,
+    IReadOnlyList<string> NoAckCommands,
+    IReadOnlyList<string> SupportedCommands,
+    MouseRepeatCapabilities MouseRepeat,
+    PointerSpeedCapabilities PointerSpeed);
 public sealed record PointerMovementProfile(
     string DisplayId,
     double ScaleFactor,
@@ -70,7 +84,8 @@ public static class PointerProfile
                     MoveIntervalMs: MouseRepeatSettingsModel.Default.MoveIntervalMs,
                     ScrollIntervalMs: MouseRepeatSettingsModel.Default.ScrollIntervalMs,
                     MinIntervalMs: MouseRepeatSettingsModel.MinIntervalMs,
-                    MaxIntervalMs: MouseRepeatSettingsModel.MaxIntervalMs)));
+                    MaxIntervalMs: MouseRepeatSettingsModel.MaxIntervalMs),
+                PointerSpeed: PointerSpeedFor(PointerMovementSettingsModel.Default)));
     }
 
     private static Bounds NormalizeBounds(Bounds bounds)
@@ -95,6 +110,23 @@ public static class PointerProfile
     private static int ToLogicalDelta(double nativePixels, double scaleFactor, int maxDelta)
     {
         return Clamp((int)Math.Round(nativePixels / scaleFactor, MidpointRounding.AwayFromZero), 1, maxDelta);
+    }
+
+    public static PointerSpeedCapabilities PointerSpeedFor(PointerMovementSettings settings)
+    {
+        double scalePercent = PointerMovementSettingsModel.ScalePercentFor(settings);
+        return new PointerSpeedCapabilities(
+            Supported: true,
+            SetSupported: true,
+            ScalePercent: scalePercent,
+            MinScalePercent: PointerMovementSettingsModel.PointerMovementScaleMin,
+            MaxScalePercent: PointerMovementSettingsModel.PointerMovementScaleMax,
+            StepPercent: PointerMovementSettingsModel.PointerMovementScaleStep,
+            BaseMoveDelta: PointerMovementSettingsModel.BaseMoveDelta,
+            EffectiveMoveDelta: Clamp(
+                (int)Math.Round(PointerMovementSettingsModel.BaseMoveDelta * (scalePercent / 100), MidpointRounding.AwayFromZero),
+                1,
+                ProtocolConstants.MaxPointerDelta));
     }
 
     private static int Clamp(int value, int min, int max)

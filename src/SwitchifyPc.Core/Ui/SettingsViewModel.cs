@@ -81,6 +81,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public double PointerScalePercent => PointerMovementSettingsModel.ScalePercentFor(pointerMovementSettings);
 
+    public bool IsPointerScale5 => Math.Abs(PointerScalePercent - 5) < 0.1;
+
     public bool IsPointerScale25 => Math.Abs(PointerScalePercent - 25) < 0.1;
 
     public bool IsPointerScale50 => Math.Abs(PointerScalePercent - 50) < 0.1;
@@ -202,6 +204,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         pointerMovementSettings = PointerMovementSettingsModel.Normalize(settings);
         OnPropertyChanged(nameof(PointerMovementSettings));
         OnPropertyChanged(nameof(PointerScalePercent));
+        OnPropertyChanged(nameof(IsPointerScale5));
         OnPropertyChanged(nameof(IsPointerScale25));
         OnPropertyChanged(nameof(IsPointerScale50));
         OnPropertyChanged(nameof(IsPointerScale75));

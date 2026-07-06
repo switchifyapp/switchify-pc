@@ -112,6 +112,40 @@ public sealed class ControlSessionTests
     }
 
     [Fact]
+    public async Task AuthenticatedPointerSpeedSetSavesAndAppliesLiveSettings()
+    {
+        FakePointerSettings pointerSettings = new(PointerMovementSettingsModel.Default);
+        List<PointerMovementSettings> applied = [];
+        ControlSession session = CreateSession(
+            new FakeInputAdapter(),
+            pointerSettings: pointerSettings,
+            applyPointerSettings: applied.Add);
+
+        ControlSessionResult result = await session.ProcessMessageAsync(SignedCommand("pointer.speed.set", new { scalePercent = 227 }));
+
+        Assert.True(result.HasResponse);
+        Assert.Equal(new PointerMovementSettings(225), pointerSettings.Saved);
+        Assert.Equal([new PointerMovementSettings(225)], applied);
+    }
+
+    [Fact]
+    public async Task UnauthenticatedPointerSpeedSetDoesNotSaveSettings()
+    {
+        FakePointerSettings pointerSettings = new(PointerMovementSettingsModel.Default);
+        List<PointerMovementSettings> applied = [];
+        ControlSession session = CreateSession(
+            new FakeInputAdapter(),
+            pointerSettings: pointerSettings,
+            applyPointerSettings: applied.Add);
+
+        ControlSessionResult result = await session.ProcessMessageAsync(SignedCommand("pointer.speed.set", new { scalePercent = 125 }, authOverride: "bad-proof"));
+
+        AssertError(result, "request-1", "invalid_auth");
+        Assert.Null(pointerSettings.Saved);
+        Assert.Empty(applied);
+    }
+
+    [Fact]
     public async Task AuthenticatedRepeatStartExecutesInitialCommandAndStopAcknowledges()
     {
         FakeInputAdapter adapter = new();
@@ -174,7 +208,9 @@ public sealed class ControlSessionTests
         FakeInputAdapter adapter,
         ICursorOverlayNotifier? cursorOverlay = null,
         double? lastSeenAt = null,
-        IMouseRepeatSettingsStore? mouseRepeatSettings = null)
+        IMouseRepeatSettingsStore? mouseRepeatSettings = null,
+        FakePointerSettings? pointerSettings = null,
+        Action<PointerMovementSettings>? applyPointerSettings = null)
     {
         MemoryPairingStore store = new(new PairingState(
             DesktopId: "desktop-1",
@@ -195,12 +231,16 @@ public sealed class ControlSessionTests
         MouseRepeatController? repeatController = mouseRepeatSettings is null
             ? null
             : new MouseRepeatController(executor, mouseRepeatSettings, (_, cancellationToken) => Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken));
+        PointerSpeedController? pointerSpeedController = pointerSettings is null
+            ? null
+            : new PointerSpeedController(pointerSettings, applyPointerSettings ?? (_ => { }));
 
         return new ControlSession(
             new CommandAuthValidator(store, () => Now),
             executor,
             new FixedPointerProfileProvider(profile),
-            repeatController);
+            repeatController,
+            pointerSpeedController);
     }
 
     private static PointerCapabilities TestPointerCapabilities()
@@ -209,7 +249,8 @@ public sealed class ControlSessionTests
             true,
             ProtocolConstants.NoAckControlCommandTypes.ToArray(),
             ProtocolConstants.CommandTypes.ToArray(),
-            new MouseRepeatCapabilities(true, true, 250, 250, 250, 100, 2000));
+            new MouseRepeatCapabilities(true, true, 250, 250, 250, 100, 2000),
+            PointerProfile.PointerSpeedFor(PointerMovementSettingsModel.Default));
     }
 
     private sealed class FakeMouseRepeatSettings(MouseRepeatSettings settings) : IMouseRepeatSettingsStore
@@ -219,6 +260,20 @@ public sealed class ControlSessionTests
         public MouseRepeatSettings Save(MouseRepeatSettings next)
         {
             settings = MouseRepeatSettingsModel.Normalize(next);
+            return settings;
+        }
+    }
+
+    private sealed class FakePointerSettings(PointerMovementSettings settings) : IPointerMovementSettingsStore
+    {
+        public PointerMovementSettings? Saved { get; private set; }
+
+        public PointerMovementSettings Load() => settings;
+
+        public PointerMovementSettings Save(PointerMovementSettings next)
+        {
+            settings = PointerMovementSettingsModel.Normalize(next);
+            Saved = settings;
             return settings;
         }
     }

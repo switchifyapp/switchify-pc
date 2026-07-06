@@ -282,11 +282,13 @@ public partial class App : System.Windows.Application
             modifierOverlay = new WindowsModifierKeyOverlayNotifier(nativeInput);
             commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay, modifierOverlay: modifierOverlay);
             mouseRepeatController = new MouseRepeatController(commandExecutor, mouseRepeatSettingsStore);
+            PointerSpeedController pointerSpeedController = new(pointerSettingsStore, inputAdapter.SetPointerMovementSettings);
             ControlSession controlSession = new(
                 new CommandAuthValidator(pairingStore),
                 commandExecutor,
                 new WindowsPointerProfileProvider(nativeInput, pointerSettingsStore, mouseRepeatSettingsStore),
-                mouseRepeatController);
+                mouseRepeatController,
+                pointerSpeedController);
 
             pairingApprovalManager ??= new PairingApprovalManager(pairingStore);
             RemoteControlSession remoteSession = new(

@@ -49,7 +49,8 @@ public sealed class WindowsPointerProfileProvider : IPointerProfileProvider
                     MoveIntervalMs: mouseRepeatSettings.MoveIntervalMs,
                     ScrollIntervalMs: mouseRepeatSettings.ScrollIntervalMs,
                     MinIntervalMs: MouseRepeatSettingsModel.MinIntervalMs,
-                    MaxIntervalMs: MouseRepeatSettingsModel.MaxIntervalMs)));
+                    MaxIntervalMs: MouseRepeatSettingsModel.MaxIntervalMs),
+                PointerSpeed: PointerProfile.PointerSpeedFor(settings)));
     }
 
     private static int DeltaFor(double shortEdge, PointerMovementSettings settings, PointerMovementSizeKey size)

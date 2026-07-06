@@ -76,14 +76,29 @@ public sealed class SettingsControllerTests
         FakePointerSettings pointer = new(PointerMovementSettingsModel.Default);
         SettingsController controller = CreateController(viewModel, pointer: pointer);
 
-        PointerMovementSettings saved = controller.SetPointerScalePercent(212);
+        PointerMovementSettings saved = controller.SetPointerScalePercent(227);
 
-        Assert.Equal(200, saved.ScalePercent);
-        Assert.Equal(new PointerMovementSettings(200), pointer.Saved);
-        Assert.Equal(200, viewModel.PointerScalePercent);
-        Assert.Equal("9%", viewModel.PointerSmall);
-        Assert.Equal("24%", viewModel.PointerMedium);
+        Assert.Equal(225, saved.ScalePercent);
+        Assert.Equal(new PointerMovementSettings(225), pointer.Saved);
+        Assert.Equal(225, viewModel.PointerScalePercent);
+        Assert.Equal("10%", viewModel.PointerSmall);
+        Assert.Equal("27%", viewModel.PointerMedium);
         Assert.Equal("50%", viewModel.PointerLarge);
+    }
+
+    [Fact]
+    public void SetPointerScaleSavesMinimumValue()
+    {
+        SettingsViewModel viewModel = new();
+        FakePointerSettings pointer = new(PointerMovementSettingsModel.Default);
+        SettingsController controller = CreateController(viewModel, pointer: pointer);
+
+        PointerMovementSettings saved = controller.SetPointerScalePercent(1);
+
+        Assert.Equal(5, saved.ScalePercent);
+        Assert.Equal(new PointerMovementSettings(5), pointer.Saved);
+        Assert.Equal(5, viewModel.PointerScalePercent);
+        Assert.True(viewModel.IsPointerScale5);
     }
 
     [Fact]

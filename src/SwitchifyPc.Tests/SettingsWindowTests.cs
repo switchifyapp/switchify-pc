@@ -73,6 +73,54 @@ public sealed class SettingsWindowTests
     }
 
     [Fact]
+    public void SettingsWindowShowsFivePercentPointerScale()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            SettingsWindow window = new(new SettingsViewModel());
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                Assert.Contains("5%", RadioButtonContent(window));
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void SettingsWindowUsesPointerSpeedCopy()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            SettingsWindow window = new(new SettingsViewModel());
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                IReadOnlyList<string> text = TextBlocks(window);
+                Assert.Contains("Tune pointer speed and the visual cursor marker used while controlling this PC.", text);
+                Assert.Contains("Pointer speed", text);
+                Assert.Contains("Choose how quickly Android pointer movement moves on this display.", text);
+                Assert.DoesNotContain("Tune movement distance and the visual cursor marker used while controlling this PC.", text);
+                Assert.DoesNotContain("Movement distance", text);
+                Assert.DoesNotContain("Choose how far each Android pointer step moves on this display.", text);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
     public void SettingsWindowUsesCustomChrome()
     {
         RunOnSta(() =>
@@ -177,6 +225,19 @@ public sealed class SettingsWindowTests
             }
         });
         return result;
+    }
+
+    private static IReadOnlyList<string> RadioButtonContent(DependencyObject root)
+    {
+        List<string> content = [];
+        Collect(root, node =>
+        {
+            if (node is System.Windows.Controls.RadioButton { Content: string text })
+            {
+                content.Add(text);
+            }
+        });
+        return content;
     }
 
     private static void Collect(DependencyObject node, Action<DependencyObject> visit)
