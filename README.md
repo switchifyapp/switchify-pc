@@ -2,6 +2,8 @@
 
 Switchify PC is the Windows desktop companion for Switchify Android. It runs in the tray, accepts authenticated Bluetooth commands from paired Android devices, and turns them into mouse, keyboard, text, media, window, and status actions on the PC.
 
+![Switchify PC desktop companion screenshot](docs/images/switchify-pc-android-control.png)
+
 Switchify PC is early-stage Windows-first software. Expect Bluetooth and Windows packaging behavior to be the main supported path for now.
 
 ## Download
