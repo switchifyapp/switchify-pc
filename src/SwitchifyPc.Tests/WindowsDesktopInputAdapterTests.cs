@@ -17,7 +17,28 @@ public sealed class WindowsDesktopInputAdapterTests
 
         await adapter.MoveMouseByAsync(48, 0);
 
-        Assert.Equal(new PointerPosition(196, 100), native.MovedTo);
+        Assert.Equal(new PointerDelta(34, 0), native.MovedBy);
+        Assert.Null(native.MovedTo);
+    }
+
+    [Fact]
+    public async Task CachesDisplayLookupForMouseMoves()
+    {
+        double now = 1000;
+        FakeNativeInput native = new()
+        {
+            CursorPosition = new PointerPosition(100, 100),
+            Display = new PointerDisplay(new PointerDisplayBounds(0, 0, 1920, 1080), 1)
+        };
+        WindowsDesktopInputAdapter adapter = new(native, new PointerMovementSettings(100), () => now);
+
+        await adapter.MoveMouseByAsync(48, 0);
+        await adapter.MoveMouseByAsync(48, 0);
+        now += 1001;
+        await adapter.MoveMouseByAsync(48, 0);
+
+        Assert.Equal(2, native.CursorPositionReads);
+        Assert.Equal(2, native.DisplayReads);
     }
 
     [Fact]
@@ -210,17 +231,34 @@ public sealed class WindowsDesktopInputAdapterTests
         public PointerPosition CursorPosition { get; init; } = new(0, 0);
         public PointerDisplay Display { get; init; } = new(new PointerDisplayBounds(0, 0, 1080, 1080), 1);
         public PointerPosition? MovedTo { get; private set; }
+        public PointerDelta? MovedBy { get; private set; }
         public PointerDelta? Scrolled { get; private set; }
+        public int CursorPositionReads { get; private set; }
+        public int DisplayReads { get; private set; }
         public List<string> Calls { get; } = [];
 
-        public PointerPosition GetCursorPosition() => CursorPosition;
+        public PointerPosition GetCursorPosition()
+        {
+            CursorPositionReads += 1;
+            return CursorPosition;
+        }
 
-        public PointerDisplay GetDisplayForPosition(PointerPosition position) => Display;
+        public PointerDisplay GetDisplayForPosition(PointerPosition position)
+        {
+            DisplayReads += 1;
+            return Display;
+        }
 
         public void MoveCursorTo(PointerPosition position)
         {
             MovedTo = position;
             Calls.Add($"move:{position.X}:{position.Y}");
+        }
+
+        public void MoveCursorBy(PointerDelta delta)
+        {
+            MovedBy = delta;
+            Calls.Add($"moveBy:{delta.Dx}:{delta.Dy}");
         }
 
         public void SetMouseButtonDown(string button, bool down)

@@ -27,7 +27,7 @@ public sealed class CommandAuthTests
     [Fact]
     public async Task ReportsPreviouslyUsedDeviceWhenLastSeenAlreadyExists()
     {
-        MemoryPairingStore store = CreateStore(lastSeenAt: Now - 500);
+        MemoryPairingStore store = CreateStore(lastSeenAt: Now - 60_000);
         CommandAuthValidator validator = new(store, () => Now);
 
         AuthValidationResult result = await validator.ValidateAsync(CreateCommand());
@@ -36,6 +36,19 @@ public sealed class CommandAuthTests
         Assert.Equal("android-1", result.DeviceId);
         Assert.True(result.DeviceWasPreviouslyUsed);
         Assert.Equal(Now, (await store.LoadAsync()).PairedDevices[0].LastSeenAt);
+    }
+
+    [Fact]
+    public async Task DoesNotPersistRecentLastSeenForEveryCommand()
+    {
+        MemoryPairingStore store = CreateStore(lastSeenAt: Now - 500);
+        CommandAuthValidator validator = new(store, () => Now);
+
+        AuthValidationResult result = await validator.ValidateAsync(CreateCommand());
+
+        Assert.True(result.Ok, result.Reason);
+        Assert.True(result.DeviceWasPreviouslyUsed);
+        Assert.Equal(Now - 500, (await store.LoadAsync()).PairedDevices[0].LastSeenAt);
     }
 
     [Fact]

@@ -12,33 +12,41 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
 {
     private const int DefaultDurationMs = 900;
     private const int FollowIntervalMs = 75;
+    private const int SettingsCacheTtlMs = 1000;
 
     private readonly IWindowsNativeInput nativeInput;
     private readonly ICursorOverlaySettingsStore settingsStore;
+    private readonly Func<double> now;
     private readonly Lazy<OverlayThread> overlayThread;
     private readonly object sync = new();
     private System.Threading.Timer? followTimer;
+    private CursorOverlaySettings? cachedSettings;
+    private double cachedSettingsAtMs = double.NegativeInfinity;
+    private double lastMoveRenderAtMs = double.NegativeInfinity;
     private bool dragActive;
     private bool disposed;
 
-    public WindowsCursorOverlayNotifier(IWindowsNativeInput nativeInput, ICursorOverlaySettingsStore settingsStore)
+    public WindowsCursorOverlayNotifier(IWindowsNativeInput nativeInput, ICursorOverlaySettingsStore settingsStore, Func<double>? now = null)
     {
         this.nativeInput = nativeInput;
         this.settingsStore = settingsStore;
+        this.now = now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         overlayThread = new Lazy<OverlayThread>(() => new OverlayThread());
     }
 
     public void Show(string eventName)
     {
-        CursorOverlaySettings settings = settingsStore.Load();
+        CursorOverlaySettings settings = CurrentSettings();
         if (!settings.Enabled) return;
-        if (ShouldFollowCursor(settings)) StartFollowing();
-        ShowCurrent(eventName, settings, persistent: ShouldFollowCursor(settings));
+        bool shouldFollow = ShouldFollowCursor(settings);
+        if (shouldFollow) StartFollowing();
+        if (shouldFollow && IsMoveEvent(eventName) && !ShouldRenderMoveNow()) return;
+        ShowCurrent(eventName, settings, persistent: shouldFollow);
     }
 
     public void Hide()
     {
-        CursorOverlaySettings settings = settingsStore.Load();
+        CursorOverlaySettings settings = CurrentSettings();
         if (settings.Enabled && settings.Visibility == "whileControlling" && IsFollowing())
         {
             return;
@@ -68,7 +76,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
 
     public void MarkControlActive()
     {
-        CursorOverlaySettings settings = settingsStore.Load();
+        CursorOverlaySettings settings = CurrentSettings();
         if (settings.Enabled && ShouldFollowCursor(settings))
         {
             StartFollowing();
@@ -83,7 +91,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
             dragActive = active;
         }
 
-        CursorOverlaySettings settings = settingsStore.Load();
+        CursorOverlaySettings settings = CurrentSettings();
         if (!settings.Enabled) return;
         if (active)
         {
@@ -117,7 +125,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
             if (followTimer is not null) return;
             followTimer = new System.Threading.Timer(_ =>
             {
-                CursorOverlaySettings settings = settingsStore.Load();
+                CursorOverlaySettings settings = CurrentSettings();
                 if (!settings.Enabled || !ShouldFollowCursor(settings))
                 {
                     HideOverlay();
@@ -176,6 +184,42 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         {
             return dragActive ? "drag" : "move";
         }
+    }
+
+    private CursorOverlaySettings CurrentSettings()
+    {
+        double currentTime = now();
+        lock (sync)
+        {
+            if (cachedSettings is not null && currentTime - cachedSettingsAtMs < SettingsCacheTtlMs)
+            {
+                return cachedSettings;
+            }
+
+            cachedSettings = settingsStore.Load();
+            cachedSettingsAtMs = currentTime;
+            return cachedSettings;
+        }
+    }
+
+    private bool ShouldRenderMoveNow()
+    {
+        double currentTime = now();
+        lock (sync)
+        {
+            if (currentTime - lastMoveRenderAtMs < FollowIntervalMs)
+            {
+                return false;
+            }
+
+            lastMoveRenderAtMs = currentTime;
+            return true;
+        }
+    }
+
+    private static bool IsMoveEvent(string eventName)
+    {
+        return eventName is "move" or "drag";
     }
 
     private sealed class OverlayThread : IDisposable

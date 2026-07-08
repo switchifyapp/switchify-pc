@@ -28,6 +28,27 @@ public sealed class WindowsPointerMovementTests
     }
 
     [Fact]
+    public void CalculatesDisplayNormalizedRelativeMouseDelta()
+    {
+        PointerDisplay display1080p = new(new PointerDisplayBounds(0, 0, 1920, 1080), 1);
+        PointerDisplay display4k = new(new PointerDisplayBounds(0, 0, 3840, 2160), 2);
+
+        Assert.Equal(new PointerDelta(48, 0), WindowsPointerMovement.CalculateDisplayNormalizedMouseDelta(new PointerDelta(48, 0), display1080p));
+        Assert.Equal(new PointerDelta(96, 0), WindowsPointerMovement.CalculateDisplayNormalizedMouseDelta(new PointerDelta(48, 0), display1080p, new PointerMovementSettings(200)));
+        Assert.Equal(new PointerDelta(768, 0), WindowsPointerMovement.CalculateDisplayNormalizedMouseDelta(new PointerDelta(128, 0), display4k, new PointerMovementSettings(150)));
+    }
+
+    [Fact]
+    public void CalculatesDampedNativeRelativeMouseDelta()
+    {
+        PointerDisplay display1080p = new(new PointerDisplayBounds(0, 0, 1920, 1080), 1);
+
+        Assert.Equal(new PointerDelta(17, 0), WindowsPointerMovement.CalculateNativeRelativeMouseDelta(new PointerDelta(48, 0), display1080p));
+        Assert.Equal(new PointerDelta(34, 0), WindowsPointerMovement.CalculateNativeRelativeMouseDelta(new PointerDelta(48, 0), display1080p, new PointerMovementSettings(200)));
+        Assert.Equal(new PointerDelta(96, 0), WindowsPointerMovement.CalculateNativeRelativeMouseDelta(new PointerDelta(48, 0), display1080p, new PointerMovementSettings(200), 1));
+    }
+
+    [Fact]
     public void FallsBackToReferenceShortEdgeForInvalidDisplayData()
     {
         PointerPosition target = WindowsPointerMovement.CalculateDisplayNormalizedMouseTarget(
@@ -37,6 +58,12 @@ public sealed class WindowsPointerMovementTests
             new PointerMovementSettings(200));
 
         Assert.Equal(new PointerPosition(196, 100), target);
+        Assert.Equal(
+            new PointerDelta(96, 0),
+            WindowsPointerMovement.CalculateDisplayNormalizedMouseDelta(
+                new PointerDelta(48, 0),
+                new PointerDisplay(new PointerDisplayBounds(0, 0, 0, double.NaN), 1),
+                new PointerMovementSettings(200)));
     }
 
     [Fact]

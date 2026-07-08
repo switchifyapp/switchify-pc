@@ -79,6 +79,8 @@ public sealed class WindowsCursorOverlayNotifierTests
 
         public void MoveCursorTo(PointerPosition position) { }
 
+        public void MoveCursorBy(PointerDelta delta) { }
+
         public void SetMouseButtonDown(string button, bool down) { }
 
         public void Scroll(PointerDelta delta) { }

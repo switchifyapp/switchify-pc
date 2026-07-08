@@ -9,6 +9,7 @@ public interface IWindowsNativeInput
     PointerPosition GetCursorPosition();
     PointerDisplay GetDisplayForPosition(PointerPosition position);
     void MoveCursorTo(PointerPosition position);
+    void MoveCursorBy(PointerDelta delta);
     void SetMouseButtonDown(string button, bool down);
     void Scroll(PointerDelta delta);
     void SetKeyDown(ushort virtualKey, bool down);
@@ -18,14 +19,21 @@ public interface IWindowsNativeInput
 
 public sealed class WindowsDesktopInputAdapter : IDesktopInputAdapter
 {
+    private const double DisplayCacheTtlMs = 1000;
+
     private readonly IWindowsNativeInput nativeInput;
+    private readonly Func<double> now;
     private PointerMovementSettings pointerMovementSettings;
+    private PointerDisplay? cachedDisplay;
+    private double cachedDisplayAtMs = double.NegativeInfinity;
 
     public WindowsDesktopInputAdapter(
         IWindowsNativeInput? nativeInput = null,
-        PointerMovementSettings? pointerMovementSettings = null)
+        PointerMovementSettings? pointerMovementSettings = null,
+        Func<double>? now = null)
     {
         this.nativeInput = nativeInput ?? new SendInputWindowsNativeInput();
+        this.now = now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         this.pointerMovementSettings = PointerMovementSettingsModel.Normalize(pointerMovementSettings ?? PointerMovementSettingsModel.Default);
     }
 
@@ -37,9 +45,11 @@ public sealed class WindowsDesktopInputAdapter : IDesktopInputAdapter
     public Task MoveMouseByAsync(double dx, double dy, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        PointerPosition current = nativeInput.GetCursorPosition();
-        PointerDisplay display = nativeInput.GetDisplayForPosition(current);
-        nativeInput.MoveCursorTo(WindowsPointerMovement.CalculateDisplayNormalizedMouseTarget(current, new PointerDelta(dx, dy), display, pointerMovementSettings));
+        PointerDelta delta = WindowsPointerMovement.CalculateNativeRelativeMouseDelta(
+            new PointerDelta(dx, dy),
+            CurrentDisplay(),
+            pointerMovementSettings);
+        nativeInput.MoveCursorBy(delta);
         return Task.CompletedTask;
     }
 
@@ -154,6 +164,20 @@ public sealed class WindowsDesktopInputAdapter : IDesktopInputAdapter
         nativeInput.SetKeyDown(virtualKey, false);
         return Task.CompletedTask;
     }
+
+    private PointerDisplay CurrentDisplay()
+    {
+        double currentTime = now();
+        if (cachedDisplay is not null && currentTime - cachedDisplayAtMs < DisplayCacheTtlMs)
+        {
+            return cachedDisplay;
+        }
+
+        PointerPosition current = nativeInput.GetCursorPosition();
+        cachedDisplay = nativeInput.GetDisplayForPosition(current);
+        cachedDisplayAtMs = currentTime;
+        return cachedDisplay;
+    }
 }
 
 public sealed class SendInputWindowsNativeInput : IWindowsNativeInput
@@ -161,6 +185,7 @@ public sealed class SendInputWindowsNativeInput : IWindowsNativeInput
     private const uint InputMouse = 0;
     private const uint InputKeyboard = 1;
     private const uint MouseEventFLeftDown = 0x0002;
+    private const uint MouseEventFMove = 0x0001;
     private const uint MouseEventFLeftUp = 0x0004;
     private const uint MouseEventFRightDown = 0x0008;
     private const uint MouseEventFRightUp = 0x0010;
@@ -194,6 +219,15 @@ public sealed class SendInputWindowsNativeInput : IWindowsNativeInput
         {
             throw new DesktopInputException("adapter_failure", "Could not move cursor.");
         }
+    }
+
+    public void MoveCursorBy(PointerDelta delta)
+    {
+        int dx = (int)Math.Round(delta.Dx);
+        int dy = (int)Math.Round(delta.Dy);
+        if (dx == 0 && dy == 0) return;
+
+        SendMouse(MouseEventFMove, 0, dx, dy);
     }
 
     public void SetMouseButtonDown(string button, bool down)
@@ -263,9 +297,9 @@ public sealed class SendInputWindowsNativeInput : IWindowsNativeInput
         foreach (ushort virtualKey in virtualKeys.Reverse()) SetKeyDown(virtualKey, false);
     }
 
-    private static void SendMouse(uint flags, int mouseData)
+    private static void SendMouse(uint flags, int mouseData, int dx = 0, int dy = 0)
     {
-        NativeInput input = NativeInput.Mouse(flags, mouseData);
+        NativeInput input = NativeInput.Mouse(flags, mouseData, dx, dy);
         SendInputOrThrow(input);
     }
 
@@ -307,13 +341,15 @@ public sealed class SendInputWindowsNativeInput : IWindowsNativeInput
         public uint Type;
         public NativeInputUnion Union;
 
-        public static NativeInput Mouse(uint flags, int mouseData) => new()
+        public static NativeInput Mouse(uint flags, int mouseData, int dx = 0, int dy = 0) => new()
         {
             Type = InputMouse,
             Union = new NativeInputUnion
             {
                 Mouse = new MouseInput
                 {
+                    Dx = dx,
+                    Dy = dy,
                     MouseData = mouseData,
                     Flags = flags
                 }

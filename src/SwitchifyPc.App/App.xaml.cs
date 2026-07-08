@@ -46,6 +46,9 @@ public partial class App : System.Windows.Application
     private MouseRepeatController? mouseRepeatController;
     private WindowsCursorOverlayNotifier? cursorOverlay;
     private WindowsModifierKeyOverlayNotifier? modifierOverlay;
+    private readonly SemaphoreSlim bluetoothMessageProcessing = new(1, 1);
+    private readonly object bluetoothConnectionSync = new();
+    private readonly HashSet<string> authenticatedBluetoothConnections = new(StringComparer.Ordinal);
     private DispatcherTimer? pairingExpiryTimer;
     private AppThemeManager? themeManager;
     private bool isQuitting;
@@ -127,6 +130,10 @@ public partial class App : System.Windows.Application
         bluetoothFrameProcessor = null;
         bluetoothStatusTracker = null;
         pairingApprovalManager = null;
+        lock (bluetoothConnectionSync)
+        {
+            authenticatedBluetoothConnections.Clear();
+        }
         trayIcon?.Dispose();
         trayIcon = null;
         settingsWindow = null;
@@ -308,6 +315,12 @@ public partial class App : System.Windows.Application
 
     private void HandleBluetoothEvent(BluetoothHelperEvent helperEvent)
     {
+        if (helperEvent is BluetoothMessageEvent message)
+        {
+            _ = HandleBluetoothMessageSerializedAsync(message);
+            return;
+        }
+
         Dispatcher.BeginInvoke(async () =>
         {
             if (bluetoothStatusTracker is null) return;
@@ -325,6 +338,10 @@ public partial class App : System.Windows.Application
                     break;
                 case BluetoothDisconnectedEvent disconnected:
                     BluetoothStatus status = bluetoothStatusTracker.RemoveConnection(disconnected.ConnectionId, disconnected.Reason);
+                    lock (bluetoothConnectionSync)
+                    {
+                        authenticatedBluetoothConnections.Remove(disconnected.ConnectionId);
+                    }
                     bluetoothFrameProcessor?.RemoveConnection(disconnected.ConnectionId);
                     if (status.ConnectedClientCount == 0)
                     {
@@ -351,11 +368,21 @@ public partial class App : System.Windows.Application
                 case BluetoothErrorEvent error:
                     bluetoothStatusTracker.SetError(error.Reason);
                     break;
-                case BluetoothMessageEvent message:
-                    await HandleBluetoothMessageAsync(message);
-                    break;
             }
         });
+    }
+
+    private async Task HandleBluetoothMessageSerializedAsync(BluetoothMessageEvent message)
+    {
+        await bluetoothMessageProcessing.WaitAsync();
+        try
+        {
+            await HandleBluetoothMessageAsync(message).ConfigureAwait(false);
+        }
+        finally
+        {
+            bluetoothMessageProcessing.Release();
+        }
     }
 
     private async Task HandleBluetoothMessageAsync(BluetoothMessageEvent message)
@@ -366,22 +393,32 @@ public partial class App : System.Windows.Application
         if (!result.MessageComplete) return;
         if (result.ErrorReason is not null)
         {
-            bluetoothStatusTracker?.SetError(result.ErrorReason);
+            await Dispatcher.BeginInvoke(() => bluetoothStatusTracker?.SetError(result.ErrorReason));
             return;
         }
 
         await SendBluetoothOutputsAsync(result.OutgoingMessages);
         if (result.AuthenticatedConnectionId is not null)
         {
-            bluetoothStatusTracker?.AddConnection(result.AuthenticatedConnectionId);
+            string connectionId = result.AuthenticatedConnectionId;
+            bool firstAuthenticatedMessage;
+            lock (bluetoothConnectionSync)
+            {
+                firstAuthenticatedMessage = authenticatedBluetoothConnections.Add(connectionId);
+            }
+
+            if (firstAuthenticatedMessage)
+            {
+                await Dispatcher.BeginInvoke(() => bluetoothStatusTracker?.AddConnection(connectionId));
+            }
         }
         else if (result.AuthFailureReason is not null)
         {
-            bluetoothStatusTracker?.RecordDiagnostic("unauthenticated_command_rejected");
+            await Dispatcher.BeginInvoke(() => bluetoothStatusTracker?.RecordDiagnostic("unauthenticated_command_rejected"));
             string? authFailureMessage = AuthFailureMessage(result.AuthFailureReason);
             if (authFailureMessage is not null)
             {
-                bluetoothStatusTracker?.SetError(authFailureMessage);
+                await Dispatcher.BeginInvoke(() => bluetoothStatusTracker?.SetError(authFailureMessage));
             }
         }
 
