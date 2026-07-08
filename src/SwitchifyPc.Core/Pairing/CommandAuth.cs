@@ -139,6 +139,8 @@ public sealed record AuthValidationResult
 
 public sealed class CommandAuthValidator
 {
+    private const double LastSeenPersistIntervalMs = 60_000;
+
     private readonly IPairingStore store;
     private readonly Func<double> now;
     private readonly Dictionary<string, double> seenRequestIds = new(StringComparer.Ordinal);
@@ -165,8 +167,9 @@ public sealed class CommandAuthValidator
             return AuthValidationResult.Invalid("unknown_device");
         }
 
+        double currentTime = now();
         double timestamp = value.GetProperty("timestamp").GetDouble();
-        if (Math.Abs(now() - timestamp) > CommandAuth.CommandTimestampToleranceMs)
+        if (Math.Abs(currentTime - timestamp) > CommandAuth.CommandTimestampToleranceMs)
         {
             return AuthValidationResult.Invalid("expired_timestamp");
         }
@@ -186,8 +189,12 @@ public sealed class CommandAuthValidator
         }
 
         bool deviceWasPreviouslyUsed = pairedDevice.LastSeenAt is not null;
-        seenRequestIds[replayKey] = now() + CommandAuth.ReplayCacheTtlMs;
-        await store.SaveAsync(UpdateLastSeen(state, deviceId, now()), cancellationToken);
+        seenRequestIds[replayKey] = currentTime + CommandAuth.ReplayCacheTtlMs;
+        if (ShouldPersistLastSeen(pairedDevice, currentTime))
+        {
+            await store.SaveAsync(UpdateLastSeen(state, deviceId, currentTime), cancellationToken);
+        }
+
         return AuthValidationResult.Valid(value, deviceId, deviceWasPreviouslyUsed);
     }
 
@@ -211,6 +218,12 @@ public sealed class CommandAuthValidator
     private static string ReplayKey(JsonElement command)
     {
         return $"{command.GetProperty("deviceId").GetString()}:{command.GetProperty("id").GetString()}";
+    }
+
+    private static bool ShouldPersistLastSeen(PairedDevice pairedDevice, double currentTime)
+    {
+        return pairedDevice.LastSeenAt is null ||
+            currentTime - pairedDevice.LastSeenAt.Value >= LastSeenPersistIntervalMs;
     }
 
     private static PairingState UpdateLastSeen(PairingState state, string deviceId, double lastSeenAt)

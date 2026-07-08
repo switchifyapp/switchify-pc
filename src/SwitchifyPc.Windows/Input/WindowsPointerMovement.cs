@@ -10,6 +10,7 @@ public sealed record PointerPosition(double X, double Y);
 public static class WindowsPointerMovement
 {
     public const double NativeScrollDeltaMultiplier = 0.4;
+    public const double NativeRelativeMouseDeltaMultiplier = 0.35;
     public const double ReferencePointerShortEdge = 1080;
 
     private static readonly IReadOnlyDictionary<PointerMovementSizeKey, double> BaselinePointerDeltas =
@@ -29,6 +30,17 @@ public static class WindowsPointerMovement
         PointerDisplay display,
         PointerMovementSettings? movementSettings = null)
     {
+        PointerDelta effectiveDelta = CalculateDisplayNormalizedMouseDelta(delta, display, movementSettings);
+        return new PointerPosition(
+            X: JsRound(current.X + effectiveDelta.Dx),
+            Y: JsRound(current.Y + effectiveDelta.Dy));
+    }
+
+    public static PointerDelta CalculateDisplayNormalizedMouseDelta(
+        PointerDelta delta,
+        PointerDisplay display,
+        PointerMovementSettings? movementSettings = null)
+    {
         double scaleFactor = double.IsFinite(display.ScaleFactor) && display.ScaleFactor > 0 ? display.ScaleFactor : 1;
         double shortEdge = double.IsFinite(display.Bounds.Width) && display.Bounds.Width > 0 &&
             double.IsFinite(display.Bounds.Height) && display.Bounds.Height > 0
@@ -40,9 +52,24 @@ public static class WindowsPointerMovement
         double movementScale = PointerMovementSettingsModel.FractionFor(settings, size) / baselineFraction;
         double multiplier = scaleFactor * (shortEdge / ReferencePointerShortEdge) * movementScale;
 
-        return new PointerPosition(
-            X: JsRound(current.X + delta.Dx * multiplier),
-            Y: JsRound(current.Y + delta.Dy * multiplier));
+        return new PointerDelta(
+            Dx: JsRound(delta.Dx * multiplier),
+            Dy: JsRound(delta.Dy * multiplier));
+    }
+
+    public static PointerDelta CalculateNativeRelativeMouseDelta(
+        PointerDelta delta,
+        PointerDisplay display,
+        PointerMovementSettings? movementSettings = null,
+        double multiplier = NativeRelativeMouseDeltaMultiplier)
+    {
+        double effectiveMultiplier = double.IsFinite(multiplier) && multiplier > 0
+            ? multiplier
+            : NativeRelativeMouseDeltaMultiplier;
+        PointerDelta normalized = CalculateDisplayNormalizedMouseDelta(delta, display, movementSettings);
+        return new PointerDelta(
+            Dx: JsRound(normalized.Dx * effectiveMultiplier),
+            Dy: JsRound(normalized.Dy * effectiveMultiplier));
     }
 
     public static PointerMovementSizeKey InferPointerMovementSize(PointerDelta delta)
