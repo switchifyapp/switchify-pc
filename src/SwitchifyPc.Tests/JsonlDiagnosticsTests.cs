@@ -115,6 +115,69 @@ public sealed class JsonlDiagnosticsTests : IDisposable
     }
 
     [Fact]
+    public void AppendsRuntimeDiagnosticEntry()
+    {
+        string filePath = Path.Combine(tempDir, "runtime", "runtime-diagnostics.jsonl");
+
+        JsonlDiagnostics.AppendRuntimeDiagnostic(filePath, new RuntimeDiagnosticEntry(
+            Event: "bluetooth.ready",
+            At: "2026-06-29T12:00:00.000Z",
+            Version: "0.2.0",
+            Status: "ready",
+            Reason: "adapter_on"));
+
+        string[] lines = ReadLines(filePath);
+        Assert.Single(lines);
+        using JsonDocument document = JsonDocument.Parse(lines[0]);
+        JsonElement root = document.RootElement;
+        Assert.Equal("bluetooth.ready", root.GetProperty("event").GetString());
+        Assert.Equal("2026-06-29T12:00:00.000Z", root.GetProperty("at").GetString());
+        Assert.Equal("0.2.0", root.GetProperty("version").GetString());
+        Assert.Equal("ready", root.GetProperty("status").GetString());
+        Assert.Equal("adapter_on", root.GetProperty("reason").GetString());
+        Assert.False(root.TryGetProperty("authHeader", out _));
+        Assert.False(root.TryGetProperty("text", out _));
+    }
+
+    [Fact]
+    public void KeepsOnlyNewestRuntimeDiagnosticsLines()
+    {
+        string filePath = Path.Combine(tempDir, "runtime-diagnostics.jsonl");
+
+        for (int index = 0; index < 505; index++)
+        {
+            JsonlDiagnostics.AppendRuntimeDiagnostic(filePath, new RuntimeDiagnosticEntry(
+                Event: "update.state.changed",
+                At: $"2026-06-29T12:00:{index:000}.000Z",
+                Version: "0.2.0",
+                Status: index.ToString()));
+        }
+
+        string[] lines = ReadLines(filePath);
+        Assert.Equal(500, lines.Length);
+        Assert.Equal("5", JsonDocument.Parse(lines[0]).RootElement.GetProperty("status").GetString());
+        Assert.Equal("504", JsonDocument.Parse(lines[^1]).RootElement.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public void RuntimeDiagnosticsDropsMalformedExistingLines()
+    {
+        string filePath = Path.Combine(tempDir, "runtime-diagnostics.jsonl");
+        Directory.CreateDirectory(tempDir);
+        File.WriteAllText(filePath, "not json\n{\"event\":\"old\"}\n");
+
+        JsonlDiagnostics.AppendRuntimeDiagnostic(filePath, new RuntimeDiagnosticEntry(
+            Event: "app.startup.completed",
+            At: "2026-06-29T12:00:00.000Z",
+            Version: "0.2.0"));
+
+        string[] lines = ReadLines(filePath);
+        Assert.Equal(2, lines.Length);
+        Assert.Equal("old", JsonDocument.Parse(lines[0]).RootElement.GetProperty("event").GetString());
+        Assert.Equal("app.startup.completed", JsonDocument.Parse(lines[1]).RootElement.GetProperty("event").GetString());
+    }
+
+    [Fact]
     public void RegistrationFromSettingsOmitsUnsupportedRegistration()
     {
         SystemStartupSettings unsupported = new(

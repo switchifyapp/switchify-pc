@@ -33,10 +33,19 @@ public sealed record UpdateInstallDiagnosticEntry(
     string Version,
     string? Reason = null);
 
+public sealed record RuntimeDiagnosticEntry(
+    string Event,
+    string At,
+    string Version,
+    string? Status = null,
+    string? Reason = null,
+    string? Message = null);
+
 public static class JsonlDiagnostics
 {
     public const int MaxStartupDiagnosticLines = 50;
     public const int MaxUpdateInstallDiagnosticLines = 100;
+    public const int MaxRuntimeDiagnosticLines = 500;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -72,6 +81,22 @@ public static class JsonlDiagnostics
         catch
         {
             (warn ?? Console.WriteLine)("Switchify update install diagnostics could not be written.");
+        }
+    }
+
+    public static void AppendRuntimeDiagnostic(
+        string filePath,
+        RuntimeDiagnosticEntry entry,
+        Action<string>? warn = null)
+    {
+        try
+        {
+            IReadOnlyList<string> existing = ReadExistingLines(filePath, requireValidJson: true);
+            AppendBounded(filePath, existing, JsonSerializer.Serialize(entry, JsonOptions), MaxRuntimeDiagnosticLines);
+        }
+        catch
+        {
+            (warn ?? Console.WriteLine)("Switchify runtime diagnostics could not be written.");
         }
     }
 

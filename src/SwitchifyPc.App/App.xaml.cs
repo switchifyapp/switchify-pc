@@ -51,6 +51,8 @@ public partial class App : System.Windows.Application
     private readonly HashSet<string> authenticatedBluetoothConnections = new(StringComparer.Ordinal);
     private DispatcherTimer? pairingExpiryTimer;
     private AppThemeManager? themeManager;
+    private string? lastLoggedUpdateCheckStatus;
+    private string? lastLoggedUpdateDownloadStatus;
     private bool isQuitting;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -104,10 +106,13 @@ public partial class App : System.Windows.Application
         {
             ShowMainWindow();
         }
+
+        RecordRuntimeDiagnostic("app.startup.completed", status: decision.ShowMainWindow ? "window" : "tray");
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        RecordRuntimeDiagnostic("app.exit");
         singleInstance?.Stop();
         singleInstance = null;
         existingInstanceSignal?.Dispose();
@@ -277,6 +282,7 @@ public partial class App : System.Windows.Application
         try
         {
             bluetoothStatusTracker?.SetStarting();
+            RecordRuntimeDiagnostic("bluetooth.starting");
             string userDataDirectory = UserDataDirectory();
             JsonPairingStore pairingStore = new(Path.Combine(userDataDirectory, "pairing-state.json"));
             string desktopId = await new PairingManager(pairingStore).GetDesktopIdAsync();
@@ -306,10 +312,12 @@ public partial class App : System.Windows.Application
             bluetoothFrameProcessor = new BluetoothRemoteFrameProcessor(remoteSession);
             bluetoothServer = new WindowsBluetoothGattServer(HandleBluetoothEvent);
             await bluetoothServer.StartAsync(WindowsBluetoothGattServerOptions.CreateDefault("Switchify PC", desktopId));
+            RecordRuntimeDiagnostic("bluetooth.start.completed");
         }
         catch (Exception error)
         {
             bluetoothStatusTracker?.SetError(error.Message);
+            RecordRuntimeDiagnostic("bluetooth.start.failed", reason: "startup_failed");
         }
     }
 
@@ -329,15 +337,19 @@ public partial class App : System.Windows.Application
             {
                 case BluetoothReadyEvent:
                     bluetoothStatusTracker.SetReady();
+                    RecordRuntimeDiagnostic("bluetooth.ready", status: "ready");
                     break;
                 case BluetoothUnavailableEvent unavailable:
                     bluetoothStatusTracker.SetUnavailable(unavailable.Reason);
+                    RecordRuntimeDiagnostic("bluetooth.unavailable", status: "unavailable", reason: unavailable.Reason);
                     break;
-                case BluetoothConnectedEvent connected:
+                case BluetoothConnectedEvent:
                     bluetoothStatusTracker.RecordDiagnostic("transport_connected");
+                    RecordRuntimeDiagnostic("bluetooth.connected", status: "connected");
                     break;
                 case BluetoothDisconnectedEvent disconnected:
                     BluetoothStatus status = bluetoothStatusTracker.RemoveConnection(disconnected.ConnectionId, disconnected.Reason);
+                    RecordRuntimeDiagnostic("bluetooth.disconnected", status: status.Status, reason: disconnected.Reason);
                     lock (bluetoothConnectionSync)
                     {
                         authenticatedBluetoothConnections.Remove(disconnected.ConnectionId);
@@ -361,12 +373,14 @@ public partial class App : System.Windows.Application
                     break;
                 case BluetoothDiagnosticEvent diagnostic:
                     bluetoothStatusTracker.RecordDiagnostic(diagnostic.Event);
+                    RecordRuntimeDiagnostic("bluetooth.diagnostic", reason: diagnostic.Event);
                     break;
                 case BluetoothSystemStatusEvent systemStatus:
                     bluetoothStatusTracker.SetSystemStatus(systemStatus);
                     break;
                 case BluetoothErrorEvent error:
                     bluetoothStatusTracker.SetError(error.Reason);
+                    RecordRuntimeDiagnostic("bluetooth.error", status: "error", reason: error.Reason);
                     break;
             }
         });
@@ -393,6 +407,7 @@ public partial class App : System.Windows.Application
         if (!result.MessageComplete) return;
         if (result.ErrorReason is not null)
         {
+            RecordRuntimeDiagnostic("bluetooth.message.error", status: "error", reason: result.ErrorReason);
             await Dispatcher.BeginInvoke(() => bluetoothStatusTracker?.SetError(result.ErrorReason));
             return;
         }
@@ -409,11 +424,13 @@ public partial class App : System.Windows.Application
 
             if (firstAuthenticatedMessage)
             {
+                RecordRuntimeDiagnostic("bluetooth.authenticated", status: "connected");
                 await Dispatcher.BeginInvoke(() => bluetoothStatusTracker?.AddConnection(connectionId));
             }
         }
         else if (result.AuthFailureReason is not null)
         {
+            RecordRuntimeDiagnostic("bluetooth.auth.rejected", reason: result.AuthFailureReason);
             await Dispatcher.BeginInvoke(() => bluetoothStatusTracker?.RecordDiagnostic("unauthenticated_command_rejected"));
             string? authFailureMessage = AuthFailureMessage(result.AuthFailureReason);
             if (authFailureMessage is not null)
@@ -559,6 +576,7 @@ public partial class App : System.Windows.Application
 
     private void UpdateMainWindowState(UpdateState state)
     {
+        RecordUpdateStateDiagnostic(state);
         Dispatcher.BeginInvoke(() => mainWindowViewModel.SetUpdateState(state));
     }
 
@@ -590,10 +608,57 @@ public partial class App : System.Windows.Application
         }
         catch (Exception error)
         {
+            RecordRuntimeDiagnostic("startup.registration.repair.failed", reason: "repair_failed", message: error.Message);
             Console.WriteLine(string.IsNullOrWhiteSpace(error.Message)
                 ? "Could not repair startup registration."
                 : error.Message);
         }
+    }
+
+    private void RecordUpdateStateDiagnostic(UpdateState state)
+    {
+        string checkStatus = state.Info.Status.ToString();
+        string downloadStatus = state.Download.Status.ToString();
+        if (checkStatus == lastLoggedUpdateCheckStatus && downloadStatus == lastLoggedUpdateDownloadStatus)
+        {
+            return;
+        }
+
+        lastLoggedUpdateCheckStatus = checkStatus;
+        lastLoggedUpdateDownloadStatus = downloadStatus;
+        string? reason = state.Info.Reason?.ToString() ?? state.Download.Reason?.ToString();
+        RecordRuntimeDiagnostic(
+            "update.state.changed",
+            status: $"{checkStatus}/{downloadStatus}",
+            reason: reason);
+    }
+
+    private void RecordRuntimeDiagnostic(
+        string eventName,
+        string? status = null,
+        string? reason = null,
+        string? message = null)
+    {
+        JsonlDiagnostics.AppendRuntimeDiagnostic(
+            Path.Combine(UserDataDirectory(), "runtime-diagnostics.jsonl"),
+            new RuntimeDiagnosticEntry(
+                Event: eventName,
+                At: DateTimeOffset.UtcNow.ToString("O"),
+                Version: CurrentVersion,
+                Status: SafeDiagnosticText(status),
+                Reason: SafeDiagnosticText(reason),
+                Message: SafeDiagnosticText(message)));
+    }
+
+    private static string? SafeDiagnosticText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+
+        string text = value
+            .Replace('\r', ' ')
+            .Replace('\n', ' ')
+            .Trim();
+        return text.Length <= 300 ? text : text[..297] + "...";
     }
 
     private async Task RecordStartupDiagnosticsAsync(string[] argv, bool startHidden)
