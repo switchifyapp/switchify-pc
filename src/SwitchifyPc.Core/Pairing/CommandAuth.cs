@@ -14,12 +14,31 @@ public static class CommandAuth
 
     public static string CreateCommandAuthProof(JsonElement command, string token)
     {
+        return CreateCommandAuthProof(command, token, JsonSlashEscapingMode.AndroidHtmlSafe);
+    }
+
+    internal static IReadOnlyList<string> CreateAcceptedCommandAuthProofs(JsonElement command, string token)
+    {
+        string htmlSafeProof = CreateCommandAuthProof(command, token, JsonSlashEscapingMode.AndroidHtmlSafe);
+        string allSlashesProof = CreateCommandAuthProof(command, token, JsonSlashEscapingMode.AllSlashes);
+        return htmlSafeProof == allSlashesProof
+            ? [htmlSafeProof]
+            : [htmlSafeProof, allSlashesProof];
+    }
+
+    private static string CreateCommandAuthProof(JsonElement command, string token, JsonSlashEscapingMode slashEscapingMode)
+    {
         using HMACSHA256 hmac = new(Encoding.UTF8.GetBytes(token));
-        byte[] hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(CanonicalCommandString(command)));
+        byte[] hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(CanonicalCommandString(command, slashEscapingMode)));
         return Base64UrlEncode(hash);
     }
 
     internal static string CanonicalCommandString(JsonElement command)
+    {
+        return CanonicalCommandString(command, JsonSlashEscapingMode.AndroidHtmlSafe);
+    }
+
+    private static string CanonicalCommandString(JsonElement command, JsonSlashEscapingMode slashEscapingMode)
     {
         return string.Join(
             "\n",
@@ -28,17 +47,22 @@ public static class CommandAuth
             RequiredProperty(command, "deviceId").GetString(),
             TimestampString(RequiredProperty(command, "timestamp")),
             RequiredProperty(command, "type").GetString(),
-            StableStringify(RequiredProperty(command, "payload")),
+            StableStringify(RequiredProperty(command, "payload"), slashEscapingMode),
             CommandResponseMode(command));
     }
 
     internal static string StableStringify(JsonElement value)
     {
+        return StableStringify(value, JsonSlashEscapingMode.AndroidHtmlSafe);
+    }
+
+    private static string StableStringify(JsonElement value, JsonSlashEscapingMode slashEscapingMode)
+    {
         return value.ValueKind switch
         {
-            JsonValueKind.Object => StableObjectStringify(value),
-            JsonValueKind.Array => $"[{string.Join(",", value.EnumerateArray().Select(StableStringify))}]",
-            JsonValueKind.String => JsonSerializer.Serialize(value.GetString(), CanonicalJsonOptions),
+            JsonValueKind.Object => StableObjectStringify(value, slashEscapingMode),
+            JsonValueKind.Array => $"[{string.Join(",", value.EnumerateArray().Select(item => StableStringify(item, slashEscapingMode)))}]",
+            JsonValueKind.String => AndroidCompatibleJsonQuote(value.GetString() ?? "", slashEscapingMode),
             JsonValueKind.Number => NumberString(value),
             JsonValueKind.True => "true",
             JsonValueKind.False => "false",
@@ -54,13 +78,13 @@ public static class CommandAuth
         return actualBytes.Length == expectedBytes.Length && CryptographicOperations.FixedTimeEquals(actualBytes, expectedBytes);
     }
 
-    private static string StableObjectStringify(JsonElement value)
+    private static string StableObjectStringify(JsonElement value, JsonSlashEscapingMode slashEscapingMode)
     {
         return "{" + string.Join(
             ",",
             value.EnumerateObject()
                 .OrderBy(property => property.Name, StringComparer.Ordinal)
-                .Select(property => $"{JsonSerializer.Serialize(property.Name, CanonicalJsonOptions)}:{StableStringify(property.Value)}")) + "}";
+                .Select(property => $"{AndroidCompatibleJsonQuote(property.Name, slashEscapingMode)}:{StableStringify(property.Value, slashEscapingMode)}")) + "}";
     }
 
     private static string CommandResponseMode(JsonElement command)
@@ -103,10 +127,27 @@ public static class CommandAuth
             .Replace("/", "_", StringComparison.Ordinal);
     }
 
+    private static string AndroidCompatibleJsonQuote(string value, JsonSlashEscapingMode slashEscapingMode)
+    {
+        string quoted = JsonSerializer.Serialize(value, CanonicalJsonOptions);
+        return slashEscapingMode switch
+        {
+            JsonSlashEscapingMode.AndroidHtmlSafe => quoted.Replace("</", "<\\/", StringComparison.Ordinal),
+            JsonSlashEscapingMode.AllSlashes => quoted.Replace("/", "\\/", StringComparison.Ordinal),
+            _ => quoted
+        };
+    }
+
     private static readonly JsonSerializerOptions CanonicalJsonOptions = new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
+
+    private enum JsonSlashEscapingMode
+    {
+        AndroidHtmlSafe,
+        AllSlashes
+    }
 }
 
 public sealed record AuthValidationResult
@@ -182,8 +223,7 @@ public sealed class CommandAuthValidator
         }
 
         string auth = value.GetProperty("auth").GetString() ?? "";
-        string expectedAuth = CommandAuth.CreateCommandAuthProof(value, pairedDevice.Token);
-        if (!CommandAuth.SafeEquals(auth, expectedAuth))
+        if (!CommandAuth.CreateAcceptedCommandAuthProofs(value, pairedDevice.Token).Any(expectedAuth => CommandAuth.SafeEquals(auth, expectedAuth)))
         {
             return AuthValidationResult.Invalid("invalid_auth");
         }
