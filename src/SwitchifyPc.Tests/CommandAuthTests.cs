@@ -166,8 +166,41 @@ public sealed class CommandAuthTests
     }
 
     [Fact]
+    public async Task AcceptsClosingTagSlashTextPayloadWithAndroidCompatibleAuthProof()
+    {
+        CommandAuthValidator validator = new(CreateStore(), () => Now);
+
+        AuthValidationResult result = await validator.ValidateAsync(CreateTextCommand("slash-1", "</", "70F2Z7SU6ur1gSYzR3Q9t1y5D02z_OuXfst15lQ_3yg"));
+
+        Assert.True(result.Ok, result.Reason);
+    }
+
+    [Fact]
+    public async Task AcceptsPlainSlashTextPayloadWithAllSlashEscapedAuthProof()
+    {
+        CommandAuthValidator validator = new(CreateStore(), () => Now);
+
+        AuthValidationResult result = await validator.ValidateAsync(CreateTextCommand("plain-slash-1", "/", "ckTEIQrJqsQSd7zoFkIaMzs0wuGvsDeaZwGvFnnU50E"));
+
+        Assert.True(result.Ok, result.Reason);
+    }
+
+    [Fact]
+    public async Task AcceptsTextStreamChunkWithAllSlashEscapedAuthProof()
+    {
+        CommandAuthValidator validator = new(CreateStore(), () => Now);
+
+        AuthValidationResult result = await validator.ValidateAsync(CreateTextStreamChunkCommand("stream-chunk-slash-1", "android-123", "/", "cyAUTirh_B6SQ9LNw3Jlr7cozZ-x6DodR9PImO7R-LU"));
+
+        Assert.True(result.Ok, result.Reason);
+    }
+
+    [Fact]
     public void EscapesTextPayloadsLikeAndroidProtocolAuth()
     {
+        Assert.Equal("IWKMAB7gyNd2PyR1f2x858lpytC0wMgMrx1Br_9fQSo", CommandAuth.CreateCommandAuthProof(CreateTextCommand("plain-slash-1", "/"), Token));
+        Assert.Equal("70F2Z7SU6ur1gSYzR3Q9t1y5D02z_OuXfst15lQ_3yg", CommandAuth.CreateCommandAuthProof(CreateTextCommand("slash-1", "</"), Token));
+        Assert.Equal("CUXtPcw5y3WbS1iiqg0tuTbJPmQ2AhFxrAEX5uvIDZo", CommandAuth.CreateCommandAuthProof(CreateTextCommand("closing-tag-1", "</div>"), Token));
         Assert.Equal("W0OLnbhllDOCd0Gf_00WLpHRvfidYjHeY69nbcmTFYA", CommandAuth.CreateCommandAuthProof(CreateTextCommand("apostrophe-1", "'"), Token));
         Assert.Equal("UfVuw9DJjDofw7UeXBZcIFAu5V2YSkEfJ5p0h8_z2UY", CommandAuth.CreateCommandAuthProof(CreateTextCommand("backslash-1", "\\"), Token));
         Assert.Equal("syal1vfAvjac7RNhm8S_2fj-Edk5k1KkGeIMc7eBelw", CommandAuth.CreateCommandAuthProof(CreateTextCommand("html-1", "<>&'"), Token));
@@ -227,6 +260,20 @@ public sealed class CommandAuthTests
             ["type"] = "keyboard.typeText",
             ["payload"] = new Dictionary<string, object?> { ["text"] = text },
             ["auth"] = authOverride ?? ""
+        }, authOverride is null ? null : new Dictionary<string, object?> { ["auth"] = authOverride });
+    }
+
+    private static JsonElement CreateTextStreamChunkCommand(string id, string streamId, string text, string? authOverride = null)
+    {
+        return CreateSignedCommand(new Dictionary<string, object?>
+        {
+            ["version"] = ProtocolConstants.ProtocolVersion,
+            ["id"] = id,
+            ["deviceId"] = "android-1",
+            ["timestamp"] = Now,
+            ["type"] = "keyboard.textStream.chunk",
+            ["payload"] = new Dictionary<string, object?> { ["streamId"] = streamId, ["seq"] = 0, ["text"] = text },
+            ["auth"] = ""
         }, authOverride is null ? null : new Dictionary<string, object?> { ["auth"] = authOverride });
     }
 
