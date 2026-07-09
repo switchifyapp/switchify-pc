@@ -341,10 +341,7 @@ public sealed class DesktopCommandExecutor
 
     private async Task TypeTextStreamChunkAsync(string text, CancellationToken cancellationToken)
     {
-        foreach (System.Text.Rune rune in text.EnumerateRunes())
-        {
-            await adapter.TypeCharacterAsync(rune.ToString(), cancellationToken);
-        }
+        await adapter.TypeTextAsync(text, cancellationToken);
     }
 
     private async Task<CommandExecutionResult> MediaControlAsync(string action, CancellationToken cancellationToken)

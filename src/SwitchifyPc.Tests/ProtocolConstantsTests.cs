@@ -93,4 +93,12 @@ public sealed class ProtocolConstantsTests
             ["Alt", "Ctrl", "Meta", "Shift"],
             ProtocolConstants.ModifierKeys.Order(StringComparer.Ordinal));
     }
+
+    [Fact]
+    public void TextStreamChunksCanUseNoAckResponses()
+    {
+        Assert.Contains("keyboard.textStream.chunk", ProtocolConstants.NoAckControlCommandTypes);
+        Assert.DoesNotContain("keyboard.textStream.open", ProtocolConstants.NoAckControlCommandTypes);
+        Assert.DoesNotContain("keyboard.textStream.close", ProtocolConstants.NoAckControlCommandTypes);
+    }
 }

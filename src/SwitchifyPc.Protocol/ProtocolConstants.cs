@@ -60,6 +60,7 @@ public static class ProtocolConstants
         "keyboard.modifierUp",
         "keyboard.shortcut",
         "keyboard.typeText",
+        "keyboard.textStream.chunk",
         "keyboard.textStream.char",
         "keyboard.textStream.key",
         "media.control",

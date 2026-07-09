@@ -73,6 +73,7 @@ public sealed class ProtocolValidatorTests
             ["keyboard.shortcut"] = new { keys = new[] { "Ctrl", "C" } },
             ["keyboard.typeText"] = new { text = "Hello" },
             ["keyboard.textStream.char"] = new { streamId = "stream-1", seq = 0, text = "H" },
+            ["keyboard.textStream.chunk"] = new { streamId = "stream-1", seq = 0, text = "Hello" },
             ["keyboard.textStream.key"] = new { streamId = "stream-1", seq = 1, key = "Meta" },
             ["media.control"] = new { action = "playPause" },
             ["window.control"] = new { action = "switchNext" }
@@ -92,7 +93,6 @@ public sealed class ProtocolValidatorTests
             ("pointer.profile", new { }),
             ("pointer.speed.set", new { scalePercent = 125 }),
             ("keyboard.textStream.open", new { streamId = "stream-1" }),
-            ("keyboard.textStream.chunk", new { streamId = "stream-1", seq = 0, text = "Hello" }),
             ("keyboard.textStream.close", new { streamId = "stream-1", expectedCount = 0 })
         })
         {
