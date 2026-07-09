@@ -134,9 +134,7 @@ public sealed class DesktopCommandExecutorTests
             [
                 "typeCharacter:H",
                 "pressKey:Meta",
-                "typeCharacter: ",
-                "typeCharacter:o",
-                "typeCharacter:k"
+                "typeText: ok"
             ],
             adapter.Calls);
     }
