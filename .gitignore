@@ -4,6 +4,7 @@ build/
 build/*
 !build/icon.ico
 !build/icon.png
+!build/win-startup-launcher.manifest
 !build/win-uiaccess.manifest
 out/
 src/**/bin/
