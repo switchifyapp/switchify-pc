@@ -29,8 +29,8 @@ public sealed class SettingsViewModelTests
             StartsHidden: true,
             Reason: null,
             Registration: new StartupRegistration(
-                ExpectedCommand: "\"C:\\Program Files\\Switchify PC\\Switchify PC.exe\" --start-hidden",
-                RegisteredCommand: "\"C:\\Program Files\\Switchify PC\\Switchify PC.exe\" --start-hidden",
+                ExpectedCommand: "\"C:\\Program Files\\Switchify PC\\Switchify PC Startup.exe\"",
+                RegisteredCommand: "\"C:\\Program Files\\Switchify PC\\Switchify PC Startup.exe\"",
                 StartupApproved: "missing"),
             TaskRegistration: new StartupTaskRegistration(
                 TaskName: "Switchify PC",
@@ -48,7 +48,7 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
-    public void MapsScheduledTaskStartupRepairMessages()
+    public void MapsStartupRegistrationRepairMessages()
     {
         SettingsViewModel viewModel = new();
 
@@ -67,7 +67,7 @@ public sealed class SettingsViewModelTests
                 RegisteredArguments: ["--start-hidden"],
                 LastRunResult: null)));
 
-        Assert.Equal("Start with system is disabled in Windows Task Scheduler.", viewModel.StartWithSystemMessage);
+        Assert.Equal("An older Windows startup task could not be migrated. Turn start with system off and on again to repair it.", viewModel.StartWithSystemMessage);
 
         viewModel.SetStartupSettings(new SystemStartupSettings(
             Supported: true,
@@ -84,7 +84,7 @@ public sealed class SettingsViewModelTests
                 RegisteredArguments: ["--start-hidden"],
                 LastRunResult: null)));
 
-        Assert.Equal("Start with system is registered to an older app path. Turn it off and on again to repair it.", viewModel.StartWithSystemMessage);
+        Assert.Equal("An older Windows startup task could not be migrated. Turn start with system off and on again to repair it.", viewModel.StartWithSystemMessage);
 
         viewModel.SetStartupSettings(new SystemStartupSettings(
             Supported: true,
@@ -97,6 +97,18 @@ public sealed class SettingsViewModelTests
                 StartupApproved: "enabled")));
 
         Assert.Equal("Start with system is using an older Windows startup registration. Turn it off and on again to repair it.", viewModel.StartWithSystemMessage);
+
+        viewModel.SetStartupSettings(new SystemStartupSettings(
+            Supported: true,
+            StartWithSystem: false,
+            StartsHidden: true,
+            Reason: null,
+            Registration: new StartupRegistration(
+                ExpectedCommand: "\"C:\\Program Files\\Switchify PC\\Switchify PC Startup.exe\"",
+                RegisteredCommand: "\"C:\\Program Files\\Switchify PC\\Switchify PC Startup.exe\"",
+                StartupApproved: "disabled")));
+
+        Assert.Equal("Start with system is disabled in Windows Startup apps.", viewModel.StartWithSystemMessage);
     }
 
     [Fact]

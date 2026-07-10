@@ -44,28 +44,27 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                     : "Start with system is not available on this platform.";
             }
 
-            if (startupSettings.TaskRegistration is { Exists: true, Enabled: false })
+            if (startupSettings.StartWithSystem)
             {
-                return "Start with system is disabled in Windows Task Scheduler.";
+                return "Switchify PC will start hidden when you sign in.";
             }
 
-            if (!startupSettings.StartWithSystem &&
-                startupSettings.TaskRegistration is { Exists: true } taskRegistration &&
-                (!string.Equals(taskRegistration.RegisteredExecutablePath, taskRegistration.ExpectedExecutablePath, StringComparison.Ordinal) ||
-                 !taskRegistration.RegisteredArguments.SequenceEqual(taskRegistration.ExpectedArguments, StringComparer.Ordinal)))
+            if (startupSettings.Registration?.StartupApproved == "disabled")
             {
-                return "Start with system is registered to an older app path. Turn it off and on again to repair it.";
+                return "Start with system is disabled in Windows Startup apps.";
             }
 
-            if (!startupSettings.StartWithSystem &&
-                !string.IsNullOrWhiteSpace(startupSettings.Registration?.RegisteredCommand))
+            if (!string.IsNullOrWhiteSpace(startupSettings.Registration?.RegisteredCommand))
             {
                 return "Start with system is using an older Windows startup registration. Turn it off and on again to repair it.";
             }
 
-            return startupSettings.StartWithSystem
-                ? "Switchify PC will start hidden when you sign in."
-                : "Switchify PC will not start when you sign in.";
+            if (startupSettings.TaskRegistration is { Exists: true })
+            {
+                return "An older Windows startup task could not be migrated. Turn start with system off and on again to repair it.";
+            }
+
+            return "Switchify PC will not start when you sign in.";
         }
     }
 

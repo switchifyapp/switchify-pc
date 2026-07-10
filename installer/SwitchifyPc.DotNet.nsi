@@ -76,6 +76,12 @@ Section "Uninstall"
   SetShellVarContext all
   Call un.CloseRunningAppForInstall
 
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "app.switchify.pc"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "app.switchify.pc"
+  nsExec::ExecToStack 'schtasks.exe /Delete /TN "Switchify PC" /F'
+  Pop $0
+  Pop $1
+
   Delete "$DESKTOP\Switchify PC.lnk"
   Delete "$SMPROGRAMS\Switchify PC\Switchify PC.lnk"
   RMDir "$SMPROGRAMS\Switchify PC"
