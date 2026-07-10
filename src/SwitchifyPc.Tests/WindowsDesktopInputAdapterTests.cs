@@ -1,3 +1,4 @@
+using SwitchifyPc.Core.Input;
 using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Windows.Input;
 
@@ -215,15 +216,27 @@ public sealed class WindowsDesktopInputAdapterTests
             native.Calls);
     }
 
-    [Fact]
-    public async Task DelegatesNonShortcutWindowActions()
+    [Theory]
+    [InlineData("minimizeFocused")]
+    [InlineData("maximizeFocused")]
+    public async Task DelegatesExplicitWindowStateActionsWithoutSynthesizingKeys(string action)
     {
         FakeNativeInput native = new();
         WindowsDesktopInputAdapter adapter = new(native);
 
-        await adapter.ControlWindowAsync("showDesktop");
+        await adapter.ControlWindowAsync(action);
 
-        Assert.Equal(["window:showDesktop"], native.Calls);
+        Assert.Equal([$"window:{action}"], native.Calls);
+    }
+
+    [Fact]
+    public void RejectsUnsupportedNativeWindowAction()
+    {
+        SendInputWindowsNativeInput native = new();
+
+        DesktopInputException error = Assert.Throws<DesktopInputException>(() => native.ControlWindow("unsupported"));
+
+        Assert.Equal("unsupported_command", error.Code);
     }
 
     private sealed class FakeNativeInput : IWindowsNativeInput

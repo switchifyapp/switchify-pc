@@ -196,6 +196,8 @@ public sealed class SendInputWindowsNativeInput : IWindowsNativeInput
     private const uint KeyEventFKeyUp = 0x0002;
     private const uint KeyEventFUnicode = 0x0004;
     private const int WheelDelta = 120;
+    private const int SwMaximize = 3;
+    private const int SwMinimize = 6;
 
     public PointerPosition GetCursorPosition()
     {
@@ -281,13 +283,27 @@ public sealed class SendInputWindowsNativeInput : IWindowsNativeInput
                 SendShortcut([WindowsInputMapper.VkAlt, WindowsInputMapper.VkF4]);
                 return;
             case "minimizeFocused":
-                SendShortcut([WindowsInputMapper.VkLeftWindows, WindowsInputMapper.VkDown]);
+                SetForegroundWindowState(SwMinimize, "minimize");
                 return;
             case "maximizeFocused":
-                SendShortcut([WindowsInputMapper.VkLeftWindows, WindowsInputMapper.VkUp]);
+                SetForegroundWindowState(SwMaximize, "maximize");
                 return;
             default:
                 throw new DesktopInputException("unsupported_command", $"Unsupported window action: {action}");
+        }
+    }
+
+    private static void SetForegroundWindowState(int command, string action)
+    {
+        nint window = GetForegroundWindow();
+        if (window == nint.Zero)
+        {
+            throw new DesktopInputException("adapter_failure", $"Could not {action} the focused window because no foreground window is available.");
+        }
+
+        if (!ShowWindowAsync(window, command))
+        {
+            throw new DesktopInputException("adapter_failure", $"Windows could not {action} the focused window.");
         }
     }
 
@@ -327,6 +343,13 @@ public sealed class SendInputWindowsNativeInput : IWindowsNativeInput
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint cInputs, [In] NativeInput[] pInputs, int cbSize);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindowAsync(nint hWnd, int nCmdShow);
 
     [StructLayout(LayoutKind.Sequential)]
     private readonly struct NativePoint
