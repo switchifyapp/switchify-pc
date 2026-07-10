@@ -226,7 +226,11 @@
                         <StackPanel Grid.Column="1"
                                     Orientation="Horizontal"
                                     VerticalAlignment="Top">
+                            <Button Content="Setup guide"
+                                    Padding="16,0"
+                                    Click="OpenSetupGuide_Click" />
                             <Button Content="Settings"
+                                    Margin="8,0,0,0"
                                     Padding="16,0"
                                     Click="OpenSettings_Click" />
                         </StackPanel>
@@ -288,49 +292,6 @@
                                     Style="{StaticResource PrimaryButton}"
                                     Visibility="{Binding IsConnected, Converter={StaticResource BooleanToVisibilityConverter}}" />
                         </StackPanel>
-                    </Border>
-
-                    <Border Margin="0,0,0,16"
-                            Style="{StaticResource SubtlePanel}"
-                            Visibility="{Binding HasAndroidDownloadPrompt, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="Get Switchify for Android"
-                                           FontSize="16"
-                                           FontWeight="Bold"
-                                           Foreground="{DynamicResource Text}" />
-                                <TextBlock Margin="0,6,0,0"
-                                           Text="Install the Android app, then open it near this PC to pair over Bluetooth."
-                                           Style="{StaticResource MutedText}" />
-
-                                <StackPanel Margin="0,12,0,0"
-                                            Orientation="Horizontal">
-                                    <Button Content="Open Google Play"
-                                            Click="OpenAndroidDownload_Click" />
-                                    <Button Margin="8,0,0,0"
-                                            Content="Dismiss"
-                                            Click="DismissAndroidDownload_Click" />
-                                </StackPanel>
-                            </StackPanel>
-
-                            <Border Grid.Column="1"
-                                    Margin="20,0,0,0"
-                                    Padding="8"
-                                    Background="{DynamicResource Surface}"
-                                    BorderBrush="{DynamicResource BorderColor}"
-                                    BorderThickness="1"
-                                    CornerRadius="8">
-                                <Image Width="132"
-                                       Height="132"
-                                       Source="Assets/android-download-qr.png"
-                                       Stretch="Uniform" />
-                            </Border>
-                        </Grid>
                     </Border>
 
                     <Border Margin="0,0,0,16"

@@ -14,6 +14,8 @@ public sealed class MainWindowPromptSettingsTests
         MainWindowPromptSettings settings = store.Load();
 
         Assert.False(settings.AndroidDownloadDismissed);
+        Assert.False(settings.SetupGuideShown);
+        Assert.False(settings.SetupGuideCompleted);
     }
 
     [Fact]
@@ -28,6 +30,8 @@ public sealed class MainWindowPromptSettingsTests
         MainWindowPromptSettings settings = store.Load();
 
         Assert.False(settings.AndroidDownloadDismissed);
+        Assert.False(settings.SetupGuideShown);
+        Assert.False(settings.SetupGuideCompleted);
         Assert.Single(warnings);
     }
 
@@ -37,12 +41,19 @@ public sealed class MainWindowPromptSettingsTests
         string filePath = Path.Combine(CreateTempDirectory(), "main-window-prompt-settings.json");
         JsonMainWindowPromptSettingsStore store = new(filePath);
 
-        MainWindowPromptSettings saved = store.Save(new MainWindowPromptSettings(AndroidDownloadDismissed: true));
+        MainWindowPromptSettings saved = store.Save(new MainWindowPromptSettings(
+            AndroidDownloadDismissed: true,
+            SetupGuideShown: true,
+            SetupGuideCompleted: true));
         MainWindowPromptSettings loaded = store.Load();
 
         Assert.True(saved.AndroidDownloadDismissed);
         Assert.True(loaded.AndroidDownloadDismissed);
+        Assert.True(loaded.SetupGuideShown);
+        Assert.True(loaded.SetupGuideCompleted);
         Assert.Contains("\"androidDownloadDismissed\": true", File.ReadAllText(filePath));
+        Assert.Contains("\"setupGuideShown\": true", File.ReadAllText(filePath));
+        Assert.Contains("\"setupGuideCompleted\": true", File.ReadAllText(filePath));
     }
 
     [Fact]
@@ -54,6 +65,34 @@ public sealed class MainWindowPromptSettingsTests
         });
 
         Assert.False(settings.AndroidDownloadDismissed);
+        Assert.False(settings.SetupGuideShown);
+        Assert.False(settings.SetupGuideCompleted);
+    }
+
+    [Fact]
+    public void ExistingAndroidPromptSettingsGainGuideDefaults()
+    {
+        MainWindowPromptSettings settings = MainWindowPromptSettingsModel.Normalize(new JsonObject
+        {
+            ["androidDownloadDismissed"] = true
+        });
+
+        Assert.True(settings.AndroidDownloadDismissed);
+        Assert.False(settings.SetupGuideShown);
+        Assert.False(settings.SetupGuideCompleted);
+    }
+
+    [Fact]
+    public void CompletedGuideIsAlwaysNormalizedAsShown()
+    {
+        MainWindowPromptSettings settings = MainWindowPromptSettingsModel.Normalize(new JsonObject
+        {
+            ["setupGuideShown"] = false,
+            ["setupGuideCompleted"] = true
+        });
+
+        Assert.True(settings.SetupGuideShown);
+        Assert.True(settings.SetupGuideCompleted);
     }
 
     [Fact]
