@@ -245,12 +245,15 @@ public partial class App : System.Windows.Application
 
     private SystemStartupService CreateStartupService()
     {
+        string mainExecutablePath = Environment.ProcessPath ?? string.Empty;
+        string installDirectory = Path.GetDirectoryName(mainExecutablePath) ?? string.Empty;
         return new SystemStartupService(
             platform: "win32",
             isPackaged: IsInstalledApp(),
-            executablePath: Environment.ProcessPath ?? string.Empty,
+            mainExecutablePath: mainExecutablePath,
+            startupLauncherPath: Path.Combine(installDirectory, SystemStartupService.StartupLauncherFileName),
             startupTask: new WindowsStartupTask(),
-            legacyStartupRegistry: new WindowsStartupRegistry(),
+            startupRegistry: new WindowsStartupRegistry(),
             startupCommandFor: WindowsStartupRegistry.StartupCommandFor);
     }
 

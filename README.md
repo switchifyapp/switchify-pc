@@ -97,6 +97,8 @@ pwsh scripts/Verify-UpdaterMetadata.ps1
 
 Run the generated installer from `dist` and install per-machine. Running from the repo, `dist/win-unpacked`, AppData, or Downloads does not prove that `uiAccess` is active.
 
+The installed app's Start with system setting registers the signed `Switchify PC Startup.exe` helper for the current user. The helper runs without UIAccess and launches the main executable through the Windows Shell with `--start-hidden`. This is required because direct process creation from a Run entry or limited scheduled task fails with `ERROR_ELEVATION_REQUIRED` before Windows can create the main app's UIAccess token.
+
 Self-signed certificates are for development and testing only. Production users should not be asked to trust a self-signed certificate manually.
 
 ## Production signing

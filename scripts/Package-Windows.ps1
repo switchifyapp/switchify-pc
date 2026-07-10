@@ -11,8 +11,10 @@ Import-Module (Join-Path $PSScriptRoot 'WinSigningTools.psm1') -Force -DisableNa
 
 $framework = 'net8.0-windows10.0.19041.0'
 $appProjectPath = Resolve-ProjectPath 'src' 'SwitchifyPc.App' 'SwitchifyPc.App.csproj'
+$launcherProjectPath = Resolve-ProjectPath 'src' 'SwitchifyPc.StartupLauncher' 'SwitchifyPc.StartupLauncher.csproj'
 $version = Get-ProjectVersion -ProjectPath $appProjectPath
 $publishDir = Resolve-ProjectPath 'src' 'SwitchifyPc.App' 'bin' $Configuration $framework $RuntimeIdentifier 'publish'
+$launcherPublishDir = Resolve-ProjectPath 'src' 'SwitchifyPc.StartupLauncher' 'bin' $Configuration $framework $RuntimeIdentifier 'publish'
 $distDir = Resolve-ProjectPath 'dist'
 $stageDir = Join-Path $distDir 'win-unpacked'
 $installerName = "Switchify-PC-Setup-$version-x64.exe"
@@ -56,6 +58,11 @@ function Assert-StagedApp {
   $executable = Join-Path $stageDir 'Switchify PC.exe'
   if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw "Staged C# app executable is missing: $executable"
+  }
+
+  $launcher = Join-Path $stageDir 'Switchify PC Startup.exe'
+  if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
+    throw "Staged startup launcher is missing: $launcher"
   }
 
   $markers = @(
@@ -151,15 +158,27 @@ if ($LASTEXITCODE -ne 0) {
   throw "dotnet publish failed with exit code $LASTEXITCODE."
 }
 
+dotnet publish $launcherProjectPath -c $Configuration -r $RuntimeIdentifier --self-contained true -p:Version=$version
+if ($LASTEXITCODE -ne 0) {
+  throw "Startup launcher publish failed with exit code $LASTEXITCODE."
+}
+
 Reset-PackageArtifacts
 Reset-Directory -Path $stageDir
 Copy-Directory -From $publishDir -To $stageDir
+$publishedLauncher = Join-Path $launcherPublishDir 'Switchify PC Startup.exe'
+if (-not (Test-Path -LiteralPath $publishedLauncher -PathType Leaf)) {
+  throw "Published startup launcher is missing: $publishedLauncher"
+}
+Copy-Item -LiteralPath $publishedLauncher -Destination $stageDir -Force
 Assert-StagedApp
 Write-BuilderDebug
 
 $appExe = Join-Path $stageDir 'Switchify PC.exe'
+$launcherExe = Join-Path $stageDir 'Switchify PC Startup.exe'
 if (-not $SkipSign) {
   Invoke-SignFile -FilePath $appExe -RequireSigning $true
+  Invoke-SignFile -FilePath $launcherExe -RequireSigning $true
 }
 
 if (-not $StageOnly) {

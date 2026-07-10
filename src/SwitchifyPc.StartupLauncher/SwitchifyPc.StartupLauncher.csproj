@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>link</TrimMode>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <AssemblyName>Switchify PC Startup</AssemblyName>
+    <RootNamespace>SwitchifyPc.StartupLauncher</RootNamespace>
+    <ApplicationIcon>..\..\build\icon.ico</ApplicationIcon>
+    <ApplicationManifest>..\..\build\win-startup-launcher.manifest</ApplicationManifest>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SwitchifyPc.Tests" />
+  </ItemGroup>
+
+</Project>

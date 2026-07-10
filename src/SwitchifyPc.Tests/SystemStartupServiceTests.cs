@@ -5,8 +5,10 @@ namespace SwitchifyPc.Tests;
 
 public sealed class SystemStartupServiceTests
 {
-    private const string ExecutablePath = "C:\\Program Files\\Switchify PC\\Switchify PC.exe";
-    private const string ExpectedCommand = "\"C:\\Program Files\\Switchify PC\\Switchify PC.exe\" --start-hidden";
+    private const string MainExecutablePath = "C:\\Program Files\\Switchify PC\\Switchify PC.exe";
+    private const string LauncherPath = "C:\\Program Files\\Switchify PC\\Switchify PC Startup.exe";
+    private const string ExpectedLauncherCommand = "\"C:\\Program Files\\Switchify PC\\Switchify PC Startup.exe\"";
+    private const string LegacyMainCommand = "\"C:\\Program Files\\Switchify PC\\Switchify PC.exe\" --start-hidden";
 
     [Fact]
     public void ShouldStartHiddenOnlyOnWindowsWithHiddenArg()
@@ -37,9 +39,8 @@ public sealed class SystemStartupServiceTests
     {
         FakeStartupTask task = new();
         FakeStartupRegistry registry = new();
-        SystemStartupService service = CreateService(task, registry, isPackaged: false);
 
-        SystemStartupSettings settings = await service.GetSettingsAsync();
+        SystemStartupSettings settings = await CreateService(task, registry, isPackaged: false).GetSettingsAsync();
 
         Assert.False(settings.Supported);
         Assert.Equal("unpackaged", settings.Reason);
@@ -48,44 +49,31 @@ public sealed class SystemStartupServiceTests
     }
 
     [Fact]
-    public async Task ReportsEnabledOnlyForHealthyScheduledTask()
+    public async Task ReportsEnabledOnlyForMatchingLauncherRegistrationThatWindowsHasNotDisabled()
     {
-        SystemStartupSettings settings = await CreateService(new FakeStartupTask(HealthyTask()), new FakeStartupRegistry()).GetSettingsAsync();
+        SystemStartupSettings enabled = await CreateService(
+            new FakeStartupTask(),
+            new FakeStartupRegistry(new StartupRegistrySnapshot(ExpectedLauncherCommand, "enabled"))).GetSettingsAsync();
+        SystemStartupSettings missingApproval = await CreateService(
+            new FakeStartupTask(),
+            new FakeStartupRegistry(new StartupRegistrySnapshot(ExpectedLauncherCommand, "missing"))).GetSettingsAsync();
+        SystemStartupSettings disabled = await CreateService(
+            new FakeStartupTask(),
+            new FakeStartupRegistry(new StartupRegistrySnapshot(ExpectedLauncherCommand, "disabled"))).GetSettingsAsync();
+        SystemStartupSettings stale = await CreateService(
+            new FakeStartupTask(),
+            new FakeStartupRegistry(new StartupRegistrySnapshot(LegacyMainCommand, "enabled"))).GetSettingsAsync();
 
-        Assert.True(settings.StartWithSystem);
-        Assert.Equal(SystemStartupService.StartupTaskName, settings.TaskRegistration?.TaskName);
-        Assert.Equal(ExecutablePath, settings.TaskRegistration?.ExpectedExecutablePath);
-        Assert.Equal(ExecutablePath, settings.TaskRegistration?.RegisteredExecutablePath);
-        Assert.Equal(["--start-hidden"], settings.TaskRegistration?.RegisteredArguments);
+        Assert.True(enabled.StartWithSystem);
+        Assert.True(missingApproval.StartWithSystem);
+        Assert.False(disabled.StartWithSystem);
+        Assert.False(stale.StartWithSystem);
+        Assert.Equal(LauncherPath, enabled.TaskRegistration?.ExpectedExecutablePath);
+        Assert.Empty(enabled.TaskRegistration?.ExpectedArguments ?? []);
     }
 
     [Fact]
-    public async Task ReportsEnabledForHealthyTaskWhenWindowsXmlOmitsEnabled()
-    {
-        StartupTaskSnapshot taskParsedFromWindowsXml = new(
-            Exists: true,
-            Enabled: true,
-            ExecutablePath: ExecutablePath,
-            Arguments: ["--start-hidden"],
-            LastRunResult: "0");
-
-        SystemStartupSettings settings = await CreateService(new FakeStartupTask(taskParsedFromWindowsXml), new FakeStartupRegistry()).GetSettingsAsync();
-
-        Assert.True(settings.StartWithSystem);
-        Assert.True(settings.TaskRegistration?.Enabled);
-    }
-
-    [Fact]
-    public async Task ReportsDisabledForMissingDisabledStalePathOrStaleArguments()
-    {
-        Assert.False((await CreateService(new FakeStartupTask(new StartupTaskSnapshot(false, false, null, [], null)), new FakeStartupRegistry()).GetSettingsAsync()).StartWithSystem);
-        Assert.False((await CreateService(new FakeStartupTask(HealthyTask() with { Enabled = false }), new FakeStartupRegistry()).GetSettingsAsync()).StartWithSystem);
-        Assert.False((await CreateService(new FakeStartupTask(HealthyTask() with { ExecutablePath = "C:\\Old\\Switchify PC.exe" }), new FakeStartupRegistry()).GetSettingsAsync()).StartWithSystem);
-        Assert.False((await CreateService(new FakeStartupTask(HealthyTask() with { Arguments = ["--show"] }), new FakeStartupRegistry()).GetSettingsAsync()).StartWithSystem);
-    }
-
-    [Fact]
-    public async Task EnablesAndDisablesStartupThroughScheduledTaskAndLegacyCleanup()
+    public async Task EnablesAndDisablesThroughRunEntryAndRemovesLegacyTask()
     {
         FakeStartupTask task = new();
         FakeStartupRegistry registry = new();
@@ -94,55 +82,84 @@ public sealed class SystemStartupServiceTests
         await service.SetStartWithSystemAsync(true);
         await service.SetStartWithSystemAsync(false);
 
-        Assert.Contains($"set:{SystemStartupService.StartupTaskName}:{ExecutablePath}:--start-hidden", task.Calls);
-        Assert.Contains($"delete:{SystemStartupService.StartupTaskName}", task.Calls);
-        Assert.Equal(2, registry.Calls.Count(call => call == $"delete:{SystemStartupService.StartupValueName}"));
-    }
-
-    [Fact]
-    public async Task HealthyTaskCausesLegacyRegistryCleanupDuringRepair()
-    {
-        FakeStartupTask task = new(HealthyTask());
-        FakeStartupRegistry registry = new(new StartupRegistrySnapshot(ExpectedCommand, "enabled"));
-        SystemStartupService service = CreateService(task, registry);
-
-        await service.RepairLegacyStartupRegistrationAsync();
-
+        Assert.Contains($"set:{SystemStartupService.StartupValueName}:{ExpectedLauncherCommand}", registry.Calls);
         Assert.Contains($"delete:{SystemStartupService.StartupValueName}", registry.Calls);
+        Assert.Equal(2, task.Calls.Count(call => call == $"delete:{SystemStartupService.StartupTaskName}"));
         Assert.DoesNotContain(task.Calls, call => call.StartsWith("set:", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task MigratesHealthyLegacyRegistryToScheduledTask()
+    public async Task MigratesEnabledLegacyTaskBeforeDeletingIt()
     {
-        FakeStartupTask task = new(new StartupTaskSnapshot(false, false, null, [], null));
-        FakeStartupRegistry registry = new(new StartupRegistrySnapshot(ExpectedCommand, "enabled"));
-        SystemStartupService service = CreateService(task, registry);
+        FakeStartupTask task = new(LegacyTask(enabled: true));
+        FakeStartupRegistry registry = new();
 
-        await service.RepairLegacyStartupRegistrationAsync();
+        await CreateService(task, registry).RepairLegacyStartupRegistrationAsync();
 
-        Assert.Contains($"set:{SystemStartupService.StartupTaskName}:{ExecutablePath}:--start-hidden", task.Calls);
-        Assert.Contains($"delete:{SystemStartupService.StartupValueName}", registry.Calls);
+        Assert.Equal(
+            [$"get:{SystemStartupService.StartupValueName}", $"set:{SystemStartupService.StartupValueName}:{ExpectedLauncherCommand}"],
+            registry.Calls);
+        Assert.Equal(
+            [$"get:{SystemStartupService.StartupTaskName}", $"delete:{SystemStartupService.StartupTaskName}"],
+            task.Calls);
     }
 
     [Fact]
-    public async Task DoesNotMigrateDisabledOrStaleLegacyRegistry()
+    public async Task DisabledLegacyTaskStaysDisabledAndIsCleanedUp()
     {
-        FakeStartupTask disabledTask = new(new StartupTaskSnapshot(false, false, null, [], null));
-        FakeStartupRegistry disabledRegistry = new(new StartupRegistrySnapshot(ExpectedCommand, "disabled"));
-        await CreateService(disabledTask, disabledRegistry).RepairLegacyStartupRegistrationAsync();
+        FakeStartupTask task = new(LegacyTask(enabled: false));
+        FakeStartupRegistry registry = new(new StartupRegistrySnapshot(LegacyMainCommand, "enabled"));
 
-        FakeStartupTask staleTask = new(new StartupTaskSnapshot(false, false, null, [], null));
-        FakeStartupRegistry staleRegistry = new(new StartupRegistrySnapshot("\"C:\\Old\\Switchify PC.exe\" --start-hidden", "enabled"));
-        await CreateService(staleTask, staleRegistry).RepairLegacyStartupRegistrationAsync();
+        await CreateService(task, registry).RepairLegacyStartupRegistrationAsync();
 
-        Assert.DoesNotContain(disabledTask.Calls, call => call.StartsWith("set:", StringComparison.Ordinal));
-        Assert.DoesNotContain(staleTask.Calls, call => call.StartsWith("set:", StringComparison.Ordinal));
+        Assert.Contains($"delete:{SystemStartupService.StartupValueName}", registry.Calls);
+        Assert.DoesNotContain(registry.Calls, call => call.StartsWith("set:", StringComparison.Ordinal));
+        Assert.Contains($"delete:{SystemStartupService.StartupTaskName}", task.Calls);
     }
 
-    private static StartupTaskSnapshot HealthyTask()
+    [Theory]
+    [InlineData("enabled", true)]
+    [InlineData("missing", true)]
+    [InlineData("disabled", false)]
+    public async Task MigratesLegacyRunRegistrationWithoutChangingUserChoice(string startupApproved, bool expectedEnabled)
     {
-        return new StartupTaskSnapshot(true, true, ExecutablePath, ["--start-hidden"], "0");
+        FakeStartupRegistry registry = new(new StartupRegistrySnapshot(LegacyMainCommand, startupApproved));
+
+        await CreateService(new FakeStartupTask(), registry).RepairLegacyStartupRegistrationAsync();
+
+        string expectedCall = expectedEnabled
+            ? $"set:{SystemStartupService.StartupValueName}:{ExpectedLauncherCommand}"
+            : $"delete:{SystemStartupService.StartupValueName}";
+        Assert.Contains(expectedCall, registry.Calls);
+    }
+
+    [Fact]
+    public async Task HealthyLauncherRegistrationCleansRecognizedTaskWithoutRewritingRegistry()
+    {
+        FakeStartupTask task = new(LegacyTask(enabled: true));
+        FakeStartupRegistry registry = new(new StartupRegistrySnapshot(ExpectedLauncherCommand, "enabled"));
+
+        await CreateService(task, registry).RepairLegacyStartupRegistrationAsync();
+
+        Assert.DoesNotContain(registry.Calls, call => call.StartsWith("set:", StringComparison.Ordinal));
+        Assert.Contains($"delete:{SystemStartupService.StartupTaskName}", task.Calls);
+    }
+
+    [Fact]
+    public async Task DoesNotModifyUnrecognizedTaskOrRegistration()
+    {
+        FakeStartupTask task = new(new StartupTaskSnapshot(true, true, "C:\\Other\\App.exe", [], "0"));
+        FakeStartupRegistry registry = new(new StartupRegistrySnapshot("\"C:\\Other\\App.exe\"", "enabled"));
+
+        await CreateService(task, registry).RepairLegacyStartupRegistrationAsync();
+
+        Assert.Single(task.Calls);
+        Assert.Single(registry.Calls);
+    }
+
+    private static StartupTaskSnapshot LegacyTask(bool enabled)
+    {
+        return new StartupTaskSnapshot(true, enabled, MainExecutablePath, [SystemStartupService.StartHiddenArg], "-2147024156");
     }
 
     private static SystemStartupService CreateService(
@@ -154,7 +171,8 @@ public sealed class SystemStartupServiceTests
         return new SystemStartupService(
             platform,
             isPackaged,
-            ExecutablePath,
+            MainExecutablePath,
+            LauncherPath,
             task,
             registry,
             WindowsStartupRegistry.StartupCommandFor);
@@ -191,29 +209,33 @@ public sealed class SystemStartupServiceTests
 
     private sealed class FakeStartupRegistry : IStartupRegistry
     {
-        private readonly StartupRegistrySnapshot entry;
+        private readonly StartupRegistrySnapshot initial;
+        private StartupRegistrySnapshot current;
         public List<string> Calls { get; } = [];
 
         public FakeStartupRegistry(StartupRegistrySnapshot? entry = null)
         {
-            this.entry = entry ?? new StartupRegistrySnapshot(null, "missing");
+            initial = entry ?? new StartupRegistrySnapshot(null, "missing");
+            current = initial;
         }
 
         public Task<StartupRegistrySnapshot> GetEntryAsync(string valueName)
         {
             Calls.Add($"get:{valueName}");
-            return Task.FromResult(entry);
+            return Task.FromResult(current);
         }
 
         public Task SetEntryAsync(string valueName, string command)
         {
             Calls.Add($"set:{valueName}:{command}");
+            current = new StartupRegistrySnapshot(command, "enabled");
             return Task.CompletedTask;
         }
 
         public Task DeleteEntryAsync(string valueName)
         {
             Calls.Add($"delete:{valueName}");
+            current = new StartupRegistrySnapshot(null, "missing");
             return Task.CompletedTask;
         }
     }

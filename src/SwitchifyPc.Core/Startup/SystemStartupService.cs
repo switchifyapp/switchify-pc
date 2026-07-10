@@ -55,29 +55,33 @@ public sealed class SystemStartupService : ISystemStartupSettingsService
     public const string StartHiddenArg = "--start-hidden";
     public const string StartupValueName = "app.switchify.pc";
     public const string StartupTaskName = "Switchify PC";
+    public const string StartupLauncherFileName = "Switchify PC Startup.exe";
 
     private readonly string platform;
     private readonly bool isPackaged;
-    private readonly string executablePath;
+    private readonly string mainExecutablePath;
+    private readonly string startupLauncherPath;
     private readonly IStartupTask startupTask;
-    private readonly IStartupRegistry legacyStartupRegistry;
+    private readonly IStartupRegistry startupRegistry;
     private readonly Func<string, IReadOnlyList<string>, string> startupCommandFor;
     private readonly Action<string> warn;
 
     public SystemStartupService(
         string platform,
         bool isPackaged,
-        string executablePath,
+        string mainExecutablePath,
+        string startupLauncherPath,
         IStartupTask startupTask,
-        IStartupRegistry legacyStartupRegistry,
+        IStartupRegistry startupRegistry,
         Func<string, IReadOnlyList<string>, string> startupCommandFor,
         Action<string>? warn = null)
     {
         this.platform = platform;
         this.isPackaged = isPackaged;
-        this.executablePath = executablePath;
+        this.mainExecutablePath = mainExecutablePath;
+        this.startupLauncherPath = startupLauncherPath;
         this.startupTask = startupTask;
-        this.legacyStartupRegistry = legacyStartupRegistry;
+        this.startupRegistry = startupRegistry;
         this.startupCommandFor = startupCommandFor;
         this.warn = warn ?? Console.WriteLine;
     }
@@ -91,15 +95,15 @@ public sealed class SystemStartupService : ISystemStartupSettingsService
     {
         if (!IsSupported()) return UnsupportedSettings();
 
-        string expectedCommand = ExpectedCommand();
-        IReadOnlyList<string> expectedArguments = [StartHiddenArg];
+        string expectedCommand = ExpectedLauncherCommand();
+        IReadOnlyList<string> expectedTaskArguments = [];
         StartupTaskSnapshot task = await GetTaskSafelyAsync();
         StartupRegistrySnapshot entry = await GetRegistryEntrySafelyAsync();
-        bool taskMatches = IsHealthyTask(task, expectedArguments);
+        bool registrationMatches = entry.Command == expectedCommand && entry.StartupApproved != "disabled";
 
         return new SystemStartupSettings(
             Supported: true,
-            StartWithSystem: taskMatches,
+            StartWithSystem: registrationMatches,
             StartsHidden: true,
             Reason: null,
             Registration: new StartupRegistration(expectedCommand, entry.Command, entry.StartupApproved),
@@ -107,9 +111,9 @@ public sealed class SystemStartupService : ISystemStartupSettingsService
                 StartupTaskName,
                 task.Exists,
                 task.Enabled,
-                executablePath,
+                startupLauncherPath,
                 task.ExecutablePath,
-                expectedArguments,
+                expectedTaskArguments,
                 task.Arguments,
                 task.LastRunResult));
     }
@@ -119,13 +123,13 @@ public sealed class SystemStartupService : ISystemStartupSettingsService
         if (!IsSupported()) return UnsupportedSettings();
         if (enabled)
         {
-            await startupTask.SetAsync(StartupTaskName, executablePath, [StartHiddenArg]);
-            await DeleteLegacyRegistrySafelyAsync();
+            await startupRegistry.SetEntryAsync(StartupValueName, ExpectedLauncherCommand());
+            await DeleteLegacyTaskSafelyAsync();
         }
         else
         {
-            await startupTask.DeleteAsync(StartupTaskName);
-            await DeleteLegacyRegistrySafelyAsync();
+            await startupRegistry.DeleteEntryAsync(StartupValueName);
+            await DeleteLegacyTaskSafelyAsync();
         }
 
         return await GetSettingsAsync();
@@ -135,20 +139,40 @@ public sealed class SystemStartupService : ISystemStartupSettingsService
     {
         if (!IsSupported()) return;
 
-        IReadOnlyList<string> expectedArguments = [StartHiddenArg];
         StartupTaskSnapshot task = await GetTaskSafelyAsync();
-        StartupRegistrySnapshot legacy = await GetRegistryEntrySafelyAsync();
+        StartupRegistrySnapshot registration = await GetRegistryEntrySafelyAsync();
 
-        if (IsHealthyTask(task, expectedArguments))
+        if (registration.Command == ExpectedLauncherCommand())
         {
-            await DeleteLegacyRegistrySafelyAsync();
+            if (IsRecognizedLegacyTask(task)) await DeleteLegacyTaskSafelyAsync();
             return;
         }
 
-        if (legacy.Command == ExpectedCommand() && legacy.StartupApproved != "disabled")
+        if (IsRecognizedLegacyTask(task))
         {
-            await startupTask.SetAsync(StartupTaskName, executablePath, expectedArguments);
-            await DeleteLegacyRegistrySafelyAsync();
+            if (task.Enabled)
+            {
+                await startupRegistry.SetEntryAsync(StartupValueName, ExpectedLauncherCommand());
+            }
+            else
+            {
+                await startupRegistry.DeleteEntryAsync(StartupValueName);
+            }
+
+            await DeleteLegacyTaskSafelyAsync();
+            return;
+        }
+
+        if (registration.Command == LegacyMainCommand())
+        {
+            if (registration.StartupApproved != "disabled")
+            {
+                await startupRegistry.SetEntryAsync(StartupValueName, ExpectedLauncherCommand());
+            }
+            else
+            {
+                await startupRegistry.DeleteEntryAsync(StartupValueName);
+            }
         }
     }
 
@@ -157,17 +181,21 @@ public sealed class SystemStartupService : ISystemStartupSettingsService
         return platform == "win32" && isPackaged;
     }
 
-    private string ExpectedCommand()
+    private string ExpectedLauncherCommand()
     {
-        return startupCommandFor(executablePath, [StartHiddenArg]);
+        return startupCommandFor(startupLauncherPath, []);
     }
 
-    private bool IsHealthyTask(StartupTaskSnapshot task, IReadOnlyList<string> expectedArguments)
+    private string LegacyMainCommand()
+    {
+        return startupCommandFor(mainExecutablePath, [StartHiddenArg]);
+    }
+
+    private bool IsRecognizedLegacyTask(StartupTaskSnapshot task)
     {
         return task.Exists &&
-            task.Enabled &&
-            string.Equals(task.ExecutablePath, executablePath, StringComparison.Ordinal) &&
-            task.Arguments.SequenceEqual(expectedArguments, StringComparer.Ordinal);
+            string.Equals(task.ExecutablePath, mainExecutablePath, StringComparison.Ordinal) &&
+            task.Arguments.SequenceEqual([StartHiddenArg], StringComparer.Ordinal);
     }
 
     private async Task<StartupTaskSnapshot> GetTaskSafelyAsync()
@@ -187,7 +215,7 @@ public sealed class SystemStartupService : ISystemStartupSettingsService
     {
         try
         {
-            return await legacyStartupRegistry.GetEntryAsync(StartupValueName);
+            return await startupRegistry.GetEntryAsync(StartupValueName);
         }
         catch (Exception error)
         {
@@ -196,11 +224,11 @@ public sealed class SystemStartupService : ISystemStartupSettingsService
         }
     }
 
-    private async Task DeleteLegacyRegistrySafelyAsync()
+    private async Task DeleteLegacyTaskSafelyAsync()
     {
         try
         {
-            await legacyStartupRegistry.DeleteEntryAsync(StartupValueName);
+            await startupTask.DeleteAsync(StartupTaskName);
         }
         catch (Exception error)
         {
