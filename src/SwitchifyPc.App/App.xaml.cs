@@ -36,7 +36,9 @@ public partial class App : System.Windows.Application
     private WindowsExistingInstanceSignal? existingInstanceSignal;
     private NativeTrayIcon? trayIcon;
     private SettingsWindow? settingsWindow;
+    private SetupGuideWindow? setupGuideWindow;
     private MainWindowViewModel mainWindowViewModel = new();
+    private SetupGuideViewModel setupGuideViewModel = new();
     private UpdateService? updateService;
     private PairingApprovalManager? pairingApprovalManager;
     private BluetoothStatusTracker? bluetoothStatusTracker;
@@ -142,6 +144,7 @@ public partial class App : System.Windows.Application
         trayIcon?.Dispose();
         trayIcon = null;
         settingsWindow = null;
+        setupGuideWindow = null;
         base.OnExit(e);
     }
 
@@ -153,6 +156,7 @@ public partial class App : System.Windows.Application
         window.Show();
         window.WindowState = WindowState.Normal;
         window.Activate();
+        _ = RefreshSetupGuideStateAsync(allowAutoOpen: true);
     }
 
     private Window CreateMainWindow()
@@ -162,13 +166,11 @@ public partial class App : System.Windows.Application
         SwitchifyPc.App.MainWindow window = new(
             mainWindowViewModel,
             ShowSettingsWindow,
+            ShowSetupGuideWindow,
             ShowSettingsWindow,
             DisconnectBluetoothDevices,
             AcceptPairingApprovalAsync,
-            RejectPairingApproval,
-            OpenAndroidDownloadUrl,
-            DismissAndroidDownloadPrompt);
-        _ = RefreshAndroidDownloadPromptStateAsync();
+            RejectPairingApproval);
         window.Closing += (_, eventArgs) =>
         {
             if (isQuitting) return;
@@ -208,6 +210,40 @@ public partial class App : System.Windows.Application
         settingsWindow.Show();
         settingsWindow.WindowState = WindowState.Normal;
         settingsWindow.Activate();
+    }
+
+    private void ShowSetupGuideWindow()
+    {
+        MarkSetupGuideShown();
+        ShowSetupGuideWindowCore();
+        _ = RefreshSetupGuideStateAsync(allowAutoOpen: false);
+    }
+
+    private void ShowSetupGuideWindowCore()
+    {
+        setupGuideWindow ??= CreateSetupGuideWindow();
+        setupGuideWindow.Owner = MainWindow;
+        setupGuideWindow.Show();
+        setupGuideWindow.WindowState = WindowState.Normal;
+        setupGuideWindow.Activate();
+    }
+
+    private SetupGuideWindow CreateSetupGuideWindow()
+    {
+        SetupGuideWindow window = new(
+            setupGuideViewModel,
+            OpenAndroidDownloadUrl,
+            AcceptPairingApprovalAsync,
+            RejectPairingApproval,
+            SetSetupStartWithSystemAsync,
+            CompleteSetupGuide);
+        window.Closing += (_, eventArgs) =>
+        {
+            if (isQuitting) return;
+            eventArgs.Cancel = true;
+            window.Hide();
+        };
+        return window;
     }
 
     private SettingsWindow CreateSettingsWindow()
@@ -468,7 +504,7 @@ public partial class App : System.Windows.Application
         }
 
         RefreshPairingApprovals();
-        _ = RefreshAndroidDownloadPromptStateAsync();
+        _ = RefreshSetupGuideStateAsync(allowAutoOpen: false);
     }
 
     private void RejectPairingApproval(string requestId)
@@ -485,14 +521,27 @@ public partial class App : System.Windows.Application
         RefreshPairingApprovals();
     }
 
-    private async Task RefreshAndroidDownloadPromptStateAsync()
+    private async Task RefreshSetupGuideStateAsync(bool allowAutoOpen)
     {
         MainWindowPromptSettings settings = CreateMainWindowPromptSettingsStore().Load();
         PairingState pairingState = await new JsonPairingStore(Path.Combine(UserDataDirectory(), "pairing-state.json")).LoadAsync();
+        SystemStartupSettings startupSettings = await CreateStartupService().GetSettingsAsync();
+        IReadOnlyList<PendingPairingApprovalView> approvals = pairingApprovalManager?.ListPendingRequestViews() ?? [];
+        BluetoothStatus bluetoothStatus = bluetoothStatusTracker?.Status ?? BluetoothStatusModel.DefaultStatus;
+        bool shouldAutoOpen = allowAutoOpen && SetupGuidePrompt.ShouldAutoOpen(settings, pairingState.PairedDevices.Count > 0);
 
-        await Dispatcher.BeginInvoke(() => mainWindowViewModel.SetAndroidDownloadPromptState(
-            settings.AndroidDownloadDismissed,
-            pairingState.PairedDevices.Count > 0));
+        await Dispatcher.BeginInvoke(() =>
+        {
+            setupGuideViewModel.SetBluetoothStatus(bluetoothStatus);
+            setupGuideViewModel.SetPairingApprovals(approvals);
+            setupGuideViewModel.SetHasPairedDevices(pairingState.PairedDevices.Count > 0);
+            setupGuideViewModel.SetStartupSettings(startupSettings);
+            if (shouldAutoOpen)
+            {
+                MarkSetupGuideShown();
+                ShowSetupGuideWindowCore();
+            }
+        });
     }
 
     private void OpenAndroidDownloadUrl()
@@ -514,10 +563,25 @@ public partial class App : System.Windows.Application
         }
     }
 
-    private void DismissAndroidDownloadPrompt()
+    private async Task SetSetupStartWithSystemAsync(bool enabled)
     {
-        CreateMainWindowPromptSettingsStore().Save(new MainWindowPromptSettings(AndroidDownloadDismissed: true));
-        mainWindowViewModel.DismissAndroidDownloadPrompt();
+        SystemStartupSettings settings = await CreateStartupService().SetStartWithSystemAsync(enabled);
+        await Dispatcher.BeginInvoke(() => setupGuideViewModel.SetStartupSettings(settings));
+    }
+
+    private void MarkSetupGuideShown()
+    {
+        IMainWindowPromptSettingsStore store = CreateMainWindowPromptSettingsStore();
+        MainWindowPromptSettings settings = store.Load();
+        if (settings.SetupGuideShown) return;
+        store.Save(SetupGuidePrompt.MarkShown(settings));
+    }
+
+    private void CompleteSetupGuide()
+    {
+        IMainWindowPromptSettingsStore store = CreateMainWindowPromptSettingsStore();
+        MainWindowPromptSettings settings = store.Load();
+        store.Save(SetupGuidePrompt.MarkCompleted(settings));
     }
 
     private void StartPairingExpiryTimer()
@@ -559,8 +623,9 @@ public partial class App : System.Windows.Application
 
     private void RefreshPairingApprovals()
     {
-        mainWindowViewModel.SetPairingApprovals(
-            pairingApprovalManager?.ListPendingRequestViews() ?? []);
+        IReadOnlyList<PendingPairingApprovalView> approvals = pairingApprovalManager?.ListPendingRequestViews() ?? [];
+        mainWindowViewModel.SetPairingApprovals(approvals);
+        setupGuideViewModel.SetPairingApprovals(approvals);
     }
 
     private static string UserDataDirectory()
@@ -595,6 +660,7 @@ public partial class App : System.Windows.Application
             _ => DesktopUiState.Starting
         };
         Dispatcher.BeginInvoke(() => mainWindowViewModel.SetBluetoothState(desktopState, status));
+        Dispatcher.BeginInvoke(() => setupGuideViewModel.SetBluetoothStatus(status));
     }
 
     private async Task InitializeStartupRegistrationAsync(string[] argv, bool startHidden)

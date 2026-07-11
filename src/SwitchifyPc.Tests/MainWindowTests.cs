@@ -18,22 +18,19 @@ namespace SwitchifyPc.Tests;
 public sealed class MainWindowTests
 {
     [Fact]
-    public void MainWindowLoadsWithAndroidDownloadPrompt()
+    public void MainWindowShowsSetupGuideEntryWithoutLegacyDownloadCard()
     {
         RunOnSta(() =>
         {
             WpfTestApplication.ApplyTheme(AppTheme.Light);
-            MainWindowViewModel viewModel = new();
-            viewModel.SetAndroidDownloadPromptState(dismissed: false, hasPairedDevices: false);
-            MainWindow window = new(viewModel);
+            MainWindow window = new(new MainWindowViewModel());
             try
             {
                 window.Show();
                 window.UpdateLayout();
 
-                string assemblyName = Uri.EscapeDataString(typeof(MainWindow).Assembly.GetName().Name ?? "Switchify PC");
-                Uri qrUri = new($"pack://application:,,,/{assemblyName};component/Assets/android-download-qr.png", UriKind.Absolute);
-                Assert.NotNull(System.Windows.Application.GetResourceStream(qrUri));
+                Assert.Contains("Setup guide", ButtonContent(window));
+                Assert.DoesNotContain("Get Switchify for Android", TextBlocks(window));
             }
             finally
             {
@@ -181,6 +178,16 @@ public sealed class MainWindowTests
             }
         });
         return result;
+    }
+
+    private static IReadOnlyList<string> ButtonContent(DependencyObject root)
+    {
+        List<string> content = [];
+        Collect(root, node =>
+        {
+            if (node is WpfButton { Content: string text }) content.Add(text);
+        });
+        return content;
     }
 
     private static FrameworkElement? ElementByAutomationId(DependencyObject root, string automationId)

@@ -34,6 +34,8 @@ The Windows installer is a per-machine installer and should be installed under `
 5. Approve the pairing request on the PC and confirm the verification code.
 6. Use the Android app to control the PC.
 
+On an eligible first launch, the in-app setup guide walks through Bluetooth readiness, Android installation, secure pairing, and the optional Start with system setting. Use `Setup guide` in the main window to open it again later.
+
 If the main window is closed, Switchify PC continues running from the tray. Use the tray menu to reopen it or quit.
 
 ## Development

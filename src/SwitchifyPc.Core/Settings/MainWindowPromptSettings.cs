@@ -4,11 +4,17 @@ using SwitchifyPc.Core.Storage;
 
 namespace SwitchifyPc.Core.Settings;
 
-public sealed record MainWindowPromptSettings(bool AndroidDownloadDismissed);
+public sealed record MainWindowPromptSettings(
+    bool AndroidDownloadDismissed,
+    bool SetupGuideShown = false,
+    bool SetupGuideCompleted = false);
 
 public static class MainWindowPromptSettingsModel
 {
-    public static readonly MainWindowPromptSettings Default = new(AndroidDownloadDismissed: false);
+    public static readonly MainWindowPromptSettings Default = new(
+        AndroidDownloadDismissed: false,
+        SetupGuideShown: false,
+        SetupGuideCompleted: false);
 
     public static MainWindowPromptSettings Normalize(JsonNode? value)
     {
@@ -17,11 +23,11 @@ public static class MainWindowPromptSettingsModel
             return Default;
         }
 
+        bool completed = BooleanValue(candidate, "setupGuideCompleted");
         return new MainWindowPromptSettings(
-            AndroidDownloadDismissed: candidate.TryGetPropertyValue("androidDownloadDismissed", out JsonNode? dismissed) &&
-                dismissed is not null &&
-                dismissed.GetValueKind() is JsonValueKind.True or JsonValueKind.False &&
-                dismissed.GetValue<bool>());
+            AndroidDownloadDismissed: BooleanValue(candidate, "androidDownloadDismissed"),
+            SetupGuideShown: completed || BooleanValue(candidate, "setupGuideShown"),
+            SetupGuideCompleted: completed);
     }
 
     public static JsonObject ToJsonObject(MainWindowPromptSettings settings)
@@ -29,13 +35,26 @@ public static class MainWindowPromptSettingsModel
         MainWindowPromptSettings normalized = Normalize(settings);
         return new JsonObject
         {
-            ["androidDownloadDismissed"] = normalized.AndroidDownloadDismissed
+            ["androidDownloadDismissed"] = normalized.AndroidDownloadDismissed,
+            ["setupGuideShown"] = normalized.SetupGuideShown,
+            ["setupGuideCompleted"] = normalized.SetupGuideCompleted
         };
     }
 
     public static MainWindowPromptSettings Normalize(MainWindowPromptSettings settings)
     {
-        return new MainWindowPromptSettings(settings.AndroidDownloadDismissed);
+        return new MainWindowPromptSettings(
+            settings.AndroidDownloadDismissed,
+            settings.SetupGuideShown || settings.SetupGuideCompleted,
+            settings.SetupGuideCompleted);
+    }
+
+    private static bool BooleanValue(JsonObject candidate, string propertyName)
+    {
+        return candidate.TryGetPropertyValue(propertyName, out JsonNode? value) &&
+            value is not null &&
+            value.GetValueKind() is JsonValueKind.True or JsonValueKind.False &&
+            value.GetValue<bool>();
     }
 }
 

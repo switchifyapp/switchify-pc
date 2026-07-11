@@ -20,7 +20,6 @@ public sealed class MainWindowViewModelTests
         Assert.False(viewModel.IsConnected);
         Assert.Equal("Bluetooth radio state unknown.", viewModel.SystemBluetooth);
         Assert.False(viewModel.HasUpdateBanner);
-        Assert.False(viewModel.HasAndroidDownloadPrompt);
     }
 
     [Fact]
@@ -159,82 +158,4 @@ public sealed class MainWindowViewModelTests
         Assert.Single(viewModel.PairingApprovals);
     }
 
-    [Fact]
-    public void ShowsAndroidDownloadPromptForUnpairedUsersAfterPromptStateLoads()
-    {
-        MainWindowViewModel viewModel = new();
-
-        viewModel.SetAndroidDownloadPromptState(dismissed: false, hasPairedDevices: false);
-
-        Assert.True(viewModel.HasAndroidDownloadPrompt);
-        Assert.Equal(AndroidDownloadPrompt.GooglePlayUrl, viewModel.AndroidDownloadUrl);
-    }
-
-    [Fact]
-    public void HidesAndroidDownloadPromptWhenDismissed()
-    {
-        MainWindowViewModel viewModel = new();
-        viewModel.SetAndroidDownloadPromptState(dismissed: false, hasPairedDevices: false);
-
-        viewModel.DismissAndroidDownloadPrompt();
-
-        Assert.False(viewModel.HasAndroidDownloadPrompt);
-    }
-
-    [Fact]
-    public void HidesAndroidDownloadPromptWhenPairedDevicesExist()
-    {
-        MainWindowViewModel viewModel = new();
-
-        viewModel.SetAndroidDownloadPromptState(dismissed: false, hasPairedDevices: true);
-
-        Assert.False(viewModel.HasAndroidDownloadPrompt);
-    }
-
-    [Fact]
-    public void HidesAndroidDownloadPromptWhenConnected()
-    {
-        MainWindowViewModel viewModel = new();
-        viewModel.SetAndroidDownloadPromptState(dismissed: false, hasPairedDevices: false);
-
-        viewModel.SetBluetoothState(
-            DesktopUiState.Connected,
-            BluetoothStatusModel.DefaultStatus with
-            {
-                Status = "connected",
-                ConnectedClientCount = 1,
-                System = BluetoothStatusModel.DefaultSystemStatus with { AdapterPresent = true, RadioState = "on" }
-            });
-
-        Assert.False(viewModel.HasAndroidDownloadPrompt);
-    }
-
-    [Fact]
-    public void HidesAndroidDownloadPromptWhilePairingApprovalIsVisible()
-    {
-        MainWindowViewModel viewModel = new();
-        viewModel.SetAndroidDownloadPromptState(dismissed: false, hasPairedDevices: false);
-
-        viewModel.SetPairingApprovals([
-            new PendingPairingApprovalView("approval-1", "Pixel 9", "123456", 1, 2, null)
-        ]);
-
-        Assert.False(viewModel.HasAndroidDownloadPrompt);
-    }
-
-    [Fact]
-    public void RaisesAndroidDownloadPromptChanges()
-    {
-        MainWindowViewModel viewModel = new();
-        List<string?> changed = [];
-        viewModel.PropertyChanged += (_, eventArgs) => changed.Add(eventArgs.PropertyName);
-
-        viewModel.SetAndroidDownloadPromptState(dismissed: false, hasPairedDevices: false);
-        viewModel.SetPairingApprovals([
-            new PendingPairingApprovalView("approval-1", "Pixel 9", "123456", 1, 2, null)
-        ]);
-
-        Assert.Contains(nameof(MainWindowViewModel.HasAndroidDownloadPrompt), changed);
-        Assert.Contains(nameof(MainWindowViewModel.AndroidDownloadUrl), changed);
-    }
 }
