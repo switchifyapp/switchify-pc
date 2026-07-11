@@ -35,6 +35,10 @@ public sealed class SetupGuideWindowTests
                 Assert.Contains("Step 1 of 4", TextBlocks(window));
                 Assert.NotNull(ButtonByAutomationName(window, "Minimize"));
                 Assert.NotNull(ButtonByAutomationName(window, "Close"));
+                SolidColorBrush chromeForeground = Assert.IsType<SolidColorBrush>(window.FindResource("ChromeForeground"));
+                Assert.Equal(chromeForeground.Color, Assert.IsType<SolidColorBrush>(TextBlockByText(window, "Setup guide").Foreground).Color);
+                Assert.Equal(chromeForeground.Color, Assert.IsType<SolidColorBrush>(TextBlockByText(window, "Connect Switchify for Android").Foreground).Color);
+                Assert.Equal(chromeForeground.Color, Assert.IsType<SolidColorBrush>(TextBlockByText(window, "Step 1 of 4").Foreground).Color);
             }
             finally
             {
@@ -142,6 +146,19 @@ public sealed class SetupGuideWindowTests
             if (node is WpfButton { Content: string text }) content.Add(text);
         });
         return content;
+    }
+
+    private static TextBlock TextBlockByText(DependencyObject root, string text)
+    {
+        TextBlock? result = null;
+        Collect(root, node =>
+        {
+            if (result is null && node is TextBlock textBlock && textBlock.Text == text)
+            {
+                result = textBlock;
+            }
+        });
+        return Assert.IsType<TextBlock>(result);
     }
 
     private static WpfButton? ButtonByAutomationName(DependencyObject root, string name)
