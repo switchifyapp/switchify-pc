@@ -19,7 +19,7 @@ public sealed class SettingsControllerTests
             Reason: null,
             Registration: null));
         FakePointerSettings pointer = new(new PointerMovementSettings(150));
-        FakeMouseRepeatSettings mouseRepeat = new(new MouseRepeatSettings(false, 500, 1000));
+        FakeMouseRepeatSettings mouseRepeat = new(new MouseRepeatSettings(false, 500, 1000, 2000));
         FakeCursorOverlaySettings cursor = new(CursorOverlaySettingsModel.Default with
         {
             Enabled = false,
@@ -46,6 +46,7 @@ public sealed class SettingsControllerTests
         Assert.False(viewModel.MouseRepeatEnabled);
         Assert.Equal(500, viewModel.MouseRepeatMoveIntervalMs);
         Assert.Equal(1000, viewModel.MouseRepeatScrollIntervalMs);
+        Assert.True(viewModel.IsMouseRepeatAccelerationLong);
         Assert.False(viewModel.CursorOverlayEnabled);
         Assert.Equal("Blue", viewModel.CursorOverlayColor);
         Assert.Equal("Switchify PC is up to date.", viewModel.UpdateStatusMessage);
@@ -112,14 +113,17 @@ public sealed class SettingsControllerTests
         MouseRepeatSettings saved = controller.SetMouseRepeatEnabled(false);
         saved = controller.SetMouseRepeatMoveIntervalMs(47);
         saved = controller.SetMouseRepeatScrollIntervalMs(1001);
+        saved = controller.SetMouseRepeatAccelerationDurationMs(450);
 
         Assert.False(saved.Enabled);
         Assert.Equal(100, saved.MoveIntervalMs);
         Assert.Equal(1000, saved.ScrollIntervalMs);
+        Assert.Equal(500, saved.AccelerationDurationMs);
         Assert.Equal(saved, mouseRepeat.Saved);
         Assert.False(viewModel.MouseRepeatEnabled);
         Assert.Equal("0.1 s", viewModel.MouseRepeatMoveInterval);
         Assert.Equal("1 s", viewModel.MouseRepeatScrollInterval);
+        Assert.True(viewModel.IsMouseRepeatAccelerationShort);
     }
 
     [Fact]

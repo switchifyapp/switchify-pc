@@ -89,6 +89,14 @@ public partial class SettingsWindow : Window
 
     private void MouseRepeatScrollInterval1000_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatScrollIntervalMs(1000));
 
+    private void MouseRepeatAccelerationOff_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatAccelerationDurationMs(0));
+
+    private void MouseRepeatAccelerationShort_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatAccelerationDurationMs(500));
+
+    private void MouseRepeatAccelerationMedium_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatAccelerationDurationMs(1000));
+
+    private void MouseRepeatAccelerationLong_Checked(object sender, RoutedEventArgs e) => SaveIfReady(() => controller!.SetMouseRepeatAccelerationDurationMs(2000));
+
     private void SectionNav_Checked(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: string section }) return;

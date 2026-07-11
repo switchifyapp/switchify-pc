@@ -512,6 +512,37 @@
                                                          Style="{StaticResource SegmentRadio}" />
                                         </UniformGrid>
 
+                                        <StackPanel Margin="0,14,0,0">
+                                            <TextBlock Text="Movement acceleration" Style="{StaticResource DetailLabel}" />
+                                            <TextBlock Margin="0,4,0,0"
+                                                       Text="Gradually increase repeated movement to the selected pointer speed."
+                                                       Style="{StaticResource MutedText}" />
+                                        </StackPanel>
+
+                                        <UniformGrid Margin="0,14,0,0" Columns="4"
+                                                     IsEnabled="{Binding MouseRepeatEnabled}">
+                                            <RadioButton Content="Off"
+                                                         GroupName="MouseRepeatAcceleration"
+                                                         IsChecked="{Binding IsMouseRepeatAccelerationOff, Mode=OneWay}"
+                                                         Checked="MouseRepeatAccelerationOff_Checked"
+                                                         Style="{StaticResource SegmentRadio}" />
+                                            <RadioButton Content="Short"
+                                                         GroupName="MouseRepeatAcceleration"
+                                                         IsChecked="{Binding IsMouseRepeatAccelerationShort, Mode=OneWay}"
+                                                         Checked="MouseRepeatAccelerationShort_Checked"
+                                                         Style="{StaticResource SegmentRadio}" />
+                                            <RadioButton Content="Medium"
+                                                         GroupName="MouseRepeatAcceleration"
+                                                         IsChecked="{Binding IsMouseRepeatAccelerationMedium, Mode=OneWay}"
+                                                         Checked="MouseRepeatAccelerationMedium_Checked"
+                                                         Style="{StaticResource SegmentRadio}" />
+                                            <RadioButton Content="Long"
+                                                         GroupName="MouseRepeatAcceleration"
+                                                         IsChecked="{Binding IsMouseRepeatAccelerationLong, Mode=OneWay}"
+                                                         Checked="MouseRepeatAccelerationLong_Checked"
+                                                         Style="{StaticResource SegmentRadio}" />
+                                        </UniformGrid>
+
                                         <Grid Margin="0,14,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />

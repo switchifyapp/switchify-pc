@@ -137,7 +137,7 @@ public sealed class SettingsViewModelTests
     {
         SettingsViewModel viewModel = new();
 
-        viewModel.SetMouseRepeatSettings(new MouseRepeatSettings(false, 100, 1000));
+        viewModel.SetMouseRepeatSettings(new MouseRepeatSettings(false, 100, 1000, 2000));
 
         Assert.False(viewModel.MouseRepeatEnabled);
         Assert.Equal(100, viewModel.MouseRepeatMoveIntervalMs);
@@ -148,6 +148,8 @@ public sealed class SettingsViewModelTests
         Assert.Equal("1 s", viewModel.MouseRepeatScrollInterval);
         Assert.True(viewModel.IsMouseRepeatScrollInterval1000);
         Assert.False(viewModel.IsMouseRepeatScrollInterval500);
+        Assert.True(viewModel.IsMouseRepeatAccelerationLong);
+        Assert.False(viewModel.IsMouseRepeatAccelerationMedium);
     }
 
     [Fact]
@@ -341,6 +343,7 @@ public sealed class SettingsViewModelTests
         Assert.Contains(nameof(SettingsViewModel.MouseRepeatScrollInterval), changed);
         Assert.Contains(nameof(SettingsViewModel.IsMouseRepeatMoveInterval100), changed);
         Assert.Contains(nameof(SettingsViewModel.IsMouseRepeatScrollInterval1000), changed);
+        Assert.Contains(nameof(SettingsViewModel.IsMouseRepeatAccelerationMedium), changed);
         Assert.Contains(nameof(SettingsViewModel.IsUpdateDownloading), changed);
         Assert.Contains(nameof(SettingsViewModel.IsUpdateDownloadIndeterminate), changed);
         Assert.Contains(nameof(SettingsViewModel.UpdateDownloadPercent), changed);

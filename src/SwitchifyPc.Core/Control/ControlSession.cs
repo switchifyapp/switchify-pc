@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using SwitchifyPc.Core.Input;
 using SwitchifyPc.Core.Pairing;
+using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Protocol;
 
 namespace SwitchifyPc.Core.Control;
@@ -287,7 +288,13 @@ public sealed class ControlSession
                         ["moveIntervalMs"] = profile.Capabilities.MouseRepeat.MoveIntervalMs,
                         ["scrollIntervalMs"] = profile.Capabilities.MouseRepeat.ScrollIntervalMs,
                         ["minIntervalMs"] = profile.Capabilities.MouseRepeat.MinIntervalMs,
-                        ["maxIntervalMs"] = profile.Capabilities.MouseRepeat.MaxIntervalMs
+                        ["maxIntervalMs"] = profile.Capabilities.MouseRepeat.MaxIntervalMs,
+                        ["accelerationDurationMs"] = profile.Capabilities.MouseRepeat.AccelerationDurationMs,
+                        ["accelerationDurationOptionsMs"] = new JsonArray(
+                            (profile.Capabilities.MouseRepeat.AccelerationDurationOptionsMs ?? MouseRepeatSettingsModel.AccelerationDurationOptionsMs)
+                                .Select(duration => JsonValue.Create(duration))
+                                .ToArray<JsonNode?>()),
+                        ["accelerationInitialScalePercent"] = profile.Capabilities.MouseRepeat.AccelerationInitialScalePercent
                     },
                     ["pointerSpeed"] = new JsonObject
                     {
