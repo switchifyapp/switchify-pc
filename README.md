@@ -56,6 +56,24 @@ Run tests:
 dotnet test src/SwitchifyPc.sln -c Release --no-build
 ```
 
+### Isolated Windows Sandbox testing
+
+Create an unpackaged test build and launch it in Windows Sandbox without changing the installed host app or host app data:
+
+```powershell
+pwsh scripts/Start-WindowsSandbox.ps1
+```
+
+Use `-NoLaunch` to publish and validate the sandbox artifacts without opening Windows Sandbox. Artifacts are written under `dist/sandbox`; the generated configuration disables networking, maps the published app read-only, and starts the app automatically. The sandbox build uses `asInvoker` with `uiAccess=false`, while normal production builds retain the UIAccess manifest.
+
+If Windows Sandbox is unavailable, enable it from an elevated PowerShell prompt and restart if requested:
+
+```powershell
+Enable-WindowsOptionalFeature -FeatureName "Containers-DisposableClientVM" -All -Online
+```
+
+This path is intended for isolated UI and process testing. Windows Sandbox does not provide the Bluetooth pairing environment used by Switchify, so unavailable Bluetooth status is expected; startup registration, packaged updater behavior, signing, and installer validation must use their existing test paths.
+
 ## Windows packaging
 
 Stage a local Windows x64 package without signing:
