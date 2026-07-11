@@ -126,6 +126,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public bool IsMouseRepeatScrollInterval1000 => mouseRepeatSettings.ScrollIntervalMs == 1000;
 
+    public bool IsMouseRepeatAccelerationOff => mouseRepeatSettings.AccelerationDurationMs == 0;
+
+    public bool IsMouseRepeatAccelerationShort => mouseRepeatSettings.AccelerationDurationMs == 500;
+
+    public bool IsMouseRepeatAccelerationMedium => mouseRepeatSettings.AccelerationDurationMs == 1000;
+
+    public bool IsMouseRepeatAccelerationLong => mouseRepeatSettings.AccelerationDurationMs == 2000;
+
     public bool CursorOverlayEnabled => cursorOverlaySettings.Enabled;
 
     public CursorOverlaySettings CursorOverlaySettings => cursorOverlaySettings;
@@ -230,6 +238,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(IsMouseRepeatScrollInterval250));
         OnPropertyChanged(nameof(IsMouseRepeatScrollInterval500));
         OnPropertyChanged(nameof(IsMouseRepeatScrollInterval1000));
+        OnPropertyChanged(nameof(IsMouseRepeatAccelerationOff));
+        OnPropertyChanged(nameof(IsMouseRepeatAccelerationShort));
+        OnPropertyChanged(nameof(IsMouseRepeatAccelerationMedium));
+        OnPropertyChanged(nameof(IsMouseRepeatAccelerationLong));
     }
 
     public void SetCursorOverlaySettings(CursorOverlaySettings settings)

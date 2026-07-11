@@ -4,7 +4,11 @@ using SwitchifyPc.Core.Storage;
 
 namespace SwitchifyPc.Core.Settings;
 
-public sealed record MouseRepeatSettings(bool Enabled, int MoveIntervalMs, int ScrollIntervalMs);
+public sealed record MouseRepeatSettings(
+    bool Enabled,
+    int MoveIntervalMs,
+    int ScrollIntervalMs,
+    int AccelerationDurationMs = MouseRepeatSettingsModel.DefaultAccelerationDurationMs);
 
 public static class MouseRepeatSettingsModel
 {
@@ -13,15 +17,24 @@ public static class MouseRepeatSettingsModel
     public const int MinIntervalMs = 100;
     public const int MaxIntervalMs = 2000;
     public const int IntervalStepMs = 50;
+    public const int AccelerationInitialScalePercent = 25;
+    public const int DefaultAccelerationDurationMs = 1000;
 
-    public static readonly MouseRepeatSettings Default = new(DefaultEnabled, DefaultIntervalMs, DefaultIntervalMs);
+    public static readonly IReadOnlyList<int> AccelerationDurationOptionsMs = [0, 500, 1000, 2000];
+
+    public static readonly MouseRepeatSettings Default = new(
+        DefaultEnabled,
+        DefaultIntervalMs,
+        DefaultIntervalMs,
+        DefaultAccelerationDurationMs);
 
     public static MouseRepeatSettings Normalize(MouseRepeatSettings settings)
     {
         return settings with
         {
             MoveIntervalMs = NormalizeInterval(settings.MoveIntervalMs),
-            ScrollIntervalMs = NormalizeInterval(settings.ScrollIntervalMs)
+            ScrollIntervalMs = NormalizeInterval(settings.ScrollIntervalMs),
+            AccelerationDurationMs = NormalizeAccelerationDuration(settings.AccelerationDurationMs)
         };
     }
 
@@ -60,7 +73,14 @@ public static class MouseRepeatSettingsModel
             scrollIntervalMs = scrollIntervalValue;
         }
 
-        return Normalize(new MouseRepeatSettings(enabled, moveIntervalMs, scrollIntervalMs));
+        int accelerationDurationMs = DefaultAccelerationDurationMs;
+        if (candidate.TryGetPropertyValue("accelerationDurationMs", out JsonNode? accelerationNode) &&
+            TryGetInteger(accelerationNode, out int accelerationValue))
+        {
+            accelerationDurationMs = accelerationValue;
+        }
+
+        return Normalize(new MouseRepeatSettings(enabled, moveIntervalMs, scrollIntervalMs, accelerationDurationMs));
     }
 
     public static JsonObject ToJsonObject(MouseRepeatSettings settings)
@@ -70,14 +90,37 @@ public static class MouseRepeatSettingsModel
         {
             ["enabled"] = normalized.Enabled,
             ["moveIntervalMs"] = normalized.MoveIntervalMs,
-            ["scrollIntervalMs"] = normalized.ScrollIntervalMs
+            ["scrollIntervalMs"] = normalized.ScrollIntervalMs,
+            ["accelerationDurationMs"] = normalized.AccelerationDurationMs
         };
+    }
+
+    public static double AccelerationScale(int durationMs, TimeSpan elapsed)
+    {
+        int normalizedDuration = NormalizeAccelerationDuration(durationMs);
+        if (normalizedDuration == 0)
+        {
+            return 1;
+        }
+
+        double progress = Math.Clamp(elapsed.TotalMilliseconds / normalizedDuration, 0, 1);
+        double easedProgress = progress * progress * (3 - (2 * progress));
+        double initialScale = AccelerationInitialScalePercent / 100d;
+        return initialScale + ((1 - initialScale) * easedProgress);
     }
 
     private static int NormalizeInterval(int value)
     {
         int rounded = (int)Math.Round(value / (double)IntervalStepMs, MidpointRounding.AwayFromZero) * IntervalStepMs;
         return Math.Clamp(rounded, MinIntervalMs, MaxIntervalMs);
+    }
+
+    private static int NormalizeAccelerationDuration(int value)
+    {
+        return AccelerationDurationOptionsMs
+            .OrderBy(option => Math.Abs((long)option - value))
+            .ThenBy(option => option)
+            .First();
     }
 
     private static bool TryGetBoolean(JsonNode? value, out bool result)

@@ -108,6 +108,10 @@ public sealed class ControlSessionTests
         Assert.Equal("pointer.profile", response.RootElement.GetProperty("type").GetString());
         JsonElement payload = response.RootElement.GetProperty("payload");
         Assert.Equal("display-1", payload.GetProperty("displayId").GetString());
+        JsonElement mouseRepeat = payload.GetProperty("capabilities").GetProperty("mouseRepeat");
+        Assert.Equal(1000, mouseRepeat.GetProperty("accelerationDurationMs").GetInt32());
+        Assert.Equal([0, 500, 1000, 2000], mouseRepeat.GetProperty("accelerationDurationOptionsMs").EnumerateArray().Select(value => value.GetInt32()));
+        Assert.Equal(25, mouseRepeat.GetProperty("accelerationInitialScalePercent").GetInt32());
         Assert.True(ProtocolValidator.ValidateProtocolResponse(response.RootElement).Ok);
     }
 
@@ -165,7 +169,7 @@ public sealed class ControlSessionTests
 
         Assert.True(start.HasResponse);
         Assert.True(stop.HasResponse);
-        Assert.Equal(["moveMouseBy:4,5"], adapter.Calls);
+        Assert.Equal(["moveMouseBy:1,1.25"], adapter.Calls);
     }
 
     [Fact]

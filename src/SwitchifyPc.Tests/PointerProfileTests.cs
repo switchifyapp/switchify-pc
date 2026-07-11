@@ -26,6 +26,9 @@ public sealed class PointerProfileTests
         Assert.Equal(250, profile.Capabilities.MouseRepeat.IntervalMs);
         Assert.Equal(250, profile.Capabilities.MouseRepeat.MoveIntervalMs);
         Assert.Equal(250, profile.Capabilities.MouseRepeat.ScrollIntervalMs);
+        Assert.Equal(1000, profile.Capabilities.MouseRepeat.AccelerationDurationMs);
+        Assert.Equal([0, 500, 1000, 2000], profile.Capabilities.MouseRepeat.AccelerationDurationOptionsMs);
+        Assert.Equal(25, profile.Capabilities.MouseRepeat.AccelerationInitialScalePercent);
         Assert.True(profile.Capabilities.PointerSpeed.Supported);
         Assert.True(profile.Capabilities.PointerSpeed.SetSupported);
         Assert.Equal(100, profile.Capabilities.PointerSpeed.ScalePercent);

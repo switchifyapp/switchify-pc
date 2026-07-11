@@ -215,7 +215,10 @@ public sealed class ProtocolValidatorTests
                         moveIntervalMs = 250,
                         scrollIntervalMs = 500,
                         minIntervalMs = 100,
-                        maxIntervalMs = 2000
+                        maxIntervalMs = 2000,
+                        accelerationDurationMs = 1000,
+                        accelerationDurationOptionsMs = new[] { 0, 500, 1000, 2000 },
+                        accelerationInitialScalePercent = 25
                     },
                     pointerSpeed = new
                     {
@@ -335,6 +338,44 @@ public sealed class ProtocolValidatorTests
                         scrollIntervalMs = 2501,
                         minIntervalMs = 100,
                         maxIntervalMs = 2000
+                    }
+                }
+            },
+            error = (object?)null
+        }));
+
+        Assert.False(result.Ok);
+        Assert.Equal("invalid_payload", result.Error);
+    }
+
+    [Fact]
+    public void RejectsInvalidMouseRepeatAccelerationCapabilities()
+    {
+        ProtocolValidationResult result = ProtocolValidator.ValidateProtocolResponse(Json(new
+        {
+            version = ProtocolConstants.ProtocolVersion,
+            id = "profile-1",
+            type = "pointer.profile",
+            ok = true,
+            payload = new
+            {
+                displayId = "display-1",
+                scaleFactor = 1,
+                bounds = new { x = 0, y = 0, width = 1920, height = 1080 },
+                maxDelta = ProtocolConstants.MaxPointerDelta,
+                recommendedDeltas = new { small = 50, medium = 130, large = 252 },
+                capabilities = new
+                {
+                    mouseRepeat = new
+                    {
+                        supported = true,
+                        enabled = true,
+                        intervalMs = 250,
+                        minIntervalMs = 100,
+                        maxIntervalMs = 2000,
+                        accelerationDurationMs = -1,
+                        accelerationDurationOptionsMs = new[] { 0, 1000, 500 },
+                        accelerationInitialScalePercent = 0
                     }
                 }
             },

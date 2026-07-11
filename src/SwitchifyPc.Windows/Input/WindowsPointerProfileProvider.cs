@@ -49,7 +49,10 @@ public sealed class WindowsPointerProfileProvider : IPointerProfileProvider
                     MoveIntervalMs: mouseRepeatSettings.MoveIntervalMs,
                     ScrollIntervalMs: mouseRepeatSettings.ScrollIntervalMs,
                     MinIntervalMs: MouseRepeatSettingsModel.MinIntervalMs,
-                    MaxIntervalMs: MouseRepeatSettingsModel.MaxIntervalMs),
+                    MaxIntervalMs: MouseRepeatSettingsModel.MaxIntervalMs,
+                    AccelerationDurationMs: mouseRepeatSettings.AccelerationDurationMs,
+                    AccelerationDurationOptionsMs: MouseRepeatSettingsModel.AccelerationDurationOptionsMs,
+                    AccelerationInitialScalePercent: MouseRepeatSettingsModel.AccelerationInitialScalePercent),
                 PointerSpeed: PointerProfile.PointerSpeedFor(settings)));
     }
 

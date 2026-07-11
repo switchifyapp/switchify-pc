@@ -403,7 +403,50 @@ public static partial class ProtocolValidator
         }
 
         return ValidateOptionalInterval(mouseRepeat, "moveIntervalMs", minIntervalMs, maxIntervalMs) &&
-            ValidateOptionalInterval(mouseRepeat, "scrollIntervalMs", minIntervalMs, maxIntervalMs);
+            ValidateOptionalInterval(mouseRepeat, "scrollIntervalMs", minIntervalMs, maxIntervalMs) &&
+            ValidateOptionalMouseAcceleration(mouseRepeat);
+    }
+
+    private static bool ValidateOptionalMouseAcceleration(JsonElement mouseRepeat)
+    {
+        if (mouseRepeat.TryGetProperty("accelerationDurationMs", out JsonElement duration) &&
+            (duration.ValueKind != JsonValueKind.Number || !duration.TryGetInt32(out int durationMs) || durationMs < 0 || durationMs > 60_000))
+        {
+            return false;
+        }
+
+        if (mouseRepeat.TryGetProperty("accelerationInitialScalePercent", out JsonElement initialScale) &&
+            (initialScale.ValueKind != JsonValueKind.Number || !initialScale.TryGetInt32(out int percent) || percent < 1 || percent > 100))
+        {
+            return false;
+        }
+
+        if (!mouseRepeat.TryGetProperty("accelerationDurationOptionsMs", out JsonElement options))
+        {
+            return true;
+        }
+
+        if (options.ValueKind != JsonValueKind.Array || options.GetArrayLength() is < 1 or > 10)
+        {
+            return false;
+        }
+
+        int previous = -1;
+        foreach (JsonElement option in options.EnumerateArray())
+        {
+            if (option.ValueKind != JsonValueKind.Number ||
+                !option.TryGetInt32(out int optionMs) ||
+                optionMs < 0 ||
+                optionMs > 60_000 ||
+                optionMs <= previous)
+            {
+                return false;
+            }
+
+            previous = optionMs;
+        }
+
+        return true;
     }
 
     private static bool ValidateOptionalInterval(JsonElement value, string propertyName, int minIntervalMs, int maxIntervalMs)

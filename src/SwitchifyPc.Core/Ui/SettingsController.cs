@@ -66,6 +66,13 @@ public sealed class SettingsController
         return saved;
     }
 
+    public MouseRepeatSettings SetMouseRepeatAccelerationDurationMs(int durationMs)
+    {
+        MouseRepeatSettings saved = mouseRepeatSettings.Save(CurrentMouseRepeatSettings() with { AccelerationDurationMs = durationMs });
+        viewModel.SetMouseRepeatSettings(saved);
+        return saved;
+    }
+
     public async Task SetStartWithSystemAsync(bool enabled)
     {
         viewModel.SetStartupSettings(await startupSettings.SetStartWithSystemAsync(enabled).ConfigureAwait(false));

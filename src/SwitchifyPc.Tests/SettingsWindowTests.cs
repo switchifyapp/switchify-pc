@@ -63,6 +63,13 @@ public sealed class SettingsWindowTests
                 Assert.Contains("Time between repeated pointer movements.", text);
                 Assert.Contains("Scroll repeat interval", text);
                 Assert.Contains("Time between repeated scroll actions.", text);
+                Assert.Contains("Movement acceleration", text);
+                Assert.Contains("Gradually increase repeated movement to the selected pointer speed.", text);
+                IReadOnlyList<string> radioButtons = RadioButtonContent(window);
+                Assert.Contains("Off", radioButtons);
+                Assert.Contains("Short", radioButtons);
+                Assert.Contains("Medium", radioButtons);
+                Assert.Contains("Long", radioButtons);
                 Assert.DoesNotContain("Repeat Interval", text);
             }
             finally

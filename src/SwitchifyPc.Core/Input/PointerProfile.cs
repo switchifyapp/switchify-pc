@@ -15,7 +15,10 @@ public sealed record MouseRepeatCapabilities(
     int MoveIntervalMs,
     int ScrollIntervalMs,
     int MinIntervalMs,
-    int MaxIntervalMs);
+    int MaxIntervalMs,
+    int AccelerationDurationMs = MouseRepeatSettingsModel.DefaultAccelerationDurationMs,
+    IReadOnlyList<int>? AccelerationDurationOptionsMs = null,
+    int AccelerationInitialScalePercent = MouseRepeatSettingsModel.AccelerationInitialScalePercent);
 public sealed record PointerSpeedCapabilities(
     bool Supported,
     bool SetSupported,
@@ -84,7 +87,10 @@ public static class PointerProfile
                     MoveIntervalMs: MouseRepeatSettingsModel.Default.MoveIntervalMs,
                     ScrollIntervalMs: MouseRepeatSettingsModel.Default.ScrollIntervalMs,
                     MinIntervalMs: MouseRepeatSettingsModel.MinIntervalMs,
-                    MaxIntervalMs: MouseRepeatSettingsModel.MaxIntervalMs),
+                    MaxIntervalMs: MouseRepeatSettingsModel.MaxIntervalMs,
+                    AccelerationDurationMs: MouseRepeatSettingsModel.Default.AccelerationDurationMs,
+                    AccelerationDurationOptionsMs: MouseRepeatSettingsModel.AccelerationDurationOptionsMs,
+                    AccelerationInitialScalePercent: MouseRepeatSettingsModel.AccelerationInitialScalePercent),
                 PointerSpeed: PointerSpeedFor(PointerMovementSettingsModel.Default)));
     }
 
