@@ -111,19 +111,19 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel>
                     <TextBlock Text="Setup guide"
-                               Foreground="{DynamicResource TextMuted}"
+                               Foreground="{DynamicResource ChromeForeground}"
                                FontSize="12"
                                FontWeight="Bold" />
                     <TextBlock Margin="0,5,0,0"
                                Text="Connect Switchify for Android"
-                               Foreground="{DynamicResource Text}"
+                               Foreground="{DynamicResource ChromeForeground}"
                                FontSize="25"
                                FontWeight="Bold" />
                 </StackPanel>
                 <TextBlock Grid.Column="1"
                            VerticalAlignment="Center"
                            Text="{Binding StepProgress}"
-                           Foreground="{DynamicResource BrandPrimary}"
+                           Foreground="{DynamicResource ChromeForeground}"
                            FontWeight="Bold" />
             </Grid>
 
