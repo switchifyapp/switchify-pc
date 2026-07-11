@@ -37,4 +37,6 @@ jobs:
 
       - name: Verify staged Windows package
         shell: pwsh
+        env:
+          SWITCHIFY_ALLOW_UNSIGNED_UIACCESS_PACKAGE: '1'
         run: ./scripts/Verify-DotnetPackage.ps1
