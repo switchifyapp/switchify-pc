@@ -1,58 +1,10 @@
 using SwitchifyPc.Core.Input;
-using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Windows.CursorOverlay;
 
 namespace SwitchifyPc.Tests;
 
 public sealed class CursorOverlayScrollRepeatFeedbackTests
 {
-    [Theory]
-    [InlineData(0, 0)]
-    [InlineData(250, 0.15625)]
-    [InlineData(500, 0.5)]
-    [InlineData(750, 0.84375)]
-    [InlineData(1000, 1)]
-    public void RepeatProgressUsesMouseAccelerationEasing(int elapsedMs, float expected)
-    {
-        float progress = CursorOverlayRepeatProgress.Resolve(
-            1000,
-            TimeSpan.FromMilliseconds(elapsedMs));
-        double movementScale = MouseRepeatSettingsModel.AccelerationScale(
-            1000,
-            TimeSpan.FromMilliseconds(elapsedMs));
-        double normalizedMovementScale =
-            (movementScale - (MouseRepeatSettingsModel.AccelerationInitialScalePercent / 100d)) /
-            (1 - (MouseRepeatSettingsModel.AccelerationInitialScalePercent / 100d));
-
-        Assert.Equal(expected, progress, precision: 5);
-        Assert.Equal(normalizedMovementScale, progress, precision: 5);
-    }
-
-    [Fact]
-    public void RepeatWithoutAccelerationResolvesCompleteWithoutAnimating()
-    {
-        Assert.Equal(1, CursorOverlayRepeatProgress.Resolve(0, TimeSpan.Zero));
-    }
-
-    [Theory]
-    [InlineData(-1, null)]
-    [InlineData(0, null)]
-    [InlineData(0.25, 90f)]
-    [InlineData(0.5, 180f)]
-    [InlineData(1, 360f)]
-    [InlineData(2, 360f)]
-    public void RepeatArcReturnsOnlyDrawableBoundedSweeps(float progress, float? expected)
-    {
-        Assert.Equal(expected, CursorOverlayRepeatArc.Sweep(progress));
-    }
-
-    [Fact]
-    public void RepeatArcRejectsNonFiniteProgress()
-    {
-        Assert.Null(CursorOverlayRepeatArc.Sweep(float.NaN));
-        Assert.Null(CursorOverlayRepeatArc.Sweep(float.PositiveInfinity));
-    }
-
     [Fact]
     public void RenderFailureGuardDisablesRenderingAndReportsOnlyOnce()
     {

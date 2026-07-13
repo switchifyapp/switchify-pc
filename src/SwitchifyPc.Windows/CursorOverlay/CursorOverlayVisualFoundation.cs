@@ -61,50 +61,12 @@ internal sealed record CursorOverlayVisualTokens(
 internal static class CursorOverlayFeedbackTiming
 {
     public const int LandingDurationMs = 300;
-    public const int DoubleClickIntervalMs = 250;
-    public const int DoubleClickDurationMs = LandingDurationMs + DoubleClickIntervalMs;
-    public const int StaticDoubleClickGapStartsMs = 170;
+    public const int DoubleClickDurationMs = 550;
 }
 
-internal sealed record CursorOverlayLandingFrame(float CoreScale, float HaloProgress, float Opacity)
+internal static class CursorOverlayStaticFeedback
 {
-    public static CursorOverlayLandingFrame Resolve(double elapsedMs)
-    {
-        float progress = (float)Math.Clamp(
-            elapsedMs / CursorOverlayFeedbackTiming.LandingDurationMs,
-            0,
-            1);
-        float coreScale = Math.Min(progress / 0.22f, 1);
-        float haloProgress = Math.Min(progress / 0.72f, 1);
-        float opacity = progress >= 1
-            ? 0
-            : progress < 0.72f
-                ? 1
-                : Math.Max(0, 1 - ((progress - 0.72f) / 0.28f));
-        return new CursorOverlayLandingFrame(coreScale, haloProgress, opacity);
-    }
-
-    public static CursorOverlayLandingFrame Static { get; } = Resolve(150);
-}
-
-internal static class CursorOverlayRepeatProgress
-{
-    public static float Resolve(int durationMs, TimeSpan elapsed)
-    {
-        if (durationMs <= 0) return 1;
-        double progress = Math.Clamp(elapsed.TotalMilliseconds / durationMs, 0, 1);
-        return (float)(progress * progress * (3 - (2 * progress)));
-    }
-}
-
-internal static class CursorOverlayRepeatArc
-{
-    public static float? Sweep(float progress)
-    {
-        if (!float.IsFinite(progress)) return null;
-        float sweep = Math.Clamp(progress, 0, 1) * 360;
-        return sweep > 0 ? sweep : null;
-    }
+    public const float LandingHaloProgress = 0.7f;
 }
 
 internal sealed class CursorOverlayRenderFailureGuard
@@ -155,44 +117,6 @@ internal static class CursorOverlayRepeatOwnership
     public static bool CanEnd(MouseRepeatFeedback? active, Guid generationId)
     {
         return active?.GenerationId == generationId;
-    }
-}
-
-internal interface ICursorOverlayMotionPolicy
-{
-    bool AnimationsEnabled();
-}
-
-internal sealed class WindowsCursorOverlayMotionPolicy : ICursorOverlayMotionPolicy
-{
-    private readonly Func<(bool Success, bool Enabled)> readSetting;
-
-    public WindowsCursorOverlayMotionPolicy(Func<(bool Success, bool Enabled)>? readSetting = null)
-    {
-        this.readSetting = readSetting ?? ReadSetting;
-    }
-
-    public bool AnimationsEnabled()
-    {
-        try
-        {
-            (bool success, bool enabled) = readSetting();
-            return !success || enabled;
-        }
-        catch (Exception error) when (error is DllNotFoundException or EntryPointNotFoundException)
-        {
-            return true;
-        }
-    }
-
-    private static (bool Success, bool Enabled) ReadSetting()
-    {
-        bool success = CursorOverlayNativeMethods.SystemParametersInfo(
-            CursorOverlayNativeMethods.SPI_GETCLIENTAREAANIMATION,
-            0,
-            out bool enabled,
-            0);
-        return (success, enabled);
     }
 }
 
