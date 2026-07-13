@@ -20,7 +20,7 @@
     <ApplicationIcon>..\..\build\icon.ico</ApplicationIcon>
     <ApplicationManifest Condition="'$(SwitchifySandboxBuild)' != 'true'">..\..\build\win-uiaccess.manifest</ApplicationManifest>
     <ApplicationManifest Condition="'$(SwitchifySandboxBuild)' == 'true'">..\..\build\win-sandbox.manifest</ApplicationManifest>
-    <Version>0.5.0</Version>
+    <Version>0.6.0</Version>
     <AssemblyVersion>0.4.2.0</AssemblyVersion>
     <FileVersion>0.4.2.0</FileVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
