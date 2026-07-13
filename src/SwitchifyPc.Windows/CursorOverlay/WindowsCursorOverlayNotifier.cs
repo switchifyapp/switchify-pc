@@ -19,6 +19,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
     private readonly Func<bool> animationsEnabled;
     private readonly Func<PointerPosition, double> displayScale;
     private readonly Func<double> now;
+    private readonly Action<string> warn;
     private readonly Lazy<OverlayThread> overlayThread;
     private readonly object sync = new();
     private System.Threading.Timer? followTimer;
@@ -26,6 +27,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
     private double cachedSettingsAtMs = double.NegativeInfinity;
     private double lastMoveRenderAtMs = double.NegativeInfinity;
     private bool dragActive;
+    private int renderingDisabled;
     private bool disposed;
 
     public WindowsCursorOverlayNotifier(
@@ -33,18 +35,21 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
         ICursorOverlaySettingsStore settingsStore,
         Func<double>? now = null,
         Func<bool>? animationsEnabled = null,
-        Func<PointerPosition, double>? displayScale = null)
+        Func<PointerPosition, double>? displayScale = null,
+        Action<string>? warn = null)
     {
         this.nativeInput = nativeInput;
         this.settingsStore = settingsStore;
         this.animationsEnabled = animationsEnabled ?? new WindowsCursorOverlayMotionPolicy().AnimationsEnabled;
         this.displayScale = displayScale ?? (position => CursorOverlayDpi.ScaleForPoint(position.X, position.Y));
         this.now = now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-        overlayThread = new Lazy<OverlayThread>(() => new OverlayThread());
+        this.warn = warn ?? Console.WriteLine;
+        overlayThread = new Lazy<OverlayThread>(() => new OverlayThread(HandleRenderFailure));
     }
 
     public void Show(CursorOverlayEvent cursorEvent)
     {
+        if (RenderingDisabled()) return;
         CursorOverlaySettings settings = CurrentSettings();
         if (!settings.Enabled) return;
         bool shouldFollow = ShouldFollowCursor(settings);
@@ -85,6 +90,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
 
     public void MarkControlActive()
     {
+        if (RenderingDisabled()) return;
         CursorOverlaySettings settings = CurrentSettings();
         if (settings.Enabled && ShouldFollowCursor(settings))
         {
@@ -94,6 +100,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
 
     public void SetDragActive(bool active)
     {
+        if (RenderingDisabled()) return;
         lock (sync)
         {
             if (dragActive == active) return;
@@ -118,6 +125,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
 
     public void BeginRepeat(MouseRepeatFeedback feedback)
     {
+        if (RenderingDisabled()) return;
         CursorOverlaySettings settings = CurrentSettings();
         if (!settings.Enabled) return;
         bool restorePersistentMarker = ShouldFollowCursor(settings);
@@ -158,11 +166,13 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
 
     private void StartFollowing()
     {
+        if (RenderingDisabled()) return;
         lock (sync)
         {
             if (followTimer is not null) return;
             followTimer = new System.Threading.Timer(_ =>
             {
+                if (RenderingDisabled()) return;
                 CursorOverlaySettings settings = CurrentSettings();
                 if (!settings.Enabled || !ShouldFollowCursor(settings))
                 {
@@ -189,6 +199,21 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
         lock (sync)
         {
             return followTimer is not null;
+        }
+    }
+
+    private bool RenderingDisabled() => Volatile.Read(ref renderingDisabled) != 0;
+
+    private void HandleRenderFailure(Exception error)
+    {
+        if (Interlocked.Exchange(ref renderingDisabled, 1) != 0) return;
+        StopFollowing();
+        try
+        {
+            warn(error.GetType().Name);
+        }
+        catch
+        {
         }
     }
 
@@ -287,11 +312,13 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
 
     private sealed class OverlayThread : IDisposable
     {
+        private readonly Action<Exception> onRenderFailure;
         private readonly TaskCompletionSource<OverlayForm> formReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly Thread thread;
 
-        public OverlayThread()
+        public OverlayThread(Action<Exception> onRenderFailure)
         {
+            this.onRenderFailure = onRenderFailure;
             thread = new Thread(Run)
             {
                 IsBackground = true,
@@ -305,7 +332,14 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
         {
             OverlayForm form = formReady.Task.GetAwaiter().GetResult();
             if (form.IsDisposed) return;
-            form.BeginInvoke(() => action(form));
+            try
+            {
+                form.BeginInvoke(() => form.ExecuteSafely(() => action(form)));
+            }
+            catch (Exception error)
+            {
+                onRenderFailure(error);
+            }
         }
 
         public void Dispose()
@@ -316,9 +350,15 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             {
                 form.BeginInvoke(() =>
                 {
-                    form.HideOverlay();
-                    form.Close();
-                    Forms.Application.ExitThread();
+                    try
+                    {
+                        form.HideOverlay();
+                    }
+                    finally
+                    {
+                        form.Close();
+                        Forms.Application.ExitThread();
+                    }
                 });
             }
         }
@@ -326,7 +366,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
         private void Run()
         {
             Forms.Application.EnableVisualStyles();
-            using OverlayForm form = new();
+            using OverlayForm form = new(onRenderFailure);
             _ = form.Handle;
             formReady.SetResult(form);
             Forms.Application.Run();
@@ -346,10 +386,13 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
 
     private sealed class OverlayForm : Forms.Form
     {
+        private const int AnimationIntervalMs = 33;
         private readonly Forms.Timer animationTimer = new();
         private readonly CrosshairLineForm horizontalCrosshair = new();
         private readonly CrosshairLineForm verticalCrosshair = new();
         private readonly CursorOverlayGenerationTracker generations = new();
+        private readonly CursorOverlayRenderFailureGuard renderFailureGuard = new();
+        private readonly Action<Exception> onRenderFailure;
         private CancellationTokenSource? hideCancellation;
         private CancellationTokenSource? pulseCancellation;
         private DateTime landingStartedAt = DateTime.MinValue;
@@ -372,8 +415,9 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
         private PointF cursorCenter = new(64, 64);
         private Color overlayColor = Color.FromArgb(211, 47, 47);
 
-        public OverlayForm()
+        public OverlayForm(Action<Exception> onRenderFailure)
         {
+            this.onRenderFailure = onRenderFailure;
             AutoScaleMode = Forms.AutoScaleMode.None;
             BackColor = Color.Black;
             ClientSize = new Size(visualTokens.WindowSize, visualTokens.WindowSize);
@@ -387,8 +431,32 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             StartPosition = Forms.FormStartPosition.Manual;
             TopMost = true;
 
-            animationTimer.Interval = 16;
-            animationTimer.Tick += (_, _) => TickAnimation();
+            animationTimer.Interval = AnimationIntervalMs;
+            animationTimer.Tick += (_, _) => ExecuteSafely(TickAnimation);
+        }
+
+        public void ExecuteSafely(Action action)
+        {
+            _ = renderFailureGuard.TryRun(action, HandleRenderFailure);
+        }
+
+        private void HandleRenderFailure(Exception error)
+        {
+            try
+            {
+                HideOverlay();
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                onRenderFailure(error);
+            }
+            catch
+            {
+            }
         }
 
         protected override bool ShowWithoutActivation => true;
@@ -421,7 +489,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                     scrollDy = command.CursorEvent.Dy;
                 }
 
-                _ = RenderLayeredOverlay();
+                RenderLayeredOverlay();
                 ApplyTopMostNoActivate();
                 ShowCrosshairs(command.Crosshairs, activeCursor, activeDisplayBounds, overlayColor, visualTokens.CrosshairThickness);
                 return;
@@ -457,11 +525,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             isDragActive = command.CursorEvent.Kind == CursorOverlayEventKind.Drag;
             landingStartedAt = isLandingAnimated ? DateTime.UtcNow : DateTime.MinValue;
 
-            if (!RenderLayeredOverlay())
-            {
-                HideOverlay();
-                return;
-            }
+            RenderLayeredOverlay();
 
             ApplyTopMostNoActivate();
             ShowCrosshairs(command.Crosshairs, cursor, displayBounds, overlayColor, visualTokens.CrosshairThickness);
@@ -516,11 +580,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             isDragActive = false;
             (System.Drawing.Point cursor, Rectangle displayBounds) = ApplyCommandFrame(command);
 
-            if (!RenderLayeredOverlay())
-            {
-                HideOverlay();
-                return;
-            }
+            RenderLayeredOverlay();
 
             ApplyTopMostNoActivate();
             ShowCrosshairs(command.Crosshairs, cursor, displayBounds, overlayColor, visualTokens.CrosshairThickness);
@@ -548,7 +608,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                 return;
             }
 
-            _ = RenderLayeredOverlay();
+            RenderLayeredOverlay();
             ApplyTopMostNoActivate();
         }
 
@@ -597,7 +657,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                     return;
                 }
 
-                _ = RenderLayeredOverlay();
+                RenderLayeredOverlay();
                 return;
             }
 
@@ -609,14 +669,14 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                     return;
                 }
 
-                _ = RenderLayeredOverlay();
+                RenderLayeredOverlay();
                 return;
             }
 
             if (activeRepeat is { Kind: MouseRepeatFeedbackKind.Move, AccelerationDurationMs: > 0 } repeat &&
                 repeatAnimationsEnabled)
             {
-                _ = RenderLayeredOverlay();
+                RenderLayeredOverlay();
                 if ((DateTime.UtcNow - repeatStartedAt).TotalMilliseconds >= repeat.AccelerationDurationMs)
                 {
                     animationTimer.Stop();
@@ -627,7 +687,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             animationTimer.Stop();
         }
 
-        private bool RenderLayeredOverlay()
+        private void RenderLayeredOverlay()
         {
             using Bitmap bitmap = new(ClientSize.Width, ClientSize.Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
             using (Graphics graphics = Graphics.FromImage(bitmap))
@@ -667,13 +727,22 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                 }
             }
 
-            IntPtr screenDc = CursorOverlayNativeMethods.GetDC(IntPtr.Zero);
-            IntPtr memoryDc = CursorOverlayNativeMethods.CreateCompatibleDC(screenDc);
-            IntPtr bitmapHandle = bitmap.GetHbitmap(Color.FromArgb(0));
-            IntPtr oldBitmap = CursorOverlayNativeMethods.SelectObject(memoryDc, bitmapHandle);
+            IntPtr screenDc = IntPtr.Zero;
+            IntPtr memoryDc = IntPtr.Zero;
+            IntPtr bitmapHandle = IntPtr.Zero;
+            IntPtr oldBitmap = IntPtr.Zero;
 
             try
             {
+                screenDc = CursorOverlayNativeMethods.GetDC(IntPtr.Zero);
+                if (screenDc == IntPtr.Zero) throw new InvalidOperationException("Could not acquire the cursor overlay screen context.");
+                memoryDc = CursorOverlayNativeMethods.CreateCompatibleDC(screenDc);
+                if (memoryDc == IntPtr.Zero) throw new InvalidOperationException("Could not create the cursor overlay memory context.");
+                bitmapHandle = bitmap.GetHbitmap(Color.FromArgb(0));
+                if (bitmapHandle == IntPtr.Zero) throw new InvalidOperationException("Could not create the cursor overlay bitmap.");
+                oldBitmap = CursorOverlayNativeMethods.SelectObject(memoryDc, bitmapHandle);
+                if (oldBitmap == IntPtr.Zero || oldBitmap == new IntPtr(-1)) throw new InvalidOperationException("Could not select the cursor overlay bitmap.");
+
                 CursorOverlayNativeMethods.Point destination = new(Location.X, Location.Y);
                 CursorOverlayNativeMethods.Size size = new(ClientSize.Width, ClientSize.Height);
                 CursorOverlayNativeMethods.Point source = new(0, 0);
@@ -684,14 +753,29 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                     AlphaFormat = CursorOverlayNativeMethods.AC_SRC_ALPHA
                 };
 
-                return CursorOverlayNativeMethods.UpdateLayeredWindow(Handle, screenDc, ref destination, ref size, memoryDc, ref source, 0, ref blend, CursorOverlayNativeMethods.ULW_ALPHA);
+                if (!CursorOverlayNativeMethods.UpdateLayeredWindow(Handle, screenDc, ref destination, ref size, memoryDc, ref source, 0, ref blend, CursorOverlayNativeMethods.ULW_ALPHA))
+                {
+                    throw new InvalidOperationException("Could not update the cursor overlay window.");
+                }
             }
             finally
             {
-                CursorOverlayNativeMethods.SelectObject(memoryDc, oldBitmap);
-                CursorOverlayNativeMethods.DeleteObject(bitmapHandle);
-                CursorOverlayNativeMethods.DeleteDC(memoryDc);
-                CursorOverlayNativeMethods.ReleaseDC(IntPtr.Zero, screenDc);
+                if (memoryDc != IntPtr.Zero && oldBitmap != IntPtr.Zero && oldBitmap != new IntPtr(-1))
+                {
+                    CursorOverlayNativeMethods.SelectObject(memoryDc, oldBitmap);
+                }
+                if (bitmapHandle != IntPtr.Zero)
+                {
+                    CursorOverlayNativeMethods.DeleteObject(bitmapHandle);
+                }
+                if (memoryDc != IntPtr.Zero)
+                {
+                    CursorOverlayNativeMethods.DeleteDC(memoryDc);
+                }
+                if (screenDc != IntPtr.Zero)
+                {
+                    CursorOverlayNativeMethods.ReleaseDC(IntPtr.Zero, screenDc);
+                }
             }
         }
 
@@ -834,6 +918,8 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             float progress = CursorOverlayRepeatProgress.Resolve(
                 repeat.AccelerationDurationMs,
                 DateTime.UtcNow - repeatStartedAt);
+            float? sweep = CursorOverlayRepeatArc.Sweep(progress);
+            if (sweep is null) return;
             using Pen progressRing = new(
                 Color.FromArgb(245, overlayColor.R, overlayColor.G, overlayColor.B),
                 visualTokens.ProgressStroke)
@@ -841,7 +927,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                 StartCap = LineCap.Round,
                 EndCap = LineCap.Round
             };
-            graphics.DrawArc(progressRing, x, y, diameter, diameter, -90, 360 * progress);
+            graphics.DrawArc(progressRing, x, y, diameter, diameter, -90, sweep.Value);
         }
 
         private void ApplyTopMostNoActivate()
@@ -889,7 +975,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                 isLandingVisible = true;
                 isLandingAnimated = true;
                 landingStartedAt = DateTime.UtcNow;
-                _ = RenderLayeredOverlay();
+                RenderLayeredOverlay();
                 animationTimer.Start();
             });
         }
@@ -900,7 +986,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             PostIfCurrent(generation, () =>
             {
                 isLandingVisible = false;
-                _ = RenderLayeredOverlay();
+                RenderLayeredOverlay();
             });
             int gapMs = CursorOverlayFeedbackTiming.DoubleClickIntervalMs -
                 CursorOverlayFeedbackTiming.StaticDoubleClickGapStartsMs;
@@ -908,7 +994,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             PostIfCurrent(generation, () =>
             {
                 isLandingVisible = true;
-                _ = RenderLayeredOverlay();
+                RenderLayeredOverlay();
             });
             if (!await DelayPulseAsync(CursorOverlayFeedbackTiming.LandingDurationMs, cancellationToken)) return;
             PostIfCurrent(generation, ClearLanding);
@@ -960,8 +1046,11 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             {
                 BeginInvoke(() =>
                 {
-                    if (!generations.IsCurrent(generation)) return;
-                    action();
+                    ExecuteSafely(() =>
+                    {
+                        if (!generations.IsCurrent(generation)) return;
+                        action();
+                    });
                 });
             }
             catch (InvalidOperationException)
@@ -989,7 +1078,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                 return;
             }
 
-            _ = RenderLayeredOverlay();
+            RenderLayeredOverlay();
         }
 
         private void ClearScroll()
@@ -1012,7 +1101,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                 return;
             }
 
-            _ = RenderLayeredOverlay();
+            RenderLayeredOverlay();
         }
 
         private void CancelPulseSchedule()
@@ -1041,7 +1130,10 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                 {
                     BeginInvoke(() =>
                     {
-                        if (generations.IsCurrent(generation)) HideOverlay();
+                        ExecuteSafely(() =>
+                        {
+                            if (generations.IsCurrent(generation)) HideOverlay();
+                        });
                     });
                 }
                 catch (InvalidOperationException)

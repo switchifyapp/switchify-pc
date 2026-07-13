@@ -34,6 +34,56 @@ public sealed class CursorOverlayScrollRepeatFeedbackTests
         Assert.Equal(1, CursorOverlayRepeatProgress.Resolve(0, TimeSpan.Zero));
     }
 
+    [Theory]
+    [InlineData(-1, null)]
+    [InlineData(0, null)]
+    [InlineData(0.25, 90f)]
+    [InlineData(0.5, 180f)]
+    [InlineData(1, 360f)]
+    [InlineData(2, 360f)]
+    public void RepeatArcReturnsOnlyDrawableBoundedSweeps(float progress, float? expected)
+    {
+        Assert.Equal(expected, CursorOverlayRepeatArc.Sweep(progress));
+    }
+
+    [Fact]
+    public void RepeatArcRejectsNonFiniteProgress()
+    {
+        Assert.Null(CursorOverlayRepeatArc.Sweep(float.NaN));
+        Assert.Null(CursorOverlayRepeatArc.Sweep(float.PositiveInfinity));
+    }
+
+    [Fact]
+    public void RenderFailureGuardDisablesRenderingAndReportsOnlyOnce()
+    {
+        CursorOverlayRenderFailureGuard guard = new();
+        List<Exception> failures = [];
+        int attempts = 0;
+
+        bool first = guard.TryRun(() => throw new OutOfMemoryException("GDI failure"), failures.Add);
+        bool second = guard.TryRun(() => attempts++, failures.Add);
+
+        Assert.False(first);
+        Assert.False(second);
+        Assert.True(guard.IsDisabled);
+        Assert.Equal(0, attempts);
+        Assert.Single(failures);
+        Assert.IsType<OutOfMemoryException>(failures[0]);
+    }
+
+    [Fact]
+    public void RenderFailureGuardAllowsSuccessfulRendering()
+    {
+        CursorOverlayRenderFailureGuard guard = new();
+        int attempts = 0;
+
+        bool rendered = guard.TryRun(() => attempts++, _ => throw new InvalidOperationException());
+
+        Assert.True(rendered);
+        Assert.False(guard.IsDisabled);
+        Assert.Equal(1, attempts);
+    }
+
     [Fact]
     public void SupersededRepeatCannotBeEndedByStaleGeneration()
     {
