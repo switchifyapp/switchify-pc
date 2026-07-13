@@ -97,6 +97,48 @@ internal static class CursorOverlayRepeatProgress
     }
 }
 
+internal static class CursorOverlayRepeatArc
+{
+    public static float? Sweep(float progress)
+    {
+        if (!float.IsFinite(progress)) return null;
+        float sweep = Math.Clamp(progress, 0, 1) * 360;
+        return sweep > 0 ? sweep : null;
+    }
+}
+
+internal sealed class CursorOverlayRenderFailureGuard
+{
+    private int disabled;
+
+    public bool IsDisabled => Volatile.Read(ref disabled) != 0;
+
+    public bool TryRun(Action action, Action<Exception> onFailure)
+    {
+        if (IsDisabled) return false;
+        try
+        {
+            action();
+            return true;
+        }
+        catch (Exception error)
+        {
+            if (Interlocked.Exchange(ref disabled, 1) == 0)
+            {
+                try
+                {
+                    onFailure(error);
+                }
+                catch
+                {
+                }
+            }
+
+            return false;
+        }
+    }
+}
+
 internal sealed record CursorOverlayDirection(float X, float Y)
 {
     public static CursorOverlayDirection Resolve(double dx, double dy)

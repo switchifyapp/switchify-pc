@@ -330,7 +330,14 @@ public partial class App : System.Windows.Application
             JsonCursorOverlaySettingsStore cursorOverlaySettingsStore = new(Path.Combine(userDataDirectory, "cursor-overlay-settings.json"));
             SendInputWindowsNativeInput nativeInput = new();
             WindowsDesktopInputAdapter inputAdapter = new(nativeInput, pointerSettingsStore.Load());
-            cursorOverlay = new WindowsCursorOverlayNotifier(nativeInput, cursorOverlaySettingsStore);
+            cursorOverlay = new WindowsCursorOverlayNotifier(
+                nativeInput,
+                cursorOverlaySettingsStore,
+                warn: exceptionType => RecordRuntimeDiagnostic(
+                    "cursor.overlay.disabled",
+                    status: "disabled",
+                    reason: "render_failure",
+                    message: exceptionType));
             modifierOverlay = new WindowsModifierKeyOverlayNotifier(nativeInput);
             commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay, modifierOverlay: modifierOverlay);
             mouseRepeatController = new MouseRepeatController(
