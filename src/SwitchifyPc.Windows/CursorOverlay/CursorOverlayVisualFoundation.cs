@@ -1,0 +1,119 @@
+namespace SwitchifyPc.Windows.CursorOverlay;
+
+internal sealed record CursorOverlayVisualTokens(
+    int WindowSize,
+    float RingDiameter,
+    float RingStroke,
+    float GlowStroke,
+    int CrosshairThickness)
+{
+    private const double DefaultDpi = 96;
+
+    public static CursorOverlayVisualTokens Create(int logicalWindowSize, double scaleFactor)
+    {
+        int normalizedLogicalSize = logicalWindowSize > 0 ? logicalWindowSize : 128;
+        double scale = NormalizeScale(scaleFactor);
+        int windowSize = Scale(normalizedLogicalSize, scale);
+        return new CursorOverlayVisualTokens(
+            WindowSize: windowSize,
+            RingDiameter: (float)(normalizedLogicalSize * 0.5625 * scale),
+            RingStroke: (float)Math.Max(4 * scale, normalizedLogicalSize * 0.039 * scale),
+            GlowStroke: (float)Math.Max(18 * scale, normalizedLogicalSize * 0.1875 * scale),
+            CrosshairThickness: Math.Max(1, Scale(2, scale)));
+    }
+
+    public static double ScaleFromDpi(uint dpi)
+    {
+        return dpi == 0 ? 1 : NormalizeScale(dpi / DefaultDpi);
+    }
+
+    private static double NormalizeScale(double scaleFactor)
+    {
+        return double.IsFinite(scaleFactor) && scaleFactor > 0 ? scaleFactor : 1;
+    }
+
+    private static int Scale(int value, double scaleFactor)
+    {
+        return Math.Max(1, (int)Math.Round(value * scaleFactor, MidpointRounding.AwayFromZero));
+    }
+}
+
+internal interface ICursorOverlayMotionPolicy
+{
+    bool AnimationsEnabled();
+}
+
+internal sealed class WindowsCursorOverlayMotionPolicy : ICursorOverlayMotionPolicy
+{
+    private readonly Func<(bool Success, bool Enabled)> readSetting;
+
+    public WindowsCursorOverlayMotionPolicy(Func<(bool Success, bool Enabled)>? readSetting = null)
+    {
+        this.readSetting = readSetting ?? ReadSetting;
+    }
+
+    public bool AnimationsEnabled()
+    {
+        try
+        {
+            (bool success, bool enabled) = readSetting();
+            return !success || enabled;
+        }
+        catch (Exception error) when (error is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return true;
+        }
+    }
+
+    private static (bool Success, bool Enabled) ReadSetting()
+    {
+        bool success = CursorOverlayNativeMethods.SystemParametersInfo(
+            CursorOverlayNativeMethods.SPI_GETCLIENTAREAANIMATION,
+            0,
+            out bool enabled,
+            0);
+        return (success, enabled);
+    }
+}
+
+internal sealed class CursorOverlayGenerationTracker
+{
+    private long current;
+
+    public long Next() => Interlocked.Increment(ref current);
+
+    public bool IsCurrent(long generation) => Volatile.Read(ref current) == generation;
+
+    public void Invalidate() => Interlocked.Increment(ref current);
+}
+
+internal static class CursorOverlayDpi
+{
+    public static double ScaleForPoint(double x, double y)
+    {
+        try
+        {
+            CursorOverlayNativeMethods.Point point = new(
+                (int)Math.Round(x),
+                (int)Math.Round(y));
+            IntPtr monitor = CursorOverlayNativeMethods.MonitorFromPoint(
+                point,
+                CursorOverlayNativeMethods.MONITOR_DEFAULTTONEAREST);
+            if (monitor == IntPtr.Zero ||
+                CursorOverlayNativeMethods.GetDpiForMonitor(
+                    monitor,
+                    CursorOverlayNativeMethods.MDT_EFFECTIVE_DPI,
+                    out uint dpiX,
+                    out _) != 0)
+            {
+                return 1;
+            }
+
+            return CursorOverlayVisualTokens.ScaleFromDpi(dpiX);
+        }
+        catch (Exception error) when (error is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return 1;
+        }
+    }
+}

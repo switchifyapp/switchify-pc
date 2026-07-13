@@ -16,6 +16,9 @@ internal static partial class CursorOverlayNativeMethods
     internal const int ULW_ALPHA = 0x00000002;
     internal const byte AC_SRC_OVER = 0x00;
     internal const byte AC_SRC_ALPHA = 0x01;
+    internal const uint SPI_GETCLIENTAREAANIMATION = 0x1042;
+    internal const uint MONITOR_DEFAULTTONEAREST = 2;
+    internal const int MDT_EFFECTIVE_DPI = 0;
     internal static readonly IntPtr HWND_TOPMOST = new(-1);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -44,6 +47,16 @@ internal static partial class CursorOverlayNativeMethods
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SystemParametersInfo(uint uiAction, uint uiParam, [MarshalAs(UnmanagedType.Bool)] out bool pvParam, uint fWinIni);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr MonitorFromPoint(Point point, uint flags);
+
+    [DllImport("shcore.dll")]
+    internal static extern int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
