@@ -26,9 +26,19 @@ public sealed class DesktopInputException : Exception
     public string Code { get; }
 }
 
+public enum CursorOverlayEventKind
+{
+    Move,
+    Drag,
+    Click,
+    DoubleClick
+}
+
+public sealed record CursorOverlayEvent(CursorOverlayEventKind Kind, string? Button = null);
+
 public interface ICursorOverlayNotifier
 {
-    void Show(string eventName);
+    void Show(CursorOverlayEvent cursorEvent);
     void Hide();
     void EndControlSession();
     void MarkControlActive();
