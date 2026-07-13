@@ -123,6 +123,136 @@ public sealed class MouseRepeatControllerTests
     }
 
     [Fact]
+    public async Task MoveRepeatFeedbackStartsAfterSuccessAndEndsOnStop()
+    {
+        FakeInputAdapter adapter = new();
+        FakeMouseRepeatSettings settings = new(new MouseRepeatSettings(true, 100, 100, 1000));
+        ManualDelay delay = new();
+        FakeRepeatFeedback feedback = new();
+        MouseRepeatController controller = new(
+            new DesktopCommandExecutor(adapter),
+            settings,
+            delay.DelayAsync,
+            feedbackNotifier: feedback);
+
+        CommandExecutionResult result = await controller.StartAsync(
+            "device-1",
+            Command("mouse.move", new { dx = 8, dy = -4 }));
+
+        Assert.True(result.Ok);
+        MouseRepeatFeedback started = Assert.Single(feedback.Started);
+        Assert.Equal(MouseRepeatFeedbackKind.Move, started.Kind);
+        Assert.Equal(8, started.Dx);
+        Assert.Equal(-4, started.Dy);
+        Assert.Equal(1000, started.AccelerationDurationMs);
+
+        await controller.StopAsync("device-1");
+
+        Assert.Equal(started.GenerationId, Assert.Single(feedback.Ended));
+    }
+
+    [Fact]
+    public async Task ScrollRepeatFeedbackKeepsDirectionWithoutAcceleration()
+    {
+        FakeRepeatFeedback feedback = new();
+        MouseRepeatController controller = new(
+            new DesktopCommandExecutor(new FakeInputAdapter()),
+            new FakeMouseRepeatSettings(new MouseRepeatSettings(true, 100, 100, 2000)),
+            feedbackNotifier: feedback);
+
+        await controller.StartAsync(
+            "device-1",
+            Command("mouse.scroll", new { dx = 3, dy = -5 }));
+
+        MouseRepeatFeedback started = Assert.Single(feedback.Started);
+        Assert.Equal(MouseRepeatFeedbackKind.Scroll, started.Kind);
+        Assert.Equal(3, started.Dx);
+        Assert.Equal(-5, started.Dy);
+        Assert.Equal(0, started.AccelerationDurationMs);
+        await controller.StopAllAsync();
+    }
+
+    [Fact]
+    public async Task ReplacingRepeatEndsOnlyTheSupersededGeneration()
+    {
+        FakeRepeatFeedback feedback = new();
+        MouseRepeatController controller = new(
+            new DesktopCommandExecutor(new FakeInputAdapter()),
+            new FakeMouseRepeatSettings(new MouseRepeatSettings(true, 100, 100, 1000)),
+            feedbackNotifier: feedback);
+
+        await controller.StartAsync("device-1", Command("mouse.move", new { dx = 8, dy = 0 }));
+        Guid first = Assert.Single(feedback.Started).GenerationId;
+        await controller.StartAsync("device-1", Command("mouse.scroll", new { dx = 0, dy = 5 }));
+        Guid second = feedback.Started[1].GenerationId;
+
+        Assert.Equal(first, Assert.Single(feedback.Ended));
+        Assert.NotEqual(first, second);
+
+        await controller.StopAllAsync();
+
+        Assert.Equal([first, second], feedback.Ended);
+    }
+
+    [Fact]
+    public async Task RepeatExecutionFailureEndsFeedback()
+    {
+        FakeInputAdapter adapter = new();
+        ManualDelay delay = new();
+        FakeRepeatFeedback feedback = new();
+        MouseRepeatController controller = new(
+            new DesktopCommandExecutor(adapter),
+            new FakeMouseRepeatSettings(new MouseRepeatSettings(true, 100, 100, 1000)),
+            delay.DelayAsync,
+            feedbackNotifier: feedback);
+
+        await controller.StartAsync("device-1", Command("mouse.move", new { dx = 8, dy = 0 }));
+        await delay.WaitForDelayCountAsync(1);
+        adapter.FailMoves = true;
+        delay.CompleteNext();
+        await WaitForInactiveAsync(controller, "device-1");
+
+        Assert.Equal(feedback.Started[0].GenerationId, Assert.Single(feedback.Ended));
+    }
+
+    [Fact]
+    public async Task InitialExecutionFailureDoesNotStartFeedback()
+    {
+        FakeInputAdapter adapter = new() { FailMoves = true };
+        FakeRepeatFeedback feedback = new();
+        MouseRepeatController controller = new(
+            new DesktopCommandExecutor(adapter),
+            new FakeMouseRepeatSettings(new MouseRepeatSettings(true, 100, 100, 1000)),
+            feedbackNotifier: feedback);
+
+        CommandExecutionResult result = await controller.StartAsync(
+            "device-1",
+            Command("mouse.move", new { dx = 8, dy = 0 }));
+
+        Assert.False(result.Ok);
+        Assert.Empty(feedback.Started);
+        Assert.Empty(feedback.Ended);
+    }
+
+    [Fact]
+    public async Task FeedbackFailureDoesNotFailRepeatExecutionOrStop()
+    {
+        FakeRepeatFeedback feedback = new() { ThrowOnNotification = true };
+        MouseRepeatController controller = new(
+            new DesktopCommandExecutor(new FakeInputAdapter()),
+            new FakeMouseRepeatSettings(new MouseRepeatSettings(true, 100, 100, 1000)),
+            feedbackNotifier: feedback);
+
+        CommandExecutionResult result = await controller.StartAsync(
+            "device-1",
+            Command("mouse.move", new { dx = 8, dy = 0 }));
+
+        Assert.True(result.Ok);
+        await controller.StopAsync("device-1");
+        Assert.False(controller.IsActive("device-1"));
+    }
+
+    [Fact]
     public async Task MoveRepeatAcceleratesFromInitialScaleToFullDistance()
     {
         FakeInputAdapter adapter = new();
@@ -306,8 +436,11 @@ public sealed class MouseRepeatControllerTests
 
         public List<(double Dx, double Dy)> Moves { get; } = [];
 
+        public bool FailMoves { get; set; }
+
         public Task MoveMouseByAsync(double dx, double dy, CancellationToken cancellationToken = default)
         {
+            if (FailMoves) throw new DesktopInputException("adapter_failure", "Move failed.");
             Moves.Add((dx, dy));
             Calls.Add($"moveMouseBy:{dx},{dy}");
             return Task.CompletedTask;
@@ -338,6 +471,26 @@ public sealed class MouseRepeatControllerTests
         public Task MediaControlAsync(string action, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task ControlWindowAsync(string action, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeRepeatFeedback : IMouseRepeatFeedbackNotifier
+    {
+        public List<MouseRepeatFeedback> Started { get; } = [];
+        public List<Guid> Ended { get; } = [];
+
+        public bool ThrowOnNotification { get; set; }
+
+        public void BeginRepeat(MouseRepeatFeedback feedback)
+        {
+            if (ThrowOnNotification) throw new InvalidOperationException("Feedback failed.");
+            Started.Add(feedback);
+        }
+
+        public void EndRepeat(Guid generationId)
+        {
+            if (ThrowOnNotification) throw new InvalidOperationException("Feedback failed.");
+            Ended.Add(generationId);
+        }
     }
 
     private sealed class ManualTimeProvider : TimeProvider

@@ -179,6 +179,7 @@ public sealed class DesktopCommandExecutor
         AssertBoundedNumber(dx, ProtocolConstants.MaxScrollDelta, "dx");
         AssertBoundedNumber(dy, ProtocolConstants.MaxScrollDelta, "dy");
         await adapter.ScrollMouseAsync(dx, dy, cancellationToken);
+        cursorOverlay?.Show(new CursorOverlayEvent(CursorOverlayEventKind.Scroll, Dx: dx, Dy: dy));
         return CommandExecutionResult.Success;
     }
 

@@ -33,7 +33,8 @@ public sealed class DesktopCommandExecutorTests
                 new CursorOverlayEvent(CursorOverlayEventKind.Move),
                 new CursorOverlayEvent(CursorOverlayEventKind.Click, "left"),
                 new CursorOverlayEvent(CursorOverlayEventKind.DoubleClick, "middle"),
-                new CursorOverlayEvent(CursorOverlayEventKind.Click, "right")
+                new CursorOverlayEvent(CursorOverlayEventKind.Click, "right"),
+                new CursorOverlayEvent(CursorOverlayEventKind.Scroll, Dx: 0, Dy: -3)
             ],
             overlay.Events);
         Assert.Equal(5, overlay.ActiveCount);
@@ -297,6 +298,12 @@ public sealed class DesktopCommandExecutorTests
             ],
             adapter.Calls);
         Assert.Equal([true], overlay.DragActiveChanges);
+        Assert.Equal(
+            [
+                new CursorOverlayEvent(CursorOverlayEventKind.Drag, "left"),
+                new CursorOverlayEvent(CursorOverlayEventKind.Scroll, Dx: 0, Dy: -3)
+            ],
+            overlay.Events);
     }
 
     [Fact]

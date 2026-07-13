@@ -1,3 +1,5 @@
+using SwitchifyPc.Core.Input;
+
 namespace SwitchifyPc.Windows.CursorOverlay;
 
 internal sealed record CursorOverlayVisualTokens(
@@ -9,7 +11,12 @@ internal sealed record CursorOverlayVisualTokens(
     float LandingCoreDiameter,
     float LandingHaloDiameter,
     float LandingHaloStroke,
-    float ShadowOffset)
+    float ShadowOffset,
+    float ProgressDiameter,
+    float ProgressStroke,
+    float ScrollTrackLength,
+    float ScrollStroke,
+    float ScrollHeadSize)
 {
     private const double DefaultDpi = 96;
 
@@ -27,7 +34,12 @@ internal sealed record CursorOverlayVisualTokens(
             LandingCoreDiameter: (float)(normalizedLogicalSize * 0.375 * scale),
             LandingHaloDiameter: (float)(normalizedLogicalSize * 0.6875 * scale),
             LandingHaloStroke: (float)Math.Max(2 * scale, normalizedLogicalSize * 0.0234375 * scale),
-            ShadowOffset: (float)Math.Max(1, 2 * scale));
+            ShadowOffset: (float)Math.Max(1, 2 * scale),
+            ProgressDiameter: (float)(normalizedLogicalSize * 0.78125 * scale),
+            ProgressStroke: (float)Math.Max(3 * scale, normalizedLogicalSize * 0.03125 * scale),
+            ScrollTrackLength: (float)(normalizedLogicalSize * 0.4375 * scale),
+            ScrollStroke: (float)Math.Max(3 * scale, normalizedLogicalSize * 0.046875 * scale),
+            ScrollHeadSize: (float)(normalizedLogicalSize * 0.09375 * scale));
     }
 
     public static double ScaleFromDpi(uint dpi)
@@ -73,6 +85,35 @@ internal sealed record CursorOverlayLandingFrame(float CoreScale, float HaloProg
     }
 
     public static CursorOverlayLandingFrame Static { get; } = Resolve(150);
+}
+
+internal static class CursorOverlayRepeatProgress
+{
+    public static float Resolve(int durationMs, TimeSpan elapsed)
+    {
+        if (durationMs <= 0) return 1;
+        double progress = Math.Clamp(elapsed.TotalMilliseconds / durationMs, 0, 1);
+        return (float)(progress * progress * (3 - (2 * progress)));
+    }
+}
+
+internal sealed record CursorOverlayDirection(float X, float Y)
+{
+    public static CursorOverlayDirection Resolve(double dx, double dy)
+    {
+        double magnitude = Math.Sqrt((dx * dx) + (dy * dy));
+        return magnitude > 0
+            ? new CursorOverlayDirection((float)(dx / magnitude), (float)(dy / magnitude))
+            : new CursorOverlayDirection(0, -1);
+    }
+}
+
+internal static class CursorOverlayRepeatOwnership
+{
+    public static bool CanEnd(MouseRepeatFeedback? active, Guid generationId)
+    {
+        return active?.GenerationId == generationId;
+    }
 }
 
 internal interface ICursorOverlayMotionPolicy
