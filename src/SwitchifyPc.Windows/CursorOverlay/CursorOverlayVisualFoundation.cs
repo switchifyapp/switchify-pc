@@ -103,7 +103,7 @@ internal sealed record CursorOverlayDirection(float X, float Y)
     {
         double magnitude = Math.Sqrt((dx * dx) + (dy * dy));
         return magnitude > 0
-            ? new CursorOverlayDirection((float)(dx / magnitude), (float)(dy / magnitude))
+            ? new CursorOverlayDirection((float)(-dx / magnitude), (float)(-dy / magnitude))
             : new CursorOverlayDirection(0, -1);
     }
 }
