@@ -42,21 +42,6 @@ public sealed class CursorOverlayVisualFoundationTests
     }
 
     [Fact]
-    public void MotionPolicyUsesWindowsPreference()
-    {
-        Assert.True(new WindowsCursorOverlayMotionPolicy(() => (true, true)).AnimationsEnabled());
-        Assert.False(new WindowsCursorOverlayMotionPolicy(() => (true, false)).AnimationsEnabled());
-    }
-
-    [Fact]
-    public void MotionPolicyFallsBackToAnimationsWhenWindowsSettingIsUnavailable()
-    {
-        Assert.True(new WindowsCursorOverlayMotionPolicy(() => (false, false)).AnimationsEnabled());
-        Assert.True(new WindowsCursorOverlayMotionPolicy(
-            () => throw new EntryPointNotFoundException()).AnimationsEnabled());
-    }
-
-    [Fact]
     public void NewGenerationInvalidatesEarlierCallbacks()
     {
         CursorOverlayGenerationTracker tracker = new();

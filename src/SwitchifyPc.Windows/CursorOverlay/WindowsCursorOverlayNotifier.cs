@@ -16,7 +16,6 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
 
     private readonly IWindowsNativeInput nativeInput;
     private readonly ICursorOverlaySettingsStore settingsStore;
-    private readonly Func<bool> animationsEnabled;
     private readonly Func<PointerPosition, double> displayScale;
     private readonly Func<double> now;
     private readonly Action<string> warn;
@@ -40,7 +39,8 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
     {
         this.nativeInput = nativeInput;
         this.settingsStore = settingsStore;
-        this.animationsEnabled = animationsEnabled ?? new WindowsCursorOverlayMotionPolicy().AnimationsEnabled;
+        // Retain the parameter for source compatibility; overlay feedback is always static.
+        _ = animationsEnabled;
         this.displayScale = displayScale ?? (position => CursorOverlayDpi.ScaleForPoint(position.X, position.Y));
         this.now = now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         this.warn = warn ?? Console.WriteLine;
@@ -241,7 +241,6 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             DurationMs: persistent ? 0 : DurationFor(cursorEvent.Kind),
             Crosshairs: settings.Crosshairs,
             Persistent: persistent,
-            AnimationsEnabled: animationsEnabled(),
             Color: Color.FromArgb(color[0], color[1], color[2]));
         return command;
     }
@@ -381,33 +380,24 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
         int DurationMs,
         bool Crosshairs,
         bool Persistent,
-        bool AnimationsEnabled,
         Color Color);
 
     private sealed class OverlayForm : Forms.Form
     {
-        private const int AnimationIntervalMs = 33;
-        private readonly Forms.Timer animationTimer = new();
         private readonly CrosshairLineForm horizontalCrosshair = new();
         private readonly CrosshairLineForm verticalCrosshair = new();
         private readonly CursorOverlayGenerationTracker generations = new();
         private readonly CursorOverlayRenderFailureGuard renderFailureGuard = new();
         private readonly Action<Exception> onRenderFailure;
         private CancellationTokenSource? hideCancellation;
-        private CancellationTokenSource? pulseCancellation;
-        private DateTime landingStartedAt = DateTime.MinValue;
+        private CancellationTokenSource? feedbackCancellation;
         private bool isLandingSequenceActive;
         private bool isLandingVisible;
-        private bool isLandingAnimated;
-        private DateTime scrollStartedAt = DateTime.MinValue;
         private bool isScrollSequenceActive;
         private bool isScrollVisible;
-        private bool isScrollAnimated;
         private double scrollDx;
         private double scrollDy;
         private MouseRepeatFeedback? activeRepeat;
-        private DateTime repeatStartedAt = DateTime.MinValue;
-        private bool repeatAnimationsEnabled;
         private bool isDragActive;
         private bool restorePersistentAfterTransient;
         private OverlayRenderCommand? pendingPersistentCommand;
@@ -430,9 +420,6 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             ShowInTaskbar = false;
             StartPosition = Forms.FormStartPosition.Manual;
             TopMost = true;
-
-            animationTimer.Interval = AnimationIntervalMs;
-            animationTimer.Tick += (_, _) => ExecuteSafely(TickAnimation);
         }
 
         public void ExecuteSafely(Action action)
@@ -515,15 +502,11 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             restorePersistentAfterTransient = command.Persistent;
             isLandingSequenceActive = isClick;
             isLandingVisible = isClick;
-            isLandingAnimated = isClick && command.AnimationsEnabled;
             isScrollSequenceActive = isScroll;
             isScrollVisible = isScroll;
-            isScrollAnimated = isScroll && command.AnimationsEnabled;
-            scrollStartedAt = isScrollAnimated ? DateTime.UtcNow : DateTime.MinValue;
             scrollDx = command.CursorEvent.Dx;
             scrollDy = command.CursorEvent.Dy;
             isDragActive = command.CursorEvent.Kind == CursorOverlayEventKind.Drag;
-            landingStartedAt = isLandingAnimated ? DateTime.UtcNow : DateTime.MinValue;
 
             RenderLayeredOverlay();
 
@@ -535,26 +518,13 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                 ScheduleHide(durationMs, generation);
             }
 
-            if (command.CursorEvent.Kind == CursorOverlayEventKind.DoubleClick)
+            if (isClick)
             {
-                ScheduleDoubleClick(command.AnimationsEnabled, generation);
+                ScheduleStaticLandingClear(generation, durationMs);
             }
-            else if (isClick && !command.AnimationsEnabled)
-            {
-                ScheduleStaticLandingClear(generation);
-            }
-            else if (isScroll && !command.AnimationsEnabled)
+            else if (isScroll)
             {
                 ScheduleStaticScrollClear(generation);
-            }
-
-            if (isLandingAnimated || isScrollAnimated)
-            {
-                animationTimer.Start();
-            }
-            else
-            {
-                animationTimer.Stop();
             }
         }
 
@@ -568,13 +538,9 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             pendingPersistentCommand = null;
             isLandingSequenceActive = false;
             isLandingVisible = false;
-            isLandingAnimated = false;
             isScrollSequenceActive = false;
             isScrollVisible = false;
-            isScrollAnimated = false;
             activeRepeat = feedback;
-            repeatStartedAt = DateTime.UtcNow;
-            repeatAnimationsEnabled = command.AnimationsEnabled;
             scrollDx = feedback.Dx;
             scrollDy = feedback.Dy;
             isDragActive = false;
@@ -584,16 +550,6 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
 
             ApplyTopMostNoActivate();
             ShowCrosshairs(command.Crosshairs, cursor, displayBounds, overlayColor, visualTokens.CrosshairThickness);
-            if (feedback.Kind == MouseRepeatFeedbackKind.Move &&
-                feedback.AccelerationDurationMs > 0 &&
-                repeatAnimationsEnabled)
-            {
-                animationTimer.Start();
-            }
-            else
-            {
-                animationTimer.Stop();
-            }
         }
 
         public void EndRepeat(Guid generationId, bool restorePersistentMarker)
@@ -601,7 +557,6 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             if (!CursorOverlayRepeatOwnership.CanEnd(activeRepeat, generationId)) return;
             generations.Invalidate();
             activeRepeat = null;
-            animationTimer.Stop();
             if (!restorePersistentMarker)
             {
                 HideOverlay();
@@ -617,13 +572,10 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             generations.Invalidate();
             CancelScheduledHide();
             CancelPulseSchedule();
-            animationTimer.Stop();
             isLandingSequenceActive = false;
             isLandingVisible = false;
-            isLandingAnimated = false;
             isScrollSequenceActive = false;
             isScrollVisible = false;
-            isScrollAnimated = false;
             activeRepeat = null;
             isDragActive = false;
             pendingPersistentCommand = null;
@@ -647,46 +599,6 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             return (cursor, Forms.Screen.FromPoint(cursor).Bounds);
         }
 
-        private void TickAnimation()
-        {
-            if (isLandingAnimated)
-            {
-                if ((DateTime.UtcNow - landingStartedAt).TotalMilliseconds >= CursorOverlayFeedbackTiming.LandingDurationMs)
-                {
-                    ClearLanding();
-                    return;
-                }
-
-                RenderLayeredOverlay();
-                return;
-            }
-
-            if (isScrollAnimated)
-            {
-                if ((DateTime.UtcNow - scrollStartedAt).TotalMilliseconds >= CursorOverlayFeedbackTiming.LandingDurationMs)
-                {
-                    ClearScroll();
-                    return;
-                }
-
-                RenderLayeredOverlay();
-                return;
-            }
-
-            if (activeRepeat is { Kind: MouseRepeatFeedbackKind.Move, AccelerationDurationMs: > 0 } repeat &&
-                repeatAnimationsEnabled)
-            {
-                RenderLayeredOverlay();
-                if ((DateTime.UtcNow - repeatStartedAt).TotalMilliseconds >= repeat.AccelerationDurationMs)
-                {
-                    animationTimer.Stop();
-                }
-                return;
-            }
-
-            animationTimer.Stop();
-        }
-
         private void RenderLayeredOverlay()
         {
             using Bitmap bitmap = new(ClientSize.Width, ClientSize.Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
@@ -698,14 +610,14 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                 if (activeRepeat is { Kind: MouseRepeatFeedbackKind.Scroll })
                 {
                     DrawCursorMarker(graphics);
-                    DrawScroll(graphics, 1);
+                    DrawScroll(graphics);
                 }
-                else if (activeRepeat is { Kind: MouseRepeatFeedbackKind.Move } repeat)
+                else if (activeRepeat is { Kind: MouseRepeatFeedbackKind.Move } moveRepeat)
                 {
                     DrawCursorMarker(graphics);
-                    if (repeat.AccelerationDurationMs > 0)
+                    if (moveRepeat.AccelerationDurationMs > 0)
                     {
-                        DrawRepeatProgress(graphics, repeat);
+                        DrawRepeatIndicator(graphics);
                     }
                 }
                 else if (isLandingVisible)
@@ -715,11 +627,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                 else if (isScrollVisible)
                 {
                     DrawCursorMarker(graphics);
-                    float opacity = isScrollAnimated
-                        ? CursorOverlayLandingFrame.Resolve(
-                            (DateTime.UtcNow - scrollStartedAt).TotalMilliseconds).Opacity
-                        : 1;
-                    DrawScroll(graphics, opacity);
+                    DrawScroll(graphics);
                 }
                 else
                 {
@@ -806,25 +714,19 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
 
         private void DrawLanding(Graphics graphics)
         {
-            CursorOverlayLandingFrame frame = isLandingAnimated
-                ? CursorOverlayLandingFrame.Resolve((DateTime.UtcNow - landingStartedAt).TotalMilliseconds)
-                : CursorOverlayLandingFrame.Static;
             float centerX = cursorCenter.X;
             float centerY = cursorCenter.Y;
-            float coreDiameter = visualTokens.LandingCoreDiameter * frame.CoreScale;
+            float coreDiameter = visualTokens.LandingCoreDiameter;
             float coreRadius = coreDiameter / 2;
             float maxHaloRadius = (visualTokens.LandingHaloDiameter - visualTokens.LandingHaloStroke) / 2;
             float haloRadius = visualTokens.LandingCoreDiameter / 2 +
-                ((maxHaloRadius - visualTokens.LandingCoreDiameter / 2) * frame.HaloProgress);
-            int haloAlpha = Alpha(180, frame.Opacity);
-            int shadowAlpha = Alpha(65, frame.Opacity);
-            int coreAlpha = Alpha(255, frame.Opacity);
+                ((maxHaloRadius - visualTokens.LandingCoreDiameter / 2) * CursorOverlayStaticFeedback.LandingHaloProgress);
 
             using Pen halo = new(
-                Color.FromArgb(haloAlpha, overlayColor.R, overlayColor.G, overlayColor.B),
+                Color.FromArgb(180, overlayColor.R, overlayColor.G, overlayColor.B),
                 visualTokens.LandingHaloStroke);
-            using SolidBrush shadow = new(Color.FromArgb(shadowAlpha, 0, 0, 0));
-            using SolidBrush core = new(Color.FromArgb(coreAlpha, overlayColor.R, overlayColor.G, overlayColor.B));
+            using SolidBrush shadow = new(Color.FromArgb(65, 0, 0, 0));
+            using SolidBrush core = new(Color.FromArgb(255, overlayColor.R, overlayColor.G, overlayColor.B));
             graphics.DrawEllipse(
                 halo,
                 centerX - haloRadius,
@@ -845,10 +747,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                 coreDiameter);
         }
 
-        private static int Alpha(int alpha, float opacity) =>
-            Math.Clamp((int)Math.Round(alpha * opacity), 0, 255);
-
-        private void DrawScroll(Graphics graphics, float opacity)
+        private void DrawScroll(Graphics graphics)
         {
             CursorOverlayDirection direction = CursorOverlayDirection.Resolve(scrollDx, scrollDy);
             float directionX = direction.X;
@@ -865,7 +764,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             float wing = visualTokens.ScrollHeadSize * 0.55f;
 
             using Pen underlay = new(
-                Color.FromArgb(Alpha(80, opacity), 0, 0, 0),
+                Color.FromArgb(80, 0, 0, 0),
                 visualTokens.ScrollStroke + visualTokens.ShadowOffset)
             {
                 StartCap = LineCap.Round,
@@ -873,7 +772,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
                 LineJoin = LineJoin.Round
             };
             using Pen track = new(
-                Color.FromArgb(Alpha(230, opacity), overlayColor.R, overlayColor.G, overlayColor.B),
+                Color.FromArgb(230, overlayColor.R, overlayColor.G, overlayColor.B),
                 visualTokens.ScrollStroke)
             {
                 StartCap = LineCap.Round,
@@ -889,7 +788,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             graphics.DrawLine(track, endX, endY, backX - (perpendicularX * wing), backY - (perpendicularY * wing));
         }
 
-        private void DrawRepeatProgress(Graphics graphics, MouseRepeatFeedback repeat)
+        private void DrawRepeatIndicator(Graphics graphics)
         {
             float diameter = visualTokens.ProgressDiameter;
             float x = cursorCenter.X - (diameter / 2);
@@ -903,31 +802,13 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             };
             graphics.DrawEllipse(track, x, y, diameter, diameter);
 
-            if (!repeatAnimationsEnabled)
-            {
-                using Pen staticRing = new(
-                    Color.FromArgb(210, overlayColor.R, overlayColor.G, overlayColor.B),
-                    visualTokens.ProgressStroke)
-                {
-                    DashStyle = DashStyle.Dot
-                };
-                graphics.DrawEllipse(staticRing, x, y, diameter, diameter);
-                return;
-            }
-
-            float progress = CursorOverlayRepeatProgress.Resolve(
-                repeat.AccelerationDurationMs,
-                DateTime.UtcNow - repeatStartedAt);
-            float? sweep = CursorOverlayRepeatArc.Sweep(progress);
-            if (sweep is null) return;
-            using Pen progressRing = new(
-                Color.FromArgb(245, overlayColor.R, overlayColor.G, overlayColor.B),
+            using Pen staticRing = new(
+                Color.FromArgb(210, overlayColor.R, overlayColor.G, overlayColor.B),
                 visualTokens.ProgressStroke)
             {
-                StartCap = LineCap.Round,
-                EndCap = LineCap.Round
+                DashStyle = DashStyle.Dot
             };
-            graphics.DrawArc(progressRing, x, y, diameter, diameter, -90, sweep.Value);
+            graphics.DrawEllipse(staticRing, x, y, diameter, diameter);
         }
 
         private void ApplyTopMostNoActivate()
@@ -958,75 +839,33 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             verticalCrosshair.ShowLine(new Rectangle(cursor.X - thickness / 2, displayBounds.Top, thickness, displayBounds.Height), color);
         }
 
-        private void ScheduleDoubleClick(bool animated, long generation)
+        private void ScheduleStaticLandingClear(long generation, int durationMs)
         {
             CancellationTokenSource cancellation = new();
-            pulseCancellation = cancellation;
-            _ = animated
-                ? RunAnimatedSecondPulseAsync(generation, cancellation.Token)
-                : RunStaticDoubleClickAsync(generation, cancellation.Token);
-        }
-
-        private async Task RunAnimatedSecondPulseAsync(long generation, CancellationToken cancellationToken)
-        {
-            if (!await DelayPulseAsync(CursorOverlayFeedbackTiming.DoubleClickIntervalMs, cancellationToken)) return;
-            PostIfCurrent(generation, () =>
-            {
-                isLandingVisible = true;
-                isLandingAnimated = true;
-                landingStartedAt = DateTime.UtcNow;
-                RenderLayeredOverlay();
-                animationTimer.Start();
-            });
-        }
-
-        private async Task RunStaticDoubleClickAsync(long generation, CancellationToken cancellationToken)
-        {
-            if (!await DelayPulseAsync(CursorOverlayFeedbackTiming.StaticDoubleClickGapStartsMs, cancellationToken)) return;
-            PostIfCurrent(generation, () =>
-            {
-                isLandingVisible = false;
-                RenderLayeredOverlay();
-            });
-            int gapMs = CursorOverlayFeedbackTiming.DoubleClickIntervalMs -
-                CursorOverlayFeedbackTiming.StaticDoubleClickGapStartsMs;
-            if (!await DelayPulseAsync(gapMs, cancellationToken)) return;
-            PostIfCurrent(generation, () =>
-            {
-                isLandingVisible = true;
-                RenderLayeredOverlay();
-            });
-            if (!await DelayPulseAsync(CursorOverlayFeedbackTiming.LandingDurationMs, cancellationToken)) return;
-            PostIfCurrent(generation, ClearLanding);
-        }
-
-        private void ScheduleStaticLandingClear(long generation)
-        {
-            CancellationTokenSource cancellation = new();
-            pulseCancellation = cancellation;
-            _ = RunStaticLandingClearAsync(generation, cancellation.Token);
+            feedbackCancellation = cancellation;
+            _ = RunStaticLandingClearAsync(generation, durationMs, cancellation.Token);
         }
 
         private void ScheduleStaticScrollClear(long generation)
         {
             CancellationTokenSource cancellation = new();
-            pulseCancellation = cancellation;
+            feedbackCancellation = cancellation;
             _ = RunStaticScrollClearAsync(generation, cancellation.Token);
         }
 
-        private async Task RunStaticLandingClearAsync(long generation, CancellationToken cancellationToken)
+        private async Task RunStaticLandingClearAsync(long generation, int durationMs, CancellationToken cancellationToken)
         {
-            if (!await DelayPulseAsync(CursorOverlayFeedbackTiming.LandingDurationMs, cancellationToken)) return;
+            if (!await DelayFeedbackAsync(durationMs, cancellationToken)) return;
             PostIfCurrent(generation, ClearLanding);
         }
 
         private async Task RunStaticScrollClearAsync(long generation, CancellationToken cancellationToken)
         {
-            if (!await DelayPulseAsync(CursorOverlayFeedbackTiming.LandingDurationMs, cancellationToken)) return;
+            if (!await DelayFeedbackAsync(CursorOverlayFeedbackTiming.LandingDurationMs, cancellationToken)) return;
             PostIfCurrent(generation, ClearScroll);
         }
 
-        private static async Task<bool> DelayPulseAsync(int durationMs, CancellationToken cancellationToken)
+        private static async Task<bool> DelayFeedbackAsync(int durationMs, CancellationToken cancellationToken)
         {
             try
             {
@@ -1062,8 +901,6 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
         {
             isLandingSequenceActive = false;
             isLandingVisible = false;
-            isLandingAnimated = false;
-            animationTimer.Stop();
             if (pendingPersistentCommand is not null)
             {
                 OverlayRenderCommand pending = pendingPersistentCommand;
@@ -1085,8 +922,6 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
         {
             isScrollSequenceActive = false;
             isScrollVisible = false;
-            isScrollAnimated = false;
-            animationTimer.Stop();
             if (pendingPersistentCommand is not null)
             {
                 OverlayRenderCommand pending = pendingPersistentCommand;
@@ -1106,8 +941,8 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
 
         private void CancelPulseSchedule()
         {
-            CancellationTokenSource? cancellation = pulseCancellation;
-            pulseCancellation = null;
+            CancellationTokenSource? cancellation = feedbackCancellation;
+            feedbackCancellation = null;
             if (cancellation is null) return;
             cancellation.Cancel();
             cancellation.Dispose();
@@ -1160,7 +995,6 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             {
                 CancelScheduledHide();
                 CancelPulseSchedule();
-                animationTimer.Dispose();
                 horizontalCrosshair.Dispose();
                 verticalCrosshair.Dispose();
             }
