@@ -50,11 +50,13 @@ public sealed class CursorOverlayScrollRepeatFeedbackTests
     }
 
     [Theory]
-    [InlineData(0, -5, 0, -1)]
-    [InlineData(4, 0, 1, 0)]
-    [InlineData(3, 4, 0.6, 0.8)]
+    [InlineData(0, -5, 0, 1)]
+    [InlineData(0, 5, 0, -1)]
+    [InlineData(4, 0, -1, 0)]
+    [InlineData(-4, 0, 1, 0)]
+    [InlineData(3, 4, -0.6, -0.8)]
     [InlineData(0, 0, 0, -1)]
-    public void ScrollDirectionPreservesSignedVector(
+    public void ScrollDirectionOpposesSignedVector(
         double dx,
         double dy,
         float expectedX,
