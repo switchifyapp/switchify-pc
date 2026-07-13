@@ -16,6 +16,8 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
 
     private readonly IWindowsNativeInput nativeInput;
     private readonly ICursorOverlaySettingsStore settingsStore;
+    private readonly Func<bool> animationsEnabled;
+    private readonly Func<PointerPosition, double> displayScale;
     private readonly Func<double> now;
     private readonly Lazy<OverlayThread> overlayThread;
     private readonly object sync = new();
@@ -26,10 +28,17 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
     private bool dragActive;
     private bool disposed;
 
-    public WindowsCursorOverlayNotifier(IWindowsNativeInput nativeInput, ICursorOverlaySettingsStore settingsStore, Func<double>? now = null)
+    public WindowsCursorOverlayNotifier(
+        IWindowsNativeInput nativeInput,
+        ICursorOverlaySettingsStore settingsStore,
+        Func<double>? now = null,
+        Func<bool>? animationsEnabled = null,
+        Func<PointerPosition, double>? displayScale = null)
     {
         this.nativeInput = nativeInput;
         this.settingsStore = settingsStore;
+        this.animationsEnabled = animationsEnabled ?? new WindowsCursorOverlayMotionPolicy().AnimationsEnabled;
+        this.displayScale = displayScale ?? (position => CursorOverlayDpi.ScaleForPoint(position.X, position.Y));
         this.now = now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         overlayThread = new Lazy<OverlayThread>(() => new OverlayThread());
     }
@@ -158,14 +167,18 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
     {
         PointerPosition cursor = nativeInput.GetCursorPosition();
         int[] color = CursorOverlaySettingsModel.ResolveColorRgb(settings.Color);
+        CursorOverlayVisualTokens tokens = CursorOverlayVisualTokens.Create(
+            CursorOverlaySettingsModel.ResolveSizePixels(settings.Size),
+            displayScale(cursor));
         OverlayRenderCommand command = new(
             EventName: eventName,
             X: cursor.X,
             Y: cursor.Y,
-            Size: CursorOverlaySettingsModel.ResolveSizePixels(settings.Size),
+            Tokens: tokens,
             DurationMs: persistent ? 0 : DefaultDurationMs,
             Crosshairs: settings.Crosshairs,
             Persistent: persistent,
+            AnimationsEnabled: animationsEnabled(),
             Color: Color.FromArgb(color[0], color[1], color[2]));
         overlayThread.Value.Post(form => form.ShowOverlay(command));
     }
@@ -274,33 +287,34 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         string EventName,
         double X,
         double Y,
-        int Size,
+        CursorOverlayVisualTokens Tokens,
         int DurationMs,
         bool Crosshairs,
         bool Persistent,
+        bool AnimationsEnabled,
         Color Color);
 
     private sealed class OverlayForm : Forms.Form
     {
-        private const int DefaultWindowSize = 128;
         private const int ClickPulseMs = 180;
-        private const int CrosshairThickness = 2;
-        private readonly Forms.Timer hideTimer = new();
         private readonly Forms.Timer animationTimer = new();
         private readonly CrosshairLineForm horizontalCrosshair = new();
         private readonly CrosshairLineForm verticalCrosshair = new();
+        private readonly CursorOverlayGenerationTracker generations = new();
+        private CancellationTokenSource? hideCancellation;
         private DateTime clickPulseStartedAt = DateTime.MinValue;
         private bool isClickPulse;
+        private bool isStaticClick;
         private bool isDragActive;
-        private int ringWindowSize = DefaultWindowSize;
-        private PointF cursorCenter = new(DefaultWindowSize / 2.0f, DefaultWindowSize / 2.0f);
+        private CursorOverlayVisualTokens visualTokens = CursorOverlayVisualTokens.Create(128, 1);
+        private PointF cursorCenter = new(64, 64);
         private Color overlayColor = Color.FromArgb(211, 47, 47);
 
         public OverlayForm()
         {
             AutoScaleMode = Forms.AutoScaleMode.None;
             BackColor = Color.Black;
-            ClientSize = new Size(DefaultWindowSize, DefaultWindowSize);
+            ClientSize = new Size(visualTokens.WindowSize, visualTokens.WindowSize);
             ControlBox = false;
             FormBorderStyle = Forms.FormBorderStyle.None;
             MaximizeBox = false;
@@ -311,7 +325,6 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
             StartPosition = Forms.FormStartPosition.Manual;
             TopMost = true;
 
-            hideTimer.Tick += (_, _) => HideOverlay();
             animationTimer.Interval = 16;
             animationTimer.Tick += (_, _) => TickAnimation();
         }
@@ -335,12 +348,14 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
 
         public void ShowOverlay(OverlayRenderCommand command)
         {
-            int size = command.Size > 0 ? command.Size : DefaultWindowSize;
+            long generation = generations.Next();
+            CancelScheduledHide();
+            int size = command.Tokens.WindowSize;
             int durationMs = command.DurationMs > 0 ? command.DurationMs : DefaultDurationMs;
             System.Drawing.Point cursor = new((int)Math.Round(command.X), (int)Math.Round(command.Y));
             Forms.Screen display = Forms.Screen.FromPoint(cursor);
             Rectangle displayBounds = display.Bounds;
-            ringWindowSize = size;
+            visualTokens = command.Tokens;
             overlayColor = command.Color;
 
             ClientSize = new Size(size, size);
@@ -349,7 +364,9 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
                 (int)Math.Round(command.Y - size / 2.0));
             cursorCenter = new PointF(size / 2.0f, size / 2.0f);
 
-            isClickPulse = string.Equals(command.EventName, "click", StringComparison.OrdinalIgnoreCase);
+            bool isClick = string.Equals(command.EventName, "click", StringComparison.OrdinalIgnoreCase);
+            isClickPulse = isClick && command.AnimationsEnabled;
+            isStaticClick = isClick && !command.AnimationsEnabled;
             isDragActive = string.Equals(command.EventName, "drag", StringComparison.OrdinalIgnoreCase);
             clickPulseStartedAt = isClickPulse ? DateTime.UtcNow : DateTime.MinValue;
 
@@ -360,23 +377,30 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
             }
 
             ApplyTopMostNoActivate();
-            ShowCrosshairs(command.Crosshairs, cursor, displayBounds, overlayColor);
+            ShowCrosshairs(command.Crosshairs, cursor, displayBounds, overlayColor, visualTokens.CrosshairThickness);
 
-            hideTimer.Stop();
             if (!command.Persistent)
             {
-                hideTimer.Interval = durationMs;
-                hideTimer.Start();
+                ScheduleHide(durationMs, generation);
             }
 
-            animationTimer.Start();
+            if (isClickPulse)
+            {
+                animationTimer.Start();
+            }
+            else
+            {
+                animationTimer.Stop();
+            }
         }
 
         public void HideOverlay()
         {
-            hideTimer.Stop();
+            generations.Invalidate();
+            CancelScheduledHide();
             animationTimer.Stop();
             isClickPulse = false;
+            isStaticClick = false;
             isDragActive = false;
             horizontalCrosshair.Hide();
             verticalCrosshair.Hide();
@@ -385,6 +409,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
 
         private float ResolvePulseScale()
         {
+            if (isStaticClick) return 1.18f;
             if (!isClickPulse) return 1.0f;
             double elapsedMs = (DateTime.UtcNow - clickPulseStartedAt).TotalMilliseconds;
             if (elapsedMs >= ClickPulseMs)
@@ -417,9 +442,9 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
                 graphics.Clear(Color.Transparent);
 
                 float scale = ResolvePulseScale();
-                float ringDiameter = ringWindowSize * 0.5625f * scale;
-                float ringStroke = Math.Max(4.0f, ringWindowSize * 0.039f);
-                float outerStroke = Math.Max(18.0f, ringWindowSize * 0.1875f) * scale;
+                float ringDiameter = visualTokens.RingDiameter * scale;
+                float ringStroke = visualTokens.RingStroke;
+                float outerStroke = visualTokens.GlowStroke * scale;
                 float centerX = cursorCenter.X;
                 float centerY = cursorCenter.Y;
                 float ringX = centerX - ringDiameter / 2.0f;
@@ -483,7 +508,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
                 CursorOverlayNativeMethods.SWP_SHOWWINDOW);
         }
 
-        private void ShowCrosshairs(bool enabled, System.Drawing.Point cursor, Rectangle displayBounds, Color color)
+        private void ShowCrosshairs(bool enabled, System.Drawing.Point cursor, Rectangle displayBounds, Color color, int thickness)
         {
             if (!enabled)
             {
@@ -492,8 +517,59 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
                 return;
             }
 
-            horizontalCrosshair.ShowLine(new Rectangle(displayBounds.Left, cursor.Y - CrosshairThickness / 2, displayBounds.Width, CrosshairThickness), color);
-            verticalCrosshair.ShowLine(new Rectangle(cursor.X - CrosshairThickness / 2, displayBounds.Top, CrosshairThickness, displayBounds.Height), color);
+            horizontalCrosshair.ShowLine(new Rectangle(displayBounds.Left, cursor.Y - thickness / 2, displayBounds.Width, thickness), color);
+            verticalCrosshair.ShowLine(new Rectangle(cursor.X - thickness / 2, displayBounds.Top, thickness, displayBounds.Height), color);
+        }
+
+        private void ScheduleHide(int durationMs, long generation)
+        {
+            CancellationTokenSource cancellation = new();
+            hideCancellation = cancellation;
+            _ = HideAfterAsync(durationMs, generation, cancellation.Token);
+        }
+
+        private async Task HideAfterAsync(int durationMs, long generation, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await Task.Delay(durationMs, cancellationToken).ConfigureAwait(false);
+                if (IsDisposed || cancellationToken.IsCancellationRequested) return;
+                try
+                {
+                    BeginInvoke(() =>
+                    {
+                        if (generations.IsCurrent(generation)) HideOverlay();
+                    });
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        private void CancelScheduledHide()
+        {
+            CancellationTokenSource? cancellation = hideCancellation;
+            hideCancellation = null;
+            if (cancellation is null) return;
+            cancellation.Cancel();
+            cancellation.Dispose();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                CancelScheduledHide();
+                animationTimer.Dispose();
+                horizontalCrosshair.Dispose();
+                verticalCrosshair.Dispose();
+            }
+
+            base.Dispose(disposing);
         }
     }
 
