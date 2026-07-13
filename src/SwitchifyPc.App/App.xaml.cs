@@ -333,7 +333,10 @@ public partial class App : System.Windows.Application
             cursorOverlay = new WindowsCursorOverlayNotifier(nativeInput, cursorOverlaySettingsStore);
             modifierOverlay = new WindowsModifierKeyOverlayNotifier(nativeInput);
             commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay, modifierOverlay: modifierOverlay);
-            mouseRepeatController = new MouseRepeatController(commandExecutor, mouseRepeatSettingsStore);
+            mouseRepeatController = new MouseRepeatController(
+                commandExecutor,
+                mouseRepeatSettingsStore,
+                feedbackNotifier: cursorOverlay);
             PointerSpeedController pointerSpeedController = new(pointerSettingsStore, inputAdapter.SetPointerMovementSettings);
             ControlSession controlSession = new(
                 new CommandAuthValidator(pairingStore),

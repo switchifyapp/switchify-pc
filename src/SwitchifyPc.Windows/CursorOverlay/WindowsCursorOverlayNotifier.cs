@@ -8,7 +8,7 @@ using Forms = System.Windows.Forms;
 
 namespace SwitchifyPc.Windows.CursorOverlay;
 
-public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisposable
+public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMouseRepeatFeedbackNotifier, IDisposable
 {
     private const int DefaultDurationMs = 900;
     private const int FollowIntervalMs = 75;
@@ -116,6 +116,35 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         }
     }
 
+    public void BeginRepeat(MouseRepeatFeedback feedback)
+    {
+        CursorOverlaySettings settings = CurrentSettings();
+        if (!settings.Enabled) return;
+        bool restorePersistentMarker = ShouldFollowCursor(settings);
+        if (restorePersistentMarker) StartFollowing();
+        CursorOverlayEvent cursorEvent = new(
+            feedback.Kind == MouseRepeatFeedbackKind.Scroll
+                ? CursorOverlayEventKind.Scroll
+                : CursorOverlayEventKind.Move,
+            Dx: feedback.Dx,
+            Dy: feedback.Dy);
+        OverlayRenderCommand command = CreateRenderCommand(
+            cursorEvent,
+            settings,
+            persistent: true);
+        overlayThread.Value.Post(form => form.BeginRepeat(command, feedback));
+    }
+
+    public void EndRepeat(Guid generationId)
+    {
+        CursorOverlaySettings settings = CurrentSettings();
+        bool restorePersistentMarker = settings.Enabled && ShouldFollowCursor(settings);
+        if (overlayThread.IsValueCreated)
+        {
+            overlayThread.Value.Post(form => form.EndRepeat(generationId, restorePersistentMarker));
+        }
+    }
+
     public void Dispose()
     {
         if (disposed) return;
@@ -165,6 +194,15 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
 
     private void ShowCurrent(CursorOverlayEvent cursorEvent, CursorOverlaySettings settings, bool persistent)
     {
+        OverlayRenderCommand command = CreateRenderCommand(cursorEvent, settings, persistent);
+        overlayThread.Value.Post(form => form.ShowOverlay(command));
+    }
+
+    private OverlayRenderCommand CreateRenderCommand(
+        CursorOverlayEvent cursorEvent,
+        CursorOverlaySettings settings,
+        bool persistent)
+    {
         PointerPosition cursor = nativeInput.GetCursorPosition();
         int[] color = CursorOverlaySettingsModel.ResolveColorRgb(settings.Color);
         CursorOverlayVisualTokens tokens = CursorOverlayVisualTokens.Create(
@@ -180,7 +218,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
             Persistent: persistent,
             AnimationsEnabled: animationsEnabled(),
             Color: Color.FromArgb(color[0], color[1], color[2]));
-        overlayThread.Value.Post(form => form.ShowOverlay(command));
+        return command;
     }
 
     private bool ShouldFollowCursor(CursorOverlaySettings settings)
@@ -242,6 +280,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         {
             CursorOverlayEventKind.Click => CursorOverlayFeedbackTiming.LandingDurationMs,
             CursorOverlayEventKind.DoubleClick => CursorOverlayFeedbackTiming.DoubleClickDurationMs,
+            CursorOverlayEventKind.Scroll => CursorOverlayFeedbackTiming.LandingDurationMs,
             _ => DefaultDurationMs
         };
     }
@@ -317,7 +356,17 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         private bool isLandingSequenceActive;
         private bool isLandingVisible;
         private bool isLandingAnimated;
+        private DateTime scrollStartedAt = DateTime.MinValue;
+        private bool isScrollSequenceActive;
+        private bool isScrollVisible;
+        private bool isScrollAnimated;
+        private double scrollDx;
+        private double scrollDy;
+        private MouseRepeatFeedback? activeRepeat;
+        private DateTime repeatStartedAt = DateTime.MinValue;
+        private bool repeatAnimationsEnabled;
         private bool isDragActive;
+        private bool restorePersistentAfterTransient;
         private OverlayRenderCommand? pendingPersistentCommand;
         private CursorOverlayVisualTokens visualTokens = CursorOverlayVisualTokens.Create(128, 1);
         private PointF cursorCenter = new(64, 64);
@@ -361,7 +410,24 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
 
         public void ShowOverlay(OverlayRenderCommand command)
         {
-            if (isLandingSequenceActive && command.Persistent &&
+            if (activeRepeat is not null &&
+                command.CursorEvent.Kind is CursorOverlayEventKind.Move or CursorOverlayEventKind.Drag or CursorOverlayEventKind.Scroll)
+            {
+                (System.Drawing.Point activeCursor, Rectangle activeDisplayBounds) = ApplyCommandFrame(command);
+                isDragActive = command.CursorEvent.Kind == CursorOverlayEventKind.Drag;
+                if (command.CursorEvent.Kind == CursorOverlayEventKind.Scroll)
+                {
+                    scrollDx = command.CursorEvent.Dx;
+                    scrollDy = command.CursorEvent.Dy;
+                }
+
+                _ = RenderLayeredOverlay();
+                ApplyTopMostNoActivate();
+                ShowCrosshairs(command.Crosshairs, activeCursor, activeDisplayBounds, overlayColor, visualTokens.CrosshairThickness);
+                return;
+            }
+
+            if ((isLandingSequenceActive || isScrollSequenceActive) && command.Persistent &&
                 command.CursorEvent.Kind is CursorOverlayEventKind.Move or CursorOverlayEventKind.Drag)
             {
                 pendingPersistentCommand = command;
@@ -372,24 +438,22 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
             long generation = generations.Next();
             CancelScheduledHide();
             CancelPulseSchedule();
-            int size = command.Tokens.WindowSize;
+            activeRepeat = null;
             int durationMs = command.DurationMs > 0 ? command.DurationMs : DefaultDurationMs;
-            System.Drawing.Point cursor = new((int)Math.Round(command.X), (int)Math.Round(command.Y));
-            Forms.Screen display = Forms.Screen.FromPoint(cursor);
-            Rectangle displayBounds = display.Bounds;
-            visualTokens = command.Tokens;
-            overlayColor = command.Color;
-
-            ClientSize = new Size(size, size);
-            Location = new System.Drawing.Point(
-                (int)Math.Round(command.X - size / 2.0),
-                (int)Math.Round(command.Y - size / 2.0));
-            cursorCenter = new PointF(size / 2.0f, size / 2.0f);
+            (System.Drawing.Point cursor, Rectangle displayBounds) = ApplyCommandFrame(command);
 
             bool isClick = command.CursorEvent.Kind is CursorOverlayEventKind.Click or CursorOverlayEventKind.DoubleClick;
+            bool isScroll = command.CursorEvent.Kind == CursorOverlayEventKind.Scroll;
+            restorePersistentAfterTransient = command.Persistent;
             isLandingSequenceActive = isClick;
             isLandingVisible = isClick;
             isLandingAnimated = isClick && command.AnimationsEnabled;
+            isScrollSequenceActive = isScroll;
+            isScrollVisible = isScroll;
+            isScrollAnimated = isScroll && command.AnimationsEnabled;
+            scrollStartedAt = isScrollAnimated ? DateTime.UtcNow : DateTime.MinValue;
+            scrollDx = command.CursorEvent.Dx;
+            scrollDy = command.CursorEvent.Dy;
             isDragActive = command.CursorEvent.Kind == CursorOverlayEventKind.Drag;
             landingStartedAt = isLandingAnimated ? DateTime.UtcNow : DateTime.MinValue;
 
@@ -415,8 +479,12 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
             {
                 ScheduleStaticLandingClear(generation);
             }
+            else if (isScroll && !command.AnimationsEnabled)
+            {
+                ScheduleStaticScrollClear(generation);
+            }
 
-            if (isLandingAnimated)
+            if (isLandingAnimated || isScrollAnimated)
             {
                 animationTimer.Start();
             }
@@ -424,6 +492,64 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
             {
                 animationTimer.Stop();
             }
+        }
+
+        public void BeginRepeat(
+            OverlayRenderCommand command,
+            MouseRepeatFeedback feedback)
+        {
+            generations.Next();
+            CancelScheduledHide();
+            CancelPulseSchedule();
+            pendingPersistentCommand = null;
+            isLandingSequenceActive = false;
+            isLandingVisible = false;
+            isLandingAnimated = false;
+            isScrollSequenceActive = false;
+            isScrollVisible = false;
+            isScrollAnimated = false;
+            activeRepeat = feedback;
+            repeatStartedAt = DateTime.UtcNow;
+            repeatAnimationsEnabled = command.AnimationsEnabled;
+            scrollDx = feedback.Dx;
+            scrollDy = feedback.Dy;
+            isDragActive = false;
+            (System.Drawing.Point cursor, Rectangle displayBounds) = ApplyCommandFrame(command);
+
+            if (!RenderLayeredOverlay())
+            {
+                HideOverlay();
+                return;
+            }
+
+            ApplyTopMostNoActivate();
+            ShowCrosshairs(command.Crosshairs, cursor, displayBounds, overlayColor, visualTokens.CrosshairThickness);
+            if (feedback.Kind == MouseRepeatFeedbackKind.Move &&
+                feedback.AccelerationDurationMs > 0 &&
+                repeatAnimationsEnabled)
+            {
+                animationTimer.Start();
+            }
+            else
+            {
+                animationTimer.Stop();
+            }
+        }
+
+        public void EndRepeat(Guid generationId, bool restorePersistentMarker)
+        {
+            if (!CursorOverlayRepeatOwnership.CanEnd(activeRepeat, generationId)) return;
+            generations.Invalidate();
+            activeRepeat = null;
+            animationTimer.Stop();
+            if (!restorePersistentMarker)
+            {
+                HideOverlay();
+                return;
+            }
+
+            _ = RenderLayeredOverlay();
+            ApplyTopMostNoActivate();
         }
 
         public void HideOverlay()
@@ -435,11 +561,30 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
             isLandingSequenceActive = false;
             isLandingVisible = false;
             isLandingAnimated = false;
+            isScrollSequenceActive = false;
+            isScrollVisible = false;
+            isScrollAnimated = false;
+            activeRepeat = null;
             isDragActive = false;
             pendingPersistentCommand = null;
+            restorePersistentAfterTransient = false;
             horizontalCrosshair.Hide();
             verticalCrosshair.Hide();
             Hide();
+        }
+
+        private (System.Drawing.Point Cursor, Rectangle DisplayBounds) ApplyCommandFrame(OverlayRenderCommand command)
+        {
+            int size = command.Tokens.WindowSize;
+            System.Drawing.Point cursor = new((int)Math.Round(command.X), (int)Math.Round(command.Y));
+            visualTokens = command.Tokens;
+            overlayColor = command.Color;
+            ClientSize = new Size(size, size);
+            Location = new System.Drawing.Point(
+                (int)Math.Round(command.X - size / 2.0),
+                (int)Math.Round(command.Y - size / 2.0));
+            cursorCenter = new PointF(size / 2.0f, size / 2.0f);
+            return (cursor, Forms.Screen.FromPoint(cursor).Bounds);
         }
 
         private void TickAnimation()
@@ -456,6 +601,29 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
                 return;
             }
 
+            if (isScrollAnimated)
+            {
+                if ((DateTime.UtcNow - scrollStartedAt).TotalMilliseconds >= CursorOverlayFeedbackTiming.LandingDurationMs)
+                {
+                    ClearScroll();
+                    return;
+                }
+
+                _ = RenderLayeredOverlay();
+                return;
+            }
+
+            if (activeRepeat is { Kind: MouseRepeatFeedbackKind.Move, AccelerationDurationMs: > 0 } repeat &&
+                repeatAnimationsEnabled)
+            {
+                _ = RenderLayeredOverlay();
+                if ((DateTime.UtcNow - repeatStartedAt).TotalMilliseconds >= repeat.AccelerationDurationMs)
+                {
+                    animationTimer.Stop();
+                }
+                return;
+            }
+
             animationTimer.Stop();
         }
 
@@ -467,9 +635,31 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
                 graphics.SmoothingMode = SmoothingMode.AntiAlias;
                 graphics.Clear(Color.Transparent);
 
-                if (isLandingVisible)
+                if (activeRepeat is { Kind: MouseRepeatFeedbackKind.Scroll })
+                {
+                    DrawCursorMarker(graphics);
+                    DrawScroll(graphics, 1);
+                }
+                else if (activeRepeat is { Kind: MouseRepeatFeedbackKind.Move } repeat)
+                {
+                    DrawCursorMarker(graphics);
+                    if (repeat.AccelerationDurationMs > 0)
+                    {
+                        DrawRepeatProgress(graphics, repeat);
+                    }
+                }
+                else if (isLandingVisible)
                 {
                     DrawLanding(graphics);
+                }
+                else if (isScrollVisible)
+                {
+                    DrawCursorMarker(graphics);
+                    float opacity = isScrollAnimated
+                        ? CursorOverlayLandingFrame.Resolve(
+                            (DateTime.UtcNow - scrollStartedAt).TotalMilliseconds).Opacity
+                        : 1;
+                    DrawScroll(graphics, opacity);
                 }
                 else
                 {
@@ -574,6 +764,86 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         private static int Alpha(int alpha, float opacity) =>
             Math.Clamp((int)Math.Round(alpha * opacity), 0, 255);
 
+        private void DrawScroll(Graphics graphics, float opacity)
+        {
+            CursorOverlayDirection direction = CursorOverlayDirection.Resolve(scrollDx, scrollDy);
+            float directionX = direction.X;
+            float directionY = direction.Y;
+            float perpendicularX = -directionY;
+            float perpendicularY = directionX;
+            float halfTrack = visualTokens.ScrollTrackLength / 2;
+            float startX = cursorCenter.X - (directionX * halfTrack);
+            float startY = cursorCenter.Y - (directionY * halfTrack);
+            float endX = cursorCenter.X + (directionX * halfTrack);
+            float endY = cursorCenter.Y + (directionY * halfTrack);
+            float backX = endX - (directionX * visualTokens.ScrollHeadSize);
+            float backY = endY - (directionY * visualTokens.ScrollHeadSize);
+            float wing = visualTokens.ScrollHeadSize * 0.55f;
+
+            using Pen underlay = new(
+                Color.FromArgb(Alpha(80, opacity), 0, 0, 0),
+                visualTokens.ScrollStroke + visualTokens.ShadowOffset)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round,
+                LineJoin = LineJoin.Round
+            };
+            using Pen track = new(
+                Color.FromArgb(Alpha(230, opacity), overlayColor.R, overlayColor.G, overlayColor.B),
+                visualTokens.ScrollStroke)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round,
+                LineJoin = LineJoin.Round
+            };
+
+            graphics.DrawLine(underlay, startX, startY, endX, endY);
+            graphics.DrawLine(underlay, endX, endY, backX + (perpendicularX * wing), backY + (perpendicularY * wing));
+            graphics.DrawLine(underlay, endX, endY, backX - (perpendicularX * wing), backY - (perpendicularY * wing));
+            graphics.DrawLine(track, startX, startY, endX, endY);
+            graphics.DrawLine(track, endX, endY, backX + (perpendicularX * wing), backY + (perpendicularY * wing));
+            graphics.DrawLine(track, endX, endY, backX - (perpendicularX * wing), backY - (perpendicularY * wing));
+        }
+
+        private void DrawRepeatProgress(Graphics graphics, MouseRepeatFeedback repeat)
+        {
+            float diameter = visualTokens.ProgressDiameter;
+            float x = cursorCenter.X - (diameter / 2);
+            float y = cursorCenter.Y - (diameter / 2);
+            using Pen track = new(
+                Color.FromArgb(70, overlayColor.R, overlayColor.G, overlayColor.B),
+                visualTokens.ProgressStroke)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round
+            };
+            graphics.DrawEllipse(track, x, y, diameter, diameter);
+
+            if (!repeatAnimationsEnabled)
+            {
+                using Pen staticRing = new(
+                    Color.FromArgb(210, overlayColor.R, overlayColor.G, overlayColor.B),
+                    visualTokens.ProgressStroke)
+                {
+                    DashStyle = DashStyle.Dot
+                };
+                graphics.DrawEllipse(staticRing, x, y, diameter, diameter);
+                return;
+            }
+
+            float progress = CursorOverlayRepeatProgress.Resolve(
+                repeat.AccelerationDurationMs,
+                DateTime.UtcNow - repeatStartedAt);
+            using Pen progressRing = new(
+                Color.FromArgb(245, overlayColor.R, overlayColor.G, overlayColor.B),
+                visualTokens.ProgressStroke)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round
+            };
+            graphics.DrawArc(progressRing, x, y, diameter, diameter, -90, 360 * progress);
+        }
+
         private void ApplyTopMostNoActivate()
         {
             CursorOverlayNativeMethods.SetWindowPos(
@@ -651,10 +921,23 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
             _ = RunStaticLandingClearAsync(generation, cancellation.Token);
         }
 
+        private void ScheduleStaticScrollClear(long generation)
+        {
+            CancellationTokenSource cancellation = new();
+            pulseCancellation = cancellation;
+            _ = RunStaticScrollClearAsync(generation, cancellation.Token);
+        }
+
         private async Task RunStaticLandingClearAsync(long generation, CancellationToken cancellationToken)
         {
             if (!await DelayPulseAsync(CursorOverlayFeedbackTiming.LandingDurationMs, cancellationToken)) return;
             PostIfCurrent(generation, ClearLanding);
+        }
+
+        private async Task RunStaticScrollClearAsync(long generation, CancellationToken cancellationToken)
+        {
+            if (!await DelayPulseAsync(CursorOverlayFeedbackTiming.LandingDurationMs, cancellationToken)) return;
+            PostIfCurrent(generation, ClearScroll);
         }
 
         private static async Task<bool> DelayPulseAsync(int durationMs, CancellationToken cancellationToken)
@@ -697,6 +980,35 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
                 OverlayRenderCommand pending = pendingPersistentCommand;
                 pendingPersistentCommand = null;
                 ShowOverlay(pending);
+                return;
+            }
+
+            if (!restorePersistentAfterTransient)
+            {
+                HideOverlay();
+                return;
+            }
+
+            _ = RenderLayeredOverlay();
+        }
+
+        private void ClearScroll()
+        {
+            isScrollSequenceActive = false;
+            isScrollVisible = false;
+            isScrollAnimated = false;
+            animationTimer.Stop();
+            if (pendingPersistentCommand is not null)
+            {
+                OverlayRenderCommand pending = pendingPersistentCommand;
+                pendingPersistentCommand = null;
+                ShowOverlay(pending);
+                return;
+            }
+
+            if (!restorePersistentAfterTransient)
+            {
+                HideOverlay();
                 return;
             }
 

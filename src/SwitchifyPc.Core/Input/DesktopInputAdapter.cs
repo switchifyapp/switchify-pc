@@ -31,10 +31,28 @@ public enum CursorOverlayEventKind
     Move,
     Drag,
     Click,
-    DoubleClick
+    DoubleClick,
+    Scroll
 }
 
-public sealed record CursorOverlayEvent(CursorOverlayEventKind Kind, string? Button = null);
+public sealed record CursorOverlayEvent(
+    CursorOverlayEventKind Kind,
+    string? Button = null,
+    double Dx = 0,
+    double Dy = 0);
+
+public enum MouseRepeatFeedbackKind
+{
+    Move,
+    Scroll
+}
+
+public sealed record MouseRepeatFeedback(
+    Guid GenerationId,
+    MouseRepeatFeedbackKind Kind,
+    double Dx,
+    double Dy,
+    int AccelerationDurationMs);
 
 public interface ICursorOverlayNotifier
 {
@@ -43,6 +61,12 @@ public interface ICursorOverlayNotifier
     void EndControlSession();
     void MarkControlActive();
     void SetDragActive(bool active);
+}
+
+public interface IMouseRepeatFeedbackNotifier
+{
+    void BeginRepeat(MouseRepeatFeedback feedback);
+    void EndRepeat(Guid generationId);
 }
 
 public interface IModifierKeyOverlayNotifier

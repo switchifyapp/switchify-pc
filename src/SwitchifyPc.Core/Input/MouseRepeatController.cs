@@ -9,6 +9,7 @@ public sealed class MouseRepeatController
     private readonly IMouseRepeatSettingsStore settingsStore;
     private readonly Func<int, CancellationToken, Task> delay;
     private readonly TimeProvider timeProvider;
+    private readonly IMouseRepeatFeedbackNotifier? feedbackNotifier;
     private readonly object sync = new();
     private readonly Dictionary<string, ActiveRepeat> activeRepeats = new(StringComparer.Ordinal);
 
@@ -16,12 +17,14 @@ public sealed class MouseRepeatController
         DesktopCommandExecutor commandExecutor,
         IMouseRepeatSettingsStore settingsStore,
         Func<int, CancellationToken, Task>? delay = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IMouseRepeatFeedbackNotifier? feedbackNotifier = null)
     {
         this.commandExecutor = commandExecutor;
         this.settingsStore = settingsStore;
         this.delay = delay ?? ((milliseconds, cancellationToken) => Task.Delay(milliseconds, cancellationToken));
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.feedbackNotifier = feedbackNotifier;
     }
 
     public async Task<CommandExecutionResult> StartAsync(string deviceId, JsonElement nestedCommand, CancellationToken cancellationToken = default)
@@ -52,7 +55,8 @@ public sealed class MouseRepeatController
             activeRepeats[deviceId] = next;
         }
 
-        previous?.Stop();
+        if (previous is not null) StopRepeat(previous);
+        BeginFeedback(next);
         _ = RunAsync(deviceId, next);
         return CommandExecutionResult.Success;
     }
@@ -65,7 +69,7 @@ public sealed class MouseRepeatController
             activeRepeats.Remove(deviceId, out repeat);
         }
 
-        repeat?.Stop();
+        if (repeat is not null) StopRepeat(repeat);
         return Task.CompletedTask;
     }
 
@@ -80,7 +84,7 @@ public sealed class MouseRepeatController
 
         foreach (ActiveRepeat repeat in repeats)
         {
-            repeat.Stop();
+            StopRepeat(repeat);
         }
 
         return Task.CompletedTask;
@@ -130,6 +134,17 @@ public sealed class MouseRepeatController
         }
         finally
         {
+            ActiveRepeat? current = null;
+            lock (sync)
+            {
+                if (activeRepeats.TryGetValue(deviceId, out ActiveRepeat? candidate) && ReferenceEquals(candidate, repeat))
+                {
+                    activeRepeats.Remove(deviceId);
+                    current = candidate;
+                }
+            }
+
+            if (current is not null) StopRepeat(current);
             repeat.Dispose();
         }
     }
@@ -148,10 +163,33 @@ public sealed class MouseRepeatController
 
         if (removed)
         {
-            repeat.Stop();
+            StopRepeat(repeat);
         }
 
         return Task.CompletedTask;
+    }
+
+    private void StopRepeat(ActiveRepeat repeat)
+    {
+        repeat.Stop();
+        try
+        {
+            feedbackNotifier?.EndRepeat(repeat.FeedbackId);
+        }
+        catch
+        {
+        }
+    }
+
+    private void BeginFeedback(ActiveRepeat repeat)
+    {
+        try
+        {
+            feedbackNotifier?.BeginRepeat(repeat.Feedback());
+        }
+        catch
+        {
+        }
     }
 
     private static int IntervalFor(MouseRepeatSettings settings, JsonElement command)
@@ -197,6 +235,7 @@ public sealed class MouseRepeatController
             Command = command;
             AccelerationDurationMs = accelerationDurationMs;
             StartTimestamp = startTimestamp;
+            FeedbackId = Guid.NewGuid();
         }
 
         public JsonDocument Command { get; }
@@ -205,7 +244,22 @@ public sealed class MouseRepeatController
 
         public long StartTimestamp { get; }
 
+        public Guid FeedbackId { get; }
+
         public CancellationToken Cancellation => cancellation.Token;
+
+        public MouseRepeatFeedback Feedback()
+        {
+            JsonElement command = Command.RootElement;
+            JsonElement payload = command.GetProperty("payload");
+            bool isScroll = command.GetProperty("type").GetString() == "mouse.scroll";
+            return new MouseRepeatFeedback(
+                FeedbackId,
+                isScroll ? MouseRepeatFeedbackKind.Scroll : MouseRepeatFeedbackKind.Move,
+                payload.GetProperty("dx").GetDouble(),
+                payload.GetProperty("dy").GetDouble(),
+                isScroll ? 0 : AccelerationDurationMs);
+        }
 
         public void Stop()
         {
