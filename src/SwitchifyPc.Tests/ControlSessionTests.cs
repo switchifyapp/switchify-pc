@@ -420,7 +420,7 @@ public sealed class ControlSessionTests
         public int HideCount { get; private set; }
         public int EndSessionCount { get; private set; }
 
-        public void Show(string eventName)
+        public void Show(CursorOverlayEvent cursorEvent)
         {
         }
 

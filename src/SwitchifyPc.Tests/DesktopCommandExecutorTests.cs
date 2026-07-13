@@ -28,7 +28,14 @@ public sealed class DesktopCommandExecutorTests
                 "scrollMouse:0,-3"
             ],
             adapter.Calls);
-        Assert.Equal(["move", "click", "click", "click"], overlay.Events);
+        Assert.Equal(
+            [
+                new CursorOverlayEvent(CursorOverlayEventKind.Move),
+                new CursorOverlayEvent(CursorOverlayEventKind.Click, "left"),
+                new CursorOverlayEvent(CursorOverlayEventKind.DoubleClick, "middle"),
+                new CursorOverlayEvent(CursorOverlayEventKind.Click, "right")
+            ],
+            overlay.Events);
         Assert.Equal(5, overlay.ActiveCount);
     }
 
@@ -172,7 +179,12 @@ public sealed class DesktopCommandExecutorTests
                 "setMouseButtonDown:left:False"
             ],
             adapter.Calls);
-        Assert.Equal(["drag", "drag"], overlay.Events);
+        Assert.Equal(
+            [
+                new CursorOverlayEvent(CursorOverlayEventKind.Drag, "left"),
+                new CursorOverlayEvent(CursorOverlayEventKind.Drag, "left")
+            ],
+            overlay.Events);
         Assert.Equal([true, false], overlay.DragActiveChanges);
         Assert.Equal(1, overlay.HideCount);
     }
@@ -195,7 +207,12 @@ public sealed class DesktopCommandExecutorTests
             ],
             adapter.Calls);
         Assert.Equal([true, false], overlay.DragActiveChanges);
-        Assert.Equal(["drag", "click"], overlay.Events);
+        Assert.Equal(
+            [
+                new CursorOverlayEvent(CursorOverlayEventKind.Drag, "left"),
+                new CursorOverlayEvent(CursorOverlayEventKind.Click, "left")
+            ],
+            overlay.Events);
     }
 
     [Fact]
@@ -255,7 +272,12 @@ public sealed class DesktopCommandExecutorTests
             ],
             adapter.Calls);
         Assert.Equal([true], overlay.DragActiveChanges);
-        Assert.Equal(["drag", "drag"], overlay.Events);
+        Assert.Equal(
+            [
+                new CursorOverlayEvent(CursorOverlayEventKind.Drag, "left"),
+                new CursorOverlayEvent(CursorOverlayEventKind.Drag, "left")
+            ],
+            overlay.Events);
     }
 
     [Fact]
@@ -512,15 +534,15 @@ public sealed class DesktopCommandExecutorTests
 
     private sealed class FakeCursorOverlay : ICursorOverlayNotifier
     {
-        public List<string> Events { get; } = [];
+        public List<CursorOverlayEvent> Events { get; } = [];
         public List<bool> DragActiveChanges { get; } = [];
         public int ActiveCount { get; private set; }
         public int HideCount { get; private set; }
         public int EndSessionCount { get; private set; }
 
-        public void Show(string eventName)
+        public void Show(CursorOverlayEvent cursorEvent)
         {
-            Events.Add(eventName);
+            Events.Add(cursorEvent);
         }
 
         public void Hide()

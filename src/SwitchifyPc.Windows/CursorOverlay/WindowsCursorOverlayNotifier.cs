@@ -43,14 +43,14 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         overlayThread = new Lazy<OverlayThread>(() => new OverlayThread());
     }
 
-    public void Show(string eventName)
+    public void Show(CursorOverlayEvent cursorEvent)
     {
         CursorOverlaySettings settings = CurrentSettings();
         if (!settings.Enabled) return;
         bool shouldFollow = ShouldFollowCursor(settings);
         if (shouldFollow) StartFollowing();
-        if (shouldFollow && IsMoveEvent(eventName) && !ShouldRenderMoveNow()) return;
-        ShowCurrent(eventName, settings, persistent: shouldFollow);
+        if (shouldFollow && IsMoveEvent(cursorEvent.Kind) && !ShouldRenderMoveNow()) return;
+        ShowCurrent(cursorEvent, settings, persistent: shouldFollow);
     }
 
     public void Hide()
@@ -108,7 +108,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         }
         else if (ShouldFollowCursor(settings))
         {
-            ShowCurrent("move", settings, persistent: true);
+            ShowCurrent(new CursorOverlayEvent(CursorOverlayEventKind.Move), settings, persistent: true);
         }
         else
         {
@@ -163,7 +163,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         }
     }
 
-    private void ShowCurrent(string eventName, CursorOverlaySettings settings, bool persistent)
+    private void ShowCurrent(CursorOverlayEvent cursorEvent, CursorOverlaySettings settings, bool persistent)
     {
         PointerPosition cursor = nativeInput.GetCursorPosition();
         int[] color = CursorOverlaySettingsModel.ResolveColorRgb(settings.Color);
@@ -171,11 +171,11 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
             CursorOverlaySettingsModel.ResolveSizePixels(settings.Size),
             displayScale(cursor));
         OverlayRenderCommand command = new(
-            EventName: eventName,
+            CursorEvent: cursorEvent,
             X: cursor.X,
             Y: cursor.Y,
             Tokens: tokens,
-            DurationMs: persistent ? 0 : DefaultDurationMs,
+            DurationMs: persistent ? 0 : DurationFor(cursorEvent.Kind),
             Crosshairs: settings.Crosshairs,
             Persistent: persistent,
             AnimationsEnabled: animationsEnabled(),
@@ -191,11 +191,12 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         }
     }
 
-    private string CurrentPersistentEvent()
+    private CursorOverlayEvent CurrentPersistentEvent()
     {
         lock (sync)
         {
-            return dragActive ? "drag" : "move";
+            return new CursorOverlayEvent(
+                dragActive ? CursorOverlayEventKind.Drag : CursorOverlayEventKind.Move);
         }
     }
 
@@ -230,9 +231,19 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         }
     }
 
-    private static bool IsMoveEvent(string eventName)
+    private static bool IsMoveEvent(CursorOverlayEventKind kind)
     {
-        return eventName is "move" or "drag";
+        return kind is CursorOverlayEventKind.Move or CursorOverlayEventKind.Drag;
+    }
+
+    private static int DurationFor(CursorOverlayEventKind kind)
+    {
+        return kind switch
+        {
+            CursorOverlayEventKind.Click => CursorOverlayFeedbackTiming.LandingDurationMs,
+            CursorOverlayEventKind.DoubleClick => CursorOverlayFeedbackTiming.DoubleClickDurationMs,
+            _ => DefaultDurationMs
+        };
     }
 
     private sealed class OverlayThread : IDisposable
@@ -284,7 +295,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
     }
 
     private sealed record OverlayRenderCommand(
-        string EventName,
+        CursorOverlayEvent CursorEvent,
         double X,
         double Y,
         CursorOverlayVisualTokens Tokens,
@@ -296,16 +307,18 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
 
     private sealed class OverlayForm : Forms.Form
     {
-        private const int ClickPulseMs = 180;
         private readonly Forms.Timer animationTimer = new();
         private readonly CrosshairLineForm horizontalCrosshair = new();
         private readonly CrosshairLineForm verticalCrosshair = new();
         private readonly CursorOverlayGenerationTracker generations = new();
         private CancellationTokenSource? hideCancellation;
-        private DateTime clickPulseStartedAt = DateTime.MinValue;
-        private bool isClickPulse;
-        private bool isStaticClick;
+        private CancellationTokenSource? pulseCancellation;
+        private DateTime landingStartedAt = DateTime.MinValue;
+        private bool isLandingSequenceActive;
+        private bool isLandingVisible;
+        private bool isLandingAnimated;
         private bool isDragActive;
+        private OverlayRenderCommand? pendingPersistentCommand;
         private CursorOverlayVisualTokens visualTokens = CursorOverlayVisualTokens.Create(128, 1);
         private PointF cursorCenter = new(64, 64);
         private Color overlayColor = Color.FromArgb(211, 47, 47);
@@ -348,8 +361,17 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
 
         public void ShowOverlay(OverlayRenderCommand command)
         {
+            if (isLandingSequenceActive && command.Persistent &&
+                command.CursorEvent.Kind is CursorOverlayEventKind.Move or CursorOverlayEventKind.Drag)
+            {
+                pendingPersistentCommand = command;
+                return;
+            }
+
+            pendingPersistentCommand = null;
             long generation = generations.Next();
             CancelScheduledHide();
+            CancelPulseSchedule();
             int size = command.Tokens.WindowSize;
             int durationMs = command.DurationMs > 0 ? command.DurationMs : DefaultDurationMs;
             System.Drawing.Point cursor = new((int)Math.Round(command.X), (int)Math.Round(command.Y));
@@ -364,11 +386,12 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
                 (int)Math.Round(command.Y - size / 2.0));
             cursorCenter = new PointF(size / 2.0f, size / 2.0f);
 
-            bool isClick = string.Equals(command.EventName, "click", StringComparison.OrdinalIgnoreCase);
-            isClickPulse = isClick && command.AnimationsEnabled;
-            isStaticClick = isClick && !command.AnimationsEnabled;
-            isDragActive = string.Equals(command.EventName, "drag", StringComparison.OrdinalIgnoreCase);
-            clickPulseStartedAt = isClickPulse ? DateTime.UtcNow : DateTime.MinValue;
+            bool isClick = command.CursorEvent.Kind is CursorOverlayEventKind.Click or CursorOverlayEventKind.DoubleClick;
+            isLandingSequenceActive = isClick;
+            isLandingVisible = isClick;
+            isLandingAnimated = isClick && command.AnimationsEnabled;
+            isDragActive = command.CursorEvent.Kind == CursorOverlayEventKind.Drag;
+            landingStartedAt = isLandingAnimated ? DateTime.UtcNow : DateTime.MinValue;
 
             if (!RenderLayeredOverlay())
             {
@@ -384,7 +407,16 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
                 ScheduleHide(durationMs, generation);
             }
 
-            if (isClickPulse)
+            if (command.CursorEvent.Kind == CursorOverlayEventKind.DoubleClick)
+            {
+                ScheduleDoubleClick(command.AnimationsEnabled, generation);
+            }
+            else if (isClick && !command.AnimationsEnabled)
+            {
+                ScheduleStaticLandingClear(generation);
+            }
+
+            if (isLandingAnimated)
             {
                 animationTimer.Start();
             }
@@ -398,34 +430,28 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
         {
             generations.Invalidate();
             CancelScheduledHide();
+            CancelPulseSchedule();
             animationTimer.Stop();
-            isClickPulse = false;
-            isStaticClick = false;
+            isLandingSequenceActive = false;
+            isLandingVisible = false;
+            isLandingAnimated = false;
             isDragActive = false;
+            pendingPersistentCommand = null;
             horizontalCrosshair.Hide();
             verticalCrosshair.Hide();
             Hide();
         }
 
-        private float ResolvePulseScale()
-        {
-            if (isStaticClick) return 1.18f;
-            if (!isClickPulse) return 1.0f;
-            double elapsedMs = (DateTime.UtcNow - clickPulseStartedAt).TotalMilliseconds;
-            if (elapsedMs >= ClickPulseMs)
-            {
-                isClickPulse = false;
-                return 1.0f;
-            }
-
-            double progress = Math.Clamp(elapsedMs / ClickPulseMs, 0.0, 1.0);
-            return (float)(0.82 + progress * 0.36);
-        }
-
         private void TickAnimation()
         {
-            if (isClickPulse)
+            if (isLandingAnimated)
             {
+                if ((DateTime.UtcNow - landingStartedAt).TotalMilliseconds >= CursorOverlayFeedbackTiming.LandingDurationMs)
+                {
+                    ClearLanding();
+                    return;
+                }
+
                 _ = RenderLayeredOverlay();
                 return;
             }
@@ -441,27 +467,13 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
                 graphics.SmoothingMode = SmoothingMode.AntiAlias;
                 graphics.Clear(Color.Transparent);
 
-                float scale = ResolvePulseScale();
-                float ringDiameter = visualTokens.RingDiameter * scale;
-                float ringStroke = visualTokens.RingStroke;
-                float outerStroke = visualTokens.GlowStroke * scale;
-                float centerX = cursorCenter.X;
-                float centerY = cursorCenter.Y;
-                float ringX = centerX - ringDiameter / 2.0f;
-                float ringY = centerY - ringDiameter / 2.0f;
-                float dragDotDiameter = ringDiameter * 0.22f;
-                float dragDotX = centerX - dragDotDiameter / 2.0f;
-                float dragDotY = centerY - dragDotDiameter / 2.0f;
-
-                using Pen glow = new(Color.FromArgb(isDragActive ? 66 : 62, overlayColor.R, overlayColor.G, overlayColor.B), isDragActive ? outerStroke * 1.08f : outerStroke);
-                using Pen ring = new(Color.FromArgb(250, overlayColor.R, overlayColor.G, overlayColor.B), isDragActive ? ringStroke + 1.0f : ringStroke);
-                using SolidBrush dragDot = new(Color.FromArgb(240, overlayColor.R, overlayColor.G, overlayColor.B));
-
-                graphics.DrawEllipse(glow, ringX, ringY, ringDiameter, ringDiameter);
-                graphics.DrawEllipse(ring, ringX, ringY, ringDiameter, ringDiameter);
-                if (isDragActive)
+                if (isLandingVisible)
                 {
-                    graphics.FillEllipse(dragDot, dragDotX, dragDotY, dragDotDiameter, dragDotDiameter);
+                    DrawLanding(graphics);
+                }
+                else
+                {
+                    DrawCursorMarker(graphics);
                 }
             }
 
@@ -493,6 +505,75 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
             }
         }
 
+        private void DrawCursorMarker(Graphics graphics)
+        {
+            float ringDiameter = visualTokens.RingDiameter;
+            float ringStroke = visualTokens.RingStroke;
+            float outerStroke = visualTokens.GlowStroke;
+            float centerX = cursorCenter.X;
+            float centerY = cursorCenter.Y;
+            float ringX = centerX - ringDiameter / 2.0f;
+            float ringY = centerY - ringDiameter / 2.0f;
+            float dragDotDiameter = ringDiameter * 0.22f;
+            float dragDotX = centerX - dragDotDiameter / 2.0f;
+            float dragDotY = centerY - dragDotDiameter / 2.0f;
+
+            using Pen glow = new(Color.FromArgb(isDragActive ? 66 : 62, overlayColor.R, overlayColor.G, overlayColor.B), isDragActive ? outerStroke * 1.08f : outerStroke);
+            using Pen ring = new(Color.FromArgb(250, overlayColor.R, overlayColor.G, overlayColor.B), isDragActive ? ringStroke + 1.0f : ringStroke);
+            using SolidBrush dragDot = new(Color.FromArgb(240, overlayColor.R, overlayColor.G, overlayColor.B));
+
+            graphics.DrawEllipse(glow, ringX, ringY, ringDiameter, ringDiameter);
+            graphics.DrawEllipse(ring, ringX, ringY, ringDiameter, ringDiameter);
+            if (isDragActive)
+            {
+                graphics.FillEllipse(dragDot, dragDotX, dragDotY, dragDotDiameter, dragDotDiameter);
+            }
+        }
+
+        private void DrawLanding(Graphics graphics)
+        {
+            CursorOverlayLandingFrame frame = isLandingAnimated
+                ? CursorOverlayLandingFrame.Resolve((DateTime.UtcNow - landingStartedAt).TotalMilliseconds)
+                : CursorOverlayLandingFrame.Static;
+            float centerX = cursorCenter.X;
+            float centerY = cursorCenter.Y;
+            float coreDiameter = visualTokens.LandingCoreDiameter * frame.CoreScale;
+            float coreRadius = coreDiameter / 2;
+            float maxHaloRadius = (visualTokens.LandingHaloDiameter - visualTokens.LandingHaloStroke) / 2;
+            float haloRadius = visualTokens.LandingCoreDiameter / 2 +
+                ((maxHaloRadius - visualTokens.LandingCoreDiameter / 2) * frame.HaloProgress);
+            int haloAlpha = Alpha(180, frame.Opacity);
+            int shadowAlpha = Alpha(65, frame.Opacity);
+            int coreAlpha = Alpha(255, frame.Opacity);
+
+            using Pen halo = new(
+                Color.FromArgb(haloAlpha, overlayColor.R, overlayColor.G, overlayColor.B),
+                visualTokens.LandingHaloStroke);
+            using SolidBrush shadow = new(Color.FromArgb(shadowAlpha, 0, 0, 0));
+            using SolidBrush core = new(Color.FromArgb(coreAlpha, overlayColor.R, overlayColor.G, overlayColor.B));
+            graphics.DrawEllipse(
+                halo,
+                centerX - haloRadius,
+                centerY - haloRadius,
+                haloRadius * 2,
+                haloRadius * 2);
+            graphics.FillEllipse(
+                shadow,
+                centerX - coreRadius + visualTokens.ShadowOffset,
+                centerY - coreRadius + visualTokens.ShadowOffset,
+                coreDiameter,
+                coreDiameter);
+            graphics.FillEllipse(
+                core,
+                centerX - coreRadius,
+                centerY - coreRadius,
+                coreDiameter,
+                coreDiameter);
+        }
+
+        private static int Alpha(int alpha, float opacity) =>
+            Math.Clamp((int)Math.Round(alpha * opacity), 0, 255);
+
         private void ApplyTopMostNoActivate()
         {
             CursorOverlayNativeMethods.SetWindowPos(
@@ -519,6 +600,116 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
 
             horizontalCrosshair.ShowLine(new Rectangle(displayBounds.Left, cursor.Y - thickness / 2, displayBounds.Width, thickness), color);
             verticalCrosshair.ShowLine(new Rectangle(cursor.X - thickness / 2, displayBounds.Top, thickness, displayBounds.Height), color);
+        }
+
+        private void ScheduleDoubleClick(bool animated, long generation)
+        {
+            CancellationTokenSource cancellation = new();
+            pulseCancellation = cancellation;
+            _ = animated
+                ? RunAnimatedSecondPulseAsync(generation, cancellation.Token)
+                : RunStaticDoubleClickAsync(generation, cancellation.Token);
+        }
+
+        private async Task RunAnimatedSecondPulseAsync(long generation, CancellationToken cancellationToken)
+        {
+            if (!await DelayPulseAsync(CursorOverlayFeedbackTiming.DoubleClickIntervalMs, cancellationToken)) return;
+            PostIfCurrent(generation, () =>
+            {
+                isLandingVisible = true;
+                isLandingAnimated = true;
+                landingStartedAt = DateTime.UtcNow;
+                _ = RenderLayeredOverlay();
+                animationTimer.Start();
+            });
+        }
+
+        private async Task RunStaticDoubleClickAsync(long generation, CancellationToken cancellationToken)
+        {
+            if (!await DelayPulseAsync(CursorOverlayFeedbackTiming.StaticDoubleClickGapStartsMs, cancellationToken)) return;
+            PostIfCurrent(generation, () =>
+            {
+                isLandingVisible = false;
+                _ = RenderLayeredOverlay();
+            });
+            int gapMs = CursorOverlayFeedbackTiming.DoubleClickIntervalMs -
+                CursorOverlayFeedbackTiming.StaticDoubleClickGapStartsMs;
+            if (!await DelayPulseAsync(gapMs, cancellationToken)) return;
+            PostIfCurrent(generation, () =>
+            {
+                isLandingVisible = true;
+                _ = RenderLayeredOverlay();
+            });
+            if (!await DelayPulseAsync(CursorOverlayFeedbackTiming.LandingDurationMs, cancellationToken)) return;
+            PostIfCurrent(generation, ClearLanding);
+        }
+
+        private void ScheduleStaticLandingClear(long generation)
+        {
+            CancellationTokenSource cancellation = new();
+            pulseCancellation = cancellation;
+            _ = RunStaticLandingClearAsync(generation, cancellation.Token);
+        }
+
+        private async Task RunStaticLandingClearAsync(long generation, CancellationToken cancellationToken)
+        {
+            if (!await DelayPulseAsync(CursorOverlayFeedbackTiming.LandingDurationMs, cancellationToken)) return;
+            PostIfCurrent(generation, ClearLanding);
+        }
+
+        private static async Task<bool> DelayPulseAsync(int durationMs, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await Task.Delay(durationMs, cancellationToken).ConfigureAwait(false);
+                return !cancellationToken.IsCancellationRequested;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+        }
+
+        private void PostIfCurrent(long generation, Action action)
+        {
+            if (IsDisposed) return;
+            try
+            {
+                BeginInvoke(() =>
+                {
+                    if (!generations.IsCurrent(generation)) return;
+                    action();
+                });
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        private void ClearLanding()
+        {
+            isLandingSequenceActive = false;
+            isLandingVisible = false;
+            isLandingAnimated = false;
+            animationTimer.Stop();
+            if (pendingPersistentCommand is not null)
+            {
+                OverlayRenderCommand pending = pendingPersistentCommand;
+                pendingPersistentCommand = null;
+                ShowOverlay(pending);
+                return;
+            }
+
+            _ = RenderLayeredOverlay();
+        }
+
+        private void CancelPulseSchedule()
+        {
+            CancellationTokenSource? cancellation = pulseCancellation;
+            pulseCancellation = null;
+            if (cancellation is null) return;
+            cancellation.Cancel();
+            cancellation.Dispose();
         }
 
         private void ScheduleHide(int durationMs, long generation)
@@ -564,6 +755,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IDisp
             if (disposing)
             {
                 CancelScheduledHide();
+                CancelPulseSchedule();
                 animationTimer.Dispose();
                 horizontalCrosshair.Dispose();
                 verticalCrosshair.Dispose();

@@ -5,7 +5,11 @@ internal sealed record CursorOverlayVisualTokens(
     float RingDiameter,
     float RingStroke,
     float GlowStroke,
-    int CrosshairThickness)
+    int CrosshairThickness,
+    float LandingCoreDiameter,
+    float LandingHaloDiameter,
+    float LandingHaloStroke,
+    float ShadowOffset)
 {
     private const double DefaultDpi = 96;
 
@@ -19,7 +23,11 @@ internal sealed record CursorOverlayVisualTokens(
             RingDiameter: (float)(normalizedLogicalSize * 0.5625 * scale),
             RingStroke: (float)Math.Max(4 * scale, normalizedLogicalSize * 0.039 * scale),
             GlowStroke: (float)Math.Max(18 * scale, normalizedLogicalSize * 0.1875 * scale),
-            CrosshairThickness: Math.Max(1, Scale(2, scale)));
+            CrosshairThickness: Math.Max(1, Scale(2, scale)),
+            LandingCoreDiameter: (float)(normalizedLogicalSize * 0.375 * scale),
+            LandingHaloDiameter: (float)(normalizedLogicalSize * 0.6875 * scale),
+            LandingHaloStroke: (float)Math.Max(2 * scale, normalizedLogicalSize * 0.0234375 * scale),
+            ShadowOffset: (float)Math.Max(1, 2 * scale));
     }
 
     public static double ScaleFromDpi(uint dpi)
@@ -36,6 +44,35 @@ internal sealed record CursorOverlayVisualTokens(
     {
         return Math.Max(1, (int)Math.Round(value * scaleFactor, MidpointRounding.AwayFromZero));
     }
+}
+
+internal static class CursorOverlayFeedbackTiming
+{
+    public const int LandingDurationMs = 300;
+    public const int DoubleClickIntervalMs = 250;
+    public const int DoubleClickDurationMs = LandingDurationMs + DoubleClickIntervalMs;
+    public const int StaticDoubleClickGapStartsMs = 170;
+}
+
+internal sealed record CursorOverlayLandingFrame(float CoreScale, float HaloProgress, float Opacity)
+{
+    public static CursorOverlayLandingFrame Resolve(double elapsedMs)
+    {
+        float progress = (float)Math.Clamp(
+            elapsedMs / CursorOverlayFeedbackTiming.LandingDurationMs,
+            0,
+            1);
+        float coreScale = Math.Min(progress / 0.22f, 1);
+        float haloProgress = Math.Min(progress / 0.72f, 1);
+        float opacity = progress >= 1
+            ? 0
+            : progress < 0.72f
+                ? 1
+                : Math.Max(0, 1 - ((progress - 0.72f) / 0.28f));
+        return new CursorOverlayLandingFrame(coreScale, haloProgress, opacity);
+    }
+
+    public static CursorOverlayLandingFrame Static { get; } = Resolve(150);
 }
 
 internal interface ICursorOverlayMotionPolicy

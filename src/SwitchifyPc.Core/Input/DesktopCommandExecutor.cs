@@ -112,7 +112,9 @@ public sealed class DesktopCommandExecutor
         AssertBoundedNumber(dx, ProtocolConstants.MaxPointerDelta, "dx");
         AssertBoundedNumber(dy, ProtocolConstants.MaxPointerDelta, "dy");
         await adapter.MoveMouseByAsync(dx, dy, cancellationToken);
-        cursorOverlay?.Show(activeDragButton is null ? "move" : "drag");
+        cursorOverlay?.Show(new CursorOverlayEvent(
+            activeDragButton is null ? CursorOverlayEventKind.Move : CursorOverlayEventKind.Drag,
+            activeDragButton));
         return CommandExecutionResult.Success;
     }
 
@@ -128,7 +130,7 @@ public sealed class DesktopCommandExecutor
         await adapter.SetMouseButtonDownAsync(button, true, cancellationToken);
         activeDragButton = button;
         cursorOverlay?.SetDragActive(true);
-        cursorOverlay?.Show("drag");
+        cursorOverlay?.Show(new CursorOverlayEvent(CursorOverlayEventKind.Drag, button));
         return CommandExecutionResult.Success;
     }
 
@@ -142,7 +144,7 @@ public sealed class DesktopCommandExecutor
         }
 
         cursorOverlay?.SetDragActive(false);
-        cursorOverlay?.Show("move");
+        cursorOverlay?.Show(new CursorOverlayEvent(CursorOverlayEventKind.Move));
         return CommandExecutionResult.Success;
     }
 
@@ -150,7 +152,7 @@ public sealed class DesktopCommandExecutor
     {
         await ReleaseDragBeforeClickAsync(cancellationToken);
         await adapter.ClickMouseAsync(button, cancellationToken);
-        cursorOverlay?.Show("click");
+        cursorOverlay?.Show(new CursorOverlayEvent(CursorOverlayEventKind.Click, button));
         return CommandExecutionResult.Success;
     }
 
@@ -158,7 +160,7 @@ public sealed class DesktopCommandExecutor
     {
         await ReleaseDragBeforeClickAsync(cancellationToken);
         await adapter.DoubleClickMouseAsync(button, cancellationToken);
-        cursorOverlay?.Show("click");
+        cursorOverlay?.Show(new CursorOverlayEvent(CursorOverlayEventKind.DoubleClick, button));
         return CommandExecutionResult.Success;
     }
 
@@ -166,7 +168,7 @@ public sealed class DesktopCommandExecutor
     {
         await ReleaseDragBeforeClickAsync(cancellationToken);
         await adapter.ClickMouseAsync("right", cancellationToken);
-        cursorOverlay?.Show("click");
+        cursorOverlay?.Show(new CursorOverlayEvent(CursorOverlayEventKind.Click, "right"));
         return CommandExecutionResult.Success;
     }
 
