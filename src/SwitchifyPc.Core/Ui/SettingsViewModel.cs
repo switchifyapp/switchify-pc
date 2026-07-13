@@ -5,6 +5,7 @@ using SwitchifyPc.Core.Pairing;
 using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Core.Startup;
 using SwitchifyPc.Core.Updates;
+using SwitchifyPc.Core.Diagnostics;
 
 namespace SwitchifyPc.Core.Ui;
 
@@ -26,10 +27,13 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private CursorOverlaySettings cursorOverlaySettings = CursorOverlaySettingsModel.Default;
     private UpdateState updateState = UpdateState.CreateInitial("0.2.0");
     private IReadOnlyList<PairedDeviceSettingsView> pairedDevices = [];
+    private TelemetrySettings telemetrySettings = new(false, false, Guid.Empty.ToString("D"));
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public bool StartWithSystem => startupSettings.StartWithSystem;
+
+    public bool ShareDiagnosticData => telemetrySettings.Enabled;
 
     public bool StartWithSystemSupported => startupSettings.Supported;
 
@@ -276,6 +280,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(UpdateDownloadProgressText));
         OnPropertyChanged(nameof(CanDownloadUpdate));
         OnPropertyChanged(nameof(CanInstallUpdate));
+    }
+
+    public void SetTelemetrySettings(TelemetrySettings settings)
+    {
+        telemetrySettings = settings;
+        OnPropertyChanged(nameof(ShareDiagnosticData));
     }
 
     public static string UpdateCheckMessage(UpdateInfo info)

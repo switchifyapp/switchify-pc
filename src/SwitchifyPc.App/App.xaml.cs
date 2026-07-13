@@ -52,7 +52,13 @@ public partial class App : System.Windows.Application
     private readonly object bluetoothConnectionSync = new();
     private readonly HashSet<string> authenticatedBluetoothConnections = new(StringComparer.Ordinal);
     private DispatcherTimer? pairingExpiryTimer;
+    private DispatcherTimer? telemetryFlushTimer;
     private AppThemeManager? themeManager;
+    private JsonTelemetrySettingsStore? telemetrySettingsStore;
+    private ITelemetryReporter? telemetryReporter;
+    private readonly HashSet<Exception> reportedExceptions = new(ReferenceEqualityComparer.Instance);
+    private readonly object reportedExceptionsSync = new();
+    private bool diagnosticsConsentShown;
     private string? lastLoggedUpdateCheckStatus;
     private string? lastLoggedUpdateDownloadStatus;
     private bool isQuitting;
@@ -82,6 +88,8 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        InitializeTelemetry();
+
         existingInstanceSignal = new WindowsExistingInstanceSignal();
         existingInstanceSignal.Start(
             () => Dispatcher.BeginInvoke(ShowMainWindow),
@@ -94,6 +102,8 @@ public partial class App : System.Windows.Application
         RefreshPairingApprovals();
         updateService.StartAutomaticUpdateChecks();
         StartPairingExpiryTimer();
+        StartTelemetryFlushTimer();
+        _ = telemetryReporter?.FlushAsync();
         _ = StartBluetoothAsync();
         _ = InitializeStartupRegistrationAsync(e.Args, launchOptions.StartHidden);
         trayIcon = new NativeTrayIcon(
@@ -123,6 +133,8 @@ public partial class App : System.Windows.Application
         updateService = null;
         pairingExpiryTimer?.Stop();
         pairingExpiryTimer = null;
+        telemetryFlushTimer?.Stop();
+        telemetryFlushTimer = null;
         mouseRepeatController?.StopAllAsync().GetAwaiter().GetResult();
         mouseRepeatController = null;
         bluetoothServer?.Dispose();
@@ -145,6 +157,9 @@ public partial class App : System.Windows.Application
         trayIcon = null;
         settingsWindow = null;
         setupGuideWindow = null;
+        telemetryReporter?.Dispose();
+        telemetryReporter = null;
+        telemetrySettingsStore = null;
         base.OnExit(e);
     }
 
@@ -236,7 +251,9 @@ public partial class App : System.Windows.Application
             AcceptPairingApprovalAsync,
             RejectPairingApproval,
             SetSetupStartWithSystemAsync,
-            CompleteSetupGuide);
+            CompleteSetupGuide,
+            () => Dispatcher.BeginInvoke(ShowDiagnosticsConsentIfNeeded),
+            setShareDiagnosticData: SetShareDiagnosticData);
         window.Closing += (_, eventArgs) =>
         {
             if (isQuitting) return;
@@ -276,7 +293,9 @@ public partial class App : System.Windows.Application
             new JsonMouseRepeatSettingsStore(Path.Combine(userDataDirectory, "mouse-repeat-settings.json")),
             new JsonCursorOverlaySettingsStore(Path.Combine(userDataDirectory, "cursor-overlay-settings.json")),
             updateService ?? CreateUpdateService(),
-            new JsonPairingStore(Path.Combine(userDataDirectory, "pairing-state.json")));
+            new JsonPairingStore(Path.Combine(userDataDirectory, "pairing-state.json")),
+            telemetrySettingsStore ?? CreateTelemetrySettingsStore(),
+            telemetryReporter ?? CreateDisabledTelemetryReporter());
     }
 
     private SystemStartupService CreateStartupService()
@@ -367,6 +386,7 @@ public partial class App : System.Windows.Application
         {
             bluetoothStatusTracker?.SetError(error.Message);
             RecordRuntimeDiagnostic("bluetooth.start.failed", reason: "startup_failed");
+            ReportException(error, "bluetooth");
         }
     }
 
@@ -551,6 +571,10 @@ public partial class App : System.Windows.Application
                 MarkSetupGuideShown();
                 ShowSetupGuideWindowCore();
             }
+            else
+            {
+                ShowDiagnosticsConsentIfNeeded();
+            }
         });
     }
 
@@ -592,6 +616,70 @@ public partial class App : System.Windows.Application
         IMainWindowPromptSettingsStore store = CreateMainWindowPromptSettingsStore();
         MainWindowPromptSettings settings = store.Load();
         store.Save(SetupGuidePrompt.MarkCompleted(settings));
+    }
+
+    private JsonTelemetrySettingsStore CreateTelemetrySettingsStore()
+    {
+        return new JsonTelemetrySettingsStore(Path.Combine(UserDataDirectory(), "telemetry-settings.json"));
+    }
+
+    private ITelemetryReporter CreateDisabledTelemetryReporter()
+    {
+        return new TelemetryReporter(CreateTelemetrySettingsStore(), new HttpClient(), string.Empty, CurrentVersion,
+            Path.Combine(UserDataDirectory(), "telemetry-queue.json"));
+    }
+
+    private void InitializeTelemetry()
+    {
+        telemetrySettingsStore = CreateTelemetrySettingsStore();
+        string apiKey = typeof(App).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(attribute => attribute.Key == "TimberlogsApiKey")?.Value ?? string.Empty;
+        telemetryReporter = new TelemetryReporter(
+            telemetrySettingsStore,
+            new HttpClient(),
+            apiKey,
+            CurrentVersion,
+            Path.Combine(UserDataDirectory(), "telemetry-queue.json"));
+
+        DispatcherUnhandledException += (_, args) => ReportException(args.Exception, "dispatcher");
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            if (args.ExceptionObject is Exception error) ReportException(error, "appdomain");
+        };
+        TaskScheduler.UnobservedTaskException += (_, args) => ReportException(args.Exception, "task");
+    }
+
+    private void SetShareDiagnosticData(bool enabled)
+    {
+        telemetryReporter?.SetEnabled(enabled);
+        setupGuideViewModel.SetShareDiagnosticData(enabled);
+        if (enabled) _ = telemetryReporter?.FlushAsync();
+    }
+
+    private void ShowDiagnosticsConsentIfNeeded()
+    {
+        if (diagnosticsConsentShown || telemetrySettingsStore?.Load().ConsentRecorded != false || MainWindow is null) return;
+        diagnosticsConsentShown = true;
+        DiagnosticsConsentWindow prompt = new() { Owner = MainWindow };
+        prompt.ShowDialog();
+        SetShareDiagnosticData(prompt.Choice == true);
+    }
+
+    private void ReportException(Exception error, string dataset)
+    {
+        lock (reportedExceptionsSync)
+        {
+            if (!reportedExceptions.Add(error)) return;
+            if (reportedExceptions.Count > 100) reportedExceptions.Clear();
+        }
+        _ = telemetryReporter?.ReportExceptionAsync(error, dataset);
+    }
+
+    private void StartTelemetryFlushTimer()
+    {
+        telemetryFlushTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(5) };
+        telemetryFlushTimer.Tick += (_, _) => _ = telemetryReporter?.FlushAsync();
+        telemetryFlushTimer.Start();
     }
 
     private void StartPairingExpiryTimer()
@@ -727,6 +815,23 @@ public partial class App : System.Windows.Application
                 Status: SafeDiagnosticText(status),
                 Reason: SafeDiagnosticText(reason),
                 Message: SafeDiagnosticText(message)));
+
+        telemetryReporter?.RecordBreadcrumb(eventName);
+        if (IsRemoteHealthEvent(eventName))
+        {
+            Dictionary<string, string> data = [];
+            if (!string.IsNullOrWhiteSpace(status)) data["status"] = status;
+            if (!string.IsNullOrWhiteSpace(reason)) data["reason"] = reason;
+            _ = telemetryReporter?.ReportHealthAsync(eventName, data);
+        }
+    }
+
+    private static bool IsRemoteHealthEvent(string eventName)
+    {
+        return eventName is "app.startup.completed" or "app.exit" or "bluetooth.ready" or
+            "bluetooth.unavailable" or "bluetooth.connected" or "bluetooth.disconnected" or
+            "bluetooth.error" or "bluetooth.start.failed" or "cursor.overlay.disabled" or
+            "startup.registration.repair.failed" or "update.state.changed";
     }
 
     private static string? SafeDiagnosticText(string? value)

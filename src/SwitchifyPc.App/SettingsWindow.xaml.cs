@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Diagnostics;
 using SwitchifyPc.Core.Ui;
 using SwitchifyPc.Core.Updates;
 using WpfButton = System.Windows.Controls.Button;
@@ -104,6 +105,27 @@ public partial class SettingsWindow : Window
         GeneralPanel.Visibility = section == "general" ? Visibility.Visible : Visibility.Collapsed;
         PointerPanel.Visibility = section == "pointer" ? Visibility.Visible : Visibility.Collapsed;
         UpdatesPanel.Visibility = section == "updates" ? Visibility.Visible : Visibility.Collapsed;
+        PrivacyPanel.Visibility = section == "privacy" ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ShareDiagnosticData_Click(object sender, RoutedEventArgs e)
+    {
+        if (!isApplyingSettings && settingsLoaded && controller is not null && sender is WpfCheckBox checkBox)
+        {
+            controller.SetShareDiagnosticData(checkBox.IsChecked == true);
+        }
+    }
+
+    private void OpenPrivacyPolicy_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("https://switchifyapp.com/privacy") { UseShellExecute = true });
+        }
+        catch
+        {
+            WpfMessageBox.Show("The privacy policy could not be opened.", "Switchify PC settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     private async void ForgetPairedDevice_Click(object sender, RoutedEventArgs e)

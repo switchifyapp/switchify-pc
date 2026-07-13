@@ -13,6 +13,7 @@ public partial class SetupGuideWindow : Window
     private readonly Func<bool, Task>? setStartWithSystem;
     private readonly Action? finish;
     private readonly Action? skip;
+    private readonly Action<bool>? setShareDiagnosticData;
 
     public SetupGuideWindow(
         SetupGuideViewModel? viewModel = null,
@@ -21,7 +22,8 @@ public partial class SetupGuideWindow : Window
         Action<string>? rejectPairingApproval = null,
         Func<bool, Task>? setStartWithSystem = null,
         Action? finish = null,
-        Action? skip = null)
+        Action? skip = null,
+        Action<bool>? setShareDiagnosticData = null)
     {
         this.viewModel = viewModel ?? new SetupGuideViewModel();
         this.openAndroidDownload = openAndroidDownload;
@@ -30,8 +32,21 @@ public partial class SetupGuideWindow : Window
         this.setStartWithSystem = setStartWithSystem;
         this.finish = finish;
         this.skip = skip;
+        this.setShareDiagnosticData = setShareDiagnosticData;
         InitializeComponent();
         DataContext = this.viewModel;
+    }
+
+    private void ShareDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        viewModel.SetShareDiagnosticData(true);
+        setShareDiagnosticData?.Invoke(true);
+    }
+
+    private void DeclineDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        viewModel.SetShareDiagnosticData(false);
+        setShareDiagnosticData?.Invoke(false);
     }
 
     private void Back_Click(object sender, RoutedEventArgs e)
