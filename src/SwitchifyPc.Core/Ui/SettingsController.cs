@@ -2,6 +2,7 @@ using SwitchifyPc.Core.Settings;
 using SwitchifyPc.Core.Startup;
 using SwitchifyPc.Core.Updates;
 using SwitchifyPc.Core.Pairing;
+using SwitchifyPc.Core.Diagnostics;
 
 namespace SwitchifyPc.Core.Ui;
 
@@ -14,6 +15,8 @@ public sealed class SettingsController
     private readonly ICursorOverlaySettingsStore cursorOverlaySettings;
     private readonly IUpdateSettingsService updates;
     private readonly IPairingStore pairingStore;
+    private readonly ITelemetrySettingsStore? telemetrySettings;
+    private readonly ITelemetryReporter? telemetryReporter;
 
     public SettingsController(
         SettingsViewModel viewModel,
@@ -22,7 +25,9 @@ public sealed class SettingsController
         IMouseRepeatSettingsStore mouseRepeatSettings,
         ICursorOverlaySettingsStore cursorOverlaySettings,
         IUpdateSettingsService updates,
-        IPairingStore pairingStore)
+        IPairingStore pairingStore,
+        ITelemetrySettingsStore? telemetrySettings = null,
+        ITelemetryReporter? telemetryReporter = null)
     {
         this.viewModel = viewModel;
         this.startupSettings = startupSettings;
@@ -31,6 +36,8 @@ public sealed class SettingsController
         this.cursorOverlaySettings = cursorOverlaySettings;
         this.updates = updates;
         this.pairingStore = pairingStore;
+        this.telemetrySettings = telemetrySettings;
+        this.telemetryReporter = telemetryReporter;
     }
 
     public SettingsViewModel ViewModel => viewModel;
@@ -42,7 +49,16 @@ public sealed class SettingsController
         viewModel.SetMouseRepeatSettings(mouseRepeatSettings.Load());
         viewModel.SetCursorOverlaySettings(cursorOverlaySettings.Load());
         viewModel.SetUpdateState(updates.GetState());
+        if (telemetrySettings is not null) viewModel.SetTelemetrySettings(telemetrySettings.Load());
         await RefreshPairedDevicesAsync().ConfigureAwait(false);
+    }
+
+    public TelemetrySettings SetShareDiagnosticData(bool enabled)
+    {
+        telemetryReporter?.SetEnabled(enabled);
+        TelemetrySettings saved = telemetrySettings?.Load() ?? new(false, false, Guid.Empty.ToString("D"));
+        viewModel.SetTelemetrySettings(saved);
+        return saved;
     }
 
     public MouseRepeatSettings SetMouseRepeatEnabled(bool enabled)

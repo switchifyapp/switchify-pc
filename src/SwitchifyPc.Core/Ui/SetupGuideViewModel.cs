@@ -12,7 +12,8 @@ public enum SetupGuideStep
     Bluetooth,
     AndroidApp,
     PairDevice,
-    Startup
+    Startup,
+    Diagnostics
 }
 
 public static class SetupGuidePrompt
@@ -47,6 +48,7 @@ public sealed class SetupGuideViewModel : INotifyPropertyChanged
         StartWithSystem: false,
         StartsHidden: true,
         Reason: "unpackaged");
+    private bool? shareDiagnosticData;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -54,7 +56,7 @@ public sealed class SetupGuideViewModel : INotifyPropertyChanged
 
     public int StepNumber => (int)currentStep + 1;
 
-    public string StepProgress => $"Step {StepNumber} of 4";
+    public string StepProgress => $"Step {StepNumber} of 5";
 
     public bool IsBluetoothStep => currentStep == SetupGuideStep.Bluetooth;
 
@@ -64,11 +66,17 @@ public sealed class SetupGuideViewModel : INotifyPropertyChanged
 
     public bool IsStartupStep => currentStep == SetupGuideStep.Startup;
 
+    public bool IsDiagnosticsStep => currentStep == SetupGuideStep.Diagnostics;
+
+    public bool? ShareDiagnosticData => shareDiagnosticData;
+
+    public bool IsDiagnosticChoiceRequired => IsDiagnosticsStep && shareDiagnosticData is null;
+
     public bool CanGoBack => currentStep != SetupGuideStep.Bluetooth;
 
-    public bool CanGoNext => currentStep != SetupGuideStep.PairDevice || hasPairedDevices;
+    public bool CanGoNext => (currentStep != SetupGuideStep.PairDevice || hasPairedDevices) && !IsDiagnosticChoiceRequired;
 
-    public bool IsFinalStep => currentStep == SetupGuideStep.Startup;
+    public bool IsFinalStep => currentStep == SetupGuideStep.Diagnostics;
 
     public string NextButtonText => IsFinalStep ? "Finish" : "Next";
 
@@ -184,6 +192,14 @@ public sealed class SetupGuideViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(StartWithSystemMessage));
     }
 
+    public void SetShareDiagnosticData(bool enabled)
+    {
+        shareDiagnosticData = enabled;
+        OnPropertyChanged(nameof(ShareDiagnosticData));
+        OnPropertyChanged(nameof(IsDiagnosticChoiceRequired));
+        OnPropertyChanged(nameof(CanGoNext));
+    }
+
     private void NotifyStepChanged()
     {
         OnPropertyChanged(nameof(CurrentStep));
@@ -193,6 +209,8 @@ public sealed class SetupGuideViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(IsAndroidAppStep));
         OnPropertyChanged(nameof(IsPairDeviceStep));
         OnPropertyChanged(nameof(IsStartupStep));
+        OnPropertyChanged(nameof(IsDiagnosticsStep));
+        OnPropertyChanged(nameof(IsDiagnosticChoiceRequired));
         OnPropertyChanged(nameof(CanGoBack));
         OnPropertyChanged(nameof(CanGoNext));
         OnPropertyChanged(nameof(IsFinalStep));

@@ -1,0 +1,29 @@
+<Window x:Class="SwitchifyPc.App.DiagnosticsConsentWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Switchify PC privacy"
+        Width="520" Height="330"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppBackground}"
+        Foreground="{DynamicResource Text}"
+        FontFamily="Segoe UI"
+        Icon="Assets/icon.ico">
+    <Grid Margin="28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock Text="Help improve Switchify PC" FontSize="22" FontWeight="Bold" />
+            <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" LineHeight="21"
+                       Text="May Switchify PC send sanitized crashes, exceptions, and app health events? Reports use a random identifier for this installation." />
+            <TextBlock Margin="0,12,0,0" TextWrapping="Wrap" Foreground="{DynamicResource TextMuted}"
+                       Text="Typed text, commands, pairing secrets, device names, and full file paths are never included. You can change this later in Settings > Privacy." />
+        </StackPanel>
+        <StackPanel Grid.Row="1" HorizontalAlignment="Right" Orientation="Horizontal">
+            <Button MinWidth="110" MinHeight="38" Content="No thanks" Click="Decline_Click" />
+            <Button Margin="10,0,0,0" MinWidth="170" MinHeight="38" Content="Share diagnostic data" Click="Accept_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

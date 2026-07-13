@@ -26,6 +26,7 @@ jobs:
       SWITCHIFY_SIGNING_MODE: certum-simplysign
       SWITCHIFY_CERTUM_CERT_THUMBPRINT: ${{ vars.CERTUM_CERT_THUMBPRINT }}
       SWITCHIFY_CERTUM_TIMESTAMP_URL: http://time.certum.pl
+      TIMBERLOGS_API_KEY: ${{ secrets.TIMBERLOGS_API_KEY }}
 
     steps:
       - name: Resolve release tag
@@ -54,6 +55,13 @@ jobs:
 
       - name: Restore
         run: dotnet restore src/SwitchifyPc.sln
+
+      - name: Verify Timberlogs configuration
+        shell: powershell
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TIMBERLOGS_API_KEY)) {
+            throw 'TIMBERLOGS_API_KEY secret is not available to the release workflow.'
+          }
 
       - name: Build
         run: dotnet build src/SwitchifyPc.sln -c Release --no-restore

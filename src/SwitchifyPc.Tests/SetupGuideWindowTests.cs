@@ -32,13 +32,13 @@ public sealed class SetupGuideWindowTests
                 Assert.Equal(ResizeMode.NoResize, window.ResizeMode);
                 Assert.NotNull(WindowChrome.GetWindowChrome(window));
                 Assert.Contains("Check Bluetooth", TextBlocks(window));
-                Assert.Contains("Step 1 of 4", TextBlocks(window));
+                Assert.Contains("Step 1 of 5", TextBlocks(window));
                 Assert.NotNull(ButtonByAutomationName(window, "Minimize"));
                 Assert.NotNull(ButtonByAutomationName(window, "Close"));
                 SolidColorBrush chromeForeground = Assert.IsType<SolidColorBrush>(window.FindResource("ChromeForeground"));
                 Assert.Equal(chromeForeground.Color, Assert.IsType<SolidColorBrush>(TextBlockByText(window, "Setup guide").Foreground).Color);
                 Assert.Equal(chromeForeground.Color, Assert.IsType<SolidColorBrush>(TextBlockByText(window, "Connect Switchify for Android").Foreground).Color);
-                Assert.Equal(chromeForeground.Color, Assert.IsType<SolidColorBrush>(TextBlockByText(window, "Step 1 of 4").Foreground).Color);
+                Assert.Equal(chromeForeground.Color, Assert.IsType<SolidColorBrush>(TextBlockByText(window, "Step 1 of 5").Foreground).Color);
             }
             finally
             {

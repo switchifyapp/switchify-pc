@@ -37,7 +37,7 @@ public sealed class SetupGuideViewModelTests
     }
 
     [Fact]
-    public void NavigatesFourStepsAndRequiresPairingBeforeStartup()
+    public void NavigatesFiveStepsAndRequiresPairingAndDiagnosticChoice()
     {
         SetupGuideViewModel viewModel = new();
 
@@ -55,11 +55,17 @@ public sealed class SetupGuideViewModelTests
         Assert.True(viewModel.CanGoNext);
         Assert.True(viewModel.MoveNext());
         Assert.True(viewModel.IsStartupStep);
+        Assert.False(viewModel.IsFinalStep);
+        Assert.True(viewModel.MoveNext());
+        Assert.True(viewModel.IsDiagnosticsStep);
+        Assert.False(viewModel.CanGoNext);
+        viewModel.SetShareDiagnosticData(false);
+        Assert.True(viewModel.CanGoNext);
         Assert.True(viewModel.IsFinalStep);
         Assert.Equal("Finish", viewModel.NextButtonText);
         Assert.False(viewModel.MoveNext());
         Assert.True(viewModel.MoveBack());
-        Assert.True(viewModel.IsPairDeviceStep);
+        Assert.True(viewModel.IsStartupStep);
     }
 
     [Fact]

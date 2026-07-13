@@ -295,6 +295,11 @@
                                  Style="{StaticResource NavRadio}"
                                  Tag="updates"
                                  Checked="SectionNav_Checked" />
+                    <RadioButton Content="Privacy"
+                                 GroupName="SettingsSections"
+                                 Style="{StaticResource NavRadio}"
+                                 Tag="privacy"
+                                 Checked="SectionNav_Checked" />
                 </StackPanel>
             </Border>
 
@@ -752,6 +757,31 @@
                                                     Style="{StaticResource PrimaryButton}"
                                                     IsEnabled="{Binding CanInstallUpdate}" />
                                         </WrapPanel>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel x:Name="PrivacyPanel" Visibility="Collapsed">
+                        <Border Style="{StaticResource PanelBorder}">
+                            <StackPanel>
+                                <TextBlock Text="Privacy" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Margin="0,6,0,0"
+                                           Text="Choose whether Switchify PC may send diagnostic information."
+                                           Style="{StaticResource MutedText}" />
+                                <Border Margin="0,16,0,0" Style="{StaticResource SubtlePanel}">
+                                    <StackPanel>
+                                        <CheckBox Content="Share diagnostic data"
+                                                  Click="ShareDiagnosticData_Click"
+                                                  IsChecked="{Binding ShareDiagnosticData, Mode=OneWay}" />
+                                        <TextBlock Margin="0,8,0,0"
+                                                   Text="Sends sanitized crashes, exceptions, and app health events. Typed text, commands, pairing secrets, device names, and full file paths are not sent. Turning this off deletes queued reports."
+                                                   Style="{StaticResource MutedText}" />
+                                        <Button Margin="0,14,0,0"
+                                                HorizontalAlignment="Left"
+                                                Content="Read privacy policy"
+                                                Click="OpenPrivacyPolicy_Click" />
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
