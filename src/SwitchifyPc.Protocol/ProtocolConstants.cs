@@ -36,6 +36,7 @@ public static class ProtocolConstants
         "media.control",
         "window.control",
         "pointer.profile",
+        "pointer.display.move",
         "pointer.speed.set",
         "connection.ping",
         "connection.disconnecting"
@@ -136,6 +137,14 @@ public static class ProtocolConstants
         "closeFocused",
         "minimizeFocused",
         "maximizeFocused"
+    };
+
+    public static readonly IReadOnlySet<string> DisplayNavigationDirections = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "left",
+        "right",
+        "up",
+        "down"
     };
 
     public static readonly IReadOnlySet<string> CommandResponseModes = new HashSet<string>(StringComparer.Ordinal)

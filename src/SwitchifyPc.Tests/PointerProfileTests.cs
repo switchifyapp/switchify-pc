@@ -37,6 +37,9 @@ public sealed class PointerProfileTests
         Assert.Equal(5, profile.Capabilities.PointerSpeed.StepPercent);
         Assert.Equal(128, profile.Capabilities.PointerSpeed.BaseMoveDelta);
         Assert.Equal(128, profile.Capabilities.PointerSpeed.EffectiveMoveDelta);
+        Assert.True(profile.Capabilities.DisplayNavigation.Supported);
+        Assert.Equal(1, profile.Capabilities.DisplayNavigation.DisplayCount);
+        Assert.Contains("pointer.display.move", profile.Capabilities.SupportedCommands);
     }
 
     [Fact]

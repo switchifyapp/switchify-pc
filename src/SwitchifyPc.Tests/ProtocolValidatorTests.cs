@@ -42,6 +42,7 @@ public sealed class ProtocolValidatorTests
             new { type = "media.control", payload = new { action = "playPause" } },
             new { type = "window.control", payload = new { action = "switchNext" } },
             new { type = "pointer.profile", payload = new { } },
+            new { type = "pointer.display.move", payload = new { direction = "left" } },
             new { type = "pointer.speed.set", payload = new { scalePercent = 125 } },
             new { type = "connection.ping", payload = new { } },
             new { type = "connection.disconnecting", payload = new { } }
@@ -159,6 +160,9 @@ public sealed class ProtocolValidatorTests
             BaseCommand("keyboard.textStream.key", new { streamId = "stream-1", seq = 0, key = "F13" }),
             BaseCommand("keyboard.textStream.close", new { streamId = "stream-1", expectedCount = -1 }),
             BaseCommand("pointer.profile", new { includeDisplays = true }),
+            BaseCommand("pointer.display.move", new { }),
+            BaseCommand("pointer.display.move", new { direction = "forward" }),
+            BaseCommand("pointer.display.move", new { direction = "left", extra = true }),
             BaseCommand("pointer.speed.set", new { }),
             BaseCommand("pointer.speed.set", new { scalePercent = "125" }),
             BaseCommand("pointer.speed.set", new { scalePercent = -1 }),
@@ -230,6 +234,11 @@ public sealed class ProtocolValidatorTests
                         stepPercent = 5,
                         baseMoveDelta = 128,
                         effectiveMoveDelta = 128
+                    },
+                    displayNavigation = new
+                    {
+                        supported = true,
+                        displayCount = 3
                     }
                 }
             },
@@ -403,6 +412,34 @@ public sealed class ProtocolValidatorTests
                 maxDelta = ProtocolConstants.MaxPointerDelta,
                 recommendedDeltas = new { small = 50, medium = 130, large = 252 },
                 capabilities = new { supportedCommands = new[] { "keyboard.textStream.open", "unknown.command" } }
+            },
+            error = (object?)null
+        }));
+
+        Assert.False(result.Ok);
+        Assert.Equal("invalid_payload", result.Error);
+    }
+
+    [Fact]
+    public void RejectsMalformedDisplayNavigationCapability()
+    {
+        ProtocolValidationResult result = ProtocolValidator.ValidateProtocolResponse(Json(new
+        {
+            version = ProtocolConstants.ProtocolVersion,
+            id = "profile-1",
+            type = "pointer.profile",
+            ok = true,
+            payload = new
+            {
+                displayId = "display-1",
+                scaleFactor = 1,
+                bounds = new { x = 0, y = 0, width = 1920, height = 1080 },
+                maxDelta = ProtocolConstants.MaxPointerDelta,
+                recommendedDeltas = new { small = 50, medium = 130, large = 252 },
+                capabilities = new
+                {
+                    displayNavigation = new { supported = true, displayCount = 0 }
+                }
             },
             error = (object?)null
         }));

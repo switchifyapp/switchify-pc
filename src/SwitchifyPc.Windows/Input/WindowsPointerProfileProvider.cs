@@ -53,7 +53,10 @@ public sealed class WindowsPointerProfileProvider : IPointerProfileProvider
                     AccelerationDurationMs: mouseRepeatSettings.AccelerationDurationMs,
                     AccelerationDurationOptionsMs: MouseRepeatSettingsModel.AccelerationDurationOptionsMs,
                     AccelerationInitialScalePercent: MouseRepeatSettingsModel.AccelerationInitialScalePercent),
-                PointerSpeed: PointerProfile.PointerSpeedFor(settings)));
+                PointerSpeed: PointerProfile.PointerSpeedFor(settings),
+                DisplayNavigation: new DisplayNavigationCapabilities(
+                    Supported: true,
+                    DisplayCount: Math.Clamp(nativeInput.GetDisplays().Count, 1, 64))));
     }
 
     private static int DeltaFor(double shortEdge, PointerMovementSettings settings, PointerMovementSizeKey size)

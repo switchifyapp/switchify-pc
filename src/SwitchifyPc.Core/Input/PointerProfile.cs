@@ -28,12 +28,14 @@ public sealed record PointerSpeedCapabilities(
     double StepPercent,
     int BaseMoveDelta,
     int EffectiveMoveDelta);
+public sealed record DisplayNavigationCapabilities(bool Supported, int DisplayCount);
 public sealed record PointerCapabilities(
     bool NoAckMouseMove,
     IReadOnlyList<string> NoAckCommands,
     IReadOnlyList<string> SupportedCommands,
     MouseRepeatCapabilities MouseRepeat,
-    PointerSpeedCapabilities PointerSpeed);
+    PointerSpeedCapabilities PointerSpeed,
+    DisplayNavigationCapabilities DisplayNavigation);
 public sealed record PointerMovementProfile(
     string DisplayId,
     double ScaleFactor,
@@ -78,7 +80,8 @@ public static class PointerProfile
                     "keyboard.textStream.chunk",
                     "keyboard.textStream.close",
                     "connection.ping",
-                    "pointer.profile"
+                    "pointer.profile",
+                    "pointer.display.move"
                 ],
                 MouseRepeat: new MouseRepeatCapabilities(
                     Supported: true,
@@ -91,7 +94,8 @@ public static class PointerProfile
                     AccelerationDurationMs: MouseRepeatSettingsModel.Default.AccelerationDurationMs,
                     AccelerationDurationOptionsMs: MouseRepeatSettingsModel.AccelerationDurationOptionsMs,
                     AccelerationInitialScalePercent: MouseRepeatSettingsModel.AccelerationInitialScalePercent),
-                PointerSpeed: PointerSpeedFor(PointerMovementSettingsModel.Default)));
+                PointerSpeed: PointerSpeedFor(PointerMovementSettingsModel.Default),
+                DisplayNavigation: new DisplayNavigationCapabilities(Supported: true, DisplayCount: 1)));
     }
 
     private static Bounds NormalizeBounds(Bounds bounds)

@@ -112,7 +112,26 @@ public sealed class ControlSessionTests
         Assert.Equal(1000, mouseRepeat.GetProperty("accelerationDurationMs").GetInt32());
         Assert.Equal([0, 500, 1000, 2000], mouseRepeat.GetProperty("accelerationDurationOptionsMs").EnumerateArray().Select(value => value.GetInt32()));
         Assert.Equal(25, mouseRepeat.GetProperty("accelerationInitialScalePercent").GetInt32());
+        JsonElement displayNavigation = payload.GetProperty("capabilities").GetProperty("displayNavigation");
+        Assert.True(displayNavigation.GetProperty("supported").GetBoolean());
+        Assert.Equal(2, displayNavigation.GetProperty("displayCount").GetInt32());
         Assert.True(ProtocolValidator.ValidateProtocolResponse(response.RootElement).Ok);
+    }
+
+    [Fact]
+    public async Task ExecutesDisplayNavigationOnlyAfterAuthentication()
+    {
+        FakeInputAdapter adapter = new();
+        ControlSession session = CreateSession(adapter);
+
+        ControlSessionResult rejected = await session.ProcessMessageAsync(
+            SignedCommand("pointer.display.move", new { direction = "right" }, authOverride: "bad-proof"));
+        ControlSessionResult accepted = await session.ProcessMessageAsync(
+            SignedCommand("pointer.display.move", new { direction = "right" }));
+
+        AssertError(rejected, "request-1", "invalid_auth");
+        Assert.True(accepted.HasResponse);
+        Assert.Equal(["right"], adapter.DisplayMoves);
     }
 
     [Fact]
@@ -254,7 +273,8 @@ public sealed class ControlSessionTests
             ProtocolConstants.NoAckControlCommandTypes.ToArray(),
             ProtocolConstants.CommandTypes.ToArray(),
             new MouseRepeatCapabilities(true, true, 250, 250, 250, 100, 2000),
-            PointerProfile.PointerSpeedFor(PointerMovementSettingsModel.Default));
+            PointerProfile.PointerSpeedFor(PointerMovementSettingsModel.Default),
+            new DisplayNavigationCapabilities(true, 2));
     }
 
     private sealed class FakeMouseRepeatSettings(MouseRepeatSettings settings) : IMouseRepeatSettingsStore
@@ -337,6 +357,14 @@ public sealed class ControlSessionTests
 
     private sealed class FakeInputAdapter : IDesktopInputAdapter
     {
+        public List<string> DisplayMoves { get; } = [];
+
+        public Task MovePointerToDisplayAsync(string direction, CancellationToken cancellationToken = default)
+        {
+            DisplayMoves.Add(direction);
+            return Task.CompletedTask;
+        }
+
         public List<string> Calls { get; } = [];
         public bool ThrowOnPressKey { get; init; }
 

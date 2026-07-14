@@ -148,6 +148,12 @@ public static partial class ProtocolValidator
                 TryGetPositiveFiniteNumber(payload, "scalePercent", out _) && ObjectPropertyCount(payload) == 1
                     ? Valid(payload)
                     : Invalid("invalid_payload", "Pointer speed is invalid."),
+            "pointer.display.move" =>
+                TryGetString(payload, "direction", out string? direction) &&
+                ProtocolConstants.DisplayNavigationDirections.Contains(direction) &&
+                ObjectPropertyCount(payload) == 1
+                    ? Valid(payload)
+                    : Invalid("invalid_payload", "Display navigation direction is invalid."),
             "keyboard.key" =>
                 TryGetString(payload, "key", out string? key) && ProtocolConstants.KeyboardKeys.Contains(key)
                     ? Valid(payload)
@@ -361,9 +367,23 @@ public static partial class ProtocolValidator
             {
                 return Invalid("invalid_payload", "Pointer speed capability is invalid.");
             }
+
+            if (capabilities.TryGetProperty("displayNavigation", out JsonElement displayNavigation) && !ValidateDisplayNavigationCapability(displayNavigation))
+            {
+                return Invalid("invalid_payload", "Display navigation capability is invalid.");
+            }
         }
 
         return Valid(payload);
+    }
+
+    private static bool ValidateDisplayNavigationCapability(JsonElement displayNavigation)
+    {
+        return IsObject(displayNavigation) &&
+            ObjectPropertyCount(displayNavigation) == 2 &&
+            TryGetBoolean(displayNavigation, "supported", out _) &&
+            TryGetInteger(displayNavigation, "displayCount", out int displayCount) &&
+            displayCount is >= 1 and <= 64;
     }
 
     private static ProtocolValidationResult ValidateMouseRepeatStartPayload(JsonElement payload)
