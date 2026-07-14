@@ -86,6 +86,36 @@ public sealed class WindowsDesktopInputAdapterTests
     }
 
     [Fact]
+    public async Task MovesPointerToCenterOfSelectedDisplay()
+    {
+        PointerDisplay source = new(new PointerDisplayBounds(0, 0, 1920, 1080), 1);
+        PointerDisplay target = new(new PointerDisplayBounds(1920, -360, 2560, 1440), 1);
+        FakeNativeInput native = new()
+        {
+            CursorPosition = new PointerPosition(100, 100),
+            Display = source,
+            Displays = [source, target]
+        };
+        WindowsDesktopInputAdapter adapter = new(native);
+
+        await adapter.MovePointerToDisplayAsync("right");
+
+        Assert.Equal(new PointerPosition(3200, 360), native.MovedTo);
+    }
+
+    [Fact]
+    public async Task RejectsUnavailableDisplayDirection()
+    {
+        FakeNativeInput native = new();
+        WindowsDesktopInputAdapter adapter = new(native);
+
+        DesktopInputException error = await Assert.ThrowsAsync<DesktopInputException>(() => adapter.MovePointerToDisplayAsync("left"));
+
+        Assert.Equal("no_display_in_direction", error.Code);
+        Assert.Equal("No monitor to the left.", error.Message);
+    }
+
+    [Fact]
     public async Task PressesMetaAsWindowsKey()
     {
         FakeNativeInput native = new();
@@ -243,6 +273,7 @@ public sealed class WindowsDesktopInputAdapterTests
     {
         public PointerPosition CursorPosition { get; init; } = new(0, 0);
         public PointerDisplay Display { get; init; } = new(new PointerDisplayBounds(0, 0, 1080, 1080), 1);
+        public IReadOnlyList<PointerDisplay>? Displays { get; init; }
         public PointerPosition? MovedTo { get; private set; }
         public PointerDelta? MovedBy { get; private set; }
         public PointerDelta? Scrolled { get; private set; }
@@ -261,6 +292,8 @@ public sealed class WindowsDesktopInputAdapterTests
             DisplayReads += 1;
             return Display;
         }
+
+        public IReadOnlyList<PointerDisplay> GetDisplays() => Displays ?? [Display];
 
         public void MoveCursorTo(PointerPosition position)
         {

@@ -257,7 +257,8 @@ public sealed class RemoteControlSessionTests
             ProtocolConstants.NoAckControlCommandTypes.ToArray(),
             ProtocolConstants.CommandTypes.ToArray(),
             new MouseRepeatCapabilities(true, true, 250, 250, 250, 100, 2000),
-            PointerProfile.PointerSpeedFor(PointerMovementSettingsModel.Default));
+            PointerProfile.PointerSpeedFor(PointerMovementSettingsModel.Default),
+            new DisplayNavigationCapabilities(true, 2));
     }
 
     private static string PairingRequest(

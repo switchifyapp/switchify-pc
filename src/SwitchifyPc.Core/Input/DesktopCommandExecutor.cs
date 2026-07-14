@@ -58,6 +58,7 @@ public sealed class DesktopCommandExecutor
                 "mouse.doubleClick" => await DoubleClickMouseAsync(payload.GetProperty("button").GetString() ?? "", cancellationToken),
                 "mouse.rightClick" => await RightClickMouseAsync(cancellationToken),
                 "mouse.scroll" => await ScrollMouseAsync(payload, cancellationToken),
+                "pointer.display.move" => await MovePointerToDisplayAsync(payload.GetProperty("direction").GetString() ?? "", cancellationToken),
                 "keyboard.key" => await PressKeyAsync(payload.GetProperty("key").GetString() ?? "", cancellationToken),
                 "keyboard.modifierDown" => await SetModifierAsync(payload.GetProperty("key").GetString() ?? "", down: true, cancellationToken),
                 "keyboard.modifierUp" => await SetModifierAsync(payload.GetProperty("key").GetString() ?? "", down: false, cancellationToken),
@@ -180,6 +181,18 @@ public sealed class DesktopCommandExecutor
         AssertBoundedNumber(dy, ProtocolConstants.MaxScrollDelta, "dy");
         await adapter.ScrollMouseAsync(dx, dy, cancellationToken);
         cursorOverlay?.Show(new CursorOverlayEvent(CursorOverlayEventKind.Scroll, Dx: dx, Dy: dy));
+        return CommandExecutionResult.Success;
+    }
+
+    private async Task<CommandExecutionResult> MovePointerToDisplayAsync(string direction, CancellationToken cancellationToken)
+    {
+        if (activeDragButton is not null)
+        {
+            return CommandExecutionResult.Failure("drag_active", "End the active drag before moving to another monitor.");
+        }
+
+        await adapter.MovePointerToDisplayAsync(direction, cancellationToken);
+        cursorOverlay?.Show(new CursorOverlayEvent(CursorOverlayEventKind.Move));
         return CommandExecutionResult.Success;
     }
 
@@ -378,7 +391,7 @@ public sealed class DesktopCommandExecutor
 
     private static bool IsMouseCommand(string type)
     {
-        return type is "mouse.move" or "mouse.click" or "mouse.doubleClick" or "mouse.rightClick" or "mouse.scroll" or "mouse.dragStart" or "mouse.dragEnd";
+        return type is "mouse.move" or "mouse.click" or "mouse.doubleClick" or "mouse.rightClick" or "mouse.scroll" or "mouse.dragStart" or "mouse.dragEnd" or "pointer.display.move";
     }
 
     private async Task ReleaseHeldMouseButtonAsync(CancellationToken cancellationToken)

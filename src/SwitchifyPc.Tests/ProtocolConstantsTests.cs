@@ -61,6 +61,7 @@ public sealed class ProtocolConstantsTests
             "keyboard.textStream.close",
             "media.control",
             "window.control",
+            "pointer.display.move",
             "pointer.profile",
             "pointer.speed.set",
             "connection.ping",

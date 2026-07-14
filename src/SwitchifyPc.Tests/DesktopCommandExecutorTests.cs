@@ -424,6 +424,48 @@ public sealed class DesktopCommandExecutorTests
     }
 
     [Fact]
+    public async Task MovesPointerToDisplayAndShowsCursorOverlay()
+    {
+        FakeInputAdapter adapter = new();
+        FakeCursorOverlay overlay = new();
+        DesktopCommandExecutor executor = new(adapter, overlay);
+
+        CommandExecutionResult result = await executor.ExecuteAsync(Command("pointer.display.move", new { direction = "right" }));
+
+        Assert.True(result.Ok);
+        Assert.Contains("movePointerToDisplay:right", adapter.Calls);
+        Assert.Equal(CursorOverlayEventKind.Move, Assert.Single(overlay.Events).Kind);
+        Assert.Equal(1, overlay.ActiveCount);
+    }
+
+    [Fact]
+    public async Task RejectsDisplayNavigationDuringActiveDrag()
+    {
+        FakeInputAdapter adapter = new();
+        DesktopCommandExecutor executor = new(adapter);
+        await executor.ExecuteAsync(Command("mouse.dragStart", new { button = "left" }));
+
+        CommandExecutionResult result = await executor.ExecuteAsync(Command("pointer.display.move", new { direction = "right" }));
+
+        Assert.False(result.Ok);
+        Assert.Equal("drag_active", result.Code);
+        Assert.DoesNotContain("movePointerToDisplay:right", adapter.Calls);
+    }
+
+    [Fact]
+    public async Task ConvertsDisplayNavigationAdapterFailureToStructuredResult()
+    {
+        FakeInputAdapter adapter = new() { ThrowOnMoveToDisplay = true };
+        DesktopCommandExecutor executor = new(adapter);
+
+        CommandExecutionResult result = await executor.ExecuteAsync(Command("pointer.display.move", new { direction = "up" }));
+
+        Assert.False(result.Ok);
+        Assert.Equal("adapter_failure", result.Code);
+        Assert.Equal("Monitor move failed.", result.Message);
+    }
+
+    [Fact]
     public void EndControlSessionHidesCursorOverlaySession()
     {
         FakeCursorOverlay overlay = new();
@@ -460,6 +502,7 @@ public sealed class DesktopCommandExecutorTests
     {
         public List<string> Calls { get; } = [];
         public bool ThrowOnSetKeyDown { get; set; }
+        public bool ThrowOnMoveToDisplay { get; set; }
 
         public Task MoveMouseByAsync(double dx, double dy, CancellationToken cancellationToken = default)
         {
@@ -488,6 +531,17 @@ public sealed class DesktopCommandExecutorTests
         public Task ScrollMouseAsync(double dx, double dy, CancellationToken cancellationToken = default)
         {
             Calls.Add($"scrollMouse:{dx},{dy}");
+            return Task.CompletedTask;
+        }
+
+        public Task MovePointerToDisplayAsync(string direction, CancellationToken cancellationToken = default)
+        {
+            if (ThrowOnMoveToDisplay)
+            {
+                throw new DesktopInputException("adapter_failure", "Monitor move failed.");
+            }
+
+            Calls.Add($"movePointerToDisplay:{direction}");
             return Task.CompletedTask;
         }
 

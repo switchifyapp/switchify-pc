@@ -8,6 +8,7 @@ public interface IWindowsNativeInput
 {
     PointerPosition GetCursorPosition();
     PointerDisplay GetDisplayForPosition(PointerPosition position);
+    IReadOnlyList<PointerDisplay> GetDisplays() => [GetDisplayForPosition(GetCursorPosition())];
     void MoveCursorTo(PointerPosition position);
     void MoveCursorBy(PointerDelta delta);
     void SetMouseButtonDown(string button, bool down);
@@ -76,6 +77,29 @@ public sealed class WindowsDesktopInputAdapter : IDesktopInputAdapter
     {
         cancellationToken.ThrowIfCancellationRequested();
         nativeInput.Scroll(WindowsPointerMovement.CalculateNativeScrollDelta(new PointerDelta(dx, dy)));
+        return Task.CompletedTask;
+    }
+
+    public Task MovePointerToDisplayAsync(string direction, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        PointerPosition current = nativeInput.GetCursorPosition();
+        PointerDisplay source = nativeInput.GetDisplayForPosition(current);
+        PointerDisplay? target = WindowsDisplayNavigation.FindTarget(source, nativeInput.GetDisplays(), direction);
+        if (target is null)
+        {
+            string location = direction switch
+            {
+                "up" => "above",
+                "down" => "below",
+                _ => $"to the {direction}"
+            };
+            throw new DesktopInputException("no_display_in_direction", $"No monitor {location}.");
+        }
+
+        nativeInput.MoveCursorTo(WindowsDisplayNavigation.Center(target));
+        cachedDisplay = null;
+        cachedDisplayAtMs = double.NegativeInfinity;
         return Task.CompletedTask;
     }
 
@@ -213,6 +237,15 @@ public sealed class SendInputWindowsNativeInput : IWindowsNativeInput
         return new PointerDisplay(
             new PointerDisplayBounds(screen.Bounds.X, screen.Bounds.Y, screen.Bounds.Width, screen.Bounds.Height),
             ScaleFactor: 1);
+    }
+
+    public IReadOnlyList<PointerDisplay> GetDisplays()
+    {
+        return System.Windows.Forms.Screen.AllScreens
+            .Select(screen => new PointerDisplay(
+                new PointerDisplayBounds(screen.Bounds.X, screen.Bounds.Y, screen.Bounds.Width, screen.Bounds.Height),
+                ScaleFactor: 1))
+            .ToArray();
     }
 
     public void MoveCursorTo(PointerPosition position)

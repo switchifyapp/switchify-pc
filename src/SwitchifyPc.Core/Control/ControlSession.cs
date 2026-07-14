@@ -306,6 +306,11 @@ public sealed class ControlSession
                         ["stepPercent"] = profile.Capabilities.PointerSpeed.StepPercent,
                         ["baseMoveDelta"] = profile.Capabilities.PointerSpeed.BaseMoveDelta,
                         ["effectiveMoveDelta"] = profile.Capabilities.PointerSpeed.EffectiveMoveDelta
+                    },
+                    ["displayNavigation"] = new JsonObject
+                    {
+                        ["supported"] = profile.Capabilities.DisplayNavigation.Supported,
+                        ["displayCount"] = profile.Capabilities.DisplayNavigation.DisplayCount
                     }
                 }
             },

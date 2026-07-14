@@ -7,6 +7,8 @@ public interface IDesktopInputAdapter
     Task ClickMouseAsync(string button, CancellationToken cancellationToken = default);
     Task DoubleClickMouseAsync(string button, CancellationToken cancellationToken = default);
     Task ScrollMouseAsync(double dx, double dy, CancellationToken cancellationToken = default);
+    Task MovePointerToDisplayAsync(string direction, CancellationToken cancellationToken = default) =>
+        Task.FromException(new DesktopInputException("unsupported_command", "Display navigation is not available."));
     Task PressKeyAsync(string key, CancellationToken cancellationToken = default);
     Task SetKeyDownAsync(string key, bool down, CancellationToken cancellationToken = default);
     Task PressShortcutAsync(IReadOnlyList<string> keys, CancellationToken cancellationToken = default);
