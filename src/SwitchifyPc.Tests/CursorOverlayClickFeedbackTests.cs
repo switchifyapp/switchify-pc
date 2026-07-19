@@ -18,20 +18,23 @@ public sealed class CursorOverlayClickFeedbackTests
     }
 
     [Theory]
-    [InlineData(1, 48, 88, 3, 2)]
-    [InlineData(1.5, 72, 132, 4.5, 3)]
-    [InlineData(2, 96, 176, 6, 4)]
+    [InlineData(1, 33.6, 36.95, 3, 2)]
+    [InlineData(1.5, 50.4, 55.425, 4.5, 3)]
+    [InlineData(2, 67.2, 73.9, 6, 4)]
     public void LandingGeometryScalesWithMonitorDpi(
         double scale,
         float expectedCore,
-        float expectedHalo,
+        float expectedHaloRadius,
         float expectedStroke,
         float expectedShadow)
     {
         CursorOverlayVisualTokens tokens = CursorOverlayVisualTokens.Create(128, scale);
 
         Assert.Equal(expectedCore, tokens.LandingCoreDiameter);
-        Assert.Equal(expectedHalo, tokens.LandingHaloDiameter);
+        Assert.InRange(
+            CursorOverlayStaticFeedback.ResolveLandingHaloRadius(tokens),
+            expectedHaloRadius - 0.001f,
+            expectedHaloRadius + 0.001f);
         Assert.Equal(expectedStroke, tokens.LandingHaloStroke);
         Assert.Equal(expectedShadow, tokens.ShadowOffset);
     }
