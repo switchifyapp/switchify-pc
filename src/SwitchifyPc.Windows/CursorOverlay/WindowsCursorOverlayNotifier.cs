@@ -718,9 +718,7 @@ public sealed class WindowsCursorOverlayNotifier : ICursorOverlayNotifier, IMous
             float centerY = cursorCenter.Y;
             float coreDiameter = visualTokens.LandingCoreDiameter;
             float coreRadius = coreDiameter / 2;
-            float maxHaloRadius = (visualTokens.LandingHaloDiameter - visualTokens.LandingHaloStroke) / 2;
-            float haloRadius = visualTokens.LandingCoreDiameter / 2 +
-                ((maxHaloRadius - visualTokens.LandingCoreDiameter / 2) * CursorOverlayStaticFeedback.LandingHaloProgress);
+            float haloRadius = CursorOverlayStaticFeedback.ResolveLandingHaloRadius(visualTokens);
 
             using Pen halo = new(
                 Color.FromArgb(180, overlayColor.R, overlayColor.G, overlayColor.B),

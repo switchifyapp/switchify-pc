@@ -9,6 +9,7 @@ internal sealed record CursorOverlayVisualTokens(
     float GlowStroke,
     int CrosshairThickness,
     float LandingCoreDiameter,
+    float LandingHaloStartDiameter,
     float LandingHaloDiameter,
     float LandingHaloStroke,
     float ShadowOffset,
@@ -31,7 +32,8 @@ internal sealed record CursorOverlayVisualTokens(
             RingStroke: (float)Math.Max(4 * scale, normalizedLogicalSize * 0.039 * scale),
             GlowStroke: (float)Math.Max(18 * scale, normalizedLogicalSize * 0.1875 * scale),
             CrosshairThickness: Math.Max(1, Scale(2, scale)),
-            LandingCoreDiameter: (float)(normalizedLogicalSize * 0.375 * scale),
+            LandingCoreDiameter: (float)(normalizedLogicalSize * 0.2625 * scale),
+            LandingHaloStartDiameter: (float)(normalizedLogicalSize * 0.375 * scale),
             LandingHaloDiameter: (float)(normalizedLogicalSize * 0.6875 * scale),
             LandingHaloStroke: (float)Math.Max(2 * scale, normalizedLogicalSize * 0.0234375 * scale),
             ShadowOffset: (float)Math.Max(1, 2 * scale),
@@ -67,6 +69,13 @@ internal static class CursorOverlayFeedbackTiming
 internal static class CursorOverlayStaticFeedback
 {
     public const float LandingHaloProgress = 0.7f;
+
+    public static float ResolveLandingHaloRadius(CursorOverlayVisualTokens tokens)
+    {
+        float startRadius = tokens.LandingHaloStartDiameter / 2;
+        float maxRadius = (tokens.LandingHaloDiameter - tokens.LandingHaloStroke) / 2;
+        return startRadius + ((maxRadius - startRadius) * LandingHaloProgress);
+    }
 }
 
 internal sealed class CursorOverlayRenderFailureGuard
