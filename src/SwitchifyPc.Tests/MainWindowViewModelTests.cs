@@ -18,6 +18,7 @@ public sealed class MainWindowViewModelTests
         Assert.Equal("Starting...", viewModel.StatusBadgeLabel);
         Assert.Equal("waiting", viewModel.StatusBadgeTone);
         Assert.False(viewModel.IsConnected);
+        Assert.False(viewModel.ShowConnectedDeviceUi);
         Assert.Equal("Bluetooth radio state unknown.", viewModel.SystemBluetooth);
         Assert.False(viewModel.HasUpdateBanner);
     }
@@ -66,6 +67,7 @@ public sealed class MainWindowViewModelTests
         Assert.Contains(nameof(MainWindowViewModel.StatusBadgeLabel), changed);
         Assert.Contains(nameof(MainWindowViewModel.BluetoothStatus), changed);
         Assert.Contains(nameof(MainWindowViewModel.IsConnected), changed);
+        Assert.Contains(nameof(MainWindowViewModel.ShowConnectedDeviceUi), changed);
         Assert.Contains(nameof(MainWindowViewModel.BluetoothLastChecked), changed);
         Assert.Contains(nameof(MainWindowViewModel.BluetoothLastChanged), changed);
         Assert.Contains(nameof(MainWindowViewModel.RecentBluetoothEvents), changed);
@@ -76,6 +78,8 @@ public sealed class MainWindowViewModelTests
     public void ExposesConnectedStateForMainWindowActions()
     {
         MainWindowViewModel viewModel = new();
+        List<string?> changed = [];
+        viewModel.PropertyChanged += (_, eventArgs) => changed.Add(eventArgs.PropertyName);
 
         viewModel.SetBluetoothState(
             DesktopUiState.Connected,
@@ -87,9 +91,11 @@ public sealed class MainWindowViewModelTests
             });
 
         Assert.True(viewModel.IsConnected);
+        Assert.True(viewModel.ShowConnectedDeviceUi);
         Assert.Equal("Connected", viewModel.StatusBadgeLabel);
         Assert.Equal("connected", viewModel.StatusBadgeTone);
         Assert.Equal("2 devices connected.", viewModel.ConnectedDeviceSummary);
+        Assert.Contains(nameof(MainWindowViewModel.ShowConnectedDeviceUi), changed);
     }
 
     [Fact]
@@ -135,12 +141,55 @@ public sealed class MainWindowViewModelTests
         ]);
 
         Assert.True(viewModel.HasPairingApprovals);
+        Assert.False(viewModel.ShowConnectedDeviceUi);
         PendingPairingApprovalView approval = Assert.Single(viewModel.PairingApprovals);
         Assert.Equal("approval-1", approval.RequestId);
         Assert.Equal("Pixel 9", approval.DeviceName);
         Assert.Equal("123456", approval.VerificationCode);
         Assert.Contains(nameof(MainWindowViewModel.HasPairingApprovals), changed);
         Assert.Contains(nameof(MainWindowViewModel.PairingApprovals), changed);
+        Assert.Contains(nameof(MainWindowViewModel.ShowConnectedDeviceUi), changed);
+    }
+
+    [Fact]
+    public void PairingApprovalsHideConnectedUiUntilFinalApprovalIsCleared()
+    {
+        MainWindowViewModel viewModel = new();
+        viewModel.SetBluetoothState(
+            DesktopUiState.Connected,
+            BluetoothStatusModel.DefaultStatus with
+            {
+                Status = "connected",
+                ConnectedClientCount = 1
+            });
+        List<string?> changed = [];
+        viewModel.PropertyChanged += (_, eventArgs) => changed.Add(eventArgs.PropertyName);
+
+        viewModel.SetPairingApprovals([
+            new PendingPairingApprovalView("approval-1", "Pixel 9", "123456", 1, 2, null)
+        ]);
+
+        Assert.False(viewModel.ShowConnectedDeviceUi);
+        Assert.Equal(
+            [
+                nameof(MainWindowViewModel.HasPairingApprovals),
+                nameof(MainWindowViewModel.PairingApprovals),
+                nameof(MainWindowViewModel.ShowConnectedDeviceUi)
+            ],
+            changed);
+
+        changed.Clear();
+        viewModel.SetPairingApprovals([]);
+
+        Assert.False(viewModel.HasPairingApprovals);
+        Assert.True(viewModel.ShowConnectedDeviceUi);
+        Assert.Equal(
+            [
+                nameof(MainWindowViewModel.HasPairingApprovals),
+                nameof(MainWindowViewModel.PairingApprovals),
+                nameof(MainWindowViewModel.ShowConnectedDeviceUi)
+            ],
+            changed);
     }
 
     [Fact]
