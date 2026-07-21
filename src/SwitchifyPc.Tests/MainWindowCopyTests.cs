@@ -116,12 +116,58 @@ public sealed class MainWindowCopyTests
 
         Assert.NotNull(availableCopy);
         Assert.Equal("Update available", availableCopy.Title);
-        Assert.Equal("A new Switchify PC update is ready to download.", availableCopy.Body);
-        Assert.Equal("Open updates", availableCopy.ButtonText);
+        Assert.Equal("A new Switchify PC update is ready to install.", availableCopy.Body);
+        Assert.Equal("Install update", availableCopy.ButtonText);
+        Assert.True(availableCopy.ButtonEnabled);
         Assert.NotNull(downloadedCopy);
         Assert.Equal("Update ready to install", downloadedCopy.Title);
         Assert.Equal("The update has been downloaded and is ready to install.", downloadedCopy.Body);
+        Assert.Equal("Install update", downloadedCopy.ButtonText);
+        Assert.True(downloadedCopy.ButtonEnabled);
         Assert.Null(MainWindowCopy.UpdateBanner(UpdateState.CreateInitial("0.1.20")));
+    }
+
+    [Fact]
+    public void ShowsUpdateBannerForOneClickOperationStates()
+    {
+        UpdateState initial = UpdateState.CreateInitial("0.1.20");
+        UpdateState available = initial with
+        {
+            Info = initial.Info with { Status = UpdateCheckStatus.UpdateAvailable, LatestVersion = "0.2.0" }
+        };
+
+        UpdateBannerCopy downloading = Assert.IsType<UpdateBannerCopy>(MainWindowCopy.UpdateBanner(available with
+        {
+            IsApplyingUpdate = true,
+            Download = new UpdateDownloadProgress(UpdateDownloadStatus.Downloading, 10, 100, 10)
+        }));
+        Assert.Equal("Downloading...", downloading.ButtonText);
+        Assert.False(downloading.ButtonEnabled);
+
+        UpdateBannerCopy failed = Assert.IsType<UpdateBannerCopy>(MainWindowCopy.UpdateBanner(available with
+        {
+            Download = new UpdateDownloadProgress(UpdateDownloadStatus.DownloadFailed, 10, 100, 10, UpdateFailureReason.NetworkError)
+        }));
+        Assert.Equal("Retry update", failed.ButtonText);
+        Assert.True(failed.ButtonEnabled);
+
+        UpdateBannerCopy installing = Assert.IsType<UpdateBannerCopy>(MainWindowCopy.UpdateBanner(available with
+        {
+            IsApplyingUpdate = true,
+            Download = new UpdateDownloadProgress(UpdateDownloadStatus.Downloaded, 100, 100, 100)
+        }));
+        Assert.Equal("Installing...", installing.ButtonText);
+        Assert.False(installing.ButtonEnabled);
+
+        UpdateBannerCopy installFailed = Assert.IsType<UpdateBannerCopy>(MainWindowCopy.UpdateBanner(available with
+        {
+            Download = new UpdateDownloadProgress(UpdateDownloadStatus.Downloaded, 100, 100, 100),
+            LastApplyResult = UpdateApplyResult.InstallFailure(UpdateInstallFailureReason.InstallerLaunchFailed)
+        }));
+        Assert.Equal("Update installation failed", installFailed.Title);
+        Assert.Equal("The update installer could not be opened. Try again.", installFailed.Body);
+        Assert.Equal("Retry update", installFailed.ButtonText);
+        Assert.True(installFailed.ButtonEnabled);
     }
 
     private static BluetoothSystemStatus BluetoothSystemOn() =>

@@ -61,7 +61,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public string UpdateBannerBody => MainWindowCopy.UpdateBanner(updateState)?.Body ?? "";
 
-    public string UpdateBannerButtonText => MainWindowCopy.UpdateBanner(updateState)?.ButtonText ?? "Open updates";
+    public string UpdateBannerButtonText => MainWindowCopy.UpdateBanner(updateState)?.ButtonText ?? "Install update";
+
+    public bool IsUpdateBannerButtonEnabled => MainWindowCopy.UpdateBanner(updateState)?.ButtonEnabled ?? false;
 
     public string UpdateBannerTone => MainWindowCopy.UpdateBanner(updateState)?.Tone ?? "";
 
@@ -83,6 +85,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(UpdateBannerTitle));
         OnPropertyChanged(nameof(UpdateBannerBody));
         OnPropertyChanged(nameof(UpdateBannerButtonText));
+        OnPropertyChanged(nameof(IsUpdateBannerButtonEnabled));
         OnPropertyChanged(nameof(UpdateBannerTone));
     }
 

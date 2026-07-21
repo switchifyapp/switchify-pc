@@ -727,7 +727,7 @@
                             <StackPanel>
                                 <TextBlock Text="Updates" Style="{StaticResource SectionTitle}" />
                                 <TextBlock Margin="0,6,0,0"
-                                           Text="Check, download, and open Switchify PC updates."
+                                           Text="Check for and install Switchify PC updates."
                                            Style="{StaticResource MutedText}" />
                                 <Border Margin="0,16,0,0" Style="{StaticResource SubtlePanel}">
                                     <StackPanel>
@@ -744,18 +744,17 @@
                                                        Style="{StaticResource MutedText}" />
                                         </StackPanel>
                                         <WrapPanel Margin="0,14,0,0">
-                                            <Button Content="Check for updates"
+                                            <Button Content="{Binding UpdateCheckActionText}"
                                                     Margin="0,0,10,8"
-                                                    Click="CheckForUpdates_Click" />
-                                            <Button Content="Download update"
+                                                    Click="CheckForUpdates_Click"
+                                                    IsEnabled="{Binding CanCheckForUpdates}"
+                                                    Visibility="{Binding IsCheckUpdateActionVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                            <Button Content="{Binding UpdatePrimaryActionText}"
                                                     Margin="0,0,10,8"
-                                                    Click="DownloadUpdate_Click"
-                                                    IsEnabled="{Binding CanDownloadUpdate}" />
-                                            <Button Content="Install update"
-                                                    Margin="0,0,10,8"
-                                                    Click="InstallUpdate_Click"
+                                                    Click="InstallAvailableUpdate_Click"
                                                     Style="{StaticResource PrimaryButton}"
-                                                    IsEnabled="{Binding CanInstallUpdate}" />
+                                                    IsEnabled="{Binding CanRunUpdatePrimaryAction}"
+                                                    Visibility="{Binding IsInstallUpdateActionVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
                                         </WrapPanel>
                                     </StackPanel>
                                 </Border>

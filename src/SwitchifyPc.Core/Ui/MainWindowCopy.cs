@@ -15,7 +15,7 @@ public enum DesktopUiState
 
 public sealed record BluetoothPrimaryCopy(string Title, string Body, string Tone);
 
-public sealed record UpdateBannerCopy(string Title, string Body, string Tone, string ButtonText);
+public sealed record UpdateBannerCopy(string Title, string Body, string Tone, string ButtonText, bool ButtonEnabled);
 
 public static class MainWindowCopy
 {
@@ -249,22 +249,64 @@ public static class MainWindowCopy
     public static UpdateBannerCopy? UpdateBanner(UpdateState? state)
     {
         if (state is null) return null;
+        if (state.IsApplyingUpdate && state.Download.Status == UpdateDownloadStatus.Downloaded)
+        {
+            return new UpdateBannerCopy(
+                "Installing update...",
+                "The update installer is opening. Switchify PC will restart when installation finishes.",
+                "downloaded",
+                "Installing...",
+                false);
+        }
+
+        if (state.Download.Status == UpdateDownloadStatus.Downloading)
+        {
+            return new UpdateBannerCopy(
+                "Downloading update...",
+                "Switchify PC is downloading the update.",
+                "available",
+                "Downloading...",
+                false);
+        }
+
+        if (state.LastApplyResult is { Ok: false, FailureStage: UpdateApplyFailureStage.Install } failure)
+        {
+            return new UpdateBannerCopy(
+                "Update installation failed",
+                UpdateUiCopy.ApplyFailureMessage(failure),
+                "available",
+                "Retry update",
+                !state.IsApplyingUpdate);
+        }
+
+        if (state.Download.Status == UpdateDownloadStatus.DownloadFailed)
+        {
+            return new UpdateBannerCopy(
+                "Update download failed",
+                "The update could not be downloaded. Try again.",
+                "available",
+                "Retry update",
+                !state.IsApplyingUpdate);
+        }
+
         if (state.Download.Status == UpdateDownloadStatus.Downloaded)
         {
             return new UpdateBannerCopy(
                 "Update ready to install",
                 "The update has been downloaded and is ready to install.",
                 "downloaded",
-                "Open updates");
+                "Install update",
+                !state.IsApplyingUpdate);
         }
 
         if (state.Info.Status == UpdateCheckStatus.UpdateAvailable)
         {
             return new UpdateBannerCopy(
                 "Update available",
-                "A new Switchify PC update is ready to download.",
+                "A new Switchify PC update is ready to install.",
                 "available",
-                "Open updates");
+                "Install update",
+                !state.IsApplyingUpdate);
         }
 
         return null;

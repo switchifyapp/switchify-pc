@@ -14,6 +14,7 @@ public partial class SettingsWindow : Window
     private bool isLoaded;
     private bool isApplyingSettings;
     private bool settingsLoaded;
+    private bool isInstallingUpdate;
 
     public SettingsWindow(SettingsController controller) : this(controller.ViewModel)
     {
@@ -190,30 +191,41 @@ public partial class SettingsWindow : Window
             "Updates could not be checked.");
     }
 
-    private async void DownloadUpdate_Click(object sender, RoutedEventArgs e)
+    private async void InstallAvailableUpdate_Click(object sender, RoutedEventArgs e)
     {
-        if (controller is null) return;
-        await RunActionAsync(
-            () => controller.DownloadUpdateAsync(),
-            "The update could not be downloaded.");
+        if (controller is null || isInstallingUpdate) return;
+
+        isInstallingUpdate = true;
+        try
+        {
+            await RunActionAsync(async () =>
+            {
+                UpdateApplyResult result = await controller.InstallAvailableUpdateAsync();
+                if (!result.Ok)
+                {
+                    WpfMessageBox.Show(
+                        UpdateUiCopy.ApplyFailureMessage(result),
+                        "Update installer",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                }
+            }, "The update could not be installed.");
+        }
+        finally
+        {
+            isInstallingUpdate = false;
+        }
     }
 
-    private async void InstallUpdate_Click(object sender, RoutedEventArgs e)
+    public void ApplyUpdateState(UpdateState state)
     {
-        if (controller is null) return;
-
-        await RunActionAsync(async () =>
+        if (!Dispatcher.CheckAccess())
         {
-            UpdateInstallResult result = await controller.InstallDownloadedUpdateAsync();
-            if (!result.Ok)
-            {
-                WpfMessageBox.Show(
-                    SettingsViewModel.InstallMessage(result.Reason),
-                    "Update installer",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-            }
-        }, "The update installer could not be opened.");
+            Dispatcher.BeginInvoke(() => ApplyUpdateState(state));
+            return;
+        }
+
+        controller?.ApplyUpdateState(state);
     }
 
     private void SaveIfReady(Action save)

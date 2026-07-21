@@ -192,6 +192,36 @@ public sealed class SettingsControllerTests
     }
 
     [Fact]
+    public async Task InstallAvailableUpdateAppliesLatestServiceState()
+    {
+        SettingsViewModel viewModel = new();
+        UpdateState available = UpdateState.CreateInitial("0.2.0") with
+        {
+            Info = UpdateState.CreateInitial("0.2.0").Info with
+            {
+                Status = UpdateCheckStatus.UpdateAvailable,
+                LatestVersion = "0.2.1"
+            }
+        };
+        UpdateState downloaded = available with
+        {
+            Download = new UpdateDownloadProgress(UpdateDownloadStatus.Downloaded, 100, 100, 100)
+        };
+        FakeUpdates updates = new(available)
+        {
+            ApplyResult = UpdateApplyResult.Success(),
+            ApplyState = downloaded
+        };
+        SettingsController controller = CreateController(viewModel, updates: updates);
+
+        UpdateApplyResult result = await controller.InstallAvailableUpdateAsync();
+
+        Assert.True(result.Ok);
+        Assert.Equal(1, updates.ApplyCalls);
+        Assert.Equal("Install update", viewModel.UpdatePrimaryActionText);
+    }
+
+    [Fact]
     public async Task ForgetPairedDeviceRemovesPersistedDeviceAndRefreshesViewModel()
     {
         SettingsViewModel viewModel = new();
@@ -351,7 +381,13 @@ public sealed class SettingsControllerTests
 
         public UpdateInstallResult InstallResult { get; init; } = UpdateInstallResult.Failure(UpdateInstallFailureReason.NotDownloaded);
 
+        public UpdateApplyResult ApplyResult { get; init; } = UpdateApplyResult.DownloadFailure(UpdateFailureReason.NotAvailable);
+
+        public UpdateState? ApplyState { get; init; }
+
         public int InstallCalls { get; private set; }
+
+        public int ApplyCalls { get; private set; }
 
         public UpdateState GetState() => state;
 
@@ -371,6 +407,13 @@ public sealed class SettingsControllerTests
         {
             InstallCalls++;
             return Task.FromResult(InstallResult);
+        }
+
+        public Task<UpdateApplyResult> InstallAvailableUpdateAsync(CancellationToken cancellationToken = default)
+        {
+            ApplyCalls++;
+            if (ApplyState is not null) state = ApplyState;
+            return Task.FromResult(ApplyResult);
         }
     }
 }
