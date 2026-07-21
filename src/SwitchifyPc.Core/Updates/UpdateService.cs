@@ -34,6 +34,8 @@ public interface IUpdateSettingsService
     Task<UpdateState> DownloadUpdateAsync(CancellationToken cancellationToken = default);
 
     Task<UpdateInstallResult> InstallDownloadedUpdateAsync(CancellationToken cancellationToken = default);
+
+    Task<UpdateApplyResult> InstallAvailableUpdateAsync(CancellationToken cancellationToken = default);
 }
 
 public sealed class TimerUpdatePollScheduler : IUpdatePollScheduler
@@ -75,6 +77,7 @@ public sealed class UpdateService : IUpdateSettingsService
     private AvailableUpdate? availableUpdate;
     private Task<UpdateState>? checkingTask;
     private Task<UpdateState>? downloadTask;
+    private Task<UpdateApplyResult>? applyTask;
     private UpdateOperation operation = UpdateOperation.Idle;
     private IDisposable? initialPoll;
     private IDisposable? recurringPoll;
@@ -148,6 +151,7 @@ public sealed class UpdateService : IUpdateSettingsService
 
         lock (gate)
         {
+            if (state.IsApplyingUpdate) return Task.FromResult(state);
             if (checkingTask is { IsCompleted: false }) return checkingTask;
             checkingTask = null;
             operation = UpdateOperation.Checking;
@@ -164,7 +168,8 @@ public sealed class UpdateService : IUpdateSettingsService
                     Status = UpdateCheckStatus.Checking,
                     Reason = null
                 },
-                Download = UpdateState.CreateIdleDownload()
+                Download = UpdateState.CreateIdleDownload(),
+                LastApplyResult = null
             };
             onStateChanged(state);
             checkingTask = RunCheckAsync(cancellationToken);
@@ -183,7 +188,8 @@ public sealed class UpdateService : IUpdateSettingsService
                 {
                     Status = UpdateDownloadStatus.DownloadFailed,
                     Reason = unsupported
-                }
+                },
+                LastApplyResult = null
             });
             return Task.FromResult(GetState());
         }
@@ -200,7 +206,8 @@ public sealed class UpdateService : IUpdateSettingsService
                     {
                         Status = UpdateDownloadStatus.DownloadFailed,
                         Reason = UpdateFailureReason.NotAvailable
-                    }
+                    },
+                    LastApplyResult = null
                 };
                 onStateChanged(state);
                 return Task.FromResult(state);
@@ -210,7 +217,8 @@ public sealed class UpdateService : IUpdateSettingsService
             downloadedInstallerPath = null;
             state = state with
             {
-                Download = new UpdateDownloadProgress(UpdateDownloadStatus.Downloading, 0, null, null)
+                Download = new UpdateDownloadProgress(UpdateDownloadStatus.Downloading, 0, null, null),
+                LastApplyResult = null
             };
             onStateChanged(state);
             downloadTask = RunDownloadAsync(availableUpdate, cancellationToken);
@@ -237,6 +245,33 @@ public sealed class UpdateService : IUpdateSettingsService
         return result.Ok
             ? UpdateInstallResult.Success()
             : UpdateInstallResult.Failure(result.Reason ?? UpdateInstallFailureReason.InstallerLaunchFailed);
+    }
+
+    public Task<UpdateApplyResult> InstallAvailableUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        UpdateFailureReason? unsupported = UnsupportedReason();
+        if (unsupported is not null)
+        {
+            return Task.FromResult(UpdateApplyResult.DownloadFailure(unsupported.Value));
+        }
+
+        lock (gate)
+        {
+            if (applyTask is { IsCompleted: false }) return applyTask;
+            applyTask = null;
+
+            bool isDownloaded = state.Download.Status == UpdateDownloadStatus.Downloaded;
+            if (!isDownloaded && (state.Info.Status != UpdateCheckStatus.UpdateAvailable || availableUpdate is null))
+            {
+                return Task.FromResult(UpdateApplyResult.DownloadFailure(UpdateFailureReason.NotAvailable));
+            }
+
+            operation = UpdateOperation.Applying;
+            state = state with { IsApplyingUpdate = true, LastApplyResult = null };
+            onStateChanged(state);
+            applyTask = RunApplyAsync(cancellationToken);
+            return applyTask;
+        }
     }
 
     private async Task<UpdateState> RunCheckAsync(CancellationToken cancellationToken)
@@ -293,6 +328,24 @@ public sealed class UpdateService : IUpdateSettingsService
                 Download = UpdateState.CreateIdleDownload()
             });
             return GetState();
+        }
+        catch (OperationCanceledException)
+        {
+            SetState(GetState() with
+            {
+                Info = GetState().Info with
+                {
+                    LatestVersion = null,
+                    ReleaseName = null,
+                    ReleaseNotes = null,
+                    CheckedAt = null,
+                    Status = UpdateCheckStatus.NotChecked,
+                    Reason = null
+                },
+                Download = UpdateState.CreateIdleDownload(),
+                LastApplyResult = null
+            });
+            throw;
         }
         catch
         {
@@ -368,6 +421,19 @@ public sealed class UpdateService : IUpdateSettingsService
             });
             return GetState();
         }
+        catch (OperationCanceledException)
+        {
+            lock (gate)
+            {
+                downloadedInstallerPath = null;
+            }
+
+            SetState(GetState() with
+            {
+                Download = UpdateState.CreateIdleDownload()
+            });
+            throw;
+        }
         catch
         {
             lock (gate)
@@ -395,11 +461,64 @@ public sealed class UpdateService : IUpdateSettingsService
         }
     }
 
+    private async Task<UpdateApplyResult> RunApplyAsync(CancellationToken cancellationToken)
+    {
+        UpdateApplyResult? completedResult = null;
+        try
+        {
+            await Task.Yield();
+
+            if (GetState().Download.Status != UpdateDownloadStatus.Downloaded)
+            {
+                UpdateState downloaded = await DownloadUpdateAsync(cancellationToken).ConfigureAwait(false);
+                if (downloaded.Download.Status != UpdateDownloadStatus.Downloaded)
+                {
+                    completedResult = UpdateApplyResult.DownloadFailure(
+                        downloaded.Download.Reason ?? UpdateFailureReason.InvalidUpdate);
+                    return completedResult;
+                }
+            }
+
+            UpdateInstallResult installed = await InstallDownloadedUpdateAsync(cancellationToken).ConfigureAwait(false);
+            completedResult = installed.Ok
+                ? UpdateApplyResult.Success()
+                : UpdateApplyResult.InstallFailure(
+                    installed.Reason ?? UpdateInstallFailureReason.InstallerLaunchFailed);
+
+            if (installed.Reason == UpdateInstallFailureReason.InstallerUnavailable)
+            {
+                lock (gate)
+                {
+                    downloadedInstallerPath = null;
+                    state = state with { Download = UpdateState.CreateIdleDownload() };
+                }
+            }
+
+            return completedResult;
+        }
+        finally
+        {
+            UpdateState next;
+            lock (gate)
+            {
+                operation = UpdateOperation.Idle;
+                state = state with
+                {
+                    IsApplyingUpdate = false,
+                    LastApplyResult = completedResult is { Ok: false } ? completedResult : null
+                };
+                next = state;
+            }
+
+            onStateChanged(next);
+        }
+    }
+
     private async Task RunAutomaticUpdateCheckAsync()
     {
         lock (gate)
         {
-            if (operation != UpdateOperation.Idle) return;
+            if (operation != UpdateOperation.Idle || state.IsApplyingUpdate) return;
             if (state.Download.Status is UpdateDownloadStatus.Downloading or UpdateDownloadStatus.Downloaded) return;
         }
 
@@ -427,7 +546,8 @@ public sealed class UpdateService : IUpdateSettingsService
     {
         Idle,
         Checking,
-        Downloading
+        Downloading,
+        Applying
     }
 
     private sealed class InlineProgress<T>(Action<T> handler) : IProgress<T>

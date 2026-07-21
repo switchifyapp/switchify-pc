@@ -9,6 +9,7 @@ using SwitchifyPc.App.Chrome;
 using SwitchifyPc.App.Themes;
 using SwitchifyPc.Core.Bluetooth;
 using SwitchifyPc.Core.Ui;
+using SwitchifyPc.Core.Updates;
 using WpfButton = System.Windows.Controls.Button;
 using WpfColor = System.Windows.Media.Color;
 
@@ -17,6 +18,43 @@ namespace SwitchifyPc.Tests;
 [Collection(WpfTestCollection.Name)]
 public sealed class MainWindowTests
 {
+    [Fact]
+    public void UpdateBannerRunsInstallActionDirectly()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            MainWindowViewModel viewModel = new();
+            UpdateState initial = UpdateState.CreateInitial("0.2.0");
+            viewModel.SetUpdateState(initial with
+            {
+                Info = initial.Info with { Status = UpdateCheckStatus.UpdateAvailable, LatestVersion = "0.2.1" }
+            });
+            int calls = 0;
+            MainWindow window = new(
+                viewModel,
+                installUpdate: () =>
+                {
+                    calls++;
+                    return Task.FromResult(UpdateApplyResult.Success());
+                });
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+                WpfButton button = Assert.IsType<WpfButton>(ButtonByContent(window, "Install update"));
+
+                button.RaiseEvent(new RoutedEventArgs(WpfButton.ClickEvent));
+
+                Assert.Equal(1, calls);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
     [Fact]
     public void MainWindowShowsSetupGuideEntryWithoutLegacyDownloadCard()
     {
@@ -188,6 +226,19 @@ public sealed class MainWindowTests
             if (node is WpfButton { Content: string text }) content.Add(text);
         });
         return content;
+    }
+
+    private static WpfButton? ButtonByContent(DependencyObject root, string content)
+    {
+        WpfButton? result = null;
+        Collect(root, node =>
+        {
+            if (result is null && node is WpfButton { Content: string text } button && text == content)
+            {
+                result = button;
+            }
+        });
+        return result;
     }
 
     private static FrameworkElement? ElementByAutomationId(DependencyObject root, string automationId)

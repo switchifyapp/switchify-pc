@@ -147,6 +147,13 @@ public sealed class SettingsController
         return result;
     }
 
+    public async Task<UpdateApplyResult> InstallAvailableUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        UpdateApplyResult result = await updates.InstallAvailableUpdateAsync(cancellationToken).ConfigureAwait(false);
+        viewModel.SetUpdateState(updates.GetState());
+        return result;
+    }
+
     public void ApplyUpdateState(UpdateState state)
     {
         viewModel.SetUpdateState(state);

@@ -314,7 +314,8 @@
                             <Button Grid.Column="1"
                                     Margin="16,0,0,0"
                                     Content="{Binding UpdateBannerButtonText}"
-                                    Click="OpenUpdates_Click" />
+                                    IsEnabled="{Binding IsUpdateBannerButtonEnabled}"
+                                    Click="InstallUpdate_Click" />
                         </Grid>
                     </Border>
 

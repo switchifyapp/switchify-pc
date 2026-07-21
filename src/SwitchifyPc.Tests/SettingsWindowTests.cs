@@ -17,6 +17,29 @@ namespace SwitchifyPc.Tests;
 public sealed class SettingsWindowTests
 {
     [Fact]
+    public void SettingsWindowUsesOneClickUpdateCopy()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            SettingsWindow window = new(new SettingsViewModel());
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                Assert.Contains("Check for and install Switchify PC updates.", TextBlocks(window));
+                Assert.Contains("Check for updates", ButtonContent(window));
+                Assert.DoesNotContain("Download update", ButtonContent(window));
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
     public void SettingsWindowLoadsWithUpdateDownloadProgress()
     {
         RunOnSta(() =>
@@ -243,6 +266,16 @@ public sealed class SettingsWindowTests
             {
                 content.Add(text);
             }
+        });
+        return content;
+    }
+
+    private static IReadOnlyList<string> ButtonContent(DependencyObject root)
+    {
+        List<string> content = [];
+        Collect(root, node =>
+        {
+            if (node is WpfButton { Content: string text }) content.Add(text);
         });
         return content;
     }

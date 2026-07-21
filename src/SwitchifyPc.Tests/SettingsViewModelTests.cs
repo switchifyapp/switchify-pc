@@ -234,6 +234,67 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void MapsOneClickUpdateActionStateMatrix()
+    {
+        SettingsViewModel viewModel = new();
+        UpdateState initial = UpdateState.CreateInitial("0.2.0");
+        UpdateState available = initial with
+        {
+            Info = initial.Info with { Status = UpdateCheckStatus.UpdateAvailable, LatestVersion = "0.2.1" }
+        };
+
+        viewModel.SetUpdateState(initial);
+        Assert.Equal("Check for updates", viewModel.UpdateCheckActionText);
+        Assert.True(viewModel.IsCheckUpdateActionVisible);
+        Assert.False(viewModel.IsInstallUpdateActionVisible);
+        Assert.True(viewModel.CanCheckForUpdates);
+        Assert.False(viewModel.CanRunUpdatePrimaryAction);
+
+        viewModel.SetUpdateState(initial with { Info = initial.Info with { Status = UpdateCheckStatus.Checking } });
+        Assert.Equal("Checking...", viewModel.UpdateCheckActionText);
+        Assert.True(viewModel.IsCheckUpdateActionVisible);
+        Assert.False(viewModel.CanCheckForUpdates);
+
+        viewModel.SetUpdateState(available);
+        Assert.Equal("Install update", viewModel.UpdatePrimaryActionText);
+        Assert.False(viewModel.IsCheckUpdateActionVisible);
+        Assert.True(viewModel.IsInstallUpdateActionVisible);
+        Assert.True(viewModel.CanRunUpdatePrimaryAction);
+        Assert.False(viewModel.CanCheckForUpdates);
+
+        viewModel.SetUpdateState(available with
+        {
+            IsApplyingUpdate = true,
+            Download = new UpdateDownloadProgress(UpdateDownloadStatus.Downloading, 10, 100, 10)
+        });
+        Assert.Equal("Downloading...", viewModel.UpdatePrimaryActionText);
+        Assert.False(viewModel.CanRunUpdatePrimaryAction);
+
+        viewModel.SetUpdateState(available with
+        {
+            Download = new UpdateDownloadProgress(UpdateDownloadStatus.DownloadFailed, 10, 100, 10, UpdateFailureReason.NetworkError)
+        });
+        Assert.Equal("Retry update", viewModel.UpdatePrimaryActionText);
+
+        viewModel.SetUpdateState(available with
+        {
+            IsApplyingUpdate = true,
+            Download = new UpdateDownloadProgress(UpdateDownloadStatus.Downloaded, 100, 100, 100)
+        });
+        Assert.Equal("Installing...", viewModel.UpdatePrimaryActionText);
+        Assert.False(viewModel.CanRunUpdatePrimaryAction);
+
+        viewModel.SetUpdateState(available with
+        {
+            Download = new UpdateDownloadProgress(UpdateDownloadStatus.Downloaded, 100, 100, 100),
+            LastApplyResult = UpdateApplyResult.InstallFailure(UpdateInstallFailureReason.InstallerLaunchFailed)
+        });
+        Assert.Equal("The update installer could not be opened. Try again.", viewModel.UpdateDownloadMessage);
+        Assert.Equal("Retry update", viewModel.UpdatePrimaryActionText);
+        Assert.True(viewModel.CanRunUpdatePrimaryAction);
+    }
+
+    [Fact]
     public void ShowsDeterminateDownloadProgress()
     {
         SettingsViewModel viewModel = new();
@@ -311,10 +372,10 @@ public sealed class SettingsViewModelTests
         Assert.Equal("Updates are only supported on Windows.", SettingsViewModel.InstallMessage(UpdateInstallFailureReason.NotSupported));
         Assert.Equal("The update was cancelled.", SettingsViewModel.InstallMessage(UpdateInstallFailureReason.Cancelled));
         Assert.Equal(
-            "The downloaded installer could not be found. Download the update again.",
+            "The downloaded installer could not be found. Try the update again.",
             SettingsViewModel.InstallMessage(UpdateInstallFailureReason.InstallerUnavailable));
         Assert.Equal(
-            "The update installer could not be opened. Download the update again or run the installer manually.",
+            "The update installer could not be opened. Try again.",
             SettingsViewModel.InstallMessage(UpdateInstallFailureReason.InstallerLaunchFailed));
         Assert.Equal("The update installer could not be opened.", SettingsViewModel.InstallMessage(null));
     }

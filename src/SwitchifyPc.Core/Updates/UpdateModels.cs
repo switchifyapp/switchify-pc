@@ -36,6 +36,12 @@ public enum UpdateInstallFailureReason
     InstallerLaunchFailed
 }
 
+public enum UpdateApplyFailureStage
+{
+    Download,
+    Install
+}
+
 public sealed record UpdateInfo(
     string CurrentVersion,
     string? LatestVersion,
@@ -52,7 +58,11 @@ public sealed record UpdateDownloadProgress(
     int? Percent,
     UpdateFailureReason? Reason = null);
 
-public sealed record UpdateState(UpdateInfo Info, UpdateDownloadProgress Download)
+public sealed record UpdateState(
+    UpdateInfo Info,
+    UpdateDownloadProgress Download,
+    bool IsApplyingUpdate = false,
+    UpdateApplyResult? LastApplyResult = null)
 {
     public static UpdateState CreateInitial(string currentVersion) =>
         new(
@@ -89,6 +99,37 @@ public sealed record UpdateInstallResult(bool Ok, UpdateInstallFailureReason? Re
 {
     public static UpdateInstallResult Success() => new(true);
     public static UpdateInstallResult Failure(UpdateInstallFailureReason reason) => new(false, reason);
+}
+
+public sealed record UpdateApplyResult
+{
+    private UpdateApplyResult(
+        bool ok,
+        UpdateApplyFailureStage? failureStage = null,
+        UpdateFailureReason? downloadFailureReason = null,
+        UpdateInstallFailureReason? installFailureReason = null)
+    {
+        Ok = ok;
+        FailureStage = failureStage;
+        DownloadFailureReason = downloadFailureReason;
+        InstallFailureReason = installFailureReason;
+    }
+
+    public bool Ok { get; }
+
+    public UpdateApplyFailureStage? FailureStage { get; }
+
+    public UpdateFailureReason? DownloadFailureReason { get; }
+
+    public UpdateInstallFailureReason? InstallFailureReason { get; }
+
+    public static UpdateApplyResult Success() => new(true);
+
+    public static UpdateApplyResult DownloadFailure(UpdateFailureReason reason) =>
+        new(false, UpdateApplyFailureStage.Download, downloadFailureReason: reason);
+
+    public static UpdateApplyResult InstallFailure(UpdateInstallFailureReason reason) =>
+        new(false, UpdateApplyFailureStage.Install, installFailureReason: reason);
 }
 
 public sealed record UpdateInstallerLaunchResult(bool Ok, UpdateInstallFailureReason? Reason = null)

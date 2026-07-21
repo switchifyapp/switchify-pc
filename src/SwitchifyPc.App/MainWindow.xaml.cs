@@ -1,5 +1,7 @@
 using System.Windows;
 using SwitchifyPc.Core.Ui;
+using SwitchifyPc.Core.Updates;
+using WpfMessageBox = System.Windows.MessageBox;
 
 namespace SwitchifyPc.App;
 
@@ -7,23 +9,24 @@ public partial class MainWindow : Window
 {
     private readonly Action? openSettings;
     private readonly Action? openSetupGuide;
-    private readonly Action? openUpdates;
+    private readonly Func<Task<UpdateApplyResult>>? installUpdate;
     private readonly Action? disconnectDevices;
     private readonly Func<string, Task>? acceptPairingApproval;
     private readonly Action<string>? rejectPairingApproval;
+    private bool isInstallingUpdate;
 
     public MainWindow(
         MainWindowViewModel? viewModel = null,
         Action? openSettings = null,
         Action? openSetupGuide = null,
-        Action? openUpdates = null,
+        Func<Task<UpdateApplyResult>>? installUpdate = null,
         Action? disconnectDevices = null,
         Func<string, Task>? acceptPairingApproval = null,
         Action<string>? rejectPairingApproval = null)
     {
         this.openSettings = openSettings;
         this.openSetupGuide = openSetupGuide;
-        this.openUpdates = openUpdates;
+        this.installUpdate = installUpdate;
         this.disconnectDevices = disconnectDevices;
         this.acceptPairingApproval = acceptPairingApproval;
         this.rejectPairingApproval = rejectPairingApproval;
@@ -41,9 +44,38 @@ public partial class MainWindow : Window
         openSetupGuide?.Invoke();
     }
 
-    private void OpenUpdates_Click(object sender, RoutedEventArgs e)
+    private async void InstallUpdate_Click(object sender, RoutedEventArgs e)
     {
-        openUpdates?.Invoke();
+        if (installUpdate is null || isInstallingUpdate) return;
+
+        isInstallingUpdate = true;
+        try
+        {
+            UpdateApplyResult result = await installUpdate();
+            if (!result.Ok)
+            {
+                WpfMessageBox.Show(
+                    UpdateUiCopy.ApplyFailureMessage(result),
+                    "Update installer",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            WpfMessageBox.Show(
+                "The update could not be installed.",
+                "Update installer",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        finally
+        {
+            isInstallingUpdate = false;
+        }
     }
 
     private void Disconnect_Click(object sender, RoutedEventArgs e)

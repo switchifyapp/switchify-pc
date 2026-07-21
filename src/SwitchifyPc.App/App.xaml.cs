@@ -182,7 +182,7 @@ public partial class App : System.Windows.Application
             mainWindowViewModel,
             ShowSettingsWindow,
             ShowSetupGuideWindow,
-            ShowSettingsWindow,
+            InstallAvailableUpdateAsync,
             DisconnectBluetoothDevices,
             AcceptPairingApprovalAsync,
             RejectPairingApproval);
@@ -323,6 +323,12 @@ public partial class App : System.Windows.Application
             Backend: new GitHubReleaseUpdateBackend(new HttpClient(), "switchifyapp", "switchify-pc", cacheDirectory),
             InstallerLauncher: new WindowsUpdateInstallerLauncher(),
             OnStateChanged: UpdateMainWindowState));
+    }
+
+    private Task<UpdateApplyResult> InstallAvailableUpdateAsync()
+    {
+        return updateService?.InstallAvailableUpdateAsync()
+            ?? Task.FromResult(UpdateApplyResult.DownloadFailure(UpdateFailureReason.NotAvailable));
     }
 
     private PairingApprovalManager CreatePairingApprovalManager()
@@ -743,7 +749,11 @@ public partial class App : System.Windows.Application
     private void UpdateMainWindowState(UpdateState state)
     {
         RecordUpdateStateDiagnostic(state);
-        Dispatcher.BeginInvoke(() => mainWindowViewModel.SetUpdateState(state));
+        Dispatcher.BeginInvoke(() =>
+        {
+            mainWindowViewModel.SetUpdateState(state);
+            settingsWindow?.ApplyUpdateState(state);
+        });
     }
 
     private void UpdateBluetoothState(BluetoothStatus status)

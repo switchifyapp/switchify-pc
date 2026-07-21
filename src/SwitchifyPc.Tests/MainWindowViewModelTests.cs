@@ -111,7 +111,8 @@ public sealed class MainWindowViewModelTests
 
         Assert.True(viewModel.HasUpdateBanner);
         Assert.Equal("Update available", viewModel.UpdateBannerTitle);
-        Assert.Equal("Open updates", viewModel.UpdateBannerButtonText);
+        Assert.Equal("Install update", viewModel.UpdateBannerButtonText);
+        Assert.True(viewModel.IsUpdateBannerButtonEnabled);
         Assert.Contains(nameof(MainWindowViewModel.HasUpdateBanner), changed);
         Assert.Contains(nameof(MainWindowViewModel.UpdateBannerTitle), changed);
     }

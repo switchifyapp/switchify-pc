@@ -172,7 +172,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public string UpdateStatusMessage => UpdateCheckMessage(updateState.Info);
 
-    public string? UpdateDownloadMessage => DownloadMessage(updateState.Download);
+    public string? UpdateDownloadMessage =>
+        updateState.LastApplyResult is { Ok: false, FailureStage: UpdateApplyFailureStage.Install } failure
+            ? UpdateUiCopy.ApplyFailureMessage(failure)
+            : DownloadMessage(updateState.Download);
 
     public bool IsUpdateDownloading => updateState.Download.Status == UpdateDownloadStatus.Downloading;
 
@@ -182,11 +185,50 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public string UpdateDownloadProgressText => DownloadProgressText(updateState.Download);
 
+    public string UpdatePrimaryActionText
+    {
+        get
+        {
+            if (updateState.Download.Status == UpdateDownloadStatus.Downloading) return "Downloading...";
+            if (updateState.IsApplyingUpdate && updateState.Download.Status == UpdateDownloadStatus.Downloaded) return "Installing...";
+            if (updateState.LastApplyResult is { Ok: false, FailureStage: UpdateApplyFailureStage.Install }) return "Retry update";
+            if (updateState.Download.Status == UpdateDownloadStatus.DownloadFailed) return "Retry update";
+            return "Install update";
+        }
+    }
+
+    public string UpdateCheckActionText =>
+        updateState.Info.Status == UpdateCheckStatus.Checking ? "Checking..." : "Check for updates";
+
+    public bool CanRunUpdatePrimaryAction
+    {
+        get
+        {
+            if (updateState.IsApplyingUpdate) return false;
+            if (updateState.Download.Status == UpdateDownloadStatus.Downloading) return false;
+            return updateState.Info.Status == UpdateCheckStatus.UpdateAvailable ||
+                updateState.Download.Status is UpdateDownloadStatus.DownloadFailed or UpdateDownloadStatus.Downloaded;
+        }
+    }
+
+    public bool IsInstallUpdateAction =>
+        updateState.Info.Status == UpdateCheckStatus.UpdateAvailable ||
+        updateState.Download.Status is UpdateDownloadStatus.Downloading or UpdateDownloadStatus.DownloadFailed or UpdateDownloadStatus.Downloaded ||
+        updateState.IsApplyingUpdate;
+
+    public bool IsCheckUpdateActionVisible => !IsInstallUpdateAction;
+
+    public bool IsInstallUpdateActionVisible => IsInstallUpdateAction;
+
+    public bool CanCheckForUpdates =>
+        IsCheckUpdateActionVisible && updateState.Info.Status != UpdateCheckStatus.Checking;
+
     public bool CanDownloadUpdate =>
+        !updateState.IsApplyingUpdate &&
         updateState.Info.Status == UpdateCheckStatus.UpdateAvailable &&
         updateState.Download.Status is UpdateDownloadStatus.Idle or UpdateDownloadStatus.DownloadFailed;
 
-    public bool CanInstallUpdate => updateState.Download.Status == UpdateDownloadStatus.Downloaded;
+    public bool CanInstallUpdate => !updateState.IsApplyingUpdate && updateState.Download.Status == UpdateDownloadStatus.Downloaded;
 
     public void SetStartupSettings(SystemStartupSettings settings)
     {
@@ -278,6 +320,13 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(IsUpdateDownloadIndeterminate));
         OnPropertyChanged(nameof(UpdateDownloadPercent));
         OnPropertyChanged(nameof(UpdateDownloadProgressText));
+        OnPropertyChanged(nameof(UpdatePrimaryActionText));
+        OnPropertyChanged(nameof(UpdateCheckActionText));
+        OnPropertyChanged(nameof(CanRunUpdatePrimaryAction));
+        OnPropertyChanged(nameof(IsInstallUpdateAction));
+        OnPropertyChanged(nameof(IsCheckUpdateActionVisible));
+        OnPropertyChanged(nameof(IsInstallUpdateActionVisible));
+        OnPropertyChanged(nameof(CanCheckForUpdates));
         OnPropertyChanged(nameof(CanDownloadUpdate));
         OnPropertyChanged(nameof(CanInstallUpdate));
     }
@@ -353,16 +402,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public static string InstallMessage(UpdateInstallFailureReason? reason)
     {
-        return reason switch
-        {
-            UpdateInstallFailureReason.NotDownloaded => "The update is not downloaded yet.",
-            UpdateInstallFailureReason.NotPackaged => "Updates are only available in the installed app.",
-            UpdateInstallFailureReason.NotSupported => "Updates are only supported on Windows.",
-            UpdateInstallFailureReason.Cancelled => "The update was cancelled.",
-            UpdateInstallFailureReason.InstallerUnavailable => "The downloaded installer could not be found. Download the update again.",
-            UpdateInstallFailureReason.InstallerLaunchFailed => "The update installer could not be opened. Download the update again or run the installer manually.",
-            _ => "The update installer could not be opened."
-        };
+        return UpdateUiCopy.InstallFailureMessage(reason);
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
