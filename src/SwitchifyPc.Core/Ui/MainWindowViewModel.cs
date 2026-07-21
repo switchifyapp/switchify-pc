@@ -35,6 +35,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public bool IsConnected => desktopState == DesktopUiState.Connected;
 
+    public bool ShowConnectedDeviceUi => IsConnected && !HasPairingApprovals;
+
     public string ConnectedDeviceSummary => bluetooth.ConnectedClientCount == 1
         ? "Connected now."
         : $"{bluetooth.ConnectedClientCount} devices connected.";
@@ -96,6 +98,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             .ToArray();
         OnPropertyChanged(nameof(HasPairingApprovals));
         OnPropertyChanged(nameof(PairingApprovals));
+        OnPropertyChanged(nameof(ShowConnectedDeviceUi));
     }
 
     private void NotifyStatusChanged()
@@ -107,6 +110,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(StatusBadgeTone));
         OnPropertyChanged(nameof(BluetoothStatus));
         OnPropertyChanged(nameof(IsConnected));
+        OnPropertyChanged(nameof(ShowConnectedDeviceUi));
         OnPropertyChanged(nameof(ConnectedDeviceSummary));
         OnPropertyChanged(nameof(SystemBluetooth));
         OnPropertyChanged(nameof(BluetoothCapabilities));

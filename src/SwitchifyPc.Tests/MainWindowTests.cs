@@ -8,6 +8,7 @@ using SwitchifyPc.App;
 using SwitchifyPc.App.Chrome;
 using SwitchifyPc.App.Themes;
 using SwitchifyPc.Core.Bluetooth;
+using SwitchifyPc.Core.Pairing;
 using SwitchifyPc.Core.Ui;
 using SwitchifyPc.Core.Updates;
 using WpfButton = System.Windows.Controls.Button;
@@ -168,6 +169,75 @@ public sealed class MainWindowTests
         });
     }
 
+    [Fact]
+    public void PairingApprovalsReplaceConnectedDeviceUiAndPreserveAcceptRequest()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            MainWindowViewModel viewModel = new();
+            viewModel.SetBluetoothState(
+                DesktopUiState.Connected,
+                BluetoothStatusModel.DefaultStatus with
+                {
+                    Status = "connected",
+                    ConnectedClientCount = 1,
+                    System = BluetoothStatusModel.DefaultSystemStatus with
+                    {
+                        AdapterPresent = true,
+                        RadioState = "on"
+                    }
+                });
+            viewModel.SetPairingApprovals([
+                new PendingPairingApprovalView("approval-1", "Pixel 9", "123456", 1, 2, null),
+                new PendingPairingApprovalView("approval-2", "Galaxy Tab", "654321", 3, 4, null)
+            ]);
+            string? acceptedRequestId = null;
+            MainWindow window = new(
+                viewModel,
+                acceptPairingApproval: requestId =>
+                {
+                    acceptedRequestId = requestId;
+                    return Task.CompletedTask;
+                });
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                FrameworkElement pairingPanel = Assert.Single(ElementsByAutomationId(window, "PairingApprovalsPanel"));
+                FrameworkElement connectedPanel = Assert.IsType<Border>(ElementByAutomationId(window, "ConnectedDevicePanel"));
+                WpfButton disconnectButton = Assert.IsType<WpfButton>(ElementByAutomationId(window, "DisconnectDeviceButton"));
+
+                Assert.Equal(Visibility.Visible, pairingPanel.Visibility);
+                Assert.Equal(Visibility.Collapsed, connectedPanel.Visibility);
+                Assert.Equal(Visibility.Collapsed, disconnectButton.Visibility);
+                Assert.Contains("Pixel 9", TextBlocks(pairingPanel));
+                Assert.Contains("Verification code 123456", TextBlocks(pairingPanel));
+                Assert.Contains("Galaxy Tab", TextBlocks(pairingPanel));
+                Assert.Contains("Verification code 654321", TextBlocks(pairingPanel));
+
+                WpfButton acceptSecond = Assert.IsType<WpfButton>(ButtonByContentAndTag(pairingPanel, "Accept", "approval-2"));
+                WpfButton rejectSecond = Assert.IsType<WpfButton>(ButtonByContentAndTag(pairingPanel, "Reject", "approval-2"));
+                Assert.Equal("Accept pairing request from Galaxy Tab", AutomationProperties.GetName(acceptSecond));
+                Assert.Equal("Reject pairing request from Galaxy Tab", AutomationProperties.GetName(rejectSecond));
+                acceptSecond.RaiseEvent(new RoutedEventArgs(WpfButton.ClickEvent));
+                Assert.Equal("approval-2", acceptedRequestId);
+
+                viewModel.SetPairingApprovals([]);
+                window.UpdateLayout();
+
+                Assert.Equal(Visibility.Collapsed, pairingPanel.Visibility);
+                Assert.Equal(Visibility.Visible, connectedPanel.Visibility);
+                Assert.Equal(Visibility.Visible, disconnectButton.Visibility);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
     private static void RunOnSta(Action action)
     {
         Exception? exception = null;
@@ -241,6 +311,22 @@ public sealed class MainWindowTests
         return result;
     }
 
+    private static WpfButton? ButtonByContentAndTag(DependencyObject root, string content, string tag)
+    {
+        WpfButton? result = null;
+        Collect(root, node =>
+        {
+            if (result is null &&
+                node is WpfButton { Content: string text, Tag: string requestId } button &&
+                text == content &&
+                requestId == tag)
+            {
+                result = button;
+            }
+        });
+        return result;
+    }
+
     private static FrameworkElement? ElementByAutomationId(DependencyObject root, string automationId)
     {
         FrameworkElement? result = null;
@@ -254,6 +340,20 @@ public sealed class MainWindowTests
             }
         });
         return result;
+    }
+
+    private static IReadOnlyList<FrameworkElement> ElementsByAutomationId(DependencyObject root, string automationId)
+    {
+        List<FrameworkElement> results = [];
+        Collect(root, node =>
+        {
+            if (node is FrameworkElement element &&
+                AutomationProperties.GetAutomationId(element) == automationId)
+            {
+                results.Add(element);
+            }
+        });
+        return results;
     }
 
     private static T? Ancestor<T>(DependencyObject node)
