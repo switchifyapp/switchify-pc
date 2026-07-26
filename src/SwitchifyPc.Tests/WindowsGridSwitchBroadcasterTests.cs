@@ -21,16 +21,12 @@ public sealed class WindowsGridSwitchBroadcasterTests
                     WindowsGridSwitchBroadcaster.BroadcastWindowHandle,
                     42,
                     2,
-                    WindowsGridSwitchBroadcaster.NativePressedValue,
-                    WindowsGridSwitchBroadcaster.SendFlags,
-                    WindowsGridSwitchBroadcaster.TimeoutMilliseconds),
+                    WindowsGridSwitchBroadcaster.NativePressedValue),
                 new NativeCall(
                     WindowsGridSwitchBroadcaster.BroadcastWindowHandle,
                     42,
                     8,
-                    WindowsGridSwitchBroadcaster.NativeReleasedValue,
-                    WindowsGridSwitchBroadcaster.SendFlags,
-                    WindowsGridSwitchBroadcaster.TimeoutMilliseconds)
+                    WindowsGridSwitchBroadcaster.NativeReleasedValue)
             ],
             messenger.Calls);
     }
@@ -65,15 +61,13 @@ public sealed class WindowsGridSwitchBroadcasterTests
             return MessageId;
         }
 
-        public bool SendMessageTimeout(
+        public bool PostMessage(
             nint windowHandle,
             uint message,
             nuint wParam,
-            nint lParam,
-            uint flags,
-            uint timeoutMilliseconds)
+            nint lParam)
         {
-            Calls.Add(new NativeCall(windowHandle, message, wParam, lParam, flags, timeoutMilliseconds));
+            Calls.Add(new NativeCall(windowHandle, message, wParam, lParam));
             return SendResult;
         }
     }
@@ -82,7 +76,5 @@ public sealed class WindowsGridSwitchBroadcasterTests
         nint WindowHandle,
         uint Message,
         nuint WParam,
-        nint LParam,
-        uint Flags,
-        uint TimeoutMilliseconds);
+        nint LParam);
 }

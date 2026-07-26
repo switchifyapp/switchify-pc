@@ -44,6 +44,23 @@ public sealed class BluetoothFrameTests
     }
 
     [Fact]
+    public void CompletesWhenMissingChunksArriveAfterFinalFrame()
+    {
+        IReadOnlyList<BluetoothFrame> frames = BluetoothFrameCodec.CreateFrames("abcdefghijklmnopqrstuvwxyz", "message-1", 5);
+        BluetoothFrameReassembler reassembler = new();
+
+        Assert.Equal("incomplete", reassembler.Accept(frames[^1]).Reason);
+        BluetoothFrameReassemblyResult result = BluetoothFrameReassemblyResult.Incomplete("incomplete");
+        foreach (BluetoothFrame frame in frames.Take(frames.Count - 1))
+        {
+            result = reassembler.Accept(frame);
+        }
+
+        Assert.True(result.Ok);
+        Assert.Equal("abcdefghijklmnopqrstuvwxyz", result.Message);
+    }
+
+    [Fact]
     public void RejectsOversizedMessagesAndInvalidVersions()
     {
         Assert.Throws<InvalidOperationException>(() => BluetoothFrameCodec.CreateFrames("too large", maxMessageBytes: 3));

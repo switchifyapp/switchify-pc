@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using SwitchifyPc.Core.Control;
 using SwitchifyPc.Protocol;
 
@@ -65,6 +66,9 @@ public sealed class BluetoothRemoteFrameProcessor
                 : BluetoothRemoteFrameResult.Error(reassembly.Reason ?? "invalid_frame");
         }
 
+        Debug.WriteLine(
+            $"Grid3SwitchTrace tTicks={Stopwatch.GetTimestamp()} phase=reassembly_complete " +
+            $"messageId={frame.MessageId} sequence={frame.Sequence}");
         RemoteSessionResult sessionResult = await remoteSession.ProcessMessageAsync(
             connectionId,
             reassembly.Message ?? "",
