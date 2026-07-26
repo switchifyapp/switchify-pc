@@ -81,7 +81,8 @@ public static class PointerProfile
                     "keyboard.textStream.close",
                     "connection.ping",
                     "pointer.profile",
-                    "pointer.display.move"
+                    "pointer.display.move",
+                    ProtocolConstants.GridSwitchSyncCommandType
                 ],
                 MouseRepeat: new MouseRepeatCapabilities(
                     Supported: true,

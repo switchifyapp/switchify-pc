@@ -57,6 +57,27 @@ public sealed class ControlSessionTests
     }
 
     [Fact]
+    public async Task SuppressesResponseForSequencedGridSwitchEdges()
+    {
+        FakeGridSwitchBroadcaster broadcaster = new();
+        ControlSession session = CreateSession(new FakeInputAdapter(), gridSwitchBroadcaster: broadcaster);
+
+        ControlSessionResult result = await session.ProcessMessageAsync(SignedCommand(
+            "grid.switch.set",
+            new
+            {
+                switchId = 2,
+                state = "down",
+                sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b",
+                sequence = 1
+            },
+            responseMode: "none"));
+
+        Assert.False(result.HasResponse);
+        Assert.Equal(["2:down"], broadcaster.Calls);
+    }
+
+    [Fact]
     public async Task AuthenticatedModifierCommandsRouteToExecutor()
     {
         FakeInputAdapter adapter = new();

@@ -62,6 +62,7 @@ public sealed class ProtocolConstantsTests
             "media.control",
             "window.control",
             "grid.switch.set",
+            "grid.switch.sync",
             "pointer.display.move",
             "pointer.profile",
             "pointer.speed.set",
@@ -79,12 +80,13 @@ public sealed class ProtocolConstantsTests
     }
 
     [Fact]
-    public void RepeatCommandsRequireAckResponses()
+    public void StatefulControlCapabilitiesUseExpectedResponseModes()
     {
         Assert.DoesNotContain("mouse.repeat.start", ProtocolConstants.NoAckControlCommandTypes);
         Assert.DoesNotContain("mouse.repeat.stop", ProtocolConstants.NoAckControlCommandTypes);
         Assert.DoesNotContain("pointer.speed.set", ProtocolConstants.NoAckControlCommandTypes);
-        Assert.DoesNotContain(ProtocolConstants.GridSwitchSetCommandType, ProtocolConstants.NoAckControlCommandTypes);
+        Assert.Contains(ProtocolConstants.GridSwitchSetCommandType, ProtocolConstants.NoAckControlCommandTypes);
+        Assert.DoesNotContain(ProtocolConstants.GridSwitchSyncCommandType, ProtocolConstants.NoAckControlCommandTypes);
     }
 
     [Fact]
