@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using SwitchifyPc.Core.Bluetooth;
@@ -463,12 +464,23 @@ public sealed class WindowsBluetoothGattServer : IDisposable
             BluetoothFrame? frame = JsonSerializer.Deserialize<BluetoothFrame>(json, FrameJsonOptions);
             if (frame is null)
             {
-                request.Respond();
+                if (ShouldRespondToWrite(request.Option))
+                {
+                    request.Respond();
+                }
+
                 emit(new BluetoothErrorEvent("invalid_frame"));
                 return;
             }
 
-            request.Respond();
+            if (ShouldRespondToWrite(request.Option))
+            {
+                request.Respond();
+            }
+
+            Debug.WriteLine(
+                $"Grid3SwitchTrace tTicks={Stopwatch.GetTimestamp()} phase=gatt_received " +
+                $"messageId={frame.MessageId} sequence={frame.Sequence} option={request.Option}");
             MarkConnected("write_received");
             emit(new BluetoothMessageEvent(ConnectionId, frame));
         }
@@ -481,6 +493,9 @@ public sealed class WindowsBluetoothGattServer : IDisposable
             deferral.Complete();
         }
     }
+
+    internal static bool ShouldRespondToWrite(GattWriteOption option) =>
+        option == GattWriteOption.WriteWithResponse;
 
     private async void OnReadRequested(GattLocalCharacteristic sender, GattReadRequestedEventArgs args)
     {

@@ -1,5 +1,6 @@
 using SwitchifyPc.Core.Bluetooth;
 using SwitchifyPc.Windows.Bluetooth;
+using Windows.Devices.Bluetooth.GenericAttributeProfile;
 
 namespace SwitchifyPc.Tests;
 
@@ -26,6 +27,14 @@ public sealed class WindowsBluetoothGattServerTests
         using WindowsBluetoothGattServer server = new(events.Add);
 
         Assert.Empty(events);
+    }
+
+    [Theory]
+    [InlineData(GattWriteOption.WriteWithResponse, true)]
+    [InlineData(GattWriteOption.WriteWithoutResponse, false)]
+    public void RespondsOnlyToWritesThatRequestAResponse(GattWriteOption option, bool expected)
+    {
+        Assert.Equal(expected, WindowsBluetoothGattServer.ShouldRespondToWrite(option));
     }
 
     [Theory]

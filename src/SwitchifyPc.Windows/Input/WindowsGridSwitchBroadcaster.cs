@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using SwitchifyPc.Core.Input;
 using SwitchifyPc.Protocol;
@@ -55,6 +56,9 @@ public sealed class WindowsGridSwitchBroadcaster : IGridSwitchBroadcaster
         return Task.Run(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
+            Debug.WriteLine(
+                $"Grid3SwitchTrace tTicks={Stopwatch.GetTimestamp()} phase=native_start " +
+                $"switchId={switchId} down={down}");
             bool sent = messenger.SendMessageTimeout(
                 BroadcastWindowHandle,
                 messageId,
@@ -67,6 +71,9 @@ public sealed class WindowsGridSwitchBroadcaster : IGridSwitchBroadcaster
                 throw new Win32Exception(Marshal.GetLastWin32Error(), $"Could not broadcast Grid switch {switchId}.");
             }
 
+            Debug.WriteLine(
+                $"Grid3SwitchTrace tTicks={Stopwatch.GetTimestamp()} phase=native_complete " +
+                $"switchId={switchId} down={down}");
             cancellationToken.ThrowIfCancellationRequested();
         }, cancellationToken);
     }

@@ -491,6 +491,9 @@ public partial class App : System.Windows.Application
 
         BluetoothRemoteFrameResult result = await bluetoothFrameProcessor.AcceptAsync(message.ConnectionId, message.Frame);
         if (!result.MessageComplete) return;
+        Debug.WriteLine(
+            $"Grid3SwitchTrace tTicks={Stopwatch.GetTimestamp()} phase=reassembly_complete " +
+            $"messageId={message.Frame.MessageId} sequence={message.Frame.Sequence}");
         if (result.ErrorReason is not null)
         {
             RecordRuntimeDiagnostic("bluetooth.message.error", status: "error", reason: result.ErrorReason);
