@@ -121,13 +121,34 @@ public sealed class BluetoothFrameReassembler
         }
 
         partial.Chunks.TryAdd(frame.Sequence, Convert.FromBase64String(frame.PayloadBase64));
-        if (!frame.IsFinal) return BluetoothFrameReassemblyResult.Incomplete("incomplete");
+        if (frame.IsFinal)
+        {
+            if (partial.FinalSequence is not null && partial.FinalSequence != frame.Sequence)
+            {
+                partialMessages.Remove(frame.MessageId);
+                return BluetoothFrameReassemblyResult.Incomplete("invalid_frame");
+            }
+            partial.FinalSequence = frame.Sequence;
+        }
+
+        if (partial.FinalSequence is not int finalSequence)
+        {
+            return BluetoothFrameReassemblyResult.Incomplete("incomplete");
+        }
+        if (partial.Chunks.Keys.Any(sequence => sequence > finalSequence))
+        {
+            partialMessages.Remove(frame.MessageId);
+            return BluetoothFrameReassemblyResult.Incomplete("invalid_frame");
+        }
 
         List<byte[]> chunks = [];
         int totalBytes = 0;
-        for (int sequence = 0; partial.Chunks.ContainsKey(sequence); sequence += 1)
+        for (int sequence = 0; sequence <= finalSequence; sequence += 1)
         {
-            byte[] chunk = partial.Chunks[sequence];
+            if (!partial.Chunks.TryGetValue(sequence, out byte[]? chunk))
+            {
+                return BluetoothFrameReassemblyResult.Incomplete("incomplete");
+            }
             chunks.Add(chunk);
             totalBytes += chunk.Length;
             if (totalBytes > partial.TotalBytes)
@@ -174,5 +195,6 @@ public sealed class BluetoothFrameReassembler
     private sealed record PartialBluetoothMessage(int TotalBytes, double CreatedAt)
     {
         public Dictionary<int, byte[]> Chunks { get; } = [];
+        public int? FinalSequence { get; set; }
     }
 }

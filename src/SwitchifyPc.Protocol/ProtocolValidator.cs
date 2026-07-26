@@ -184,19 +184,62 @@ public static partial class ProtocolValidator
                     ? Valid(payload)
                     : Invalid("invalid_payload", "Window control action is invalid."),
             ProtocolConstants.GridSwitchSetCommandType => ValidateGridSwitchSetPayload(payload),
+            ProtocolConstants.GridSwitchSyncCommandType => ValidateGridSwitchSyncPayload(payload),
             _ => Invalid("invalid_type", "Unsupported message type.")
         };
     }
 
     private static ProtocolValidationResult ValidateGridSwitchSetPayload(JsonElement payload)
     {
-        return TryGetInteger(payload, "switchId", out int switchId) &&
+        bool basePayloadValid = TryGetInteger(payload, "switchId", out int switchId) &&
             switchId is >= ProtocolConstants.MinimumGridSwitchId and <= ProtocolConstants.MaximumGridSwitchId &&
             TryGetString(payload, "state", out string? state) &&
-            state is "down" or "up" &&
-            ObjectPropertyCount(payload) == 2
-                ? Valid(payload)
-                : Invalid("invalid_payload", "Grid switch state is invalid.");
+            state is "down" or "up";
+        if (!basePayloadValid)
+        {
+            return Invalid("invalid_payload", "Grid switch state is invalid.");
+        }
+
+        int propertyCount = ObjectPropertyCount(payload);
+        return propertyCount == 2 || propertyCount == 4 && ValidateGridSwitchSequence(payload)
+            ? Valid(payload)
+            : Invalid("invalid_payload", "Grid switch state is invalid.");
+    }
+
+    private static ProtocolValidationResult ValidateGridSwitchSyncPayload(JsonElement payload)
+    {
+        if (ObjectPropertyCount(payload) != 3 ||
+            !ValidateGridSwitchSequence(payload) ||
+            !payload.TryGetProperty("pressedSwitchIds", out JsonElement pressedSwitchIds) ||
+            pressedSwitchIds.ValueKind != JsonValueKind.Array ||
+            pressedSwitchIds.GetArrayLength() > ProtocolConstants.MaximumGridSwitchId)
+        {
+            return Invalid("invalid_payload", "Grid switch synchronization is invalid.");
+        }
+
+        HashSet<int> uniqueIds = [];
+        foreach (JsonElement switchIdElement in pressedSwitchIds.EnumerateArray())
+        {
+            if (switchIdElement.ValueKind != JsonValueKind.Number ||
+                !switchIdElement.TryGetInt32(out int switchId) ||
+                switchId is < ProtocolConstants.MinimumGridSwitchId or > ProtocolConstants.MaximumGridSwitchId ||
+                !uniqueIds.Add(switchId))
+            {
+                return Invalid("invalid_payload", "Grid switch synchronization is invalid.");
+            }
+        }
+
+        return Valid(payload);
+    }
+
+    private static bool ValidateGridSwitchSequence(JsonElement payload)
+    {
+        return TryGetString(payload, "sessionId", out string? sessionId) &&
+            Guid.TryParse(sessionId, out _) &&
+            payload.TryGetProperty("sequence", out JsonElement sequence) &&
+            sequence.ValueKind == JsonValueKind.Number &&
+            sequence.TryGetInt64(out long sequenceValue) &&
+            sequenceValue > 0;
     }
 
     private static ProtocolValidationResult ValidateShortcutPayload(JsonElement payload)

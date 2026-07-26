@@ -481,6 +481,60 @@ public sealed class DesktopCommandExecutorTests
     }
 
     [Fact]
+    public async Task SequencedGridSwitchStatesIgnoreDuplicateAndStaleEvents()
+    {
+        const string sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b";
+        FakeGridSwitchBroadcaster broadcaster = new();
+        DesktopCommandExecutor executor = new(new FakeInputAdapter(), gridSwitchBroadcaster: broadcaster);
+
+        await executor.ExecuteAsync(Command(
+            "grid.switch.set",
+            new { switchId = 3, state = "down", sessionId, sequence = 1 }));
+        await executor.ExecuteAsync(Command(
+            "grid.switch.set",
+            new { switchId = 3, state = "up", sessionId, sequence = 1 }));
+        await executor.ExecuteAsync(Command(
+            "grid.switch.set",
+            new { switchId = 3, state = "up", sessionId, sequence = 2 }));
+
+        Assert.Equal(["3:down", "3:up"], broadcaster.Calls);
+    }
+
+    [Fact]
+    public async Task GridSynchronizationReleasesThenPressesAndReplacesSessions()
+    {
+        const string firstSession = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b";
+        const string secondSession = "8f38371a-3bbb-420f-89bc-dff792473d80";
+        FakeGridSwitchBroadcaster broadcaster = new();
+        DesktopCommandExecutor executor = new(new FakeInputAdapter(), gridSwitchBroadcaster: broadcaster);
+
+        await executor.ExecuteAsync(Command(
+            "grid.switch.sync",
+            new { sessionId = firstSession, sequence = 1, pressedSwitchIds = new[] { 1, 3 } }));
+        await executor.ExecuteAsync(Command(
+            "grid.switch.sync",
+            new { sessionId = firstSession, sequence = 1, pressedSwitchIds = Array.Empty<int>() }));
+        await executor.ExecuteAsync(Command(
+            "grid.switch.sync",
+            new { sessionId = firstSession, sequence = 2, pressedSwitchIds = new[] { 2, 3 } }));
+        await executor.ExecuteAsync(Command(
+            "grid.switch.sync",
+            new { sessionId = secondSession, sequence = 1, pressedSwitchIds = new[] { 4 } }));
+
+        Assert.Equal(
+            [
+                "1:down",
+                "3:down",
+                "1:up",
+                "2:down",
+                "2:up",
+                "3:up",
+                "4:down"
+            ],
+            broadcaster.Calls);
+    }
+
+    [Fact]
     public async Task GridDownFailureAttemptsReleaseAndDoesNotRemainHeld()
     {
         FakeGridSwitchBroadcaster broadcaster = new() { FailDownIds = [2] };

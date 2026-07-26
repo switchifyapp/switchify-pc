@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using SwitchifyPc.Core.Input;
 using SwitchifyPc.Protocol;
@@ -9,20 +10,18 @@ public interface IGridSwitchNativeMessenger
 {
     uint RegisterWindowMessage(string messageName);
 
-    bool SendMessageTimeout(
+    bool PostMessage(
         nint windowHandle,
         uint message,
         nuint wParam,
-        nint lParam,
-        uint flags,
-        uint timeoutMilliseconds);
+        nint lParam);
 }
 
 public sealed class WindowsGridSwitchBroadcaster : IGridSwitchBroadcaster
 {
     public const string MessageName = "Sensory_SwitchInput";
-    public const uint SendFlags = 0x0001 | 0x0002;
-    public const uint TimeoutMilliseconds = 1_000;
+    public const int NativePressedValue = 1;
+    public const int NativeReleasedValue = 0;
     public static readonly nint BroadcastWindowHandle = new(0xffff);
 
     private readonly IGridSwitchNativeMessenger messenger;
@@ -50,45 +49,41 @@ public sealed class WindowsGridSwitchBroadcaster : IGridSwitchBroadcaster
             throw new ArgumentOutOfRangeException(nameof(switchId));
         }
 
-        return Task.Run(() =>
+        cancellationToken.ThrowIfCancellationRequested();
+        Debug.WriteLine(
+            $"Grid3SwitchTrace tTicks={Stopwatch.GetTimestamp()} phase=native_start " +
+            $"switchId={switchId} down={down}");
+        bool posted = messenger.PostMessage(
+            BroadcastWindowHandle,
+            messageId,
+            (nuint)switchId,
+            down ? NativePressedValue : NativeReleasedValue);
+        if (!posted)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            bool sent = messenger.SendMessageTimeout(
-                BroadcastWindowHandle,
-                messageId,
-                (nuint)switchId,
-                down ? 0 : 1,
-                SendFlags,
-                TimeoutMilliseconds);
-            if (!sent)
-            {
-                throw new Win32Exception(Marshal.GetLastWin32Error(), $"Could not broadcast Grid switch {switchId}.");
-            }
+            throw new Win32Exception(Marshal.GetLastWin32Error(), $"Could not queue Grid switch {switchId}.");
+        }
 
-            cancellationToken.ThrowIfCancellationRequested();
-        }, cancellationToken);
+        Debug.WriteLine(
+            $"Grid3SwitchTrace tTicks={Stopwatch.GetTimestamp()} phase=native_queued " +
+            $"switchId={switchId} down={down}");
+        return Task.CompletedTask;
     }
 
     private sealed class GridSwitchNativeMessenger : IGridSwitchNativeMessenger
     {
         public uint RegisterWindowMessage(string messageName) => RegisterWindowMessageNative(messageName);
 
-        public bool SendMessageTimeout(
+        public bool PostMessage(
             nint windowHandle,
             uint message,
             nuint wParam,
-            nint lParam,
-            uint flags,
-            uint timeoutMilliseconds)
+            nint lParam)
         {
-            return SendMessageTimeoutNative(
+            return PostMessageNative(
                 windowHandle,
                 message,
                 wParam,
-                lParam,
-                flags,
-                timeoutMilliseconds,
-                out _) != 0;
+                lParam);
         }
 
         [DllImport(
@@ -100,16 +95,14 @@ public sealed class WindowsGridSwitchBroadcaster : IGridSwitchBroadcaster
 
         [DllImport(
             "user32.dll",
-            EntryPoint = "SendMessageTimeoutW",
+            EntryPoint = "PostMessageW",
             CharSet = CharSet.Unicode,
             SetLastError = true)]
-        private static extern nint SendMessageTimeoutNative(
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool PostMessageNative(
             nint windowHandle,
             uint message,
             nuint wParam,
-            nint lParam,
-            uint flags,
-            uint timeoutMilliseconds,
-            out nuint result);
+            nint lParam);
     }
 }

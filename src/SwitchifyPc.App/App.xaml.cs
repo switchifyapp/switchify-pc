@@ -49,6 +49,7 @@ public partial class App : System.Windows.Application
     private WindowsCursorOverlayNotifier? cursorOverlay;
     private WindowsModifierKeyOverlayNotifier? modifierOverlay;
     private readonly SemaphoreSlim bluetoothMessageProcessing = new(1, 1);
+    private readonly SemaphoreSlim bluetoothOutputProcessing = new(1, 1);
     private readonly object bluetoothConnectionSync = new();
     private readonly HashSet<string> authenticatedBluetoothConnections = new(StringComparer.Ordinal);
     private DispatcherTimer? pairingExpiryTimer;
@@ -474,22 +475,23 @@ public partial class App : System.Windows.Application
 
     private async Task HandleBluetoothMessageSerializedAsync(BluetoothMessageEvent message)
     {
+        if (bluetoothFrameProcessor is null || bluetoothServer is null) return;
+
+        BluetoothRemoteFrameResult result;
         await bluetoothMessageProcessing.WaitAsync();
         try
         {
-            await HandleBluetoothMessageAsync(message).ConfigureAwait(false);
+            result = await bluetoothFrameProcessor.AcceptAsync(message.ConnectionId, message.Frame).ConfigureAwait(false);
         }
         finally
         {
             bluetoothMessageProcessing.Release();
         }
+        await HandleBluetoothMessageResultAsync(result).ConfigureAwait(false);
     }
 
-    private async Task HandleBluetoothMessageAsync(BluetoothMessageEvent message)
+    private async Task HandleBluetoothMessageResultAsync(BluetoothRemoteFrameResult result)
     {
-        if (bluetoothFrameProcessor is null || bluetoothServer is null) return;
-
-        BluetoothRemoteFrameResult result = await bluetoothFrameProcessor.AcceptAsync(message.ConnectionId, message.Frame);
         if (!result.MessageComplete) return;
         if (result.ErrorReason is not null)
         {
@@ -722,17 +724,25 @@ public partial class App : System.Windows.Application
     {
         if (bluetoothServer is null) return;
 
-        foreach (BluetoothRemoteFrameOutput output in outputs)
+        await bluetoothOutputProcessing.WaitAsync();
+        try
         {
-            foreach (BluetoothFrame frame in output.ResponseFrames)
+            foreach (BluetoothRemoteFrameOutput output in outputs)
             {
-                await bluetoothServer.SendAsync(output.ConnectionId, frame);
-            }
+                foreach (BluetoothFrame frame in output.ResponseFrames)
+                {
+                    await bluetoothServer.SendAsync(output.ConnectionId, frame);
+                }
 
-            if (output.CloseConnection)
-            {
-                bluetoothServer.Disconnect(output.ConnectionId);
+                if (output.CloseConnection)
+                {
+                    bluetoothServer.Disconnect(output.ConnectionId);
+                }
             }
+        }
+        finally
+        {
+            bluetoothOutputProcessing.Release();
         }
     }
 

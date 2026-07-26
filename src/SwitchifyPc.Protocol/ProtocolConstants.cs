@@ -12,6 +12,7 @@ public static class ProtocolConstants
     public const int MaxShortcutKeys = 6;
     public const int MaxErrorMessageLength = 300;
     public const string GridSwitchSetCommandType = "grid.switch.set";
+    public const string GridSwitchSyncCommandType = "grid.switch.sync";
     public const int MinimumGridSwitchId = 1;
     public const int MaximumGridSwitchId = 8;
 
@@ -39,6 +40,7 @@ public static class ProtocolConstants
         "media.control",
         "window.control",
         GridSwitchSetCommandType,
+        GridSwitchSyncCommandType,
         "pointer.profile",
         "pointer.display.move",
         "pointer.speed.set",
@@ -69,7 +71,8 @@ public static class ProtocolConstants
         "keyboard.textStream.char",
         "keyboard.textStream.key",
         "media.control",
-        "window.control"
+        "window.control",
+        GridSwitchSetCommandType
     };
 
     public static readonly IReadOnlySet<string> MouseButtons = new HashSet<string>(StringComparer.Ordinal)

@@ -43,6 +43,27 @@ public sealed class ProtocolValidatorTests
             new { type = "window.control", payload = new { action = "switchNext" } },
             new { type = "grid.switch.set", payload = new { switchId = 1, state = "down" } },
             new { type = "grid.switch.set", payload = new { switchId = 8, state = "up" } },
+            new
+            {
+                type = "grid.switch.set",
+                payload = new
+                {
+                    switchId = 1,
+                    state = "down",
+                    sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b",
+                    sequence = 1
+                }
+            },
+            new
+            {
+                type = "grid.switch.sync",
+                payload = new
+                {
+                    sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b",
+                    sequence = 2,
+                    pressedSwitchIds = new[] { 1, 8 }
+                }
+            },
             new { type = "pointer.profile", payload = new { } },
             new { type = "pointer.display.move", payload = new { direction = "left" } },
             new { type = "pointer.speed.set", payload = new { scalePercent = 125 } },
@@ -79,7 +100,14 @@ public sealed class ProtocolValidatorTests
             ["keyboard.textStream.chunk"] = new { streamId = "stream-1", seq = 0, text = "Hello" },
             ["keyboard.textStream.key"] = new { streamId = "stream-1", seq = 1, key = "Meta" },
             ["media.control"] = new { action = "playPause" },
-            ["window.control"] = new { action = "switchNext" }
+            ["window.control"] = new { action = "switchNext" },
+            ["grid.switch.set"] = new
+            {
+                switchId = 1,
+                state = "down",
+                sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b",
+                sequence = 1
+            }
         };
 
         foreach (string type in ProtocolConstants.NoAckControlCommandTypes)
@@ -95,7 +123,12 @@ public sealed class ProtocolValidatorTests
             ("connection.disconnecting", new { }),
             ("pointer.profile", new { }),
             ("pointer.speed.set", new { scalePercent = 125 }),
-            ("grid.switch.set", new { switchId = 1, state = "down" }),
+            ("grid.switch.sync", new
+            {
+                sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b",
+                sequence = 2,
+                pressedSwitchIds = new[] { 1 }
+            }),
             ("keyboard.textStream.open", new { streamId = "stream-1" }),
             ("keyboard.textStream.close", new { streamId = "stream-1", expectedCount = 0 })
         })
@@ -174,7 +207,33 @@ public sealed class ProtocolValidatorTests
             BaseCommand("grid.switch.set", new { switchId = 1.5, state = "down" }),
             BaseCommand("grid.switch.set", new { switchId = 1, state = "pressed" }),
             BaseCommand("grid.switch.set", new { switchId = 1, state = "down", extra = true }),
+            BaseCommand("grid.switch.set", new
+            {
+                switchId = 1,
+                state = "down",
+                sessionId = "not-a-uuid",
+                sequence = 1
+            }),
+            BaseCommand("grid.switch.set", new
+            {
+                switchId = 1,
+                state = "down",
+                sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b",
+                sequence = 0
+            }),
             BaseCommand("grid.switch.set", new { switchId = 1 }),
+            BaseCommand("grid.switch.sync", new
+            {
+                sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b",
+                sequence = 1,
+                pressedSwitchIds = new[] { 1, 1 }
+            }),
+            BaseCommand("grid.switch.sync", new
+            {
+                sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b",
+                sequence = 1,
+                pressedSwitchIds = new[] { 9 }
+            }),
             BaseCommand("connection.disconnecting", new { reason = "leaving" })
         ];
 
