@@ -41,6 +41,8 @@ public sealed class ProtocolValidatorTests
             new { type = "keyboard.textStream.close", payload = new { streamId = "android-stream-1", expectedCount = 2 } },
             new { type = "media.control", payload = new { action = "playPause" } },
             new { type = "window.control", payload = new { action = "switchNext" } },
+            new { type = "grid.switch.set", payload = new { switchId = 1, state = "down" } },
+            new { type = "grid.switch.set", payload = new { switchId = 8, state = "up" } },
             new { type = "pointer.profile", payload = new { } },
             new { type = "pointer.display.move", payload = new { direction = "left" } },
             new { type = "pointer.speed.set", payload = new { scalePercent = 125 } },
@@ -93,6 +95,7 @@ public sealed class ProtocolValidatorTests
             ("connection.disconnecting", new { }),
             ("pointer.profile", new { }),
             ("pointer.speed.set", new { scalePercent = 125 }),
+            ("grid.switch.set", new { switchId = 1, state = "down" }),
             ("keyboard.textStream.open", new { streamId = "stream-1" }),
             ("keyboard.textStream.close", new { streamId = "stream-1", expectedCount = 0 })
         })
@@ -166,6 +169,12 @@ public sealed class ProtocolValidatorTests
             BaseCommand("pointer.speed.set", new { }),
             BaseCommand("pointer.speed.set", new { scalePercent = "125" }),
             BaseCommand("pointer.speed.set", new { scalePercent = -1 }),
+            BaseCommand("grid.switch.set", new { switchId = 0, state = "down" }),
+            BaseCommand("grid.switch.set", new { switchId = 9, state = "down" }),
+            BaseCommand("grid.switch.set", new { switchId = 1.5, state = "down" }),
+            BaseCommand("grid.switch.set", new { switchId = 1, state = "pressed" }),
+            BaseCommand("grid.switch.set", new { switchId = 1, state = "down", extra = true }),
+            BaseCommand("grid.switch.set", new { switchId = 1 }),
             BaseCommand("connection.disconnecting", new { reason = "leaving" })
         ];
 

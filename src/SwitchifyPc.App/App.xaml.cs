@@ -137,6 +137,13 @@ public partial class App : System.Windows.Application
         telemetryFlushTimer = null;
         mouseRepeatController?.StopAllAsync().GetAwaiter().GetResult();
         mouseRepeatController = null;
+        try
+        {
+            commandExecutor?.ReleaseHeldInputsAsync().GetAwaiter().GetResult();
+        }
+        catch
+        {
+        }
         bluetoothServer?.Dispose();
         bluetoothServer = null;
         cursorOverlay?.Dispose();
@@ -364,7 +371,11 @@ public partial class App : System.Windows.Application
                     reason: "render_failure",
                     message: exceptionType));
             modifierOverlay = new WindowsModifierKeyOverlayNotifier(nativeInput);
-            commandExecutor = new DesktopCommandExecutor(inputAdapter, cursorOverlay, modifierOverlay: modifierOverlay);
+            commandExecutor = new DesktopCommandExecutor(
+                inputAdapter,
+                cursorOverlay,
+                modifierOverlay: modifierOverlay,
+                gridSwitchBroadcaster: new WindowsGridSwitchBroadcaster());
             mouseRepeatController = new MouseRepeatController(
                 commandExecutor,
                 mouseRepeatSettingsStore,

@@ -11,6 +11,9 @@ public static class ProtocolConstants
     public const int MaxScrollDelta = 50;
     public const int MaxShortcutKeys = 6;
     public const int MaxErrorMessageLength = 300;
+    public const string GridSwitchSetCommandType = "grid.switch.set";
+    public const int MinimumGridSwitchId = 1;
+    public const int MaximumGridSwitchId = 8;
 
     public static readonly IReadOnlySet<string> CommandTypes = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -35,6 +38,7 @@ public static class ProtocolConstants
         "keyboard.textStream.close",
         "media.control",
         "window.control",
+        GridSwitchSetCommandType,
         "pointer.profile",
         "pointer.display.move",
         "pointer.speed.set",

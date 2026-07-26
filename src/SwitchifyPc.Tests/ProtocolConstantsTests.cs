@@ -61,6 +61,7 @@ public sealed class ProtocolConstantsTests
             "keyboard.textStream.close",
             "media.control",
             "window.control",
+            "grid.switch.set",
             "pointer.display.move",
             "pointer.profile",
             "pointer.speed.set",
@@ -83,6 +84,7 @@ public sealed class ProtocolConstantsTests
         Assert.DoesNotContain("mouse.repeat.start", ProtocolConstants.NoAckControlCommandTypes);
         Assert.DoesNotContain("mouse.repeat.stop", ProtocolConstants.NoAckControlCommandTypes);
         Assert.DoesNotContain("pointer.speed.set", ProtocolConstants.NoAckControlCommandTypes);
+        Assert.DoesNotContain(ProtocolConstants.GridSwitchSetCommandType, ProtocolConstants.NoAckControlCommandTypes);
     }
 
     [Fact]

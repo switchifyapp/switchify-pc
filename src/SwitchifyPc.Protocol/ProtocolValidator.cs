@@ -183,8 +183,20 @@ public static partial class ProtocolValidator
                 TryGetString(payload, "action", out string? windowAction) && ProtocolConstants.WindowControlActions.Contains(windowAction)
                     ? Valid(payload)
                     : Invalid("invalid_payload", "Window control action is invalid."),
+            ProtocolConstants.GridSwitchSetCommandType => ValidateGridSwitchSetPayload(payload),
             _ => Invalid("invalid_type", "Unsupported message type.")
         };
+    }
+
+    private static ProtocolValidationResult ValidateGridSwitchSetPayload(JsonElement payload)
+    {
+        return TryGetInteger(payload, "switchId", out int switchId) &&
+            switchId is >= ProtocolConstants.MinimumGridSwitchId and <= ProtocolConstants.MaximumGridSwitchId &&
+            TryGetString(payload, "state", out string? state) &&
+            state is "down" or "up" &&
+            ObjectPropertyCount(payload) == 2
+                ? Valid(payload)
+                : Invalid("invalid_payload", "Grid switch state is invalid.");
     }
 
     private static ProtocolValidationResult ValidateShortcutPayload(JsonElement payload)
