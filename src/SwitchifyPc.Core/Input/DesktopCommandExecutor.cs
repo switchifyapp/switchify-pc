@@ -16,20 +16,25 @@ public sealed class DesktopCommandExecutor
     private readonly IDesktopInputAdapter adapter;
     private readonly ICursorOverlayNotifier? cursorOverlay;
     private readonly IModifierKeyOverlayNotifier? modifierOverlay;
+    private readonly IGridSwitchBroadcaster? gridSwitchBroadcaster;
     private readonly Func<double> now;
     private readonly Dictionary<string, TextInputStreamState> textInputStreams = new(StringComparer.Ordinal);
     private readonly HashSet<string> activeModifierKeys = new(StringComparer.Ordinal);
+    private readonly HashSet<int> activeGridSwitchIds = [];
+    private readonly SemaphoreSlim gridSwitchStateGate = new(1, 1);
     private string? activeDragButton;
 
     public DesktopCommandExecutor(
         IDesktopInputAdapter adapter,
         ICursorOverlayNotifier? cursorOverlay = null,
         Func<double>? now = null,
-        IModifierKeyOverlayNotifier? modifierOverlay = null)
+        IModifierKeyOverlayNotifier? modifierOverlay = null,
+        IGridSwitchBroadcaster? gridSwitchBroadcaster = null)
     {
         this.adapter = adapter;
         this.cursorOverlay = cursorOverlay;
         this.modifierOverlay = modifierOverlay;
+        this.gridSwitchBroadcaster = gridSwitchBroadcaster;
         this.now = now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     }
 
@@ -71,6 +76,10 @@ public sealed class DesktopCommandExecutor
                 "keyboard.textStream.close" => CloseTextInputStream(command.GetProperty("deviceId").GetString() ?? "", payload.GetProperty("streamId").GetString() ?? "", payload.GetProperty("expectedCount").GetInt32()),
                 "media.control" => await MediaControlAsync(payload.GetProperty("action").GetString() ?? "", cancellationToken),
                 "window.control" => await WindowControlAsync(payload.GetProperty("action").GetString() ?? "", cancellationToken),
+                ProtocolConstants.GridSwitchSetCommandType => await SetGridSwitchStateAsync(
+                    payload.GetProperty("switchId").GetInt32(),
+                    payload.GetProperty("state").GetString() == "down",
+                    cancellationToken),
                 "connection.ping" => CommandExecutionResult.Success,
                 "connection.disconnecting" => CommandExecutionResult.Failure("unsupported_command", "Disconnect intent must be handled by the server."),
                 "pointer.profile" => CommandExecutionResult.Failure("unsupported_command", "Pointer profile must be handled by the server."),
@@ -94,8 +103,38 @@ public sealed class DesktopCommandExecutor
 
     public async Task ReleaseHeldInputsAsync(CancellationToken cancellationToken = default)
     {
-        await ReleaseHeldMouseButtonAsync(cancellationToken).ConfigureAwait(false);
-        await ReleaseHeldModifiersAsync(cancellationToken).ConfigureAwait(false);
+        Exception? firstError = null;
+        try
+        {
+            await ReleaseHeldGridSwitchesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception error)
+        {
+            firstError = error;
+        }
+
+        try
+        {
+            await ReleaseHeldMouseButtonAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception error)
+        {
+            firstError ??= error;
+        }
+
+        try
+        {
+            await ReleaseHeldModifiersAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception error)
+        {
+            firstError ??= error;
+        }
+
+        if (firstError is not null)
+        {
+            throw firstError;
+        }
     }
 
     public void EndControlSession()
@@ -372,6 +411,61 @@ public sealed class DesktopCommandExecutor
         return CommandExecutionResult.Success;
     }
 
+    private async Task<CommandExecutionResult> SetGridSwitchStateAsync(
+        int switchId,
+        bool down,
+        CancellationToken cancellationToken)
+    {
+        if (gridSwitchBroadcaster is null)
+        {
+            return CommandExecutionResult.Failure("adapter_failure", "Grid 3 switch forwarding is not available.");
+        }
+
+        await gridSwitchStateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (down)
+            {
+                if (!activeGridSwitchIds.Add(switchId))
+                {
+                    return CommandExecutionResult.Success;
+                }
+
+                try
+                {
+                    await gridSwitchBroadcaster.SetSwitchStateAsync(switchId, down: true, cancellationToken).ConfigureAwait(false);
+                    return CommandExecutionResult.Success;
+                }
+                catch
+                {
+                    bool released = false;
+                    try
+                    {
+                        await gridSwitchBroadcaster.SetSwitchStateAsync(switchId, down: false, CancellationToken.None).ConfigureAwait(false);
+                        released = true;
+                    }
+                    catch
+                    {
+                    }
+
+                    if (released)
+                    {
+                        activeGridSwitchIds.Remove(switchId);
+                    }
+                    throw;
+                }
+            }
+
+            await gridSwitchBroadcaster.SetSwitchStateAsync(switchId, down: false, cancellationToken).ConfigureAwait(false);
+            activeGridSwitchIds.Remove(switchId);
+            return CommandExecutionResult.Success;
+        }
+        finally
+        {
+            gridSwitchStateGate.Release();
+        }
+    }
+
     private void ExpireTextInputStreams()
     {
         double expiresBefore = now() - TextStreamTtlMs;
@@ -426,6 +520,39 @@ public sealed class DesktopCommandExecutor
             {
                 UpdateModifierOverlay();
             }
+        }
+    }
+
+    private async Task ReleaseHeldGridSwitchesAsync(CancellationToken cancellationToken)
+    {
+        await gridSwitchStateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            Exception? firstError = null;
+            foreach (int switchId in activeGridSwitchIds.Order().ToArray())
+            {
+                try
+                {
+                    if (gridSwitchBroadcaster is not null)
+                    {
+                        await gridSwitchBroadcaster.SetSwitchStateAsync(switchId, down: false, cancellationToken).ConfigureAwait(false);
+                    }
+                    activeGridSwitchIds.Remove(switchId);
+                }
+                catch (Exception error)
+                {
+                    firstError ??= error;
+                }
+            }
+
+            if (firstError is not null)
+            {
+                throw firstError;
+            }
+        }
+        finally
+        {
+            gridSwitchStateGate.Release();
         }
     }
 

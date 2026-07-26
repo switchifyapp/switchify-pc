@@ -466,6 +466,121 @@ public sealed class DesktopCommandExecutorTests
     }
 
     [Fact]
+    public async Task RoutesAndDeduplicatesGridSwitchStates()
+    {
+        FakeGridSwitchBroadcaster broadcaster = new();
+        DesktopCommandExecutor executor = new(new FakeInputAdapter(), gridSwitchBroadcaster: broadcaster);
+
+        CommandExecutionResult firstDown = await executor.ExecuteAsync(Command("grid.switch.set", new { switchId = 3, state = "down" }));
+        CommandExecutionResult duplicateDown = await executor.ExecuteAsync(Command("grid.switch.set", new { switchId = 3, state = "down" }));
+        CommandExecutionResult unknownUp = await executor.ExecuteAsync(Command("grid.switch.set", new { switchId = 4, state = "up" }));
+        CommandExecutionResult up = await executor.ExecuteAsync(Command("grid.switch.set", new { switchId = 3, state = "up" }));
+
+        Assert.All([firstDown, duplicateDown, unknownUp, up], result => Assert.True(result.Ok));
+        Assert.Equal(["3:down", "4:up", "3:up"], broadcaster.Calls);
+    }
+
+    [Fact]
+    public async Task GridDownFailureAttemptsReleaseAndDoesNotRemainHeld()
+    {
+        FakeGridSwitchBroadcaster broadcaster = new() { FailDownIds = [2] };
+        DesktopCommandExecutor executor = new(new FakeInputAdapter(), gridSwitchBroadcaster: broadcaster);
+
+        CommandExecutionResult result = await executor.ExecuteAsync(Command("grid.switch.set", new { switchId = 2, state = "down" }));
+        await executor.ReleaseHeldInputsAsync();
+
+        Assert.False(result.Ok);
+        Assert.Equal("adapter_failure", result.Code);
+        Assert.Equal(["2:down", "2:up"], broadcaster.Calls);
+    }
+
+    [Fact]
+    public async Task GridDownAndCompensationFailureRemainsHeldForCleanupRetry()
+    {
+        FakeGridSwitchBroadcaster broadcaster = new()
+        {
+            FailDownIds = [2],
+            FailUpIds = { 2 }
+        };
+        DesktopCommandExecutor executor = new(new FakeInputAdapter(), gridSwitchBroadcaster: broadcaster);
+
+        CommandExecutionResult result = await executor.ExecuteAsync(Command("grid.switch.set", new { switchId = 2, state = "down" }));
+        broadcaster.FailDownIds.Clear();
+        broadcaster.FailUpIds.Clear();
+        await executor.ReleaseHeldInputsAsync();
+
+        Assert.False(result.Ok);
+        Assert.Equal(["2:down", "2:up", "2:up"], broadcaster.Calls);
+    }
+
+    [Fact]
+    public async Task GridUpFailureRemainsHeldForCleanupRetry()
+    {
+        FakeGridSwitchBroadcaster broadcaster = new();
+        DesktopCommandExecutor executor = new(new FakeInputAdapter(), gridSwitchBroadcaster: broadcaster);
+        await executor.ExecuteAsync(Command("grid.switch.set", new { switchId = 5, state = "down" }));
+        broadcaster.FailUpIds.Add(5);
+
+        CommandExecutionResult result = await executor.ExecuteAsync(Command("grid.switch.set", new { switchId = 5, state = "up" }));
+        broadcaster.FailUpIds.Clear();
+        await executor.ReleaseHeldInputsAsync();
+
+        Assert.False(result.Ok);
+        Assert.Equal(["5:down", "5:up", "5:up"], broadcaster.Calls);
+    }
+
+    [Fact]
+    public async Task GridCleanupReleasesEveryHeldIdAndRetainsFailuresForRetry()
+    {
+        FakeGridSwitchBroadcaster broadcaster = new();
+        DesktopCommandExecutor executor = new(new FakeInputAdapter(), gridSwitchBroadcaster: broadcaster);
+        await executor.ExecuteAsync(Command("grid.switch.set", new { switchId = 1, state = "down" }));
+        await executor.ExecuteAsync(Command("grid.switch.set", new { switchId = 7, state = "down" }));
+        broadcaster.FailUpIds.Add(1);
+
+        await Assert.ThrowsAsync<DesktopInputException>(() => executor.ReleaseHeldInputsAsync());
+        broadcaster.FailUpIds.Clear();
+        await executor.ReleaseHeldInputsAsync();
+
+        Assert.Equal(["1:down", "7:down", "1:up", "7:up", "1:up"], broadcaster.Calls);
+    }
+
+    [Fact]
+    public async Task GridCleanupWaitsForInFlightDownBeforeReleasingIt()
+    {
+        TaskCompletionSource downStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource allowDownToComplete = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        FakeGridSwitchBroadcaster broadcaster = new()
+        {
+            DownStarted = downStarted,
+            AllowDownToComplete = allowDownToComplete
+        };
+        DesktopCommandExecutor executor = new(new FakeInputAdapter(), gridSwitchBroadcaster: broadcaster);
+
+        Task<CommandExecutionResult> down = executor.ExecuteAsync(Command("grid.switch.set", new { switchId = 6, state = "down" }));
+        await downStarted.Task;
+        Task cleanup = executor.ReleaseHeldInputsAsync();
+
+        Assert.False(cleanup.IsCompleted);
+        allowDownToComplete.SetResult();
+        await down;
+        await cleanup;
+
+        Assert.Equal(["6:down", "6:up"], broadcaster.Calls);
+    }
+
+    [Fact]
+    public async Task GridCommandWithoutBroadcasterReturnsAdapterFailure()
+    {
+        DesktopCommandExecutor executor = new(new FakeInputAdapter());
+
+        CommandExecutionResult result = await executor.ExecuteAsync(Command("grid.switch.set", new { switchId = 1, state = "down" }));
+
+        Assert.False(result.Ok);
+        Assert.Equal("adapter_failure", result.Code);
+    }
+
+    [Fact]
     public void EndControlSessionHidesCursorOverlaySession()
     {
         FakeCursorOverlay overlay = new();
@@ -624,6 +739,29 @@ public sealed class DesktopCommandExecutorTests
         public void SetDragActive(bool active)
         {
             DragActiveChanges.Add(active);
+        }
+    }
+
+    private sealed class FakeGridSwitchBroadcaster : IGridSwitchBroadcaster
+    {
+        public List<string> Calls { get; } = [];
+        public HashSet<int> FailDownIds { get; init; } = [];
+        public HashSet<int> FailUpIds { get; } = [];
+        public TaskCompletionSource? DownStarted { get; init; }
+        public TaskCompletionSource? AllowDownToComplete { get; init; }
+
+        public async Task SetSwitchStateAsync(int switchId, bool down, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"{switchId}:{(down ? "down" : "up")}");
+            if (down && DownStarted is not null && AllowDownToComplete is not null)
+            {
+                DownStarted.TrySetResult();
+                await AllowDownToComplete.Task.WaitAsync(cancellationToken);
+            }
+            if ((down ? FailDownIds : FailUpIds).Contains(switchId))
+            {
+                throw new DesktopInputException("adapter_failure", "Grid broadcast failed.");
+            }
         }
     }
 

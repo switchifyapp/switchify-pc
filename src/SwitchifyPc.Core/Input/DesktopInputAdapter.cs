@@ -18,6 +18,11 @@ public interface IDesktopInputAdapter
     Task ControlWindowAsync(string action, CancellationToken cancellationToken = default);
 }
 
+public interface IGridSwitchBroadcaster
+{
+    Task SetSwitchStateAsync(int switchId, bool down, CancellationToken cancellationToken = default);
+}
+
 public sealed class DesktopInputException : Exception
 {
     public DesktopInputException(string code, string message) : base(message)

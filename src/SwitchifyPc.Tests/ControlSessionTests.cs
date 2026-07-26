@@ -217,6 +217,20 @@ public sealed class ControlSessionTests
     }
 
     [Fact]
+    public async Task DisconnectingReleasesHeldGridSwitches()
+    {
+        FakeGridSwitchBroadcaster broadcaster = new();
+        ControlSession session = CreateSession(new FakeInputAdapter(), gridSwitchBroadcaster: broadcaster);
+
+        await session.ProcessMessageAsync(SignedCommand("grid.switch.set", new { switchId = 2, state = "down" }, id: "request-1"));
+        ControlSessionResult result = await session.ProcessMessageAsync(
+            SignedCommand("connection.disconnecting", new { }, id: "request-2"));
+
+        Assert.True(result.HasResponse);
+        Assert.Equal(["2:down", "2:up"], broadcaster.Calls);
+    }
+
+    [Fact]
     public async Task ConvertsExecutorFailuresToProtocolErrors()
     {
         FakeInputAdapter adapter = new() { ThrowOnPressKey = true };
@@ -233,7 +247,8 @@ public sealed class ControlSessionTests
         double? lastSeenAt = null,
         IMouseRepeatSettingsStore? mouseRepeatSettings = null,
         FakePointerSettings? pointerSettings = null,
-        Action<PointerMovementSettings>? applyPointerSettings = null)
+        Action<PointerMovementSettings>? applyPointerSettings = null,
+        IGridSwitchBroadcaster? gridSwitchBroadcaster = null)
     {
         MemoryPairingStore store = new(new PairingState(
             DesktopId: "desktop-1",
@@ -250,7 +265,10 @@ public sealed class ControlSessionTests
             RecommendedDeltas: new RecommendedDeltas(49, 130, 281),
             Capabilities: TestPointerCapabilities());
 
-        DesktopCommandExecutor executor = new(adapter, cursorOverlay);
+        DesktopCommandExecutor executor = new(
+            adapter,
+            cursorOverlay,
+            gridSwitchBroadcaster: gridSwitchBroadcaster);
         MouseRepeatController? repeatController = mouseRepeatSettings is null
             ? null
             : new MouseRepeatController(executor, mouseRepeatSettings, (_, cancellationToken) => Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken));
@@ -469,6 +487,17 @@ public sealed class ControlSessionTests
         public void SetDragActive(bool active)
         {
             DragActiveChanges.Add(active);
+        }
+    }
+
+    private sealed class FakeGridSwitchBroadcaster : IGridSwitchBroadcaster
+    {
+        public List<string> Calls { get; } = [];
+
+        public Task SetSwitchStateAsync(int switchId, bool down, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"{switchId}:{(down ? "down" : "up")}");
+            return Task.CompletedTask;
         }
     }
 }
