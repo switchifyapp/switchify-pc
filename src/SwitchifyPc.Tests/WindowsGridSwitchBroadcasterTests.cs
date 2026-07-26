@@ -21,14 +21,14 @@ public sealed class WindowsGridSwitchBroadcasterTests
                     WindowsGridSwitchBroadcaster.BroadcastWindowHandle,
                     42,
                     2,
-                    0,
+                    WindowsGridSwitchBroadcaster.NativePressedValue,
                     WindowsGridSwitchBroadcaster.SendFlags,
                     WindowsGridSwitchBroadcaster.TimeoutMilliseconds),
                 new NativeCall(
                     WindowsGridSwitchBroadcaster.BroadcastWindowHandle,
                     42,
                     8,
-                    1,
+                    WindowsGridSwitchBroadcaster.NativeReleasedValue,
                     WindowsGridSwitchBroadcaster.SendFlags,
                     WindowsGridSwitchBroadcaster.TimeoutMilliseconds)
             ],

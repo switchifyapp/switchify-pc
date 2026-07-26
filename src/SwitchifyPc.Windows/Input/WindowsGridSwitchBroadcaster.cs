@@ -21,6 +21,8 @@ public interface IGridSwitchNativeMessenger
 public sealed class WindowsGridSwitchBroadcaster : IGridSwitchBroadcaster
 {
     public const string MessageName = "Sensory_SwitchInput";
+    public const int NativePressedValue = 1;
+    public const int NativeReleasedValue = 0;
     public const uint SendFlags = 0x0001 | 0x0002;
     public const uint TimeoutMilliseconds = 1_000;
     public static readonly nint BroadcastWindowHandle = new(0xffff);
@@ -57,7 +59,7 @@ public sealed class WindowsGridSwitchBroadcaster : IGridSwitchBroadcaster
                 BroadcastWindowHandle,
                 messageId,
                 (nuint)switchId,
-                down ? 0 : 1,
+                down ? NativePressedValue : NativeReleasedValue,
                 SendFlags,
                 TimeoutMilliseconds);
             if (!sent)
