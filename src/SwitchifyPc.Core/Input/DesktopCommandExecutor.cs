@@ -433,43 +433,30 @@ public sealed class DesktopCommandExecutor
         long? sequence,
         CancellationToken cancellationToken)
     {
-        if (gridSwitchBroadcaster is null)
-        {
-            return CommandExecutionResult.Failure("adapter_failure", "Grid 3 switch forwarding is not available.");
-        }
-
-        await gridSwitchStateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (sessionId is null || sequence is null)
-            {
-                if (activeGridSessionId is not null)
-                {
-                    await ReplaceGridSessionLockedAsync(null, cancellationToken).ConfigureAwait(false);
-                }
-            }
-            else if (!await BeginGridSequenceLockedAsync(sessionId, sequence.Value, cancellationToken).ConfigureAwait(false))
-            {
-                return CommandExecutionResult.Success;
-            }
-
-            await ApplyGridSwitchStateLockedAsync(switchId, down, cancellationToken).ConfigureAwait(false);
-            if (sequence is not null)
-            {
-                lastGridSequence = sequence.Value;
-            }
-            return CommandExecutionResult.Success;
-        }
-        finally
-        {
-            gridSwitchStateGate.Release();
-        }
+        return await ExecuteGridCommandAsync(
+            sessionId,
+            sequence,
+            token => ApplyGridSwitchStateLockedAsync(switchId, down, token),
+            cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<CommandExecutionResult> SyncGridSwitchStateAsync(
         string sessionId,
         long sequence,
         HashSet<int> pressedSwitchIds,
+        CancellationToken cancellationToken)
+    {
+        return await ExecuteGridCommandAsync(
+            sessionId,
+            sequence,
+            token => ApplyGridSnapshotLockedAsync(pressedSwitchIds, token),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<CommandExecutionResult> ExecuteGridCommandAsync(
+        string? sessionId,
+        long? sequence,
+        Func<CancellationToken, Task> apply,
         CancellationToken cancellationToken)
     {
         if (gridSwitchBroadcaster is null)
@@ -480,41 +467,33 @@ public sealed class DesktopCommandExecutor
         await gridSwitchStateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!await BeginGridSequenceLockedAsync(sessionId, sequence, cancellationToken).ConfigureAwait(false))
+            bool accepted;
+            if (sessionId is null || sequence is null)
+            {
+                if (activeGridSessionId is not null)
+                {
+                    await ReplaceGridSessionLockedAsync(null, cancellationToken).ConfigureAwait(false);
+                }
+                accepted = true;
+            }
+            else
+            {
+                accepted = await BeginGridSequenceLockedAsync(
+                    sessionId,
+                    sequence.Value,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            if (!accepted)
             {
                 return CommandExecutionResult.Success;
             }
 
-            Exception? firstError = null;
-            foreach (int switchId in activeGridSwitchIds.Except(pressedSwitchIds).Order().ToArray())
+            await apply(cancellationToken).ConfigureAwait(false);
+            if (sequence is not null)
             {
-                try
-                {
-                    await ApplyGridSwitchStateLockedAsync(switchId, down: false, cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception error)
-                {
-                    firstError ??= error;
-                }
+                lastGridSequence = sequence.Value;
             }
-            foreach (int switchId in pressedSwitchIds.Except(activeGridSwitchIds).Order().ToArray())
-            {
-                try
-                {
-                    await ApplyGridSwitchStateLockedAsync(switchId, down: true, cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception error)
-                {
-                    firstError ??= error;
-                }
-            }
-
-            if (firstError is not null)
-            {
-                throw firstError;
-            }
-
-            lastGridSequence = sequence;
             return CommandExecutionResult.Success;
         }
         finally
@@ -552,38 +531,51 @@ public sealed class DesktopCommandExecutor
     {
         if (down)
         {
-            if (!activeGridSwitchIds.Add(switchId))
+            if (activeGridSwitchIds.Contains(switchId))
             {
                 return;
             }
-
-            try
-            {
-                await gridSwitchBroadcaster!.SetSwitchStateAsync(switchId, down: true, cancellationToken).ConfigureAwait(false);
-                return;
-            }
-            catch
-            {
-                bool released = false;
-                try
-                {
-                    await gridSwitchBroadcaster!.SetSwitchStateAsync(switchId, down: false, CancellationToken.None).ConfigureAwait(false);
-                    released = true;
-                }
-                catch
-                {
-                }
-
-                if (released)
-                {
-                    activeGridSwitchIds.Remove(switchId);
-                }
-                throw;
-            }
+            await gridSwitchBroadcaster!.SetSwitchStateAsync(switchId, down: true, cancellationToken).ConfigureAwait(false);
+            activeGridSwitchIds.Add(switchId);
+            return;
         }
 
         await gridSwitchBroadcaster!.SetSwitchStateAsync(switchId, down: false, cancellationToken).ConfigureAwait(false);
         activeGridSwitchIds.Remove(switchId);
+    }
+
+    private async Task ApplyGridSnapshotLockedAsync(
+        HashSet<int> pressedSwitchIds,
+        CancellationToken cancellationToken)
+    {
+        Exception? firstError = null;
+        foreach (int switchId in activeGridSwitchIds.Except(pressedSwitchIds).Order().ToArray())
+        {
+            try
+            {
+                await ApplyGridSwitchStateLockedAsync(switchId, down: false, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception error)
+            {
+                firstError ??= error;
+            }
+        }
+        foreach (int switchId in pressedSwitchIds.Except(activeGridSwitchIds).Order().ToArray())
+        {
+            try
+            {
+                await ApplyGridSwitchStateLockedAsync(switchId, down: true, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception error)
+            {
+                firstError ??= error;
+            }
+        }
+
+        if (firstError is not null)
+        {
+            throw firstError;
+        }
     }
 
     private void ExpireTextInputStreams()

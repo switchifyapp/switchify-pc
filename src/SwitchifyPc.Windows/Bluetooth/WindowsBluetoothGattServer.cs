@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices.WindowsRuntime;
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using SwitchifyPc.Core.Bluetooth;
@@ -478,9 +477,6 @@ public sealed class WindowsBluetoothGattServer : IDisposable
                 request.Respond();
             }
 
-            Debug.WriteLine(
-                $"Grid3SwitchTrace tTicks={Stopwatch.GetTimestamp()} phase=gatt_received " +
-                $"messageId={frame.MessageId} sequence={frame.Sequence} option={request.Option}");
             MarkConnected("write_received");
             emit(new BluetoothMessageEvent(ConnectionId, frame));
         }

@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using SwitchifyPc.Core.Input;
 using SwitchifyPc.Protocol;
@@ -50,9 +49,6 @@ public sealed class WindowsGridSwitchBroadcaster : IGridSwitchBroadcaster
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        Debug.WriteLine(
-            $"Grid3SwitchTrace tTicks={Stopwatch.GetTimestamp()} phase=native_start " +
-            $"switchId={switchId} down={down}");
         bool posted = messenger.PostMessage(
             BroadcastWindowHandle,
             messageId,
@@ -63,9 +59,6 @@ public sealed class WindowsGridSwitchBroadcaster : IGridSwitchBroadcaster
             throw new Win32Exception(Marshal.GetLastWin32Error(), $"Could not queue Grid switch {switchId}.");
         }
 
-        Debug.WriteLine(
-            $"Grid3SwitchTrace tTicks={Stopwatch.GetTimestamp()} phase=native_queued " +
-            $"switchId={switchId} down={down}");
         return Task.CompletedTask;
     }
 
