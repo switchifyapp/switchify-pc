@@ -15,10 +15,12 @@ public partial class SettingsWindow : Window
     private bool isApplyingSettings;
     private bool settingsLoaded;
     private bool isInstallingUpdate;
+    private readonly Action? manageSwitchProfiles;
 
-    public SettingsWindow(SettingsController controller) : this(controller.ViewModel)
+    public SettingsWindow(SettingsController controller, Action? manageSwitchProfiles = null) : this(controller.ViewModel)
     {
         this.controller = controller;
+        this.manageSwitchProfiles = manageSwitchProfiles;
     }
 
     public SettingsWindow(SettingsViewModel? viewModel = null)
@@ -128,6 +130,8 @@ public partial class SettingsWindow : Window
             WpfMessageBox.Show("The privacy policy could not be opened.", "Switchify PC settings", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
+
+    private void ManageSwitchProfiles_Click(object sender, RoutedEventArgs e) => manageSwitchProfiles?.Invoke();
 
     private async void ForgetPairedDevice_Click(object sender, RoutedEventArgs e)
     {

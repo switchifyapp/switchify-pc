@@ -368,6 +368,20 @@
                                 </ItemsControl>
                             </StackPanel>
                         </Border>
+                        <Border Margin="0,14,0,0" Style="{StaticResource PanelBorder}">
+                            <StackPanel>
+                                <TextBlock Text="PC Switch Control" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Margin="0,6,0,0"
+                                           Text="Map physical switches to Grid 3, keyboard, mouse, scrolling, shortcuts, and media controls."
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource MutedText}" />
+                                <Button Margin="0,14,0,0"
+                                        HorizontalAlignment="Left"
+                                        Content="Manage profiles"
+                                        Click="ManageSwitchProfiles_Click"
+                                        AutomationProperties.Name="Manage PC Switch Control profiles" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
 
                     <StackPanel x:Name="PointerPanel" Visibility="Collapsed">
