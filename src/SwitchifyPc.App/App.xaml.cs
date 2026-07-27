@@ -9,6 +9,7 @@ using SwitchifyPc.Core.Control;
 using SwitchifyPc.Core.Input;
 using SwitchifyPc.Core.Pairing;
 using SwitchifyPc.Core.Settings;
+using SwitchifyPc.Core.SwitchControl;
 using SwitchifyPc.Core.AppLifecycle;
 using SwitchifyPc.Core.Diagnostics;
 using SwitchifyPc.Core.Startup;
@@ -36,6 +37,7 @@ public partial class App : System.Windows.Application
     private WindowsExistingInstanceSignal? existingInstanceSignal;
     private NativeTrayIcon? trayIcon;
     private SettingsWindow? settingsWindow;
+    private SwitchControlProfileWindow? switchControlProfileWindow;
     private SetupGuideWindow? setupGuideWindow;
     private MainWindowViewModel mainWindowViewModel = new();
     private SetupGuideViewModel setupGuideViewModel = new();
@@ -45,6 +47,7 @@ public partial class App : System.Windows.Application
     private WindowsBluetoothGattServer? bluetoothServer;
     private BluetoothRemoteFrameProcessor? bluetoothFrameProcessor;
     private DesktopCommandExecutor? commandExecutor;
+    private JsonSwitchControlProfileStore? switchControlProfileStore;
     private MouseRepeatController? mouseRepeatController;
     private WindowsCursorOverlayNotifier? cursorOverlay;
     private WindowsModifierKeyOverlayNotifier? modifierOverlay;
@@ -154,6 +157,7 @@ public partial class App : System.Windows.Application
         themeManager?.Dispose();
         themeManager = null;
         commandExecutor = null;
+        switchControlProfileStore = null;
         bluetoothFrameProcessor = null;
         bluetoothStatusTracker = null;
         pairingApprovalManager = null;
@@ -164,6 +168,7 @@ public partial class App : System.Windows.Application
         trayIcon?.Dispose();
         trayIcon = null;
         settingsWindow = null;
+        switchControlProfileWindow = null;
         setupGuideWindow = null;
         telemetryReporter?.Dispose();
         telemetryReporter = null;
@@ -273,7 +278,7 @@ public partial class App : System.Windows.Application
 
     private SettingsWindow CreateSettingsWindow()
     {
-        SettingsWindow window = new(CreateSettingsController());
+        SettingsWindow window = new(CreateSettingsController(), ShowSwitchControlProfiles);
         window.Closing += (_, eventArgs) =>
         {
             if (isQuitting) return;
@@ -282,6 +287,22 @@ public partial class App : System.Windows.Application
         };
 
         return window;
+    }
+
+    private void ShowSwitchControlProfiles()
+    {
+        switchControlProfileStore ??= new JsonSwitchControlProfileStore(
+            Path.Combine(UserDataDirectory(), "switch-control-profiles.json"));
+        if (switchControlProfileWindow is null)
+        {
+            switchControlProfileWindow = new SwitchControlProfileWindow(
+                switchControlProfileStore,
+                () => null);
+            switchControlProfileWindow.Closed += (_, _) => switchControlProfileWindow = null;
+        }
+        switchControlProfileWindow.Owner = settingsWindow;
+        switchControlProfileWindow.Show();
+        switchControlProfileWindow.Activate();
     }
 
     private static void CenterWindow(Window window)

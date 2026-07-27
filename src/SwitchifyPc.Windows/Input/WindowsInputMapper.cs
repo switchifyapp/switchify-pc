@@ -66,6 +66,7 @@ public static class WindowsInputMapper
             "Shift" => VkShift,
             "Meta" => VkLeftWindows,
             _ when IsUppercaseLetterKey(key) => key[0],
+            _ when IsDigitKey(key) => key[0],
             _ when IsFunctionKey(key, out ushort virtualKey) => virtualKey,
             _ => throw new ArgumentOutOfRangeException(nameof(key), key, null)
         };
@@ -110,5 +111,10 @@ public static class WindowsInputMapper
     private static bool IsUppercaseLetterKey(string key)
     {
         return key.Length == 1 && key[0] is >= 'A' and <= 'Z';
+    }
+
+    private static bool IsDigitKey(string key)
+    {
+        return key.Length == 1 && key[0] is >= '0' and <= '9';
     }
 }
