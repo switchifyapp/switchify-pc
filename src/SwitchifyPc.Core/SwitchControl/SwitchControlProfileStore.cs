@@ -107,7 +107,7 @@ public sealed class JsonSwitchControlProfileStore : ISwitchControlProfileStore
         {
             SwitchBindingType.None => new(binding.SwitchId, SwitchBindingType.None),
             SwitchBindingType.Key when binding.Value is not null && keys.Contains(binding.Value) =>
-                new(binding.SwitchId, binding.Type, binding.Value),
+                new(binding.SwitchId, binding.Type, CanonicalKey(binding.Value)),
             SwitchBindingType.MouseButton when AllowedMouseButtons.Contains(binding.Value ?? "") =>
                 new(binding.SwitchId, binding.Type, binding.Value),
             SwitchBindingType.Shortcut => NormalizeShortcut(binding, keys),
@@ -123,17 +123,21 @@ public sealed class JsonSwitchControlProfileStore : ISwitchControlProfileStore
 
     private static SwitchControlBinding NormalizeShortcut(SwitchControlBinding binding, HashSet<string> allowedKeys)
     {
-        string[] keys = (binding.Keys ?? []).ToArray();
-        if (keys.Length is < 1 or > 4 ||
-            keys.Distinct(StringComparer.OrdinalIgnoreCase).Count() != keys.Length ||
-            keys.Any(key => !allowedKeys.Contains(key)) ||
-            keys.All(ModifierKeys.Contains))
+        string[] suppliedKeys = (binding.Keys ?? []).ToArray();
+        if (suppliedKeys.Length is < 1 or > 4 ||
+            suppliedKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count() != suppliedKeys.Length ||
+            suppliedKeys.Any(key => !allowedKeys.Contains(key)) ||
+            suppliedKeys.All(ModifierKeys.Contains))
         {
             throw new InvalidDataException("A shortcut binding is invalid.");
         }
 
+        string[] keys = suppliedKeys.Select(CanonicalKey).ToArray();
         return new(binding.SwitchId, SwitchBindingType.Shortcut, Keys: keys);
     }
+
+    private static string CanonicalKey(string key) =>
+        AllowedKeys.First(allowed => string.Equals(allowed, key, StringComparison.OrdinalIgnoreCase));
 
     private static readonly HashSet<string> ModifierKeys = new(
         ["Ctrl", "Alt", "Shift", "Meta"],

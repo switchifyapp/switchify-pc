@@ -88,6 +88,19 @@ public sealed class SwitchControlProfileTests
             JsonSwitchControlProfileStore.NormalizeCustom([invalid]));
     }
 
+    [Fact]
+    public void KeyTokensAreCanonicalizedBeforePersistence()
+    {
+        SwitchControlProfile profile = CustomProfile(
+            "Canonical",
+            new(1, SwitchBindingType.Shortcut, Keys: ["ctrl", "a"]));
+
+        SwitchControlProfile normalized =
+            Assert.Single(JsonSwitchControlProfileStore.NormalizeCustom([profile]));
+
+        Assert.Equal(["Ctrl", "A"], normalized.Bindings[0].Keys);
+    }
+
     private static SwitchControlProfile CustomProfile(
         string name,
         SwitchControlBinding? firstBinding = null) =>

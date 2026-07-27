@@ -86,10 +86,46 @@ public sealed class SwitchOutputSessionTests
         Assert.Equal(["key:Space:down"], input.Events);
     }
 
+    [Fact]
+    public async Task FailedStopRetainsOutputForRetry()
+    {
+        var input = new RecordingInputAdapter();
+        var session = new MappedDesktopSwitchOutputSession(input,
+        [
+            new(1, SwitchBindingType.Key, "Space")
+        ]);
+        await session.ApplyEdgeAsync(1, true, default);
+        input.FailValueOnce = "key:Space:up";
+
+        await Assert.ThrowsAsync<DesktopInputException>(() => session.StopAsync(default));
+        await session.StopAsync(default);
+
+        Assert.Equal(["key:Space:down", "key:Space:up"], input.Events);
+    }
+
+    [Fact]
+    public async Task ShortcutCleanupContinuesAndRetainsFailedKeyForStop()
+    {
+        var input = new RecordingInputAdapter { FailValueOnce = "key:C:up" };
+        var session = new MappedDesktopSwitchOutputSession(input,
+        [
+            new(1, SwitchBindingType.Shortcut, Keys: ["Ctrl", "C"])
+        ]);
+
+        await Assert.ThrowsAsync<DesktopInputException>(
+            () => session.ApplyEdgeAsync(1, true, default));
+        await session.StopAsync(default);
+
+        Assert.Equal(
+            ["key:Ctrl:down", "key:C:down", "key:Ctrl:up", "key:C:up"],
+            input.Events);
+    }
+
     private sealed class RecordingInputAdapter : IDesktopInputAdapter
     {
         public List<string> Events { get; } = [];
         public bool FailNext { get; set; }
+        public string? FailValueOnce { get; set; }
 
         public Task SetKeyDownAsync(string key, bool down, CancellationToken cancellationToken = default) =>
             Record($"key:{key}:{(down ? "down" : "up")}");
@@ -108,9 +144,10 @@ public sealed class SwitchOutputSessionTests
 
         private Task Record(string value)
         {
-            if (FailNext)
+            if (FailNext || value == FailValueOnce)
             {
                 FailNext = false;
+                FailValueOnce = null;
                 throw new DesktopInputException("adapter_failure", "Failed.");
             }
             Events.Add(value);

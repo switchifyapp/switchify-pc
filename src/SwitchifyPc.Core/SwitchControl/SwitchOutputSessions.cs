@@ -65,6 +65,7 @@ public sealed class MappedDesktopSwitchOutputSession : ISwitchOutputSession
     private readonly HashSet<int> pressedSources = [];
     private readonly Dictionary<string, int> heldOutputCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> outputAcquisitionOrder = [];
+    private readonly List<string> temporaryShortcutKeys = [];
 
     public MappedDesktopSwitchOutputSession(
         IDesktopInputAdapter input,
@@ -132,6 +133,7 @@ public sealed class MappedDesktopSwitchOutputSession : ISwitchOutputSession
     public async Task StopAsync(CancellationToken token)
     {
         string[] outputs = outputAcquisitionOrder
+            .Concat(temporaryShortcutKeys.Select(key => $"key:{key}"))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(output => IsModifier(output) ? 1 : 0)
             .ThenByDescending(output => outputAcquisitionOrder.LastIndexOf(output))
@@ -143,15 +145,22 @@ public sealed class MappedDesktopSwitchOutputSession : ISwitchOutputSession
             {
                 await SetOutputAsync(output, false, token).ConfigureAwait(false);
                 heldOutputCounts.Remove(output);
+                outputAcquisitionOrder.RemoveAll(item =>
+                    string.Equals(item, output, StringComparison.OrdinalIgnoreCase));
+                if (output.StartsWith("key:", StringComparison.Ordinal))
+                {
+                    string key = output["key:".Length..];
+                    temporaryShortcutKeys.RemoveAll(item =>
+                        string.Equals(item, key, StringComparison.OrdinalIgnoreCase));
+                }
             }
             catch (Exception error)
             {
                 firstError ??= error;
             }
         }
-        pressedSources.Clear();
-        outputAcquisitionOrder.Clear();
         if (firstError is not null) throw firstError;
+        pressedSources.Clear();
     }
 
     private async Task SetStatefulBindingAsync(SwitchControlBinding binding, bool pressed, CancellationToken token)
@@ -205,7 +214,7 @@ public sealed class MappedDesktopSwitchOutputSession : ISwitchOutputSession
 
     private async Task ExecuteShortcutAsync(IReadOnlyList<string> keys, CancellationToken token)
     {
-        List<string> temporary = [];
+        Exception? firstError = null;
         try
         {
             foreach (string key in keys)
@@ -213,16 +222,27 @@ public sealed class MappedDesktopSwitchOutputSession : ISwitchOutputSession
                 string output = $"key:{key}";
                 if (heldOutputCounts.ContainsKey(output)) continue;
                 await input.SetKeyDownAsync(key, true, token).ConfigureAwait(false);
-                temporary.Add(key);
+                temporaryShortcutKeys.Add(key);
             }
         }
-        finally
+        catch (Exception error)
         {
-            foreach (string key in temporary.AsEnumerable().Reverse())
+            firstError = error;
+        }
+
+        foreach (string key in temporaryShortcutKeys.AsEnumerable().Reverse().ToArray())
+        {
+            try
             {
-                await input.SetKeyDownAsync(key, false, token).ConfigureAwait(false);
+                await input.SetKeyDownAsync(key, false, CancellationToken.None).ConfigureAwait(false);
+                temporaryShortcutKeys.Remove(key);
+            }
+            catch (Exception error)
+            {
+                firstError ??= error;
             }
         }
+        if (firstError is not null) throw firstError;
     }
 
     private Task SetOutputAsync(string output, bool down, CancellationToken token)

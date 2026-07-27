@@ -2,7 +2,9 @@ using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Media;
 using SwitchifyPc.Core.SwitchControl;
 using WpfMessageBox = System.Windows.MessageBox;
 
@@ -94,6 +96,13 @@ public partial class SwitchControlProfileWindow : Window
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         if (selected is null || selected.IsBuiltIn || selected.Id == activeProfileId()) return;
+        BindingRowViewModel? invalidRow = rows.FirstOrDefault(row => !row.IsLocallyValid());
+        if (invalidRow is not null)
+        {
+            ValidationMessage.Text = $"Switch {invalidRow.SwitchId}: {invalidRow.ValueHelp}";
+            FocusBindingValue(invalidRow);
+            return;
+        }
         try
         {
             SwitchControlProfile saved = selected with
@@ -146,6 +155,30 @@ public partial class SwitchControlProfileWindow : Window
         return name;
     }
 
+    private void FocusBindingValue(BindingRowViewModel row)
+    {
+        BindingRows.UpdateLayout();
+        if (BindingRows.ItemContainerGenerator.ContainerFromItem(row) is not DependencyObject container)
+        {
+            return;
+        }
+        FindDescendants<System.Windows.Controls.ComboBox>(container)
+            .FirstOrDefault(control =>
+                AutomationProperties.GetName(control) == row.ValueAutomationName)
+            ?.Focus();
+    }
+
+    private static IEnumerable<T> FindDescendants<T>(DependencyObject parent)
+        where T : DependencyObject
+    {
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(parent, index);
+            if (child is T match) yield return match;
+            foreach (T descendant in FindDescendants<T>(child)) yield return descendant;
+        }
+    }
+
     private sealed class BindingRowViewModel : INotifyPropertyChanged
     {
         private SwitchBindingType selectedType;
@@ -167,7 +200,13 @@ public partial class SwitchControlProfileWindow : Window
         public SwitchBindingType SelectedType
         {
             get => selectedType;
-            set { selectedType = value; Changed(); }
+            set
+            {
+                selectedType = value;
+                Changed();
+                Changed(nameof(ValueOptions));
+                Changed(nameof(ValueHelp));
+            }
         }
 
         public string Value
@@ -180,6 +219,51 @@ public partial class SwitchControlProfileWindow : Window
         {
             get => isEditable;
             private set { isEditable = value; Changed(); }
+        }
+
+        public IReadOnlyList<string> ValueOptions => SelectedType switch
+        {
+            SwitchBindingType.Key => KeyValues,
+            SwitchBindingType.MouseButton => ["left", "right", "middle"],
+            SwitchBindingType.Shortcut => ["Ctrl + C", "Ctrl + V", "Alt + Tab", "Ctrl + Shift + Escape"],
+            SwitchBindingType.MouseClick => ["left", "left:2", "right", "right:2", "middle", "middle:2"],
+            SwitchBindingType.Scroll => ["up", "down", "left", "right"],
+            SwitchBindingType.Media => ["playPause", "nextTrack", "previousTrack", "volumeUp", "volumeDown", "mute"],
+            _ => []
+        };
+
+        public string ValueHelp => SelectedType switch
+        {
+            SwitchBindingType.None => "No value is required.",
+            SwitchBindingType.Key => "Choose one keyboard key.",
+            SwitchBindingType.MouseButton => "Choose left, right, or middle.",
+            SwitchBindingType.Shortcut => "Enter one to four unique keys separated by +, including a non-modifier.",
+            SwitchBindingType.MouseClick => "Choose a button, with :2 for a double click.",
+            SwitchBindingType.Scroll => "Choose up, down, left, or right.",
+            SwitchBindingType.Media => "Choose play/pause, track, volume, or mute.",
+            _ => "Choose a valid value."
+        };
+
+        public bool IsLocallyValid()
+        {
+            string trimmed = Value.Trim();
+            return SelectedType switch
+            {
+                SwitchBindingType.None => true,
+                SwitchBindingType.Key => KeyValues.Contains(trimmed, StringComparer.OrdinalIgnoreCase),
+                SwitchBindingType.MouseButton =>
+                    new[] { "left", "right", "middle" }.Contains(trimmed, StringComparer.Ordinal),
+                SwitchBindingType.Shortcut => IsValidShortcut(trimmed),
+                SwitchBindingType.MouseClick =>
+                    new[] { "left", "left:2", "right", "right:2", "middle", "middle:2" }
+                        .Contains(trimmed, StringComparer.Ordinal),
+                SwitchBindingType.Scroll =>
+                    new[] { "up", "down", "left", "right" }.Contains(trimmed, StringComparer.Ordinal),
+                SwitchBindingType.Media =>
+                    new[] { "playPause", "nextTrack", "previousTrack", "volumeUp", "volumeDown", "mute" }
+                        .Contains(trimmed, StringComparer.Ordinal),
+                _ => false
+            };
         }
 
         public void Load(SwitchControlBinding binding, bool editable)
@@ -213,5 +297,27 @@ public partial class SwitchControlProfileWindow : Window
 
         private void Changed([CallerMemberName] string? propertyName = null) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+        private static bool IsValidShortcut(string value)
+        {
+            string[] keys = value.Split(
+                '+',
+                StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            return keys.Length is >= 1 and <= 4 &&
+                keys.Distinct(StringComparer.OrdinalIgnoreCase).Count() == keys.Length &&
+                keys.All(key => KeyValues.Contains(key, StringComparer.OrdinalIgnoreCase)) &&
+                keys.Any(key => !ModifierValues.Contains(key, StringComparer.OrdinalIgnoreCase));
+        }
+
+        private static readonly string[] ModifierValues = ["Ctrl", "Alt", "Shift", "Meta"];
+        private static readonly string[] KeyValues =
+        [
+            .. Enumerable.Range('A', 26).Select(value => ((char)value).ToString()),
+            .. Enumerable.Range(0, 10).Select(value => value.ToString()),
+            .. Enumerable.Range(1, 12).Select(value => $"F{value}"),
+            "Space", "Enter", "Escape", "Tab", "Backspace", "Delete",
+            "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+            "Home", "End", "PageUp", "PageDown", "Ctrl", "Alt", "Shift", "Meta"
+        ];
     }
 }

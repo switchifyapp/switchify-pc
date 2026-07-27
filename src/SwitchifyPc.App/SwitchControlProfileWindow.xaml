@@ -47,12 +47,16 @@
                                TextWrapping="Wrap" />
                     <TextBlock Text="Switch bindings" FontWeight="SemiBold" />
                     <TextBlock Margin="0,4,0,12"
-                               Text="For shortcuts, enter keys separated by +. Other values use the selected action's available Windows value."
+                               Text="Choose a suggested value or type one. Each switch row explains the accepted values for its selected action."
                                TextWrapping="Wrap" />
                     <ItemsControl x:Name="BindingRows">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Grid Margin="0,0,0,10">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="90" />
                                         <ColumnDefinition Width="180" />
@@ -67,10 +71,22 @@
                                               SelectedItem="{Binding SelectedType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                               IsEnabled="{Binding IsEditable}"
                                               AutomationProperties.Name="{Binding TypeAutomationName}" />
-                                    <TextBox Grid.Column="2"
-                                             Text="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                             IsEnabled="{Binding IsEditable}"
-                                             AutomationProperties.Name="{Binding ValueAutomationName}" />
+                                    <ComboBox x:Name="BindingValueInput"
+                                              Grid.Column="2"
+                                              ItemsSource="{Binding ValueOptions}"
+                                              Text="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              IsEditable="True"
+                                              IsTextSearchEnabled="True"
+                                              IsEnabled="{Binding IsEditable}"
+                                              AutomationProperties.Name="{Binding ValueAutomationName}"
+                                              AutomationProperties.HelpText="{Binding ValueHelp}" />
+                                    <TextBlock Grid.Row="1"
+                                               Grid.Column="1"
+                                               Grid.ColumnSpan="2"
+                                               Margin="0,4,0,0"
+                                               Text="{Binding ValueHelp}"
+                                               TextWrapping="Wrap"
+                                               Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}" />
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
