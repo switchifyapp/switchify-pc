@@ -58,7 +58,16 @@ public sealed class SwitchControlSessionManager
         await gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            await StopLockedAsync(token).ConfigureAwait(false);
+            try
+            {
+                await StopLockedAsync(token).ConfigureAwait(false);
+            }
+            catch
+            {
+                return SwitchSessionResult.Failure(
+                    "output_failure",
+                    "The previous switch output could not be released.");
+            }
             ISwitchOutputSession output;
             try
             {
@@ -119,7 +128,6 @@ public sealed class SwitchControlSessionManager
         }
         catch
         {
-            active = null;
             return SwitchSessionResult.Failure("output_failure", "The active switch output could not be released.");
         }
         finally
@@ -243,7 +251,16 @@ public sealed class SwitchControlSessionManager
             return SwitchSessionResult.Success;
         }
 
-        await StopLockedAsync(token).ConfigureAwait(false);
+        try
+        {
+            await StopLockedAsync(token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return SwitchSessionResult.Failure(
+                "output_failure",
+                "The previous switch output could not be released.");
+        }
         SwitchControlProfile profile = SwitchControlProfiles.BuiltIns[0];
         try
         {
@@ -286,10 +303,10 @@ public sealed class SwitchControlSessionManager
     private async Task StopLockedAsync(CancellationToken token)
     {
         ActiveSession? previous = active;
-        active = null;
         if (previous is not null)
         {
             await previous.Output.StopAsync(token).ConfigureAwait(false);
+            active = null;
             ActiveProfileChanged?.Invoke(null);
         }
     }
