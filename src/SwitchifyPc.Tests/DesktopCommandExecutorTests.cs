@@ -535,7 +535,7 @@ public sealed class DesktopCommandExecutorTests
     }
 
     [Fact]
-    public async Task GridDownFailureAttemptsReleaseAndDoesNotRemainHeld()
+    public async Task GridDownFailureDoesNotMutateTrackedState()
     {
         FakeGridSwitchBroadcaster broadcaster = new() { FailDownIds = [2] };
         DesktopCommandExecutor executor = new(new FakeInputAdapter(), gridSwitchBroadcaster: broadcaster);
@@ -545,26 +545,7 @@ public sealed class DesktopCommandExecutorTests
 
         Assert.False(result.Ok);
         Assert.Equal("adapter_failure", result.Code);
-        Assert.Equal(["2:down", "2:up"], broadcaster.Calls);
-    }
-
-    [Fact]
-    public async Task GridDownAndCompensationFailureRemainsHeldForCleanupRetry()
-    {
-        FakeGridSwitchBroadcaster broadcaster = new()
-        {
-            FailDownIds = [2],
-            FailUpIds = { 2 }
-        };
-        DesktopCommandExecutor executor = new(new FakeInputAdapter(), gridSwitchBroadcaster: broadcaster);
-
-        CommandExecutionResult result = await executor.ExecuteAsync(Command("grid.switch.set", new { switchId = 2, state = "down" }));
-        broadcaster.FailDownIds.Clear();
-        broadcaster.FailUpIds.Clear();
-        await executor.ReleaseHeldInputsAsync();
-
-        Assert.False(result.Ok);
-        Assert.Equal(["2:down", "2:up", "2:up"], broadcaster.Calls);
+        Assert.Equal(["2:down"], broadcaster.Calls);
     }
 
     [Fact]
