@@ -4,6 +4,7 @@ using SwitchifyPc.Core.Control;
 using SwitchifyPc.Core.Input;
 using SwitchifyPc.Core.Pairing;
 using SwitchifyPc.Core.Settings;
+using SwitchifyPc.Core.SwitchControl;
 using SwitchifyPc.Protocol;
 
 namespace SwitchifyPc.Tests;
@@ -89,6 +90,60 @@ public sealed class ControlSessionTests
         Assert.True(down.HasResponse);
         Assert.True(up.HasResponse);
         Assert.Equal(["setKeyDown:Ctrl:True", "setKeyDown:Ctrl:False"], adapter.Calls);
+    }
+
+    [Fact]
+    public async Task ListsAndStartsPcSwitchControlProfile()
+    {
+        FakeInputAdapter adapter = new();
+        ControlSession session = CreateSession(adapter, enableSwitchControl: true);
+        string sessionId = Guid.NewGuid().ToString();
+
+        ControlSessionResult catalog = await session.ProcessMessageAsync(
+            SignedCommand("switch.profile.list", new { }));
+        ControlSessionResult start = await session.ProcessMessageAsync(SignedCommand(
+            "switch.session.start",
+            new
+            {
+                sessionId,
+                profileId = SwitchControlProfiles.GenericKeyboardId,
+                profileVersion = 1,
+                switchCount = 2
+            },
+            id: "request-2"));
+        ControlSessionResult edge = await session.ProcessMessageAsync(SignedCommand(
+            "switch.edge",
+            new { sessionId, sequence = 1, switchId = 1, state = "down" },
+            id: "request-3",
+            responseMode: "none"));
+
+        using JsonDocument response = JsonDocument.Parse(catalog.ResponseJson!);
+        Assert.Equal(2, response.RootElement.GetProperty("payload").GetProperty("profiles").GetArrayLength());
+        Assert.True(start.HasResponse);
+        Assert.False(edge.HasResponse);
+        Assert.Contains("setKeyDown:Space:True", adapter.Calls);
+    }
+
+    [Fact]
+    public async Task RejectsOrdinaryControlWhileSwitchSessionIsActive()
+    {
+        FakeInputAdapter adapter = new();
+        ControlSession session = CreateSession(adapter, enableSwitchControl: true);
+        string sessionId = Guid.NewGuid().ToString();
+        await session.ProcessMessageAsync(SignedCommand(
+            "switch.session.start",
+            new
+            {
+                sessionId,
+                profileId = SwitchControlProfiles.GenericKeyboardId,
+                profileVersion = 1,
+                switchCount = 2
+            }));
+
+        ControlSessionResult result = await session.ProcessMessageAsync(
+            SignedCommand("mouse.move", new { dx = 1, dy = 1 }, id: "request-2"));
+
+        AssertError(result, "request-2", "switch_session_active");
     }
 
     [Fact]
@@ -269,7 +324,8 @@ public sealed class ControlSessionTests
         IMouseRepeatSettingsStore? mouseRepeatSettings = null,
         FakePointerSettings? pointerSettings = null,
         Action<PointerMovementSettings>? applyPointerSettings = null,
-        IGridSwitchBroadcaster? gridSwitchBroadcaster = null)
+        IGridSwitchBroadcaster? gridSwitchBroadcaster = null,
+        bool enableSwitchControl = false)
     {
         MemoryPairingStore store = new(new PairingState(
             DesktopId: "desktop-1",
@@ -297,12 +353,26 @@ public sealed class ControlSessionTests
             ? null
             : new PointerSpeedController(pointerSettings, applyPointerSettings ?? (_ => { }));
 
+        SwitchControlSessionManager? switchControlSessions = enableSwitchControl
+            ? new SwitchControlSessionManager(
+                new BuiltInProfileStore(),
+                new SwitchOutputSessionFactory(adapter, gridSwitchBroadcaster))
+            : null;
+
         return new ControlSession(
             new CommandAuthValidator(store, () => Now),
             executor,
             new FixedPointerProfileProvider(profile),
             repeatController,
-            pointerSpeedController);
+            pointerSpeedController,
+            switchControlSessions);
+    }
+
+    private sealed class BuiltInProfileStore : ISwitchControlProfileStore
+    {
+        public IReadOnlyList<SwitchControlProfile> Load() => SwitchControlProfiles.BuiltIns;
+        public IReadOnlyList<SwitchControlProfile> Save(IReadOnlyList<SwitchControlProfile> customProfiles) =>
+            [.. SwitchControlProfiles.BuiltIns, .. customProfiles];
     }
 
     private static PointerCapabilities TestPointerCapabilities()

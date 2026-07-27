@@ -185,8 +185,84 @@ public static partial class ProtocolValidator
                     : Invalid("invalid_payload", "Window control action is invalid."),
             ProtocolConstants.GridSwitchSetCommandType => ValidateGridSwitchSetPayload(payload),
             ProtocolConstants.GridSwitchSyncCommandType => ValidateGridSwitchSyncPayload(payload),
+            ProtocolConstants.SwitchProfileListCommandType =>
+                ObjectPropertyCount(payload) == 0 ? Valid(payload) : Invalid("invalid_payload", "Payload must be empty."),
+            ProtocolConstants.SwitchSessionStartCommandType => ValidateSwitchSessionStartPayload(payload),
+            ProtocolConstants.SwitchEdgeCommandType => ValidateSwitchEdgePayload(payload),
+            ProtocolConstants.SwitchSyncCommandType => ValidateSwitchSyncPayload(payload),
+            ProtocolConstants.SwitchSessionStopCommandType => ValidateSwitchSessionStopPayload(payload),
             _ => Invalid("invalid_type", "Unsupported message type.")
         };
+    }
+
+    private static ProtocolValidationResult ValidateSwitchSessionStartPayload(JsonElement payload)
+    {
+        return ObjectPropertyCount(payload) == 4 &&
+            TryGetString(payload, "sessionId", out string? sessionId) &&
+            Guid.TryParse(sessionId, out _) &&
+            TryGetString(payload, "profileId", out string? profileId) &&
+            profileId.Length is >= 1 and <= 80 &&
+            TryGetInteger(payload, "profileVersion", out int profileVersion) &&
+            profileVersion > 0 &&
+            TryGetInteger(payload, "switchCount", out int switchCount) &&
+            switchCount is >= 1 and <= ProtocolConstants.MaximumGridSwitchId
+                ? Valid(payload)
+                : Invalid("invalid_payload", "Switch session start payload is invalid.");
+    }
+
+    private static ProtocolValidationResult ValidateSwitchEdgePayload(JsonElement payload)
+    {
+        return ObjectPropertyCount(payload) == 4 &&
+            ValidateSwitchSequence(payload) &&
+            TryGetInteger(payload, "switchId", out int switchId) &&
+            switchId is >= ProtocolConstants.MinimumGridSwitchId and <= ProtocolConstants.MaximumGridSwitchId &&
+            TryGetString(payload, "state", out string? state) &&
+            state is "down" or "up"
+                ? Valid(payload)
+                : Invalid("invalid_payload", "Switch edge payload is invalid.");
+    }
+
+    private static ProtocolValidationResult ValidateSwitchSyncPayload(JsonElement payload)
+    {
+        if (ObjectPropertyCount(payload) != 3 ||
+            !ValidateSwitchSequence(payload) ||
+            !payload.TryGetProperty("pressedSwitchIds", out JsonElement pressedSwitchIds) ||
+            pressedSwitchIds.ValueKind != JsonValueKind.Array ||
+            pressedSwitchIds.GetArrayLength() > ProtocolConstants.MaximumGridSwitchId)
+        {
+            return Invalid("invalid_payload", "Switch synchronization payload is invalid.");
+        }
+
+        int previous = 0;
+        foreach (JsonElement element in pressedSwitchIds.EnumerateArray())
+        {
+            if (element.ValueKind != JsonValueKind.Number ||
+                !element.TryGetInt32(out int switchId) ||
+                switchId is < ProtocolConstants.MinimumGridSwitchId or > ProtocolConstants.MaximumGridSwitchId ||
+                switchId <= previous)
+            {
+                return Invalid("invalid_payload", "Switch synchronization IDs must be unique and sorted.");
+            }
+            previous = switchId;
+        }
+        return Valid(payload);
+    }
+
+    private static ProtocolValidationResult ValidateSwitchSessionStopPayload(JsonElement payload)
+    {
+        return ObjectPropertyCount(payload) == 2 && ValidateSwitchSequence(payload)
+            ? Valid(payload)
+            : Invalid("invalid_payload", "Switch session stop payload is invalid.");
+    }
+
+    private static bool ValidateSwitchSequence(JsonElement payload)
+    {
+        return TryGetString(payload, "sessionId", out string? sessionId) &&
+            Guid.TryParse(sessionId, out _) &&
+            payload.TryGetProperty("sequence", out JsonElement sequence) &&
+            sequence.ValueKind == JsonValueKind.Number &&
+            sequence.TryGetInt64(out long value) &&
+            value > 0;
     }
 
     private static ProtocolValidationResult ValidateGridSwitchSetPayload(JsonElement payload)

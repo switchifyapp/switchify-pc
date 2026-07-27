@@ -64,6 +64,48 @@ public sealed class ProtocolValidatorTests
                     pressedSwitchIds = new[] { 1, 8 }
                 }
             },
+            new { type = "switch.profile.list", payload = new { } },
+            new
+            {
+                type = "switch.session.start",
+                payload = new
+                {
+                    sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b",
+                    profileId = "builtin.keyboard",
+                    profileVersion = 1,
+                    switchCount = 2
+                }
+            },
+            new
+            {
+                type = "switch.edge",
+                payload = new
+                {
+                    sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b",
+                    sequence = 1,
+                    switchId = 1,
+                    state = "down"
+                }
+            },
+            new
+            {
+                type = "switch.sync",
+                payload = new
+                {
+                    sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b",
+                    sequence = 2,
+                    pressedSwitchIds = new[] { 1, 2 }
+                }
+            },
+            new
+            {
+                type = "switch.session.stop",
+                payload = new
+                {
+                    sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b",
+                    sequence = 3
+                }
+            },
             new { type = "pointer.profile", payload = new { } },
             new { type = "pointer.display.move", payload = new { direction = "left" } },
             new { type = "pointer.speed.set", payload = new { scalePercent = 125 } },
@@ -107,6 +149,13 @@ public sealed class ProtocolValidatorTests
                 state = "down",
                 sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b",
                 sequence = 1
+            },
+            ["switch.edge"] = new
+            {
+                sessionId = "99a1dbcf-6be4-4c6c-8664-d33fd698e32b",
+                sequence = 1,
+                switchId = 1,
+                state = "down"
             }
         };
 

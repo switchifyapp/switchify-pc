@@ -16,6 +16,8 @@ public sealed class SwitchControlSessionManager
     private ActiveSession? active;
     private long catalogRevision = 1;
 
+    public event Action<string?>? ActiveProfileChanged;
+
     public SwitchControlSessionManager(
         ISwitchControlProfileStore profiles,
         ISwitchOutputSessionFactory outputs)
@@ -68,6 +70,7 @@ public sealed class SwitchControlSessionManager
             }
 
             active = new ActiveSession(deviceId, sessionId, profile, output);
+            ActiveProfileChanged?.Invoke(profile.Name);
             return SwitchSessionResult.Success;
         }
         finally
@@ -245,6 +248,7 @@ public sealed class SwitchControlSessionManager
         try
         {
             active = new ActiveSession(deviceId, effectiveSessionId, profile, outputs.Create(profile));
+            ActiveProfileChanged?.Invoke(profile.Name);
             return SwitchSessionResult.Success;
         }
         catch (DesktopInputException error)
@@ -286,6 +290,7 @@ public sealed class SwitchControlSessionManager
         if (previous is not null)
         {
             await previous.Output.StopAsync(token).ConfigureAwait(false);
+            ActiveProfileChanged?.Invoke(null);
         }
     }
 
