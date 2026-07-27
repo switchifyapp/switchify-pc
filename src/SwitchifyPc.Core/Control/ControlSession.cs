@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using SwitchifyPc.Core.Input;
 using SwitchifyPc.Core.Pairing;
 using SwitchifyPc.Core.Settings;
+using SwitchifyPc.Core.SwitchControl;
 using SwitchifyPc.Protocol;
 
 namespace SwitchifyPc.Core.Control;
@@ -46,19 +47,22 @@ public sealed class ControlSession
     private readonly IPointerProfileProvider pointerProfileProvider;
     private readonly MouseRepeatController? mouseRepeatController;
     private readonly PointerSpeedController? pointerSpeedController;
+    private readonly SwitchControlSessionManager? switchControlSessions;
 
     public ControlSession(
         CommandAuthValidator authValidator,
         DesktopCommandExecutor commandExecutor,
         IPointerProfileProvider pointerProfileProvider,
         MouseRepeatController? mouseRepeatController = null,
-        PointerSpeedController? pointerSpeedController = null)
+        PointerSpeedController? pointerSpeedController = null,
+        SwitchControlSessionManager? switchControlSessions = null)
     {
         this.authValidator = authValidator;
         this.commandExecutor = commandExecutor;
         this.pointerProfileProvider = pointerProfileProvider;
         this.mouseRepeatController = mouseRepeatController;
         this.pointerSpeedController = pointerSpeedController;
+        this.switchControlSessions = switchControlSessions;
     }
 
     public async Task<ControlSessionResult> ProcessMessageAsync(string rawMessage, CancellationToken cancellationToken = default)
@@ -91,6 +95,10 @@ public sealed class ControlSession
             }
 
             await commandExecutor.ReleaseHeldInputsAsync(cancellationToken).ConfigureAwait(false);
+            if (failedDeviceId is not null && switchControlSessions is not null)
+            {
+                await switchControlSessions.StopForDeviceAsync(failedDeviceId, cancellationToken).ConfigureAwait(false);
+            }
             commandExecutor.EndControlSession();
             return ControlSessionResult.Response(ErrorResponse(RequestIdOrNull(request), auth.Reason ?? "invalid_auth", "Command authentication failed."))
                 with { AuthFailureReason = auth.Reason ?? "invalid_auth" };
@@ -100,6 +108,10 @@ public sealed class ControlSession
         {
             await StopRepeatAsync(auth.DeviceId ?? "").ConfigureAwait(false);
             await commandExecutor.ReleaseHeldInputsAsync(cancellationToken).ConfigureAwait(false);
+            if (switchControlSessions is not null)
+            {
+                await switchControlSessions.StopForDeviceAsync(auth.DeviceId ?? "", cancellationToken).ConfigureAwait(false);
+            }
             commandExecutor.EndControlSession();
             return WithAuth(AckOrNoResponse(request), auth);
         }
@@ -111,8 +123,109 @@ public sealed class ControlSession
                 auth);
         }
 
+        if (type == ProtocolConstants.SwitchProfileListCommandType)
+        {
+            if (switchControlSessions is null)
+            {
+                return WithAuth(ControlSessionResult.Response(ErrorResponse(
+                    RequestIdOrNull(request),
+                    "unsupported_command",
+                    "PC Switch Control is unavailable.")), auth);
+            }
+
+            return WithAuth(ResponseOrNoResponse(
+                request,
+                SwitchProfileCatalogResponse(
+                    request.GetProperty("id").GetString() ?? "",
+                    switchControlSessions.GetCatalog())), auth);
+        }
+
         CommandExecutionResult result;
-        if (type == "mouse.repeat.start")
+        if (type == ProtocolConstants.SwitchSessionStartCommandType)
+        {
+            if (switchControlSessions is null)
+            {
+                result = CommandExecutionResult.Failure("unsupported_command", "PC Switch Control is unavailable.");
+            }
+            else
+            {
+                await StopRepeatAsync(auth.DeviceId ?? "").ConfigureAwait(false);
+                await commandExecutor.ReleaseHeldInputsAsync(cancellationToken).ConfigureAwait(false);
+                JsonElement payload = request.GetProperty("payload");
+                SwitchSessionResult sessionResult = await switchControlSessions.StartAsync(
+                    auth.DeviceId ?? "",
+                    payload.GetProperty("sessionId").GetString() ?? "",
+                    payload.GetProperty("profileId").GetString() ?? "",
+                    payload.GetProperty("profileVersion").GetInt32(),
+                    cancellationToken).ConfigureAwait(false);
+                result = SessionResult(sessionResult);
+            }
+        }
+        else if (type == ProtocolConstants.SwitchEdgeCommandType)
+        {
+            JsonElement payload = request.GetProperty("payload");
+            result = switchControlSessions is null
+                ? CommandExecutionResult.Failure("unsupported_command", "PC Switch Control is unavailable.")
+                : SessionResult(await switchControlSessions.ApplyEdgeAsync(
+                    auth.DeviceId ?? "",
+                    payload.GetProperty("sessionId").GetString() ?? "",
+                    payload.GetProperty("sequence").GetInt64(),
+                    payload.GetProperty("switchId").GetInt32(),
+                    payload.GetProperty("state").GetString() == "down",
+                    cancellationToken).ConfigureAwait(false));
+        }
+        else if (type == ProtocolConstants.SwitchSyncCommandType)
+        {
+            JsonElement payload = request.GetProperty("payload");
+            result = switchControlSessions is null
+                ? CommandExecutionResult.Failure("unsupported_command", "PC Switch Control is unavailable.")
+                : SessionResult(await switchControlSessions.SynchronizeAsync(
+                    auth.DeviceId ?? "",
+                    payload.GetProperty("sessionId").GetString() ?? "",
+                    payload.GetProperty("sequence").GetInt64(),
+                    payload.GetProperty("pressedSwitchIds").EnumerateArray().Select(value => value.GetInt32()).ToHashSet(),
+                    cancellationToken).ConfigureAwait(false));
+        }
+        else if (type == ProtocolConstants.SwitchSessionStopCommandType)
+        {
+            JsonElement payload = request.GetProperty("payload");
+            result = switchControlSessions is null
+                ? CommandExecutionResult.Failure("unsupported_command", "PC Switch Control is unavailable.")
+                : SessionResult(await switchControlSessions.StopAsync(
+                    auth.DeviceId ?? "",
+                    payload.GetProperty("sessionId").GetString() ?? "",
+                    payload.GetProperty("sequence").GetInt64(),
+                    cancellationToken).ConfigureAwait(false));
+        }
+        else if (type == ProtocolConstants.GridSwitchSetCommandType && switchControlSessions is not null)
+        {
+            JsonElement payload = request.GetProperty("payload");
+            result = SessionResult(await switchControlSessions.ApplyLegacyGridEdgeAsync(
+                auth.DeviceId ?? "",
+                payload.TryGetProperty("sessionId", out JsonElement sessionId) ? sessionId.GetString() : null,
+                payload.TryGetProperty("sequence", out JsonElement sequence) ? sequence.GetInt64() : null,
+                payload.GetProperty("switchId").GetInt32(),
+                payload.GetProperty("state").GetString() == "down",
+                cancellationToken).ConfigureAwait(false));
+        }
+        else if (type == ProtocolConstants.GridSwitchSyncCommandType && switchControlSessions is not null)
+        {
+            JsonElement payload = request.GetProperty("payload");
+            result = SessionResult(await switchControlSessions.SynchronizeLegacyGridAsync(
+                auth.DeviceId ?? "",
+                payload.GetProperty("sessionId").GetString() ?? "",
+                payload.GetProperty("sequence").GetInt64(),
+                payload.GetProperty("pressedSwitchIds").EnumerateArray().Select(value => value.GetInt32()).ToHashSet(),
+                cancellationToken).ConfigureAwait(false));
+        }
+        else if (switchControlSessions?.IsActive == true &&
+            type != "connection.ping")
+        {
+            result = CommandExecutionResult.Failure(
+                "switch_session_active",
+                "Stop PC Switch Control before using other PC control commands.");
+        }
+        else if (type == "mouse.repeat.start")
         {
             if (mouseRepeatController is null)
             {
@@ -169,6 +282,10 @@ public sealed class ControlSession
     {
         await StopAllRepeatsAsync().ConfigureAwait(false);
         await commandExecutor.ReleaseHeldInputsAsync(cancellationToken).ConfigureAwait(false);
+        if (switchControlSessions is not null)
+        {
+            await switchControlSessions.StopAllAsync(cancellationToken).ConfigureAwait(false);
+        }
         commandExecutor.EndControlSession();
     }
 
@@ -313,6 +430,42 @@ public sealed class ControlSession
                         ["displayCount"] = profile.Capabilities.DisplayNavigation.DisplayCount
                     }
                 }
+            },
+            ["error"] = null
+        };
+    }
+
+    private static CommandExecutionResult SessionResult(SwitchSessionResult result) =>
+        result.Ok
+            ? CommandExecutionResult.Success
+            : CommandExecutionResult.Failure(
+                result.Code ?? "command_failed",
+                result.Message ?? "PC Switch Control command failed.");
+
+    private static JsonObject SwitchProfileCatalogResponse(string id, SwitchControlProfileCatalog catalog)
+    {
+        return new JsonObject
+        {
+            ["version"] = ProtocolConstants.ProtocolVersion,
+            ["id"] = id,
+            ["type"] = ProtocolConstants.SwitchProfileListCommandType,
+            ["ok"] = true,
+            ["payload"] = new JsonObject
+            {
+                ["catalogRevision"] = catalog.CatalogRevision,
+                ["profiles"] = new JsonArray(catalog.Profiles.Select(profile => new JsonObject
+                {
+                    ["id"] = profile.Id,
+                    ["version"] = profile.Version,
+                    ["name"] = profile.Name,
+                    ["kind"] = profile.Kind,
+                    ["bindings"] = new JsonArray(profile.Bindings.Select(binding => new JsonObject
+                    {
+                        ["switchId"] = binding.SwitchId,
+                        ["label"] = binding.Label,
+                        ["behavior"] = binding.Behavior
+                    }).ToArray<JsonNode?>())
+                }).ToArray<JsonNode?>())
             },
             ["error"] = null
         };

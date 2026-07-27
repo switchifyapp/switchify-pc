@@ -13,6 +13,11 @@ public static class ProtocolConstants
     public const int MaxErrorMessageLength = 300;
     public const string GridSwitchSetCommandType = "grid.switch.set";
     public const string GridSwitchSyncCommandType = "grid.switch.sync";
+    public const string SwitchProfileListCommandType = "switch.profile.list";
+    public const string SwitchSessionStartCommandType = "switch.session.start";
+    public const string SwitchEdgeCommandType = "switch.edge";
+    public const string SwitchSyncCommandType = "switch.sync";
+    public const string SwitchSessionStopCommandType = "switch.session.stop";
     public const int MinimumGridSwitchId = 1;
     public const int MaximumGridSwitchId = 8;
 
@@ -41,6 +46,11 @@ public static class ProtocolConstants
         "window.control",
         GridSwitchSetCommandType,
         GridSwitchSyncCommandType,
+        SwitchProfileListCommandType,
+        SwitchSessionStartCommandType,
+        SwitchEdgeCommandType,
+        SwitchSyncCommandType,
+        SwitchSessionStopCommandType,
         "pointer.profile",
         "pointer.display.move",
         "pointer.speed.set",
@@ -72,7 +82,8 @@ public static class ProtocolConstants
         "keyboard.textStream.key",
         "media.control",
         "window.control",
-        GridSwitchSetCommandType
+        GridSwitchSetCommandType,
+        SwitchEdgeCommandType
     };
 
     public static readonly IReadOnlySet<string> MouseButtons = new HashSet<string>(StringComparer.Ordinal)

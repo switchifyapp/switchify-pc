@@ -16,6 +16,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     };
     private UpdateState updateState = UpdateState.CreateInitial("0.2.0");
     private IReadOnlyList<PendingPairingApprovalView> pairingApprovals = [];
+    private string? activeSwitchControlProfile;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -56,6 +57,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string LastDisconnectReason => MainWindowCopy.BluetoothDisconnectSummary(bluetooth);
 
     public string RecentBluetoothError => MainWindowCopy.BluetoothRecentError(bluetooth);
+
+    public bool HasActiveSwitchControlProfile => activeSwitchControlProfile is not null;
+
+    public string ActiveSwitchControlProfile => activeSwitchControlProfile is null
+        ? ""
+        : $"PC Switch Control: {activeSwitchControlProfile}";
 
     public bool HasUpdateBanner => MainWindowCopy.UpdateBanner(updateState) is not null;
 
@@ -99,6 +106,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasPairingApprovals));
         OnPropertyChanged(nameof(PairingApprovals));
         OnPropertyChanged(nameof(ShowConnectedDeviceUi));
+    }
+
+    public void SetActiveSwitchControlProfile(string? profileName)
+    {
+        activeSwitchControlProfile = profileName;
+        OnPropertyChanged(nameof(HasActiveSwitchControlProfile));
+        OnPropertyChanged(nameof(ActiveSwitchControlProfile));
     }
 
     private void NotifyStatusChanged()

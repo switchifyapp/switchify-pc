@@ -48,6 +48,7 @@ public partial class App : System.Windows.Application
     private BluetoothRemoteFrameProcessor? bluetoothFrameProcessor;
     private DesktopCommandExecutor? commandExecutor;
     private JsonSwitchControlProfileStore? switchControlProfileStore;
+    private SwitchControlSessionManager? switchControlSessionManager;
     private MouseRepeatController? mouseRepeatController;
     private WindowsCursorOverlayNotifier? cursorOverlay;
     private WindowsModifierKeyOverlayNotifier? modifierOverlay;
@@ -143,6 +144,7 @@ public partial class App : System.Windows.Application
         mouseRepeatController = null;
         try
         {
+            switchControlSessionManager?.StopAllAsync().GetAwaiter().GetResult();
             commandExecutor?.ReleaseHeldInputsAsync().GetAwaiter().GetResult();
         }
         catch
@@ -157,6 +159,7 @@ public partial class App : System.Windows.Application
         themeManager?.Dispose();
         themeManager = null;
         commandExecutor = null;
+        switchControlSessionManager = null;
         switchControlProfileStore = null;
         bluetoothFrameProcessor = null;
         bluetoothStatusTracker = null;
@@ -297,7 +300,7 @@ public partial class App : System.Windows.Application
         {
             switchControlProfileWindow = new SwitchControlProfileWindow(
                 switchControlProfileStore,
-                () => null);
+                () => switchControlSessionManager?.ActiveProfileId);
             switchControlProfileWindow.Closed += (_, _) => switchControlProfileWindow = null;
         }
         switchControlProfileWindow.Owner = settingsWindow;
@@ -384,6 +387,9 @@ public partial class App : System.Windows.Application
             JsonCursorOverlaySettingsStore cursorOverlaySettingsStore = new(Path.Combine(userDataDirectory, "cursor-overlay-settings.json"));
             SendInputWindowsNativeInput nativeInput = new();
             WindowsDesktopInputAdapter inputAdapter = new(nativeInput, pointerSettingsStore.Load());
+            WindowsGridSwitchBroadcaster gridSwitchBroadcaster = new();
+            switchControlProfileStore = new JsonSwitchControlProfileStore(
+                Path.Combine(userDataDirectory, "switch-control-profiles.json"));
             cursorOverlay = new WindowsCursorOverlayNotifier(
                 nativeInput,
                 cursorOverlaySettingsStore,
@@ -397,7 +403,12 @@ public partial class App : System.Windows.Application
                 inputAdapter,
                 cursorOverlay,
                 modifierOverlay: modifierOverlay,
-                gridSwitchBroadcaster: new WindowsGridSwitchBroadcaster());
+                gridSwitchBroadcaster: gridSwitchBroadcaster);
+            switchControlSessionManager = new SwitchControlSessionManager(
+                switchControlProfileStore,
+                new SwitchOutputSessionFactory(inputAdapter, gridSwitchBroadcaster));
+            switchControlSessionManager.ActiveProfileChanged += profileName =>
+                Dispatcher.BeginInvoke(() => mainWindowViewModel.SetActiveSwitchControlProfile(profileName));
             mouseRepeatController = new MouseRepeatController(
                 commandExecutor,
                 mouseRepeatSettingsStore,
@@ -408,7 +419,8 @@ public partial class App : System.Windows.Application
                 commandExecutor,
                 new WindowsPointerProfileProvider(nativeInput, pointerSettingsStore, mouseRepeatSettingsStore),
                 mouseRepeatController,
-                pointerSpeedController);
+                pointerSpeedController,
+                switchControlSessionManager);
 
             pairingApprovalManager ??= new PairingApprovalManager(pairingStore);
             RemoteControlSession remoteSession = new(
@@ -465,6 +477,11 @@ public partial class App : System.Windows.Application
                     bluetoothFrameProcessor?.RemoveConnection(disconnected.ConnectionId);
                     if (status.ConnectedClientCount == 0)
                     {
+                        if (switchControlSessionManager is not null)
+                        {
+                            await switchControlSessionManager.StopAllAsync();
+                        }
+
                         if (mouseRepeatController is not null)
                         {
                             await mouseRepeatController.StopAllAsync();

@@ -15,6 +15,7 @@ public sealed class ThemeXamlGuardTests
     [Theory]
     [InlineData("src/SwitchifyPc.App/MainWindow.xaml")]
     [InlineData("src/SwitchifyPc.App/SettingsWindow.xaml")]
+    [InlineData("src/SwitchifyPc.App/SwitchControlProfileWindow.xaml")]
     [InlineData("src/SwitchifyPc.App/Chrome/SwitchifyTitleBar.xaml")]
     public void ThemedXamlDoesNotReintroduceHardCodedLightThemeColors(string path)
     {

@@ -53,6 +53,26 @@ public sealed class SwitchControlSessionManagerTests
         Assert.Empty(output.Events);
     }
 
+    [Fact]
+    public async Task FailedStopKeepsSessionAvailableForCleanupRetry()
+    {
+        SwitchControlProfile profile = SwitchControlProfiles.BuiltIns[1];
+        var output = new RecordingOutputSession { FailStop = true };
+        var manager = Manager(profile, output);
+        string sessionId = Guid.NewGuid().ToString();
+        await manager.StartAsync("device", sessionId, profile.Id, profile.Version);
+
+        SwitchSessionResult failed = await manager.StopAsync("device", sessionId, 1);
+        Assert.True(manager.IsActive);
+        output.FailStop = false;
+        SwitchSessionResult retried = await manager.StopAsync("device", sessionId, 1);
+
+        Assert.Equal("output_failure", failed.Code);
+        Assert.False(manager.IsActive);
+        Assert.True(retried.Ok);
+        Assert.Equal(2, output.StopCount);
+    }
+
     private static SwitchControlSessionManager Manager(
         SwitchControlProfile profile,
         RecordingOutputSession output) =>
@@ -75,6 +95,7 @@ public sealed class SwitchControlSessionManagerTests
         public List<string> Events { get; } = [];
         public int StopCount { get; private set; }
         public bool Fail { get; set; }
+        public bool FailStop { get; set; }
 
         public Task ApplyEdgeAsync(int switchId, bool pressed, CancellationToken token)
         {
@@ -88,6 +109,7 @@ public sealed class SwitchControlSessionManagerTests
         public Task StopAsync(CancellationToken token)
         {
             StopCount++;
+            if (FailStop) throw new InvalidOperationException();
             return Task.CompletedTask;
         }
     }

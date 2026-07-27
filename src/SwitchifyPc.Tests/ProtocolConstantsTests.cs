@@ -63,6 +63,11 @@ public sealed class ProtocolConstantsTests
             "window.control",
             "grid.switch.set",
             "grid.switch.sync",
+            "switch.profile.list",
+            "switch.session.start",
+            "switch.edge",
+            "switch.sync",
+            "switch.session.stop",
             "pointer.display.move",
             "pointer.profile",
             "pointer.speed.set",
@@ -87,6 +92,8 @@ public sealed class ProtocolConstantsTests
         Assert.DoesNotContain("pointer.speed.set", ProtocolConstants.NoAckControlCommandTypes);
         Assert.Contains(ProtocolConstants.GridSwitchSetCommandType, ProtocolConstants.NoAckControlCommandTypes);
         Assert.DoesNotContain(ProtocolConstants.GridSwitchSyncCommandType, ProtocolConstants.NoAckControlCommandTypes);
+        Assert.Contains(ProtocolConstants.SwitchEdgeCommandType, ProtocolConstants.NoAckControlCommandTypes);
+        Assert.DoesNotContain(ProtocolConstants.SwitchSyncCommandType, ProtocolConstants.NoAckControlCommandTypes);
     }
 
     [Fact]

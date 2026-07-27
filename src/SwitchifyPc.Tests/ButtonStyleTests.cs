@@ -2,6 +2,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Media;
 using SwitchifyPc.App;
+using SwitchifyPc.Core.SwitchControl;
 using WpfBorder = System.Windows.Controls.Border;
 using WpfControl = System.Windows.Controls.Control;
 using WpfControlTemplate = System.Windows.Controls.ControlTemplate;
@@ -36,6 +37,24 @@ public sealed class ButtonStyleTests
         {
             WpfTestApplication.ApplyTheme(SwitchifyPc.App.Themes.AppTheme.Light);
             SettingsWindow window = new();
+            try
+            {
+                AssertPrimaryButtonStyleUsesRedHoverBrush(window);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ProfileWindowPrimaryButtonStyleUsesRedHoverBrush()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(SwitchifyPc.App.Themes.AppTheme.Light);
+            SwitchControlProfileWindow window = new(new StaticProfileStore(), () => null);
             try
             {
                 AssertPrimaryButtonStyleUsesRedHoverBrush(window);
@@ -93,5 +112,13 @@ public sealed class ButtonStyleTests
         thread.Join();
 
         if (exception is not null) throw exception;
+    }
+
+    private sealed class StaticProfileStore : ISwitchControlProfileStore
+    {
+        public IReadOnlyList<SwitchControlProfile> Load() => SwitchControlProfiles.BuiltIns;
+
+        public IReadOnlyList<SwitchControlProfile> Save(IReadOnlyList<SwitchControlProfile> customProfiles) =>
+            [.. SwitchControlProfiles.BuiltIns, .. customProfiles];
     }
 }

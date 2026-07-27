@@ -16,6 +16,8 @@ public sealed class SwitchControlSessionManager
     private ActiveSession? active;
     private long catalogRevision = 1;
 
+    public event Action<string?>? ActiveProfileChanged;
+
     public SwitchControlSessionManager(
         ISwitchControlProfileStore profiles,
         ISwitchOutputSessionFactory outputs)
@@ -56,7 +58,16 @@ public sealed class SwitchControlSessionManager
         await gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            await StopLockedAsync(token).ConfigureAwait(false);
+            try
+            {
+                await StopLockedAsync(token).ConfigureAwait(false);
+            }
+            catch
+            {
+                return SwitchSessionResult.Failure(
+                    "output_failure",
+                    "The previous switch output could not be released.");
+            }
             ISwitchOutputSession output;
             try
             {
@@ -68,6 +79,7 @@ public sealed class SwitchControlSessionManager
             }
 
             active = new ActiveSession(deviceId, sessionId, profile, output);
+            ActiveProfileChanged?.Invoke(profile.Name);
             return SwitchSessionResult.Success;
         }
         finally
@@ -116,7 +128,6 @@ public sealed class SwitchControlSessionManager
         }
         catch
         {
-            active = null;
             return SwitchSessionResult.Failure("output_failure", "The active switch output could not be released.");
         }
         finally
@@ -240,11 +251,21 @@ public sealed class SwitchControlSessionManager
             return SwitchSessionResult.Success;
         }
 
-        await StopLockedAsync(token).ConfigureAwait(false);
+        try
+        {
+            await StopLockedAsync(token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return SwitchSessionResult.Failure(
+                "output_failure",
+                "The previous switch output could not be released.");
+        }
         SwitchControlProfile profile = SwitchControlProfiles.BuiltIns[0];
         try
         {
             active = new ActiveSession(deviceId, effectiveSessionId, profile, outputs.Create(profile));
+            ActiveProfileChanged?.Invoke(profile.Name);
             return SwitchSessionResult.Success;
         }
         catch (DesktopInputException error)
@@ -282,10 +303,11 @@ public sealed class SwitchControlSessionManager
     private async Task StopLockedAsync(CancellationToken token)
     {
         ActiveSession? previous = active;
-        active = null;
         if (previous is not null)
         {
             await previous.Output.StopAsync(token).ConfigureAwait(false);
+            active = null;
+            ActiveProfileChanged?.Invoke(null);
         }
     }
 
