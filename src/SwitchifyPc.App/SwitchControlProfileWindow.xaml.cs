@@ -14,19 +14,40 @@ public partial class SwitchControlProfileWindow : Window
 {
     private readonly ISwitchControlProfileStore store;
     private readonly Func<string?> activeProfileId;
+    private readonly Func<MessageBoxResult> confirmUnsavedChanges;
     private IReadOnlyList<SwitchControlProfile> profiles = [];
     private SwitchControlProfile? selected;
+    private ProfileEditSnapshot? cleanSnapshot;
+    private bool isEditable;
+    private bool isTransient;
+    private bool isDirty;
+    private bool suppressDirtyTracking;
+    private bool suppressSelectionChange;
     private readonly BindingRowViewModel[] rows =
         Enumerable.Range(1, 8).Select(id => new BindingRowViewModel(id)).ToArray();
 
     public SwitchControlProfileWindow(
         ISwitchControlProfileStore store,
         Func<string?> activeProfileId)
+        : this(store, activeProfileId, ShowUnsavedChangesPrompt)
+    {
+    }
+
+    internal SwitchControlProfileWindow(
+        ISwitchControlProfileStore store,
+        Func<string?> activeProfileId,
+        Func<MessageBoxResult> confirmUnsavedChanges)
     {
         this.store = store;
         this.activeProfileId = activeProfileId;
+        this.confirmUnsavedChanges = confirmUnsavedChanges;
         InitializeComponent();
         BindingRows.ItemsSource = rows;
+        ProfileName.TextChanged += (_, _) => RefreshDirtyState();
+        foreach (BindingRowViewModel row in rows)
+        {
+            row.PropertyChanged += (_, _) => RefreshDirtyState();
+        }
         Reload();
     }
 
@@ -34,33 +55,87 @@ public partial class SwitchControlProfileWindow : Window
     {
         profiles = store.Load();
         ProfilesList.ItemsSource = profiles;
-        ProfilesList.SelectedItem = profiles.FirstOrDefault(profile => profile.Id == selectId) ?? profiles.FirstOrDefault();
+        SwitchControlProfile? profile =
+            profiles.FirstOrDefault(candidate => candidate.Id == selectId) ?? profiles.FirstOrDefault();
+        SelectAndLoad(profile);
     }
 
     private void ProfilesList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ProfilesList.SelectedItem is not SwitchControlProfile profile) return;
+        if (suppressSelectionChange ||
+            ProfilesList.SelectedItem is not SwitchControlProfile profile ||
+            profile.Id == selected?.Id)
+        {
+            return;
+        }
+
+        if (isDirty)
+        {
+            string targetId = profile.Id;
+            switch (confirmUnsavedChanges())
+            {
+                case MessageBoxResult.Yes:
+                    if (!TrySave())
+                    {
+                        RestoreSelectedProfile();
+                        return;
+                    }
+                    Reload(targetId);
+                    return;
+                case MessageBoxResult.No:
+                    Reload(targetId);
+                    return;
+                default:
+                    RestoreSelectedProfile();
+                    return;
+            }
+        }
+
+        LoadProfile(profile);
+    }
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (isDirty)
+        {
+            MessageBoxResult decision = confirmUnsavedChanges();
+            if (decision == MessageBoxResult.Cancel ||
+                decision == MessageBoxResult.Yes && !TrySave())
+            {
+                e.Cancel = true;
+            }
+        }
+
+        base.OnClosing(e);
+    }
+
+    private void LoadProfile(SwitchControlProfile profile, bool transient = false)
+    {
+        suppressDirtyTracking = true;
         selected = profile;
-        bool editable = !profile.IsBuiltIn && profile.Id != activeProfileId();
+        isEditable = !profile.IsBuiltIn && profile.Id != activeProfileId();
+        isTransient = transient;
         ProfileName.Text = profile.Name;
-        ProfileName.IsEnabled = editable;
+        ProfileName.IsEnabled = isEditable;
         ReadOnlyMessage.Text = profile.IsBuiltIn
             ? "Built-in profiles are read-only. Duplicate this profile to customize it."
-            : editable
+            : isEditable
                 ? ""
                 : "This profile is active and cannot be changed until PC Switch Control stops.";
         foreach ((BindingRowViewModel row, SwitchControlBinding binding) in rows.Zip(profile.Bindings))
         {
-            row.Load(binding, editable);
+            row.Load(binding, isEditable);
         }
-        SaveButton.IsEnabled = editable;
-        CancelButton.IsEnabled = editable;
-        DeleteButton.IsEnabled = editable;
+        cleanSnapshot = CaptureSnapshot();
+        suppressDirtyTracking = false;
+        DeleteButton.IsEnabled = isEditable;
         ValidationMessage.Text = "";
+        RefreshDirtyState();
     }
 
     private void New_Click(object sender, RoutedEventArgs e)
     {
+        if (!ResolvePendingChanges()) return;
         EditUnsaved(new SwitchControlProfile(
             Guid.NewGuid().ToString(),
             1,
@@ -71,6 +146,7 @@ public partial class SwitchControlProfileWindow : Window
 
     private void Duplicate_Click(object sender, RoutedEventArgs e)
     {
+        if (!ResolvePendingChanges()) return;
         if (selected is null) return;
         EditUnsaved(selected with
         {
@@ -89,19 +165,24 @@ public partial class SwitchControlProfileWindow : Window
     {
         profiles = [.. profiles, profile];
         ProfilesList.ItemsSource = profiles;
+        suppressSelectionChange = true;
         ProfilesList.SelectedItem = profile;
+        suppressSelectionChange = false;
+        LoadProfile(profile, transient: true);
         ProfilesList.ScrollIntoView(profile);
     }
 
-    private void Save_Click(object sender, RoutedEventArgs e)
+    private void Save_Click(object sender, RoutedEventArgs e) => TrySave();
+
+    private bool TrySave()
     {
-        if (selected is null || selected.IsBuiltIn || selected.Id == activeProfileId()) return;
+        if (selected is null || !isEditable) return false;
         BindingRowViewModel? invalidRow = rows.FirstOrDefault(row => !row.IsLocallyValid());
         if (invalidRow is not null)
         {
             ValidationMessage.Text = $"Switch {invalidRow.SwitchId}: {invalidRow.ValueHelp}";
             FocusBindingValue(invalidRow);
-            return;
+            return false;
         }
         try
         {
@@ -119,11 +200,13 @@ public partial class SwitchControlProfileWindow : Window
                 .ToArray();
             store.Save(custom);
             Reload(saved.Id);
+            return true;
         }
         catch (Exception error) when (error is InvalidDataException or IOException or UnauthorizedAccessException)
         {
             ValidationMessage.Text = error.Message;
             ProfileName.Focus();
+            return false;
         }
     }
 
@@ -142,7 +225,64 @@ public partial class SwitchControlProfileWindow : Window
         Reload();
     }
 
-    private void Close_Click(object sender, RoutedEventArgs e) => Close();
+    private bool ResolvePendingChanges()
+    {
+        if (!isDirty) return true;
+        return confirmUnsavedChanges() switch
+        {
+            MessageBoxResult.Yes => TrySave(),
+            MessageBoxResult.No => DiscardPendingChanges(),
+            _ => false
+        };
+    }
+
+    private bool DiscardPendingChanges()
+    {
+        Reload(selected?.Id);
+        return true;
+    }
+
+    private void SelectAndLoad(SwitchControlProfile? profile)
+    {
+        suppressSelectionChange = true;
+        ProfilesList.SelectedItem = profile;
+        suppressSelectionChange = false;
+        if (profile is not null)
+        {
+            LoadProfile(profile);
+        }
+    }
+
+    private void RestoreSelectedProfile()
+    {
+        suppressSelectionChange = true;
+        ProfilesList.SelectedItem = selected;
+        suppressSelectionChange = false;
+    }
+
+    private void RefreshDirtyState()
+    {
+        if (suppressDirtyTracking || cleanSnapshot is null) return;
+        ProfileEditSnapshot current = CaptureSnapshot();
+        isDirty = isEditable &&
+            (isTransient ||
+             !string.Equals(current.Name, cleanSnapshot.Name, StringComparison.Ordinal) ||
+             !current.Bindings.SequenceEqual(cleanSnapshot.Bindings));
+        SaveButton.IsEnabled = isDirty;
+        CancelButton.IsEnabled = isDirty;
+    }
+
+    private ProfileEditSnapshot CaptureSnapshot() =>
+        new(
+            ProfileName.Text,
+            rows.Select(row => new BindingEditSnapshot(row.SelectedType, row.Value)).ToArray());
+
+    private static MessageBoxResult ShowUnsavedChangesPrompt() =>
+        WpfMessageBox.Show(
+            "Save changes to this profile before continuing?\n\nChoose No to discard them.",
+            "Unsaved PC Switch Control changes",
+            MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Warning);
 
     private string UniqueName(string proposed)
     {
@@ -178,6 +318,14 @@ public partial class SwitchControlProfileWindow : Window
             foreach (T descendant in FindDescendants<T>(child)) yield return descendant;
         }
     }
+
+    private sealed record ProfileEditSnapshot(
+        string Name,
+        IReadOnlyList<BindingEditSnapshot> Bindings);
+
+    private sealed record BindingEditSnapshot(
+        SwitchBindingType Type,
+        string Value);
 
     private sealed class BindingRowViewModel : INotifyPropertyChanged
     {
