@@ -307,6 +307,8 @@ public sealed class SwitchControlProfileWindowTests
 
                 Assert.Contains("Mouse button", ItemLabels(action));
                 Assert.Contains("Media control", ItemLabels(action));
+                Assert.Equal("Keyboard key", action.SelectionBoxItem.ToString());
+                Assert.Contains("Up arrow", value.Items.Cast<object>().Select(item => item.ToString()));
                 action.SelectedValue = SwitchBindingType.MouseClick;
                 Assert.Empty(value.Text);
                 Assert.False(save.IsEnabled);
