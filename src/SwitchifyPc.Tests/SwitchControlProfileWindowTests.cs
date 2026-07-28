@@ -121,9 +121,9 @@ public sealed class SwitchControlProfileWindowTests
                     ControlByAutomationName<WpfComboBox>(window, "Switch 1 action type"));
                 WpfComboBox value = Assert.IsType<WpfComboBox>(
                     ControlByAutomationName<WpfComboBox>(window, "Switch 1 action value"));
-                action.SelectedItem = SwitchBindingType.None;
+                action.SelectedValue = SwitchBindingType.None;
                 Assert.True(save.IsEnabled);
-                action.SelectedItem = SwitchBindingType.Key;
+                action.SelectedValue = SwitchBindingType.Key;
                 value.Text = "A";
                 Assert.False(save.IsEnabled);
 
@@ -256,7 +256,7 @@ public sealed class SwitchControlProfileWindowTests
                     ControlByAutomationName<WpfComboBox>(window, "Switch 1 action type"));
                 WpfComboBox value = Assert.IsType<WpfComboBox>(
                     ControlByAutomationName<WpfComboBox>(window, "Switch 1 action value"));
-                action.SelectedItem = SwitchBindingType.Key;
+                action.SelectedValue = SwitchBindingType.Key;
                 value.Text = "NotAKey";
 
                 WpfListBox profiles = Assert.IsType<WpfListBox>(window.FindName("ProfilesList"));
@@ -275,6 +275,140 @@ public sealed class SwitchControlProfileWindowTests
             finally
             {
                 promptDecision = MessageBoxResult.No;
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ProfileWindowUsesFriendlyLabelsAndSavesCanonicalValues()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            MutableProfileStore store = new();
+            SwitchControlProfileWindow window = CreateWindow(store, () => MessageBoxResult.No);
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+                SelectCustomProfile(window);
+
+                WpfComboBox action = Assert.IsType<WpfComboBox>(
+                    ControlByAutomationName<WpfComboBox>(window, "Switch 1 action type"));
+                WpfComboBox value = Assert.IsType<WpfComboBox>(
+                    ControlByAutomationName<WpfComboBox>(window, "Switch 1 action value"));
+                WpfButton save = Assert.IsType<WpfButton>(window.FindName("SaveButton"));
+
+                Assert.Contains("Mouse button", ItemLabels(action));
+                Assert.Contains("Media control", ItemLabels(action));
+                action.SelectedValue = SwitchBindingType.MouseClick;
+                Assert.Empty(value.Text);
+                Assert.False(save.IsEnabled);
+                Assert.Contains("Choose a value for this action.", TextBlocks(window));
+                Assert.Contains("Double left click", ItemLabels(value));
+
+                value.Text = "Double left click";
+                Assert.True(save.IsEnabled);
+                save.RaiseEvent(new RoutedEventArgs(WpfButton.ClickEvent));
+
+                SwitchControlBinding saved = store.CustomProfiles.Single().Bindings[0];
+                Assert.Equal(SwitchBindingType.MouseClick, saved.Type);
+                Assert.Equal("left", saved.Value);
+                Assert.Equal(2, saved.ClickCount);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ChangingEveryActionTypeClearsThePreviousValue()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            MutableProfileStore store = new();
+            SwitchControlProfileWindow window = CreateWindow(store, () => MessageBoxResult.No);
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+                SelectCustomProfile(window);
+
+                WpfComboBox action = Assert.IsType<WpfComboBox>(
+                    ControlByAutomationName<WpfComboBox>(window, "Switch 1 action type"));
+                WpfComboBox value = Assert.IsType<WpfComboBox>(
+                    ControlByAutomationName<WpfComboBox>(window, "Switch 1 action value"));
+                var displays = new Dictionary<SwitchBindingType, string>
+                {
+                    [SwitchBindingType.Key] = "Up arrow",
+                    [SwitchBindingType.MouseButton] = "Left button",
+                    [SwitchBindingType.Shortcut] = "Ctrl + C",
+                    [SwitchBindingType.MouseClick] = "Left click",
+                    [SwitchBindingType.Scroll] = "Scroll down",
+                    [SwitchBindingType.Media] = "Play / pause"
+                };
+
+                action.SelectedValue = SwitchBindingType.None;
+                Assert.Empty(value.Text);
+                foreach ((SwitchBindingType type, string display) in displays)
+                {
+                    action.SelectedValue = type;
+                    Assert.Empty(value.Text);
+                    value.Text = display;
+                    Assert.Equal(display, value.Text);
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Theory]
+    [InlineData(SwitchBindingType.Key, "Up arrow", "Key|ArrowUp|1|")]
+    [InlineData(SwitchBindingType.MouseButton, "Left button", "MouseButton|left|1|")]
+    [InlineData(SwitchBindingType.Shortcut, "Windows key + A", "Shortcut||1|Meta,A")]
+    [InlineData(SwitchBindingType.MouseClick, "Double right click", "MouseClick|right|2|")]
+    [InlineData(SwitchBindingType.Scroll, "Scroll up", "Scroll|up|1|")]
+    [InlineData(SwitchBindingType.Media, "Play / pause", "Media|playPause|1|")]
+    public void FriendlyValuesRoundTripToCanonicalBindings(
+        SwitchBindingType type,
+        string display,
+        string expected)
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            MutableProfileStore store = new();
+            SwitchControlProfileWindow window = CreateWindow(store, () => MessageBoxResult.No);
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+                SelectCustomProfile(window);
+
+                WpfComboBox action = Assert.IsType<WpfComboBox>(
+                    ControlByAutomationName<WpfComboBox>(window, "Switch 1 action type"));
+                WpfComboBox value = Assert.IsType<WpfComboBox>(
+                    ControlByAutomationName<WpfComboBox>(window, "Switch 1 action value"));
+                action.SelectedValue = type;
+                value.Text = display;
+                Assert.True(Assert.IsType<WpfButton>(window.FindName("SaveButton")).IsEnabled);
+                Assert.IsType<WpfButton>(window.FindName("SaveButton"))
+                    .RaiseEvent(new RoutedEventArgs(WpfButton.ClickEvent));
+
+                SwitchControlBinding binding = store.CustomProfiles.Single().Bindings[0];
+                Assert.Equal(
+                    expected,
+                    $"{binding.Type}|{binding.Value}|{binding.ClickCount}|{string.Join(",", binding.Keys ?? [])}");
+            }
+            finally
+            {
                 window.Close();
             }
         });
@@ -380,6 +514,13 @@ public sealed class SwitchControlProfileWindowTests
         });
         return content;
     }
+
+    private static IReadOnlyList<string> ItemLabels(ItemsControl items) =>
+        items.Items.Cast<object>()
+            .Select(item => item.GetType().GetProperty("Label")?.GetValue(item) as string)
+            .Where(label => label is not null)
+            .Cast<string>()
+            .ToArray();
 
     private static WpfButton ButtonByContent(DependencyObject root, string content)
     {

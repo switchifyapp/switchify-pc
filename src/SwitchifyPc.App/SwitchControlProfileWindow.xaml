@@ -451,13 +451,17 @@
                                             <ComboBox Grid.Column="1"
                                                       Margin="0,0,10,0"
                                                       ItemsSource="{Binding Types}"
-                                                      SelectedItem="{Binding SelectedType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                      DisplayMemberPath="Label"
+                                                      SelectedValuePath="Value"
+                                                      SelectedValue="{Binding SelectedType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                       IsEnabled="{Binding IsEditable}"
                                                       AutomationProperties.Name="{Binding TypeAutomationName}" />
                                             <ComboBox x:Name="BindingValueInput"
                                                       Grid.Column="2"
                                                       ItemsSource="{Binding ValueOptions}"
-                                                      Text="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                      DisplayMemberPath="Label"
+                                                      TextSearch.TextPath="Label"
+                                                      Text="{Binding ValueDisplay, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                       IsEditable="True"
                                                       IsTextSearchEnabled="True"
                                                       IsEnabled="{Binding IsEditable}"
@@ -467,8 +471,19 @@
                                                        Grid.Column="1"
                                                        Grid.ColumnSpan="2"
                                                        Margin="0,5,0,0"
-                                                       Text="{Binding ValueHelp}"
-                                                       Style="{StaticResource MutedText}" />
+                                                       Text="{Binding FeedbackText}"
+                                                       AutomationProperties.LiveSetting="Polite">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource MutedText}">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasValidationError}" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource StatusError}" />
+                                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>

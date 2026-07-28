@@ -333,8 +333,24 @@ public partial class SwitchControlProfileWindow : Window
             (isTransient ||
              !string.Equals(current.Name, cleanSnapshot.Name, StringComparison.Ordinal) ||
              !current.Bindings.SequenceEqual(cleanSnapshot.Bindings));
-        SaveButton.IsEnabled = isDirty;
+        bool isValid = IsProfileLocallyValid();
+        SaveButton.IsEnabled = isDirty && isValid;
         CancelButton.IsEnabled = isDirty;
+        ValidationMessage.Text = IsProfileNameLocallyValid()
+            ? ""
+            : "Profile names must be unique and contain 1 to 50 characters.";
+    }
+
+    private bool IsProfileLocallyValid() =>
+        IsProfileNameLocallyValid() && rows.All(row => row.IsLocallyValid());
+
+    private bool IsProfileNameLocallyValid()
+    {
+        string name = ProfileName.Text.Trim();
+        return name.Length is >= 1 and <= 50 &&
+            profiles.All(profile =>
+                profile.Id == selected?.Id ||
+                !string.Equals(profile.Name, name, StringComparison.OrdinalIgnoreCase));
     }
 
     private ProfileEditSnapshot CaptureSnapshot() =>
@@ -392,11 +408,20 @@ public partial class SwitchControlProfileWindow : Window
         SwitchBindingType Type,
         string Value);
 
+    private sealed record BindingTypeOption(
+        SwitchBindingType Value,
+        string Label);
+
+    private sealed record BindingValueOption(
+        string Value,
+        string Label);
+
     private sealed class BindingRowViewModel : INotifyPropertyChanged
     {
         private SwitchBindingType selectedType;
         private string value = "";
         private bool isEditable;
+        private bool isLoading;
 
         public BindingRowViewModel(int switchId)
         {
@@ -408,40 +433,63 @@ public partial class SwitchControlProfileWindow : Window
         public string SwitchLabel => $"Switch {SwitchId}";
         public string TypeAutomationName => $"Switch {SwitchId} action type";
         public string ValueAutomationName => $"Switch {SwitchId} action value";
-        public IReadOnlyList<SwitchBindingType> Types { get; } = Enum.GetValues<SwitchBindingType>();
+        public IReadOnlyList<BindingTypeOption> Types { get; } = BindingTypes;
 
         public SwitchBindingType SelectedType
         {
             get => selectedType;
             set
             {
+                if (selectedType == value)
+                {
+                    return;
+                }
+
                 selectedType = value;
+                if (!isLoading)
+                {
+                    SetRawValue("");
+                }
                 Changed();
                 Changed(nameof(ValueOptions));
                 Changed(nameof(ValueHelp));
+                Changed(nameof(FeedbackText));
+                Changed(nameof(HasValidationError));
             }
         }
 
         public string Value
         {
             get => value;
-            set { this.value = value; Changed(); }
+            set => SetRawValue(value);
+        }
+
+        public string ValueDisplay
+        {
+            get => DisplayValue(SelectedType, value);
+            set => SetRawValue(RawValue(SelectedType, value));
         }
 
         public bool IsEditable
         {
             get => isEditable;
-            private set { isEditable = value; Changed(); }
+            private set
+            {
+                isEditable = value;
+                Changed();
+                Changed(nameof(FeedbackText));
+                Changed(nameof(HasValidationError));
+            }
         }
 
-        public IReadOnlyList<string> ValueOptions => SelectedType switch
+        public IReadOnlyList<BindingValueOption> ValueOptions => SelectedType switch
         {
-            SwitchBindingType.Key => KeyValues,
-            SwitchBindingType.MouseButton => ["left", "right", "middle"],
-            SwitchBindingType.Shortcut => ["Ctrl + C", "Ctrl + V", "Alt + Tab", "Ctrl + Shift + Escape"],
-            SwitchBindingType.MouseClick => ["left", "left:2", "right", "right:2", "middle", "middle:2"],
-            SwitchBindingType.Scroll => ["up", "down", "left", "right"],
-            SwitchBindingType.Media => ["playPause", "nextTrack", "previousTrack", "volumeUp", "volumeDown", "mute"],
+            SwitchBindingType.Key => KeyOptions,
+            SwitchBindingType.MouseButton => MouseButtonOptions,
+            SwitchBindingType.Shortcut => ShortcutOptions,
+            SwitchBindingType.MouseClick => MouseClickOptions,
+            SwitchBindingType.Scroll => ScrollOptions,
+            SwitchBindingType.Media => MediaOptions,
             _ => []
         };
 
@@ -449,13 +497,21 @@ public partial class SwitchControlProfileWindow : Window
         {
             SwitchBindingType.None => "No value is required.",
             SwitchBindingType.Key => "Choose one keyboard key.",
-            SwitchBindingType.MouseButton => "Choose left, right, or middle.",
+            SwitchBindingType.MouseButton => "Choose a mouse button to hold while the switch is pressed.",
             SwitchBindingType.Shortcut => "Enter one to four unique keys separated by +, including a non-modifier.",
-            SwitchBindingType.MouseClick => "Choose a button, with :2 for a double click.",
-            SwitchBindingType.Scroll => "Choose up, down, left, or right.",
+            SwitchBindingType.MouseClick => "Choose a single or double mouse click.",
+            SwitchBindingType.Scroll => "Choose a scroll direction.",
             SwitchBindingType.Media => "Choose play/pause, track, volume, or mute.",
             _ => "Choose a valid value."
         };
+
+        public bool HasValidationError => IsEditable && !IsLocallyValid();
+
+        public string FeedbackText => HasValidationError
+            ? string.IsNullOrWhiteSpace(Value)
+                ? "Choose a value for this action."
+                : $"The value is not valid. {ValueHelp}"
+            : ValueHelp;
 
         public bool IsLocallyValid()
         {
@@ -481,13 +537,21 @@ public partial class SwitchControlProfileWindow : Window
 
         public void Load(SwitchControlBinding binding, bool editable)
         {
-            SelectedType = binding.Type;
-            Value = binding.Type == SwitchBindingType.Shortcut
-                ? string.Join(" + ", binding.Keys ?? [])
-                : binding.Type == SwitchBindingType.MouseClick
-                    ? $"{binding.Value}:{binding.ClickCount}"
-                    : binding.Value ?? "";
-            IsEditable = editable;
+            isLoading = true;
+            try
+            {
+                SelectedType = binding.Type;
+                Value = binding.Type == SwitchBindingType.Shortcut
+                    ? string.Join(" + ", binding.Keys ?? [])
+                    : binding.Type == SwitchBindingType.MouseClick
+                        ? $"{binding.Value}:{binding.ClickCount}"
+                        : binding.Value ?? "";
+                IsEditable = editable;
+            }
+            finally
+            {
+                isLoading = false;
+            }
         }
 
         public SwitchControlBinding ToBinding()
@@ -508,6 +572,20 @@ public partial class SwitchControlProfileWindow : Window
             return new(SwitchId, SelectedType, string.IsNullOrEmpty(trimmed) ? null : trimmed);
         }
 
+        private void SetRawValue(string newValue)
+        {
+            if (string.Equals(value, newValue, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            value = newValue;
+            Changed(nameof(Value));
+            Changed(nameof(ValueDisplay));
+            Changed(nameof(FeedbackText));
+            Changed(nameof(HasValidationError));
+        }
+
         private void Changed([CallerMemberName] string? propertyName = null) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 
@@ -522,6 +600,74 @@ public partial class SwitchControlProfileWindow : Window
                 keys.Any(key => !ModifierValues.Contains(key, StringComparer.OrdinalIgnoreCase));
         }
 
+        private static string DisplayValue(SwitchBindingType type, string rawValue)
+        {
+            if (type == SwitchBindingType.Shortcut)
+            {
+                return string.Join(
+                    " + ",
+                    rawValue.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                        .Select(key => OptionLabel(KeyOptions, key)));
+            }
+
+            return OptionLabel(OptionsFor(type), rawValue);
+        }
+
+        private static string RawValue(SwitchBindingType type, string displayValue)
+        {
+            if (type == SwitchBindingType.Shortcut)
+            {
+                return string.Join(
+                    " + ",
+                    displayValue.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                        .Select(key => OptionValue(KeyOptions, key)));
+            }
+
+            return OptionValue(OptionsFor(type), displayValue);
+        }
+
+        private static IReadOnlyList<BindingValueOption> OptionsFor(SwitchBindingType type) => type switch
+        {
+            SwitchBindingType.Key => KeyOptions,
+            SwitchBindingType.MouseButton => MouseButtonOptions,
+            SwitchBindingType.Shortcut => ShortcutOptions,
+            SwitchBindingType.MouseClick => MouseClickOptions,
+            SwitchBindingType.Scroll => ScrollOptions,
+            SwitchBindingType.Media => MediaOptions,
+            _ => []
+        };
+
+        private static string OptionLabel(IReadOnlyList<BindingValueOption> options, string value) =>
+            options.FirstOrDefault(option =>
+                string.Equals(option.Value, value, StringComparison.OrdinalIgnoreCase))?.Label ?? value;
+
+        private static string OptionValue(IReadOnlyList<BindingValueOption> options, string display) =>
+            options.FirstOrDefault(option =>
+                string.Equals(option.Label, display, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(option.Value, display, StringComparison.OrdinalIgnoreCase))?.Value ?? display.Trim();
+
+        private static string KeyLabel(string value) => value switch
+        {
+            "ArrowUp" => "Up arrow",
+            "ArrowDown" => "Down arrow",
+            "ArrowLeft" => "Left arrow",
+            "ArrowRight" => "Right arrow",
+            "PageUp" => "Page up",
+            "PageDown" => "Page down",
+            "Meta" => "Windows key",
+            _ => value
+        };
+
+        private static readonly BindingTypeOption[] BindingTypes =
+        [
+            new(SwitchBindingType.None, "Unassigned"),
+            new(SwitchBindingType.Key, "Keyboard key"),
+            new(SwitchBindingType.MouseButton, "Mouse button"),
+            new(SwitchBindingType.Shortcut, "Keyboard shortcut"),
+            new(SwitchBindingType.MouseClick, "Mouse click"),
+            new(SwitchBindingType.Scroll, "Scroll"),
+            new(SwitchBindingType.Media, "Media control")
+        ];
         private static readonly string[] ModifierValues = ["Ctrl", "Alt", "Shift", "Meta"];
         private static readonly string[] KeyValues =
         [
@@ -531,6 +677,46 @@ public partial class SwitchControlProfileWindow : Window
             "Space", "Enter", "Escape", "Tab", "Backspace", "Delete",
             "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
             "Home", "End", "PageUp", "PageDown", "Ctrl", "Alt", "Shift", "Meta"
+        ];
+        private static readonly BindingValueOption[] KeyOptions =
+            KeyValues.Select(value => new BindingValueOption(value, KeyLabel(value))).ToArray();
+        private static readonly BindingValueOption[] MouseButtonOptions =
+        [
+            new("left", "Left button"),
+            new("right", "Right button"),
+            new("middle", "Middle button")
+        ];
+        private static readonly BindingValueOption[] ShortcutOptions =
+        [
+            new("Ctrl + C", "Ctrl + C"),
+            new("Ctrl + V", "Ctrl + V"),
+            new("Alt + Tab", "Alt + Tab"),
+            new("Ctrl + Shift + Escape", "Ctrl + Shift + Escape")
+        ];
+        private static readonly BindingValueOption[] MouseClickOptions =
+        [
+            new("left:1", "Left click"),
+            new("left:2", "Double left click"),
+            new("right:1", "Right click"),
+            new("right:2", "Double right click"),
+            new("middle:1", "Middle click"),
+            new("middle:2", "Double middle click")
+        ];
+        private static readonly BindingValueOption[] ScrollOptions =
+        [
+            new("up", "Scroll up"),
+            new("down", "Scroll down"),
+            new("left", "Scroll left"),
+            new("right", "Scroll right")
+        ];
+        private static readonly BindingValueOption[] MediaOptions =
+        [
+            new("playPause", "Play / pause"),
+            new("nextTrack", "Next track"),
+            new("previousTrack", "Previous track"),
+            new("volumeUp", "Volume up"),
+            new("volumeDown", "Volume down"),
+            new("mute", "Mute")
         ];
     }
 }
