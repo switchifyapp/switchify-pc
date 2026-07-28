@@ -31,19 +31,55 @@ public sealed class SwitchControlProfileWindowTests
                 window.UpdateLayout();
 
                 Assert.Equal(WindowStyle.None, window.WindowStyle);
-                Assert.Equal(ResizeMode.NoResize, window.ResizeMode);
+                Assert.Equal(ResizeMode.CanResize, window.ResizeMode);
                 Assert.Equal(900, window.Width);
                 Assert.Equal(690, window.Height);
-                Assert.Equal(760, window.MinWidth);
-                Assert.Equal(560, window.MinHeight);
+                Assert.Equal(520, window.MinWidth);
+                Assert.Equal(300, window.MinHeight);
                 Assert.NotNull(WindowChrome.GetWindowChrome(window));
                 Assert.Contains("PC Switch Control profiles", TextBlocks(window));
                 Assert.NotNull(ButtonByAutomationName(window, "Minimize"));
+                Assert.NotNull(ButtonByAutomationName(window, "Maximize"));
                 Assert.NotNull(ButtonByAutomationName(window, "Close"));
 
                 WpfButton save = Assert.IsType<WpfButton>(window.FindName("SaveButton"));
                 Assert.Same(window.FindResource("PrimaryButton"), save.Style);
                 Assert.DoesNotContain("Close", ButtonContent(window));
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ProfileWindowClampsToWorkAreaAndUsesCompactLayout()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            SwitchControlProfileWindow window = CreateWindow();
+            try
+            {
+                window.Show();
+                window.ApplyWorkArea(new Rect(100, 50, 680, 420));
+                window.UpdateLayout();
+
+                Assert.Equal(648, window.Width);
+                Assert.Equal(388, window.Height);
+                Assert.Equal(116, window.Left);
+                Assert.Equal(66, window.Top);
+                Assert.Equal(Visibility.Collapsed, Assert.IsType<StackPanel>(window.FindName("IntroPanel")).Visibility);
+
+                Border profiles = Assert.IsType<Border>(window.FindName("ProfilesPanel"));
+                Border editor = Assert.IsType<Border>(window.FindName("EditorPanel"));
+                Grid footer = Assert.IsType<Grid>(window.FindName("FooterPanel"));
+                Assert.Equal(0, Grid.GetRow(profiles));
+                Assert.Equal(1, Grid.GetRow(editor));
+                Assert.Equal(2, Grid.GetRow(footer));
+                Assert.Equal(0, Grid.GetColumn(editor));
+                Assert.Equal(1, Grid.GetColumnSpan(footer));
             }
             finally
             {

@@ -4,17 +4,18 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:chrome="clr-namespace:SwitchifyPc.App.Chrome"
         Title="PC Switch Control profiles"
-        MinWidth="760"
-        MinHeight="560"
+        MinWidth="520"
+        MinHeight="300"
         Width="900"
         Height="690"
-        ResizeMode="NoResize"
-        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        WindowStartupLocation="Manual"
         Icon="Assets/icon.ico"
         FontFamily="Segoe UI"
         Background="{DynamicResource ChromeBackground}"
         Foreground="{DynamicResource Text}"
-        WindowStyle="None">
+        WindowStyle="None"
+        SizeChanged="Window_SizeChanged">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="44"
                             CornerRadius="0"
@@ -345,14 +346,18 @@
 
         <chrome:SwitchifyTitleBar Grid.Row="0"
                                   TitleText="PC Switch Control profiles"
-                                  ShowMinimizeButton="True" />
+                                  ShowMinimizeButton="True"
+                                  ShowMaximizeButton="True" />
 
-        <Border Grid.Row="1"
+        <Border x:Name="ContentBackground"
+                Grid.Row="1"
                 Grid.RowSpan="2"
                 Margin="0,80,0,0"
                 Background="{DynamicResource AppBackground}" />
 
-        <StackPanel Grid.Row="1" Margin="24,20,24,18">
+        <StackPanel x:Name="IntroPanel"
+                    Grid.Row="1"
+                    Margin="24,20,24,18">
             <TextBlock Text="PC Switch Control"
                        FontSize="18"
                        FontWeight="Bold"
@@ -363,18 +368,22 @@
                        Style="{StaticResource MutedText}" />
         </StackPanel>
 
-        <Grid Grid.Row="2" Margin="24,0,24,24">
+        <Grid x:Name="ProfileBody"
+              Grid.Row="2"
+              Margin="24,0,24,24">
             <Grid.RowDefinitions>
-                <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
+                <RowDefinition x:Name="PrimaryContentRow" Height="*" />
+                <RowDefinition x:Name="SecondaryContentRow" Height="0" />
+                <RowDefinition x:Name="FooterRow" Height="Auto" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="230" />
-                <ColumnDefinition Width="18" />
-                <ColumnDefinition Width="*" />
+                <ColumnDefinition x:Name="ProfilesColumn" Width="230" />
+                <ColumnDefinition x:Name="ContentGapColumn" Width="18" />
+                <ColumnDefinition x:Name="EditorColumn" Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Row="0"
+            <Border x:Name="ProfilesPanel"
+                    Grid.Row="0"
                     Grid.Column="0"
                     Style="{StaticResource PanelBorder}"
                     Padding="12">
@@ -394,7 +403,8 @@
                 </Grid>
             </Border>
 
-            <Border Grid.Row="0"
+            <Border x:Name="EditorPanel"
+                    Grid.Row="0"
                     Grid.Column="2"
                     Style="{StaticResource PanelBorder}">
                 <ScrollViewer HorizontalScrollBarVisibility="Disabled"
@@ -475,7 +485,8 @@
                 </ScrollViewer>
             </Border>
 
-            <Grid Grid.Row="1"
+            <Grid x:Name="FooterPanel"
+                  Grid.Row="2"
                   Grid.Column="0"
                   Grid.ColumnSpan="3"
                   Margin="0,14,0,0">

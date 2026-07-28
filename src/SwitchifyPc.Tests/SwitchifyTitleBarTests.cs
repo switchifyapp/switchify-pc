@@ -141,6 +141,46 @@ public sealed class SwitchifyTitleBarTests
     }
 
     [Fact]
+    public void MaximizeButtonIsOptInAndTogglesParentWindowState()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            SwitchifyTitleBar titleBar = new();
+            Window window = new()
+            {
+                Content = titleBar,
+                Width = 320,
+                Height = 120
+            };
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                WpfButton maximize = Assert.IsType<WpfButton>(ButtonByAutomationName(window, "Maximize"));
+                Assert.Equal(Visibility.Collapsed, maximize.Visibility);
+
+                titleBar.ShowMaximizeButton = true;
+                window.UpdateLayout();
+                Assert.Equal(Visibility.Visible, maximize.Visibility);
+
+                maximize.RaiseEvent(new RoutedEventArgs(WpfButton.ClickEvent));
+                Assert.Equal(WindowState.Maximized, window.WindowState);
+                window.UpdateLayout();
+
+                WpfButton restore = Assert.IsType<WpfButton>(ButtonByAutomationName(window, "Restore"));
+                restore.RaiseEvent(new RoutedEventArgs(WpfButton.ClickEvent));
+                Assert.Equal(WindowState.Normal, window.WindowState);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
     public void StatusBadgeIsHiddenByDefault()
     {
         RunOnSta(() =>
