@@ -472,11 +472,17 @@ public partial class SwitchControlProfileWindow : Window
 
     private sealed record BindingTypeOption(
         SwitchBindingType Value,
-        string Label);
+        string Label)
+    {
+        public override string ToString() => Label;
+    }
 
     private sealed record BindingValueOption(
         string Value,
-        string Label);
+        string Label)
+    {
+        public override string ToString() => Label;
+    }
 
     private sealed class BindingRowViewModel : INotifyPropertyChanged
     {
