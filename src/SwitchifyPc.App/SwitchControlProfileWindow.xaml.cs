@@ -4,8 +4,10 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using SwitchifyPc.Core.SwitchControl;
+using WpfKeyEventArgs = System.Windows.Input.KeyEventArgs;
 using WpfMessageBox = System.Windows.MessageBox;
 
 namespace SwitchifyPc.App;
@@ -16,6 +18,7 @@ public partial class SwitchControlProfileWindow : Window
     private readonly Func<string?> activeProfileId;
     private readonly Func<MessageBoxResult> confirmUnsavedChanges;
     private IReadOnlyList<SwitchControlProfile> profiles = [];
+    private IReadOnlyList<ProfileListItem> profileItems = [];
     private SwitchControlProfile? selected;
     private ProfileEditSnapshot? cleanSnapshot;
     private bool isEditable;
@@ -119,21 +122,31 @@ public partial class SwitchControlProfileWindow : Window
     private void Reload(string? selectId = null)
     {
         profiles = store.Load();
-        ProfilesList.ItemsSource = profiles;
+        RefreshProfileItems();
         SwitchControlProfile? profile =
             profiles.FirstOrDefault(candidate => candidate.Id == selectId) ?? profiles.FirstOrDefault();
         SelectAndLoad(profile);
     }
 
+    private void RefreshProfileItems()
+    {
+        string? activeId = activeProfileId();
+        profileItems = profiles
+            .Select(profile => new ProfileListItem(profile, profile.Id == activeId))
+            .ToArray();
+        ProfilesList.ItemsSource = profileItems;
+    }
+
     private void ProfilesList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (suppressSelectionChange ||
-            ProfilesList.SelectedItem is not SwitchControlProfile profile ||
-            profile.Id == selected?.Id)
+            ProfilesList.SelectedItem is not ProfileListItem item ||
+            item.Profile.Id == selected?.Id)
         {
             return;
         }
 
+        SwitchControlProfile profile = item.Profile;
         if (isDirty)
         {
             string targetId = profile.Id;
@@ -181,7 +194,9 @@ public partial class SwitchControlProfileWindow : Window
         isEditable = !profile.IsBuiltIn && profile.Id != activeProfileId();
         isTransient = transient;
         ProfileName.Text = profile.Name;
-        ProfileName.IsEnabled = isEditable;
+        ProfileName.IsEnabled = true;
+        ProfileName.IsReadOnly = !isEditable;
+        ProfileName.IsTabStop = true;
         ReadOnlyMessage.Text = profile.IsBuiltIn
             ? "Built-in profiles are read-only. Duplicate this profile to customize it."
             : isEditable
@@ -229,12 +244,13 @@ public partial class SwitchControlProfileWindow : Window
     private void EditUnsaved(SwitchControlProfile profile)
     {
         profiles = [.. profiles, profile];
-        ProfilesList.ItemsSource = profiles;
+        RefreshProfileItems();
+        ProfileListItem item = profileItems.Single(candidate => candidate.Profile.Id == profile.Id);
         suppressSelectionChange = true;
-        ProfilesList.SelectedItem = profile;
+        ProfilesList.SelectedItem = item;
         suppressSelectionChange = false;
         LoadProfile(profile, transient: true);
-        ProfilesList.ScrollIntoView(profile);
+        ProfilesList.ScrollIntoView(item);
     }
 
     private void Save_Click(object sender, RoutedEventArgs e) => TrySave();
@@ -310,7 +326,9 @@ public partial class SwitchControlProfileWindow : Window
     private void SelectAndLoad(SwitchControlProfile? profile)
     {
         suppressSelectionChange = true;
-        ProfilesList.SelectedItem = profile;
+        ProfilesList.SelectedItem = profile is null
+            ? null
+            : profileItems.FirstOrDefault(item => item.Profile.Id == profile.Id);
         suppressSelectionChange = false;
         if (profile is not null)
         {
@@ -321,8 +339,37 @@ public partial class SwitchControlProfileWindow : Window
     private void RestoreSelectedProfile()
     {
         suppressSelectionChange = true;
-        ProfilesList.SelectedItem = selected;
+        ProfilesList.SelectedItem = selected is null
+            ? null
+            : profileItems.FirstOrDefault(item => item.Profile.Id == selected.Id);
         suppressSelectionChange = false;
+    }
+
+    private void Window_PreviewKeyDown(object sender, WpfKeyEventArgs e)
+    {
+        e.Handled = HandleKeyboardShortcut(
+            e.Key,
+            Keyboard.Modifiers,
+            Keyboard.FocusedElement is System.Windows.Controls.ComboBox { IsDropDownOpen: true });
+    }
+
+    internal bool HandleKeyboardShortcut(
+        Key key,
+        ModifierKeys modifiers,
+        bool isComboBoxOpen = false)
+    {
+        if (key == Key.S && modifiers == ModifierKeys.Control && SaveButton.IsEnabled)
+        {
+            return TrySave();
+        }
+
+        if (key == Key.Escape && modifiers == ModifierKeys.None && !isComboBoxOpen)
+        {
+            Close();
+            return true;
+        }
+
+        return false;
     }
 
     private void RefreshDirtyState()
@@ -408,6 +455,21 @@ public partial class SwitchControlProfileWindow : Window
         SwitchBindingType Type,
         string Value);
 
+    private sealed record ProfileListItem(
+        SwitchControlProfile Profile,
+        bool IsActive)
+    {
+        public string Name => Profile.Name;
+        public bool IsBuiltIn => Profile.IsBuiltIn;
+        public string AccessibleName => IsBuiltIn && IsActive
+            ? $"{Name}, built-in, active"
+            : IsBuiltIn
+                ? $"{Name}, built-in"
+                : IsActive
+                    ? $"{Name}, active"
+                    : Name;
+    }
+
     private sealed record BindingTypeOption(
         SwitchBindingType Value,
         string Label);
@@ -434,6 +496,8 @@ public partial class SwitchControlProfileWindow : Window
         public string TypeAutomationName => $"Switch {SwitchId} action type";
         public string ValueAutomationName => $"Switch {SwitchId} action value";
         public IReadOnlyList<BindingTypeOption> Types { get; } = BindingTypes;
+        public string SelectedTypeLabel =>
+            BindingTypes.First(option => option.Value == SelectedType).Label;
 
         public SwitchBindingType SelectedType
         {
@@ -451,10 +515,12 @@ public partial class SwitchControlProfileWindow : Window
                     SetRawValue("");
                 }
                 Changed();
+                Changed(nameof(SelectedTypeLabel));
                 Changed(nameof(ValueOptions));
                 Changed(nameof(ValueHelp));
                 Changed(nameof(FeedbackText));
                 Changed(nameof(HasValidationError));
+                Changed(nameof(ReadOnlyValueDisplay));
             }
         }
 
@@ -470,6 +536,11 @@ public partial class SwitchControlProfileWindow : Window
             set => SetRawValue(RawValue(SelectedType, value));
         }
 
+        public string ReadOnlyValueDisplay =>
+            SelectedType == SwitchBindingType.None || string.IsNullOrWhiteSpace(ValueDisplay)
+                ? "No value"
+                : ValueDisplay;
+
         public bool IsEditable
         {
             get => isEditable;
@@ -477,10 +548,13 @@ public partial class SwitchControlProfileWindow : Window
             {
                 isEditable = value;
                 Changed();
+                Changed(nameof(IsReadOnly));
                 Changed(nameof(FeedbackText));
                 Changed(nameof(HasValidationError));
             }
         }
+
+        public bool IsReadOnly => !IsEditable;
 
         public IReadOnlyList<BindingValueOption> ValueOptions => SelectedType switch
         {
@@ -582,6 +656,7 @@ public partial class SwitchControlProfileWindow : Window
             value = newValue;
             Changed(nameof(Value));
             Changed(nameof(ValueDisplay));
+            Changed(nameof(ReadOnlyValueDisplay));
             Changed(nameof(FeedbackText));
             Changed(nameof(HasValidationError));
         }

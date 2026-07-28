@@ -2,6 +2,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shell;
 using SwitchifyPc.App;
@@ -193,10 +194,12 @@ public sealed class SwitchControlProfileWindowTests
 
                 WpfListBox profiles = Assert.IsType<WpfListBox>(window.FindName("ProfilesList"));
                 profiles.SelectedItem = profiles.Items
-                    .Cast<SwitchControlProfile>()
-                    .First(profile => profile.IsBuiltIn);
+                    .Cast<object>()
+                    .First(item => ProfileForItem(item).IsBuiltIn);
 
-                Assert.Equal(selectedName, Assert.IsType<SwitchControlProfile>(profiles.SelectedItem).Name);
+                object? selectedItem = profiles.SelectedItem;
+                Assert.NotNull(selectedItem);
+                Assert.Equal(selectedName, ProfileForItem(selectedItem).Name);
                 Assert.Equal(storedName, store.CustomProfiles.Single().Name);
             }
             finally
@@ -261,10 +264,12 @@ public sealed class SwitchControlProfileWindowTests
 
                 WpfListBox profiles = Assert.IsType<WpfListBox>(window.FindName("ProfilesList"));
                 profiles.SelectedItem = profiles.Items
-                    .Cast<SwitchControlProfile>()
-                    .First(profile => profile.IsBuiltIn);
+                    .Cast<object>()
+                    .First(item => ProfileForItem(item).IsBuiltIn);
 
-                Assert.Equal("Custom profile", Assert.IsType<SwitchControlProfile>(profiles.SelectedItem).Name);
+                object? selectedItem = profiles.SelectedItem;
+                Assert.NotNull(selectedItem);
+                Assert.Equal("Custom profile", ProfileForItem(selectedItem).Name);
                 Assert.Contains(
                     "Switch 1",
                     Assert.IsType<TextBlock>(window.FindName("ValidationMessage")).Text);
@@ -438,6 +443,100 @@ public sealed class SwitchControlProfileWindowTests
         });
     }
 
+    [Fact]
+    public void BuiltInAndActiveProfilesExposeBadgesAndFocusableReadOnlyValues()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            SwitchControlProfileWindow window = new(
+                new StaticProfileStore(),
+                () => SwitchControlProfiles.Grid3Id);
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                Assert.Equal(
+                    2,
+                    ControlsByAutomationName<Border>(window, "Built-in profile").Count(border => border.IsVisible));
+                Assert.Single(
+                    ControlsByAutomationName<Border>(window, "Active profile"),
+                    border => border.IsVisible);
+
+                WpfTextBox profileName = Assert.IsType<WpfTextBox>(window.FindName("ProfileName"));
+                Assert.True(profileName.IsEnabled);
+                Assert.True(profileName.IsReadOnly);
+                Assert.True(profileName.IsTabStop);
+
+                WpfComboBox hiddenEditor = Assert.IsType<WpfComboBox>(
+                    ControlByAutomationName<WpfComboBox>(window, "Switch 1 action type"));
+                Assert.Equal(Visibility.Collapsed, hiddenEditor.Visibility);
+                WpfTextBox readOnlyAction = Assert.IsType<WpfTextBox>(
+                    ControlByAutomationName<WpfTextBox>(window, "Switch 1 action type"));
+                WpfTextBox readOnlyValue = Assert.IsType<WpfTextBox>(
+                    ControlByAutomationName<WpfTextBox>(window, "Switch 1 action value"));
+                Assert.Equal(Visibility.Visible, readOnlyAction.Visibility);
+                Assert.True(readOnlyAction.IsReadOnly);
+                Assert.True(readOnlyAction.IsTabStop);
+                Assert.True(readOnlyValue.IsReadOnly);
+                Assert.True(readOnlyValue.IsTabStop);
+                Assert.Equal("No value", readOnlyValue.Text);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ProfileActionsExposeAccessKeysAndShortcutHelp()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            SwitchControlProfileWindow window = CreateWindow();
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                AssertAccessKey(window, "New profile", "_New", "Alt+N");
+                AssertAccessKey(window, "Duplicate profile", "D_uplicate", "Alt+U");
+                AssertAccessKey(window, "Delete profile", "_Delete", "Alt+D");
+                AssertAccessKey(window, "Cancel changes", "_Cancel changes", "Alt+C");
+                AssertAccessKey(window, "Save profile", "_Save", "Ctrl+S or Alt+S");
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ControlSavesAndEscapeClosesWithoutMakingEnterAWindowShortcut()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            MutableProfileStore store = new();
+            SwitchControlProfileWindow window = CreateWindow(store, () => MessageBoxResult.No);
+            window.Show();
+            window.UpdateLayout();
+            SelectCustomProfile(window);
+            Assert.IsType<WpfTextBox>(window.FindName("ProfileName")).Text = "Keyboard profile";
+
+            Assert.True(window.HandleKeyboardShortcut(Key.S, ModifierKeys.Control));
+            Assert.Equal("Keyboard profile", store.CustomProfiles.Single().Name);
+            Assert.False(window.HandleKeyboardShortcut(Key.Enter, ModifierKeys.None));
+            Assert.True(window.IsVisible);
+            Assert.True(window.HandleKeyboardShortcut(Key.Escape, ModifierKeys.None));
+            Assert.False(window.IsVisible);
+        });
+    }
+
     private static SwitchControlProfileWindow CreateWindow() =>
         new(new StaticProfileStore(), () => null);
 
@@ -450,8 +549,8 @@ public sealed class SwitchControlProfileWindowTests
     {
         WpfListBox profiles = Assert.IsType<WpfListBox>(window.FindName("ProfilesList"));
         profiles.SelectedItem = profiles.Items
-            .Cast<SwitchControlProfile>()
-            .Single(profile => !profile.IsBuiltIn);
+            .Cast<object>()
+            .Single(item => !ProfileForItem(item).IsBuiltIn);
     }
 
     private static void RunOnSta(Action action)
@@ -505,6 +604,20 @@ public sealed class SwitchControlProfileWindowTests
         return result;
     }
 
+    private static IReadOnlyList<T> ControlsByAutomationName<T>(DependencyObject root, string name)
+        where T : DependencyObject
+    {
+        List<T> results = [];
+        Collect(root, node =>
+        {
+            if (node is T control && AutomationProperties.GetName(control) == name)
+            {
+                results.Add(control);
+            }
+        });
+        return results;
+    }
+
     private static IReadOnlyList<string> ButtonContent(DependencyObject root)
     {
         List<string> content = [];
@@ -522,18 +635,35 @@ public sealed class SwitchControlProfileWindowTests
             .Cast<string>()
             .ToArray();
 
+    private static void AssertAccessKey(
+        DependencyObject root,
+        string automationName,
+        string content,
+        string helpText)
+    {
+        WpfButton button = Assert.IsType<WpfButton>(ButtonByAutomationName(root, automationName));
+        Assert.Equal(content, Assert.IsType<string>(button.Content));
+        Assert.Equal(helpText, AutomationProperties.GetHelpText(button));
+    }
+
     private static WpfButton ButtonByContent(DependencyObject root, string content)
     {
         WpfButton? result = null;
         Collect(root, node =>
         {
-            if (result is null && node is WpfButton { Content: string text } button && text == content)
+            if (result is null &&
+                node is WpfButton { Content: string text } button &&
+                text.Replace("_", "", StringComparison.Ordinal) == content)
             {
                 result = button;
             }
         });
         return Assert.IsType<WpfButton>(result);
     }
+
+    private static SwitchControlProfile ProfileForItem(object item) =>
+        Assert.IsType<SwitchControlProfile>(
+            item.GetType().GetProperty("Profile")?.GetValue(item));
 
     private static void Collect(DependencyObject node, Action<DependencyObject> visit)
     {
