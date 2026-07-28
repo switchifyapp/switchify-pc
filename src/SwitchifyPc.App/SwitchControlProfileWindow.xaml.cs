@@ -23,6 +23,7 @@ public partial class SwitchControlProfileWindow : Window
     private bool isDirty;
     private bool suppressDirtyTracking;
     private bool suppressSelectionChange;
+    private bool isCompactLayout;
     private readonly BindingRowViewModel[] rows =
         Enumerable.Range(1, 8).Select(id => new BindingRowViewModel(id)).ToArray();
 
@@ -48,7 +49,71 @@ public partial class SwitchControlProfileWindow : Window
         {
             row.PropertyChanged += (_, _) => RefreshDirtyState();
         }
+        Loaded += (_, _) => ApplyWorkArea(SystemParameters.WorkArea);
         Reload();
+    }
+
+    internal void ApplyWorkArea(Rect workArea)
+    {
+        const double workAreaMargin = 16;
+        double availableWidth = Math.Max(320, workArea.Width - workAreaMargin * 2);
+        double availableHeight = Math.Max(240, workArea.Height - workAreaMargin * 2);
+
+        MinWidth = Math.Min(520, availableWidth);
+        MinHeight = Math.Min(300, availableHeight);
+        Width = Math.Min(900, availableWidth);
+        Height = Math.Min(690, availableHeight);
+        Left = workArea.Left + Math.Max(0, (workArea.Width - Width) / 2);
+        Top = workArea.Top + Math.Max(0, (workArea.Height - Height) / 2);
+        ApplyResponsiveLayout(Width);
+    }
+
+    private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        ApplyResponsiveLayout(e.NewSize.Width);
+    }
+
+    private void ApplyResponsiveLayout(double width)
+    {
+        bool useCompactLayout = width < 720;
+        if (useCompactLayout == isCompactLayout)
+        {
+            return;
+        }
+
+        isCompactLayout = useCompactLayout;
+        IntroPanel.Visibility = useCompactLayout ? Visibility.Collapsed : Visibility.Visible;
+        ContentBackground.Margin = useCompactLayout
+            ? new Thickness(0)
+            : new Thickness(0, 80, 0, 0);
+        ProfileBody.Margin = useCompactLayout
+            ? new Thickness(16, 12, 16, 16)
+            : new Thickness(24, 0, 24, 24);
+        ProfilesPanel.Margin = useCompactLayout
+            ? new Thickness(0, 0, 0, 12)
+            : new Thickness(0);
+
+        ProfilesColumn.Width = useCompactLayout
+            ? new GridLength(1, GridUnitType.Star)
+            : new GridLength(230);
+        ContentGapColumn.Width = useCompactLayout ? new GridLength(0) : new GridLength(18);
+        EditorColumn.Width = useCompactLayout ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+        PrimaryContentRow.Height = useCompactLayout
+            ? new GridLength(92)
+            : new GridLength(1, GridUnitType.Star);
+        SecondaryContentRow.Height = useCompactLayout
+            ? new GridLength(1, GridUnitType.Star)
+            : new GridLength(0);
+
+        Grid.SetRow(ProfilesPanel, 0);
+        Grid.SetColumn(ProfilesPanel, 0);
+        Grid.SetColumnSpan(ProfilesPanel, 1);
+        Grid.SetRow(EditorPanel, useCompactLayout ? 1 : 0);
+        Grid.SetColumn(EditorPanel, useCompactLayout ? 0 : 2);
+        Grid.SetColumnSpan(EditorPanel, 1);
+        Grid.SetRow(FooterPanel, 2);
+        Grid.SetColumn(FooterPanel, 0);
+        Grid.SetColumnSpan(FooterPanel, useCompactLayout ? 1 : 3);
     }
 
     private void Reload(string? selectId = null)

@@ -21,6 +21,12 @@ public partial class SwitchifyTitleBar : WpfUserControl
         typeof(SwitchifyTitleBar),
         new PropertyMetadata(true));
 
+    public static readonly DependencyProperty ShowMaximizeButtonProperty = DependencyProperty.Register(
+        nameof(ShowMaximizeButton),
+        typeof(bool),
+        typeof(SwitchifyTitleBar),
+        new PropertyMetadata(false));
+
     public static readonly DependencyProperty StatusTextProperty = DependencyProperty.Register(
         nameof(StatusText),
         typeof(string),
@@ -56,6 +62,12 @@ public partial class SwitchifyTitleBar : WpfUserControl
         set => SetValue(ShowMinimizeButtonProperty, value);
     }
 
+    public bool ShowMaximizeButton
+    {
+        get => (bool)GetValue(ShowMaximizeButtonProperty);
+        set => SetValue(ShowMaximizeButtonProperty, value);
+    }
+
     public string? StatusText
     {
         get => (string?)GetValue(StatusTextProperty);
@@ -76,7 +88,7 @@ public partial class SwitchifyTitleBar : WpfUserControl
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ClickCount != 1 || IsInsideButton(e.OriginalSource as DependencyObject))
+        if (IsInsideButton(e.OriginalSource as DependencyObject))
         {
             return;
         }
@@ -84,12 +96,32 @@ public partial class SwitchifyTitleBar : WpfUserControl
         Window? window = Window.GetWindow(this);
         if (window is null) return;
 
+        if (e.ClickCount == 2 && ShowMaximizeButton)
+        {
+            ToggleMaximize(window);
+            return;
+        }
+
+        if (e.ClickCount != 1)
+        {
+            return;
+        }
+
         try
         {
             window.DragMove();
         }
         catch (InvalidOperationException)
         {
+        }
+    }
+
+    private void MaximizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        Window? window = Window.GetWindow(this);
+        if (window is not null)
+        {
+            ToggleMaximize(window);
         }
     }
 
@@ -105,6 +137,13 @@ public partial class SwitchifyTitleBar : WpfUserControl
     private void CloseButton_Click(object sender, RoutedEventArgs e)
     {
         Window.GetWindow(this)?.Close();
+    }
+
+    private static void ToggleMaximize(Window window)
+    {
+        window.WindowState = window.WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
     }
 
     private static bool IsInsideButton(DependencyObject? source)

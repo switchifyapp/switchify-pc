@@ -155,6 +155,23 @@
                     AutomationProperties.Name="Minimize"
                     Visibility="{Binding ShowMinimizeButton, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BooleanToVisibilityConverter}}"
                     Click="MinimizeButton_Click" />
+            <Button x:Name="MaximizeButton"
+                    Content="□"
+                    Visibility="{Binding ShowMaximizeButton, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BooleanToVisibilityConverter}}"
+                    Click="MaximizeButton_Click">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource CaptionButton}">
+                        <Setter Property="AutomationProperties.Name" Value="Maximize" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}}"
+                                         Value="Maximized">
+                                <Setter Property="Content" Value="❐" />
+                                <Setter Property="AutomationProperties.Name" Value="Restore" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
             <Button x:Name="CloseButton"
                     Content="x"
                     Style="{StaticResource CloseCaptionButton}"
