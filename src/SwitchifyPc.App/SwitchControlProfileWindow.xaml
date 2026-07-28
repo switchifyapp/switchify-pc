@@ -15,7 +15,8 @@
         Background="{DynamicResource ChromeBackground}"
         Foreground="{DynamicResource Text}"
         WindowStyle="None"
-        SizeChanged="Window_SizeChanged">
+        SizeChanged="Window_SizeChanged"
+        PreviewKeyDown="Window_PreviewKeyDown">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="44"
                             CornerRadius="0"
@@ -25,6 +26,8 @@
     </shell:WindowChrome.WindowChrome>
 
     <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
         <Style TargetType="Button">
             <Setter Property="MinHeight" Value="38" />
             <Setter Property="Padding" Value="14,0" />
@@ -52,6 +55,12 @@
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource BrandPrimary}" />
                                 <Setter TargetName="Root" Property="Background" Value="{DynamicResource SurfaceMuted}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Root"
+                                        Property="BorderBrush"
+                                        Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
+                                <Setter TargetName="Root" Property="BorderThickness" Value="2" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Root" Property="Opacity" Value="0.55" />
@@ -89,6 +98,12 @@
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Root" Property="Background" Value="{DynamicResource BrandPrimaryHover}" />
                                 <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource BrandPrimaryHover}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Root"
+                                        Property="BorderBrush"
+                                        Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
+                                <Setter TargetName="Root" Property="BorderThickness" Value="2" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Root" Property="Opacity" Value="0.55" />
@@ -136,7 +151,12 @@
             <Setter Property="CaretBrush" Value="{DynamicResource Text}" />
             <Style.Triggers>
                 <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                    <Setter Property="BorderBrush" Value="{DynamicResource BrandPrimary}" />
+                    <Setter Property="BorderBrush"
+                            Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
+                    <Setter Property="BorderThickness" Value="2" />
+                </Trigger>
+                <Trigger Property="IsReadOnly" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SurfaceMuted}" />
                 </Trigger>
                 <Trigger Property="IsEnabled" Value="False">
                     <Setter Property="Background" Value="{DynamicResource SurfaceMuted}" />
@@ -241,7 +261,10 @@
                             <Trigger Property="IsKeyboardFocusWithin" Value="True">
                                 <Setter TargetName="DropDownToggle"
                                         Property="BorderBrush"
-                                        Value="{DynamicResource BrandPrimary}" />
+                                        Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
+                                <Setter TargetName="DropDownToggle"
+                                        Property="BorderThickness"
+                                        Value="2" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="DropDownToggle"
@@ -286,6 +309,13 @@
                                         Value="{DynamicResource SegmentSelectedBackground}" />
                                 <Setter Property="Foreground" Value="{DynamicResource BrandPrimary}" />
                             </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="ItemBorder"
+                                        Property="Background"
+                                        Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
+                                <Setter Property="Foreground"
+                                        Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}" />
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -324,6 +354,12 @@
                                 <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource BrandPrimary}" />
                                 <Setter Property="Foreground" Value="{DynamicResource BrandPrimary}" />
                                 <Setter Property="FontWeight" Value="Bold" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Root"
+                                        Property="BorderBrush"
+                                        Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
+                                <Setter TargetName="Root" Property="BorderThickness" Value="2" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -398,8 +434,47 @@
                     <ListBox x:Name="ProfilesList"
                              Grid.Row="1"
                              SelectionChanged="ProfilesList_SelectionChanged"
-                             AutomationProperties.Name="Switch control profiles"
-                             DisplayMemberPath="Name" />
+                             AutomationProperties.Name="Switch control profiles">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid AutomationProperties.Name="{Binding AccessibleName}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock VerticalAlignment="Center"
+                                               Text="{Binding Name}"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <StackPanel Grid.Column="1"
+                                                Margin="8,0,0,0"
+                                                Orientation="Horizontal">
+                                        <Border Margin="0,0,4,0"
+                                                Padding="6,2"
+                                                Background="{DynamicResource SurfaceMuted}"
+                                                CornerRadius="8"
+                                                AutomationProperties.Name="Built-in profile"
+                                                Visibility="{Binding IsBuiltIn, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <TextBlock Text="Built-in"
+                                                       FontSize="10"
+                                                       FontWeight="SemiBold" />
+                                        </Border>
+                                        <Border Padding="6,2"
+                                                Background="{DynamicResource AccentContainer}"
+                                                BorderBrush="{DynamicResource BrandPrimary}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                AutomationProperties.Name="Active profile"
+                                                Visibility="{Binding IsActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <TextBlock Text="Active"
+                                                       FontSize="10"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource OnAccentContainer}" />
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                 </Grid>
             </Border>
 
@@ -454,7 +529,7 @@
                                                       DisplayMemberPath="Label"
                                                       SelectedValuePath="Value"
                                                       SelectedValue="{Binding SelectedType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                      IsEnabled="{Binding IsEditable}"
+                                                      Visibility="{Binding IsEditable, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                       AutomationProperties.Name="{Binding TypeAutomationName}" />
                                             <ComboBox x:Name="BindingValueInput"
                                                       Grid.Column="2"
@@ -464,9 +539,24 @@
                                                       Text="{Binding ValueDisplay, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                       IsEditable="True"
                                                       IsTextSearchEnabled="True"
-                                                      IsEnabled="{Binding IsEditable}"
+                                                      Visibility="{Binding IsEditable, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                       AutomationProperties.Name="{Binding ValueAutomationName}"
                                                       AutomationProperties.HelpText="{Binding ValueHelp}" />
+                                            <TextBox Grid.Column="1"
+                                                     Margin="0,0,10,0"
+                                                     Text="{Binding SelectedTypeLabel, Mode=OneWay}"
+                                                     IsReadOnly="True"
+                                                     IsTabStop="True"
+                                                     Visibility="{Binding IsReadOnly, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                     AutomationProperties.Name="{Binding TypeAutomationName}"
+                                                     AutomationProperties.HelpText="Read-only action type" />
+                                            <TextBox Grid.Column="2"
+                                                     Text="{Binding ReadOnlyValueDisplay, Mode=OneWay}"
+                                                     IsReadOnly="True"
+                                                     IsTabStop="True"
+                                                     Visibility="{Binding IsReadOnly, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                     AutomationProperties.Name="{Binding ValueAutomationName}"
+                                                     AutomationProperties.HelpText="{Binding ValueHelp}" />
                                             <TextBlock Grid.Row="1"
                                                        Grid.Column="1"
                                                        Grid.ColumnSpan="2"
@@ -510,25 +600,40 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal">
-                    <Button Content="New" MinWidth="84" Click="New_Click" />
-                    <Button Margin="8,0,0,0" Content="Duplicate" MinWidth="84" Click="Duplicate_Click" />
+                    <Button Content="_New"
+                            MinWidth="84"
+                            Click="New_Click"
+                            AutomationProperties.Name="New profile"
+                            AutomationProperties.HelpText="Alt+N" />
+                    <Button Margin="8,0,0,0"
+                            Content="D_uplicate"
+                            MinWidth="84"
+                            Click="Duplicate_Click"
+                            AutomationProperties.Name="Duplicate profile"
+                            AutomationProperties.HelpText="Alt+U" />
                     <Button x:Name="DeleteButton"
                             Margin="8,0,0,0"
-                            Content="Delete"
+                            Content="_Delete"
                             MinWidth="84"
-                            Click="Delete_Click" />
+                            Click="Delete_Click"
+                            AutomationProperties.Name="Delete profile"
+                            AutomationProperties.HelpText="Alt+D" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button x:Name="CancelButton"
-                            Content="Cancel changes"
+                            Content="_Cancel changes"
                             MinWidth="110"
-                            Click="Cancel_Click" />
+                            Click="Cancel_Click"
+                            AutomationProperties.Name="Cancel changes"
+                            AutomationProperties.HelpText="Alt+C" />
                     <Button x:Name="SaveButton"
                             Margin="8,0,0,0"
-                            Content="Save"
+                            Content="_Save"
                             MinWidth="84"
                             Style="{StaticResource PrimaryButton}"
-                            Click="Save_Click" />
+                            Click="Save_Click"
+                            AutomationProperties.Name="Save profile"
+                            AutomationProperties.HelpText="Ctrl+S or Alt+S" />
                 </StackPanel>
             </Grid>
         </Grid>
