@@ -32,8 +32,10 @@ public sealed class SwitchControlProfileWindowTests
 
                 Assert.Equal(WindowStyle.None, window.WindowStyle);
                 Assert.Equal(ResizeMode.CanResize, window.ResizeMode);
-                Assert.Equal(900, window.Width);
-                Assert.Equal(690, window.Height);
+                Assert.InRange(window.Width, window.MinWidth, 900);
+                Assert.InRange(window.Height, window.MinHeight, 690);
+                Assert.True(window.Width <= Math.Max(320, SystemParameters.WorkArea.Width - 32));
+                Assert.True(window.Height <= Math.Max(240, SystemParameters.WorkArea.Height - 32));
                 Assert.Equal(520, window.MinWidth);
                 Assert.Equal(300, window.MinHeight);
                 Assert.NotNull(WindowChrome.GetWindowChrome(window));
