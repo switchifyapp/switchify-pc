@@ -8,6 +8,7 @@ namespace SwitchifyPc.App;
 public partial class MainWindow : Window
 {
     private readonly Action? openSettings;
+    private readonly Action? openSwitchControlProfiles;
     private readonly Action? openSetupGuide;
     private readonly Func<Task<UpdateApplyResult>>? installUpdate;
     private readonly Action? disconnectDevices;
@@ -22,9 +23,11 @@ public partial class MainWindow : Window
         Func<Task<UpdateApplyResult>>? installUpdate = null,
         Action? disconnectDevices = null,
         Func<string, Task>? acceptPairingApproval = null,
-        Action<string>? rejectPairingApproval = null)
+        Action<string>? rejectPairingApproval = null,
+        Action? openSwitchControlProfiles = null)
     {
         this.openSettings = openSettings;
+        this.openSwitchControlProfiles = openSwitchControlProfiles;
         this.openSetupGuide = openSetupGuide;
         this.installUpdate = installUpdate;
         this.disconnectDevices = disconnectDevices;
@@ -37,6 +40,11 @@ public partial class MainWindow : Window
     private void OpenSettings_Click(object sender, RoutedEventArgs e)
     {
         openSettings?.Invoke();
+    }
+
+    private void OpenSwitchControlProfiles_Click(object sender, RoutedEventArgs e)
+    {
+        openSwitchControlProfiles?.Invoke();
     }
 
     private void OpenSetupGuide_Click(object sender, RoutedEventArgs e)

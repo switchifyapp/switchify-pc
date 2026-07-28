@@ -271,6 +271,12 @@
                                        FontWeight="SemiBold"
                                        AutomationProperties.LiveSetting="Polite"
                                        Visibility="{Binding HasActiveSwitchControlProfile, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <Button Margin="0,14,0,0"
+                                    HorizontalAlignment="Center"
+                                    Padding="16,8"
+                                    Content="Switch control profiles"
+                                    AutomationProperties.Name="Switch control profiles"
+                                    Click="OpenSwitchControlProfiles_Click" />
 
                             <Border Margin="0,14,0,0"
                                     Background="{DynamicResource AccentContainer}"
