@@ -79,6 +79,35 @@ public sealed class MainWindowTests
     }
 
     [Fact]
+    public void SwitchControlProfilesEntryRunsProfileAction()
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(AppTheme.Light);
+            int calls = 0;
+            MainWindow window = new(
+                new MainWindowViewModel(),
+                openSwitchControlProfiles: () => calls++);
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                WpfButton button = Assert.IsType<WpfButton>(ButtonByContent(window, "Switch control profiles"));
+                Assert.Equal("Switch control profiles", AutomationProperties.GetName(button));
+
+                button.RaiseEvent(new RoutedEventArgs(WpfButton.ClickEvent));
+
+                Assert.Equal(1, calls);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
     public void MainWindowUsesCustomChrome()
     {
         RunOnSta(() =>

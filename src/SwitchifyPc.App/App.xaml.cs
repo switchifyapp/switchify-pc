@@ -37,7 +37,7 @@ public partial class App : System.Windows.Application
     private WindowsExistingInstanceSignal? existingInstanceSignal;
     private NativeTrayIcon? trayIcon;
     private SettingsWindow? settingsWindow;
-    private SwitchControlProfileWindow? switchControlProfileWindow;
+    private IndependentWindowHost<SwitchControlProfileWindow>? switchControlProfileWindowHost;
     private SetupGuideWindow? setupGuideWindow;
     private MainWindowViewModel mainWindowViewModel = new();
     private SetupGuideViewModel setupGuideViewModel = new();
@@ -114,6 +114,7 @@ public partial class App : System.Windows.Application
         trayIcon = new NativeTrayIcon(
             ShowMainWindow,
             ShowSettingsWindow,
+            ShowSwitchControlProfiles,
             TrayStatusText,
             CanDisconnectBluetoothDevices,
             DisconnectBluetoothDevices,
@@ -171,7 +172,7 @@ public partial class App : System.Windows.Application
         trayIcon?.Dispose();
         trayIcon = null;
         settingsWindow = null;
-        switchControlProfileWindow = null;
+        switchControlProfileWindowHost = null;
         setupGuideWindow = null;
         telemetryReporter?.Dispose();
         telemetryReporter = null;
@@ -201,7 +202,8 @@ public partial class App : System.Windows.Application
             InstallAvailableUpdateAsync,
             DisconnectBluetoothDevices,
             AcceptPairingApprovalAsync,
-            RejectPairingApproval);
+            RejectPairingApproval,
+            ShowSwitchControlProfiles);
         window.Closing += (_, eventArgs) =>
         {
             if (isQuitting) return;
@@ -296,16 +298,11 @@ public partial class App : System.Windows.Application
     {
         switchControlProfileStore ??= new JsonSwitchControlProfileStore(
             Path.Combine(UserDataDirectory(), "switch-control-profiles.json"));
-        if (switchControlProfileWindow is null)
-        {
-            switchControlProfileWindow = new SwitchControlProfileWindow(
+        switchControlProfileWindowHost ??= new IndependentWindowHost<SwitchControlProfileWindow>(
+            () => new SwitchControlProfileWindow(
                 switchControlProfileStore,
-                () => switchControlSessionManager?.ActiveProfileId);
-            switchControlProfileWindow.Closed += (_, _) => switchControlProfileWindow = null;
-        }
-        switchControlProfileWindow.Owner = settingsWindow;
-        switchControlProfileWindow.Show();
-        switchControlProfileWindow.Activate();
+                () => switchControlSessionManager?.ActiveProfileId));
+        switchControlProfileWindowHost.Show();
     }
 
     private static void CenterWindow(Window window)
