@@ -265,10 +265,13 @@
                                                FontWeight="Bold" />
                                 </StackPanel>
                             </Border>
-                            <TextBlock Margin="0,12,0,0"
+                            <TextBlock x:Name="ActiveSwitchControlProfileText"
+                                       Margin="0,12,0,0"
                                        HorizontalAlignment="Center"
                                        Text="{Binding ActiveSwitchControlProfile}"
+                                       Foreground="{DynamicResource Text}"
                                        FontWeight="SemiBold"
+                                       AutomationProperties.AutomationId="ActiveSwitchControlProfileText"
                                        AutomationProperties.LiveSetting="Polite"
                                        Visibility="{Binding HasActiveSwitchControlProfile, Converter={StaticResource BooleanToVisibilityConverter}}" />
                             <Button Margin="0,14,0,0"
