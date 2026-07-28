@@ -107,6 +107,43 @@ public sealed class MainWindowTests
         });
     }
 
+    [Theory]
+    [InlineData(AppTheme.Light)]
+    [InlineData(AppTheme.Dark)]
+    public void ActiveSwitchControlProfileUsesThemeTextColour(AppTheme theme)
+    {
+        RunOnSta(() =>
+        {
+            WpfTestApplication.ApplyTheme(theme);
+            MainWindowViewModel viewModel = new();
+            viewModel.SetActiveSwitchControlProfile("Grid 3");
+            MainWindow window = new(viewModel);
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                TextBlock status = Assert.IsType<TextBlock>(
+                    window.FindName("ActiveSwitchControlProfileText"));
+                SolidColorBrush foreground = Assert.IsType<SolidColorBrush>(status.Foreground);
+                SolidColorBrush themeText = Assert.IsType<SolidColorBrush>(window.FindResource("Text"));
+
+                Assert.Equal("PC Switch Control: Grid 3", status.Text);
+                Assert.Equal(themeText.Color, foreground.Color);
+                Assert.Equal(Visibility.Visible, status.Visibility);
+
+                viewModel.SetActiveSwitchControlProfile(null);
+                window.UpdateLayout();
+
+                Assert.Equal(Visibility.Collapsed, status.Visibility);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
     [Fact]
     public void MainWindowUsesCustomChrome()
     {
