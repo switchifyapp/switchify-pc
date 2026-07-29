@@ -25,7 +25,7 @@ internal sealed class BluetoothRuntime : IDisposable
         PairingApprovalManager pairingApprovalManager,
         BluetoothStatusTracker statusTracker,
         IBluetoothRemoteFrameProcessor frameProcessor,
-        Func<Action<BluetoothHelperEvent>, IBluetoothTransportServer> serverFactory,
+        Func<Action<BluetoothTransportEvent>, IBluetoothTransportServer> serverFactory,
         Func<Func<Task>, Task> dispatchAsync,
         Func<Task> endControlSessionAsync,
         Action<string, string?, string?> recordDiagnostic,
@@ -96,7 +96,7 @@ internal sealed class BluetoothRuntime : IDisposable
         }
     }
 
-    private void HandleTransportEvent(BluetoothHelperEvent transportEvent)
+    private void HandleTransportEvent(BluetoothTransportEvent transportEvent)
     {
         if (transportEvent is BluetoothMessageEvent message)
         {
@@ -107,7 +107,7 @@ internal sealed class BluetoothRuntime : IDisposable
         _ = dispatchAsync(() => ProcessTransportEventAsync(transportEvent));
     }
 
-    private async Task ProcessTransportEventAsync(BluetoothHelperEvent transportEvent)
+    private async Task ProcessTransportEventAsync(BluetoothTransportEvent transportEvent)
     {
         switch (transportEvent)
         {

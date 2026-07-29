@@ -1,5 +1,6 @@
 using SwitchifyPc.Core.Bluetooth;
 using SwitchifyPc.Windows.Bluetooth;
+using Windows.Devices.Radios;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 
 namespace SwitchifyPc.Tests;
@@ -13,16 +14,16 @@ public sealed class WindowsBluetoothGattServerTests
 
         Assert.Equal("Switchify PC", options.DisplayName);
         Assert.Equal("desktop-1", options.DesktopId);
-        Assert.Equal(BluetoothHelperProtocol.ServiceUuid, options.ServiceUuid);
-        Assert.Equal(BluetoothHelperProtocol.RxCharacteristicUuid, options.RxCharacteristicUuid);
-        Assert.Equal(BluetoothHelperProtocol.TxCharacteristicUuid, options.TxCharacteristicUuid);
-        Assert.Equal(BluetoothHelperProtocol.StatusCharacteristicUuid, options.StatusCharacteristicUuid);
+        Assert.Equal(BluetoothGattProtocol.ServiceUuid, options.ServiceUuid);
+        Assert.Equal(BluetoothGattProtocol.RxCharacteristicUuid, options.RxCharacteristicUuid);
+        Assert.Equal(BluetoothGattProtocol.TxCharacteristicUuid, options.TxCharacteristicUuid);
+        Assert.Equal(BluetoothGattProtocol.StatusCharacteristicUuid, options.StatusCharacteristicUuid);
     }
 
     [Fact]
     public void ServerCanBeConstructedAndDisposedWithoutBluetoothHardware()
     {
-        List<BluetoothHelperEvent> events = [];
+        List<BluetoothTransportEvent> events = [];
 
         using WindowsBluetoothGattServer server = new(events.Add);
 
@@ -53,5 +54,15 @@ public sealed class WindowsBluetoothGattServerTests
     public void ShutdownAndRadioDisconnectReasonsDoNotRestartAdvertising(string reason)
     {
         Assert.False(WindowsBluetoothGattServer.ShouldRestartAdvertisingAfterDisconnect(reason));
+    }
+
+    [Theory]
+    [InlineData(RadioState.On, "on")]
+    [InlineData(RadioState.Off, "off")]
+    [InlineData(RadioState.Disabled, "disabled")]
+    [InlineData(RadioState.Unknown, "unknown")]
+    public void SystemMonitorMapsWindowsRadioStates(RadioState state, string expected)
+    {
+        Assert.Equal(expected, WindowsBluetoothSystemMonitor.RadioStateToProtocol(state));
     }
 }

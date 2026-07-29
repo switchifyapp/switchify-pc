@@ -109,14 +109,14 @@ public sealed class BluetoothRuntimeTests
 
     private sealed class FakeTransportServer : IBluetoothTransportServer
     {
-        private Action<BluetoothHelperEvent>? emit;
+        private Action<BluetoothTransportEvent>? emit;
         public (string DisplayName, string DesktopId)? StartArguments { get; private set; }
         public int DisconnectAllCalls { get; private set; }
         public List<(string ConnectionId, BluetoothFrame Frame)> Sent { get; } = [];
         public List<string> Disconnected { get; } = [];
 
-        public void SetEmitter(Action<BluetoothHelperEvent> emitter) => emit = emitter;
-        public void Emit(BluetoothHelperEvent transportEvent) => emit!(transportEvent);
+        public void SetEmitter(Action<BluetoothTransportEvent> emitter) => emit = emitter;
+        public void Emit(BluetoothTransportEvent transportEvent) => emit!(transportEvent);
         public Task StartAsync(string displayName, string desktopId)
         {
             StartArguments = (displayName, desktopId);

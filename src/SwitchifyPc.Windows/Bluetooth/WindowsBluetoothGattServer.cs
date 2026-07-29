@@ -5,7 +5,6 @@ using SwitchifyPc.Core.Bluetooth;
 using SwitchifyPc.Protocol;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
-using Windows.Devices.Radios;
 using Windows.Storage.Streams;
 
 namespace SwitchifyPc.Windows.Bluetooth;
@@ -22,19 +21,19 @@ public sealed record WindowsBluetoothGattServerOptions(
         new(
             displayName,
             desktopId,
-            BluetoothHelperProtocol.ServiceUuid,
-            BluetoothHelperProtocol.RxCharacteristicUuid,
-            BluetoothHelperProtocol.TxCharacteristicUuid,
-            BluetoothHelperProtocol.StatusCharacteristicUuid);
+            BluetoothGattProtocol.ServiceUuid,
+            BluetoothGattProtocol.RxCharacteristicUuid,
+            BluetoothGattProtocol.TxCharacteristicUuid,
+            BluetoothGattProtocol.StatusCharacteristicUuid);
 }
 
 public sealed class WindowsBluetoothGattServer : IBluetoothTransportServer
 {
     private const string ConnectionId = "ble";
     private static readonly TimeSpan DisconnectGracePeriod = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan SystemStatusPollInterval = TimeSpan.FromSeconds(5);
 
-    private readonly Action<BluetoothHelperEvent> emit;
+    private readonly Action<BluetoothTransportEvent> emit;
+    private readonly WindowsBluetoothSystemMonitor systemMonitor = new();
     private GattServiceProvider? serviceProvider;
     private GattLocalCharacteristic? txCharacteristic;
     private GattLocalCharacteristic? rxCharacteristic;
@@ -43,14 +42,11 @@ public sealed class WindowsBluetoothGattServer : IBluetoothTransportServer
     private bool connected;
     private CancellationTokenSource? disconnectGrace;
     private WindowsBluetoothGattServerOptions? activeOptions;
-    private BluetoothAdapter? currentAdapter;
-    private Radio? currentRadio;
-    private CancellationTokenSource? systemStatusPolling;
     private string? lastSystemStatusKey;
     private bool restartInProgress;
     private bool disposed;
 
-    public WindowsBluetoothGattServer(Action<BluetoothHelperEvent> emit)
+    public WindowsBluetoothGattServer(Action<BluetoothTransportEvent> emit)
     {
         this.emit = emit;
     }
@@ -60,7 +56,7 @@ public sealed class WindowsBluetoothGattServer : IBluetoothTransportServer
         ObjectDisposedException.ThrowIf(disposed, this);
         Stop();
         activeOptions = options;
-        AdapterSnapshot snapshot = await StartSystemStatusMonitoringAsync().ConfigureAwait(false);
+        WindowsBluetoothAdapterSnapshot snapshot = await systemMonitor.StartAsync(HandleSystemStatusChangeAsync).ConfigureAwait(false);
         EmitSystemStatus(snapshot, force: true);
 
         if (!snapshot.AdapterPresent)
@@ -91,7 +87,8 @@ public sealed class WindowsBluetoothGattServer : IBluetoothTransportServer
 
     public void Stop()
     {
-        StopSystemStatusMonitoring();
+        systemMonitor.Stop();
+        lastSystemStatusKey = null;
         activeOptions = null;
         CancelDisconnectGrace();
         if (connected)
@@ -138,7 +135,7 @@ public sealed class WindowsBluetoothGattServer : IBluetoothTransportServer
         disposed = true;
         Stop();
         disconnectGrace?.Dispose();
-        systemStatusPolling?.Dispose();
+        systemMonitor.Dispose();
     }
 
     private async Task StartAdvertisingAsync(WindowsBluetoothGattServerOptions options, bool restarted)
@@ -190,106 +187,7 @@ public sealed class WindowsBluetoothGattServer : IBluetoothTransportServer
         statusCharacteristic = null;
     }
 
-    private async Task<AdapterSnapshot> StartSystemStatusMonitoringAsync()
-    {
-        StopSystemStatusMonitoring();
-        systemStatusPolling = new CancellationTokenSource();
-        CancellationToken token = systemStatusPolling.Token;
-        AdapterSnapshot snapshot = await ReadAdapterSnapshotAsync().ConfigureAwait(false);
-
-        _ = Task.Run(async () =>
-        {
-            while (!token.IsCancellationRequested)
-            {
-                try
-                {
-                    await Task.Delay(SystemStatusPollInterval, token).ConfigureAwait(false);
-                    if (token.IsCancellationRequested) return;
-
-                    AdapterSnapshot current = await ReadAdapterSnapshotAsync().ConfigureAwait(false);
-                    await HandleSystemStatusChangeAsync(current).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
-                catch
-                {
-                    await HandleSystemStatusChangeAsync(new AdapterSnapshot(false, "unknown", null, null)).ConfigureAwait(false);
-                }
-            }
-        }, token);
-
-        return snapshot;
-    }
-
-    private void StopSystemStatusMonitoring()
-    {
-        systemStatusPolling?.Cancel();
-        systemStatusPolling?.Dispose();
-        systemStatusPolling = null;
-        DetachRadioStateChanged();
-        currentAdapter = null;
-        lastSystemStatusKey = null;
-    }
-
-    private async Task<AdapterSnapshot> ReadAdapterSnapshotAsync()
-    {
-        try
-        {
-            BluetoothAdapter? adapter = await BluetoothAdapter.GetDefaultAsync();
-            if (adapter is null)
-            {
-                DetachRadioStateChanged();
-                currentAdapter = null;
-                return new AdapterSnapshot(false, "unknown", null, null);
-            }
-
-            currentAdapter = adapter;
-            Radio? radio = await adapter.GetRadioAsync();
-            if (!ReferenceEquals(currentRadio, radio))
-            {
-                DetachRadioStateChanged();
-                if (radio is not null)
-                {
-                    AttachRadioStateChanged(radio);
-                }
-            }
-
-            return new AdapterSnapshot(
-                true,
-                RadioStateToProtocol(radio?.State),
-                adapter.IsLowEnergySupported,
-                adapter.IsPeripheralRoleSupported);
-        }
-        catch
-        {
-            return new AdapterSnapshot(false, "unknown", null, null);
-        }
-    }
-
-    private void AttachRadioStateChanged(Radio radio)
-    {
-        currentRadio = radio;
-        currentRadio.StateChanged += OnRadioStateChanged;
-    }
-
-    private void DetachRadioStateChanged()
-    {
-        if (currentRadio is not null)
-        {
-            currentRadio.StateChanged -= OnRadioStateChanged;
-            currentRadio = null;
-        }
-    }
-
-    private async void OnRadioStateChanged(Radio sender, object args)
-    {
-        AdapterSnapshot snapshot = await ReadAdapterSnapshotAsync().ConfigureAwait(false);
-        await HandleSystemStatusChangeAsync(snapshot).ConfigureAwait(false);
-    }
-
-    private void EmitSystemStatus(AdapterSnapshot snapshot, bool force = false)
+    private void EmitSystemStatus(WindowsBluetoothAdapterSnapshot snapshot, bool force = false)
     {
         string key = $"{snapshot.AdapterPresent}|{snapshot.RadioState}|{snapshot.IsLowEnergySupported}|{snapshot.IsPeripheralRoleSupported}";
         if (!force && key == lastSystemStatusKey)
@@ -305,7 +203,7 @@ public sealed class WindowsBluetoothGattServer : IBluetoothTransportServer
             snapshot.IsPeripheralRoleSupported));
     }
 
-    private async Task HandleSystemStatusChangeAsync(AdapterSnapshot snapshot)
+    private async Task HandleSystemStatusChangeAsync(WindowsBluetoothAdapterSnapshot snapshot)
     {
         string? previousKey = lastSystemStatusKey;
         EmitSystemStatus(snapshot);
@@ -607,7 +505,7 @@ public sealed class WindowsBluetoothGattServer : IBluetoothTransportServer
         restartInProgress = true;
         try
         {
-            AdapterSnapshot snapshot = await ReadAdapterSnapshotAsync().ConfigureAwait(false);
+            WindowsBluetoothAdapterSnapshot snapshot = await systemMonitor.ReadAsync().ConfigureAwait(false);
             EmitSystemStatus(snapshot);
 
             if (!snapshot.AdapterPresent ||
@@ -627,25 +525,9 @@ public sealed class WindowsBluetoothGattServer : IBluetoothTransportServer
         }
     }
 
-    private static string RadioStateToProtocol(RadioState? state)
-    {
-        return state switch
-        {
-            RadioState.On => "on",
-            RadioState.Off => "off",
-            RadioState.Disabled => "disabled",
-            _ => "unknown"
-        };
-    }
-
     private static readonly JsonSerializerOptions FrameJsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    private sealed record AdapterSnapshot(
-        bool AdapterPresent,
-        string RadioState,
-        bool? IsLowEnergySupported,
-        bool? IsPeripheralRoleSupported);
 }
