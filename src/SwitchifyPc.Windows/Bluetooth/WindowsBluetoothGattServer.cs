@@ -28,7 +28,7 @@ public sealed record WindowsBluetoothGattServerOptions(
             BluetoothHelperProtocol.StatusCharacteristicUuid);
 }
 
-public sealed class WindowsBluetoothGattServer : IDisposable
+public sealed class WindowsBluetoothGattServer : IBluetoothTransportServer
 {
     private const string ConnectionId = "ble";
     private static readonly TimeSpan DisconnectGracePeriod = TimeSpan.FromSeconds(10);
@@ -82,6 +82,11 @@ public sealed class WindowsBluetoothGattServer : IDisposable
         }
 
         await StartAdvertisingAsync(options, restarted: false).ConfigureAwait(false);
+    }
+
+    public Task StartAsync(string displayName, string desktopId)
+    {
+        return StartAsync(WindowsBluetoothGattServerOptions.CreateDefault(displayName, desktopId));
     }
 
     public void Stop()

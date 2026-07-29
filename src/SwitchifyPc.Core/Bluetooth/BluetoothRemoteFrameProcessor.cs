@@ -28,7 +28,23 @@ public sealed record BluetoothRemoteFrameResult(
     public static BluetoothRemoteFrameResult Error(string reason) => new(true, reason, []);
 }
 
-public sealed class BluetoothRemoteFrameProcessor
+public interface IBluetoothRemoteFrameProcessor
+{
+    Task<BluetoothRemoteFrameResult> AcceptAsync(
+        string connectionId,
+        BluetoothFrame frame,
+        string? remoteAddress = null,
+        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<BluetoothRemoteFrameOutput>> AcceptPairingRequestAsync(
+        string requestId,
+        CancellationToken cancellationToken = default);
+    IReadOnlyList<BluetoothRemoteFrameOutput> RejectPairingRequest(string requestId);
+    IReadOnlyList<BluetoothRemoteFrameOutput> ExpirePendingPairingRequests();
+    void RemoveConnection(string connectionId);
+    int ClearExpiredPartials();
+}
+
+public sealed class BluetoothRemoteFrameProcessor : IBluetoothRemoteFrameProcessor
 {
     private readonly RemoteControlSession remoteSession;
     private readonly int maxResponseFramePayloadBytes;

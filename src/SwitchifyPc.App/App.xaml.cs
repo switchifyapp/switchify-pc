@@ -23,7 +23,6 @@ using SwitchifyPc.Windows.Input;
 using SwitchifyPc.Windows.ModifierOverlay;
 using SwitchifyPc.Windows.Startup;
 using SwitchifyPc.Windows.Updates;
-using SwitchifyPc.Protocol;
 
 namespace SwitchifyPc.App;
 
@@ -44,19 +43,13 @@ public partial class App : System.Windows.Application
     private UpdateService? updateService;
     private PairingApprovalManager? pairingApprovalManager;
     private BluetoothStatusTracker? bluetoothStatusTracker;
-    private WindowsBluetoothGattServer? bluetoothServer;
-    private BluetoothRemoteFrameProcessor? bluetoothFrameProcessor;
+    private BluetoothRuntime? bluetoothRuntime;
     private DesktopCommandExecutor? commandExecutor;
     private JsonSwitchControlProfileStore? switchControlProfileStore;
     private SwitchControlSessionManager? switchControlSessionManager;
     private MouseRepeatController? mouseRepeatController;
     private WindowsCursorOverlayNotifier? cursorOverlay;
     private WindowsModifierKeyOverlayNotifier? modifierOverlay;
-    private readonly SemaphoreSlim bluetoothMessageProcessing = new(1, 1);
-    private readonly SemaphoreSlim bluetoothOutputProcessing = new(1, 1);
-    private readonly object bluetoothConnectionSync = new();
-    private readonly HashSet<string> authenticatedBluetoothConnections = new(StringComparer.Ordinal);
-    private DispatcherTimer? pairingExpiryTimer;
     private DispatcherTimer? telemetryFlushTimer;
     private AppThemeManager? themeManager;
     private JsonTelemetrySettingsStore? telemetrySettingsStore;
@@ -106,7 +99,6 @@ public partial class App : System.Windows.Application
         bluetoothStatusTracker = new BluetoothStatusTracker(onStatusChanged: UpdateBluetoothState);
         RefreshPairingApprovals();
         updateService.StartAutomaticUpdateChecks();
-        StartPairingExpiryTimer();
         StartTelemetryFlushTimer();
         _ = telemetryReporter?.FlushAsync();
         _ = StartBluetoothAsync();
@@ -137,8 +129,6 @@ public partial class App : System.Windows.Application
         existingInstanceSignal = null;
         updateService?.StopAutomaticUpdateChecks();
         updateService = null;
-        pairingExpiryTimer?.Stop();
-        pairingExpiryTimer = null;
         telemetryFlushTimer?.Stop();
         telemetryFlushTimer = null;
         mouseRepeatController?.StopAllAsync().GetAwaiter().GetResult();
@@ -151,8 +141,8 @@ public partial class App : System.Windows.Application
         catch
         {
         }
-        bluetoothServer?.Dispose();
-        bluetoothServer = null;
+        bluetoothRuntime?.Dispose();
+        bluetoothRuntime = null;
         cursorOverlay?.Dispose();
         cursorOverlay = null;
         modifierOverlay?.Dispose();
@@ -162,13 +152,8 @@ public partial class App : System.Windows.Application
         commandExecutor = null;
         switchControlSessionManager = null;
         switchControlProfileStore = null;
-        bluetoothFrameProcessor = null;
         bluetoothStatusTracker = null;
         pairingApprovalManager = null;
-        lock (bluetoothConnectionSync)
-        {
-            authenticatedBluetoothConnections.Clear();
-        }
         trayIcon?.Dispose();
         trayIcon = null;
         settingsWindow = null;
@@ -222,18 +207,18 @@ public partial class App : System.Windows.Application
 
     private string TrayStatusText()
     {
-        BluetoothStatus status = bluetoothStatusTracker?.Status ?? BluetoothStatusModel.DefaultStatus;
+        BluetoothStatus status = bluetoothRuntime?.Status ?? bluetoothStatusTracker?.Status ?? BluetoothStatusModel.DefaultStatus;
         return $"Status: {MainWindowCopy.BluetoothStatusLabel(status)}";
     }
 
     private bool CanDisconnectBluetoothDevices()
     {
-        return bluetoothStatusTracker?.Status.ConnectedClientCount > 0;
+        return (bluetoothRuntime?.Status ?? bluetoothStatusTracker?.Status)?.ConnectedClientCount > 0;
     }
 
     private void DisconnectBluetoothDevices()
     {
-        bluetoothServer?.DisconnectAll();
+        bluetoothRuntime?.DisconnectAll();
     }
 
     private void ShowSettingsWindow()
@@ -425,10 +410,16 @@ public partial class App : System.Windows.Application
                 pairingApprovalManager,
                 controlSession,
                 () => Dispatcher.BeginInvoke(RefreshPairingApprovals));
-            bluetoothFrameProcessor = new BluetoothRemoteFrameProcessor(remoteSession);
-            bluetoothServer = new WindowsBluetoothGattServer(HandleBluetoothEvent);
-            await bluetoothServer.StartAsync(WindowsBluetoothGattServerOptions.CreateDefault("Switchify PC", desktopId));
-            RecordRuntimeDiagnostic("bluetooth.start.completed");
+            bluetoothRuntime = new BluetoothRuntime(
+                pairingApprovalManager,
+                bluetoothStatusTracker ?? new BluetoothStatusTracker(onStatusChanged: UpdateBluetoothState),
+                new BluetoothRemoteFrameProcessor(remoteSession),
+                emit => new WindowsBluetoothGattServer(emit),
+                DispatchBluetoothAsync,
+                EndBluetoothControlSessionAsync,
+                (eventName, status, reason) => RecordRuntimeDiagnostic(eventName, status, reason),
+                RefreshPairingApprovals);
+            await bluetoothRuntime.StartAsync("Switchify PC", desktopId);
         }
         catch (Exception error)
         {
@@ -438,148 +429,11 @@ public partial class App : System.Windows.Application
         }
     }
 
-    private void HandleBluetoothEvent(BluetoothHelperEvent helperEvent)
-    {
-        if (helperEvent is BluetoothMessageEvent message)
-        {
-            _ = HandleBluetoothMessageSerializedAsync(message);
-            return;
-        }
-
-        Dispatcher.BeginInvoke(async () =>
-        {
-            if (bluetoothStatusTracker is null) return;
-
-            switch (helperEvent)
-            {
-                case BluetoothReadyEvent:
-                    bluetoothStatusTracker.SetReady();
-                    RecordRuntimeDiagnostic("bluetooth.ready", status: "ready");
-                    break;
-                case BluetoothUnavailableEvent unavailable:
-                    bluetoothStatusTracker.SetUnavailable(unavailable.Reason);
-                    RecordRuntimeDiagnostic("bluetooth.unavailable", status: "unavailable", reason: unavailable.Reason);
-                    break;
-                case BluetoothConnectedEvent:
-                    bluetoothStatusTracker.RecordDiagnostic("transport_connected");
-                    RecordRuntimeDiagnostic("bluetooth.connected", status: "connected");
-                    break;
-                case BluetoothDisconnectedEvent disconnected:
-                    BluetoothStatus status = bluetoothStatusTracker.RemoveConnection(disconnected.ConnectionId, disconnected.Reason);
-                    RecordRuntimeDiagnostic("bluetooth.disconnected", status: status.Status, reason: disconnected.Reason);
-                    lock (bluetoothConnectionSync)
-                    {
-                        authenticatedBluetoothConnections.Remove(disconnected.ConnectionId);
-                    }
-                    bluetoothFrameProcessor?.RemoveConnection(disconnected.ConnectionId);
-                    if (status.ConnectedClientCount == 0)
-                    {
-                        if (switchControlSessionManager is not null)
-                        {
-                            await switchControlSessionManager.StopAllAsync();
-                        }
-
-                        if (mouseRepeatController is not null)
-                        {
-                            await mouseRepeatController.StopAllAsync();
-                        }
-
-                        if (commandExecutor is not null)
-                        {
-                            await commandExecutor.ReleaseHeldInputsAsync();
-                        }
-
-                        cursorOverlay?.EndControlSession();
-                        modifierOverlay?.EndControlSession();
-                    }
-                    break;
-                case BluetoothDiagnosticEvent diagnostic:
-                    bluetoothStatusTracker.RecordDiagnostic(diagnostic.Event);
-                    RecordRuntimeDiagnostic("bluetooth.diagnostic", reason: diagnostic.Event);
-                    break;
-                case BluetoothSystemStatusEvent systemStatus:
-                    bluetoothStatusTracker.SetSystemStatus(systemStatus);
-                    break;
-                case BluetoothErrorEvent error:
-                    bluetoothStatusTracker.SetError(error.Reason);
-                    RecordRuntimeDiagnostic("bluetooth.error", status: "error", reason: error.Reason);
-                    break;
-            }
-        });
-    }
-
-    private async Task HandleBluetoothMessageSerializedAsync(BluetoothMessageEvent message)
-    {
-        if (bluetoothFrameProcessor is null || bluetoothServer is null) return;
-
-        BluetoothRemoteFrameResult result;
-        await bluetoothMessageProcessing.WaitAsync();
-        try
-        {
-            result = await bluetoothFrameProcessor.AcceptAsync(message.ConnectionId, message.Frame).ConfigureAwait(false);
-        }
-        finally
-        {
-            bluetoothMessageProcessing.Release();
-        }
-        await HandleBluetoothMessageResultAsync(result).ConfigureAwait(false);
-    }
-
-    private async Task HandleBluetoothMessageResultAsync(BluetoothRemoteFrameResult result)
-    {
-        if (!result.MessageComplete) return;
-        if (result.ErrorReason is not null)
-        {
-            RecordRuntimeDiagnostic("bluetooth.message.error", status: "error", reason: result.ErrorReason);
-            await Dispatcher.BeginInvoke(() => bluetoothStatusTracker?.SetError(result.ErrorReason));
-            return;
-        }
-
-        await SendBluetoothOutputsAsync(result.OutgoingMessages);
-        if (result.AuthenticatedConnectionId is not null)
-        {
-            string connectionId = result.AuthenticatedConnectionId;
-            bool firstAuthenticatedMessage;
-            lock (bluetoothConnectionSync)
-            {
-                firstAuthenticatedMessage = authenticatedBluetoothConnections.Add(connectionId);
-            }
-
-            if (firstAuthenticatedMessage)
-            {
-                RecordRuntimeDiagnostic("bluetooth.authenticated", status: "connected");
-                await Dispatcher.BeginInvoke(() => bluetoothStatusTracker?.AddConnection(connectionId));
-            }
-        }
-        else if (result.AuthFailureReason is not null)
-        {
-            RecordRuntimeDiagnostic("bluetooth.auth.rejected", reason: result.AuthFailureReason);
-            await Dispatcher.BeginInvoke(() => bluetoothStatusTracker?.RecordDiagnostic("unauthenticated_command_rejected"));
-            string? authFailureMessage = AuthFailureMessage(result.AuthFailureReason);
-            if (authFailureMessage is not null)
-            {
-                await Dispatcher.BeginInvoke(() => bluetoothStatusTracker?.SetError(authFailureMessage));
-            }
-        }
-
-    }
-
-    private static string? AuthFailureMessage(string reason)
-    {
-        return reason switch
-        {
-            "unknown_device" => "Bluetooth device is not approved in Switchify. Open Switchify on Android and request access.",
-            "invalid_auth" => "Switchify access expired. Request access again from Android.",
-            "expired_timestamp" => "Switchify command timestamp was stale. Check the device time and reconnect.",
-            _ => null
-        };
-    }
-
     private async Task AcceptPairingApprovalAsync(string requestId)
     {
-        if (bluetoothFrameProcessor is not null && bluetoothServer is not null)
+        if (bluetoothRuntime is not null)
         {
-            await SendBluetoothOutputsAsync(await bluetoothFrameProcessor.AcceptPairingRequestAsync(requestId));
+            await bluetoothRuntime.AcceptPairingRequestAsync(requestId);
         }
         else
         {
@@ -593,9 +447,9 @@ public partial class App : System.Windows.Application
 
     private void RejectPairingApproval(string requestId)
     {
-        if (bluetoothFrameProcessor is not null && bluetoothServer is not null)
+        if (bluetoothRuntime is not null)
         {
-            _ = SendBluetoothOutputsAsync(bluetoothFrameProcessor.RejectPairingRequest(requestId));
+            bluetoothRuntime.RejectPairingRequest(requestId);
         }
         else
         {
@@ -611,7 +465,7 @@ public partial class App : System.Windows.Application
         PairingState pairingState = await new JsonPairingStore(Path.Combine(UserDataDirectory(), "pairing-state.json")).LoadAsync();
         SystemStartupSettings startupSettings = await CreateStartupService().GetSettingsAsync();
         IReadOnlyList<PendingPairingApprovalView> approvals = pairingApprovalManager?.ListPendingRequestViews() ?? [];
-        BluetoothStatus bluetoothStatus = bluetoothStatusTracker?.Status ?? BluetoothStatusModel.DefaultStatus;
+        BluetoothStatus bluetoothStatus = bluetoothRuntime?.Status ?? bluetoothStatusTracker?.Status ?? BluetoothStatusModel.DefaultStatus;
         bool shouldAutoOpen = allowAutoOpen && SetupGuidePrompt.ShouldAutoOpen(settings, pairingState.PairedDevices.Count > 0);
 
         await Dispatcher.BeginInvoke(() =>
@@ -736,56 +590,37 @@ public partial class App : System.Windows.Application
         telemetryFlushTimer.Start();
     }
 
-    private void StartPairingExpiryTimer()
-    {
-        pairingExpiryTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromSeconds(5)
-        };
-        pairingExpiryTimer.Tick += async (_, _) =>
-        {
-            if (bluetoothFrameProcessor is not null)
-            {
-                await SendBluetoothOutputsAsync(bluetoothFrameProcessor.ExpirePendingPairingRequests());
-                bluetoothFrameProcessor.ClearExpiredPartials();
-            }
-
-            RefreshPairingApprovals();
-        };
-        pairingExpiryTimer.Start();
-    }
-
-    private async Task SendBluetoothOutputsAsync(IReadOnlyList<BluetoothRemoteFrameOutput> outputs)
-    {
-        if (bluetoothServer is null) return;
-
-        await bluetoothOutputProcessing.WaitAsync();
-        try
-        {
-            foreach (BluetoothRemoteFrameOutput output in outputs)
-            {
-                foreach (BluetoothFrame frame in output.ResponseFrames)
-                {
-                    await bluetoothServer.SendAsync(output.ConnectionId, frame);
-                }
-
-                if (output.CloseConnection)
-                {
-                    bluetoothServer.Disconnect(output.ConnectionId);
-                }
-            }
-        }
-        finally
-        {
-            bluetoothOutputProcessing.Release();
-        }
-    }
-
     private void RefreshPairingApprovals()
     {
-        IReadOnlyList<PendingPairingApprovalView> approvals = pairingApprovalManager?.ListPendingRequestViews() ?? [];
+        IReadOnlyList<PendingPairingApprovalView> approvals =
+            bluetoothRuntime?.PendingPairingApprovals ??
+            pairingApprovalManager?.ListPendingRequestViews() ??
+            [];
         mainWindowViewModel.SetPairingApprovals(approvals);
         setupGuideViewModel.SetPairingApprovals(approvals);
+    }
+
+    private async Task DispatchBluetoothAsync(Func<Task> action)
+    {
+        await (await Dispatcher.InvokeAsync(action));
+    }
+
+    private async Task EndBluetoothControlSessionAsync()
+    {
+        if (switchControlSessionManager is not null)
+        {
+            await switchControlSessionManager.StopAllAsync();
+        }
+        if (mouseRepeatController is not null)
+        {
+            await mouseRepeatController.StopAllAsync();
+        }
+        if (commandExecutor is not null)
+        {
+            await commandExecutor.ReleaseHeldInputsAsync();
+        }
+        cursorOverlay?.EndControlSession();
+        modifierOverlay?.EndControlSession();
     }
 
     private static string UserDataDirectory()
