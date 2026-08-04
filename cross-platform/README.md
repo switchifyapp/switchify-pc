@@ -2,7 +2,7 @@
 
 This directory contains the parallel Tauri 2 rewrite of Switchify PC. It does not replace or alter the shipping WPF application under `src/`.
 
-The preview uses a React/TypeScript interface and a Rust backend. Platform adapters provide Windows and macOS Bluetooth LE peripheral support, accessibility-aware input injection, persistent authenticated pairing, tray behavior, startup registration, profiles, and update checks. The app uses a separate product name, bundle identifier, and data directory so it can be installed beside the shipping application. Only one version may advertise the Switchify Bluetooth service at a time.
+The preview uses a React/TypeScript interface and a Rust backend. Platform adapters provide Windows and macOS Bluetooth LE peripheral support, accessibility-aware input injection, persistent authenticated pairing, tray behavior, startup registration, mapped switch sessions, Windows Grid 3 output, diagnostics, profiles, and update checks. The app uses a separate product name, bundle identifier, and data directory so it can be installed beside the shipping application. Only one version may advertise the Switchify Bluetooth service at a time.
 
 ## Prerequisites
 
@@ -40,5 +40,6 @@ The Rust tests use fake input adapters and never control the local pointer or ke
 
 - The preview has no production signing or release publishing workflow.
 - Linux is represented in capability data but is not a supported Bluetooth target.
-- Windows Grid 3/UIAccess integration and cursor overlays are modeled behind platform capabilities and remain preview work before replacing WPF.
+- Windows Grid 3 output is available through the native `Sensory_SwitchInput` broadcast contract. Grid 3 is omitted from macOS capabilities and profiles.
+- UIAccess packaging, cursor overlays, mouse repeat, and display navigation are not advertised by the preview.
 - Update installation requires a signed Tauri update feed; local development builds can only report updater configuration errors.
