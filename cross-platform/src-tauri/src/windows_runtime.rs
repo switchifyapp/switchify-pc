@@ -352,7 +352,17 @@ fn process_frame(
         }
         Some(EngineEvent::Response(response)) => Some(response),
         Some(EngineEvent::PointerProfile(id)) => {
-            Some(pointer_profile_response(&id, &default_pointer_profile()))
+            let scale = shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .state
+                .settings
+                .pointer_scale_percent;
+            Some(pointer_profile_response(
+                &id,
+                &default_pointer_profile(),
+                scale,
+            ))
         }
         Some(EngineEvent::MouseMove(command)) => complete_mouse_move(shared, command),
         Some(EngineEvent::MouseClick(command)) => complete_mouse_click(shared, command),
@@ -376,7 +386,14 @@ fn with_runtime_input<T>(
 }
 
 fn complete_mouse_move(shared: &SharedModel, command: MouseMoveCommand) -> Option<String> {
+    let scale = shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .state
+        .settings
+        .pointer_scale_percent;
     let result = with_runtime_input(|input| {
+        input.set_pointer_scale_percent(scale);
         input.move_pointer(command.dx.round() as i32, command.dy.round() as i32)
     });
     shared
@@ -428,6 +445,20 @@ fn complete_desktop(shared: &SharedModel, command: DesktopCommand) -> Option<Str
             &profiles,
         )
     });
+    if result.is_ok() && command.command_type == "pointer.speed.set" {
+        if let Some(scale) = command
+            .payload
+            .get("scalePercent")
+            .and_then(serde_json::Value::as_f64)
+        {
+            shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .state
+                .settings
+                .pointer_scale_percent = ((scale / 5.0).round() * 5.0).clamp(5.0, 225.0) as u8;
+        }
+    }
     shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())

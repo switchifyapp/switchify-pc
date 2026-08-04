@@ -81,10 +81,10 @@ impl Default for AppSettings {
 
 impl AppSettings {
     pub fn normalized(mut self) -> Result<Self, String> {
-        if !(5..=100).contains(&self.pointer_scale_percent)
+        if !(5..=225).contains(&self.pointer_scale_percent)
             || !self.pointer_scale_percent.is_multiple_of(5)
         {
-            return Err("Pointer speed must be between 5 and 100 in steps of 5.".into());
+            return Err("Pointer speed must be between 5 and 225 in steps of 5.".into());
         }
         if ![100, 250, 500, 1000].contains(&self.move_repeat_interval_ms)
             || ![100, 250, 500, 1000].contains(&self.scroll_repeat_interval_ms)

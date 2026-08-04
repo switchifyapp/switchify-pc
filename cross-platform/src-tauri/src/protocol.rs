@@ -848,8 +848,51 @@ fn valid_desktop_payload(command: &str, payload: &Value) -> bool {
                     .and_then(Value::as_f64)
                     .is_some_and(|value| value.is_finite() && value > 0.0)
         }
+        "keyboard.textStream.open" => valid_stream_id(object.get("streamId")),
+        "keyboard.textStream.char" => {
+            valid_stream_item(object)
+                && object
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| text.chars().count() == 1 && is_safe_typed_text(text))
+        }
+        "keyboard.textStream.chunk" => {
+            valid_stream_item(object)
+                && object
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .is_some_and(is_safe_typed_text)
+        }
+        "keyboard.textStream.key" => {
+            valid_stream_item(object)
+                && object
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .is_some_and(|key| !key.is_empty() && key.len() <= 20)
+        }
+        "keyboard.textStream.close" => {
+            valid_stream_id(object.get("streamId"))
+                && object
+                    .get("expectedCount")
+                    .and_then(Value::as_i64)
+                    .is_some_and(|count| (0..=10_000).contains(&count))
+        }
         _ => true,
     }
+}
+
+fn valid_stream_id(value: Option<&Value>) -> bool {
+    value.and_then(Value::as_str).is_some_and(|id| {
+        (1..=80).contains(&id.len()) && id.chars().all(|character| !character.is_control())
+    })
+}
+
+fn valid_stream_item(object: &Map<String, Value>) -> bool {
+    valid_stream_id(object.get("streamId"))
+        && object
+            .get("seq")
+            .and_then(Value::as_i64)
+            .is_some_and(|sequence| (0..=10_000).contains(&sequence))
 }
 
 fn sorted_switch_ids(value: Option<&Value>) -> bool {
@@ -1056,7 +1099,7 @@ fn error_response(id: Option<&str>, code: &str, message: &str) -> String {
     .to_string()
 }
 
-pub fn pointer_profile_response(id: &str, profile: &PointerProfile) -> String {
+pub fn pointer_profile_response(id: &str, profile: &PointerProfile, scale_percent: u8) -> String {
     json!({
         "version": PROTOCOL_VERSION,
         "id": id,
@@ -1128,7 +1171,33 @@ pub fn pointer_profile_response(id: &str, profile: &PointerProfile) -> String {
                     "switch.sync",
                     "switch.session.stop",
                     "connection.disconnecting"
-                ]
+                ],
+                "mouseRepeat": {
+                    "supported": false,
+                    "enabled": false,
+                    "intervalMs": 250,
+                    "moveIntervalMs": 250,
+                    "scrollIntervalMs": 250,
+                    "minIntervalMs": 100,
+                    "maxIntervalMs": 1000,
+                    "accelerationDurationMs": 0,
+                    "accelerationDurationOptionsMs": [],
+                    "accelerationInitialScalePercent": 100
+                },
+                "pointerSpeed": {
+                    "supported": true,
+                    "setSupported": true,
+                    "scalePercent": scale_percent,
+                    "minScalePercent": 5,
+                    "maxScalePercent": 225,
+                    "stepPercent": 5,
+                    "baseMoveDelta": 128,
+                    "effectiveMoveDelta": (128.0 * f64::from(scale_percent) / 100.0).round() as u32
+                },
+                "displayNavigation": {
+                    "supported": false,
+                    "displayCount": 1
+                }
             }
         },
         "error": Value::Null
@@ -1548,7 +1617,7 @@ mod tests {
             large_delta: 281,
         };
         let response: Value =
-            serde_json::from_str(&pointer_profile_response("profile-1", &profile)).unwrap();
+            serde_json::from_str(&pointer_profile_response("profile-1", &profile, 100)).unwrap();
         assert_eq!(response["payload"]["maxDelta"], 500);
         assert_eq!(response["payload"]["recommendedDeltas"]["medium"], 130);
         assert_eq!(response["payload"]["capabilities"]["noAckMouseMove"], true);

@@ -188,7 +188,7 @@ pub struct DesktopInput<I: InputInjector> {
     held_modifiers: HashSet<String>,
     held_button: Option<MouseButton>,
     pointer_scale_percent: u32,
-    text_stream: Option<String>,
+    text_streams: HashMap<String, TextStream>,
     switch_session: Option<SwitchSession>,
 }
 
@@ -201,6 +201,11 @@ struct SwitchSession {
     held_outputs: HashMap<String, u8>,
 }
 
+struct TextStream {
+    next_sequence: i64,
+    failed: bool,
+}
+
 impl<I: InputInjector> DesktopInput<I> {
     pub fn new(injector: I) -> Self {
         Self {
@@ -208,7 +213,7 @@ impl<I: InputInjector> DesktopInput<I> {
             held_modifiers: HashSet::new(),
             held_button: None,
             pointer_scale_percent: 100,
-            text_stream: None,
+            text_streams: HashMap::new(),
             switch_session: None,
         }
     }
@@ -222,6 +227,9 @@ impl<I: InputInjector> DesktopInput<I> {
             (dy as f64 * scale).round() as i32,
         )
     }
+    pub fn set_pointer_scale_percent(&mut self, scale_percent: u8) {
+        self.pointer_scale_percent = u32::from(scale_percent.clamp(5, 225));
+    }
     pub fn click_pointer(&mut self, button: MouseButton, click_count: u8) -> Result<(), String> {
         self.injector.click_pointer(button, click_count)
     }
@@ -233,6 +241,19 @@ impl<I: InputInjector> DesktopInput<I> {
         payload: &Value,
         profiles: &[SwitchProfile],
     ) -> Result<(), String> {
+        if self.switch_session.is_some()
+            && !matches!(
+                command_type,
+                "switch.profile.list"
+                    | "switch.session.start"
+                    | "switch.edge"
+                    | "switch.sync"
+                    | "switch.session.stop"
+                    | "connection.disconnecting"
+            )
+        {
+            return Err("Stop PC Switch Control before using other PC control commands.".into());
+        }
         match command_type {
             "mouse.scroll" => self
                 .injector
@@ -298,27 +319,58 @@ impl<I: InputInjector> DesktopInput<I> {
             "media.control" => self.injector.media(string(payload, "action")?),
             "window.control" => self.injector.window(string(payload, "action")?),
             "keyboard.textStream.open" => {
-                self.text_stream = Some(string(payload, "streamId")?.to_owned());
+                let key = text_stream_key(device_id, string(payload, "streamId")?);
+                self.text_streams.insert(
+                    key,
+                    TextStream {
+                        next_sequence: 0,
+                        failed: false,
+                    },
+                );
                 Ok(())
             }
             "keyboard.textStream.char" | "keyboard.textStream.chunk" => {
-                self.require_text_stream(payload)?;
+                let key = text_stream_key(device_id, string(payload, "streamId")?);
+                if !self.begin_text_stream_item(&key, integer(payload, "seq")?)? {
+                    return Ok(());
+                }
                 let text = string(payload, "text")?;
                 if text.chars().count() > 2_000 {
                     return Err("Text payload is too large.".into());
                 }
-                self.injector.inject_text(text)
+                let result = self.injector.inject_text(text);
+                if result.is_err() {
+                    self.mark_text_stream_failed(&key);
+                }
+                result
             }
             "keyboard.textStream.key" => {
-                self.require_text_stream(payload)?;
+                let stream_key = text_stream_key(device_id, string(payload, "streamId")?);
+                if !self.begin_text_stream_item(&stream_key, integer(payload, "seq")?)? {
+                    return Ok(());
+                }
                 let key = string(payload, "key")?;
-                self.injector.set_key(key, true)?;
-                self.injector.set_key(key, false)
+                let result = self
+                    .injector
+                    .set_key(key, true)
+                    .and_then(|_| self.injector.set_key(key, false));
+                if result.is_err() {
+                    self.mark_text_stream_failed(&stream_key);
+                }
+                result
             }
             "keyboard.textStream.close" => {
-                self.require_text_stream(payload)?;
-                self.text_stream = None;
-                Ok(())
+                let key = text_stream_key(device_id, string(payload, "streamId")?);
+                let expected = integer(payload, "expectedCount")?;
+                let stream = self
+                    .text_streams
+                    .remove(&key)
+                    .ok_or_else(|| "Text stream is not open.".to_string())?;
+                if stream.failed || stream.next_sequence != expected {
+                    Err("Text stream did not receive every item.".into())
+                } else {
+                    Ok(())
+                }
             }
             "switch.profile.list" => Ok(()),
             "switch.session.start" => self.start_switch_session(device_id, payload, profiles),
@@ -326,11 +378,12 @@ impl<I: InputInjector> DesktopInput<I> {
             "switch.sync" => self.sync_switches(device_id, payload),
             "switch.session.stop" => self.stop_switch_session_command(device_id, payload),
             "pointer.speed.set" => {
-                let scale = integer(payload, "scalePercent")?;
-                if !(5..=400).contains(&scale) {
-                    return Err("Pointer speed is invalid.".into());
-                }
-                self.pointer_scale_percent = scale as u32;
+                let scale = payload
+                    .get("scalePercent")
+                    .and_then(Value::as_f64)
+                    .filter(|scale| scale.is_finite() && *scale > 0.0)
+                    .ok_or_else(|| "Pointer speed is invalid.".to_string())?;
+                self.pointer_scale_percent = ((scale / 5.0).round() * 5.0).clamp(5.0, 225.0) as u32;
                 Ok(())
             }
             "connection.disconnecting" => self.release_all(),
@@ -347,12 +400,29 @@ impl<I: InputInjector> DesktopInput<I> {
         }
     }
 
-    fn require_text_stream(&self, payload: &Value) -> Result<(), String> {
-        let stream_id = string(payload, "streamId")?;
-        if self.text_stream.as_deref() == Some(stream_id) {
-            Ok(())
-        } else {
-            Err("The text stream is not active.".into())
+    fn begin_text_stream_item(&mut self, key: &str, sequence: i64) -> Result<bool, String> {
+        let stream = self
+            .text_streams
+            .get_mut(key)
+            .ok_or_else(|| "Text stream is not open.".to_string())?;
+        if stream.failed {
+            return Err("Text stream has failed.".into());
+        }
+        if sequence < stream.next_sequence {
+            return Ok(false);
+        }
+        if sequence > stream.next_sequence {
+            stream.failed = true;
+            stream.next_sequence = sequence + 1;
+            return Err("Text stream sequence mismatch.".into());
+        }
+        stream.next_sequence += 1;
+        Ok(true)
+    }
+
+    fn mark_text_stream_failed(&mut self, key: &str) {
+        if let Some(stream) = self.text_streams.get_mut(key) {
+            stream.failed = true;
         }
     }
 
@@ -378,7 +448,7 @@ impl<I: InputInjector> DesktopInput<I> {
         if profile.provider != "mapped" {
             return Err("The selected output provider is unavailable.".into());
         }
-        self.stop_switch_session()?;
+        self.release_all()?;
         self.switch_session = Some(SwitchSession {
             device_id: device_id.into(),
             session_id: session_id.into(),
@@ -623,7 +693,7 @@ impl<I: InputInjector> DesktopInput<I> {
 
     pub fn release_all(&mut self) -> Result<(), String> {
         self.stop_switch_session()?;
-        self.text_stream = None;
+        self.text_streams.clear();
         if let Some(button) = self.held_button.take() {
             self.injector.set_pointer_button(button, false)?;
         }
@@ -656,6 +726,9 @@ fn integer(payload: &Value, key: &str) -> Result<i64, String> {
         .get(key)
         .and_then(Value::as_i64)
         .ok_or_else(|| format!("{key} is required."))
+}
+fn text_stream_key(device_id: &str, stream_id: &str) -> String {
+    format!("{device_id}\0{stream_id}")
 }
 fn parse_button(value: &str) -> Result<MouseButton, String> {
     match value {

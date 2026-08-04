@@ -100,7 +100,7 @@ function SettingsView({ state, settings, setSettings, save, checkUpdates, busy }
   return <div className="view"><header className="page-header"><div><h1>Settings</h1><p>Startup, pointer, privacy, and updates</p></div><Settings size={24} /></header>
     <SettingGroup title="General" description="System startup and background behavior."><Toggle label="Start with system" checked={settings.startWithSystem} onChange={(value) => update("startWithSystem", value)} /></SettingGroup>
     <SettingGroup title="Pointer" description="Movement and visual feedback.">
-      <label className="range-row"><span>Pointer speed <strong>{settings.pointerScalePercent}%</strong></span><input type="range" min="5" max="100" step="5" value={settings.pointerScalePercent} onChange={(event) => update("pointerScalePercent", Number(event.target.value))} /></label>
+      <label className="range-row"><span>Pointer speed <strong>{settings.pointerScalePercent}%</strong></span><input type="range" min="5" max="225" step="5" value={settings.pointerScalePercent} onChange={(event) => update("pointerScalePercent", Number(event.target.value))} /></label>
       {state.capabilities.cursorOverlay && <><Toggle label="Show cursor overlay" checked={settings.cursorOverlayEnabled} onChange={(value) => update("cursorOverlayEnabled", value)} /><Toggle label="Show crosshairs" checked={settings.cursorCrosshairs} onChange={(value) => update("cursorCrosshairs", value)} /></>}
     </SettingGroup>
     <SettingGroup title="Privacy" description="Sanitized application health reports only."><Toggle label="Share diagnostic data" checked={settings.shareDiagnostics} onChange={(value) => update("shareDiagnostics", value)} /></SettingGroup>

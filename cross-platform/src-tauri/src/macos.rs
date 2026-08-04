@@ -503,7 +503,14 @@ impl MacRuntime {
     }
 
     fn handle_pointer_profile(&mut self, id: &str) {
-        let response = pointer_profile_response(id, &self.pointer_profile());
+        let scale = self
+            .shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .state
+            .settings
+            .pointer_scale_percent;
+        let response = pointer_profile_response(id, &self.pointer_profile(), scale);
         if let Err(error) = self.enqueue_message(&response) {
             self.report_error(error);
         }
@@ -659,6 +666,20 @@ impl MacRuntime {
                 &command,
                 injection.as_ref().map(|_| ()).map_err(String::as_str),
             );
+        if injection.is_ok() && command.command_type == "pointer.speed.set" {
+            if let Some(scale) = command
+                .payload
+                .get("scalePercent")
+                .and_then(serde_json::Value::as_f64)
+            {
+                self.shared
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .state
+                    .settings
+                    .pointer_scale_percent = ((scale / 5.0).round() * 5.0).clamp(5.0, 225.0) as u8;
+            }
+        }
         match injection {
             Ok(()) => set_activity(
                 &self.shared,
@@ -691,12 +712,18 @@ impl MacRuntime {
         if self.input.is_none() && !self.refresh_accessibility(false) {
             return Err("Accessibility permission is required before the pointer can move.".into());
         }
-        self.input
-            .as_mut()
-            .ok_or_else(|| {
-                "Accessibility permission is required before the pointer can move.".to_string()
-            })?
-            .move_pointer(dx, dy)
+        let scale = self
+            .shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .state
+            .settings
+            .pointer_scale_percent;
+        let input = self.input.as_mut().ok_or_else(|| {
+            "Accessibility permission is required before the pointer can move.".to_string()
+        })?;
+        input.set_pointer_scale_percent(scale);
+        input.move_pointer(dx, dy)
     }
 
     fn inject_pointer_click(&mut self, button: MouseButton, click_count: u8) -> Result<(), String> {
