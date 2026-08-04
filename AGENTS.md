@@ -12,6 +12,10 @@ The app should be treated as a trusted local control agent. Be conservative with
 - Every change needs its own branch from `main`.
 - Branch names should be short and scoped, for example `chore/dotnet-package-1`, `feat/pairing-auth-3`, or `fix/bluetooth-reconnect`.
 - Keep pull requests tightly scoped to one issue wherever possible.
+- After opening or updating a pull request, monitor CI and wait for Greptile to finish reviewing the latest commit.
+- Read all Greptile summary and inline feedback. Address valid, in-scope feedback, and reply with a concise rationale when a suggestion is invalid or out of scope.
+- After pushing review fixes, wait for Greptile to review the new commit and repeat the feedback loop until no actionable feedback remains.
+- Do not merge a pull request until required CI checks pass and the Greptile feedback loop is complete.
 - Do not mix implementation work with broad refactors unless the issue explicitly calls for it.
 - Prefer existing project patterns once the app scaffold exists.
 - Before creating a milestone, verify whether the intended milestone already exists.
