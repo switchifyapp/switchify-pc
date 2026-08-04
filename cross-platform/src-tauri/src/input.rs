@@ -469,7 +469,7 @@ impl<I: InputInjector> DesktopInput<I> {
         &mut self,
         device_id: &str,
         session_id: &str,
-        profiles: &[SwitchProfile],
+        _profiles: &[SwitchProfile],
     ) -> Result<(), String> {
         if self.switch_session.as_ref().is_some_and(|session| {
             session.device_id == device_id
@@ -482,7 +482,7 @@ impl<I: InputInjector> DesktopInput<I> {
         return Err("Grid 3 output is unavailable.".into());
         #[cfg(target_os = "windows")]
         {
-            let profile = profiles
+            let profile = _profiles
                 .iter()
                 .find(|profile| profile.provider == "grid3")
                 .cloned()
