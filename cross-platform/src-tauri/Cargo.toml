@@ -45,3 +45,6 @@ windows = { version = "0.62.2", features = [
   "Win32_Foundation",
   "Win32_System_Threading"
 ] }
+
+[patch.crates-io]
+corebluetooth-rs = { path = "../vendor/corebluetooth-rs" }

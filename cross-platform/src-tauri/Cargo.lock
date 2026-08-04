@@ -622,8 +622,6 @@ dependencies = [
 [[package]]
 name = "corebluetooth-rs"
 version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce9c2a4c8b5be0fe4cfec72f4153b3fabbf7f6c9f8a0b02e406e84de3059783a"
 dependencies = [
  "apple-cf",
  "libc",

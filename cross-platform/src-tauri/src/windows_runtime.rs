@@ -293,7 +293,7 @@ async fn handle_write(
             request.Respond().map_err(|error| error.to_string())?;
         }
         if let Some(response) = process_frame(&app, &shared, &bytes)? {
-            notify(response).await?;
+            notify(response)?;
         }
         Ok(())
     }
@@ -437,7 +437,7 @@ fn default_pointer_profile() -> PointerProfile {
     }
 }
 
-async fn notify(message: String) -> Result<(), String> {
+fn notify(message: String) -> Result<(), String> {
     let tx = runtime()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -447,11 +447,9 @@ async fn notify(message: String) -> Result<(), String> {
     for frame in create_notification_frames(&message, NOTIFICATION_BYTES)? {
         let buffer =
             CryptographicBuffer::CreateFromByteArray(&frame).map_err(|error| error.to_string())?;
-        let operation = tx
+        let _operation = tx
             .NotifyValueAsync(&buffer)
             .map_err(|error| error.to_string())?;
-        drop(buffer);
-        operation.await.map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -485,10 +483,7 @@ pub fn approve_pairing(
         model.state.pending_pairing = None;
         response
     };
-    tauri::async_runtime::spawn(async move {
-        let _ = notify(response).await;
-    });
-    Ok(())
+    notify(response)
 }
 
 pub fn reject_pairing(
@@ -504,10 +499,7 @@ pub fn reject_pairing(
         model.state.pending_pairing = None;
         response
     };
-    tauri::async_runtime::spawn(async move {
-        let _ = notify(response).await;
-    });
-    Ok(())
+    notify(response)
 }
 
 pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), String> {
