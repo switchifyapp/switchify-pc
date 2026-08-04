@@ -53,7 +53,7 @@ function DevicesView({ state, forget }: { state: AppState; forget: (id: string) 
 }
 
 const newProfile = (): SwitchProfile => ({
-  id: crypto.randomUUID(), name: "New profile", provider: "mapped", builtIn: false,
+  id: crypto.randomUUID(), version: 1, name: "New profile", provider: "mapped", builtIn: false,
   bindings: Array.from({ length: 8 }, (_, index) => ({ switchId: index + 1, type: "none" })),
 });
 

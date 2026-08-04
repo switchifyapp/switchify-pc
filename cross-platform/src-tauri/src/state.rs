@@ -10,6 +10,7 @@ use crate::storage::{AppStorage, PersistedState};
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 pub enum BluetoothState {
     Initializing,
     Advertising,
@@ -24,6 +25,7 @@ pub enum BluetoothState {
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 pub enum AccessibilityState {
     Granted,
     Required,
@@ -125,18 +127,18 @@ impl PlatformCapabilities {
         #[cfg(target_os = "windows")]
         return Self {
             platform: "windows".into(),
-            grid3: true,
-            ui_access: true,
-            display_navigation: true,
-            cursor_overlay: true,
+            grid3: false,
+            ui_access: false,
+            display_navigation: false,
+            cursor_overlay: false,
         };
         #[cfg(target_os = "macos")]
         return Self {
             platform: "macos".into(),
             grid3: false,
             ui_access: false,
-            display_navigation: true,
-            cursor_overlay: true,
+            display_navigation: false,
+            cursor_overlay: false,
         };
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         Self {
@@ -164,10 +166,16 @@ pub struct SwitchBinding {
 #[serde(rename_all = "camelCase")]
 pub struct SwitchProfile {
     pub id: String,
+    #[serde(default = "default_profile_version")]
+    pub version: u32,
     pub name: String,
     pub provider: String,
     pub built_in: bool,
     pub bindings: Vec<SwitchBinding>,
+}
+
+fn default_profile_version() -> u32 {
+    1
 }
 
 pub fn built_in_profiles(include_grid3: bool) -> Vec<SwitchProfile> {
@@ -179,15 +187,35 @@ pub fn built_in_profiles(include_grid3: bool) -> Vec<SwitchProfile> {
         click_count: None,
     };
     let mut profiles = vec![SwitchProfile {
-        id: "built-in-mapped".into(),
-        name: "Default controls".into(),
+        id: "builtin.keyboard".into(),
+        version: 1,
+        name: "Generic keyboard".into(),
         provider: "mapped".into(),
         built_in: true,
-        bindings: (1..=8).map(none).collect(),
+        bindings: (1..=8)
+            .map(|id| match id {
+                1 => SwitchBinding {
+                    switch_id: id,
+                    binding_type: "key".into(),
+                    value: Some("Space".into()),
+                    keys: None,
+                    click_count: None,
+                },
+                2 => SwitchBinding {
+                    switch_id: id,
+                    binding_type: "key".into(),
+                    value: Some("Enter".into()),
+                    keys: None,
+                    click_count: None,
+                },
+                _ => none(id),
+            })
+            .collect(),
     }];
     if include_grid3 {
         profiles.push(SwitchProfile {
-            id: "built-in-grid3".into(),
+            id: "builtin.grid3".into(),
+            version: 1,
             name: "Grid 3".into(),
             provider: "grid3".into(),
             built_in: true,

@@ -47,6 +47,7 @@ export type SwitchBinding = {
 
 export type SwitchProfile = {
   id: string;
+  version: number;
   name: string;
   provider: "mapped" | "grid3";
   builtIn: boolean;

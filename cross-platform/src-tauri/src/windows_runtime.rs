@@ -15,8 +15,8 @@ use windows::Security::Cryptography::CryptographicBuffer;
 
 use crate::input::DesktopInput;
 use crate::protocol::{
-    create_notification_frames, pointer_profile_response, DesktopCommand, EngineEvent,
-    MouseClickCommand, MouseMoveCommand, PointerProfile, TextCommand,
+    create_notification_frames, pointer_profile_response, switch_profile_catalog_response,
+    DesktopCommand, EngineEvent, MouseClickCommand, MouseMoveCommand, PointerProfile, TextCommand,
 };
 use crate::state::{
     emit_state, set_activity, AccessibilityState, ActivityKind, BluetoothState, SharedModel,
@@ -29,7 +29,7 @@ const STATUS_UUID: GUID = GUID::from_u128(0x7a78f7eb_1d6d_4d92_9ef0_1f89d3db21f4
 const NOTIFICATION_BYTES: usize = 160;
 
 struct WindowsRuntime {
-    provider: GattServiceProvider,
+    _provider: GattServiceProvider,
     tx: GattLocalCharacteristic,
     input: DesktopInput<Enigo>,
 }
@@ -240,7 +240,7 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     *runtime()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(WindowsRuntime {
-        provider: provider.clone(),
+        _provider: provider.clone(),
         tx,
         input: DesktopInput::new(input),
     });
@@ -412,7 +412,22 @@ fn complete_text(shared: &SharedModel, command: TextCommand) -> Option<String> {
         )
 }
 fn complete_desktop(shared: &SharedModel, command: DesktopCommand) -> Option<String> {
-    let result = with_runtime_input(|input| input.execute(&command.command_type, &command.payload));
+    let profiles = shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .profiles
+        .clone();
+    if command.command_type == "switch.profile.list" {
+        return Some(switch_profile_catalog_response(&command.id, &profiles));
+    }
+    let result = with_runtime_input(|input| {
+        input.execute(
+            &command.device_id,
+            &command.command_type,
+            &command.payload,
+            &profiles,
+        )
+    });
     shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())

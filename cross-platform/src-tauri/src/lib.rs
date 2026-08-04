@@ -202,7 +202,7 @@ fn validate_profile(profile: &SwitchProfile) -> Result<(), String> {
 #[tauri::command]
 fn save_switch_profile(
     model: State<'_, AppModel>,
-    profile: SwitchProfile,
+    mut profile: SwitchProfile,
 ) -> Result<Vec<SwitchProfile>, String> {
     validate_profile(&profile)?;
     {
@@ -210,6 +210,11 @@ fn save_switch_profile(
             .shared
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        profile.version = data
+            .profiles
+            .iter()
+            .find(|candidate| candidate.id == profile.id && !candidate.built_in)
+            .map_or(1, |candidate| candidate.version.saturating_add(1));
         data.profiles.retain(|existing| existing.id != profile.id);
         data.profiles.push(profile);
     }

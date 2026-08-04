@@ -1,9 +1,10 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use enigo::{Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse};
 use serde_json::Value;
 
 use crate::protocol::MouseButton;
+use crate::state::{SwitchBinding, SwitchProfile};
 
 pub trait InputInjector {
     fn inject_text(&mut self, text: &str) -> Result<(), String>;
@@ -186,6 +187,18 @@ pub struct DesktopInput<I: InputInjector> {
     pub(crate) injector: I,
     held_modifiers: HashSet<String>,
     held_button: Option<MouseButton>,
+    pointer_scale_percent: u32,
+    text_stream: Option<String>,
+    switch_session: Option<SwitchSession>,
+}
+
+struct SwitchSession {
+    device_id: String,
+    session_id: String,
+    profile: SwitchProfile,
+    last_sequence: i64,
+    pressed_switches: HashSet<u8>,
+    held_outputs: HashMap<String, u8>,
 }
 
 impl<I: InputInjector> DesktopInput<I> {
@@ -194,19 +207,32 @@ impl<I: InputInjector> DesktopInput<I> {
             injector,
             held_modifiers: HashSet::new(),
             held_button: None,
+            pointer_scale_percent: 100,
+            text_stream: None,
+            switch_session: None,
         }
     }
     pub fn type_text(&mut self, text: &str) -> Result<(), String> {
         self.injector.inject_text(text)
     }
     pub fn move_pointer(&mut self, dx: i32, dy: i32) -> Result<(), String> {
-        self.injector.move_pointer(dx, dy)
+        let scale = self.pointer_scale_percent as f64 / 100.0;
+        self.injector.move_pointer(
+            (dx as f64 * scale).round() as i32,
+            (dy as f64 * scale).round() as i32,
+        )
     }
     pub fn click_pointer(&mut self, button: MouseButton, click_count: u8) -> Result<(), String> {
         self.injector.click_pointer(button, click_count)
     }
 
-    pub fn execute(&mut self, command_type: &str, payload: &Value) -> Result<(), String> {
+    pub fn execute(
+        &mut self,
+        device_id: &str,
+        command_type: &str,
+        payload: &Value,
+        profiles: &[SwitchProfile],
+    ) -> Result<(), String> {
         match command_type {
             "mouse.scroll" => self
                 .injector
@@ -226,7 +252,7 @@ impl<I: InputInjector> DesktopInput<I> {
                 }
                 Ok(())
             }
-            "keyboard.key" | "keyboard.textStream.key" => {
+            "keyboard.key" => {
                 let key = string(payload, "key")?;
                 self.injector.set_key(key, true)?;
                 self.injector.set_key(key, false)
@@ -262,7 +288,7 @@ impl<I: InputInjector> DesktopInput<I> {
                 }
                 self.injector.press_shortcut(&keys)
             }
-            "keyboard.typeText" | "keyboard.textStream.char" | "keyboard.textStream.chunk" => {
+            "keyboard.typeText" => {
                 let text = string(payload, "text")?;
                 if text.chars().count() > 2000 {
                     return Err("Text payload is too large.".into());
@@ -271,25 +297,333 @@ impl<I: InputInjector> DesktopInput<I> {
             }
             "media.control" => self.injector.media(string(payload, "action")?),
             "window.control" => self.injector.window(string(payload, "action")?),
-            "mouse.repeat.start"
-            | "mouse.repeat.stop"
-            | "keyboard.textStream.open"
-            | "keyboard.textStream.close"
-            | "grid.switch.set"
-            | "grid.switch.sync"
-            | "switch.profile.list"
-            | "switch.session.start"
-            | "switch.edge"
-            | "switch.sync"
-            | "switch.session.stop"
-            | "pointer.display.move"
-            | "pointer.speed.set"
-            | "connection.disconnecting" => Ok(()),
+            "keyboard.textStream.open" => {
+                self.text_stream = Some(string(payload, "streamId")?.to_owned());
+                Ok(())
+            }
+            "keyboard.textStream.char" | "keyboard.textStream.chunk" => {
+                self.require_text_stream(payload)?;
+                let text = string(payload, "text")?;
+                if text.chars().count() > 2_000 {
+                    return Err("Text payload is too large.".into());
+                }
+                self.injector.inject_text(text)
+            }
+            "keyboard.textStream.key" => {
+                self.require_text_stream(payload)?;
+                let key = string(payload, "key")?;
+                self.injector.set_key(key, true)?;
+                self.injector.set_key(key, false)
+            }
+            "keyboard.textStream.close" => {
+                self.require_text_stream(payload)?;
+                self.text_stream = None;
+                Ok(())
+            }
+            "switch.profile.list" => Ok(()),
+            "switch.session.start" => self.start_switch_session(device_id, payload, profiles),
+            "switch.edge" => self.apply_switch_edge(device_id, payload),
+            "switch.sync" => self.sync_switches(device_id, payload),
+            "switch.session.stop" => self.stop_switch_session_command(device_id, payload),
+            "pointer.speed.set" => {
+                let scale = integer(payload, "scalePercent")?;
+                if !(5..=400).contains(&scale) {
+                    return Err("Pointer speed is invalid.".into());
+                }
+                self.pointer_scale_percent = scale as u32;
+                Ok(())
+            }
+            "connection.disconnecting" => self.release_all(),
+            "mouse.repeat.start" | "mouse.repeat.stop" => {
+                Err("Mouse repeat is not available in this preview build.".into())
+            }
+            "grid.switch.set" | "grid.switch.sync" => {
+                Err("Grid 3 output is not available in this preview build.".into())
+            }
+            "pointer.display.move" => {
+                Err("Display navigation is not available in this preview build.".into())
+            }
             _ => Err(format!("Unsupported desktop command: {command_type}")),
         }
     }
 
+    fn require_text_stream(&self, payload: &Value) -> Result<(), String> {
+        let stream_id = string(payload, "streamId")?;
+        if self.text_stream.as_deref() == Some(stream_id) {
+            Ok(())
+        } else {
+            Err("The text stream is not active.".into())
+        }
+    }
+
+    fn start_switch_session(
+        &mut self,
+        device_id: &str,
+        payload: &Value,
+        profiles: &[SwitchProfile],
+    ) -> Result<(), String> {
+        let session_id = string(payload, "sessionId")?;
+        uuid::Uuid::parse_str(session_id).map_err(|_| "Session ID must be a UUID.".to_string())?;
+        let profile_id = string(payload, "profileId")?;
+        let profile_version = integer(payload, "profileVersion")? as u32;
+        let switch_count = integer(payload, "switchCount")?;
+        if !(1..=8).contains(&switch_count) {
+            return Err("Switch count is invalid.".into());
+        }
+        let profile = profiles
+            .iter()
+            .find(|profile| profile.id == profile_id && profile.version == profile_version)
+            .cloned()
+            .ok_or_else(|| "The selected profile changed or is no longer available.".to_string())?;
+        if profile.provider != "mapped" {
+            return Err("The selected output provider is unavailable.".into());
+        }
+        self.stop_switch_session()?;
+        self.switch_session = Some(SwitchSession {
+            device_id: device_id.into(),
+            session_id: session_id.into(),
+            profile,
+            last_sequence: 0,
+            pressed_switches: HashSet::new(),
+            held_outputs: HashMap::new(),
+        });
+        Ok(())
+    }
+
+    fn apply_switch_edge(&mut self, device_id: &str, payload: &Value) -> Result<(), String> {
+        let session_id = string(payload, "sessionId")?;
+        let sequence = integer(payload, "sequence")?;
+        let switch_id = integer(payload, "switchId")? as u8;
+        let pressed = match string(payload, "state")? {
+            "down" => true,
+            "up" => false,
+            _ => return Err("Switch state is invalid.".into()),
+        };
+        if !(1..=8).contains(&switch_id) || sequence < 1 {
+            return Err("Switch edge payload is invalid.".into());
+        }
+        let mut session = self.take_matching_session(device_id, session_id)?;
+        let result = if sequence > session.last_sequence {
+            let result = self.apply_binding(&mut session, switch_id, pressed);
+            if result.is_ok() {
+                session.last_sequence = sequence;
+            }
+            result
+        } else {
+            Ok(())
+        };
+        self.switch_session = Some(session);
+        result
+    }
+
+    fn sync_switches(&mut self, device_id: &str, payload: &Value) -> Result<(), String> {
+        let session_id = string(payload, "sessionId")?;
+        let sequence = integer(payload, "sequence")?;
+        let pressed: HashSet<u8> = payload
+            .get("pressedSwitchIds")
+            .and_then(Value::as_array)
+            .ok_or("Pressed switch IDs are required.")?
+            .iter()
+            .map(|value| {
+                value
+                    .as_u64()
+                    .filter(|id| (1..=8).contains(id))
+                    .map(|id| id as u8)
+                    .ok_or("Pressed switch ID is invalid.")
+            })
+            .collect::<Result<_, _>>()?;
+        let mut session = self.take_matching_session(device_id, session_id)?;
+        let result = if sequence > session.last_sequence {
+            let current = session.pressed_switches.clone();
+            let mut result = Ok(());
+            for switch_id in current.difference(&pressed).copied().collect::<Vec<_>>() {
+                if let Err(error) = self.apply_binding(&mut session, switch_id, false) {
+                    result = Err(error);
+                    break;
+                }
+            }
+            if result.is_ok() {
+                for switch_id in pressed.difference(&current).copied().collect::<Vec<_>>() {
+                    if let Err(error) = self.apply_binding(&mut session, switch_id, true) {
+                        result = Err(error);
+                        break;
+                    }
+                }
+            }
+            if result.is_ok() {
+                session.last_sequence = sequence;
+            }
+            result
+        } else {
+            Ok(())
+        };
+        self.switch_session = Some(session);
+        result
+    }
+
+    fn stop_switch_session_command(
+        &mut self,
+        device_id: &str,
+        payload: &Value,
+    ) -> Result<(), String> {
+        let session_id = string(payload, "sessionId")?;
+        let sequence = integer(payload, "sequence")?;
+        if self.switch_session.as_ref().is_some_and(|session| {
+            session.device_id == device_id
+                && session.session_id == session_id
+                && sequence > session.last_sequence
+        }) {
+            self.stop_switch_session()?;
+        }
+        Ok(())
+    }
+
+    fn take_matching_session(
+        &mut self,
+        device_id: &str,
+        session_id: &str,
+    ) -> Result<SwitchSession, String> {
+        match self.switch_session.take() {
+            Some(session) if session.device_id == device_id && session.session_id == session_id => {
+                Ok(session)
+            }
+            Some(session) => {
+                self.switch_session = Some(session);
+                Err("The switch-control session is not active.".into())
+            }
+            None => Err("The switch-control session is not active.".into()),
+        }
+    }
+
+    fn apply_binding(
+        &mut self,
+        session: &mut SwitchSession,
+        switch_id: u8,
+        pressed: bool,
+    ) -> Result<(), String> {
+        let changed = if pressed {
+            session.pressed_switches.insert(switch_id)
+        } else {
+            session.pressed_switches.remove(&switch_id)
+        };
+        if !changed {
+            return Ok(());
+        }
+        let Some(binding) = session
+            .profile
+            .bindings
+            .iter()
+            .find(|binding| binding.switch_id == switch_id)
+            .cloned()
+        else {
+            return Ok(());
+        };
+        let result = match binding.binding_type.as_str() {
+            "key" | "mouseButton" => self.apply_stateful_output(session, &binding, pressed),
+            "none" => Ok(()),
+            _ if !pressed => Ok(()),
+            "shortcut" => {
+                let keys = binding.keys.clone().unwrap_or_else(|| {
+                    binding
+                        .value
+                        .as_deref()
+                        .unwrap_or("")
+                        .split('+')
+                        .filter(|key| !key.is_empty())
+                        .map(str::to_owned)
+                        .collect()
+                });
+                self.injector.press_shortcut(&keys)
+            }
+            "mouseClick" => self.injector.click_pointer(
+                parse_button(binding.value.as_deref().unwrap_or("left"))?,
+                binding.click_count.unwrap_or(1).clamp(1, 2),
+            ),
+            "scroll" => match binding.value.as_deref() {
+                Some("up") => self.injector.scroll(0, 1),
+                Some("down") => self.injector.scroll(0, -1),
+                Some("left") => self.injector.scroll(-1, 0),
+                Some("right") => self.injector.scroll(1, 0),
+                _ => Err("Scroll direction is invalid.".into()),
+            },
+            "media" => self.injector.media(binding.value.as_deref().unwrap_or("")),
+            _ => Err("Switch binding is invalid.".into()),
+        };
+        if result.is_err() {
+            if pressed {
+                session.pressed_switches.remove(&switch_id);
+            } else {
+                session.pressed_switches.insert(switch_id);
+            }
+        }
+        result
+    }
+
+    fn apply_stateful_output(
+        &mut self,
+        session: &mut SwitchSession,
+        binding: &SwitchBinding,
+        pressed: bool,
+    ) -> Result<(), String> {
+        let value = binding
+            .value
+            .as_deref()
+            .ok_or("Switch binding value is required.")?;
+        let output = format!(
+            "{}:{value}",
+            if binding.binding_type == "key" {
+                "key"
+            } else {
+                "mouse"
+            }
+        );
+        let count = session.held_outputs.get(&output).copied().unwrap_or(0);
+        let next = if pressed {
+            count.saturating_add(1)
+        } else {
+            count.saturating_sub(1)
+        };
+        if count == 0 && next == 1 {
+            self.set_output(&output, true)?;
+        }
+        if count == 1 && next == 0 {
+            self.set_output(&output, false)?;
+        }
+        if next == 0 {
+            session.held_outputs.remove(&output);
+        } else {
+            session.held_outputs.insert(output, next);
+        }
+        Ok(())
+    }
+
+    fn set_output(&mut self, output: &str, down: bool) -> Result<(), String> {
+        let (kind, value) = output.split_once(':').ok_or("Switch output is invalid.")?;
+        match kind {
+            "key" => self.injector.set_key(value, down),
+            "mouse" => self.injector.set_pointer_button(parse_button(value)?, down),
+            _ => Err("Switch output is invalid.".into()),
+        }
+    }
+
+    fn stop_switch_session(&mut self) -> Result<(), String> {
+        if let Some(session) = self.switch_session.take() {
+            let mut first_error = None;
+            for output in session.held_outputs.keys() {
+                if let Err(error) = self.set_output(output, false) {
+                    first_error.get_or_insert(error);
+                }
+            }
+            if let Some(error) = first_error {
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
     pub fn release_all(&mut self) -> Result<(), String> {
+        self.stop_switch_session()?;
+        self.text_stream = None;
         if let Some(button) = self.held_button.take() {
             self.injector.set_pointer_button(button, false)?;
         }
@@ -317,13 +651,22 @@ fn number(payload: &Value, key: &str, max: i32) -> Result<i32, String> {
     }
     Ok(value.round() as i32)
 }
-fn payload_button(payload: &Value) -> Result<MouseButton, String> {
-    match string(payload, "button")? {
+fn integer(payload: &Value, key: &str) -> Result<i64, String> {
+    payload
+        .get(key)
+        .and_then(Value::as_i64)
+        .ok_or_else(|| format!("{key} is required."))
+}
+fn parse_button(value: &str) -> Result<MouseButton, String> {
+    match value {
         "left" => Ok(MouseButton::Left),
         "middle" => Ok(MouseButton::Middle),
         "right" => Ok(MouseButton::Right),
         _ => Err("Mouse button is invalid.".into()),
     }
+}
+fn payload_button(payload: &Value) -> Result<MouseButton, String> {
+    parse_button(string(payload, "button")?)
 }
 
 #[cfg(test)]
@@ -385,12 +728,77 @@ mod tests {
     fn held_modifiers_are_released_at_session_end() {
         let mut input = DesktopInput::new(FakeInjector::default());
         input
-            .execute("keyboard.modifierDown", &serde_json::json!({"key":"Ctrl"}))
+            .execute(
+                "device",
+                "keyboard.modifierDown",
+                &serde_json::json!({"key":"Ctrl"}),
+                &[],
+            )
             .unwrap();
         input.release_all().unwrap();
         assert_eq!(
             input.injector.keys,
             vec![("Ctrl".into(), true), ("Ctrl".into(), false)]
+        );
+    }
+
+    #[test]
+    fn switch_session_ignores_duplicate_sequences_and_releases_stateful_keys() {
+        let profile = SwitchProfile {
+            id: "custom".into(),
+            version: 3,
+            name: "Custom".into(),
+            provider: "mapped".into(),
+            built_in: false,
+            bindings: vec![SwitchBinding {
+                switch_id: 1,
+                binding_type: "key".into(),
+                value: Some("Space".into()),
+                keys: None,
+                click_count: None,
+            }],
+        };
+        let mut input = DesktopInput::new(FakeInjector::default());
+        let session_id = uuid::Uuid::new_v4().to_string();
+        input
+            .execute(
+                "device",
+                "switch.session.start",
+                &serde_json::json!({
+                    "sessionId": session_id,
+                    "profileId": "custom",
+                    "profileVersion": 3,
+                    "switchCount": 1
+                }),
+                std::slice::from_ref(&profile),
+            )
+            .unwrap();
+        for sequence in [1, 1] {
+            input
+                .execute(
+                    "device",
+                    "switch.edge",
+                    &serde_json::json!({
+                        "sessionId": session_id,
+                        "sequence": sequence,
+                        "switchId": 1,
+                        "state": "down"
+                    }),
+                    std::slice::from_ref(&profile),
+                )
+                .unwrap();
+        }
+        input
+            .execute(
+                "device",
+                "switch.session.stop",
+                &serde_json::json!({"sessionId": session_id, "sequence": 2}),
+                &[profile],
+            )
+            .unwrap();
+        assert_eq!(
+            input.injector.keys,
+            vec![("Space".into(), true), ("Space".into(), false)]
         );
     }
 }

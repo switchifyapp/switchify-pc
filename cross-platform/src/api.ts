@@ -18,7 +18,7 @@ export const browserPreviewState: AppState = {
   },
   capabilities: {
     platform: navigator.userAgent.includes("Mac") ? "macos" : "windows",
-    grid3: false, uiAccess: false, displayNavigation: true, cursorOverlay: true,
+    grid3: false, uiAccess: false, displayNavigation: false, cursorOverlay: false,
   },
   version: "0.1.0",
 };
@@ -29,8 +29,9 @@ const emptyBindings = () => Array.from({ length: 8 }, (_, index) => ({
 }));
 
 let browserProfiles: SwitchProfile[] = [{
-  id: "built-in-mapped",
-  name: "Default controls",
+  id: "builtin.keyboard",
+  version: 1,
+  name: "Generic keyboard",
   provider: "mapped",
   builtIn: true,
   bindings: emptyBindings(),

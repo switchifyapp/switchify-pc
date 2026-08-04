@@ -8,8 +8,9 @@ use tauri::AppHandle;
 
 use crate::input::DesktopInput;
 use crate::protocol::{
-    pointer_profile_response, DesktopCommand, EngineEvent, MouseButton, MouseClickCommand,
-    MouseMoveCommand, OutboundQueue, PointerProfile, TextCommand, MAX_POINTER_DELTA,
+    pointer_profile_response, switch_profile_catalog_response, DesktopCommand, EngineEvent,
+    MouseButton, MouseClickCommand, MouseMoveCommand, OutboundQueue, PointerProfile, TextCommand,
+    MAX_POINTER_DELTA,
 };
 use crate::state::{
     emit_state, now_ms, set_activity, AccessibilityState, ActivityKind, BluetoothState, SharedModel,
@@ -617,6 +618,20 @@ impl MacRuntime {
     }
 
     fn handle_desktop(&mut self, command: DesktopCommand) {
+        let profiles = self
+            .shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .profiles
+            .clone();
+        if command.command_type == "switch.profile.list" {
+            if let Err(error) =
+                self.enqueue_message(&switch_profile_catalog_response(&command.id, &profiles))
+            {
+                self.report_error(error);
+            }
+            return;
+        }
         let injection = if self.input.is_none() && !self.refresh_accessibility(false) {
             Err("Accessibility permission is required before input can be controlled.".to_string())
         } else {
@@ -626,7 +641,14 @@ impl MacRuntime {
                     "Accessibility permission is required before input can be controlled."
                         .to_string()
                 })
-                .and_then(|input| input.execute(&command.command_type, &command.payload))
+                .and_then(|input| {
+                    input.execute(
+                        &command.device_id,
+                        &command.command_type,
+                        &command.payload,
+                        &profiles,
+                    )
+                })
         };
         let response = self
             .shared

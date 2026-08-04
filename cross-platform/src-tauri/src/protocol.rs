@@ -1,4 +1,6 @@
-use std::collections::{BTreeMap, HashMap, VecDeque};
+#[cfg(any(target_os = "macos", test))]
+use std::collections::VecDeque;
+use std::collections::{BTreeMap, HashMap};
 
 use base64::{engine::general_purpose, Engine as _};
 use hmac::{Hmac, Mac};
@@ -180,10 +182,12 @@ fn create_frames_with_payload_bytes(
 }
 
 #[derive(Debug, Default)]
+#[cfg(any(target_os = "macos", test))]
 pub struct OutboundQueue {
     frames: VecDeque<Vec<u8>>,
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl OutboundQueue {
     #[cfg(test)]
     pub fn push_message(&mut self, message: &str, maximum_frames: usize) -> Result<(), String> {
@@ -296,6 +300,7 @@ pub struct MouseClickCommand {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DesktopCommand {
     pub id: String,
+    pub device_id: String,
     pub command_type: String,
     pub payload: Value,
     pub response_mode: ResponseMode,
@@ -351,10 +356,12 @@ impl ProtocolEngine {
         }
     }
 
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     pub fn desktop_id(&self) -> &str {
         &self.desktop_id
     }
 
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     pub fn pending_pairing(&self) -> Option<PendingPairingSummary> {
         self.pending_pairing.as_ref().map(PendingPairing::summary)
     }
@@ -438,6 +445,7 @@ impl ProtocolEngine {
         ))
     }
 
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     pub fn expire_pairing(&mut self, request_id: &str, now_ms: i64) -> Option<String> {
         let should_expire = self.pending_pairing.as_ref().is_some_and(|pending| {
             pending.request_id == request_id && now_ms >= pending.expires_at
@@ -609,12 +617,22 @@ impl ProtocolEngine {
                     response_mode: validated.response_mode,
                 }))
             }
-            command if is_desktop_command(command) => Ok(EngineEvent::Desktop(DesktopCommand {
-                id: validated.id,
-                command_type: command.to_owned(),
-                payload: validated.payload,
-                response_mode: validated.response_mode,
-            })),
+            command if is_desktop_command(command) => {
+                if !valid_desktop_payload(command, &validated.payload) {
+                    return Ok(EngineEvent::Response(error_response(
+                        Some(&validated.id),
+                        "invalid_payload",
+                        "Desktop command payload is invalid.",
+                    )));
+                }
+                Ok(EngineEvent::Desktop(DesktopCommand {
+                    id: validated.id,
+                    device_id: validated.device_id,
+                    command_type: command.to_owned(),
+                    payload: validated.payload,
+                    response_mode: validated.response_mode,
+                }))
+            }
             _ => Ok(EngineEvent::Response(error_response(
                 Some(&validated.id),
                 "unsupported_command",
@@ -729,6 +747,7 @@ impl ProtocolEngine {
 
         Ok(ValidatedCommand {
             id,
+            device_id,
             payload,
             response_mode,
         })
@@ -767,8 +786,93 @@ fn is_desktop_command(command: &str) -> bool {
     )
 }
 
+fn valid_desktop_payload(command: &str, payload: &Value) -> bool {
+    let Some(object) = payload.as_object() else {
+        return false;
+    };
+    let positive_sequence = || {
+        object
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .is_some_and(|id| Uuid::parse_str(id).is_ok())
+            && object
+                .get("sequence")
+                .and_then(Value::as_i64)
+                .is_some_and(|sequence| sequence > 0)
+    };
+    match command {
+        "switch.profile.list" | "connection.disconnecting" => object.is_empty(),
+        "switch.session.start" => {
+            object.len() == 4
+                && object
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| Uuid::parse_str(id).is_ok())
+                && object
+                    .get("profileId")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| (1..=80).contains(&id.len()))
+                && object
+                    .get("profileVersion")
+                    .and_then(Value::as_i64)
+                    .is_some_and(|version| version > 0)
+                && object
+                    .get("switchCount")
+                    .and_then(Value::as_i64)
+                    .is_some_and(|count| (1..=8).contains(&count))
+        }
+        "switch.edge" => {
+            object.len() == 4
+                && positive_sequence()
+                && object
+                    .get("switchId")
+                    .and_then(Value::as_i64)
+                    .is_some_and(|id| (1..=8).contains(&id))
+                && matches!(
+                    object.get("state").and_then(Value::as_str),
+                    Some("down" | "up")
+                )
+        }
+        "switch.sync" => {
+            object.len() == 3
+                && positive_sequence()
+                && sorted_switch_ids(object.get("pressedSwitchIds"))
+        }
+        "switch.session.stop" => object.len() == 2 && positive_sequence(),
+        "pointer.speed.set" => {
+            object.len() == 1
+                && object
+                    .get("scalePercent")
+                    .and_then(Value::as_f64)
+                    .is_some_and(|value| value.is_finite() && value > 0.0)
+        }
+        _ => true,
+    }
+}
+
+fn sorted_switch_ids(value: Option<&Value>) -> bool {
+    let Some(values) = value
+        .and_then(Value::as_array)
+        .filter(|values| values.len() <= 8)
+    else {
+        return false;
+    };
+    let mut previous = 0;
+    for value in values {
+        let Some(id) = value.as_i64() else {
+            return false;
+        };
+        if !(1..=8).contains(&id) || id <= previous {
+            return false;
+        }
+        previous = id;
+    }
+    true
+}
+
 struct ValidatedCommand {
     id: String,
+    device_id: String,
     payload: Value,
     response_mode: ResponseMode,
 }
@@ -999,13 +1103,10 @@ pub fn pointer_profile_response(id: &str, profile: &PointerProfile) -> String {
                     "mouse.doubleClick",
                     "mouse.rightClick",
                     "mouse.scroll",
-                    "mouse.repeat.start",
-                    "mouse.repeat.stop",
                     "mouse.dragStart",
                     "mouse.dragEnd",
                     "connection.ping",
                     "pointer.profile",
-                    "pointer.display.move",
                     "pointer.speed.set",
                     "keyboard.key",
                     "keyboard.modifierDown",
@@ -1028,6 +1129,60 @@ pub fn pointer_profile_response(id: &str, profile: &PointerProfile) -> String {
                 ]
             }
         },
+        "error": Value::Null
+    })
+    .to_string()
+}
+
+pub fn switch_profile_catalog_response(
+    id: &str,
+    profiles: &[crate::state::SwitchProfile],
+) -> String {
+    let summaries: Vec<Value> = profiles
+        .iter()
+        .map(|profile| {
+            let bindings: Vec<Value> = profile
+                .bindings
+                .iter()
+                .map(|binding| {
+                    let behavior = match binding.binding_type.as_str() {
+                        "key" | "mouseButton" => "stateful",
+                        "none" => "unassigned",
+                        _ => "pulse",
+                    };
+                    let label = match binding.binding_type.as_str() {
+                        "none" => "Unassigned".into(),
+                        "shortcut" => binding
+                            .keys
+                            .as_ref()
+                            .map(|keys| keys.join(" + "))
+                            .or_else(|| binding.value.clone())
+                            .unwrap_or_else(|| "Shortcut".into()),
+                        "mouseClick" => {
+                            format!("{} click", binding.value.as_deref().unwrap_or("Left"))
+                        }
+                        "scroll" => format!("Scroll {}", binding.value.as_deref().unwrap_or("")),
+                        "media" => binding.value.clone().unwrap_or_else(|| "Media".into()),
+                        _ => binding.value.clone().unwrap_or_else(|| "Unassigned".into()),
+                    };
+                    json!({ "switchId": binding.switch_id, "label": label, "behavior": behavior })
+                })
+                .collect();
+            json!({
+                "id": profile.id,
+                "version": profile.version,
+                "name": profile.name,
+                "kind": profile.provider,
+                "bindings": bindings
+            })
+        })
+        .collect();
+    json!({
+        "version": PROTOCOL_VERSION,
+        "id": id,
+        "type": "switch.profile.list",
+        "ok": true,
+        "payload": { "catalogRevision": 1, "profiles": summaries },
         "error": Value::Null
     })
     .to_string()
