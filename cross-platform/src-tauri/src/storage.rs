@@ -108,8 +108,10 @@ mod tests {
     fn state_round_trips_in_an_isolated_directory() {
         let root = std::env::temp_dir().join(format!("switchify-preview-{}", uuid::Uuid::new_v4()));
         let store = AppStorage::at(root.join("state.json"));
-        let mut state = PersistedState::default();
-        state.desktop_id = Some("desktop-1".into());
+        let state = PersistedState {
+            desktop_id: Some("desktop-1".into()),
+            ..PersistedState::default()
+        };
         store.save(&state).unwrap();
         assert_eq!(
             store.load().unwrap().desktop_id.as_deref(),

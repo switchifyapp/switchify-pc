@@ -356,8 +356,8 @@ fn platform_reject_pairing(
     macos::reject_pairing(app, shared, request_id)
 }
 #[cfg(target_os = "macos")]
-fn platform_disconnect_all(_app: &AppHandle, _shared: &state::SharedModel) -> Result<(), String> {
-    Ok(())
+fn platform_disconnect_all(app: &AppHandle, shared: &state::SharedModel) -> Result<(), String> {
+    macos::disconnect_all(app, shared)
 }
 
 #[cfg(target_os = "windows")]

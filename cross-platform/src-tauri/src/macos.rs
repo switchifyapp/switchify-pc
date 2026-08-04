@@ -198,6 +198,25 @@ pub fn reject_pairing(
     })
 }
 
+pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), String> {
+    with_runtime(|runtime| {
+        if let Some(input) = runtime.input.as_mut() {
+            input.release_all()?;
+        }
+        runtime.subscribers.clear();
+        runtime.outbound.clear();
+        {
+            let mut model = shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            model.state.bluetooth = BluetoothState::Advertising;
+            model.state.connected_device_name = None;
+        }
+        emit_state(app, shared);
+        Ok(())
+    })
+}
+
 fn with_runtime<T>(
     operation: impl FnOnce(&mut MacRuntime) -> Result<T, String>,
 ) -> Result<T, String> {
@@ -236,7 +255,12 @@ impl MacRuntime {
             }
             PeripheralManagerState::Unsupported => {
                 self.reset_gatt();
-                self.set_bluetooth(BluetoothState::Error);
+                self.set_bluetooth(BluetoothState::Unsupported);
+                self.shared
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .state
+                    .accessibility = AccessibilityState::Unavailable;
                 set_activity(
                     &self.shared,
                     ActivityKind::Error,

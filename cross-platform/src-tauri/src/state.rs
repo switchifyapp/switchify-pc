@@ -16,6 +16,7 @@ pub enum BluetoothState {
     Connected,
     PoweredOff,
     Unauthorized,
+    #[cfg(target_os = "windows")]
     Conflict,
     Unsupported,
     Error,
@@ -78,7 +79,9 @@ impl Default for AppSettings {
 
 impl AppSettings {
     pub fn normalized(mut self) -> Result<Self, String> {
-        if !(5..=100).contains(&self.pointer_scale_percent) || self.pointer_scale_percent % 5 != 0 {
+        if !(5..=100).contains(&self.pointer_scale_percent)
+            || !self.pointer_scale_percent.is_multiple_of(5)
+        {
             return Err("Pointer speed must be between 5 and 100 in steps of 5.".into());
         }
         if ![100, 250, 500, 1000].contains(&self.move_repeat_interval_ms)
@@ -318,8 +321,10 @@ mod tests {
     use super::*;
     #[test]
     fn settings_reject_unsafe_values() {
-        let mut value = AppSettings::default();
-        value.pointer_scale_percent = 101;
+        let value = AppSettings {
+            pointer_scale_percent: 101,
+            ..AppSettings::default()
+        };
         assert!(value.normalized().is_err());
     }
     #[test]

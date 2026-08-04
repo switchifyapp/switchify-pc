@@ -3,14 +3,14 @@ use std::sync::{Mutex, OnceLock};
 
 use enigo::{Enigo, Settings};
 use tauri::AppHandle;
-use windows::core::{GUID, HSTRING};
+use windows::core::{IInspectable, Ref, GUID, HSTRING};
 use windows::Devices::Bluetooth::BluetoothError;
 use windows::Devices::Bluetooth::GenericAttributeProfile::{
     GattCharacteristicProperties, GattLocalCharacteristic, GattLocalCharacteristicParameters,
     GattProtectionLevel, GattReadRequestedEventArgs, GattServiceProvider,
     GattServiceProviderAdvertisingParameters, GattWriteOption, GattWriteRequestedEventArgs,
 };
-use windows::Foundation::{IInspectable, TypedEventHandler};
+use windows::Foundation::TypedEventHandler;
 use windows::Security::Cryptography::CryptographicBuffer;
 
 use crate::input::DesktopInput;
@@ -162,8 +162,8 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     let write_app = app.clone();
     let write_shared = shared.clone();
     rx.WriteRequested(&TypedEventHandler::new(
-        move |_, args: &Option<GattWriteRequestedEventArgs>| {
-            if let Some(args) = args.clone() {
+        move |_: Ref<'_, GattLocalCharacteristic>, args: Ref<'_, GattWriteRequestedEventArgs>| {
+            if let Some(args) = args.cloned() {
                 let callback_app = write_app.clone();
                 let callback_shared = write_shared.clone();
                 tauri::async_runtime::spawn(async move {
@@ -222,8 +222,9 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     let read_shared = shared.clone();
     status
         .ReadRequested(&TypedEventHandler::new(
-            move |_, args: &Option<GattReadRequestedEventArgs>| {
-                if let Some(args) = args.clone() {
+            move |_: Ref<'_, GattLocalCharacteristic>,
+                  args: Ref<'_, GattReadRequestedEventArgs>| {
+                if let Some(args) = args.cloned() {
                     let status_shared = read_shared.clone();
                     tauri::async_runtime::spawn(async move {
                         let _ = handle_status_read(status_shared, args).await;
@@ -446,10 +447,11 @@ async fn notify(message: String) -> Result<(), String> {
     for frame in create_notification_frames(&message, NOTIFICATION_BYTES)? {
         let buffer =
             CryptographicBuffer::CreateFromByteArray(&frame).map_err(|error| error.to_string())?;
-        tx.NotifyValueAsync(&buffer)
-            .map_err(|error| error.to_string())?
-            .await
+        let operation = tx
+            .NotifyValueAsync(&buffer)
             .map_err(|error| error.to_string())?;
+        drop(buffer);
+        operation.await.map_err(|error| error.to_string())?;
     }
     Ok(())
 }
