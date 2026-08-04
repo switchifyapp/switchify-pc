@@ -182,6 +182,7 @@ fn list_switch_profiles(model: State<'_, AppModel>) -> Vec<SwitchProfile> {
 fn validate_profile(profile: &SwitchProfile) -> Result<(), String> {
     if profile.built_in
         || profile.provider != "mapped"
+        || uuid::Uuid::parse_str(&profile.id).is_err()
         || profile.name.trim().is_empty()
         || profile.name.chars().count() > 50
     {
@@ -196,7 +197,76 @@ fn validate_profile(profile: &SwitchProfile) -> Result<(), String> {
     {
         return Err("Custom profiles must define switches 1 through 8.".into());
     }
+    if !profile.bindings.iter().all(valid_binding) {
+        return Err("A profile binding is invalid.".into());
+    }
     Ok(())
+}
+
+fn valid_binding(binding: &state::SwitchBinding) -> bool {
+    let value = binding.value.as_deref().unwrap_or("");
+    match binding.binding_type.as_str() {
+        "none" => true,
+        "key" => valid_key(value),
+        "mouseButton" => matches!(value, "left" | "right" | "middle"),
+        "shortcut" => binding.keys.as_ref().is_some_and(|keys| {
+            (1..=4).contains(&keys.len())
+                && keys.iter().all(|key| valid_key(key))
+                && keys
+                    .iter()
+                    .any(|key| !matches!(key.as_str(), "Ctrl" | "Alt" | "Shift" | "Meta"))
+                && keys.iter().collect::<std::collections::HashSet<_>>().len() == keys.len()
+        }),
+        "mouseClick" => {
+            matches!(value, "left" | "right" | "middle")
+                && matches!(binding.click_count.unwrap_or(1), 1 | 2)
+        }
+        "scroll" => matches!(value, "up" | "down" | "left" | "right"),
+        "media" => matches!(
+            value,
+            "playPause" | "nextTrack" | "previousTrack" | "volumeUp" | "volumeDown" | "mute"
+        ),
+        _ => false,
+    }
+}
+
+fn valid_key(key: &str) -> bool {
+    matches!(
+        key,
+        "Space"
+            | "Enter"
+            | "Escape"
+            | "Tab"
+            | "Backspace"
+            | "Delete"
+            | "ArrowUp"
+            | "ArrowDown"
+            | "ArrowLeft"
+            | "ArrowRight"
+            | "Home"
+            | "End"
+            | "PageUp"
+            | "PageDown"
+            | "Ctrl"
+            | "Alt"
+            | "Shift"
+            | "Meta"
+            | "F1"
+            | "F2"
+            | "F3"
+            | "F4"
+            | "F5"
+            | "F6"
+            | "F7"
+            | "F8"
+            | "F9"
+            | "F10"
+            | "F11"
+            | "F12"
+    ) || key.len() == 1
+        && key
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
 }
 
 #[tauri::command]
@@ -210,6 +280,26 @@ fn save_switch_profile(
             .shared
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let replacing = data
+            .profiles
+            .iter()
+            .any(|candidate| candidate.id == profile.id && !candidate.built_in);
+        if !replacing
+            && data
+                .profiles
+                .iter()
+                .filter(|candidate| !candidate.built_in)
+                .count()
+                >= 32
+        {
+            return Err("No more than 32 custom profiles can be saved.".into());
+        }
+        if data.profiles.iter().any(|candidate| {
+            candidate.id != profile.id && candidate.name.eq_ignore_ascii_case(profile.name.trim())
+        }) {
+            return Err("Profile names must be unique.".into());
+        }
+        profile.name = profile.name.trim().into();
         profile.version = data
             .profiles
             .iter()
@@ -258,6 +348,35 @@ async fn check_for_updates(app: AppHandle, model: State<'_, AppModel>) -> Result
         |update| format!("Switchify PC Preview {} is available.", update.version),
     );
     state::set_activity(&model.shared, ActivityKind::Info, message);
+    Ok(model.snapshot())
+}
+
+#[tauri::command]
+fn export_diagnostics(model: State<'_, AppModel>) -> Result<AppState, String> {
+    let diagnostics = {
+        let data = model
+            .shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        serde_json::json!({
+            "schemaVersion": 1,
+            "generatedAt": state::now_ms(),
+            "appVersion": data.state.version,
+            "platform": data.state.capabilities.platform,
+            "bluetooth": data.state.bluetooth,
+            "accessibility": data.state.accessibility,
+            "pairedDeviceCount": data.state.paired_devices.len(),
+            "connected": data.state.connected_device_name.is_some(),
+            "customProfileCount": data.profiles.iter().filter(|profile| !profile.built_in).count(),
+            "capabilities": data.state.capabilities,
+        })
+    };
+    let path = model.storage.export_diagnostics(&diagnostics)?;
+    state::set_activity(
+        &model.shared,
+        ActivityKind::Success,
+        format!("Diagnostics exported to {}.", path.display()),
+    );
     Ok(model.snapshot())
 }
 
@@ -326,7 +445,8 @@ pub fn run() {
             list_switch_profiles,
             save_switch_profile,
             delete_switch_profile,
-            check_for_updates
+            check_for_updates,
+            export_diagnostics
         ])
         .run(tauri::generate_context!())
         .expect("error while running Switchify PC Preview");

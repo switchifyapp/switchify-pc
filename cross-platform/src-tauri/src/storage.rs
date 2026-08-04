@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::state::{AppSettings, PairedDeviceView, SwitchProfile};
 
@@ -98,6 +99,19 @@ impl AppStorage {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(error) => Err(error.to_string()),
         }
+    }
+
+    pub fn export_diagnostics(&self, diagnostics: &Value) -> Result<PathBuf, String> {
+        let parent = self
+            .path
+            .parent()
+            .ok_or_else(|| "Diagnostics directory is unavailable.".to_string())?;
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        let path = parent.join("switchify-preview-diagnostics.json");
+        let json =
+            serde_json::to_string_pretty(diagnostics).map_err(|error| error.to_string())? + "\n";
+        fs::write(&path, json).map_err(|error| error.to_string())?;
+        Ok(path)
     }
 }
 

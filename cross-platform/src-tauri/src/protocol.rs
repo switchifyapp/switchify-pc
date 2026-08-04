@@ -195,6 +195,7 @@ impl OutboundQueue {
         self.push_frames(frames, maximum_frames)
     }
 
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     pub fn push_notification_message(
         &mut self,
         message: &str,
@@ -226,6 +227,7 @@ impl OutboundQueue {
         Ok(())
     }
 
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     pub fn clear(&mut self) {
         self.frames.clear();
     }

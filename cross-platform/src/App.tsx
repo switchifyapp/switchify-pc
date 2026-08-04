@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  Accessibility, Bluetooth, ChevronRight, CircleHelp, Home, Keyboard,
-  MousePointer2, Plus, Power, Radio, RefreshCw, Save, Settings, ShieldCheck,
-  SlidersHorizontal, Smartphone, Trash2, WifiOff, X,
+  Accessibility, Bluetooth, CheckCircle2, ChevronRight, CircleHelp, Download,
+  Home, Keyboard, MousePointer2, Plus, Power, Radio, RefreshCw, Save, Settings,
+  ShieldCheck, SlidersHorizontal, Smartphone, Trash2, WifiOff, Wrench, X,
 } from "lucide-react";
 import { api } from "./api";
 import type { AppSettings, AppState, SwitchProfile } from "./types";
 
-type View = "home" | "devices" | "profiles" | "settings";
+type View = "home" | "devices" | "profiles" | "settings" | "support";
 
 const bluetoothLabels: Record<AppState["bluetooth"], string> = {
   initializing: "Starting Bluetooth...", advertising: "Ready to connect", connected: "Device connected",
@@ -27,14 +27,14 @@ function Toggle({ checked, label, onChange }: { checked: boolean; label: string;
   return <label className="toggle-row"><span>{label}</span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><span className="toggle" aria-hidden="true" /></label>;
 }
 
-function HomeView({ state, onDisconnect, onAccessibility }: { state: AppState; onDisconnect: () => void; onAccessibility: () => void }) {
+function HomeView({ state, onDisconnect, onAccessibility, onSetup }: { state: AppState; onDisconnect: () => void; onAccessibility: () => void; onSetup: () => void }) {
   const bluetoothOk = state.bluetooth === "advertising" || state.bluetooth === "connected";
   return <div className="view">
     <header className="page-header"><div><h1>Switchify PC</h1><p>Android control for this computer</p></div><span className="preview-badge">Preview</span></header>
     <section className="connection-band" data-connected={state.bluetooth === "connected"}>
       <StatusIcon ok={bluetoothOk}>{bluetoothOk ? <Radio size={20} /> : <WifiOff size={20} />}</StatusIcon>
       <div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.connectedDeviceName ?? state.lastActivity?.message ?? "Waiting for a nearby Android device."}</p></div>
-      {state.bluetooth === "connected" && <button className="secondary" onClick={onDisconnect}><Power size={16} />Disconnect</button>}
+      {state.bluetooth === "connected" ? <button className="secondary" onClick={onDisconnect}><Power size={16} />Disconnect</button> : <button className="secondary" onClick={onSetup}><Wrench size={16} />Set up</button>}
     </section>
     <section className="status-list" aria-label="System status">
       <article><StatusIcon ok={bluetoothOk}><Bluetooth size={19} /></StatusIcon><div><h3>Bluetooth</h3><p>{bluetoothLabels[state.bluetooth]}</p></div></article>
@@ -59,8 +59,10 @@ const newProfile = (): SwitchProfile => ({
 
 function ProfileEditor({ profile, onClose, onSave, onDelete, busy }: { profile: SwitchProfile; onClose: () => void; onSave: (profile: SwitchProfile) => void; onDelete: (() => void) | null; busy: boolean }) {
   const [draft, setDraft] = useState(profile);
-  const setBinding = (index: number, type: SwitchProfile["bindings"][number]["type"], value?: string) => {
-    const bindings = draft.bindings.map((binding, bindingIndex) => bindingIndex === index ? { switchId: index + 1, type, ...(value ? { value } : {}) } : binding);
+  const setBinding = (index: number, type: SwitchProfile["bindings"][number]["type"], value?: string, keys?: string[]) => {
+    const defaults: Partial<Record<typeof type, string>> = { key: "Space", mouseButton: "left", mouseClick: "left", scroll: "down", media: "playPause" };
+    const nextValue = value ?? defaults[type];
+    const bindings = draft.bindings.map((binding, bindingIndex) => bindingIndex === index ? { switchId: index + 1, type, ...(nextValue ? { value: nextValue } : {}), ...(keys ? { keys } : {}), ...(type === "mouseClick" ? { clickCount: 1 } : {}) } : binding);
     setDraft({ ...draft, bindings });
   };
   return <div className="modal-backdrop"><section className="profile-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-title">
@@ -69,10 +71,12 @@ function ProfileEditor({ profile, onClose, onSave, onDelete, busy }: { profile: 
     <div className="binding-list">{draft.bindings.map((binding, index) => <div className="binding-row" key={binding.switchId}>
       <strong>Switch {binding.switchId}</strong>
       <select aria-label={`Switch ${binding.switchId} action`} value={binding.type} disabled={profile.builtIn} onChange={(event) => setBinding(index, event.target.value as typeof binding.type)}>
-        <option value="none">No action</option><option value="key">Key</option><option value="shortcut">Shortcut</option><option value="mouseClick">Mouse click</option><option value="scroll">Scroll</option><option value="media">Media</option>
+        <option value="none">No action</option><option value="key">Key</option><option value="shortcut">Shortcut</option><option value="mouseButton">Hold mouse button</option><option value="mouseClick">Mouse click</option><option value="scroll">Scroll</option><option value="media">Media</option>
       </select>
-      {(binding.type === "key" || binding.type === "shortcut") && <input className="key-recorder" aria-label={`Switch ${binding.switchId} key`} placeholder="Select, then press key" value={binding.value ?? ""} disabled={profile.builtIn} onChange={(event) => setBinding(index, binding.type, event.target.value)} onKeyDown={(event) => { event.preventDefault(); const value = [event.ctrlKey && "Ctrl", event.altKey && "Alt", event.shiftKey && "Shift", event.metaKey && "Meta", event.key.length === 1 ? event.key.toUpperCase() : event.key].filter(Boolean).join("+"); setBinding(index, binding.type, value); }} />}
-      {!["key", "shortcut", "none"].includes(binding.type) && <input aria-label={`Switch ${binding.switchId} action value`} placeholder="Action" value={binding.value ?? ""} disabled={profile.builtIn} onChange={(event) => setBinding(index, binding.type, event.target.value)} />}
+      {(binding.type === "key" || binding.type === "shortcut") && <input className="key-recorder" aria-label={`Switch ${binding.switchId} key`} placeholder="Select, then press key" value={binding.type === "shortcut" ? (binding.keys ?? []).join("+") : binding.value ?? ""} readOnly disabled={profile.builtIn} onKeyDown={(event) => { event.preventDefault(); const pressed = [event.ctrlKey && "Ctrl", event.altKey && "Alt", event.shiftKey && "Shift", event.metaKey && "Meta", event.key.length === 1 ? event.key.toUpperCase() : event.key].filter((key): key is string => Boolean(key)); const keys = [...new Set(pressed)]; setBinding(index, binding.type, binding.type === "key" ? keys.at(-1) : undefined, binding.type === "shortcut" ? keys : undefined); }} />}
+      {(binding.type === "mouseButton" || binding.type === "mouseClick") && <select aria-label={`Switch ${binding.switchId} mouse button`} value={binding.value ?? "left"} disabled={profile.builtIn} onChange={(event) => setBinding(index, binding.type, event.target.value)}><option value="left">Left</option><option value="right">Right</option><option value="middle">Middle</option></select>}
+      {binding.type === "scroll" && <select aria-label={`Switch ${binding.switchId} scroll direction`} value={binding.value ?? "down"} disabled={profile.builtIn} onChange={(event) => setBinding(index, binding.type, event.target.value)}><option value="up">Up</option><option value="down">Down</option><option value="left">Left</option><option value="right">Right</option></select>}
+      {binding.type === "media" && <select aria-label={`Switch ${binding.switchId} media action`} value={binding.value ?? "playPause"} disabled={profile.builtIn} onChange={(event) => setBinding(index, binding.type, event.target.value)}><option value="playPause">Play / pause</option><option value="nextTrack">Next track</option><option value="previousTrack">Previous track</option><option value="volumeUp">Volume up</option><option value="volumeDown">Volume down</option><option value="mute">Mute</option></select>}
     </div>)}</div>
     <footer>{onDelete && <button className="secondary danger" disabled={busy} onClick={onDelete}><Trash2 size={16} />Delete</button>}<span /><button className="secondary" onClick={onClose}>Cancel</button>{!profile.builtIn && <button className="primary" disabled={busy || !draft.name.trim()} onClick={() => onSave({ ...draft, name: draft.name.trim() })}><Save size={16} />Save profile</button>}</footer>
   </section></div>;
@@ -97,13 +101,31 @@ function SettingsView({ state, settings, setSettings, save, checkUpdates, busy }
     <SettingGroup title="General" description="System startup and background behavior."><Toggle label="Start with system" checked={settings.startWithSystem} onChange={(value) => update("startWithSystem", value)} /></SettingGroup>
     <SettingGroup title="Pointer" description="Movement and visual feedback.">
       <label className="range-row"><span>Pointer speed <strong>{settings.pointerScalePercent}%</strong></span><input type="range" min="5" max="100" step="5" value={settings.pointerScalePercent} onChange={(event) => update("pointerScalePercent", Number(event.target.value))} /></label>
-      <Toggle label="Repeat movement and scrolling" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
-      <Toggle label="Show cursor overlay" checked={settings.cursorOverlayEnabled} onChange={(value) => update("cursorOverlayEnabled", value)} />
-      <Toggle label="Show crosshairs" checked={settings.cursorCrosshairs} onChange={(value) => update("cursorCrosshairs", value)} />
+      {state.capabilities.cursorOverlay && <><Toggle label="Show cursor overlay" checked={settings.cursorOverlayEnabled} onChange={(value) => update("cursorOverlayEnabled", value)} /><Toggle label="Show crosshairs" checked={settings.cursorCrosshairs} onChange={(value) => update("cursorCrosshairs", value)} /></>}
     </SettingGroup>
     <SettingGroup title="Privacy" description="Sanitized application health reports only."><Toggle label="Share diagnostic data" checked={settings.shareDiagnostics} onChange={(value) => update("shareDiagnostics", value)} /></SettingGroup>
     <SettingGroup title="Updates" description={`Switchify PC Preview ${state.version}`}><button className="secondary" onClick={checkUpdates} disabled={busy}><RefreshCw size={16} />Check for updates</button></SettingGroup>
     <div className="save-bar"><button className="primary" onClick={save} disabled={busy}>{busy ? "Saving..." : "Save settings"}</button></div>
+  </div>;
+}
+
+function SupportView({ state, busy, perform }: { state: AppState; busy: boolean; perform: (operation: () => Promise<AppState>) => void }) {
+  const [tab, setTab] = useState<"setup" | "troubleshooting">("setup");
+  const bluetoothReady = state.bluetooth === "advertising" || state.bluetooth === "connected";
+  return <div className="view"><header className="page-header"><div><h1>Support</h1><p>Connection setup and system diagnostics</p></div><CircleHelp size={24} /></header>
+    <div className="segmented" role="tablist" aria-label="Support view"><button role="tab" aria-selected={tab === "setup"} onClick={() => setTab("setup")}>Setup</button><button role="tab" aria-selected={tab === "troubleshooting"} onClick={() => setTab("troubleshooting")}>Troubleshooting</button></div>
+    {tab === "setup" ? <section className="task-list" aria-label="Setup status">
+      <article><StatusIcon ok={bluetoothReady}>{bluetoothReady ? <CheckCircle2 size={19} /> : <Bluetooth size={19} />}</StatusIcon><div><h2>Bluetooth</h2><p>{bluetoothLabels[state.bluetooth]}</p></div></article>
+      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h2>Input access</h2><p>{state.accessibility === "granted" ? "Ready" : "Required for keyboard and pointer control"}</p></div>{state.accessibility === "required" && <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Review access</button>}</article>
+      <article><StatusIcon ok={state.pairedDevices.length > 0}><Smartphone size={19} /></StatusIcon><div><h2>Android device</h2><p>{state.pairedDevices.length > 0 ? `${state.pairedDevices.length} paired` : "Open Switchify on Android and select this computer"}</p></div></article>
+      <article><StatusIcon ok={state.bluetooth === "connected"}><Radio size={19} /></StatusIcon><div><h2>Connection</h2><p>{state.connectedDeviceName ?? "Waiting for a paired device"}</p></div></article>
+    </section> : <section className="task-list" aria-label="Troubleshooting actions">
+      <article><Bluetooth size={20} /><div><h2>Bluetooth connection</h2><p>{bluetoothLabels[state.bluetooth]}</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.disconnectAll)}><Power size={16} />Disconnect</button></article>
+      <article><Accessibility size={20} /><div><h2>Input access</h2><p>{state.accessibility === "granted" ? "Permission is available" : "Permission needs attention"}</p></div><button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}><RefreshCw size={16} />Check</button></article>
+      <article><RefreshCw size={20} /><div><h2>Application update</h2><p>Preview {state.version}</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.checkForUpdates)}>Check</button></article>
+      <article><Download size={20} /><div><h2>Diagnostics</h2><p>Export sanitized health and capability data</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.exportDiagnostics)}><Download size={16} />Export</button></article>
+    </section>}
+    {state.lastActivity && <section className="activity-panel" aria-live="polite"><span>Recent activity</span><p data-kind={state.lastActivity.kind}>{state.lastActivity.message}</p></section>}
   </div>;
 }
 
@@ -133,6 +155,7 @@ export function App() {
   const nav = useMemo(() => [
     ["home", "Home", <Home size={19} />], ["devices", "Devices", <Smartphone size={19} />],
     ["profiles", "Switch control", <Keyboard size={19} />], ["settings", "Settings", <Settings size={19} />],
+    ["support", "Support", <CircleHelp size={19} />],
   ] as const, []);
 
   if (!state || !settings) return <div className="loading"><RefreshCw className="spin" size={24} /><span>Starting Switchify PC Preview...</span></div>;
@@ -140,10 +163,11 @@ export function App() {
     <aside><div className="brand"><span className="brand-mark"><MousePointer2 size={21} /></span><div><strong>Switchify</strong><small>PC Preview</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id} icon={icon} onClick={() => setView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><CircleHelp size={16} /><span>{state.capabilities.platform === "macos" ? "macOS" : "Windows"} preview</span></div></aside>
     <main>
       {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
-      {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} />}
+      {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onSetup={() => setView("support")} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}
       {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={(profile) => { setBusy(true); setError(null); void api.saveProfile(profile).then(setProfiles).catch((reason) => setError(String(reason))).finally(() => setBusy(false)); }} deleteProfile={(id) => { setBusy(true); setError(null); void api.deleteProfile(id).then(setProfiles).catch((reason) => setError(String(reason))).finally(() => setBusy(false)); }} />}
       {view === "settings" && <SettingsView state={state} settings={settings} setSettings={setSettings} save={() => void perform(() => api.saveSettings(settings))} checkUpdates={() => void perform(api.checkForUpdates)} busy={busy} />}
+      {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} />}
     </main>
     {state.pendingPairing && <div className="modal-backdrop"><section className="pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="pairing-title"><Smartphone size={26} /><h2 id="pairing-title">Pair {state.pendingPairing.deviceName}</h2><p>Confirm that this code matches Switchify Android.</p><output>{state.pendingPairing.verificationCode}</output><div><button className="secondary danger" disabled={busy} onClick={() => void perform(() => api.rejectPairing(state.pendingPairing!.requestId))}>Reject</button><button className="primary" disabled={busy} onClick={() => void perform(() => api.approvePairing(state.pendingPairing!.requestId))}>Accept</button></div></section></div>}
   </div>;

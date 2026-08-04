@@ -64,6 +64,7 @@ export const api = {
     return Promise.resolve(structuredClone(browserProfiles));
   },
   checkForUpdates: () => call<AppState>("check_for_updates"),
+  exportDiagnostics: () => call<AppState>("export_diagnostics"),
   onState: async (handler: (state: AppState) => void): Promise<UnlistenFn> => {
     if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
     return listen<AppState>("preview-state-changed", (event) => handler(event.payload));
