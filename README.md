@@ -6,6 +6,8 @@ Switchify PC is the Windows desktop companion for Switchify Android. It runs in 
 
 Switchify PC is early-stage Windows-first software. Expect Bluetooth and Windows packaging behavior to be the main supported path for now.
 
+An isolated Windows/macOS Tauri rewrite is under [`cross-platform/`](cross-platform/README.md). It uses a separate app identity and does not replace the shipping WPF version.
+
 ## Download
 
 Download the latest Windows installer from GitHub Releases:

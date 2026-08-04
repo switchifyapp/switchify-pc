@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Switchify PC Preview",
+  "version": "0.1.0",
+  "identifier": "com.enaboapps.switchify.pc.preview",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Switchify PC Preview",
+        "width": 920,
+        "height": 700,
+        "minWidth": 620,
+        "minHeight": 520,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "shortDescription": "Android control for Windows and macOS",
+    "longDescription": "Preview of the cross-platform Switchify desktop companion.",
+    "windows": {
+      "nsis": { "installMode": "perMachine" }
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "infoPlist": "Info.plist"
+    }
+  }
+}
