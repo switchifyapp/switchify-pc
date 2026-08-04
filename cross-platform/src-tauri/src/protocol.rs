@@ -841,6 +841,22 @@ fn valid_desktop_payload(command: &str, payload: &Value) -> bool {
                 && sorted_switch_ids(object.get("pressedSwitchIds"))
         }
         "switch.session.stop" => object.len() == 2 && positive_sequence(),
+        "grid.switch.set" => {
+            (object.len() == 2 || object.len() == 4 && positive_sequence())
+                && object
+                    .get("switchId")
+                    .and_then(Value::as_i64)
+                    .is_some_and(|id| (1..=8).contains(&id))
+                && matches!(
+                    object.get("state").and_then(Value::as_str),
+                    Some("down" | "up")
+                )
+        }
+        "grid.switch.sync" => {
+            object.len() == 3
+                && positive_sequence()
+                && unique_switch_ids(object.get("pressedSwitchIds"))
+        }
         "pointer.speed.set" => {
             object.len() == 1
                 && object
@@ -913,6 +929,21 @@ fn sorted_switch_ids(value: Option<&Value>) -> bool {
         previous = id;
     }
     true
+}
+
+fn unique_switch_ids(value: Option<&Value>) -> bool {
+    let Some(values) = value
+        .and_then(Value::as_array)
+        .filter(|values| values.len() <= 8)
+    else {
+        return false;
+    };
+    let mut ids = std::collections::HashSet::new();
+    values.iter().all(|value| {
+        value
+            .as_i64()
+            .is_some_and(|id| (1..=8).contains(&id) && ids.insert(id))
+    })
 }
 
 struct ValidatedCommand {
@@ -1142,36 +1173,7 @@ pub fn pointer_profile_response(id: &str, profile: &PointerProfile, scale_percen
                     "window.control",
                     "switch.edge"
                 ],
-                "supportedCommands": [
-                    "mouse.move",
-                    "mouse.click",
-                    "mouse.doubleClick",
-                    "mouse.rightClick",
-                    "mouse.scroll",
-                    "mouse.dragStart",
-                    "mouse.dragEnd",
-                    "connection.ping",
-                    "pointer.profile",
-                    "pointer.speed.set",
-                    "keyboard.key",
-                    "keyboard.modifierDown",
-                    "keyboard.modifierUp",
-                    "keyboard.shortcut",
-                    "keyboard.typeText",
-                    "keyboard.textStream.open",
-                    "keyboard.textStream.char",
-                    "keyboard.textStream.chunk",
-                    "keyboard.textStream.key",
-                    "keyboard.textStream.close",
-                    "media.control",
-                    "window.control",
-                    "switch.profile.list",
-                    "switch.session.start",
-                    "switch.edge",
-                    "switch.sync",
-                    "switch.session.stop",
-                    "connection.disconnecting"
-                ],
+                "supportedCommands": supported_commands(),
                 "mouseRepeat": {
                     "supported": false,
                     "enabled": false,
@@ -1205,23 +1207,72 @@ pub fn pointer_profile_response(id: &str, profile: &PointerProfile, scale_percen
     .to_string()
 }
 
+fn supported_commands() -> Vec<&'static str> {
+    let commands = vec![
+        "mouse.move",
+        "mouse.click",
+        "mouse.doubleClick",
+        "mouse.rightClick",
+        "mouse.scroll",
+        "mouse.dragStart",
+        "mouse.dragEnd",
+        "connection.ping",
+        "pointer.profile",
+        "pointer.speed.set",
+        "keyboard.key",
+        "keyboard.modifierDown",
+        "keyboard.modifierUp",
+        "keyboard.shortcut",
+        "keyboard.typeText",
+        "keyboard.textStream.open",
+        "keyboard.textStream.char",
+        "keyboard.textStream.chunk",
+        "keyboard.textStream.key",
+        "keyboard.textStream.close",
+        "media.control",
+        "window.control",
+        "switch.profile.list",
+        "switch.session.start",
+        "switch.edge",
+        "switch.sync",
+        "switch.session.stop",
+        "connection.disconnecting",
+    ];
+    #[cfg(target_os = "windows")]
+    {
+        let mut commands = commands;
+        commands.extend(["grid.switch.set", "grid.switch.sync"]);
+        commands
+    }
+    #[cfg(not(target_os = "windows"))]
+    commands
+}
+
 pub fn switch_profile_catalog_response(
     id: &str,
     profiles: &[crate::state::SwitchProfile],
 ) -> String {
-    let summaries: Vec<Value> = profiles
-        .iter()
-        .map(|profile| {
-            let bindings: Vec<Value> = profile
+    let summaries: Vec<Value> =
+        profiles
+            .iter()
+            .map(|profile| {
+                let bindings: Vec<Value> = profile
                 .bindings
                 .iter()
                 .map(|binding| {
-                    let behavior = match binding.binding_type.as_str() {
+                    let behavior = if profile.provider == "grid3" {
+                        "stateful"
+                    } else {
+                        match binding.binding_type.as_str() {
                         "key" | "mouseButton" => "stateful",
                         "none" => "unassigned",
                         _ => "pulse",
+                        }
                     };
-                    let label = match binding.binding_type.as_str() {
+                    let label = if profile.provider == "grid3" {
+                        format!("Grid switch {}", binding.switch_id)
+                    } else {
+                        match binding.binding_type.as_str() {
                         "none" => "Unassigned".into(),
                         "shortcut" => binding
                             .keys
@@ -1235,19 +1286,20 @@ pub fn switch_profile_catalog_response(
                         "scroll" => format!("Scroll {}", binding.value.as_deref().unwrap_or("")),
                         "media" => binding.value.clone().unwrap_or_else(|| "Media".into()),
                         _ => binding.value.clone().unwrap_or_else(|| "Unassigned".into()),
+                        }
                     };
                     json!({ "switchId": binding.switch_id, "label": label, "behavior": behavior })
                 })
                 .collect();
-            json!({
-                "id": profile.id,
-                "version": profile.version,
-                "name": profile.name,
-                "kind": profile.provider,
-                "bindings": bindings
+                json!({
+                    "id": profile.id,
+                    "version": profile.version,
+                    "name": profile.name,
+                    "kind": profile.provider,
+                    "bindings": bindings
+                })
             })
-        })
-        .collect();
+            .collect();
     json!({
         "version": PROTOCOL_VERSION,
         "id": id,

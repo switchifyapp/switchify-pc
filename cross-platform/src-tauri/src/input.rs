@@ -244,7 +244,9 @@ impl<I: InputInjector> DesktopInput<I> {
         if self.switch_session.is_some()
             && !matches!(
                 command_type,
-                "switch.profile.list"
+                "grid.switch.set"
+                    | "grid.switch.sync"
+                    | "switch.profile.list"
                     | "switch.session.start"
                     | "switch.edge"
                     | "switch.sync"
@@ -390,9 +392,8 @@ impl<I: InputInjector> DesktopInput<I> {
             "mouse.repeat.start" | "mouse.repeat.stop" => {
                 Err("Mouse repeat is not available in this preview build.".into())
             }
-            "grid.switch.set" | "grid.switch.sync" => {
-                Err("Grid 3 output is not available in this preview build.".into())
-            }
+            "grid.switch.set" => self.apply_legacy_grid_edge(device_id, payload, profiles),
+            "grid.switch.sync" => self.sync_legacy_grid(device_id, payload, profiles),
             "pointer.display.move" => {
                 Err("Display navigation is not available in this preview build.".into())
             }
@@ -445,7 +446,11 @@ impl<I: InputInjector> DesktopInput<I> {
             .find(|profile| profile.id == profile_id && profile.version == profile_version)
             .cloned()
             .ok_or_else(|| "The selected profile changed or is no longer available.".to_string())?;
-        if profile.provider != "mapped" {
+        if profile.provider != "mapped" && profile.provider != "grid3" {
+            return Err("The selected output provider is unavailable.".into());
+        }
+        #[cfg(not(target_os = "windows"))]
+        if profile.provider == "grid3" {
             return Err("The selected output provider is unavailable.".into());
         }
         self.release_all()?;
@@ -458,6 +463,87 @@ impl<I: InputInjector> DesktopInput<I> {
             held_outputs: HashMap::new(),
         });
         Ok(())
+    }
+
+    fn ensure_grid_session(
+        &mut self,
+        device_id: &str,
+        session_id: &str,
+        profiles: &[SwitchProfile],
+    ) -> Result<(), String> {
+        if self.switch_session.as_ref().is_some_and(|session| {
+            session.device_id == device_id
+                && session.session_id == session_id
+                && session.profile.provider == "grid3"
+        }) {
+            return Ok(());
+        }
+        #[cfg(not(target_os = "windows"))]
+        return Err("Grid 3 output is unavailable.".into());
+        #[cfg(target_os = "windows")]
+        {
+            let profile = profiles
+                .iter()
+                .find(|profile| profile.provider == "grid3")
+                .cloned()
+                .ok_or_else(|| "Grid 3 output is unavailable.".to_string())?;
+            self.release_all()?;
+            self.switch_session = Some(SwitchSession {
+                device_id: device_id.into(),
+                session_id: session_id.into(),
+                profile,
+                last_sequence: 0,
+                pressed_switches: HashSet::new(),
+                held_outputs: HashMap::new(),
+            });
+            Ok(())
+        }
+    }
+
+    fn apply_legacy_grid_edge(
+        &mut self,
+        device_id: &str,
+        payload: &Value,
+        profiles: &[SwitchProfile],
+    ) -> Result<(), String> {
+        let owned_session_id;
+        let session_id = if let Some(session_id) = payload.get("sessionId").and_then(Value::as_str)
+        {
+            session_id
+        } else {
+            owned_session_id = format!("legacy:{device_id}");
+            &owned_session_id
+        };
+        self.ensure_grid_session(device_id, session_id, profiles)?;
+        let mut session = self.take_matching_session(device_id, session_id)?;
+        let sequence = payload
+            .get("sequence")
+            .and_then(Value::as_i64)
+            .unwrap_or(session.last_sequence + 1);
+        let switch_id = integer(payload, "switchId")? as u8;
+        let pressed = string(payload, "state")? == "down";
+        let result = if sequence > session.last_sequence {
+            let result = self.apply_binding(&mut session, switch_id, pressed);
+            if result.is_ok() {
+                session.last_sequence = sequence;
+            }
+            result
+        } else {
+            Ok(())
+        };
+        self.switch_session = Some(session);
+        result
+    }
+
+    fn sync_legacy_grid(
+        &mut self,
+        device_id: &str,
+        payload: &Value,
+        profiles: &[SwitchProfile],
+    ) -> Result<(), String> {
+        let session_id = string(payload, "sessionId")?;
+        self.ensure_grid_session(device_id, session_id, profiles)?;
+        self.sync_switches(device_id, payload)
     }
 
     fn apply_switch_edge(&mut self, device_id: &str, payload: &Value) -> Result<(), String> {
@@ -579,6 +665,22 @@ impl<I: InputInjector> DesktopInput<I> {
         if !changed {
             return Ok(());
         }
+        if session.profile.provider == "grid3" {
+            #[cfg(target_os = "windows")]
+            {
+                let result = crate::grid3::set_switch_state(switch_id, pressed);
+                if result.is_err() {
+                    if pressed {
+                        session.pressed_switches.remove(&switch_id);
+                    } else {
+                        session.pressed_switches.insert(switch_id);
+                    }
+                }
+                return result;
+            }
+            #[cfg(not(target_os = "windows"))]
+            return Err("Grid 3 output is unavailable.".into());
+        }
         let Some(binding) = session
             .profile
             .bindings
@@ -679,6 +781,14 @@ impl<I: InputInjector> DesktopInput<I> {
     fn stop_switch_session(&mut self) -> Result<(), String> {
         if let Some(session) = self.switch_session.take() {
             let mut first_error = None;
+            #[cfg(target_os = "windows")]
+            if session.profile.provider == "grid3" {
+                for switch_id in session.pressed_switches {
+                    if let Err(error) = crate::grid3::set_switch_state(switch_id, false) {
+                        first_error.get_or_insert(error);
+                    }
+                }
+            }
             for output in session.held_outputs.keys() {
                 if let Err(error) = self.set_output(output, false) {
                     first_error.get_or_insert(error);

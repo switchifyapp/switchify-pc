@@ -127,7 +127,7 @@ impl PlatformCapabilities {
         #[cfg(target_os = "windows")]
         return Self {
             platform: "windows".into(),
-            grid3: false,
+            grid3: true,
             ui_access: false,
             display_navigation: false,
             cursor_overlay: false,
@@ -219,7 +219,7 @@ pub fn built_in_profiles(include_grid3: bool) -> Vec<SwitchProfile> {
             name: "Grid 3".into(),
             provider: "grid3".into(),
             built_in: true,
-            bindings: vec![],
+            bindings: (1..=8).map(none).collect(),
         });
     }
     profiles
