@@ -999,8 +999,11 @@ impl MacRuntime {
 
     fn refresh_accessibility(&mut self, prompt: bool) -> bool {
         if let Some(input) = self.input.as_mut() {
-            let _ = input.release_all();
+            let release = input.release_all();
             input.end_control_session();
+            if release.is_err() {
+                return false;
+            }
         }
         let settings = Settings {
             open_prompt_to_get_permissions: prompt,
