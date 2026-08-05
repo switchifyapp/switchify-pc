@@ -4,6 +4,8 @@ use std::time::Duration;
 
 use corebluetooth::prelude::*;
 use enigo::{Enigo, Settings};
+use objc2_app_kit::NSWorkspace;
+use objc2_foundation::{NSString, NSURL};
 use tauri::{AppHandle, Manager};
 
 use crate::input::{DesktopInput, PointerFeedback};
@@ -26,6 +28,70 @@ const TX_UUID: &str = "7a78f7ea-1d6d-4d92-9ef0-1f89d3db21f4";
 const STATUS_UUID: &str = "7a78f7eb-1d6d-4d92-9ef0-1f89d3db21f4";
 const DISPLAY_NAME: &str = "Switchify PC Preview";
 const MAX_QUEUED_NOTIFICATIONS: usize = 512;
+const ACCESSIBILITY_SETTINGS_URL: &str =
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+
+trait AccessibilityAdapter {
+    type Input;
+
+    fn create_input(&mut self) -> Result<Self::Input, String>;
+    fn request_prompt(&mut self);
+    fn open_settings(&mut self) -> Result<(), String>;
+}
+
+struct SystemAccessibilityAdapter;
+
+impl AccessibilityAdapter for SystemAccessibilityAdapter {
+    type Input = DesktopInput<Enigo>;
+
+    fn create_input(&mut self) -> Result<Self::Input, String> {
+        Enigo::new(&Settings {
+            open_prompt_to_get_permissions: false,
+            ..Settings::default()
+        })
+        .map(DesktopInput::new)
+        .map_err(|error| error.to_string())
+    }
+
+    fn request_prompt(&mut self) {
+        let _ = Enigo::new(&Settings {
+            open_prompt_to_get_permissions: true,
+            ..Settings::default()
+        });
+    }
+
+    fn open_settings(&mut self) -> Result<(), String> {
+        let url = NSURL::URLWithString(&NSString::from_str(ACCESSIBILITY_SETTINGS_URL))
+            .ok_or_else(|| "Could not create the Accessibility Settings URL.".to_string())?;
+        if NSWorkspace::sharedWorkspace().openURL(&url) {
+            Ok(())
+        } else {
+            Err("Could not open Privacy & Security → Accessibility.".to_string())
+        }
+    }
+}
+
+#[derive(Debug)]
+enum AccessibilityCheck<I> {
+    Granted(I),
+    Required,
+}
+
+fn evaluate_accessibility<A: AccessibilityAdapter>(
+    adapter: &mut A,
+    prompt: bool,
+) -> Result<AccessibilityCheck<A::Input>, String> {
+    match adapter.create_input() {
+        Ok(input) => Ok(AccessibilityCheck::Granted(input)),
+        Err(_) if !prompt => Ok(AccessibilityCheck::Required),
+        Err(_) => {
+            // Apple's prompt is asynchronous: requesting it cannot make this check succeed.
+            adapter.request_prompt();
+            adapter.open_settings()?;
+            Ok(AccessibilityCheck::Required)
+        }
+    }
+}
 
 thread_local! {
     static RUNTIME: RefCell<Option<MacRuntime>> = const { RefCell::new(None) };
@@ -102,7 +168,10 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
             repeats: MouseRepeatController::default(),
         });
     });
-    with_runtime(|runtime| runtime.handle_manager_state(state))
+    with_runtime(|runtime| {
+        runtime.refresh_accessibility(false)?;
+        runtime.handle_manager_state(state)
+    })
 }
 
 fn dispatch_to_main(
@@ -133,22 +202,31 @@ pub fn check_accessibility(
     prompt: bool,
 ) -> Result<(), String> {
     with_runtime(|runtime| {
-        let granted = runtime.refresh_accessibility(prompt);
-        {
-            let mut model = shared
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            model.state.accessibility = if granted {
-                AccessibilityState::Granted
-            } else {
-                AccessibilityState::Required
-            };
-        }
-        if prompt && !granted {
+        let was_required = shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .state
+            .accessibility
+            == AccessibilityState::Required;
+        let granted = match runtime.refresh_accessibility(prompt) {
+            Ok(granted) => granted,
+            Err(error) => {
+                set_activity(shared, ActivityKind::Error, error.clone());
+                emit_state(app, shared);
+                return Err(error);
+            }
+        };
+        if granted && was_required {
+            set_activity(
+                shared,
+                ActivityKind::Success,
+                "Accessibility access is ready.",
+            );
+        } else if prompt && !granted {
             set_activity(
                 shared,
                 ActivityKind::Info,
-                "Grant Accessibility access in System Settings, then return to this window.",
+                "Enable Switchify PC Preview in Accessibility, then return here. If it is already enabled but access is still required, remove the stale row and reopen Accessibility Settings from Switchify.",
             );
         }
         emit_state(app, shared);
@@ -684,7 +762,9 @@ impl MacRuntime {
             }
             return;
         }
-        let injection = if self.input.is_none() && !self.refresh_accessibility(false) {
+        let injection = if self.input.is_none()
+            && !self.refresh_accessibility(false).unwrap_or(false)
+        {
             Err("Accessibility permission is required before input can be controlled.".to_string())
         } else {
             self.input
@@ -762,7 +842,7 @@ impl MacRuntime {
                 return Err("Mouse repeat is disabled in settings.".into());
             }
             self.stop_repeat_for_device(&command.device_id);
-            if self.input.is_none() && !self.refresh_accessibility(false) {
+            if self.input.is_none() && !self.refresh_accessibility(false)? {
                 return Err(
                     "Accessibility permission is required before the pointer can move.".into(),
                 );
@@ -906,7 +986,7 @@ impl MacRuntime {
     }
 
     fn inject_text(&mut self, text: &str) -> Result<(), String> {
-        if self.input.is_none() && !self.refresh_accessibility(false) {
+        if self.input.is_none() && !self.refresh_accessibility(false)? {
             return Err("Accessibility permission is required before text can be typed.".into());
         }
         self.input
@@ -933,7 +1013,7 @@ impl MacRuntime {
     }
 
     fn inject_pointer_move(&mut self, dx: i32, dy: i32) -> Result<(), String> {
-        if self.input.is_none() && !self.refresh_accessibility(false) {
+        if self.input.is_none() && !self.refresh_accessibility(false)? {
             return Err("Accessibility permission is required before the pointer can move.".into());
         }
         let scale = self
@@ -951,7 +1031,7 @@ impl MacRuntime {
     }
 
     fn inject_pointer_click(&mut self, button: MouseButton, click_count: u8) -> Result<(), String> {
-        if self.input.is_none() && !self.refresh_accessibility(false) {
+        if self.input.is_none() && !self.refresh_accessibility(false)? {
             return Err(
                 "Accessibility permission is required before the pointer can click.".into(),
             );
@@ -992,23 +1072,32 @@ impl MacRuntime {
         )
     }
 
-    fn refresh_accessibility(&mut self, prompt: bool) -> bool {
-        let settings = Settings {
-            open_prompt_to_get_permissions: prompt,
-            ..Settings::default()
+    fn refresh_accessibility(&mut self, prompt: bool) -> Result<bool, String> {
+        let mut adapter = SystemAccessibilityAdapter;
+        let check = evaluate_accessibility(&mut adapter, prompt);
+        self.input = match check {
+            Ok(AccessibilityCheck::Granted(input)) => Some(input),
+            Ok(AccessibilityCheck::Required) => None,
+            Err(error) => {
+                self.set_accessibility_state(AccessibilityState::Required);
+                return Err(error);
+            }
         };
-        self.input = Enigo::new(&settings).ok().map(DesktopInput::new);
         let granted = self.input.is_some();
+        self.set_accessibility_state(if granted {
+            AccessibilityState::Granted
+        } else {
+            AccessibilityState::Required
+        });
+        Ok(granted)
+    }
+
+    fn set_accessibility_state(&self, state: AccessibilityState) {
         self.shared
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .state
-            .accessibility = if granted {
-            AccessibilityState::Granted
-        } else {
-            AccessibilityState::Required
-        };
-        granted
+            .accessibility = state;
     }
 
     fn schedule_pairing_expiration(&self, request_id: String, delay_ms: u64) {
@@ -1150,6 +1239,90 @@ impl Drop for MacRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Default)]
+    struct FakeAccessibilityAdapter {
+        input_available: bool,
+        prompt_requests: usize,
+        settings_opens: usize,
+        settings_error: Option<String>,
+    }
+
+    impl AccessibilityAdapter for FakeAccessibilityAdapter {
+        type Input = ();
+
+        fn create_input(&mut self) -> Result<Self::Input, String> {
+            if self.input_available {
+                Ok(())
+            } else {
+                Err("not trusted".into())
+            }
+        }
+
+        fn request_prompt(&mut self) {
+            self.prompt_requests += 1;
+        }
+
+        fn open_settings(&mut self) -> Result<(), String> {
+            self.settings_opens += 1;
+            match self.settings_error.as_ref() {
+                Some(error) => Err(error.clone()),
+                None => Ok(()),
+            }
+        }
+    }
+
+    #[test]
+    fn startup_and_focus_checks_are_silent_when_access_is_required() {
+        let mut adapter = FakeAccessibilityAdapter::default();
+        assert!(matches!(
+            evaluate_accessibility(&mut adapter, false).unwrap(),
+            AccessibilityCheck::Required
+        ));
+        assert_eq!(adapter.prompt_requests, 0);
+        assert_eq!(adapter.settings_opens, 0);
+
+        adapter.input_available = true;
+        assert!(matches!(
+            evaluate_accessibility(&mut adapter, false).unwrap(),
+            AccessibilityCheck::Granted(())
+        ));
+        assert_eq!(adapter.prompt_requests, 0);
+        assert_eq!(adapter.settings_opens, 0);
+    }
+
+    #[test]
+    fn prompt_checks_trust_before_requesting_and_opening_settings() {
+        let mut trusted = FakeAccessibilityAdapter {
+            input_available: true,
+            ..Default::default()
+        };
+        assert!(matches!(
+            evaluate_accessibility(&mut trusted, true).unwrap(),
+            AccessibilityCheck::Granted(())
+        ));
+        assert_eq!((trusted.prompt_requests, trusted.settings_opens), (0, 0));
+
+        let mut required = FakeAccessibilityAdapter::default();
+        assert!(matches!(
+            evaluate_accessibility(&mut required, true).unwrap(),
+            AccessibilityCheck::Required
+        ));
+        assert_eq!((required.prompt_requests, required.settings_opens), (1, 1));
+    }
+
+    #[test]
+    fn settings_open_failures_do_not_report_access_as_granted() {
+        let mut adapter = FakeAccessibilityAdapter {
+            settings_error: Some("settings unavailable".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            evaluate_accessibility(&mut adapter, true).unwrap_err(),
+            "settings unavailable"
+        );
+        assert_eq!((adapter.prompt_requests, adapter.settings_opens), (1, 1));
+    }
 
     #[test]
     fn pointer_profile_uses_logical_bounds_and_reduced_movement_steps() {

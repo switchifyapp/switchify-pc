@@ -1,13 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { api, browserPreviewState } from "./api";
 
 describe("Switchify PC Preview shell", () => {
   it("renders the connection and permission state", async () => {
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Switchify PC" })).toBeInTheDocument();
     expect(screen.getByText("Input access")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Review" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Accessibility Settings" })).toBeInTheDocument();
   });
 
   it("opens settings with accessible native controls", async () => {
@@ -59,5 +60,30 @@ describe("Switchify PC Preview shell", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Troubleshooting" }));
     expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Application update" })).toBeInTheDocument();
+  });
+
+  it("guides macOS users through required and stale accessibility entries", async () => {
+    const originalPlatform = browserPreviewState.capabilities.platform;
+    browserPreviewState.capabilities.platform = "macos";
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Support" }));
+    expect(screen.getByText(/Enable “Switchify PC Preview” in Accessibility/)).toBeInTheDocument();
+    expect(screen.getByText(/select the stale row, click Remove/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Accessibility Settings" })).toBeInTheDocument();
+    browserPreviewState.capabilities.platform = originalPlatform;
+  });
+
+  it("updates accessibility to Ready from the runtime event", async () => {
+    let stateHandler: ((state: typeof browserPreviewState) => void) | undefined;
+    const listener = vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    stateHandler?.({ ...structuredClone(browserPreviewState), accessibility: "granted" });
+    expect(await screen.findByText("Ready")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Accessibility Settings" })).not.toBeInTheDocument();
+    listener.mockRestore();
   });
 });

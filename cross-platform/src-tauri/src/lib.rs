@@ -490,6 +490,15 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            #[cfg(target_os = "macos")]
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Focused(true)) {
+                let model = window.app_handle().state::<AppModel>();
+                let requires_access =
+                    model.snapshot().accessibility == state::AccessibilityState::Required;
+                if requires_access {
+                    let _ = macos::check_accessibility(window.app_handle(), &model.shared, false);
+                }
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
