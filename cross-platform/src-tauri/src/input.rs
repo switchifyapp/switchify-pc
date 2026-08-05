@@ -231,6 +231,7 @@ impl InputInjector for Enigo {
 pub struct DesktopInput<I: InputInjector> {
     pub(crate) injector: I,
     held_modifiers: HashSet<ModifierKey>,
+    pending_modifier_releases: HashSet<ModifierKey>,
     modifier_overlay: Option<Arc<dyn ModifierKeyOverlayNotifier>>,
     held_button: Option<MouseButton>,
     pointer_scale_percent: u32,
@@ -258,6 +259,7 @@ impl<I: InputInjector> DesktopInput<I> {
         Self {
             injector,
             held_modifiers: HashSet::new(),
+            pending_modifier_releases: HashSet::new(),
             modifier_overlay: None,
             held_button: None,
             pointer_scale_percent: 100,
@@ -385,6 +387,7 @@ impl<I: InputInjector> DesktopInput<I> {
                 let key = ModifierKey::parse(string(payload, "key")?)?;
                 if !self.held_modifiers.contains(&key) {
                     self.injector.set_key(key.protocol_name(), true)?;
+                    self.pending_modifier_releases.remove(&key);
                     self.held_modifiers.insert(key);
                     self.update_modifier_overlay();
                 }
@@ -392,9 +395,16 @@ impl<I: InputInjector> DesktopInput<I> {
             }
             "keyboard.modifierUp" => {
                 let key = ModifierKey::parse(string(payload, "key")?)?;
-                if self.held_modifiers.remove(&key) {
+                let was_held = self.held_modifiers.remove(&key);
+                let was_pending = self.pending_modifier_releases.remove(&key);
+                if was_held || was_pending {
+                    if was_held {
+                        self.update_modifier_overlay();
+                    }
                     let result = self.injector.set_key(key.protocol_name(), false);
-                    self.update_modifier_overlay();
+                    if result.is_err() {
+                        self.pending_modifier_releases.insert(key);
+                    }
                     result?;
                 }
                 Ok(())
@@ -949,11 +959,18 @@ impl<I: InputInjector> DesktopInput<I> {
 
     fn release_held_modifiers(&mut self) -> Result<(), String> {
         for key in ModifierKey::RELEASE_ORDER {
-            if !self.held_modifiers.remove(&key) {
+            let was_held = self.held_modifiers.remove(&key);
+            let was_pending = self.pending_modifier_releases.remove(&key);
+            if !was_held && !was_pending {
                 continue;
             }
+            if was_held {
+                self.update_modifier_overlay();
+            }
             let result = self.injector.set_key(key.protocol_name(), false);
-            self.update_modifier_overlay();
+            if result.is_err() {
+                self.pending_modifier_releases.insert(key);
+            }
             result?;
         }
         Ok(())
@@ -1346,6 +1363,29 @@ mod tests {
             vec![vec![ModifierKey::Ctrl], vec![]]
         );
         assert!(up_input.held_modifiers.is_empty());
+        assert_eq!(
+            up_input.pending_modifier_releases,
+            HashSet::from([ModifierKey::Ctrl])
+        );
+
+        up_input.injector.fail_key_up = None;
+        up_input
+            .execute(
+                "device",
+                "keyboard.modifierUp",
+                &serde_json::json!({"key": "Ctrl"}),
+                &[],
+            )
+            .unwrap();
+        assert!(up_input.pending_modifier_releases.is_empty());
+        assert_eq!(
+            up_input.injector.keys,
+            vec![
+                ("Ctrl".into(), true),
+                ("Ctrl".into(), false),
+                ("Ctrl".into(), false),
+            ]
+        );
     }
 
     #[test]
@@ -1369,6 +1409,10 @@ mod tests {
             HashSet::from([ModifierKey::Ctrl, ModifierKey::Alt])
         );
         assert_eq!(
+            input.pending_modifier_releases,
+            HashSet::from([ModifierKey::Shift])
+        );
+        assert_eq!(
             overlay.changes.lock().unwrap().last().cloned(),
             Some(vec![ModifierKey::Ctrl, ModifierKey::Alt])
         );
@@ -1387,10 +1431,12 @@ mod tests {
             vec![
                 ("Meta".into(), false),
                 ("Shift".into(), false),
+                ("Shift".into(), false),
                 ("Alt".into(), false),
                 ("Ctrl".into(), false),
             ]
         );
+        assert!(input.pending_modifier_releases.is_empty());
         assert!(overlay.changes.lock().unwrap().last().unwrap().is_empty());
     }
 
@@ -1437,6 +1483,34 @@ mod tests {
 
         assert!(input.held_modifiers.is_empty());
         assert_eq!(*overlay.ended.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn ending_control_session_retains_failed_release_for_later_cleanup() {
+        let (mut input, overlay) = input_with_modifier_overlay();
+        input
+            .execute(
+                "device",
+                "keyboard.modifierDown",
+                &serde_json::json!({"key": "Alt"}),
+                &[],
+            )
+            .unwrap();
+        input.injector.fail_key_up = Some("Alt".into());
+
+        assert!(input.release_all().is_err());
+        input.end_control_session();
+
+        assert!(input.held_modifiers.is_empty());
+        assert_eq!(
+            input.pending_modifier_releases,
+            HashSet::from([ModifierKey::Alt])
+        );
+        assert_eq!(*overlay.ended.lock().unwrap(), 1);
+
+        input.injector.fail_key_up = None;
+        input.release_all().unwrap();
+        assert!(input.pending_modifier_releases.is_empty());
     }
 
     #[test]
