@@ -111,7 +111,7 @@ impl MacOverlayHost {
         let cursor = NSEvent::mouseLocation();
         let mtm = MainThreadMarker::new().ok_or("the AppKit main thread is unavailable")?;
         let screens = NSScreen::screens(mtm);
-        let screen = screen_at_point(&screens, cursor)
+        let screen = screen_at_or_nearest_point(&screens, cursor)
             .ok_or_else(|| "the active display could not be resolved".to_string())?;
         let scale = screen.backingScaleFactor();
         let pixmap = render_marker(frame, scale);
@@ -236,19 +236,153 @@ fn image_from_rgba(
     Ok(image)
 }
 
-fn screen_at_point(screens: &NSArray<NSScreen>, point: NSPoint) -> Option<Retained<NSScreen>> {
-    screens.iter().find(|screen| {
-        let frame = screen.frame();
-        point.x >= frame.origin.x
-            && point.x < frame.origin.x + frame.size.width
-            && point.y >= frame.origin.y
-            && point.y < frame.origin.y + frame.size.height
-    })
+fn screen_at_or_nearest_point(
+    screens: &NSArray<NSScreen>,
+    point: NSPoint,
+) -> Option<Retained<NSScreen>> {
+    let frames = screens
+        .iter()
+        .map(|screen| screen.frame())
+        .collect::<Vec<_>>();
+    screen_index_at_point(&frames, point).and_then(|index| screens.iter().nth(index))
+}
+
+fn screen_index_at_point(frames: &[NSRect], point: NSPoint) -> Option<usize> {
+    if let Some(index) = frames
+        .iter()
+        .position(|frame| frame_contains_point(*frame, point))
+    {
+        return Some(index);
+    }
+
+    let mut nearest = None;
+    for (index, frame) in frames.iter().enumerate() {
+        let distance = squared_distance_to_frame(*frame, point);
+        if nearest.is_none_or(|(_, nearest_distance)| distance < nearest_distance) {
+            nearest = Some((index, distance));
+        }
+    }
+    nearest.map(|(index, _)| index)
+}
+
+fn frame_contains_point(frame: NSRect, point: NSPoint) -> bool {
+    point.x >= frame.origin.x
+        && point.x < frame.origin.x + frame.size.width
+        && point.y >= frame.origin.y
+        && point.y < frame.origin.y + frame.size.height
+}
+
+fn squared_distance_to_frame(frame: NSRect, point: NSPoint) -> f64 {
+    let max_x = frame.origin.x + frame.size.width;
+    let max_y = frame.origin.y + frame.size.height;
+    let dx = axis_distance(point.x, frame.origin.x, max_x);
+    let dy = axis_distance(point.y, frame.origin.y, max_y);
+    dx * dx + dy * dy
+}
+
+fn axis_distance(value: f64, minimum: f64, maximum: f64) -> f64 {
+    if value < minimum {
+        minimum - value
+    } else if value > maximum {
+        value - maximum
+    } else {
+        0.0
+    }
 }
 
 fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect {
     NSRect {
         origin: NSPoint { x, y },
         size: NSSize { width, height },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_display_resolves_interior_edges_and_corners() {
+        let frames = [rect(0.0, 0.0, 1920.0, 1080.0)];
+        for point in [
+            NSPoint { x: 960.0, y: 540.0 },
+            NSPoint { x: 0.0, y: 540.0 },
+            NSPoint {
+                x: 1920.0,
+                y: 540.0,
+            },
+            NSPoint { x: 960.0, y: 0.0 },
+            NSPoint {
+                x: 960.0,
+                y: 1080.0,
+            },
+            NSPoint { x: 0.0, y: 0.0 },
+            NSPoint { x: 1920.0, y: 0.0 },
+            NSPoint { x: 0.0, y: 1080.0 },
+            NSPoint {
+                x: 1920.0,
+                y: 1080.0,
+            },
+        ] {
+            assert_eq!(screen_index_at_point(&frames, point), Some(0));
+        }
+    }
+
+    #[test]
+    fn shared_boundary_keeps_half_open_screen_ownership() {
+        let frames = [
+            rect(-1920.0, 0.0, 1920.0, 1080.0),
+            rect(0.0, 0.0, 1920.0, 1080.0),
+        ];
+        assert_eq!(
+            screen_index_at_point(&frames, NSPoint { x: 0.0, y: 540.0 }),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn negative_coordinate_layout_resolves_its_outer_edges() {
+        let frames = [
+            rect(-1600.0, -900.0, 1600.0, 900.0),
+            rect(0.0, 0.0, 1920.0, 1080.0),
+        ];
+        assert_eq!(
+            screen_index_at_point(
+                &frames,
+                NSPoint {
+                    x: -1600.0,
+                    y: -900.0,
+                }
+            ),
+            Some(0)
+        );
+        assert_eq!(
+            screen_index_at_point(
+                &frames,
+                NSPoint {
+                    x: 1920.0,
+                    y: 1080.0
+                }
+            ),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn display_gaps_use_the_nearest_screen_deterministically() {
+        let frames = [rect(0.0, 0.0, 100.0, 100.0), rect(200.0, 0.0, 100.0, 100.0)];
+        assert_eq!(
+            screen_index_at_point(&frames, NSPoint { x: 160.0, y: 50.0 }),
+            Some(1)
+        );
+        assert_eq!(
+            screen_index_at_point(&frames, NSPoint { x: 150.0, y: 50.0 }),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn empty_display_list_cannot_resolve_a_screen() {
+        assert_eq!(screen_index_at_point(&[], NSPoint { x: 0.0, y: 0.0 }), None);
     }
 }
