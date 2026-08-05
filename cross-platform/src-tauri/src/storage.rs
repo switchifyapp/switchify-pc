@@ -178,4 +178,23 @@ mod tests {
         let state: PersistedState = serde_json::from_value(value).unwrap();
         assert_eq!(state.settings.cursor_overlay_visibility, "onInput");
     }
+
+    #[test]
+    fn state_without_repeat_acceleration_uses_the_shipping_default() {
+        let mut value = serde_json::to_value(PersistedState::default()).unwrap();
+        value["settings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("mouseRepeatAccelerationDurationMs");
+        let state: PersistedState = serde_json::from_value(value).unwrap();
+        assert_eq!(state.settings.mouse_repeat_acceleration_duration_ms, 1000);
+    }
+
+    #[test]
+    fn state_preserves_an_explicit_repeat_acceleration() {
+        let mut value = serde_json::to_value(PersistedState::default()).unwrap();
+        value["settings"]["mouseRepeatAccelerationDurationMs"] = serde_json::json!(2000);
+        let state: PersistedState = serde_json::from_value(value).unwrap();
+        assert_eq!(state.settings.mouse_repeat_acceleration_duration_ms, 2000);
+    }
 }

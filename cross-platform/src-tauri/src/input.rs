@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use enigo::{Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse};
 use serde_json::Value;
 
+use crate::mouse_repeat::RepeatCommand;
 use crate::protocol::MouseButton;
 use crate::state::{SwitchBinding, SwitchProfile};
 
@@ -10,6 +11,8 @@ use crate::state::{SwitchBinding, SwitchProfile};
 pub enum PointerFeedback {
     Move,
     Drag,
+    RepeatMove { accelerated: bool },
+    RepeatScroll { dx: i32, dy: i32 },
     Click { button: MouseButton, count: u8 },
     Scroll { dx: i32, dy: i32 },
 }
@@ -240,6 +243,22 @@ impl<I: InputInjector> DesktopInput<I> {
     pub fn set_pointer_scale_percent(&mut self, scale_percent: u8) {
         self.pointer_scale_percent = u32::from(scale_percent.clamp(5, 225));
     }
+    pub fn execute_repeat(
+        &mut self,
+        command: RepeatCommand,
+        acceleration_scale: f64,
+    ) -> Result<PointerFeedback, String> {
+        match command.scaled(acceleration_scale) {
+            RepeatCommand::Move { dx, dy } => {
+                self.move_pointer(dx, dy)?;
+                Ok(self.pointer_feedback_for_move())
+            }
+            RepeatCommand::Scroll { dx, dy } => {
+                self.injector.scroll(dx, dy)?;
+                Ok(PointerFeedback::Scroll { dx, dy })
+            }
+        }
+    }
     pub fn click_pointer(&mut self, button: MouseButton, click_count: u8) -> Result<(), String> {
         self.release_held_button()?;
         self.injector.click_pointer(button, click_count)
@@ -427,7 +446,7 @@ impl<I: InputInjector> DesktopInput<I> {
             }
             "connection.disconnecting" => self.release_all(),
             "mouse.repeat.start" | "mouse.repeat.stop" => {
-                Err("Mouse repeat is not available in this preview build.".into())
+                Err("Mouse repeat is managed by the platform runtime.".into())
             }
             "grid.switch.set" => self.apply_legacy_grid_edge(device_id, payload, profiles),
             "grid.switch.sync" => self.sync_legacy_grid(device_id, payload, profiles),
@@ -992,6 +1011,16 @@ mod tests {
             .unwrap();
 
         assert_eq!(feedback, Some(PointerFeedback::Scroll { dx: 2, dy: -4 }));
+    }
+
+    #[test]
+    fn repeat_movement_applies_acceleration_and_pointer_speed() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        input.set_pointer_scale_percent(50);
+        input
+            .execute_repeat(RepeatCommand::Move { dx: 40, dy: -20 }, 0.25)
+            .unwrap();
+        assert_eq!(input.injector.moves, vec![(5, -3)]);
     }
 
     #[test]

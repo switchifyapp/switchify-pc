@@ -95,12 +95,44 @@ function SettingGroup({ title, description, children }: { title: string; descrip
   return <section className="setting-group"><header><h2>{title}</h2><p>{description}</p></header><div className="setting-controls">{children}</div></section>;
 }
 
+const pointerSpeedOptions = [5, 25, 50, 75, 100] as const;
+const repeatIntervalOptions = [100, 250, 500, 1000] as const;
+const accelerationOptions = [
+  { value: 0, label: "Off" },
+  { value: 500, label: "Short" },
+  { value: 1000, label: "Medium" },
+  { value: 2000, label: "Long" },
+] as const;
+
+function movementValue(base: number, scale: number) {
+  const value = Math.min(50, Math.max(1, Math.round((base * scale / 100) * 2) / 2));
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
 function SettingsView({ state, settings, setSettings, save, checkUpdates, busy }: { state: AppState; settings: AppSettings; setSettings: (next: AppSettings) => void; save: () => void; checkUpdates: () => void; busy: boolean }) {
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => setSettings({ ...settings, [key]: value });
   return <div className="view"><header className="page-header"><div><h1>Settings</h1><p>Startup, pointer, privacy, and updates</p></div><Settings size={24} /></header>
     <SettingGroup title="General" description="System startup and background behavior."><Toggle label="Start with system" checked={settings.startWithSystem} onChange={(value) => update("startWithSystem", value)} /></SettingGroup>
     <SettingGroup title="Pointer" description="Movement and visual feedback.">
-      <label className="range-row"><span>Pointer speed <strong>{settings.pointerScalePercent}%</strong></span><input type="range" min="5" max="225" step="5" value={settings.pointerScalePercent} onChange={(event) => update("pointerScalePercent", Number(event.target.value))} /></label>
+      <fieldset className="pointer-speed"><legend>Pointer speed <strong>{settings.pointerScalePercent}%</strong></legend><div className="segmented compact five">
+        {pointerSpeedOptions.map((value) => <button type="button" key={value} aria-label={`${value}% pointer speed`} aria-pressed={settings.pointerScalePercent === value} onClick={() => update("pointerScalePercent", value)}>{value}%</button>)}
+      </div><div className="movement-values" aria-label="Pointer movement values">
+        {([{"label":"Small","base":4.5},{"label":"Medium","base":12},{"label":"Large","base":26}] as const).map(({ label, base }) => <div key={label}><span>{label}</span><strong>{movementValue(base, settings.pointerScalePercent)}</strong></div>)}
+      </div></fieldset>
+      <div className="repeat-settings">
+        <Toggle label="Repeat mouse movement" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
+        <div className="repeat-options" data-disabled={!settings.mouseRepeatEnabled}>
+          <fieldset disabled={!settings.mouseRepeatEnabled}><legend>Movement interval</legend><div className="segmented compact four">
+            {repeatIntervalOptions.map((value) => <button type="button" key={value} aria-pressed={settings.moveRepeatIntervalMs === value} onClick={() => update("moveRepeatIntervalMs", value)}>{value / 1000}s</button>)}
+          </div></fieldset>
+          <fieldset disabled={!settings.mouseRepeatEnabled}><legend>Movement acceleration</legend><div className="segmented compact four">
+            {accelerationOptions.map(({ value, label }) => <button type="button" key={value} aria-pressed={settings.mouseRepeatAccelerationDurationMs === value} onClick={() => update("mouseRepeatAccelerationDurationMs", value)}>{label}</button>)}
+          </div></fieldset>
+          <fieldset disabled={!settings.mouseRepeatEnabled}><legend>Scroll interval</legend><div className="segmented compact four">
+            {repeatIntervalOptions.map((value) => <button type="button" key={value} aria-pressed={settings.scrollRepeatIntervalMs === value} onClick={() => update("scrollRepeatIntervalMs", value)}>{value / 1000}s</button>)}
+          </div></fieldset>
+        </div>
+      </div>
       {state.capabilities.cursorOverlay && <>
         <Toggle label="Show cursor overlay" checked={settings.cursorOverlayEnabled} onChange={(value) => update("cursorOverlayEnabled", value)} />
         <div className="overlay-options" data-disabled={!settings.cursorOverlayEnabled}>

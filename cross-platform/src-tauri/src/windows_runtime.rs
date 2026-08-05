@@ -15,6 +15,9 @@ use windows::Foundation::{Deferral, TypedEventHandler};
 use windows::Security::Cryptography::CryptographicBuffer;
 
 use crate::input::{DesktopInput, PointerFeedback};
+use crate::mouse_repeat::{
+    acceleration_scale, MouseRepeatController, RepeatCommand, INITIAL_SCALE,
+};
 use crate::overlay::CursorOverlay;
 use crate::protocol::{
     create_notification_frames, pointer_profile_response, switch_profile_catalog_response,
@@ -36,6 +39,7 @@ struct WindowsRuntime {
     tx: GattLocalCharacteristic,
     _status: GattLocalCharacteristic,
     input: DesktopInput<Enigo>,
+    repeats: MouseRepeatController,
 }
 
 static RUNTIME: OnceLock<Mutex<Option<WindowsRuntime>>> = OnceLock::new();
@@ -224,6 +228,7 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
                 },
             );
             if !connected {
+                stop_all_repeats(&subscribe_app);
                 subscribe_app.state::<CursorOverlay>().end_session();
             }
             emit_state(&subscribe_app, &subscribe_shared);
@@ -278,6 +283,7 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         tx,
         _status: status,
         input: DesktopInput::new(input),
+        repeats: MouseRepeatController::default(),
     });
     let advertising =
         GattServiceProviderAdvertisingParameters::new().map_err(|error| error.to_string())?;
@@ -429,21 +435,21 @@ fn process_frame(
         }
         Some(EngineEvent::Response(response)) => Some(response),
         Some(EngineEvent::PointerProfile(id)) => {
-            let scale = shared
+            let settings = shared
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .state
                 .settings
-                .pointer_scale_percent;
+                .clone();
             Some(pointer_profile_response(
                 &id,
                 &default_pointer_profile(),
-                scale,
+                &settings,
             ))
         }
         Some(EngineEvent::MouseMove(command)) => complete_mouse_move(app, shared, command),
         Some(EngineEvent::MouseClick(command)) => complete_mouse_click(app, shared, command),
-        Some(EngineEvent::Text(command)) => complete_text(shared, command),
+        Some(EngineEvent::Text(command)) => complete_text(app, shared, command),
         Some(EngineEvent::Desktop(command)) => complete_desktop(app, shared, command),
     };
     emit_state(app, shared);
@@ -467,6 +473,7 @@ fn complete_mouse_move(
     shared: &SharedModel,
     command: MouseMoveCommand,
 ) -> Option<String> {
+    stop_all_repeats(app);
     let scale = shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -495,6 +502,7 @@ fn complete_mouse_click(
     shared: &SharedModel,
     command: MouseClickCommand,
 ) -> Option<String> {
+    stop_all_repeats(app);
     let result =
         with_runtime_input(|input| input.click_pointer(command.button, command.click_count));
     if result.is_ok() {
@@ -516,7 +524,8 @@ fn complete_mouse_click(
             result.as_ref().map(|_| ()).map_err(String::as_str),
         )
 }
-fn complete_text(shared: &SharedModel, command: TextCommand) -> Option<String> {
+fn complete_text(app: &AppHandle, shared: &SharedModel, command: TextCommand) -> Option<String> {
+    stop_all_repeats(app);
     let result = with_runtime_input(|input| input.type_text(&command.text));
     shared
         .lock()
@@ -532,6 +541,13 @@ fn complete_desktop(
     shared: &SharedModel,
     command: DesktopCommand,
 ) -> Option<String> {
+    if command.command_type == "mouse.repeat.start" {
+        return complete_repeat_start(app, shared, command);
+    }
+    if command.command_type == "mouse.repeat.stop" {
+        return complete_repeat_stop(app, shared, command);
+    }
+    stop_all_repeats(app);
     let profiles = shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -582,6 +598,188 @@ fn complete_desktop(
             &command,
             result.as_ref().map(|_| ()).map_err(String::as_str),
         )
+}
+
+fn complete_repeat_start(
+    app: &AppHandle,
+    shared: &SharedModel,
+    command: DesktopCommand,
+) -> Option<String> {
+    let settings = overlay_settings(shared);
+    let repeat_command = RepeatCommand::parse(&command.payload);
+    let result = repeat_command.and_then(|repeat_command| {
+        if !settings.mouse_repeat_enabled {
+            stop_repeat_for_device(app, &command.device_id);
+            return Err("Mouse repeat is disabled in settings.".into());
+        }
+        stop_repeat_for_device(app, &command.device_id);
+        let initial_scale = if matches!(repeat_command, RepeatCommand::Move { .. })
+            && settings.mouse_repeat_acceleration_duration_ms > 0
+        {
+            INITIAL_SCALE
+        } else {
+            1.0
+        };
+        let active = {
+            let mut guard = runtime()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let runtime = guard
+                .as_mut()
+                .ok_or_else(|| "Bluetooth runtime is not ready.".to_string())?;
+            runtime
+                .input
+                .set_pointer_scale_percent(settings.pointer_scale_percent);
+            runtime
+                .input
+                .execute_repeat(repeat_command, initial_scale)?;
+            runtime.repeats.start(
+                command.device_id.clone(),
+                repeat_command,
+                settings.mouse_repeat_acceleration_duration_ms,
+                crate::state::now_ms(),
+            )
+        };
+        app.state::<CursorOverlay>().begin_repeat(
+            active.generation,
+            repeat_command,
+            settings.mouse_repeat_acceleration_duration_ms > 0,
+            settings,
+        );
+        spawn_repeat_loop(
+            app.clone(),
+            shared.clone(),
+            command.device_id.clone(),
+            active.generation,
+        );
+        Ok(())
+    });
+    shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .engine
+        .complete_desktop_command(
+            &command,
+            result.as_ref().map(|_| ()).map_err(String::as_str),
+        )
+}
+
+fn complete_repeat_stop(
+    app: &AppHandle,
+    shared: &SharedModel,
+    command: DesktopCommand,
+) -> Option<String> {
+    stop_repeat_for_device(app, &command.device_id);
+    shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .engine
+        .complete_desktop_command(&command, Ok(()))
+}
+
+fn spawn_repeat_loop(app: AppHandle, shared: SharedModel, device_id: String, generation: u64) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let settings = overlay_settings(&shared);
+            let active = {
+                let guard = runtime()
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                guard
+                    .as_ref()
+                    .and_then(|runtime| runtime.repeats.current(&device_id, generation))
+            };
+            let Some(active) = active else { return };
+            if !settings.mouse_repeat_enabled {
+                stop_repeat_if_current(&app, &device_id, generation);
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(u64::from(
+                active.command.interval_ms(&settings),
+            )))
+            .await;
+            let settings = overlay_settings(&shared);
+            let result = {
+                let mut guard = runtime()
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let Some(runtime) = guard.as_mut() else {
+                    return;
+                };
+                let Some(active) = runtime.repeats.current(&device_id, generation) else {
+                    return;
+                };
+                if !settings.mouse_repeat_enabled {
+                    Err("Mouse repeat was disabled.".to_string())
+                } else {
+                    runtime
+                        .input
+                        .set_pointer_scale_percent(settings.pointer_scale_percent);
+                    let scale = if matches!(active.command, RepeatCommand::Move { .. }) {
+                        acceleration_scale(
+                            crate::state::now_ms() - active.started_at_ms,
+                            active.acceleration_duration_ms,
+                        )
+                    } else {
+                        1.0
+                    };
+                    runtime
+                        .input
+                        .execute_repeat(active.command, scale)
+                        .map(|_| ())
+                }
+            };
+            if let Err(error) = result {
+                if stop_repeat_if_current(&app, &device_id, generation) {
+                    set_activity(
+                        &shared,
+                        ActivityKind::Error,
+                        format!("Mouse repeat stopped: {error}"),
+                    );
+                    emit_state(&app, &shared);
+                }
+                return;
+            }
+        }
+    });
+}
+
+fn stop_repeat_if_current(app: &AppHandle, device_id: &str, generation: u64) -> bool {
+    let stopped = runtime()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_mut()
+        .is_some_and(|runtime| runtime.repeats.stop_if_current(device_id, generation));
+    if stopped {
+        app.state::<CursorOverlay>().end_repeat(generation);
+    }
+    stopped
+}
+
+fn stop_repeat_for_device(app: &AppHandle, device_id: &str) {
+    let active = runtime()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_mut()
+        .and_then(|runtime| runtime.repeats.stop(device_id));
+    if let Some(active) = active {
+        app.state::<CursorOverlay>().end_repeat(active.generation);
+    }
+}
+
+fn stop_all_repeats(app: &AppHandle) {
+    let active = runtime()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_mut()
+        .map_or_else(Vec::new, |runtime| runtime.repeats.stop_all());
+    for repeat in active {
+        app.state::<CursorOverlay>().end_repeat(repeat.generation);
+    }
+}
+
+pub fn stop_mouse_repeat(app: &AppHandle) {
+    stop_all_repeats(app);
 }
 
 fn overlay_settings(shared: &SharedModel) -> crate::state::AppSettings {
@@ -679,6 +877,7 @@ pub fn reject_pairing(
 }
 
 pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), String> {
+    stop_all_repeats(app);
     if let Some(runtime) = runtime()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())

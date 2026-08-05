@@ -13,6 +13,7 @@ export const browserPreviewState: AppState = {
   settings: {
     startWithSystem: false, pointerScalePercent: 100, mouseRepeatEnabled: true,
     moveRepeatIntervalMs: 250, scrollRepeatIntervalMs: 250,
+    mouseRepeatAccelerationDurationMs: 1000,
     cursorOverlayEnabled: true, cursorOverlaySize: "medium", cursorOverlayColor: "red",
     cursorOverlayVisibility: "whileControlling",
     cursorCrosshairs: false, shareDiagnostics: false,

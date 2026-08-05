@@ -10,6 +10,8 @@ use serde_json::{json, Map, Value};
 use sha2::Sha256;
 use uuid::Uuid;
 
+use crate::state::AppSettings;
+
 pub const PROTOCOL_VERSION: i64 = 1;
 pub const FRAME_PAYLOAD_BYTES: usize = 160;
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024;
@@ -803,7 +805,10 @@ fn valid_desktop_payload(command: &str, payload: &Value) -> bool {
                 .is_some_and(|sequence| sequence > 0)
     };
     match command {
-        "switch.profile.list" | "connection.disconnecting" => object.is_empty(),
+        "switch.profile.list" | "connection.disconnecting" | "mouse.repeat.stop" => {
+            object.is_empty()
+        }
+        "mouse.repeat.start" => valid_repeat_start(object),
         "switch.session.start" => {
             object.len() == 4
                 && object
@@ -895,6 +900,39 @@ fn valid_desktop_payload(command: &str, payload: &Value) -> bool {
         }
         _ => true,
     }
+}
+
+fn valid_repeat_start(object: &Map<String, Value>) -> bool {
+    if object.len() != 1 {
+        return false;
+    }
+    let Some(command) = object.get("command").and_then(Value::as_object) else {
+        return false;
+    };
+    if command.len() != 2 {
+        return false;
+    }
+    let Some(command_type) = command.get("type").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(payload) = command.get("payload") else {
+        return false;
+    };
+    let Some(payload_object) = payload.as_object() else {
+        return false;
+    };
+    payload_object.len() == 2
+        && match command_type {
+            "mouse.move" => {
+                bounded_number(payload, "dx", MAX_POINTER_DELTA).is_some()
+                    && bounded_number(payload, "dy", MAX_POINTER_DELTA).is_some()
+            }
+            "mouse.scroll" => {
+                bounded_number(payload, "dx", 50.0).is_some()
+                    && bounded_number(payload, "dy", 50.0).is_some()
+            }
+            _ => false,
+        }
 }
 
 fn valid_stream_id(value: Option<&Value>) -> bool {
@@ -1130,7 +1168,11 @@ fn error_response(id: Option<&str>, code: &str, message: &str) -> String {
     .to_string()
 }
 
-pub fn pointer_profile_response(id: &str, profile: &PointerProfile, scale_percent: u8) -> String {
+pub fn pointer_profile_response(
+    id: &str,
+    profile: &PointerProfile,
+    settings: &AppSettings,
+) -> String {
     json!({
         "version": PROTOCOL_VERSION,
         "id": id,
@@ -1161,6 +1203,8 @@ pub fn pointer_profile_response(id: &str, profile: &PointerProfile, scale_percen
                     "mouse.scroll",
                     "mouse.dragStart",
                     "mouse.dragEnd",
+                    "mouse.repeat.start",
+                    "mouse.repeat.stop",
                     "keyboard.key",
                     "keyboard.modifierDown",
                     "keyboard.modifierUp",
@@ -1175,26 +1219,26 @@ pub fn pointer_profile_response(id: &str, profile: &PointerProfile, scale_percen
                 ],
                 "supportedCommands": supported_commands(),
                 "mouseRepeat": {
-                    "supported": false,
-                    "enabled": false,
-                    "intervalMs": 250,
-                    "moveIntervalMs": 250,
-                    "scrollIntervalMs": 250,
+                    "supported": true,
+                    "enabled": settings.mouse_repeat_enabled,
+                    "intervalMs": settings.move_repeat_interval_ms,
+                    "moveIntervalMs": settings.move_repeat_interval_ms,
+                    "scrollIntervalMs": settings.scroll_repeat_interval_ms,
                     "minIntervalMs": 100,
-                    "maxIntervalMs": 1000,
-                    "accelerationDurationMs": 0,
-                    "accelerationDurationOptionsMs": [],
-                    "accelerationInitialScalePercent": 100
+                    "maxIntervalMs": 2000,
+                    "accelerationDurationMs": settings.mouse_repeat_acceleration_duration_ms,
+                    "accelerationDurationOptionsMs": [0, 500, 1000, 2000],
+                    "accelerationInitialScalePercent": 25
                 },
                 "pointerSpeed": {
                     "supported": true,
                     "setSupported": true,
-                    "scalePercent": scale_percent,
+                    "scalePercent": settings.pointer_scale_percent,
                     "minScalePercent": 5,
                     "maxScalePercent": 225,
                     "stepPercent": 5,
                     "baseMoveDelta": 128,
-                    "effectiveMoveDelta": (128.0 * f64::from(scale_percent) / 100.0).round() as u32
+                    "effectiveMoveDelta": (128.0 * f64::from(settings.pointer_scale_percent) / 100.0).round() as u32
                 },
                 "displayNavigation": {
                     "supported": false,
@@ -1216,6 +1260,8 @@ fn supported_commands() -> Vec<&'static str> {
         "mouse.scroll",
         "mouse.dragStart",
         "mouse.dragEnd",
+        "mouse.repeat.start",
+        "mouse.repeat.stop",
         "connection.ping",
         "pointer.profile",
         "pointer.speed.set",
@@ -1656,6 +1702,31 @@ mod tests {
     }
 
     #[test]
+    fn mouse_repeat_accepts_only_exact_bounded_nested_pointer_commands() {
+        assert!(valid_desktop_payload(
+            "mouse.repeat.start",
+            &json!({"command":{"type":"mouse.move","payload":{"dx":500,"dy":-500}}})
+        ));
+        assert!(valid_desktop_payload(
+            "mouse.repeat.start",
+            &json!({"command":{"type":"mouse.scroll","payload":{"dx":50,"dy":-50}}})
+        ));
+        for payload in [
+            json!({"command":{"type":"mouse.click","payload":{}}}),
+            json!({"command":{"type":"mouse.move","payload":{"dx":501,"dy":0}}}),
+            json!({"command":{"type":"mouse.scroll","payload":{"dx":0,"dy":51}}}),
+            json!({"command":{"type":"mouse.move","payload":{"dx":1,"dy":1,"extra":true}}}),
+        ] {
+            assert!(!valid_desktop_payload("mouse.repeat.start", &payload));
+        }
+        assert!(valid_desktop_payload("mouse.repeat.stop", &json!({})));
+        assert!(!valid_desktop_payload(
+            "mouse.repeat.stop",
+            &json!({"deviceId":"extra"})
+        ));
+    }
+
+    #[test]
     fn pointer_profile_advertises_the_full_preview_command_set() {
         let profile = PointerProfile {
             display_id: "display:0:0:1920:1080:1".into(),
@@ -1668,11 +1739,23 @@ mod tests {
             medium_delta: 130,
             large_delta: 281,
         };
-        let response: Value =
-            serde_json::from_str(&pointer_profile_response("profile-1", &profile, 100)).unwrap();
+        let response: Value = serde_json::from_str(&pointer_profile_response(
+            "profile-1",
+            &profile,
+            &AppSettings::default(),
+        ))
+        .unwrap();
         assert_eq!(response["payload"]["maxDelta"], 500);
         assert_eq!(response["payload"]["recommendedDeltas"]["medium"], 130);
         assert_eq!(response["payload"]["capabilities"]["noAckMouseMove"], true);
+        assert_eq!(
+            response["payload"]["capabilities"]["mouseRepeat"]["supported"],
+            true
+        );
+        assert_eq!(
+            response["payload"]["capabilities"]["mouseRepeat"]["accelerationInitialScalePercent"],
+            25
+        );
         let commands = response["payload"]["capabilities"]["supportedCommands"]
             .as_array()
             .unwrap();
