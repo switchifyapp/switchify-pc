@@ -121,7 +121,6 @@ impl MacOverlayHost {
             pixmap.width() as usize,
             pixmap.height() as usize,
             logical_size,
-            mtm,
         )?;
         let marker_frame = rect(
             cursor.x - logical_size / 2.0,
@@ -206,7 +205,6 @@ fn image_from_rgba(
     width: usize,
     height: usize,
     logical_size: f64,
-    mtm: MainThreadMarker,
 ) -> Result<Retained<NSImage>, String> {
     let representation = unsafe {
         NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
@@ -228,7 +226,7 @@ fn image_from_rgba(
         ptr::copy_nonoverlapping(rgba.as_ptr(), representation.bitmapData(), rgba.len());
     }
     let image = NSImage::initWithSize(
-        NSImage::alloc(mtm),
+        NSImage::alloc(),
         NSSize {
             width: logical_size,
             height: logical_size,
