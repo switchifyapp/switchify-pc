@@ -4,7 +4,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
 use objc2::rc::Retained;
-use objc2::MainThreadMarker;
+use objc2::{AnyThread, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSBackingStoreType, NSBitmapImageRep, NSColor, NSDeviceRGBColorSpace, NSEvent, NSImage,
     NSImageRep, NSImageView, NSPanel, NSScreen, NSStatusWindowLevel, NSWindowCollectionBehavior,
