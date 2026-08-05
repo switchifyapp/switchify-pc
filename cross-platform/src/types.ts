@@ -12,6 +12,7 @@ export type AppSettings = {
   cursorOverlayEnabled: boolean;
   cursorOverlaySize: "small" | "medium" | "large";
   cursorOverlayColor: "red" | "green" | "blue" | "yellow" | "white";
+  cursorOverlayVisibility: "onInput" | "whileControlling";
   cursorCrosshairs: boolean;
   shareDiagnostics: boolean;
 };

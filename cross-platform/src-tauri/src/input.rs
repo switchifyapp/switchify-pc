@@ -6,6 +6,14 @@ use serde_json::Value;
 use crate::protocol::MouseButton;
 use crate::state::{SwitchBinding, SwitchProfile};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointerFeedback {
+    Move,
+    Drag,
+    Click { button: MouseButton, count: u8 },
+    Scroll { dx: i32, dy: i32 },
+}
+
 pub trait InputInjector {
     fn inject_text(&mut self, text: &str) -> Result<(), String>;
     fn move_pointer(&mut self, dx: i32, dy: i32) -> Result<(), String>;
@@ -190,6 +198,7 @@ pub struct DesktopInput<I: InputInjector> {
     pointer_scale_percent: u32,
     text_streams: HashMap<String, TextStream>,
     switch_session: Option<SwitchSession>,
+    pointer_feedback: Option<PointerFeedback>,
 }
 
 struct SwitchSession {
@@ -215,6 +224,7 @@ impl<I: InputInjector> DesktopInput<I> {
             pointer_scale_percent: 100,
             text_streams: HashMap::new(),
             switch_session: None,
+            pointer_feedback: None,
         }
     }
     pub fn type_text(&mut self, text: &str) -> Result<(), String> {
@@ -231,7 +241,16 @@ impl<I: InputInjector> DesktopInput<I> {
         self.pointer_scale_percent = u32::from(scale_percent.clamp(5, 225));
     }
     pub fn click_pointer(&mut self, button: MouseButton, click_count: u8) -> Result<(), String> {
+        self.release_held_button()?;
         self.injector.click_pointer(button, click_count)
+    }
+
+    pub fn pointer_feedback_for_move(&self) -> PointerFeedback {
+        if self.held_button.is_some() {
+            PointerFeedback::Drag
+        } else {
+            PointerFeedback::Move
+        }
     }
 
     pub fn execute(
@@ -240,7 +259,8 @@ impl<I: InputInjector> DesktopInput<I> {
         command_type: &str,
         payload: &Value,
         profiles: &[SwitchProfile],
-    ) -> Result<(), String> {
+    ) -> Result<Option<PointerFeedback>, String> {
+        self.pointer_feedback = None;
         if self.switch_session.is_some()
             && !matches!(
                 command_type,
@@ -256,23 +276,40 @@ impl<I: InputInjector> DesktopInput<I> {
         {
             return Err("Stop PC Switch Control before using other PC control commands.".into());
         }
-        match command_type {
-            "mouse.scroll" => self
-                .injector
-                .scroll(number(payload, "dx", 50)?, number(payload, "dy", 50)?),
+        let result = match command_type {
+            "mouse.scroll" => {
+                let dx = number(payload, "dx", 50)?;
+                let dy = number(payload, "dy", 50)?;
+                self.injector.scroll(dx, dy)?;
+                self.pointer_feedback = Some(PointerFeedback::Scroll { dx, dy });
+                Ok(())
+            }
             "mouse.dragStart" => {
                 let button = payload_button(payload)?;
-                if let Some(active) = self.held_button.take() {
-                    self.injector.set_pointer_button(active, false)?;
-                }
+                self.release_held_button()?;
                 self.injector.set_pointer_button(button, true)?;
                 self.held_button = Some(button);
+                self.pointer_feedback = Some(PointerFeedback::Drag);
                 Ok(())
             }
             "mouse.dragEnd" => {
-                if let Some(active) = self.held_button.take() {
-                    self.injector.set_pointer_button(active, false)?;
-                }
+                self.release_held_button()?;
+                self.pointer_feedback = Some(PointerFeedback::Move);
+                Ok(())
+            }
+            "mouse.click" | "mouse.doubleClick" | "mouse.rightClick" => {
+                let button = if command_type == "mouse.rightClick" {
+                    MouseButton::Right
+                } else {
+                    payload_button(payload)?
+                };
+                let count = if command_type == "mouse.doubleClick" {
+                    2
+                } else {
+                    1
+                };
+                self.click_pointer(button, count)?;
+                self.pointer_feedback = Some(PointerFeedback::Click { button, count });
                 Ok(())
             }
             "keyboard.key" => {
@@ -334,7 +371,7 @@ impl<I: InputInjector> DesktopInput<I> {
             "keyboard.textStream.char" | "keyboard.textStream.chunk" => {
                 let key = text_stream_key(device_id, string(payload, "streamId")?);
                 if !self.begin_text_stream_item(&key, integer(payload, "seq")?)? {
-                    return Ok(());
+                    return Ok(None);
                 }
                 let text = string(payload, "text")?;
                 if text.chars().count() > 2_000 {
@@ -349,7 +386,7 @@ impl<I: InputInjector> DesktopInput<I> {
             "keyboard.textStream.key" => {
                 let stream_key = text_stream_key(device_id, string(payload, "streamId")?);
                 if !self.begin_text_stream_item(&stream_key, integer(payload, "seq")?)? {
-                    return Ok(());
+                    return Ok(None);
                 }
                 let key = string(payload, "key")?;
                 let result = self
@@ -398,7 +435,9 @@ impl<I: InputInjector> DesktopInput<I> {
                 Err("Display navigation is not available in this preview build.".into())
             }
             _ => Err(format!("Unsupported desktop command: {command_type}")),
-        }
+        };
+        result?;
+        Ok(self.pointer_feedback.take())
     }
 
     fn begin_text_stream_item(&mut self, key: &str, sequence: i64) -> Result<bool, String> {
@@ -707,17 +746,31 @@ impl<I: InputInjector> DesktopInput<I> {
                 });
                 self.injector.press_shortcut(&keys)
             }
-            "mouseClick" => self.injector.click_pointer(
-                parse_button(binding.value.as_deref().unwrap_or("left"))?,
-                binding.click_count.unwrap_or(1).clamp(1, 2),
-            ),
-            "scroll" => match binding.value.as_deref() {
-                Some("up") => self.injector.scroll(0, 1),
-                Some("down") => self.injector.scroll(0, -1),
-                Some("left") => self.injector.scroll(-1, 0),
-                Some("right") => self.injector.scroll(1, 0),
-                _ => Err("Scroll direction is invalid.".into()),
-            },
+            "mouseClick" => self
+                .injector
+                .click_pointer(
+                    parse_button(binding.value.as_deref().unwrap_or("left"))?,
+                    binding.click_count.unwrap_or(1).clamp(1, 2),
+                )
+                .map(|()| {
+                    self.pointer_feedback = Some(PointerFeedback::Click {
+                        button: parse_button(binding.value.as_deref().unwrap_or("left"))
+                            .unwrap_or(MouseButton::Left),
+                        count: binding.click_count.unwrap_or(1).clamp(1, 2),
+                    });
+                }),
+            "scroll" => {
+                let (dx, dy) = match binding.value.as_deref() {
+                    Some("up") => (0, 1),
+                    Some("down") => (0, -1),
+                    Some("left") => (-1, 0),
+                    Some("right") => (1, 0),
+                    _ => return Err("Scroll direction is invalid.".into()),
+                };
+                self.injector.scroll(dx, dy).map(|()| {
+                    self.pointer_feedback = Some(PointerFeedback::Scroll { dx, dy });
+                })
+            }
             "media" => self.injector.media(binding.value.as_deref().unwrap_or("")),
             _ => Err("Switch binding is invalid.".into()),
         };
@@ -757,9 +810,15 @@ impl<I: InputInjector> DesktopInput<I> {
         };
         if count == 0 && next == 1 {
             self.set_output(&output, true)?;
+            if binding.binding_type == "mouseButton" {
+                self.pointer_feedback = Some(PointerFeedback::Drag);
+            }
         }
         if count == 1 && next == 0 {
             self.set_output(&output, false)?;
+            if binding.binding_type == "mouseButton" {
+                self.pointer_feedback = Some(PointerFeedback::Move);
+            }
         }
         if next == 0 {
             session.held_outputs.remove(&output);
@@ -804,11 +863,17 @@ impl<I: InputInjector> DesktopInput<I> {
     pub fn release_all(&mut self) -> Result<(), String> {
         self.stop_switch_session()?;
         self.text_streams.clear();
-        if let Some(button) = self.held_button.take() {
-            self.injector.set_pointer_button(button, false)?;
-        }
+        self.release_held_button()?;
         for key in self.held_modifiers.drain() {
             self.injector.set_key(&key, false)?;
+        }
+        Ok(())
+    }
+
+    fn release_held_button(&mut self) -> Result<(), String> {
+        if let Some(button) = self.held_button {
+            self.injector.set_pointer_button(button, false)?;
+            self.held_button = None;
         }
         Ok(())
     }
@@ -860,6 +925,8 @@ mod tests {
         text: Vec<String>,
         moves: Vec<(i32, i32)>,
         clicks: Vec<(MouseButton, u8)>,
+        pointer_states: Vec<(MouseButton, bool)>,
+        fail_pointer_release: bool,
         keys: Vec<(String, bool)>,
     }
     impl InputInjector for FakeInjector {
@@ -875,7 +942,11 @@ mod tests {
             self.clicks.push((button, count));
             Ok(())
         }
-        fn set_pointer_button(&mut self, _button: MouseButton, _down: bool) -> Result<(), String> {
+        fn set_pointer_button(&mut self, button: MouseButton, down: bool) -> Result<(), String> {
+            if !down && self.fail_pointer_release {
+                return Err("pointer release failed".into());
+            }
+            self.pointer_states.push((button, down));
             Ok(())
         }
         fn scroll(&mut self, _dx: i32, _dy: i32) -> Result<(), String> {
@@ -906,6 +977,121 @@ mod tests {
         let mut input = DesktopInput::new(FakeInjector::default());
         input.move_pointer(12, -6).unwrap();
         assert_eq!(input.injector.moves, vec![(12, -6)]);
+    }
+
+    #[test]
+    fn direct_pointer_commands_return_overlay_feedback() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        let feedback = input
+            .execute(
+                "device",
+                "mouse.scroll",
+                &serde_json::json!({"dx": 2, "dy": -4}),
+                &[],
+            )
+            .unwrap();
+
+        assert_eq!(feedback, Some(PointerFeedback::Scroll { dx: 2, dy: -4 }));
+    }
+
+    #[test]
+    fn click_releases_an_active_drag_before_clicking() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        input
+            .execute(
+                "device",
+                "mouse.dragStart",
+                &serde_json::json!({"button": "left"}),
+                &[],
+            )
+            .unwrap();
+
+        input.click_pointer(MouseButton::Right, 1).unwrap();
+
+        assert_eq!(
+            input.injector.pointer_states,
+            vec![(MouseButton::Left, true), (MouseButton::Left, false)]
+        );
+        assert_eq!(input.injector.clicks, vec![(MouseButton::Right, 1)]);
+        assert_eq!(input.pointer_feedback_for_move(), PointerFeedback::Move);
+    }
+
+    #[test]
+    fn failed_drag_release_remains_tracked_for_cleanup() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        input
+            .execute(
+                "device",
+                "mouse.dragStart",
+                &serde_json::json!({"button": "left"}),
+                &[],
+            )
+            .unwrap();
+        input.injector.fail_pointer_release = true;
+
+        assert!(input.click_pointer(MouseButton::Right, 1).is_err());
+        assert_eq!(input.pointer_feedback_for_move(), PointerFeedback::Drag);
+
+        input.injector.fail_pointer_release = false;
+        input.release_all().unwrap();
+        assert_eq!(
+            input.injector.pointer_states,
+            vec![(MouseButton::Left, true), (MouseButton::Left, false)]
+        );
+    }
+
+    #[test]
+    fn mapped_mouse_switch_returns_click_feedback() {
+        let profile = SwitchProfile {
+            id: "mouse".into(),
+            version: 1,
+            name: "Mouse".into(),
+            provider: "mapped".into(),
+            built_in: false,
+            bindings: vec![SwitchBinding {
+                switch_id: 1,
+                binding_type: "mouseClick".into(),
+                value: Some("left".into()),
+                keys: None,
+                click_count: Some(2),
+            }],
+        };
+        let mut input = DesktopInput::new(FakeInjector::default());
+        let session_id = uuid::Uuid::new_v4().to_string();
+        input
+            .execute(
+                "device",
+                "switch.session.start",
+                &serde_json::json!({
+                    "sessionId": session_id,
+                    "profileId": "mouse",
+                    "profileVersion": 1,
+                    "switchCount": 1
+                }),
+                std::slice::from_ref(&profile),
+            )
+            .unwrap();
+        let feedback = input
+            .execute(
+                "device",
+                "switch.edge",
+                &serde_json::json!({
+                    "sessionId": session_id,
+                    "sequence": 1,
+                    "switchId": 1,
+                    "state": "down"
+                }),
+                &[profile],
+            )
+            .unwrap();
+
+        assert_eq!(
+            feedback,
+            Some(PointerFeedback::Click {
+                button: MouseButton::Left,
+                count: 2,
+            })
+        );
     }
     #[test]
     fn held_modifiers_are_released_at_session_end() {

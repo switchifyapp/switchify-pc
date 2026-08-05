@@ -159,4 +159,15 @@ mod tests {
         );
         let _ = fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn state_without_overlay_visibility_uses_the_compatible_default() {
+        let mut value = serde_json::to_value(PersistedState::default()).unwrap();
+        value["settings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("cursorOverlayVisibility");
+        let state: PersistedState = serde_json::from_value(value).unwrap();
+        assert_eq!(state.settings.cursor_overlay_visibility, "onInput");
+    }
 }

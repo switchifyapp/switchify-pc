@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Accessibility, Bluetooth, CheckCircle2, ChevronRight, CircleHelp, Download,
   Home, Keyboard, MousePointer2, Plus, Power, Radio, RefreshCw, Save, Settings,
@@ -23,8 +23,8 @@ function StatusIcon({ ok, children }: { ok: boolean; children: ReactNode }) {
   return <span className="status-icon" data-ok={ok}>{children}</span>;
 }
 
-function Toggle({ checked, label, onChange }: { checked: boolean; label: string; onChange: (next: boolean) => void }) {
-  return <label className="toggle-row"><span>{label}</span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><span className="toggle" aria-hidden="true" /></label>;
+function Toggle({ checked, disabled = false, label, onChange }: { checked: boolean; disabled?: boolean; label: string; onChange: (next: boolean) => void }) {
+  return <label className="toggle-row" data-disabled={disabled}><span>{label}</span><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span className="toggle" aria-hidden="true" /></label>;
 }
 
 function HomeView({ state, onDisconnect, onAccessibility, onSetup }: { state: AppState; onDisconnect: () => void; onAccessibility: () => void; onSetup: () => void }) {
@@ -101,7 +101,21 @@ function SettingsView({ state, settings, setSettings, save, checkUpdates, busy }
     <SettingGroup title="General" description="System startup and background behavior."><Toggle label="Start with system" checked={settings.startWithSystem} onChange={(value) => update("startWithSystem", value)} /></SettingGroup>
     <SettingGroup title="Pointer" description="Movement and visual feedback.">
       <label className="range-row"><span>Pointer speed <strong>{settings.pointerScalePercent}%</strong></span><input type="range" min="5" max="225" step="5" value={settings.pointerScalePercent} onChange={(event) => update("pointerScalePercent", Number(event.target.value))} /></label>
-      {state.capabilities.cursorOverlay && <><Toggle label="Show cursor overlay" checked={settings.cursorOverlayEnabled} onChange={(value) => update("cursorOverlayEnabled", value)} /><Toggle label="Show crosshairs" checked={settings.cursorCrosshairs} onChange={(value) => update("cursorCrosshairs", value)} /></>}
+      {state.capabilities.cursorOverlay && <>
+        <Toggle label="Show cursor overlay" checked={settings.cursorOverlayEnabled} onChange={(value) => update("cursorOverlayEnabled", value)} />
+        <div className="overlay-options" data-disabled={!settings.cursorOverlayEnabled}>
+          <fieldset disabled={!settings.cursorOverlayEnabled}><legend>Overlay visibility</legend><div className="segmented compact">
+            {(["onInput", "whileControlling"] as const).map((value) => <button type="button" key={value} aria-pressed={settings.cursorOverlayVisibility === value} onClick={() => update("cursorOverlayVisibility", value)}>{value === "onInput" ? "On input" : "While controlling"}</button>)}
+          </div></fieldset>
+          <fieldset disabled={!settings.cursorOverlayEnabled}><legend>Overlay size</legend><div className="segmented compact three">
+            {(["small", "medium", "large"] as const).map((value) => <button type="button" key={value} aria-pressed={settings.cursorOverlaySize === value} onClick={() => update("cursorOverlaySize", value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}
+          </div></fieldset>
+          <fieldset disabled={!settings.cursorOverlayEnabled}><legend>Overlay color</legend><div className="color-options">
+            {(["red", "green", "blue", "yellow", "white"] as const).map((value) => <label key={value} title={value[0].toUpperCase() + value.slice(1)}><input type="radio" name="overlay-color" value={value} checked={settings.cursorOverlayColor === value} onChange={() => update("cursorOverlayColor", value)} /><span className={`color-swatch ${value}`} /><span className="sr-only">{value[0].toUpperCase() + value.slice(1)}</span></label>)}
+          </div></fieldset>
+          <Toggle label="Show crosshairs" disabled={!settings.cursorOverlayEnabled} checked={settings.cursorCrosshairs} onChange={(value) => update("cursorCrosshairs", value)} />
+        </div>
+      </>}
     </SettingGroup>
     <SettingGroup title="Privacy" description="Sanitized application health reports only."><Toggle label="Share diagnostic data" checked={settings.shareDiagnostics} onChange={(value) => update("shareDiagnostics", value)} /></SettingGroup>
     <SettingGroup title="Updates" description={`Switchify PC Preview ${state.version}`}><button className="secondary" onClick={checkUpdates} disabled={busy}><RefreshCw size={16} />Check for updates</button></SettingGroup>
@@ -136,18 +150,36 @@ export function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const settingsDirty = useRef(false);
+
+  const syncState = (next: AppState) => {
+    setState(next);
+    if (!settingsDirty.current) setSettings(next.settings);
+  };
 
   const perform = async (operation: () => Promise<AppState>) => {
     setBusy(true); setError(null);
-    try { const next = await operation(); setState(next); setSettings(next.settings); }
+    try { syncState(await operation()); }
     catch (reason) { setError(String(reason)); }
+    finally { setBusy(false); }
+  };
+
+  const saveSettings = async () => {
+    if (!settings) return;
+    setBusy(true); setError(null);
+    try {
+      const next = await api.saveSettings(settings);
+      settingsDirty.current = false;
+      setState(next);
+      setSettings(next.settings);
+    } catch (reason) { setError(String(reason)); }
     finally { setBusy(false); }
   };
 
   useEffect(() => {
     let unlisten: () => void = () => {};
-    void api.state().then((next) => { setState(next); setSettings(next.settings); }).catch((reason) => setError(String(reason)));
-    void api.onState((next) => { setState(next); setSettings(next.settings); }).then((stop) => { unlisten = stop; });
+    void api.state().then(syncState).catch((reason) => setError(String(reason)));
+    void api.onState(syncState).then((stop) => { unlisten = stop; });
     return () => unlisten();
   }, []);
 
@@ -166,7 +198,7 @@ export function App() {
       {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onSetup={() => setView("support")} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}
       {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={(profile) => { setBusy(true); setError(null); void api.saveProfile(profile).then(setProfiles).catch((reason) => setError(String(reason))).finally(() => setBusy(false)); }} deleteProfile={(id) => { setBusy(true); setError(null); void api.deleteProfile(id).then(setProfiles).catch((reason) => setError(String(reason))).finally(() => setBusy(false)); }} />}
-      {view === "settings" && <SettingsView state={state} settings={settings} setSettings={setSettings} save={() => void perform(() => api.saveSettings(settings))} checkUpdates={() => void perform(api.checkForUpdates)} busy={busy} />}
+      {view === "settings" && <SettingsView state={state} settings={settings} setSettings={(next) => { settingsDirty.current = true; setSettings(next); }} save={() => void saveSettings()} checkUpdates={() => void perform(api.checkForUpdates)} busy={busy} />}
       {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} />}
     </main>
     {state.pendingPairing && <div className="modal-backdrop"><section className="pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="pairing-title"><Smartphone size={26} /><h2 id="pairing-title">Pair {state.pendingPairing.deviceName}</h2><p>Confirm that this code matches Switchify Android.</p><output>{state.pendingPairing.verificationCode}</output><div><button className="secondary danger" disabled={busy} onClick={() => void perform(() => api.rejectPairing(state.pendingPairing!.requestId))}>Reject</button><button className="primary" disabled={busy} onClick={() => void perform(() => api.approvePairing(state.pendingPairing!.requestId))}>Accept</button></div></section></div>}

@@ -13,12 +13,13 @@ export const browserPreviewState: AppState = {
   settings: {
     startWithSystem: false, pointerScalePercent: 100, mouseRepeatEnabled: true,
     moveRepeatIntervalMs: 250, scrollRepeatIntervalMs: 250,
-    cursorOverlayEnabled: true, cursorOverlaySize: "medium", cursorOverlayColor: "green",
+    cursorOverlayEnabled: true, cursorOverlaySize: "medium", cursorOverlayColor: "red",
+    cursorOverlayVisibility: "onInput",
     cursorCrosshairs: false, shareDiagnostics: false,
   },
   capabilities: {
     platform: navigator.userAgent.includes("Mac") ? "macos" : "windows",
-    grid3: false, uiAccess: false, displayNavigation: false, cursorOverlay: false,
+    grid3: false, uiAccess: false, displayNavigation: false, cursorOverlay: true,
   },
   version: "0.1.0",
 };

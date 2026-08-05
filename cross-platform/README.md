@@ -41,5 +41,5 @@ The Rust tests use fake input adapters and never control the local pointer or ke
 - The preview has no production signing or release publishing workflow.
 - Linux is represented in capability data but is not a supported Bluetooth target.
 - Windows Grid 3 output is available through the native `Sensory_SwitchInput` broadcast contract. Grid 3 is omitted from macOS capabilities and profiles.
-- UIAccess packaging, cursor overlays, mouse repeat, and display navigation are not advertised by the preview.
+- UIAccess packaging, mouse repeat, and display navigation are not advertised by the preview.
 - Update installation requires a signed Tauri update feed; local development builds can only report updater configuration errors.
