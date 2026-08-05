@@ -181,6 +181,7 @@ fn save_settings(
         }
         .map_err(|error| error.to_string())?;
     }
+    model.persist_settings(&settings)?;
     model
         .shared
         .lock()
@@ -188,7 +189,6 @@ fn save_settings(
         .state
         .settings = settings.clone();
     overlay.apply_settings(settings);
-    model.persist()?;
     state::set_activity(&model.shared, ActivityKind::Success, "Settings saved.");
     Ok(model.snapshot())
 }

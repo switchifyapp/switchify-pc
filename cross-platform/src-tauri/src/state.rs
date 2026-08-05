@@ -307,22 +307,30 @@ impl AppModel {
         snapshot(&self.shared)
     }
     pub fn persist(&self) -> Result<(), String> {
+        self.storage.save(&self.persisted_state(None))
+    }
+    pub fn persist_settings(&self, settings: &AppSettings) -> Result<(), String> {
+        self.storage.save(&self.persisted_state(Some(settings)))
+    }
+    fn persisted_state(&self, settings: Option<&AppSettings>) -> PersistedState {
         let data = self
             .shared
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        self.storage.save(&PersistedState {
+        PersistedState {
             schema_version: 1,
             desktop_id: Some(data.state.desktop_id.clone()),
             paired_devices: data.state.paired_devices.clone(),
-            settings: data.state.settings.clone(),
+            settings: settings
+                .cloned()
+                .unwrap_or_else(|| data.state.settings.clone()),
             profiles: data
                 .profiles
                 .iter()
                 .filter(|profile| !profile.built_in)
                 .cloned()
                 .collect(),
-        })
+        }
     }
 }
 

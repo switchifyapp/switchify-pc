@@ -241,10 +241,7 @@ impl<I: InputInjector> DesktopInput<I> {
         self.pointer_scale_percent = u32::from(scale_percent.clamp(5, 225));
     }
     pub fn click_pointer(&mut self, button: MouseButton, click_count: u8) -> Result<(), String> {
-        if let Some(active) = self.held_button {
-            self.injector.set_pointer_button(active, false)?;
-            self.held_button = None;
-        }
+        self.release_held_button()?;
         self.injector.click_pointer(button, click_count)
     }
 
@@ -289,25 +286,18 @@ impl<I: InputInjector> DesktopInput<I> {
             }
             "mouse.dragStart" => {
                 let button = payload_button(payload)?;
-                if let Some(active) = self.held_button.take() {
-                    self.injector.set_pointer_button(active, false)?;
-                }
+                self.release_held_button()?;
                 self.injector.set_pointer_button(button, true)?;
                 self.held_button = Some(button);
                 self.pointer_feedback = Some(PointerFeedback::Drag);
                 Ok(())
             }
             "mouse.dragEnd" => {
-                if let Some(active) = self.held_button.take() {
-                    self.injector.set_pointer_button(active, false)?;
-                }
+                self.release_held_button()?;
                 self.pointer_feedback = Some(PointerFeedback::Move);
                 Ok(())
             }
             "mouse.click" | "mouse.doubleClick" | "mouse.rightClick" => {
-                if let Some(active) = self.held_button.take() {
-                    self.injector.set_pointer_button(active, false)?;
-                }
                 let button = if command_type == "mouse.rightClick" {
                     MouseButton::Right
                 } else {
@@ -318,7 +308,7 @@ impl<I: InputInjector> DesktopInput<I> {
                 } else {
                     1
                 };
-                self.injector.click_pointer(button, count)?;
+                self.click_pointer(button, count)?;
                 self.pointer_feedback = Some(PointerFeedback::Click { button, count });
                 Ok(())
             }
@@ -873,11 +863,17 @@ impl<I: InputInjector> DesktopInput<I> {
     pub fn release_all(&mut self) -> Result<(), String> {
         self.stop_switch_session()?;
         self.text_streams.clear();
-        if let Some(button) = self.held_button.take() {
-            self.injector.set_pointer_button(button, false)?;
-        }
+        self.release_held_button()?;
         for key in self.held_modifiers.drain() {
             self.injector.set_key(&key, false)?;
+        }
+        Ok(())
+    }
+
+    fn release_held_button(&mut self) -> Result<(), String> {
+        if let Some(button) = self.held_button {
+            self.injector.set_pointer_button(button, false)?;
+            self.held_button = None;
         }
         Ok(())
     }
@@ -930,6 +926,7 @@ mod tests {
         moves: Vec<(i32, i32)>,
         clicks: Vec<(MouseButton, u8)>,
         pointer_states: Vec<(MouseButton, bool)>,
+        fail_pointer_release: bool,
         keys: Vec<(String, bool)>,
     }
     impl InputInjector for FakeInjector {
@@ -946,6 +943,9 @@ mod tests {
             Ok(())
         }
         fn set_pointer_button(&mut self, button: MouseButton, down: bool) -> Result<(), String> {
+            if !down && self.fail_pointer_release {
+                return Err("pointer release failed".into());
+            }
             self.pointer_states.push((button, down));
             Ok(())
         }
@@ -1014,6 +1014,30 @@ mod tests {
         );
         assert_eq!(input.injector.clicks, vec![(MouseButton::Right, 1)]);
         assert_eq!(input.pointer_feedback_for_move(), PointerFeedback::Move);
+    }
+
+    #[test]
+    fn failed_drag_release_remains_tracked_for_cleanup() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        input
+            .execute(
+                "device",
+                "mouse.dragStart",
+                &serde_json::json!({"button": "left"}),
+                &[],
+            )
+            .unwrap();
+        input.injector.fail_pointer_release = true;
+
+        assert!(input.click_pointer(MouseButton::Right, 1).is_err());
+        assert_eq!(input.pointer_feedback_for_move(), PointerFeedback::Drag);
+
+        input.injector.fail_pointer_release = false;
+        input.release_all().unwrap();
+        assert_eq!(
+            input.injector.pointer_states,
+            vec![(MouseButton::Left, true), (MouseButton::Left, false)]
+        );
     }
 
     #[test]
