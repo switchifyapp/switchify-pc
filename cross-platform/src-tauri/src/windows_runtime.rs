@@ -15,6 +15,7 @@ use windows::Foundation::{Deferral, TypedEventHandler};
 use windows::Security::Cryptography::CryptographicBuffer;
 
 use crate::input::{DesktopInput, PointerFeedback};
+use crate::modifier_overlay::ModifierOverlay;
 use crate::mouse_repeat::{
     acceleration_scale, MouseRepeatController, RepeatCommand, INITIAL_SCALE,
 };
@@ -229,7 +230,9 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
             );
             if !connected {
                 stop_all_repeats(&subscribe_app);
+                release_input_session();
                 subscribe_app.state::<CursorOverlay>().end_session();
+                subscribe_app.state::<ModifierOverlay>().end_session();
             }
             emit_state(&subscribe_app, &subscribe_shared);
             Ok(())
@@ -282,7 +285,10 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         _rx: rx,
         tx,
         _status: status,
-        input: DesktopInput::new(input),
+        input: DesktopInput::with_modifier_overlay(
+            input,
+            app.state::<ModifierOverlay>().notifier(),
+        ),
         repeats: MouseRepeatController::default(),
     });
     let advertising =
@@ -884,6 +890,7 @@ pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), Strin
         .as_mut()
     {
         let _ = runtime.input.release_all();
+        runtime.input.end_control_session();
     }
     let mut model = shared
         .lock()
@@ -893,4 +900,15 @@ pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), Strin
     drop(model);
     emit_state(app, shared);
     Ok(())
+}
+
+fn release_input_session() {
+    if let Some(runtime) = runtime()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_mut()
+    {
+        let _ = runtime.input.release_all();
+        runtime.input.end_control_session();
+    }
 }

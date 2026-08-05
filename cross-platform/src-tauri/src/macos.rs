@@ -9,6 +9,7 @@ use objc2_foundation::{NSString, NSURL};
 use tauri::{AppHandle, Manager};
 
 use crate::input::{DesktopInput, PointerFeedback};
+use crate::modifier_overlay::ModifierOverlay;
 use crate::mouse_repeat::{
     acceleration_scale, MouseRepeatController, RepeatCommand, INITIAL_SCALE,
 };
@@ -42,14 +43,13 @@ trait AccessibilityAdapter {
 struct SystemAccessibilityAdapter;
 
 impl AccessibilityAdapter for SystemAccessibilityAdapter {
-    type Input = DesktopInput<Enigo>;
+    type Input = Enigo;
 
     fn create_input(&mut self) -> Result<Self::Input, String> {
         Enigo::new(&Settings {
             open_prompt_to_get_permissions: false,
             ..Settings::default()
         })
-        .map(DesktopInput::new)
         .map_err(|error| error.to_string())
     }
 
@@ -286,7 +286,9 @@ pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), Strin
     with_runtime(|runtime| {
         runtime.stop_all_repeats();
         if let Some(input) = runtime.input.as_mut() {
-            input.release_all()?;
+            let release = input.release_all();
+            input.end_control_session();
+            release?;
         }
         runtime.subscribers.clear();
         runtime.outbound.clear();
@@ -511,8 +513,10 @@ impl MacRuntime {
                 self.outbound.clear();
                 if let Some(input) = self.input.as_mut() {
                     let _ = input.release_all();
+                    input.end_control_session();
                 }
                 self.app.state::<CursorOverlay>().end_session();
+                self.app.state::<ModifierOverlay>().end_session();
                 self.set_bluetooth(BluetoothState::Advertising);
             }
             emit_state(&self.app, &self.shared);
@@ -1073,10 +1077,18 @@ impl MacRuntime {
     }
 
     fn refresh_accessibility(&mut self, prompt: bool) -> Result<bool, String> {
+        if let Some(input) = self.input.as_mut() {
+            let release = input.release_all();
+            input.end_control_session();
+            release?;
+        }
         let mut adapter = SystemAccessibilityAdapter;
         let check = evaluate_accessibility(&mut adapter, prompt);
         self.input = match check {
-            Ok(AccessibilityCheck::Granted(input)) => Some(input),
+            Ok(AccessibilityCheck::Granted(input)) => Some(DesktopInput::with_modifier_overlay(
+                input,
+                self.app.state::<ModifierOverlay>().notifier(),
+            )),
             Ok(AccessibilityCheck::Required) => None,
             Err(error) => {
                 self.set_accessibility_state(AccessibilityState::Required);
@@ -1160,8 +1172,10 @@ impl MacRuntime {
         self.outbound.clear();
         if let Some(input) = self.input.as_mut() {
             let _ = input.release_all();
+            input.end_control_session();
         }
         self.app.state::<CursorOverlay>().end_session();
+        self.app.state::<ModifierOverlay>().end_session();
     }
 }
 
@@ -1231,6 +1245,10 @@ fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Re
 
 impl Drop for MacRuntime {
     fn drop(&mut self) {
+        if let Some(input) = self.input.as_mut() {
+            let _ = input.release_all();
+            input.end_control_session();
+        }
         self.manager.stop_advertising();
         self.manager.remove_all_services();
     }
