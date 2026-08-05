@@ -3,6 +3,7 @@ mod grid3;
 mod input;
 #[cfg(target_os = "macos")]
 mod macos;
+mod overlay;
 mod protocol;
 mod state;
 mod storage;
@@ -117,8 +118,13 @@ async fn reject_pairing(
 }
 
 #[tauri::command]
-fn disconnect_all(app: AppHandle, model: State<'_, AppModel>) -> Result<AppState, String> {
+fn disconnect_all(
+    app: AppHandle,
+    model: State<'_, AppModel>,
+    overlay: State<'_, overlay::CursorOverlay>,
+) -> Result<AppState, String> {
     platform_disconnect_all(&app, &model.shared)?;
+    overlay.end_session();
     {
         let mut data = model
             .shared
@@ -155,22 +161,33 @@ fn forget_device(model: State<'_, AppModel>, device_id: String) -> Result<AppSta
 fn save_settings(
     app: AppHandle,
     model: State<'_, AppModel>,
+    overlay: State<'_, overlay::CursorOverlay>,
     settings: AppSettings,
 ) -> Result<AppState, String> {
     let settings = settings.normalized()?;
-    let autostart = app.autolaunch();
-    if settings.start_with_system {
-        autostart.enable()
-    } else {
-        autostart.disable()
+    let previous_start_with_system = model
+        .shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .state
+        .settings
+        .start_with_system;
+    if settings.start_with_system != previous_start_with_system {
+        let autostart = app.autolaunch();
+        if settings.start_with_system {
+            autostart.enable()
+        } else {
+            autostart.disable()
+        }
+        .map_err(|error| error.to_string())?;
     }
-    .map_err(|error| error.to_string())?;
     model
         .shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .state
-        .settings = settings;
+        .settings = settings.clone();
+    overlay.apply_settings(settings);
     model.persist()?;
     state::set_activity(&model.shared, ActivityKind::Success, "Settings saved.");
     Ok(model.snapshot())
@@ -430,6 +447,7 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
 pub fn run() {
     let model = AppModel::new();
     let shared = model.shared.clone();
+    let overlay_shared = shared.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") {
@@ -446,6 +464,10 @@ pub fn run() {
         .manage(model)
         .setup(move |app| {
             install_tray(app)?;
+            app.manage(overlay::CursorOverlay::install(
+                app.handle().clone(),
+                overlay_shared.clone(),
+            ));
             platform_install(app.handle().clone(), shared.clone())
                 .map_err(std::io::Error::other)?;
             Ok(())

@@ -2,7 +2,7 @@ use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
 use enigo::{Enigo, Settings};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use windows::core::{IInspectable, Ref, GUID, HSTRING};
 use windows::Devices::Bluetooth::BluetoothError;
 use windows::Devices::Bluetooth::GenericAttributeProfile::{
@@ -14,7 +14,8 @@ use windows::Devices::Bluetooth::GenericAttributeProfile::{
 use windows::Foundation::{Deferral, TypedEventHandler};
 use windows::Security::Cryptography::CryptographicBuffer;
 
-use crate::input::DesktopInput;
+use crate::input::{DesktopInput, PointerFeedback};
+use crate::overlay::CursorOverlay;
 use crate::protocol::{
     create_notification_frames, pointer_profile_response, switch_profile_catalog_response,
     DesktopCommand, EngineEvent, MouseClickCommand, MouseMoveCommand, PointerProfile, TextCommand,
@@ -222,6 +223,9 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
                     "Android device disconnected."
                 },
             );
+            if !connected {
+                subscribe_app.state::<CursorOverlay>().end_session();
+            }
             emit_state(&subscribe_app, &subscribe_shared);
             Ok(())
         }),
@@ -437,10 +441,10 @@ fn process_frame(
                 scale,
             ))
         }
-        Some(EngineEvent::MouseMove(command)) => complete_mouse_move(shared, command),
-        Some(EngineEvent::MouseClick(command)) => complete_mouse_click(shared, command),
+        Some(EngineEvent::MouseMove(command)) => complete_mouse_move(app, shared, command),
+        Some(EngineEvent::MouseClick(command)) => complete_mouse_click(app, shared, command),
         Some(EngineEvent::Text(command)) => complete_text(shared, command),
-        Some(EngineEvent::Desktop(command)) => complete_desktop(shared, command),
+        Some(EngineEvent::Desktop(command)) => complete_desktop(app, shared, command),
     };
     emit_state(app, shared);
     Ok(response)
@@ -458,7 +462,11 @@ fn with_runtime_input<T>(
     operation(&mut runtime.input)
 }
 
-fn complete_mouse_move(shared: &SharedModel, command: MouseMoveCommand) -> Option<String> {
+fn complete_mouse_move(
+    app: &AppHandle,
+    shared: &SharedModel,
+    command: MouseMoveCommand,
+) -> Option<String> {
     let scale = shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -467,8 +475,12 @@ fn complete_mouse_move(shared: &SharedModel, command: MouseMoveCommand) -> Optio
         .pointer_scale_percent;
     let result = with_runtime_input(|input| {
         input.set_pointer_scale_percent(scale);
-        input.move_pointer(command.dx.round() as i32, command.dy.round() as i32)
+        input.move_pointer(command.dx.round() as i32, command.dy.round() as i32)?;
+        Ok(input.pointer_feedback_for_move())
     });
+    if let Ok(feedback) = &result {
+        show_overlay(app, shared, *feedback);
+    }
     shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -478,9 +490,23 @@ fn complete_mouse_move(shared: &SharedModel, command: MouseMoveCommand) -> Optio
             result.as_ref().map(|_| ()).map_err(String::as_str),
         )
 }
-fn complete_mouse_click(shared: &SharedModel, command: MouseClickCommand) -> Option<String> {
+fn complete_mouse_click(
+    app: &AppHandle,
+    shared: &SharedModel,
+    command: MouseClickCommand,
+) -> Option<String> {
     let result =
         with_runtime_input(|input| input.click_pointer(command.button, command.click_count));
+    if result.is_ok() {
+        show_overlay(
+            app,
+            shared,
+            PointerFeedback::Click {
+                button: command.button,
+                count: command.click_count,
+            },
+        );
+    }
     shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -501,7 +527,11 @@ fn complete_text(shared: &SharedModel, command: TextCommand) -> Option<String> {
             result.as_ref().map(|_| ()).map_err(String::as_str),
         )
 }
-fn complete_desktop(shared: &SharedModel, command: DesktopCommand) -> Option<String> {
+fn complete_desktop(
+    app: &AppHandle,
+    shared: &SharedModel,
+    command: DesktopCommand,
+) -> Option<String> {
     let profiles = shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -518,6 +548,18 @@ fn complete_desktop(shared: &SharedModel, command: DesktopCommand) -> Option<Str
             &profiles,
         )
     });
+    if let Ok(feedback) = &result {
+        let settings = overlay_settings(shared);
+        let overlay = app.state::<CursorOverlay>();
+        if let Some(feedback) = feedback {
+            overlay.show(*feedback, settings);
+        } else {
+            overlay.mark_control_active(settings);
+        }
+        if command.command_type == "connection.disconnecting" {
+            overlay.end_session();
+        }
+    }
     if result.is_ok() && command.command_type == "pointer.speed.set" {
         if let Some(scale) = command
             .payload
@@ -540,6 +582,21 @@ fn complete_desktop(shared: &SharedModel, command: DesktopCommand) -> Option<Str
             &command,
             result.as_ref().map(|_| ()).map_err(String::as_str),
         )
+}
+
+fn overlay_settings(shared: &SharedModel) -> crate::state::AppSettings {
+    shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .state
+        .settings
+        .clone()
+}
+
+fn show_overlay(app: &AppHandle, shared: &SharedModel, feedback: PointerFeedback) {
+    let settings = overlay_settings(shared);
+    let overlay = app.state::<CursorOverlay>();
+    overlay.show(feedback, settings);
 }
 
 fn default_pointer_profile() -> PointerProfile {

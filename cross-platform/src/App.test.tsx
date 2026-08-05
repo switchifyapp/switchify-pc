@@ -16,6 +16,14 @@ describe("Switchify PC Preview shell", () => {
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Start with system" })).toBeInTheDocument();
     expect(screen.getByRole("slider", { name: /Pointer speed/ })).toHaveValue("100");
+    expect(screen.getByRole("checkbox", { name: "Show cursor overlay" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "On input" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Medium" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("radio", { name: "Red" })).toBeChecked();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Show crosshairs" }));
+    expect(screen.getByRole("checkbox", { name: "Show crosshairs" })).toBeChecked();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Show cursor overlay" }));
+    expect(screen.getByRole("checkbox", { name: "Show crosshairs" })).toBeDisabled();
   });
 
   it("creates a profile and records a desired key", async () => {

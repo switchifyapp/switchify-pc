@@ -4,9 +4,10 @@ use std::time::Duration;
 
 use corebluetooth::prelude::*;
 use enigo::{Enigo, Settings};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
-use crate::input::DesktopInput;
+use crate::input::{DesktopInput, PointerFeedback};
+use crate::overlay::CursorOverlay;
 use crate::protocol::{
     pointer_profile_response, switch_profile_catalog_response, DesktopCommand, EngineEvent,
     MouseButton, MouseClickCommand, MouseMoveCommand, OutboundQueue, PointerProfile, TextCommand,
@@ -416,6 +417,10 @@ impl MacRuntime {
             self.subscribers.remove(&central.identifier());
             if self.subscribers.is_empty() {
                 self.outbound.clear();
+                if let Some(input) = self.input.as_mut() {
+                    let _ = input.release_all();
+                }
+                self.app.state::<CursorOverlay>().end_session();
                 self.set_bluetooth(BluetoothState::Advertising);
             }
             emit_state(&self.app, &self.shared);
@@ -520,6 +525,14 @@ impl MacRuntime {
         let dx = command.dx.round() as i32;
         let dy = command.dy.round() as i32;
         let injection = self.inject_pointer_move(dx, dy);
+        if injection.is_ok() {
+            let feedback = self
+                .input
+                .as_ref()
+                .map(DesktopInput::pointer_feedback_for_move)
+                .unwrap_or(PointerFeedback::Move);
+            self.show_overlay(feedback);
+        }
         let response = {
             self.shared
                 .lock()
@@ -551,6 +564,12 @@ impl MacRuntime {
 
     fn handle_mouse_click(&mut self, command: MouseClickCommand) {
         let injection = self.inject_pointer_click(command.button, command.click_count);
+        if injection.is_ok() {
+            self.show_overlay(PointerFeedback::Click {
+                button: command.button,
+                count: command.click_count,
+            });
+        }
         let response = {
             self.shared
                 .lock()
@@ -666,6 +685,18 @@ impl MacRuntime {
                 &command,
                 injection.as_ref().map(|_| ()).map_err(String::as_str),
             );
+        if let Ok(feedback) = &injection {
+            let settings = self.overlay_settings();
+            let overlay = self.app.state::<CursorOverlay>();
+            if let Some(feedback) = feedback {
+                overlay.show(*feedback, settings);
+            } else {
+                overlay.mark_control_active(settings);
+            }
+            if command.command_type == "connection.disconnecting" {
+                overlay.end_session();
+            }
+        }
         if injection.is_ok() && command.command_type == "pointer.speed.set" {
             if let Some(scale) = command
                 .payload
@@ -681,7 +712,7 @@ impl MacRuntime {
             }
         }
         match injection {
-            Ok(()) => set_activity(
+            Ok(_) => set_activity(
                 &self.shared,
                 ActivityKind::Success,
                 format!("Handled {}.", command.command_type),
@@ -706,6 +737,21 @@ impl MacRuntime {
                 "Accessibility permission is required before text can be typed.".to_string()
             })?
             .type_text(text)
+    }
+
+    fn overlay_settings(&self) -> crate::state::AppSettings {
+        self.shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .state
+            .settings
+            .clone()
+    }
+
+    fn show_overlay(&self, feedback: PointerFeedback) {
+        let settings = self.overlay_settings();
+        let overlay = self.app.state::<CursorOverlay>();
+        overlay.show(feedback, settings);
     }
 
     fn inject_pointer_move(&mut self, dx: i32, dy: i32) -> Result<(), String> {
@@ -844,6 +890,10 @@ impl MacRuntime {
         self.tx_characteristic = None;
         self.subscribers.clear();
         self.outbound.clear();
+        if let Some(input) = self.input.as_mut() {
+            let _ = input.release_all();
+        }
+        self.app.state::<CursorOverlay>().end_session();
     }
 }
 

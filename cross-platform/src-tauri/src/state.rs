@@ -58,6 +58,8 @@ pub struct AppSettings {
     pub cursor_overlay_enabled: bool,
     pub cursor_overlay_size: String,
     pub cursor_overlay_color: String,
+    #[serde(default = "default_cursor_overlay_visibility")]
+    pub cursor_overlay_visibility: String,
     pub cursor_crosshairs: bool,
     pub share_diagnostics: bool,
 }
@@ -72,7 +74,8 @@ impl Default for AppSettings {
             scroll_repeat_interval_ms: 250,
             cursor_overlay_enabled: true,
             cursor_overlay_size: "medium".into(),
-            cursor_overlay_color: "green".into(),
+            cursor_overlay_color: "red".into(),
+            cursor_overlay_visibility: default_cursor_overlay_visibility(),
             cursor_crosshairs: false,
             share_diagnostics: false,
         }
@@ -94,6 +97,7 @@ impl AppSettings {
         if !["small", "medium", "large"].contains(&self.cursor_overlay_size.as_str())
             || !["red", "green", "blue", "yellow", "white"]
                 .contains(&self.cursor_overlay_color.as_str())
+            || !["onInput", "whileControlling"].contains(&self.cursor_overlay_visibility.as_str())
         {
             return Err("Cursor overlay setting is invalid.".into());
         }
@@ -101,6 +105,10 @@ impl AppSettings {
         self.cursor_overlay_color = self.cursor_overlay_color.to_lowercase();
         Ok(self)
     }
+}
+
+fn default_cursor_overlay_visibility() -> String {
+    "onInput".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -130,7 +138,7 @@ impl PlatformCapabilities {
             grid3: true,
             ui_access: false,
             display_navigation: false,
-            cursor_overlay: false,
+            cursor_overlay: true,
         };
         #[cfg(target_os = "macos")]
         return Self {
@@ -138,7 +146,7 @@ impl PlatformCapabilities {
             grid3: false,
             ui_access: false,
             display_navigation: false,
-            cursor_overlay: false,
+            cursor_overlay: true,
         };
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         Self {
@@ -351,6 +359,14 @@ mod tests {
     fn settings_reject_unsafe_values() {
         let value = AppSettings {
             pointer_scale_percent: 101,
+            ..AppSettings::default()
+        };
+        assert!(value.normalized().is_err());
+    }
+    #[test]
+    fn settings_reject_unknown_overlay_visibility() {
+        let value = AppSettings {
+            cursor_overlay_visibility: "always".into(),
             ..AppSettings::default()
         };
         assert!(value.normalized().is_err());
