@@ -27,6 +27,9 @@ The app should be treated as a trusted local control agent. Be conservative with
 ## Development standards
 
 - Use C#/.NET for app code.
+- Keep the parallel Tauri rewrite under `cross-platform/`; do not replace the shipping WPF app until a dedicated promotion issue explicitly scopes that change.
+- In `cross-platform/`, keep shared protocol and persistence logic platform-neutral and isolate Windows/macOS Bluetooth and input behavior in platform adapters.
+- Keep the preview app identity, persisted data, startup registration, and packaging separate from the shipping WPF identity.
 - Keep WPF app composition, core protocol/control logic, and Windows-specific integrations clearly separated.
 - Keep OS input execution behind a narrow adapter interface so protocol handling is not tied directly to Win32 APIs.
 - Validate all WebSocket messages at runtime before using them.
@@ -84,6 +87,8 @@ For desktop input or packaging changes, also run the relevant manual smoke path:
 - WebSocket server starts.
 - Authenticated ping receives an ack.
 - Mouse move, click, right-click, scroll, keyboard shortcut, and text entry work on Windows.
+
+Changes under `cross-platform/` should also run its frontend checks plus Rust formatting, lint, and tests. Native Rust checks must pass on both Windows and macOS in the cross-platform workflow before merge.
 
 ## Release flow
 
