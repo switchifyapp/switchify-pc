@@ -69,19 +69,24 @@ async fn approve_pairing(
         platform_approve_pairing(&operation_app, &shared, &request_id)
     })
     .await?;
+    let token = {
+        let data = model
+            .shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        data.engine
+            .token_for(&pending.device_id)
+            .ok_or_else(|| "Pairing token was not created.".to_string())?
+            .to_owned()
+    };
+    model
+        .storage
+        .save_pairing_token(&pending.device_id, &token)?;
     {
         let mut data = model
             .shared
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let token = data
-            .engine
-            .token_for(&pending.device_id)
-            .ok_or_else(|| "Pairing token was not created.".to_string())?
-            .to_owned();
-        model
-            .storage
-            .save_pairing_token(&pending.device_id, &token)?;
         data.state
             .paired_devices
             .retain(|device| device.device_id != pending.device_id);

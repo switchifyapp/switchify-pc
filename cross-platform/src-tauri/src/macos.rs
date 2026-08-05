@@ -20,7 +20,7 @@ const SERVICE_UUID: &str = "7a78f7e8-1d6d-4d92-9ef0-1f89d3db21f4";
 const RX_UUID: &str = "7a78f7e9-1d6d-4d92-9ef0-1f89d3db21f4";
 const TX_UUID: &str = "7a78f7ea-1d6d-4d92-9ef0-1f89d3db21f4";
 const STATUS_UUID: &str = "7a78f7eb-1d6d-4d92-9ef0-1f89d3db21f4";
-const DISPLAY_NAME: &str = "Switchify Tauri POC";
+const DISPLAY_NAME: &str = "Switchify PC Preview";
 const MAX_QUEUED_NOTIFICATIONS: usize = 512;
 
 thread_local! {

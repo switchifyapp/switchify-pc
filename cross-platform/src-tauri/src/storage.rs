@@ -72,10 +72,7 @@ impl AppStorage {
         let temp = self.path.with_extension("json.tmp");
         let json = serde_json::to_string_pretty(&next).map_err(|error| error.to_string())? + "\n";
         fs::write(&temp, json).map_err(|error| error.to_string())?;
-        if self.path.exists() {
-            fs::remove_file(&self.path).map_err(|error| error.to_string())?;
-        }
-        fs::rename(temp, &self.path).map_err(|error| error.to_string())
+        replace_file(&temp, &self.path)
     }
 
     pub fn save_pairing_token(&self, device_id: &str, token: &str) -> Result<(), String> {
@@ -113,6 +110,35 @@ impl AppStorage {
         fs::write(&path, json).map_err(|error| error.to_string())?;
         Ok(path)
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn replace_file(source: &std::path::Path, destination: &std::path::Path) -> Result<(), String> {
+    fs::rename(source, destination).map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn replace_file(source: &std::path::Path, destination: &std::path::Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+    let destination: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    unsafe {
+        MoveFileExW(
+            PCWSTR(source.as_ptr()),
+            PCWSTR(destination.as_ptr()),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    }
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
