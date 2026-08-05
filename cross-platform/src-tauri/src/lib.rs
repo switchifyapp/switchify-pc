@@ -3,6 +3,7 @@ mod grid3;
 mod input;
 #[cfg(target_os = "macos")]
 mod macos;
+mod mouse_repeat;
 mod overlay;
 mod protocol;
 mod state;
@@ -188,10 +189,26 @@ fn save_settings(
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .state
         .settings = settings.clone();
+    if !settings.mouse_repeat_enabled {
+        platform_stop_mouse_repeat(&app);
+    }
     overlay.apply_settings(settings);
     state::set_activity(&model.shared, ActivityKind::Success, "Settings saved.");
     Ok(model.snapshot())
 }
+
+#[cfg(target_os = "macos")]
+fn platform_stop_mouse_repeat(app: &AppHandle) {
+    macos::stop_mouse_repeat(app);
+}
+
+#[cfg(target_os = "windows")]
+fn platform_stop_mouse_repeat(app: &AppHandle) {
+    windows_runtime::stop_mouse_repeat(app);
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn platform_stop_mouse_repeat(_app: &AppHandle) {}
 
 #[tauri::command]
 fn list_switch_profiles(model: State<'_, AppModel>) -> Vec<SwitchProfile> {

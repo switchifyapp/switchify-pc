@@ -5,6 +5,7 @@ use tauri::AppHandle;
 use tiny_skia::{Color, LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
 use crate::input::PointerFeedback;
+use crate::mouse_repeat::RepeatCommand;
 use crate::state::{AppSettings, SharedModel};
 
 #[cfg(target_os = "macos")]
@@ -43,6 +44,25 @@ impl CursorOverlay {
         let _ = self.sender.send(Command::ApplySettings(settings));
     }
 
+    pub fn begin_repeat(
+        &self,
+        generation: u64,
+        command: RepeatCommand,
+        accelerated: bool,
+        settings: AppSettings,
+    ) {
+        let _ = self.sender.send(Command::BeginRepeat(
+            generation,
+            command,
+            accelerated,
+            settings,
+        ));
+    }
+
+    pub fn end_repeat(&self, generation: u64) {
+        let _ = self.sender.send(Command::EndRepeat(generation));
+    }
+
     pub fn end_session(&self) {
         let _ = self.sender.send(Command::EndSession);
     }
@@ -52,6 +72,8 @@ pub(crate) enum Command {
     Show(PointerFeedback, AppSettings),
     MarkControlActive(AppSettings),
     ApplySettings(AppSettings),
+    BeginRepeat(u64, RepeatCommand, bool, AppSettings),
+    EndRepeat(u64),
     EndSession,
 }
 
@@ -75,6 +97,7 @@ pub(crate) struct OverlayEngine {
     feedback: Option<PointerFeedback>,
     control_active: bool,
     drag_active: bool,
+    repeat_generation: Option<u64>,
     deadline: Option<Instant>,
     next_follow: Instant,
     visible: bool,
@@ -87,6 +110,7 @@ impl OverlayEngine {
             feedback: None,
             control_active: false,
             drag_active: false,
+            repeat_generation: None,
             deadline: None,
             next_follow: now,
             visible: false,
@@ -129,16 +153,54 @@ impl OverlayEngine {
                 if !self.settings.cursor_overlay_enabled {
                     return self.hide();
                 }
-                if self.visible {
+                if self.visible || self.repeat_generation.is_some() {
                     let feedback = self.feedback.unwrap_or(PointerFeedback::Move);
                     self.deadline = deadline_for(feedback, self.persistent(), now);
+                    self.visible = true;
                     return Update::Render(self.frame(feedback));
                 }
                 Update::None
             }
+            Command::BeginRepeat(generation, command, accelerated, settings) => {
+                self.settings = settings;
+                if !self.settings.cursor_overlay_enabled {
+                    return self.hide();
+                }
+                self.control_active = true;
+                self.drag_active = false;
+                self.repeat_generation = Some(generation);
+                let feedback = match command {
+                    RepeatCommand::Move { .. } => PointerFeedback::RepeatMove { accelerated },
+                    RepeatCommand::Scroll { dx, dy } => PointerFeedback::RepeatScroll { dx, dy },
+                };
+                self.feedback = Some(feedback);
+                self.deadline = None;
+                self.next_follow = now + FOLLOW_INTERVAL;
+                self.visible = true;
+                Update::Render(self.frame(feedback))
+            }
+            Command::EndRepeat(generation) => {
+                if self.repeat_generation != Some(generation) {
+                    return Update::None;
+                }
+                self.repeat_generation = None;
+                if self.control_active
+                    && self.settings.cursor_overlay_enabled
+                    && self.settings.cursor_overlay_visibility == "whileControlling"
+                {
+                    self.feedback = Some(PointerFeedback::Move);
+                    self.next_follow = now + FOLLOW_INTERVAL;
+                    self.visible = true;
+                    Update::Render(self.frame(PointerFeedback::Move))
+                } else {
+                    self.feedback = None;
+                    self.hide()
+                }
+            }
             Command::EndSession => {
                 self.control_active = false;
                 self.drag_active = false;
+                self.repeat_generation = None;
                 self.feedback = None;
                 self.deadline = None;
                 self.hide()
@@ -172,6 +234,7 @@ impl OverlayEngine {
 
     fn persistent(&self) -> bool {
         self.drag_active
+            || self.repeat_generation.is_some()
             || (self.control_active
                 && self.settings.cursor_overlay_visibility == "whileControlling")
     }
@@ -204,7 +267,10 @@ fn duration_for(feedback: PointerFeedback) -> Duration {
     match feedback {
         PointerFeedback::Click { count: 2, .. } => DOUBLE_CLICK_DURATION,
         PointerFeedback::Click { .. } | PointerFeedback::Scroll { .. } => LANDING_DURATION,
-        PointerFeedback::Move | PointerFeedback::Drag => DEFAULT_DURATION,
+        PointerFeedback::Move
+        | PointerFeedback::Drag
+        | PointerFeedback::RepeatMove { .. }
+        | PointerFeedback::RepeatScroll { .. } => DEFAULT_DURATION,
     }
 }
 
@@ -242,10 +308,37 @@ pub(crate) fn render_marker(frame: &Frame, scale: f64) -> Pixmap {
             draw_ring(&mut pixmap, center, unit, frame.color, false);
             draw_scroll(&mut pixmap, center, unit, frame.color, dx, dy);
         }
+        PointerFeedback::RepeatScroll { dx, dy } => {
+            draw_ring(&mut pixmap, center, unit, frame.color, false);
+            draw_scroll(&mut pixmap, center, unit, frame.color, dx, dy);
+        }
+        PointerFeedback::RepeatMove { accelerated } => {
+            draw_ring(&mut pixmap, center, unit, frame.color, false);
+            if accelerated {
+                draw_repeat_progress(&mut pixmap, center, unit, frame.color);
+            }
+        }
         PointerFeedback::Drag => draw_ring(&mut pixmap, center, unit, frame.color, true),
         PointerFeedback::Move => draw_ring(&mut pixmap, center, unit, frame.color, false),
     }
     pixmap
+}
+
+fn draw_repeat_progress(pixmap: &mut Pixmap, center: f32, unit: f32, color: [u8; 3]) {
+    let radius = unit * 0.39;
+    let dot = (unit * 0.015).max(1.5);
+    for index in 0..12 {
+        let angle = std::f32::consts::TAU * index as f32 / 12.0;
+        circle(
+            pixmap,
+            center + radius * angle.cos(),
+            center + radius * angle.sin(),
+            dot,
+            color,
+            190,
+            None,
+        );
+    }
 }
 
 fn paint(color: [u8; 3], alpha: u8) -> Paint<'static> {
@@ -549,5 +642,50 @@ mod tests {
         let pixmap = render_marker(&frame, 1.5);
         assert_eq!((pixmap.width(), pixmap.height()), (192, 192));
         assert!(pixmap.data().iter().any(|channel| *channel != 0));
+    }
+
+    #[test]
+    fn repeat_end_requires_generation_ownership_and_restores_default_marker() {
+        let now = Instant::now();
+        let mut engine = OverlayEngine::new(now);
+        engine.handle(
+            Command::BeginRepeat(
+                4,
+                RepeatCommand::Move { dx: 10, dy: 0 },
+                true,
+                AppSettings::default(),
+            ),
+            now,
+        );
+        assert!(matches!(
+            engine.handle(Command::EndRepeat(3), now),
+            Update::None
+        ));
+        let Update::Render(frame) = engine.handle(Command::EndRepeat(4), now) else {
+            panic!("expected restored marker");
+        };
+        assert_eq!(frame.feedback, PointerFeedback::Move);
+    }
+
+    #[test]
+    fn repeat_is_persistent_but_hides_when_transient_mode_ends() {
+        let now = Instant::now();
+        let settings = AppSettings {
+            cursor_overlay_visibility: "onInput".into(),
+            ..AppSettings::default()
+        };
+        let mut engine = OverlayEngine::new(now);
+        engine.handle(
+            Command::BeginRepeat(7, RepeatCommand::Scroll { dx: 0, dy: 5 }, false, settings),
+            now,
+        );
+        assert!(matches!(
+            engine.tick(now + DEFAULT_DURATION),
+            Update::Render(_)
+        ));
+        assert!(matches!(
+            engine.handle(Command::EndRepeat(7), now + DEFAULT_DURATION),
+            Update::Hide
+        ));
     }
 }

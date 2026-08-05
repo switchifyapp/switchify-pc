@@ -55,6 +55,8 @@ pub struct AppSettings {
     pub mouse_repeat_enabled: bool,
     pub move_repeat_interval_ms: u32,
     pub scroll_repeat_interval_ms: u32,
+    #[serde(default = "default_mouse_repeat_acceleration")]
+    pub mouse_repeat_acceleration_duration_ms: u32,
     pub cursor_overlay_enabled: bool,
     pub cursor_overlay_size: String,
     pub cursor_overlay_color: String,
@@ -72,6 +74,7 @@ impl Default for AppSettings {
             mouse_repeat_enabled: true,
             move_repeat_interval_ms: 250,
             scroll_repeat_interval_ms: 250,
+            mouse_repeat_acceleration_duration_ms: default_mouse_repeat_acceleration(),
             cursor_overlay_enabled: true,
             cursor_overlay_size: "medium".into(),
             cursor_overlay_color: "red".into(),
@@ -94,6 +97,9 @@ impl AppSettings {
         {
             return Err("Mouse repeat interval is invalid.".into());
         }
+        if ![0, 500, 1000, 2000].contains(&self.mouse_repeat_acceleration_duration_ms) {
+            return Err("Mouse repeat acceleration is invalid.".into());
+        }
         if !["small", "medium", "large"].contains(&self.cursor_overlay_size.as_str())
             || !["red", "green", "blue", "yellow", "white"]
                 .contains(&self.cursor_overlay_color.as_str())
@@ -109,6 +115,10 @@ impl AppSettings {
 
 fn default_cursor_overlay_visibility() -> String {
     "whileControlling".into()
+}
+
+fn default_mouse_repeat_acceleration() -> u32 {
+    1000
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -382,6 +392,21 @@ mod tests {
     fn settings_reject_unknown_overlay_visibility() {
         let value = AppSettings {
             cursor_overlay_visibility: "always".into(),
+            ..AppSettings::default()
+        };
+        assert!(value.normalized().is_err());
+    }
+    #[test]
+    fn settings_default_repeat_acceleration_matches_shipping_app() {
+        assert_eq!(
+            AppSettings::default().mouse_repeat_acceleration_duration_ms,
+            1000
+        );
+    }
+    #[test]
+    fn settings_reject_unknown_repeat_acceleration() {
+        let value = AppSettings {
+            mouse_repeat_acceleration_duration_ms: 750,
             ..AppSettings::default()
         };
         assert!(value.normalized().is_err());

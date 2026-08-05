@@ -9,6 +9,7 @@ export type AppSettings = {
   mouseRepeatEnabled: boolean;
   moveRepeatIntervalMs: number;
   scrollRepeatIntervalMs: number;
+  mouseRepeatAccelerationDurationMs: number;
   cursorOverlayEnabled: boolean;
   cursorOverlaySize: "small" | "medium" | "large";
   cursorOverlayColor: "red" | "green" | "blue" | "yellow" | "white";

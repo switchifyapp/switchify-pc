@@ -7,6 +7,9 @@ use enigo::{Enigo, Settings};
 use tauri::{AppHandle, Manager};
 
 use crate::input::{DesktopInput, PointerFeedback};
+use crate::mouse_repeat::{
+    acceleration_scale, MouseRepeatController, RepeatCommand, INITIAL_SCALE,
+};
 use crate::overlay::CursorOverlay;
 use crate::protocol::{
     pointer_profile_response, switch_profile_catalog_response, DesktopCommand, EngineEvent,
@@ -96,6 +99,7 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
             subscribers: HashMap::new(),
             outbound: OutboundQueue::default(),
             input: None,
+            repeats: MouseRepeatController::default(),
         });
     });
     with_runtime(|runtime| runtime.handle_manager_state(state))
@@ -202,6 +206,7 @@ pub fn reject_pairing(
 
 pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), String> {
     with_runtime(|runtime| {
+        runtime.stop_all_repeats();
         if let Some(input) = runtime.input.as_mut() {
             input.release_all()?;
         }
@@ -217,6 +222,13 @@ pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), Strin
         emit_state(app, shared);
         Ok(())
     })
+}
+
+pub fn stop_mouse_repeat(app: &AppHandle) {
+    dispatch_to_main(app, |runtime| {
+        runtime.stop_all_repeats();
+        Ok(())
+    });
 }
 
 fn with_runtime<T>(
@@ -241,6 +253,7 @@ struct MacRuntime {
     subscribers: HashMap<String, usize>,
     outbound: OutboundQueue,
     input: Option<DesktopInput<Enigo>>,
+    repeats: MouseRepeatController,
 }
 
 impl MacRuntime {
@@ -416,6 +429,7 @@ impl MacRuntime {
         if characteristic.uuid().eq_ignore_ascii_case(TX_UUID) {
             self.subscribers.remove(&central.identifier());
             if self.subscribers.is_empty() {
+                self.stop_all_repeats();
                 self.outbound.clear();
                 if let Some(input) = self.input.as_mut() {
                     let _ = input.release_all();
@@ -508,20 +522,21 @@ impl MacRuntime {
     }
 
     fn handle_pointer_profile(&mut self, id: &str) {
-        let scale = self
+        let settings = self
             .shared
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .state
             .settings
-            .pointer_scale_percent;
-        let response = pointer_profile_response(id, &self.pointer_profile(), scale);
+            .clone();
+        let response = pointer_profile_response(id, &self.pointer_profile(), &settings);
         if let Err(error) = self.enqueue_message(&response) {
             self.report_error(error);
         }
     }
 
     fn handle_mouse_move(&mut self, command: MouseMoveCommand) {
+        self.stop_all_repeats();
         let dx = command.dx.round() as i32;
         let dy = command.dy.round() as i32;
         let injection = self.inject_pointer_move(dx, dy);
@@ -563,6 +578,7 @@ impl MacRuntime {
     }
 
     fn handle_mouse_click(&mut self, command: MouseClickCommand) {
+        self.stop_all_repeats();
         let injection = self.inject_pointer_click(command.button, command.click_count);
         if injection.is_ok() {
             self.show_overlay(PointerFeedback::Click {
@@ -612,6 +628,7 @@ impl MacRuntime {
     }
 
     fn handle_text(&mut self, command: TextCommand) {
+        self.stop_all_repeats();
         let character_count = command.text.chars().count();
         let injection = self.inject_text(&command.text);
         let response = {
@@ -644,6 +661,15 @@ impl MacRuntime {
     }
 
     fn handle_desktop(&mut self, command: DesktopCommand) {
+        if command.command_type == "mouse.repeat.start" {
+            self.handle_repeat_start(command);
+            return;
+        }
+        if command.command_type == "mouse.repeat.stop" {
+            self.handle_repeat_stop(command);
+            return;
+        }
+        self.stop_all_repeats();
         let profiles = self
             .shared
             .lock()
@@ -725,6 +751,158 @@ impl MacRuntime {
             }
         }
         emit_state(&self.app, &self.shared);
+    }
+
+    fn handle_repeat_start(&mut self, command: DesktopCommand) {
+        let settings = self.overlay_settings();
+        let parsed = RepeatCommand::parse(&command.payload);
+        let injection = parsed.and_then(|repeat_command| {
+            if !settings.mouse_repeat_enabled {
+                self.stop_repeat_for_device(&command.device_id);
+                return Err("Mouse repeat is disabled in settings.".into());
+            }
+            self.stop_repeat_for_device(&command.device_id);
+            if self.input.is_none() && !self.refresh_accessibility(false) {
+                return Err(
+                    "Accessibility permission is required before the pointer can move.".into(),
+                );
+            }
+            let input = self.input.as_mut().ok_or_else(|| {
+                "Accessibility permission is required before the pointer can move.".to_string()
+            })?;
+            input.set_pointer_scale_percent(settings.pointer_scale_percent);
+            let initial_scale = if matches!(repeat_command, RepeatCommand::Move { .. })
+                && settings.mouse_repeat_acceleration_duration_ms > 0
+            {
+                INITIAL_SCALE
+            } else {
+                1.0
+            };
+            input.execute_repeat(repeat_command, initial_scale)?;
+            let active = self.repeats.start(
+                command.device_id.clone(),
+                repeat_command,
+                settings.mouse_repeat_acceleration_duration_ms,
+                now_ms(),
+            );
+            self.app.state::<CursorOverlay>().begin_repeat(
+                active.generation,
+                repeat_command,
+                settings.mouse_repeat_acceleration_duration_ms > 0,
+                settings.clone(),
+            );
+            self.schedule_repeat_tick(
+                command.device_id.clone(),
+                active.generation,
+                repeat_command.interval_ms(&settings),
+            );
+            Ok(())
+        });
+        self.complete_repeat_command(command, injection);
+    }
+
+    fn handle_repeat_stop(&mut self, command: DesktopCommand) {
+        self.stop_repeat_for_device(&command.device_id);
+        self.complete_repeat_command(command, Ok(()));
+    }
+
+    fn complete_repeat_command(&mut self, command: DesktopCommand, result: Result<(), String>) {
+        let response = self
+            .shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .engine
+            .complete_desktop_command(
+                &command,
+                result.as_ref().map(|_| ()).map_err(String::as_str),
+            );
+        match result {
+            Ok(()) => set_activity(
+                &self.shared,
+                ActivityKind::Success,
+                format!("Handled {}.", command.command_type),
+            ),
+            Err(error) => set_activity(&self.shared, ActivityKind::Error, error),
+        }
+        if let Some(response) = response {
+            if let Err(error) = self.enqueue_message(&response) {
+                self.report_error(error);
+            }
+        }
+        emit_state(&self.app, &self.shared);
+    }
+
+    fn schedule_repeat_tick(&self, device_id: String, generation: u64, interval_ms: u32) {
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(u64::from(interval_ms))).await;
+            let callback_app = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                let _ = with_runtime(|runtime| runtime.repeat_tick(device_id, generation));
+                drop(callback_app);
+            });
+        });
+    }
+
+    fn repeat_tick(&mut self, device_id: String, generation: u64) -> Result<(), String> {
+        let settings = self.overlay_settings();
+        let Some(active) = self.repeats.current(&device_id, generation) else {
+            return Ok(());
+        };
+        if !settings.mouse_repeat_enabled {
+            self.stop_repeat_if_current(&device_id, generation);
+            return Ok(());
+        }
+        let scale = if matches!(active.command, RepeatCommand::Move { .. }) {
+            acceleration_scale(
+                now_ms() - active.started_at_ms,
+                active.acceleration_duration_ms,
+            )
+        } else {
+            1.0
+        };
+        let result = self
+            .input
+            .as_mut()
+            .ok_or_else(|| {
+                "Accessibility permission is required before input can be controlled.".to_string()
+            })
+            .and_then(|input| {
+                input.set_pointer_scale_percent(settings.pointer_scale_percent);
+                input.execute_repeat(active.command, scale).map(|_| ())
+            });
+        if let Err(error) = result {
+            if self.stop_repeat_if_current(&device_id, generation) {
+                self.report_error(format!("Mouse repeat stopped: {error}"));
+            }
+            return Ok(());
+        }
+        self.schedule_repeat_tick(device_id, generation, active.command.interval_ms(&settings));
+        Ok(())
+    }
+
+    fn stop_repeat_if_current(&mut self, device_id: &str, generation: u64) -> bool {
+        let stopped = self.repeats.stop_if_current(device_id, generation);
+        if stopped {
+            self.app.state::<CursorOverlay>().end_repeat(generation);
+        }
+        stopped
+    }
+
+    fn stop_repeat_for_device(&mut self, device_id: &str) {
+        if let Some(active) = self.repeats.stop(device_id) {
+            self.app
+                .state::<CursorOverlay>()
+                .end_repeat(active.generation);
+        }
+    }
+
+    fn stop_all_repeats(&mut self) {
+        for active in self.repeats.stop_all() {
+            self.app
+                .state::<CursorOverlay>()
+                .end_repeat(active.generation);
+        }
     }
 
     fn inject_text(&mut self, text: &str) -> Result<(), String> {
@@ -885,6 +1063,7 @@ impl MacRuntime {
     }
 
     fn reset_gatt(&mut self) {
+        self.stop_all_repeats();
         self.manager.stop_advertising();
         self.service = None;
         self.tx_characteristic = None;
