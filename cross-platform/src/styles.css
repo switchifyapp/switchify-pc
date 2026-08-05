@@ -146,6 +146,7 @@ button:disabled { cursor: default; opacity: 0.55; }
 .task-list article > svg { margin: 0 9px; color: var(--muted); }
 .task-list h2 { font-size: 14px; }
 .task-list p { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.task-list .permission-recovery { margin-top: 8px; color: var(--text); }
 
 .modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(14, 20, 17, 0.48); }
 .pairing-dialog { width: min(100%, 410px); border: 1px solid var(--border); border-radius: 8px; padding: 28px; background: white; box-shadow: 0 20px 60px rgba(14, 25, 19, 0.2); text-align: center; }
