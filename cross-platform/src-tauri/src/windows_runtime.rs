@@ -8,6 +8,7 @@ use windows::Devices::Bluetooth::BluetoothError;
 use windows::Devices::Bluetooth::GenericAttributeProfile::{
     GattCharacteristicProperties, GattLocalCharacteristic, GattLocalCharacteristicParameters,
     GattProtectionLevel, GattReadRequestedEventArgs, GattServiceProvider,
+    GattServiceProviderAdvertisementStatus, GattServiceProviderAdvertisementStatusChangedEventArgs,
     GattServiceProviderAdvertisingParameters, GattWriteOption, GattWriteRequestedEventArgs,
 };
 use windows::Foundation::TypedEventHandler;
@@ -235,6 +236,22 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         ))
         .map_err(|error| error.to_string())?;
 
+    let status_app = app.clone();
+    let status_shared = shared.clone();
+    provider
+        .AdvertisementStatusChanged(&TypedEventHandler::<
+            GattServiceProvider,
+            GattServiceProviderAdvertisementStatusChangedEventArgs,
+        >::new(move |_, args| {
+            if let Some(args) = args.cloned() {
+                let status = args.Status()?;
+                let error = args.Error()?;
+                update_advertisement_status(&status_app, &status_shared, status, error);
+            }
+            Ok(())
+        }))
+        .map_err(|error| error.to_string())?;
+
     let input = Enigo::new(&Settings::default())
         .map_err(|_| "Windows input injection could not initialize.".to_string())?;
     *runtime()
@@ -255,18 +272,53 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     provider
         .StartAdvertisingWithParameters(&advertising)
         .map_err(|error| error.to_string())?;
+    let status = provider
+        .AdvertisementStatus()
+        .map_err(|error| error.to_string())?;
+    update_advertisement_status(&app, &shared, status, BluetoothError::Success);
+    Ok(())
+}
+
+fn update_advertisement_status(
+    app: &AppHandle,
+    shared: &SharedModel,
+    status: GattServiceProviderAdvertisementStatus,
+    error: BluetoothError,
+) {
+    eprintln!("Switchify BLE advertisement status: {status:?}, error: {error:?}");
+    let (bluetooth, kind, message) = if status == GattServiceProviderAdvertisementStatus::Started {
+        (
+            BluetoothState::Advertising,
+            ActivityKind::Info,
+            "Advertising to nearby Switchify Android devices.".to_string(),
+        )
+    } else if status == GattServiceProviderAdvertisementStatus::StartedWithoutAllAdvertisementData {
+        (
+            BluetoothState::Error,
+            ActivityKind::Error,
+            "Bluetooth started without the Switchify service identifier. Restart Bluetooth and try again."
+                .to_string(),
+        )
+    } else if status == GattServiceProviderAdvertisementStatus::Aborted {
+        (
+            BluetoothState::Error,
+            ActivityKind::Error,
+            format!("Bluetooth advertising stopped: {error:?}"),
+        )
+    } else {
+        (
+            BluetoothState::Initializing,
+            ActivityKind::Info,
+            "Starting Bluetooth advertising...".to_string(),
+        )
+    };
     shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .state
-        .bluetooth = BluetoothState::Advertising;
-    set_activity(
-        &shared,
-        ActivityKind::Info,
-        "Advertising to nearby Switchify Android devices.",
-    );
-    emit_state(&app, &shared);
-    Ok(())
+        .bluetooth = bluetooth;
+    set_activity(shared, kind, message);
+    emit_state(app, shared);
 }
 
 async fn handle_write(
