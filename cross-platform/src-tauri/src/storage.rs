@@ -161,12 +161,20 @@ mod tests {
     }
 
     #[test]
-    fn state_without_overlay_visibility_uses_the_compatible_default() {
+    fn state_without_overlay_visibility_uses_the_persistent_default() {
         let mut value = serde_json::to_value(PersistedState::default()).unwrap();
         value["settings"]
             .as_object_mut()
             .unwrap()
             .remove("cursorOverlayVisibility");
+        let state: PersistedState = serde_json::from_value(value).unwrap();
+        assert_eq!(state.settings.cursor_overlay_visibility, "whileControlling");
+    }
+
+    #[test]
+    fn state_preserves_an_explicit_transient_overlay_preference() {
+        let mut value = serde_json::to_value(PersistedState::default()).unwrap();
+        value["settings"]["cursorOverlayVisibility"] = serde_json::json!("onInput");
         let state: PersistedState = serde_json::from_value(value).unwrap();
         assert_eq!(state.settings.cursor_overlay_visibility, "onInput");
     }

@@ -419,39 +419,105 @@ mod tests {
     fn transient_feedback_hides_after_its_deadline() {
         let now = Instant::now();
         let mut engine = OverlayEngine::new(now);
+        let settings = AppSettings {
+            cursor_overlay_visibility: "onInput".into(),
+            ..AppSettings::default()
+        };
         assert!(matches!(
-            engine.handle(
-                Command::Show(PointerFeedback::Move, AppSettings::default()),
-                now
-            ),
+            engine.handle(Command::Show(PointerFeedback::Move, settings), now),
             Update::Render(_)
         ));
         assert!(matches!(engine.tick(now + DEFAULT_DURATION), Update::Hide));
     }
 
     #[test]
-    fn while_controlling_restores_the_pointer_after_click_feedback() {
+    fn default_feedback_stays_visible_while_controlling() {
         let now = Instant::now();
-        let settings = AppSettings {
-            cursor_overlay_visibility: "whileControlling".into(),
-            ..AppSettings::default()
-        };
         let mut engine = OverlayEngine::new(now);
-        engine.handle(Command::MarkControlActive(settings.clone()), now);
         engine.handle(
-            Command::Show(
+            Command::Show(PointerFeedback::Move, AppSettings::default()),
+            now,
+        );
+        let Update::Render(frame) = engine.tick(now + DEFAULT_DURATION) else {
+            panic!("expected persistent frame");
+        };
+        assert_eq!(frame.feedback, PointerFeedback::Move);
+    }
+
+    #[test]
+    fn while_controlling_restores_the_pointer_after_timed_feedback() {
+        let now = Instant::now();
+        for (feedback, duration) in [
+            (
                 PointerFeedback::Click {
                     button: crate::protocol::MouseButton::Left,
                     count: 1,
                 },
-                settings,
+                LANDING_DURATION,
             ),
+            (
+                PointerFeedback::Click {
+                    button: crate::protocol::MouseButton::Left,
+                    count: 2,
+                },
+                DOUBLE_CLICK_DURATION,
+            ),
+            (PointerFeedback::Scroll { dx: 0, dy: 10 }, LANDING_DURATION),
+        ] {
+            let settings = AppSettings::default();
+            let mut engine = OverlayEngine::new(now);
+            engine.handle(Command::MarkControlActive(settings.clone()), now);
+            engine.handle(Command::Show(feedback, settings), now);
+            let Update::Render(frame) = engine.tick(now + duration) else {
+                panic!("expected persistent frame");
+            };
+            assert_eq!(frame.feedback, PointerFeedback::Move);
+        }
+    }
+
+    #[test]
+    fn drag_feedback_stays_visible_in_transient_mode() {
+        let now = Instant::now();
+        let settings = AppSettings {
+            cursor_overlay_visibility: "onInput".into(),
+            ..AppSettings::default()
+        };
+        let mut engine = OverlayEngine::new(now);
+        engine.handle(Command::Show(PointerFeedback::Drag, settings), now);
+        let Update::Render(frame) = engine.tick(now + DEFAULT_DURATION) else {
+            panic!("expected persistent drag frame");
+        };
+        assert_eq!(frame.feedback, PointerFeedback::Drag);
+    }
+
+    #[test]
+    fn ending_a_session_hides_the_overlay() {
+        let now = Instant::now();
+        let mut engine = OverlayEngine::new(now);
+        engine.handle(
+            Command::Show(PointerFeedback::Move, AppSettings::default()),
             now,
         );
-        let Update::Render(frame) = engine.tick(now + LANDING_DURATION) else {
-            panic!("expected persistent frame");
+        assert!(matches!(
+            engine.handle(Command::EndSession, now),
+            Update::Hide
+        ));
+    }
+
+    #[test]
+    fn crosshairs_are_included_in_persistent_frames() {
+        let now = Instant::now();
+        let settings = AppSettings {
+            cursor_crosshairs: true,
+            ..AppSettings::default()
         };
-        assert_eq!(frame.feedback, PointerFeedback::Move);
+        let mut engine = OverlayEngine::new(now);
+        let Update::Render(frame) =
+            engine.handle(Command::Show(PointerFeedback::Move, settings), now)
+        else {
+            panic!("expected overlay frame");
+        };
+        assert!(frame.crosshairs);
     }
 
     #[test]

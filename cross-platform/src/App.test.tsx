@@ -17,6 +17,9 @@ describe("Switchify PC Preview shell", () => {
     expect(screen.getByRole("checkbox", { name: "Start with system" })).toBeInTheDocument();
     expect(screen.getByRole("slider", { name: /Pointer speed/ })).toHaveValue("100");
     expect(screen.getByRole("checkbox", { name: "Show cursor overlay" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "While controlling" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/On input hides shortly/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "On input" }));
     expect(screen.getByRole("button", { name: "On input" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Medium" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("radio", { name: "Red" })).toBeChecked();

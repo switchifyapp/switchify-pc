@@ -108,7 +108,7 @@ impl AppSettings {
 }
 
 fn default_cursor_overlay_visibility() -> String {
-    "onInput".into()
+    "whileControlling".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -363,6 +363,13 @@ pub fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn settings_default_to_a_persistent_cursor_overlay() {
+        assert_eq!(
+            AppSettings::default().cursor_overlay_visibility,
+            "whileControlling"
+        );
+    }
     #[test]
     fn settings_reject_unsafe_values() {
         let value = AppSettings {

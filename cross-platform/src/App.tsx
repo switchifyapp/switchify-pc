@@ -106,7 +106,7 @@ function SettingsView({ state, settings, setSettings, save, checkUpdates, busy }
         <div className="overlay-options" data-disabled={!settings.cursorOverlayEnabled}>
           <fieldset disabled={!settings.cursorOverlayEnabled}><legend>Overlay visibility</legend><div className="segmented compact">
             {(["onInput", "whileControlling"] as const).map((value) => <button type="button" key={value} aria-pressed={settings.cursorOverlayVisibility === value} onClick={() => update("cursorOverlayVisibility", value)}>{value === "onInput" ? "On input" : "While controlling"}</button>)}
-          </div></fieldset>
+          </div><p className="setting-note">On input hides shortly after pointer activity stops. While controlling stays visible until the session ends.</p></fieldset>
           <fieldset disabled={!settings.cursorOverlayEnabled}><legend>Overlay size</legend><div className="segmented compact three">
             {(["small", "medium", "large"] as const).map((value) => <button type="button" key={value} aria-pressed={settings.cursorOverlaySize === value} onClick={() => update("cursorOverlaySize", value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}
           </div></fieldset>
