@@ -344,6 +344,14 @@ fn delete_switch_profile(
 
 #[tauri::command]
 async fn check_for_updates(app: AppHandle, model: State<'_, AppModel>) -> Result<AppState, String> {
+    if !updater_has_endpoints(app.config().plugins.0.get("updater")) {
+        state::set_activity(
+            &model.shared,
+            ActivityKind::Info,
+            "Updates are not configured for preview builds.",
+        );
+        return Ok(model.snapshot());
+    }
     let update = app
         .updater()
         .map_err(|error| error.to_string())?
@@ -356,6 +364,13 @@ async fn check_for_updates(app: AppHandle, model: State<'_, AppModel>) -> Result
     );
     state::set_activity(&model.shared, ActivityKind::Info, message);
     Ok(model.snapshot())
+}
+
+fn updater_has_endpoints(config: Option<&serde_json::Value>) -> bool {
+    config
+        .and_then(|config| config.get("endpoints"))
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|endpoints| !endpoints.is_empty())
 }
 
 #[tauri::command]
@@ -523,4 +538,23 @@ fn platform_reject_pairing(
 #[cfg(target_os = "windows")]
 fn platform_disconnect_all(app: &AppHandle, shared: &state::SharedModel) -> Result<(), String> {
     windows_runtime::disconnect_all(app, shared)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::updater_has_endpoints;
+    use serde_json::json;
+
+    #[test]
+    fn update_checks_require_a_configured_endpoint() {
+        assert!(!updater_has_endpoints(None));
+        assert!(!updater_has_endpoints(Some(&json!({
+            "endpoints": [],
+            "pubkey": ""
+        }))));
+        assert!(updater_has_endpoints(Some(&json!({
+            "endpoints": ["https://updates.example.com/latest.json"],
+            "pubkey": "test-key"
+        }))));
+    }
 }
