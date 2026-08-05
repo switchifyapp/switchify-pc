@@ -13,15 +13,34 @@ The preview uses a React/TypeScript interface and a Rust backend. Platform adapt
 
 ## Run
 
+Install dependencies first:
+
 ```powershell
 cd cross-platform
 npm ci
+```
+
+For macOS Bluetooth and Accessibility testing, build and launch the signed debug app:
+
+```bash
+npm run macos:run
+```
+
+The command idempotently creates a machine-local, ten-year code-signing identity named `Switchify PC Preview Development`, if needed. Its private key is non-extractable and no certificate, key, or password is stored in Git. Preserve the identity in the login Keychain: deleting or recreating it requires granting Accessibility again.
+
+The first time, choose **Open Accessibility Settings**, enable **Switchify PC Preview**, and return to the app. It silently updates to Ready when the window regains focus. If the row is already enabled but access remains required, select the stale row, click Remove, return to Switchify, reopen Accessibility Settings, and enable the newly added entry. The setup never resets TCC and does not change the separate Switchify Tauri POC identity or permission.
+
+The first certificate-signed build uses a new Keychain namespace for Android pairing tokens. This avoids a login-password prompt from tokens created by older ad-hoc builds; pair Android once more after upgrading. Legacy tokens remain untouched in Keychain, while new tokens inherit the stable Preview identity and continue working across rebuilds.
+
+For UI and hot-reload development only:
+
+```powershell
 npm run tauri dev
 ```
 
-In a browser, `npm run dev` starts a UI-only preview with local sample state. Native Bluetooth, input, startup, tray, secure storage, and updater behavior require `npm run tauri dev`.
+`npm run tauri dev` rebuilds an ad-hoc executable whose identity is not stable, so it is unsuitable for macOS Accessibility testing. In a browser, `npm run dev` starts a UI-only preview with local sample state. Native Bluetooth, input, startup, tray, secure storage, and updater behavior require a native run command.
 
-The installed WPF application must be closed before testing preview Bluetooth. On macOS, grant Accessibility access when prompted. Windows input control is available directly; production UIAccess packaging remains owned by the WPF release flow until the preview is promoted.
+The installed WPF application must be closed before testing preview Bluetooth. Windows input control is available directly; production UIAccess packaging remains owned by the WPF release flow until the preview is promoted.
 
 ## Checks
 
@@ -38,7 +57,7 @@ The Rust tests use fake input adapters and never control the local pointer or ke
 
 ## Preview boundaries
 
-- The preview has no production signing or release publishing workflow.
+- The macOS development identity is local-only. The preview has no production Developer ID signing, notarization, or release publishing workflow; macOS CI explicitly builds with `--no-sign`.
 - Linux is represented in capability data but is not a supported Bluetooth target.
 - Windows Grid 3 output is available through the native `Sensory_SwitchInput` broadcast contract. Grid 3 is omitted from macOS capabilities and profiles.
 - UIAccess packaging, mouse repeat, and display navigation are not advertised by the preview.

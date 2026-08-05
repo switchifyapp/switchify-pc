@@ -9,6 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "lint": "tsc --noEmit",
+    "macos:setup-signing": "./scripts/setup-macos-dev-signing.sh",
+    "macos:run": "./scripts/run-macos-signed.sh",
     "preview": "vite preview",
     "tauri": "tauri"
   },

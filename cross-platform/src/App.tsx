@@ -27,6 +27,16 @@ function Toggle({ checked, disabled = false, label, onChange }: { checked: boole
   return <label className="toggle-row" data-disabled={disabled}><span>{label}</span><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span className="toggle" aria-hidden="true" /></label>;
 }
 
+function AccessibilityCopy({ state, detailed = false }: { state: AppState; detailed?: boolean }) {
+  if (state.accessibility === "granted") return <p>Ready</p>;
+  if (state.accessibility === "unavailable") return <p>Unavailable on this system</p>;
+  if (!detailed || state.capabilities.platform !== "macos") return <p>Permission required</p>;
+  return <>
+    <p>Enable “Switchify PC Preview” in Accessibility, then return to the app. Status updates automatically.</p>
+    <p className="permission-recovery">If it is already enabled but access is still required, select the stale row, click Remove, return to Switchify, reopen Accessibility Settings, and enable the newly added entry.</p>
+  </>;
+}
+
 function HomeView({ state, onDisconnect, onAccessibility, onSetup }: { state: AppState; onDisconnect: () => void; onAccessibility: () => void; onSetup: () => void }) {
   const bluetoothOk = state.bluetooth === "advertising" || state.bluetooth === "connected";
   return <div className="view">
@@ -38,7 +48,7 @@ function HomeView({ state, onDisconnect, onAccessibility, onSetup }: { state: Ap
     </section>
     <section className="status-list" aria-label="System status">
       <article><StatusIcon ok={bluetoothOk}><Bluetooth size={19} /></StatusIcon><div><h3>Bluetooth</h3><p>{bluetoothLabels[state.bluetooth]}</p></div></article>
-      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><p>{state.accessibility === "granted" ? "Ready" : "Permission required"}</p></div>{state.accessibility === "required" && <button className="text-button" onClick={onAccessibility}>Review</button>}</article>
+      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} /></div>{state.accessibility === "required" && <button className="text-button" onClick={onAccessibility}>Open Accessibility Settings</button>}</article>
       <article><StatusIcon ok><ShieldCheck size={19} /></StatusIcon><div><h3>Secure pairing</h3><p>{state.pairedDevices.length === 0 ? "No saved devices" : `${state.pairedDevices.length} saved device${state.pairedDevices.length === 1 ? "" : "s"}`}</p></div></article>
     </section>
     <section className="activity-panel" aria-live="polite"><span>Recent activity</span><p data-kind={state.lastActivity?.kind}>{state.lastActivity?.message ?? "No recent activity."}</p></section>
@@ -165,12 +175,12 @@ function SupportView({ state, busy, perform }: { state: AppState; busy: boolean;
     <div className="segmented" role="tablist" aria-label="Support view"><button role="tab" aria-selected={tab === "setup"} onClick={() => setTab("setup")}>Setup</button><button role="tab" aria-selected={tab === "troubleshooting"} onClick={() => setTab("troubleshooting")}>Troubleshooting</button></div>
     {tab === "setup" ? <section className="task-list" aria-label="Setup status">
       <article><StatusIcon ok={bluetoothReady}>{bluetoothReady ? <CheckCircle2 size={19} /> : <Bluetooth size={19} />}</StatusIcon><div><h2>Bluetooth</h2><p>{bluetoothLabels[state.bluetooth]}</p></div></article>
-      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h2>Input access</h2><p>{state.accessibility === "granted" ? "Ready" : "Required for keyboard and pointer control"}</p></div>{state.accessibility === "required" && <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Review access</button>}</article>
+      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" && <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</button>}</article>
       <article><StatusIcon ok={state.pairedDevices.length > 0}><Smartphone size={19} /></StatusIcon><div><h2>Android device</h2><p>{state.pairedDevices.length > 0 ? `${state.pairedDevices.length} paired` : "Open Switchify on Android and select this computer"}</p></div></article>
       <article><StatusIcon ok={state.bluetooth === "connected"}><Radio size={19} /></StatusIcon><div><h2>Connection</h2><p>{state.connectedDeviceName ?? "Waiting for a paired device"}</p></div></article>
     </section> : <section className="task-list" aria-label="Troubleshooting actions">
       <article><Bluetooth size={20} /><div><h2>Bluetooth connection</h2><p>{bluetoothLabels[state.bluetooth]}</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.disconnectAll)}><Power size={16} />Disconnect</button></article>
-      <article><Accessibility size={20} /><div><h2>Input access</h2><p>{state.accessibility === "granted" ? "Permission is available" : "Permission needs attention"}</p></div><button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}><RefreshCw size={16} />Check</button></article>
+      <article><Accessibility size={20} /><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" ? <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</button> : <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(false))}><RefreshCw size={16} />Check input access</button>}</article>
       <article><RefreshCw size={20} /><div><h2>Application update</h2><p>Preview {state.version}</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.checkForUpdates)}>Check</button></article>
       <article><Download size={20} /><div><h2>Diagnostics</h2><p>Export sanitized health and capability data</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.exportDiagnostics)}><Download size={16} />Export</button></article>
     </section>}

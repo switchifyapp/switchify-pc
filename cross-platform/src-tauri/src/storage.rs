@@ -8,6 +8,13 @@ use serde_json::Value;
 use crate::state::{AppSettings, PairedDeviceView, SwitchProfile};
 
 const SCHEMA_VERSION: u32 = 1;
+// The first Preview pairing items were created by ad-hoc-signed builds. Reading one from the
+// certificate-signed Preview makes macOS request the login password because its Keychain ACL
+// identifies the old executable. Start a certificate-era namespace without deleting those legacy
+// secrets; new items inherit the stable designated requirement and survive subsequent rebuilds.
+#[cfg(target_os = "macos")]
+const KEYRING_SERVICE: &str = "com.enaboapps.switchify.pc.preview.pairing.preview-development-v1";
+#[cfg(not(target_os = "macos"))]
 const KEYRING_SERVICE: &str = "com.enaboapps.switchify.pc.preview.pairing";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

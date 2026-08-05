@@ -112,6 +112,10 @@ fn enigo_error(action: &str) -> impl FnOnce(enigo::InputError) -> String + '_ {
     move |_| format!("The operating system could not {action}.")
 }
 
+fn enigo_scroll_delta(dx: i32, dy: i32) -> (i32, i32) {
+    (dx, -dy)
+}
+
 fn send_shortcut(enigo: &mut Enigo, keys: &[&str]) -> Result<(), String> {
     let parsed: Vec<Key> = keys
         .iter()
@@ -158,6 +162,7 @@ impl InputInjector for Enigo {
         .map_err(enigo_error("change the pointer button"))
     }
     fn scroll(&mut self, dx: i32, dy: i32) -> Result<(), String> {
+        let (dx, dy) = enigo_scroll_delta(dx, dy);
         if dx != 0 {
             Mouse::scroll(self, dx, Axis::Horizontal)
                 .map_err(enigo_error("scroll horizontally"))?;
@@ -1134,6 +1139,18 @@ mod tests {
         let mut input = DesktopInput::new(FakeInjector::default());
         input.move_pointer(12, -6).unwrap();
         assert_eq!(input.injector.moves, vec![(12, -6)]);
+    }
+
+    #[test]
+    fn enigo_scroll_preserves_horizontal_direction() {
+        assert_eq!(enigo_scroll_delta(5, 0), (5, 0));
+        assert_eq!(enigo_scroll_delta(-5, 0), (-5, 0));
+    }
+
+    #[test]
+    fn enigo_scroll_reverses_vertical_direction() {
+        assert_eq!(enigo_scroll_delta(0, 5), (0, -5));
+        assert_eq!(enigo_scroll_delta(0, -5), (0, 5));
     }
 
     #[test]

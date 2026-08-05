@@ -287,11 +287,13 @@ impl AppModel {
                 .filter(|profile| !profile.built_in),
         );
         let mut engine = ProtocolEngine::new(desktop_id.clone());
-        for device in &saved.paired_devices {
-            if let Some(token) = storage.load_pairing_token(&device.device_id) {
-                engine.set_paired_token(device.device_id.clone(), token);
-            }
-        }
+        let saved_pairing_count = saved.paired_devices.len();
+        let paired_devices = restore_paired_devices(
+            saved.paired_devices,
+            |device_id| storage.load_pairing_token(device_id),
+            &mut engine,
+        );
+        let discarded_legacy_pairing = paired_devices.len() < saved_pairing_count;
         let shared = Arc::new(Mutex::new(ModelData {
             engine,
             profiles,
@@ -300,9 +302,12 @@ impl AppModel {
                 accessibility: AccessibilityState::Required,
                 desktop_id,
                 pending_pairing: None,
-                paired_devices: saved.paired_devices,
+                paired_devices,
                 connected_device_name: None,
-                last_activity: None,
+                last_activity: discarded_legacy_pairing.then(|| Activity {
+                    kind: ActivityKind::Info,
+                    message: "Pair Android again once to finish the secure-storage upgrade.".into(),
+                }),
                 settings: saved.settings,
                 capabilities,
                 version: env!("CARGO_PKG_VERSION").into(),
@@ -344,6 +349,23 @@ impl AppModel {
     }
 }
 
+fn restore_paired_devices(
+    devices: Vec<PairedDeviceView>,
+    mut load_token: impl FnMut(&str) -> Option<String>,
+    engine: &mut ProtocolEngine,
+) -> Vec<PairedDeviceView> {
+    devices
+        .into_iter()
+        .filter(|device| {
+            let Some(token) = load_token(&device.device_id) else {
+                return false;
+            };
+            engine.set_paired_token(device.device_id.clone(), token);
+            true
+        })
+        .collect()
+}
+
 pub fn snapshot(shared: &SharedModel) -> AppState {
     shared
         .lock()
@@ -373,6 +395,32 @@ pub fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paired_devices_without_accessible_tokens_are_removed_at_startup() {
+        let available = PairedDeviceView {
+            device_id: "available".into(),
+            device_name: "Available phone".into(),
+            paired_at: 1,
+            last_seen_at: None,
+        };
+        let legacy = PairedDeviceView {
+            device_id: "legacy".into(),
+            device_name: "Legacy phone".into(),
+            paired_at: 2,
+            last_seen_at: None,
+        };
+        let mut engine = ProtocolEngine::new("desktop".into());
+        let devices = restore_paired_devices(
+            vec![available.clone(), legacy],
+            |device_id| (device_id == "available").then(|| "token".into()),
+            &mut engine,
+        );
+
+        assert_eq!(devices, vec![available]);
+        assert_eq!(engine.token_for("available"), Some("token"));
+        assert_eq!(engine.token_for("legacy"), None);
+    }
     #[test]
     fn settings_default_to_a_persistent_cursor_overlay() {
         assert_eq!(
