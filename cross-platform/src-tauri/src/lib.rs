@@ -3,6 +3,7 @@ mod grid3;
 mod input;
 #[cfg(target_os = "macos")]
 mod macos;
+mod modifier_overlay;
 mod mouse_repeat;
 mod overlay;
 mod protocol;
@@ -123,9 +124,11 @@ fn disconnect_all(
     app: AppHandle,
     model: State<'_, AppModel>,
     overlay: State<'_, overlay::CursorOverlay>,
+    modifier_overlay: State<'_, modifier_overlay::ModifierOverlay>,
 ) -> Result<AppState, String> {
     platform_disconnect_all(&app, &model.shared)?;
     overlay.end_session();
+    modifier_overlay.end_session();
     {
         let mut data = model
             .shared
@@ -139,6 +142,14 @@ fn disconnect_all(
         "All devices disconnected.",
     );
     Ok(model.snapshot())
+}
+
+#[tauri::command]
+fn modifier_overlay_ready(
+    window: tauri::WebviewWindow,
+    overlay: State<'_, modifier_overlay::ModifierOverlay>,
+) -> Result<modifier_overlay::ModifierOverlaySnapshot, String> {
+    overlay.ready(window.label())
 }
 
 #[tauri::command]
@@ -454,7 +465,14 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
                     let _ = window.set_focus();
                 }
             }
-            "quit" => app.exit(0),
+            "quit" => {
+                let model = app.state::<AppModel>();
+                let _ = platform_disconnect_all(app, &model.shared);
+                app.state::<overlay::CursorOverlay>().end_session();
+                app.state::<modifier_overlay::ModifierOverlay>()
+                    .end_session();
+                app.exit(0);
+            }
             _ => {}
         })
         .build(app)?;
@@ -465,6 +483,7 @@ pub fn run() {
     let model = AppModel::new();
     let shared = model.shared.clone();
     let overlay_shared = shared.clone();
+    let modifier_overlay_shared = shared.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") {
@@ -485,6 +504,13 @@ pub fn run() {
                 app.handle().clone(),
                 overlay_shared.clone(),
             ));
+            app.manage(
+                modifier_overlay::ModifierOverlay::install(
+                    app.handle().clone(),
+                    modifier_overlay_shared.clone(),
+                )
+                .map_err(std::io::Error::other)?,
+            );
             platform_install(app.handle().clone(), shared.clone())
                 .map_err(std::io::Error::other)?;
             Ok(())
@@ -501,6 +527,7 @@ pub fn run() {
             approve_pairing,
             reject_pairing,
             disconnect_all,
+            modifier_overlay_ready,
             forget_device,
             save_settings,
             list_switch_profiles,
