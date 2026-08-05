@@ -96,6 +96,7 @@ function SettingGroup({ title, description, children }: { title: string; descrip
 }
 
 const pointerSpeedOptions = [5, 25, 50, 75, 100] as const;
+const pointerSpeedValues = Array.from({ length: 45 }, (_, index) => (index + 1) * 5);
 const repeatIntervalOptions = [100, 250, 500, 1000] as const;
 const accelerationOptions = [
   { value: 0, label: "Off" },
@@ -116,7 +117,9 @@ function SettingsView({ state, settings, setSettings, save, checkUpdates, busy }
     <SettingGroup title="Pointer" description="Movement and visual feedback.">
       <fieldset className="pointer-speed"><legend>Pointer speed <strong>{settings.pointerScalePercent}%</strong></legend><div className="segmented compact five">
         {pointerSpeedOptions.map((value) => <button type="button" key={value} aria-label={`${value}% pointer speed`} aria-pressed={settings.pointerScalePercent === value} onClick={() => update("pointerScalePercent", value)}>{value}%</button>)}
-      </div><div className="movement-values" aria-label="Pointer movement values">
+      </div><label className="exact-speed"><span>Exact speed</span><select aria-label="Exact pointer speed" value={settings.pointerScalePercent} onChange={(event) => update("pointerScalePercent", Number(event.target.value))}>
+        {pointerSpeedValues.map((value) => <option key={value} value={value}>{value}%</option>)}
+      </select></label><div className="movement-values" aria-label="Pointer movement values">
         {([{"label":"Small","base":4.5},{"label":"Medium","base":12},{"label":"Large","base":26}] as const).map(({ label, base }) => <div key={label}><span>{label}</span><strong>{movementValue(base, settings.pointerScalePercent)}</strong></div>)}
       </div></fieldset>
       <div className="repeat-settings">

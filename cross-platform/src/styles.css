@@ -106,6 +106,8 @@ button:disabled { cursor: default; opacity: 0.55; }
 .segmented.compact.five { grid-template-columns: repeat(5, 1fr); }
 .segmented.compact.four { grid-template-columns: repeat(4, 1fr); }
 .segmented.compact.five button, .segmented.compact.four button { min-width: 0; padding: 0 6px; }
+.exact-speed { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+.exact-speed select { min-width: 92px; min-height: 32px; border: 1px solid #cbd5d0; border-radius: 5px; padding: 4px 8px; color: inherit; background: var(--surface); }
 .movement-values { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 10px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .movement-values div { display: grid; gap: 3px; padding: 10px 8px; text-align: center; }
 .movement-values div + div { border-left: 1px solid var(--border); }

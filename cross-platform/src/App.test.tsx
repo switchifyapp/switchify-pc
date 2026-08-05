@@ -22,6 +22,9 @@ describe("Switchify PC Preview shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
     expect(screen.getByRole("button", { name: "50% pointer speed" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("2.5")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "Exact pointer speed" }), { target: { value: "125" } });
+    expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("125");
+    expect(screen.getByText("5.5")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: "Repeat mouse movement" }));
     expect(screen.getByRole("group", { name: "Movement acceleration" })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "Show cursor overlay" })).toBeChecked();
