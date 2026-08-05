@@ -980,7 +980,8 @@ impl<I: InputInjector> DesktopInput<I> {
         self.text_streams.clear();
         self.switch_session = None;
         self.held_button = None;
-        self.held_modifiers.clear();
+        self.pending_modifier_releases
+            .extend(self.held_modifiers.drain());
         if let Some(overlay) = &self.modifier_overlay {
             overlay.end_control_session();
         }
@@ -1417,6 +1418,13 @@ mod tests {
             Some(vec![ModifierKey::Ctrl, ModifierKey::Alt])
         );
 
+        input.end_control_session();
+        assert!(input.held_modifiers.is_empty());
+        assert_eq!(
+            input.pending_modifier_releases,
+            HashSet::from([ModifierKey::Ctrl, ModifierKey::Alt, ModifierKey::Shift])
+        );
+
         input.injector.fail_key_up = None;
         input.release_all().unwrap();
         let releases = input
@@ -1437,7 +1445,7 @@ mod tests {
             ]
         );
         assert!(input.pending_modifier_releases.is_empty());
-        assert!(overlay.changes.lock().unwrap().last().unwrap().is_empty());
+        assert_eq!(*overlay.ended.lock().unwrap(), 1);
     }
 
     #[test]
@@ -1482,6 +1490,10 @@ mod tests {
         input.end_control_session();
 
         assert!(input.held_modifiers.is_empty());
+        assert_eq!(
+            input.pending_modifier_releases,
+            HashSet::from([ModifierKey::Ctrl])
+        );
         assert_eq!(*overlay.ended.lock().unwrap(), 1);
     }
 
