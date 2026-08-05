@@ -30,6 +30,8 @@ The command idempotently creates a machine-local, ten-year code-signing identity
 
 The first time, choose **Open Accessibility Settings**, enable **Switchify PC Preview**, and return to the app. It silently updates to Ready when the window regains focus. If the row is already enabled but access remains required, select the stale row, click Remove, return to Switchify, reopen Accessibility Settings, and enable the newly added entry. The setup never resets TCC and does not change the separate Switchify Tauri POC identity or permission.
 
+The first certificate-signed build uses a new Keychain namespace for Android pairing tokens. This avoids a login-password prompt from tokens created by older ad-hoc builds; pair Android once more after upgrading. Legacy tokens remain untouched in Keychain, while new tokens inherit the stable Preview identity and continue working across rebuilds.
+
 For UI and hot-reload development only:
 
 ```powershell
