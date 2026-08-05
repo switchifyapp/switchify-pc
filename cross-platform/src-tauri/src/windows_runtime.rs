@@ -8,9 +8,10 @@ use windows::Devices::Bluetooth::BluetoothError;
 use windows::Devices::Bluetooth::GenericAttributeProfile::{
     GattCharacteristicProperties, GattLocalCharacteristic, GattLocalCharacteristicParameters,
     GattProtectionLevel, GattReadRequestedEventArgs, GattServiceProvider,
+    GattServiceProviderAdvertisementStatus, GattServiceProviderAdvertisementStatusChangedEventArgs,
     GattServiceProviderAdvertisingParameters, GattWriteOption, GattWriteRequestedEventArgs,
 };
-use windows::Foundation::TypedEventHandler;
+use windows::Foundation::{Deferral, TypedEventHandler};
 use windows::Security::Cryptography::CryptographicBuffer;
 
 use crate::input::DesktopInput;
@@ -30,7 +31,9 @@ const NOTIFICATION_BYTES: usize = 160;
 
 struct WindowsRuntime {
     _provider: GattServiceProvider,
+    _rx: GattLocalCharacteristic,
     tx: GattLocalCharacteristic,
+    _status: GattLocalCharacteristic,
     input: DesktopInput<Enigo>,
 }
 
@@ -164,11 +167,17 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     rx.WriteRequested(&TypedEventHandler::new(
         move |_: Ref<'_, GattLocalCharacteristic>, args: Ref<'_, GattWriteRequestedEventArgs>| {
             if let Some(args) = args.cloned() {
+                let deferral = args.GetDeferral()?;
                 let callback_app = write_app.clone();
                 let callback_shared = write_shared.clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Err(error) =
-                        handle_write(callback_app.clone(), callback_shared.clone(), args).await
+                    if let Err(error) = handle_write(
+                        callback_app.clone(),
+                        callback_shared.clone(),
+                        args,
+                        deferral,
+                    )
+                    .await
                     {
                         set_activity(
                             &callback_shared,
@@ -225,14 +234,34 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
             move |_: Ref<'_, GattLocalCharacteristic>,
                   args: Ref<'_, GattReadRequestedEventArgs>| {
                 if let Some(args) = args.cloned() {
+                    let deferral = args.GetDeferral()?;
                     let status_shared = read_shared.clone();
                     tauri::async_runtime::spawn(async move {
-                        let _ = handle_status_read(status_shared, args).await;
+                        if let Err(error) = handle_status_read(status_shared, args, deferral).await
+                        {
+                            eprintln!("Switchify BLE status read failed: {error}");
+                        }
                     });
                 }
                 Ok(())
             },
         ))
+        .map_err(|error| error.to_string())?;
+
+    let status_app = app.clone();
+    let status_shared = shared.clone();
+    provider
+        .AdvertisementStatusChanged(&TypedEventHandler::<
+            GattServiceProvider,
+            GattServiceProviderAdvertisementStatusChangedEventArgs,
+        >::new(move |_, args| {
+            if let Some(args) = args.cloned() {
+                let status = args.Status()?;
+                let error = args.Error()?;
+                update_advertisement_status(&status_app, &status_shared, status, error);
+            }
+            Ok(())
+        }))
         .map_err(|error| error.to_string())?;
 
     let input = Enigo::new(&Settings::default())
@@ -241,7 +270,9 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(WindowsRuntime {
         _provider: provider.clone(),
+        _rx: rx,
         tx,
+        _status: status,
         input: DesktopInput::new(input),
     });
     let advertising =
@@ -255,26 +286,61 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     provider
         .StartAdvertisingWithParameters(&advertising)
         .map_err(|error| error.to_string())?;
+    let status = provider
+        .AdvertisementStatus()
+        .map_err(|error| error.to_string())?;
+    update_advertisement_status(&app, &shared, status, BluetoothError::Success);
+    Ok(())
+}
+
+fn update_advertisement_status(
+    app: &AppHandle,
+    shared: &SharedModel,
+    status: GattServiceProviderAdvertisementStatus,
+    error: BluetoothError,
+) {
+    eprintln!("Switchify BLE advertisement status: {status:?}, error: {error:?}");
+    let (bluetooth, kind, message) = if status == GattServiceProviderAdvertisementStatus::Started {
+        (
+            BluetoothState::Advertising,
+            ActivityKind::Info,
+            "Advertising to nearby Switchify Android devices.".to_string(),
+        )
+    } else if status == GattServiceProviderAdvertisementStatus::StartedWithoutAllAdvertisementData {
+        (
+            BluetoothState::Error,
+            ActivityKind::Error,
+            "Bluetooth started without the Switchify service identifier. Restart Bluetooth and try again."
+                .to_string(),
+        )
+    } else if status == GattServiceProviderAdvertisementStatus::Aborted {
+        (
+            BluetoothState::Error,
+            ActivityKind::Error,
+            format!("Bluetooth advertising stopped: {error:?}"),
+        )
+    } else {
+        (
+            BluetoothState::Initializing,
+            ActivityKind::Info,
+            "Starting Bluetooth advertising...".to_string(),
+        )
+    };
     shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .state
-        .bluetooth = BluetoothState::Advertising;
-    set_activity(
-        &shared,
-        ActivityKind::Info,
-        "Advertising to nearby Switchify Android devices.",
-    );
-    emit_state(&app, &shared);
-    Ok(())
+        .bluetooth = bluetooth;
+    set_activity(shared, kind, message);
+    emit_state(app, shared);
 }
 
 async fn handle_write(
     app: AppHandle,
     shared: SharedModel,
     args: GattWriteRequestedEventArgs,
+    deferral: Deferral,
 ) -> Result<(), String> {
-    let deferral = args.GetDeferral().map_err(|error| error.to_string())?;
     let result = async {
         let request = args
             .GetRequestAsync()
@@ -305,24 +371,31 @@ async fn handle_write(
 async fn handle_status_read(
     shared: SharedModel,
     args: GattReadRequestedEventArgs,
+    deferral: Deferral,
 ) -> Result<(), String> {
-    let deferral = args.GetDeferral().map_err(|error| error.to_string())?;
-    let request = args
-        .GetRequestAsync()
-        .map_err(|error| error.to_string())?
-        .await
-        .map_err(|error| error.to_string())?;
-    let model = shared
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let payload = serde_json::to_vec(&serde_json::json!({"protocolVersion":1,"displayName":"Switchify PC Preview","desktopId":model.state.desktop_id})).map_err(|error| error.to_string())?;
-    drop(model);
-    let buffer =
-        CryptographicBuffer::CreateFromByteArray(&payload).map_err(|error| error.to_string())?;
-    request
-        .RespondWithValue(&buffer)
-        .map_err(|error| error.to_string())?;
-    deferral.Complete().map_err(|error| error.to_string())
+    eprintln!("Switchify BLE status read requested.");
+    let result = async {
+        let request = args
+            .GetRequestAsync()
+            .map_err(|error| error.to_string())?
+            .await
+            .map_err(|error| error.to_string())?;
+        let model = shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let payload = serde_json::to_vec(&serde_json::json!({"protocolVersion":1,"displayName":"Switchify PC Preview","desktopId":model.state.desktop_id})).map_err(|error| error.to_string())?;
+        drop(model);
+        let buffer =
+            CryptographicBuffer::CreateFromByteArray(&payload).map_err(|error| error.to_string())?;
+        request
+            .RespondWithValue(&buffer)
+            .map_err(|error| error.to_string())?;
+        eprintln!("Switchify BLE status read completed.");
+        Ok(())
+    }
+    .await;
+    deferral.Complete().map_err(|error| error.to_string())?;
+    result
 }
 
 fn process_frame(
