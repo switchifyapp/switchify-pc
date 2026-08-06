@@ -32,6 +32,29 @@ pub struct BluetoothFrame {
     pub payload_base64: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BluetoothStatus<'a> {
+    protocol_version: i64,
+    display_name: &'a str,
+    desktop_id: &'a str,
+    platform: &'a str,
+}
+
+pub fn bluetooth_status_payload(
+    display_name: &str,
+    desktop_id: &str,
+    platform: &str,
+) -> Result<Vec<u8>, String> {
+    serde_json::to_vec(&BluetoothStatus {
+        protocol_version: PROTOCOL_VERSION,
+        display_name,
+        desktop_id,
+        platform,
+    })
+    .map_err(|error| error.to_string())
+}
+
 #[derive(Debug)]
 struct PartialMessage {
     total_bytes: usize,
@@ -1360,6 +1383,20 @@ pub fn switch_profile_catalog_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bluetooth_status_advertises_platform_without_a_version_bump() {
+        for platform in ["windows", "macos"] {
+            let payload =
+                bluetooth_status_payload("Switchify PC Preview", "desktop-1", platform).unwrap();
+            let status: Value = serde_json::from_slice(&payload).unwrap();
+
+            assert_eq!(status["protocolVersion"], PROTOCOL_VERSION);
+            assert_eq!(status["displayName"], "Switchify PC Preview");
+            assert_eq!(status["desktopId"], "desktop-1");
+            assert_eq!(status["platform"], platform);
+        }
+    }
 
     const NOW: i64 = 1_724_000_000_000;
     const TOKEN: &str = "shared-token";
