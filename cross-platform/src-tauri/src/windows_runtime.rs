@@ -21,8 +21,9 @@ use crate::mouse_repeat::{
 };
 use crate::overlay::CursorOverlay;
 use crate::protocol::{
-    create_notification_frames, pointer_profile_response, switch_profile_catalog_response,
-    DesktopCommand, EngineEvent, MouseClickCommand, MouseMoveCommand, PointerProfile, TextCommand,
+    bluetooth_status_payload, create_notification_frames, pointer_profile_response,
+    switch_profile_catalog_response, DesktopCommand, EngineEvent, MouseClickCommand,
+    MouseMoveCommand, PointerProfile, TextCommand,
 };
 use crate::state::{
     emit_state, set_activity, AccessibilityState, ActivityKind, BluetoothState, SharedModel,
@@ -399,10 +400,14 @@ async fn handle_status_read(
         let model = shared
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let payload = serde_json::to_vec(&serde_json::json!({"protocolVersion":1,"displayName":"Switchify PC Preview","desktopId":model.state.desktop_id})).map_err(|error| error.to_string())?;
+        let payload = bluetooth_status_payload(
+            "Switchify PC Preview",
+            &model.state.desktop_id,
+            &model.state.capabilities.platform,
+        )?;
         drop(model);
-        let buffer =
-            CryptographicBuffer::CreateFromByteArray(&payload).map_err(|error| error.to_string())?;
+        let buffer = CryptographicBuffer::CreateFromByteArray(&payload)
+            .map_err(|error| error.to_string())?;
         request
             .RespondWithValue(&buffer)
             .map_err(|error| error.to_string())?;

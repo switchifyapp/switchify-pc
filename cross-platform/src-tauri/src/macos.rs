@@ -15,9 +15,9 @@ use crate::mouse_repeat::{
 };
 use crate::overlay::CursorOverlay;
 use crate::protocol::{
-    pointer_profile_response, switch_profile_catalog_response, DesktopCommand, EngineEvent,
-    MouseButton, MouseClickCommand, MouseMoveCommand, OutboundQueue, PointerProfile, TextCommand,
-    MAX_POINTER_DELTA,
+    bluetooth_status_payload, pointer_profile_response, switch_profile_catalog_response,
+    DesktopCommand, EngineEvent, MouseButton, MouseClickCommand, MouseMoveCommand, OutboundQueue,
+    PointerProfile, TextCommand, MAX_POINTER_DELTA,
 };
 use crate::state::{
     emit_state, now_ms, set_activity, AccessibilityState, ActivityKind, BluetoothState, SharedModel,
@@ -401,20 +401,17 @@ impl MacRuntime {
         )
         .map_err(|error| error.to_string())?;
 
-        let desktop_id = {
-            self.shared
+        let (desktop_id, platform) = {
+            let model = self
+                .shared
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .engine
-                .desktop_id()
-                .to_owned()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            (
+                model.engine.desktop_id().to_owned(),
+                model.state.capabilities.platform.clone(),
+            )
         };
-        self.status_value = serde_json::to_vec(&serde_json::json!({
-            "protocolVersion": 1,
-            "displayName": DISPLAY_NAME,
-            "desktopId": desktop_id
-        }))
-        .map_err(|error| error.to_string())?;
+        self.status_value = bluetooth_status_payload(DISPLAY_NAME, &desktop_id, &platform)?;
         let status = MutableCharacteristic::new(
             &status_uuid,
             CharacteristicProperties::READ,
