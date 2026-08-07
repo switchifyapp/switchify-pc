@@ -2,7 +2,11 @@ node_modules/
 dist/
 src-tauri/target/
 src-tauri/gen/
+.certs/
+.env
+.env.*
 .DS_Store
+Thumbs.db
 *.log
 src-tauri/icons/android/
 src-tauri/icons/ios/
