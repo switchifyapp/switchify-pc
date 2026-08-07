@@ -288,15 +288,14 @@ impl AppModel {
         );
         let mut engine = ProtocolEngine::new(desktop_id.clone());
         let saved_pairing_count = saved.paired_devices.len();
-        let saved_devices = saved.paired_devices;
         let restored_devices = restore_paired_devices(
-            saved_devices.clone(),
+            saved.paired_devices,
             |device_id| storage.load_pairing_token(device_id),
             &mut engine,
         );
         let (paired_devices, pairing_storage_error) = match restored_devices {
             Ok(devices) => (devices, None),
-            Err(error) => (saved_devices, Some(error)),
+            Err(error) => (Vec::new(), Some(error)),
         };
         let discarded_legacy_pairing =
             pairing_storage_error.is_none() && paired_devices.len() < saved_pairing_count;
@@ -369,17 +368,23 @@ fn restore_paired_devices(
     mut load_token: impl FnMut(&str) -> Result<Option<String>, String>,
     engine: &mut ProtocolEngine,
 ) -> Result<Vec<PairedDeviceView>, String> {
-    devices
+    let restored = devices
         .into_iter()
         .map(|device| {
             let Some(token) = load_token(&device.device_id)? else {
                 return Ok(None);
             };
-            engine.set_paired_token(device.device_id.clone(), token);
-            Ok(Some(device))
+            Ok(Some((device, token)))
         })
         .filter_map(Result::transpose)
-        .collect()
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(restored
+        .into_iter()
+        .map(|(device, token)| {
+            engine.set_paired_token(device.device_id.clone(), token);
+            device
+        })
+        .collect())
 }
 
 pub fn snapshot(shared: &SharedModel) -> AppState {
@@ -437,6 +442,38 @@ mod tests {
         assert_eq!(devices, vec![available]);
         assert_eq!(engine.token_for("available"), Some("token"));
         assert_eq!(engine.token_for("legacy"), None);
+    }
+
+    #[test]
+    fn pairing_restoration_is_transactional_when_storage_fails() {
+        let first = PairedDeviceView {
+            device_id: "first".into(),
+            device_name: "First phone".into(),
+            paired_at: 1,
+            last_seen_at: None,
+        };
+        let second = PairedDeviceView {
+            device_id: "second".into(),
+            device_name: "Second phone".into(),
+            paired_at: 2,
+            last_seen_at: None,
+        };
+        let mut engine = ProtocolEngine::new("desktop".into());
+        let result = restore_paired_devices(
+            vec![first, second],
+            |device_id| {
+                if device_id == "first" {
+                    Ok(Some("token".into()))
+                } else {
+                    Err("unreadable token store".into())
+                }
+            },
+            &mut engine,
+        );
+
+        assert_eq!(result.unwrap_err(), "unreadable token store");
+        assert_eq!(engine.token_for("first"), None);
+        assert_eq!(engine.token_for("second"), None);
     }
     #[test]
     fn settings_default_to_a_persistent_cursor_overlay() {
