@@ -13,7 +13,7 @@ const KEYRING_SERVICE: &str = "com.enaboapps.switchify.pc.preview.pairing";
 
 trait PairingTokenStore: std::fmt::Debug + Send + Sync {
     fn save(&self, device_id: &str, token: &str) -> Result<(), String>;
-    fn load(&self, device_id: &str) -> Option<String>;
+    fn load(&self, device_id: &str) -> Result<Option<String>, String>;
     fn delete(&self, device_id: &str) -> Result<(), String>;
 }
 
@@ -76,17 +76,25 @@ impl PairingTokenStore for PlatformPairingTokenStore {
             .lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut tokens = self.read()?;
+        let mut tokens = match self.read() {
+            Ok(tokens) => tokens,
+            Err(_) if self.path.exists() && fs::read_to_string(&self.path).is_ok() => {
+                // A syntactically damaged token file cannot be recovered. Re-pairing
+                // replaces it atomically with a valid store containing the new token.
+                std::collections::HashMap::new()
+            }
+            Err(error) => return Err(error),
+        };
         tokens.insert(device_id.to_owned(), token.to_owned());
         self.write(&tokens)
     }
 
-    fn load(&self, device_id: &str) -> Option<String> {
+    fn load(&self, device_id: &str) -> Result<Option<String>, String> {
         let _guard = self
             .lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        self.read().ok()?.get(device_id).cloned()
+        Ok(self.read()?.get(device_id).cloned())
     }
 
     fn delete(&self, device_id: &str) -> Result<(), String> {
@@ -121,8 +129,13 @@ impl PairingTokenStore for PlatformPairingTokenStore {
             .map_err(|error| error.to_string())
     }
 
-    fn load(&self, device_id: &str) -> Option<String> {
-        Self::entry(device_id).ok()?.get_password().ok()
+    fn load(&self, device_id: &str) -> Result<Option<String>, String> {
+        let entry = Self::entry(device_id)?;
+        match entry.get_password() {
+            Ok(token) => Ok(Some(token)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(error.to_string()),
+        }
     }
 
     fn delete(&self, device_id: &str) -> Result<(), String> {
@@ -222,7 +235,7 @@ impl AppStorage {
         self.pairing_tokens.save(device_id, token)
     }
 
-    pub fn load_pairing_token(&self, device_id: &str) -> Option<String> {
+    pub fn load_pairing_token(&self, device_id: &str) -> Result<Option<String>, String> {
         self.pairing_tokens.load(device_id)
     }
 
@@ -293,8 +306,8 @@ mod tests {
             Ok(())
         }
 
-        fn load(&self, device_id: &str) -> Option<String> {
-            self.tokens.lock().unwrap().get(device_id).cloned()
+        fn load(&self, device_id: &str) -> Result<Option<String>, String> {
+            Ok(self.tokens.lock().unwrap().get(device_id).cloned())
         }
 
         fn delete(&self, device_id: &str) -> Result<(), String> {
@@ -331,16 +344,16 @@ mod tests {
     fn pairing_token_operations_use_the_injected_secure_store() {
         let store = isolated_storage(Box::<MemoryPairingTokenStore>::default());
 
-        assert_eq!(store.load_pairing_token("android-1"), None);
+        assert_eq!(store.load_pairing_token("android-1").unwrap(), None);
         store
             .save_pairing_token("android-1", "secret-token")
             .unwrap();
         assert_eq!(
-            store.load_pairing_token("android-1").as_deref(),
+            store.load_pairing_token("android-1").unwrap().as_deref(),
             Some("secret-token")
         );
         store.delete_pairing_token("android-1").unwrap();
-        assert_eq!(store.load_pairing_token("android-1"), None);
+        assert_eq!(store.load_pairing_token("android-1").unwrap(), None);
     }
 
     #[cfg(target_os = "macos")]
@@ -370,11 +383,33 @@ mod tests {
 
         let rebuilt = AppStorage::at(state_path);
         assert_eq!(
-            rebuilt.load_pairing_token("android-1").as_deref(),
+            rebuilt.load_pairing_token("android-1").unwrap().as_deref(),
             Some("persistent-token")
         );
         rebuilt.delete_pairing_token("android-1").unwrap();
-        assert_eq!(rebuilt.load_pairing_token("android-1"), None);
+        assert_eq!(rebuilt.load_pairing_token("android-1").unwrap(), None);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_pairing_token_errors_are_reported_and_repairable_by_pairing() {
+        let root = std::env::temp_dir().join(format!(
+            "switchify-preview-corrupt-pairing-tokens-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("pairing-tokens.json"), "not json").unwrap();
+        let store = AppStorage::at(root.join("preview-state.json"));
+
+        assert!(store.load_pairing_token("android-1").is_err());
+        store
+            .save_pairing_token("android-1", "replacement-token")
+            .unwrap();
+        assert_eq!(
+            store.load_pairing_token("android-1").unwrap().as_deref(),
+            Some("replacement-token")
+        );
         let _ = fs::remove_dir_all(root);
     }
 

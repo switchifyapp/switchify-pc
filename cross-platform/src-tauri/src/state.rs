@@ -288,12 +288,18 @@ impl AppModel {
         );
         let mut engine = ProtocolEngine::new(desktop_id.clone());
         let saved_pairing_count = saved.paired_devices.len();
-        let paired_devices = restore_paired_devices(
-            saved.paired_devices,
+        let saved_devices = saved.paired_devices;
+        let restored_devices = restore_paired_devices(
+            saved_devices.clone(),
             |device_id| storage.load_pairing_token(device_id),
             &mut engine,
         );
-        let discarded_legacy_pairing = paired_devices.len() < saved_pairing_count;
+        let (paired_devices, pairing_storage_error) = match restored_devices {
+            Ok(devices) => (devices, None),
+            Err(error) => (saved_devices, Some(error)),
+        };
+        let discarded_legacy_pairing =
+            pairing_storage_error.is_none() && paired_devices.len() < saved_pairing_count;
         let shared = Arc::new(Mutex::new(ModelData {
             engine,
             profiles,
@@ -304,10 +310,19 @@ impl AppModel {
                 pending_pairing: None,
                 paired_devices,
                 connected_device_name: None,
-                last_activity: discarded_legacy_pairing.then(|| Activity {
-                    kind: ActivityKind::Info,
-                    message: "Pair Android again once to finish the secure-storage upgrade.".into(),
-                }),
+                last_activity: pairing_storage_error
+                    .map(|error| Activity {
+                        kind: ActivityKind::Error,
+                        message: format!("Pairing storage could not be read: {error}"),
+                    })
+                    .or_else(|| {
+                        discarded_legacy_pairing.then(|| Activity {
+                            kind: ActivityKind::Info,
+                            message:
+                                "Pair Android again once to finish the secure-storage upgrade."
+                                    .into(),
+                        })
+                    }),
                 settings: saved.settings,
                 capabilities,
                 version: env!("CARGO_PKG_VERSION").into(),
@@ -351,18 +366,19 @@ impl AppModel {
 
 fn restore_paired_devices(
     devices: Vec<PairedDeviceView>,
-    mut load_token: impl FnMut(&str) -> Option<String>,
+    mut load_token: impl FnMut(&str) -> Result<Option<String>, String>,
     engine: &mut ProtocolEngine,
-) -> Vec<PairedDeviceView> {
+) -> Result<Vec<PairedDeviceView>, String> {
     devices
         .into_iter()
-        .filter(|device| {
-            let Some(token) = load_token(&device.device_id) else {
-                return false;
+        .map(|device| {
+            let Some(token) = load_token(&device.device_id)? else {
+                return Ok(None);
             };
             engine.set_paired_token(device.device_id.clone(), token);
-            true
+            Ok(Some(device))
         })
+        .filter_map(Result::transpose)
         .collect()
 }
 
@@ -413,9 +429,10 @@ mod tests {
         let mut engine = ProtocolEngine::new("desktop".into());
         let devices = restore_paired_devices(
             vec![available.clone(), legacy],
-            |device_id| (device_id == "available").then(|| "token".into()),
+            |device_id| Ok((device_id == "available").then(|| "token".into())),
             &mut engine,
-        );
+        )
+        .unwrap();
 
         assert_eq!(devices, vec![available]);
         assert_eq!(engine.token_for("available"), Some("token"));
