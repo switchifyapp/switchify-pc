@@ -4,6 +4,15 @@ import { App } from "./App";
 import { api, browserPreviewState } from "./api";
 
 describe("Switchify PC Preview shell", () => {
+  it("uses the Switchify application icon in the sidebar", async () => {
+    const { container } = render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    const brand = container.querySelector(".brand");
+    expect(brand).toHaveTextContent("SwitchifyPC Preview");
+    expect(brand?.querySelector("img.brand-mark")).toHaveAttribute("src", expect.stringContaining("icon.png"));
+    expect(brand?.querySelector("img.brand-mark")).toHaveAttribute("alt", "");
+  });
+
   it("renders the connection and permission state", async () => {
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Switchify PC" })).toBeInTheDocument();
