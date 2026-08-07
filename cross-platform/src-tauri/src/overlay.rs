@@ -20,6 +20,47 @@ const DEFAULT_DURATION: Duration = Duration::from_millis(900);
 const LANDING_DURATION: Duration = Duration::from_millis(300);
 const DOUBLE_CLICK_DURATION: Duration = Duration::from_millis(550);
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct CursorOverlayVisualTokens {
+    pub window_size: u32,
+    pub unit: f32,
+    pub ring_diameter: f32,
+    pub ring_stroke: f32,
+    pub glow_stroke: f32,
+    pub drag_dot_diameter: f32,
+    pub ring_alpha: u8,
+    pub glow_alpha: u8,
+    pub drag_glow_alpha: u8,
+    pub drag_dot_alpha: u8,
+    pub drag_ring_extra_stroke: f32,
+    pub drag_glow_scale: f32,
+}
+
+impl CursorOverlayVisualTokens {
+    fn create(logical_size: u32, scale: f64) -> Self {
+        let logical_size = if logical_size > 0 { logical_size } else { 128 };
+        let scale = normalized_scale(scale);
+        let logical = logical_size as f32;
+        let physical_window_size = (logical_size as f64 * scale).round();
+        let scale = scale as f32;
+        let ring_diameter = logical * 0.5625 * scale;
+        Self {
+            window_size: (physical_window_size as u32).max(1),
+            unit: logical * scale,
+            ring_diameter,
+            ring_stroke: (4.0 * scale).max(logical * 0.039 * scale),
+            glow_stroke: (18.0 * scale).max(logical * 0.1875 * scale),
+            drag_dot_diameter: ring_diameter * 0.22,
+            ring_alpha: 250,
+            glow_alpha: 62,
+            drag_glow_alpha: 66,
+            drag_dot_alpha: 240,
+            drag_ring_extra_stroke: 1.0,
+            drag_glow_scale: 1.08,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct CursorOverlay {
     sender: Sender<Command>,
@@ -293,35 +334,40 @@ fn color_for(value: &str) -> [u8; 3] {
 }
 
 pub(crate) fn render_marker(frame: &Frame, scale: f64) -> Pixmap {
-    let scale = if scale.is_finite() && scale > 0.0 {
-        scale
-    } else {
-        1.0
-    };
-    let size = ((frame.logical_size as f64 * scale).round() as u32).max(1);
-    let mut pixmap = Pixmap::new(size, size).expect("valid overlay pixmap size");
-    let unit = frame.logical_size as f32 * scale as f32;
-    let center = size as f32 / 2.0;
+    let scale = normalized_scale(scale);
+    let tokens = CursorOverlayVisualTokens::create(frame.logical_size, scale);
+    let mut pixmap =
+        Pixmap::new(tokens.window_size, tokens.window_size).expect("valid overlay pixmap size");
+    let unit = tokens.unit;
+    let center = tokens.window_size as f32 / 2.0;
     match frame.feedback {
         PointerFeedback::Click { .. } => draw_landing(&mut pixmap, center, unit, frame.color),
         PointerFeedback::Scroll { dx, dy } => {
-            draw_ring(&mut pixmap, center, unit, frame.color, false);
+            draw_ring(&mut pixmap, center, tokens, frame.color, false);
             draw_scroll(&mut pixmap, center, unit, frame.color, dx, dy);
         }
         PointerFeedback::RepeatScroll { dx, dy } => {
-            draw_ring(&mut pixmap, center, unit, frame.color, false);
+            draw_ring(&mut pixmap, center, tokens, frame.color, false);
             draw_scroll(&mut pixmap, center, unit, frame.color, dx, dy);
         }
         PointerFeedback::RepeatMove { accelerated } => {
-            draw_ring(&mut pixmap, center, unit, frame.color, false);
+            draw_ring(&mut pixmap, center, tokens, frame.color, false);
             if accelerated {
                 draw_repeat_progress(&mut pixmap, center, unit, frame.color);
             }
         }
-        PointerFeedback::Drag => draw_ring(&mut pixmap, center, unit, frame.color, true),
-        PointerFeedback::Move => draw_ring(&mut pixmap, center, unit, frame.color, false),
+        PointerFeedback::Drag => draw_ring(&mut pixmap, center, tokens, frame.color, true),
+        PointerFeedback::Move => draw_ring(&mut pixmap, center, tokens, frame.color, false),
     }
     pixmap
+}
+
+fn normalized_scale(scale: f64) -> f64 {
+    if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    }
 }
 
 fn draw_repeat_progress(pixmap: &mut Pixmap, center: f32, unit: f32, color: [u8; 3]) {
@@ -382,30 +428,53 @@ fn circle(
     }
 }
 
-fn draw_ring(pixmap: &mut Pixmap, center: f32, unit: f32, color: [u8; 3], drag: bool) {
-    let diameter = unit * 0.5625;
-    let ring = (unit * 0.039).max(4.0);
-    let glow = (unit * 0.1875).max(18.0);
+fn draw_ring(
+    pixmap: &mut Pixmap,
+    center: f32,
+    tokens: CursorOverlayVisualTokens,
+    color: [u8; 3],
+    drag: bool,
+) {
     circle(
         pixmap,
         center,
         center,
-        diameter / 2.0,
+        tokens.ring_diameter / 2.0,
         color,
-        if drag { 66 } else { 62 },
-        Some(if drag { glow * 1.08 } else { glow }),
+        if drag {
+            tokens.drag_glow_alpha
+        } else {
+            tokens.glow_alpha
+        },
+        Some(if drag {
+            tokens.glow_stroke * tokens.drag_glow_scale
+        } else {
+            tokens.glow_stroke
+        }),
     );
     circle(
         pixmap,
         center,
         center,
-        diameter / 2.0,
+        tokens.ring_diameter / 2.0,
         color,
-        250,
-        Some(if drag { ring + 1.0 } else { ring }),
+        tokens.ring_alpha,
+        Some(if drag {
+            tokens.ring_stroke + tokens.drag_ring_extra_stroke
+        } else {
+            tokens.ring_stroke
+        }),
     );
     if drag {
-        circle(pixmap, center, center, diameter * 0.11, color, 240, None);
+        circle(
+            pixmap,
+            center,
+            center,
+            tokens.drag_dot_diameter / 2.0,
+            color,
+            tokens.drag_dot_alpha,
+            None,
+        );
     }
 }
 
@@ -507,6 +576,112 @@ pub(crate) fn run_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ring_frame(feedback: PointerFeedback) -> Frame {
+        Frame {
+            feedback,
+            logical_size: 128,
+            color: [211, 47, 47],
+            crosshairs: false,
+        }
+    }
+
+    fn alpha_at(pixmap: &Pixmap, x: u32, y: u32) -> u8 {
+        pixmap.pixel(x, y).unwrap().alpha()
+    }
+
+    #[test]
+    fn visual_tokens_match_csharp_geometry_across_sizes_and_scales() {
+        for (logical_size, expected) in [
+            (96, [(96, 54.0), (144, 81.0), (192, 108.0)]),
+            (128, [(128, 72.0), (192, 108.0), (256, 144.0)]),
+            (176, [(176, 99.0), (264, 148.5), (352, 198.0)]),
+        ] {
+            for (index, scale) in [1.0, 1.5, 2.0].into_iter().enumerate() {
+                let tokens = CursorOverlayVisualTokens::create(logical_size, scale);
+                let (expected_window, expected_diameter) = expected[index];
+                assert_eq!(tokens.window_size, expected_window);
+                assert_eq!(tokens.ring_diameter, expected_diameter);
+                assert_eq!(tokens.drag_dot_diameter, expected_diameter * 0.22);
+                assert_eq!(tokens.ring_alpha, 250);
+                assert_eq!(tokens.glow_alpha, 62);
+                assert_eq!(tokens.drag_glow_alpha, 66);
+                assert_eq!(tokens.drag_dot_alpha, 240);
+                assert_eq!(tokens.drag_ring_extra_stroke, 1.0);
+                assert_eq!(tokens.drag_glow_scale, 1.08);
+            }
+        }
+
+        let small_retina = CursorOverlayVisualTokens::create(96, 2.0);
+        assert_eq!(small_retina.ring_stroke, 8.0);
+        assert_eq!(small_retina.glow_stroke, 36.0);
+    }
+
+    #[test]
+    fn invalid_visual_scale_falls_back_to_one() {
+        for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(
+                CursorOverlayVisualTokens::create(128, scale),
+                CursorOverlayVisualTokens::create(128, 1.0)
+            );
+        }
+    }
+
+    #[test]
+    fn movement_ring_has_csharp_solid_and_glow_alpha_falloff() {
+        let pixmap = render_marker(&ring_frame(PointerFeedback::Move), 1.0);
+        let center = pixmap.width() / 2;
+        let solid = alpha_at(&pixmap, center + 36, center);
+        let glow = alpha_at(&pixmap, center + 43, center);
+
+        assert!(solid > 240);
+        assert!((1..=80).contains(&glow));
+        assert_eq!(alpha_at(&pixmap, center, center), 0);
+    }
+
+    #[test]
+    fn drag_ring_uses_the_csharp_center_dot() {
+        let pixmap = render_marker(&ring_frame(PointerFeedback::Drag), 1.0);
+        let center = pixmap.width() / 2;
+        assert!(alpha_at(&pixmap, center, center) >= 240);
+        assert_eq!(alpha_at(&pixmap, center + 10, center), 0);
+    }
+
+    #[test]
+    fn every_ring_feedback_state_renders_the_shared_base_ring() {
+        for feedback in [
+            PointerFeedback::Move,
+            PointerFeedback::RepeatMove { accelerated: false },
+            PointerFeedback::RepeatMove { accelerated: true },
+            PointerFeedback::Drag,
+            PointerFeedback::Scroll { dx: 0, dy: 4 },
+            PointerFeedback::RepeatScroll { dx: 4, dy: 0 },
+        ] {
+            let pixmap = render_marker(&ring_frame(feedback), 1.0);
+            let center = pixmap.width() / 2;
+            assert!(alpha_at(&pixmap, center + 36, center) > 200);
+        }
+    }
+
+    #[test]
+    fn raster_output_is_premultiplied_rgba() {
+        for color in [
+            [211, 47, 47],
+            [132, 255, 145],
+            [100, 166, 255],
+            [255, 209, 102],
+            [255, 255, 255],
+        ] {
+            let mut frame = ring_frame(PointerFeedback::Move);
+            frame.color = color;
+            let pixmap = render_marker(&frame, 1.0);
+            for pixel in pixmap.data().chunks_exact(4) {
+                assert!(pixel[0] <= pixel[3]);
+                assert!(pixel[1] <= pixel[3]);
+                assert!(pixel[2] <= pixel[3]);
+            }
+        }
+    }
 
     #[test]
     fn transient_feedback_hides_after_its_deadline() {
