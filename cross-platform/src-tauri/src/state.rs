@@ -274,6 +274,10 @@ pub struct AppModel {
 impl AppModel {
     pub fn new() -> Self {
         let storage = AppStorage::new();
+        Self::with_storage(storage)
+    }
+
+    fn with_storage(storage: AppStorage) -> Self {
         let saved = storage.load().unwrap_or_else(|_| PersistedState::default());
         let desktop_id = saved
             .desktop_id
@@ -299,6 +303,7 @@ impl AppModel {
         };
         let discarded_legacy_pairing =
             pairing_storage_error.is_none() && paired_devices.len() < saved_pairing_count;
+        let pairing_storage_failed = pairing_storage_error.is_some();
         let shared = Arc::new(Mutex::new(ModelData {
             engine,
             profiles,
@@ -328,7 +333,9 @@ impl AppModel {
             },
         }));
         let model = Self { shared, storage };
-        let _ = model.persist();
+        if !pairing_storage_failed {
+            let _ = model.persist();
+        }
         model
     }
 
@@ -416,6 +423,8 @@ pub fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    use std::fs;
 
     #[test]
     fn paired_devices_without_accessible_tokens_are_removed_at_startup() {
@@ -474,6 +483,34 @@ mod tests {
         assert_eq!(result.unwrap_err(), "unreadable token store");
         assert_eq!(engine.token_for("first"), None);
         assert_eq!(engine.token_for("second"), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn startup_storage_failure_preserves_persisted_pairing_metadata() {
+        let root = std::env::temp_dir().join(format!(
+            "switchify-preview-startup-pairing-error-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state_path = root.join("preview-state.json");
+        let storage = AppStorage::at(state_path);
+        let saved = PersistedState {
+            paired_devices: vec![PairedDeviceView {
+                device_id: "android-1".into(),
+                device_name: "Android phone".into(),
+                paired_at: 1,
+                last_seen_at: None,
+            }],
+            ..PersistedState::default()
+        };
+        storage.save(&saved).unwrap();
+        fs::write(root.join("pairing-tokens.json"), "not json").unwrap();
+
+        let model = AppModel::with_storage(storage);
+
+        assert!(model.snapshot().paired_devices.is_empty());
+        assert_eq!(model.storage.load().unwrap().paired_devices.len(), 1);
+        let _ = fs::remove_dir_all(root);
     }
     #[test]
     fn settings_default_to_a_persistent_cursor_overlay() {
