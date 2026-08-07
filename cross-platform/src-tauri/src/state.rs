@@ -269,6 +269,7 @@ pub type SharedModel = Arc<Mutex<ModelData>>;
 pub struct AppModel {
     pub shared: SharedModel,
     pub storage: AppStorage,
+    preserved_paired_devices: Vec<PairedDeviceView>,
 }
 
 impl AppModel {
@@ -292,18 +293,19 @@ impl AppModel {
         );
         let mut engine = ProtocolEngine::new(desktop_id.clone());
         let saved_pairing_count = saved.paired_devices.len();
+        let saved_paired_devices = saved.paired_devices;
         let restored_devices = restore_paired_devices(
-            saved.paired_devices,
+            saved_paired_devices.clone(),
             |device_id| storage.load_pairing_token(device_id),
             &mut engine,
         );
-        let (paired_devices, pairing_storage_error) = match restored_devices {
-            Ok(devices) => (devices, None),
-            Err(error) => (Vec::new(), Some(error)),
-        };
+        let (paired_devices, preserved_paired_devices, pairing_storage_error) =
+            match restored_devices {
+                Ok(devices) => (devices, Vec::new(), None),
+                Err(error) => (Vec::new(), saved_paired_devices, Some(error)),
+            };
         let discarded_legacy_pairing =
             pairing_storage_error.is_none() && paired_devices.len() < saved_pairing_count;
-        let pairing_storage_failed = pairing_storage_error.is_some();
         let shared = Arc::new(Mutex::new(ModelData {
             engine,
             profiles,
@@ -332,10 +334,12 @@ impl AppModel {
                 version: env!("CARGO_PKG_VERSION").into(),
             },
         }));
-        let model = Self { shared, storage };
-        if !pairing_storage_failed {
-            let _ = model.persist();
-        }
+        let model = Self {
+            shared,
+            storage,
+            preserved_paired_devices,
+        };
+        let _ = model.persist();
         model
     }
 
@@ -353,10 +357,23 @@ impl AppModel {
             .shared
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut paired_devices = self
+            .preserved_paired_devices
+            .iter()
+            .filter(|preserved| {
+                !data
+                    .state
+                    .paired_devices
+                    .iter()
+                    .any(|active| active.device_id == preserved.device_id)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        paired_devices.extend(data.state.paired_devices.clone());
         PersistedState {
             schema_version: 1,
             desktop_id: Some(data.state.desktop_id.clone()),
-            paired_devices: data.state.paired_devices.clone(),
+            paired_devices,
             settings: settings
                 .cloned()
                 .unwrap_or_else(|| data.state.settings.clone()),
@@ -509,7 +526,25 @@ mod tests {
         let model = AppModel::with_storage(storage);
 
         assert!(model.snapshot().paired_devices.is_empty());
+        model.persist_settings(&AppSettings::default()).unwrap();
         assert_eq!(model.storage.load().unwrap().paired_devices.len(), 1);
+
+        model
+            .shared
+            .lock()
+            .unwrap()
+            .state
+            .paired_devices
+            .push(PairedDeviceView {
+                device_id: "android-1".into(),
+                device_name: "Re-paired phone".into(),
+                paired_at: 2,
+                last_seen_at: None,
+            });
+        model.persist().unwrap();
+        let repaired = model.storage.load().unwrap();
+        assert_eq!(repaired.paired_devices.len(), 1);
+        assert_eq!(repaired.paired_devices[0].device_name, "Re-paired phone");
         let _ = fs::remove_dir_all(root);
     }
     #[test]
