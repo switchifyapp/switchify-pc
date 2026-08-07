@@ -10,33 +10,46 @@ permissions:
   contents: read
 
 jobs:
-  validate:
-    runs-on: windows-latest
-
+  frontend:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
-          dotnet-version: 8.0.x
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
 
-      - name: Restore
-        run: dotnet restore src/SwitchifyPc.sln
-
-      - name: Build
-        run: dotnet build src/SwitchifyPc.sln -c Release --no-restore
-
-      - name: Test
-        run: dotnet test src/SwitchifyPc.sln -c Release --no-build
-
-      - name: Stage Windows package
-        shell: pwsh
-        run: ./scripts/Package-Windows.ps1 -StageOnly -SkipSign
-
-      - name: Verify staged Windows package
-        shell: pwsh
-        env:
-          SWITCHIFY_ALLOW_UNSIGNED_UIACCESS_PACKAGE: '1'
-        run: ./scripts/Verify-DotnetPackage.ps1
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundles: nsis
+          - os: macos-14
+            bundles: app,dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - run: npm ci
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - if: runner.os == 'macOS'
+        run: npm run tauri build -- --bundles ${{ matrix.bundles }} --no-sign
+      - if: runner.os == 'Windows'
+        run: npm run tauri build -- --bundles ${{ matrix.bundles }}
