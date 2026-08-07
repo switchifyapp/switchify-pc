@@ -53,7 +53,9 @@ describe("Switchify PC Preview shell", () => {
   it("creates a profile and records a desired key", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
-    fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+    const newProfile = await screen.findByRole("button", { name: "New profile" });
+    expect(newProfile).toHaveClass("primary");
+    fireEvent.click(newProfile);
     fireEvent.change(screen.getByRole("combobox", { name: "Switch 1 action" }), { target: { value: "shortcut" } });
     const recorder = screen.getByRole("textbox", { name: "Switch 1 key" });
     fireEvent.keyDown(recorder, { key: "K", ctrlKey: true });
