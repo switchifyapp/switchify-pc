@@ -13,7 +13,7 @@ use crate::state::{SwitchBinding, SwitchProfile};
 pub enum PointerFeedback {
     Move,
     Drag,
-    RepeatMove { accelerated: bool },
+    RepeatMove { accelerated: bool, dragging: bool },
     RepeatScroll { dx: i32, dy: i32 },
     Click { button: MouseButton, count: u8 },
     Scroll { dx: i32, dy: i32 },

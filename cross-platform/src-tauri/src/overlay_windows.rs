@@ -222,6 +222,7 @@ fn present_rgba(
     height: i32,
     rgba: &[u8],
 ) -> Result<(), String> {
+    validate_pixel_buffer(width, height, rgba.len())?;
     unsafe {
         let screen = GetDC(None);
         if screen.is_invalid() {
@@ -256,9 +257,7 @@ fn present_rgba(
         .map_err(|error| error.to_string())?;
         let old = SelectObject(memory, HGDIOBJ(bitmap.0));
         let output = std::slice::from_raw_parts_mut(bits.cast::<u8>(), rgba.len());
-        for (source, target) in rgba.chunks_exact(4).zip(output.chunks_exact_mut(4)) {
-            target.copy_from_slice(&[source[2], source[1], source[0], source[3]]);
-        }
+        copy_premultiplied_rgba_to_bgra(rgba, output)?;
         let destination = POINT { x, y };
         let size = SIZE {
             cx: width,
@@ -289,5 +288,51 @@ fn present_rgba(
         result.map_err(|error| error.to_string())?;
         let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
         Ok(())
+    }
+}
+
+fn validate_pixel_buffer(width: i32, height: i32, byte_len: usize) -> Result<(), String> {
+    let expected_len = usize::try_from(width)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(height)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .and_then(|pixels| pixels.checked_mul(4));
+    if expected_len != Some(byte_len) {
+        return Err("the overlay pixel buffer has an invalid length".into());
+    }
+    Ok(())
+}
+
+fn copy_premultiplied_rgba_to_bgra(source: &[u8], target: &mut [u8]) -> Result<(), String> {
+    if source.len() != target.len() || !source.len().is_multiple_of(4) {
+        return Err("the overlay pixel buffer has an invalid length".into());
+    }
+    for (source, target) in source.chunks_exact(4).zip(target.chunks_exact_mut(4)) {
+        target.copy_from_slice(&[source[2], source[1], source[0], source[3]]);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_conversion_preserves_premultiplied_channels_and_alpha() {
+        let source = [106, 24, 0, 128, 211, 47, 47, 255];
+        let mut target = [0; 8];
+        copy_premultiplied_rgba_to_bgra(&source, &mut target).unwrap();
+        assert_eq!(target, [0, 24, 106, 128, 47, 47, 211, 255]);
+    }
+
+    #[test]
+    fn windows_conversion_rejects_invalid_pixel_buffers() {
+        assert!(copy_premultiplied_rgba_to_bgra(&[1, 2, 3], &mut [0; 3]).is_err());
+        assert!(copy_premultiplied_rgba_to_bgra(&[1, 2, 3, 4], &mut [0; 8]).is_err());
+        assert!(validate_pixel_buffer(2, 2, 15).is_err());
+        assert!(validate_pixel_buffer(-1, 2, 8).is_err());
     }
 }

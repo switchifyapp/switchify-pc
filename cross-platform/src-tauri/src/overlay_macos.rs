@@ -6,15 +6,19 @@ use std::thread;
 use objc2::rc::Retained;
 use objc2::{AnyThread, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSBackingStoreType, NSBitmapImageRep, NSColor, NSDeviceRGBColorSpace, NSEvent, NSImage,
-    NSImageRep, NSImageView, NSPanel, NSScreen, NSStatusWindowLevel, NSWindowCollectionBehavior,
-    NSWindowStyleMask,
+    NSBackingStoreType, NSBitmapFormat, NSBitmapImageRep, NSCalibratedRGBColorSpace, NSColor,
+    NSEvent, NSImage, NSImageRep, NSImageView, NSPanel, NSScreen, NSStatusWindowLevel,
+    NSWindowCollectionBehavior, NSWindowStyleMask,
 };
 use objc2_foundation::{NSArray, NSPoint, NSRect, NSSize};
 use tauri::AppHandle;
 
 use crate::overlay::{render_marker, run_loop, Command, Frame};
 use crate::state::{emit_state, set_activity, ActivityKind, SharedModel};
+
+// With AlphaNonpremultiplied and AlphaFirst both absent, AppKit expects the
+// Tiny-Skia byte order: premultiplied RGBA.
+const PREMULTIPLIED_RGBA_BITMAP_FORMAT: NSBitmapFormat = NSBitmapFormat(0);
 
 thread_local! {
     static HOST: RefCell<Option<MacOverlayHost>> = const { RefCell::new(None) };
@@ -206,18 +210,20 @@ fn image_from_rgba(
     height: usize,
     logical_size: f64,
 ) -> Result<Retained<NSImage>, String> {
+    let layout = MacBitmapLayout::new(rgba.len(), width, height, logical_size)?;
     let representation = unsafe {
-        NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+        NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bitmapFormat_bytesPerRow_bitsPerPixel(
             NSBitmapImageRep::alloc(),
             ptr::null_mut(),
-            width as isize,
-            height as isize,
+            layout.width as isize,
+            layout.height as isize,
             8,
             4,
             true,
             false,
-            NSDeviceRGBColorSpace,
-            (width * 4) as isize,
+            NSCalibratedRGBColorSpace,
+            PREMULTIPLIED_RGBA_BITMAP_FORMAT,
+            layout.bytes_per_row as isize,
             32,
         )
     }
@@ -225,15 +231,57 @@ fn image_from_rgba(
     unsafe {
         ptr::copy_nonoverlapping(rgba.as_ptr(), representation.bitmapData(), rgba.len());
     }
+    representation.setSize(NSSize {
+        width: layout.logical_size,
+        height: layout.logical_size,
+    });
     let image = NSImage::initWithSize(
         NSImage::alloc(),
         NSSize {
-            width: logical_size,
-            height: logical_size,
+            width: layout.logical_size,
+            height: layout.logical_size,
         },
     );
     image.addRepresentation(&representation as &NSImageRep);
     Ok(image)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct MacBitmapLayout {
+    width: usize,
+    height: usize,
+    bytes_per_row: usize,
+    logical_size: f64,
+}
+
+impl MacBitmapLayout {
+    fn new(
+        byte_len: usize,
+        width: usize,
+        height: usize,
+        logical_size: f64,
+    ) -> Result<Self, String> {
+        let bytes_per_row = width
+            .checked_mul(4)
+            .ok_or_else(|| "the overlay bitmap width is invalid".to_string())?;
+        let expected_len = bytes_per_row
+            .checked_mul(height)
+            .ok_or_else(|| "the overlay bitmap height is invalid".to_string())?;
+        if width == 0
+            || height == 0
+            || byte_len != expected_len
+            || !logical_size.is_finite()
+            || logical_size <= 0.0
+        {
+            return Err("the overlay bitmap layout is invalid".into());
+        }
+        Ok(Self {
+            width,
+            height,
+            bytes_per_row,
+            logical_size,
+        })
+    }
 }
 
 fn screen_at_or_nearest_point(
@@ -384,5 +432,21 @@ mod tests {
     #[test]
     fn empty_display_list_cannot_resolve_a_screen() {
         assert_eq!(screen_index_at_point(&[], NSPoint { x: 0.0, y: 0.0 }), None);
+    }
+
+    #[test]
+    fn mac_bitmap_layout_preserves_retina_pixels_and_logical_size() {
+        let layout = MacBitmapLayout::new(256 * 256 * 4, 256, 256, 128.0).unwrap();
+        assert_eq!(layout.width, 256);
+        assert_eq!(layout.height, 256);
+        assert_eq!(layout.bytes_per_row, 1024);
+        assert_eq!(layout.logical_size, 128.0);
+        assert_eq!(PREMULTIPLIED_RGBA_BITMAP_FORMAT.0, 0);
+    }
+
+    #[test]
+    fn mac_bitmap_layout_rejects_mismatched_pixel_buffers() {
+        assert!(MacBitmapLayout::new(15, 2, 2, 2.0).is_err());
+        assert!(MacBitmapLayout::new(16, 2, 2, f64::NAN).is_err());
     }
 }
