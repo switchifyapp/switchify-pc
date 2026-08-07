@@ -269,11 +269,16 @@ pub type SharedModel = Arc<Mutex<ModelData>>;
 pub struct AppModel {
     pub shared: SharedModel,
     pub storage: AppStorage,
+    preserved_paired_devices: Vec<PairedDeviceView>,
 }
 
 impl AppModel {
     pub fn new() -> Self {
         let storage = AppStorage::new();
+        Self::with_storage(storage)
+    }
+
+    fn with_storage(storage: AppStorage) -> Self {
         let saved = storage.load().unwrap_or_else(|_| PersistedState::default());
         let desktop_id = saved
             .desktop_id
@@ -288,12 +293,19 @@ impl AppModel {
         );
         let mut engine = ProtocolEngine::new(desktop_id.clone());
         let saved_pairing_count = saved.paired_devices.len();
-        let paired_devices = restore_paired_devices(
-            saved.paired_devices,
+        let saved_paired_devices = saved.paired_devices;
+        let restored_devices = restore_paired_devices(
+            saved_paired_devices.clone(),
             |device_id| storage.load_pairing_token(device_id),
             &mut engine,
         );
-        let discarded_legacy_pairing = paired_devices.len() < saved_pairing_count;
+        let (paired_devices, preserved_paired_devices, pairing_storage_error) =
+            match restored_devices {
+                Ok(devices) => (devices, Vec::new(), None),
+                Err(error) => (Vec::new(), saved_paired_devices, Some(error)),
+            };
+        let discarded_legacy_pairing =
+            pairing_storage_error.is_none() && paired_devices.len() < saved_pairing_count;
         let shared = Arc::new(Mutex::new(ModelData {
             engine,
             profiles,
@@ -304,16 +316,29 @@ impl AppModel {
                 pending_pairing: None,
                 paired_devices,
                 connected_device_name: None,
-                last_activity: discarded_legacy_pairing.then(|| Activity {
-                    kind: ActivityKind::Info,
-                    message: "Pair Android again once to finish the secure-storage upgrade.".into(),
-                }),
+                last_activity: pairing_storage_error
+                    .map(|error| Activity {
+                        kind: ActivityKind::Error,
+                        message: format!("Pairing storage could not be read: {error}"),
+                    })
+                    .or_else(|| {
+                        discarded_legacy_pairing.then(|| Activity {
+                            kind: ActivityKind::Info,
+                            message:
+                                "Pair Android again once to finish the secure-storage upgrade."
+                                    .into(),
+                        })
+                    }),
                 settings: saved.settings,
                 capabilities,
                 version: env!("CARGO_PKG_VERSION").into(),
             },
         }));
-        let model = Self { shared, storage };
+        let model = Self {
+            shared,
+            storage,
+            preserved_paired_devices,
+        };
         let _ = model.persist();
         model
     }
@@ -332,10 +357,23 @@ impl AppModel {
             .shared
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut paired_devices = self
+            .preserved_paired_devices
+            .iter()
+            .filter(|preserved| {
+                !data
+                    .state
+                    .paired_devices
+                    .iter()
+                    .any(|active| active.device_id == preserved.device_id)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        paired_devices.extend(data.state.paired_devices.clone());
         PersistedState {
             schema_version: 1,
             desktop_id: Some(data.state.desktop_id.clone()),
-            paired_devices: data.state.paired_devices.clone(),
+            paired_devices,
             settings: settings
                 .cloned()
                 .unwrap_or_else(|| data.state.settings.clone()),
@@ -351,19 +389,26 @@ impl AppModel {
 
 fn restore_paired_devices(
     devices: Vec<PairedDeviceView>,
-    mut load_token: impl FnMut(&str) -> Option<String>,
+    mut load_token: impl FnMut(&str) -> Result<Option<String>, String>,
     engine: &mut ProtocolEngine,
-) -> Vec<PairedDeviceView> {
-    devices
+) -> Result<Vec<PairedDeviceView>, String> {
+    let restored = devices
         .into_iter()
-        .filter(|device| {
-            let Some(token) = load_token(&device.device_id) else {
-                return false;
+        .map(|device| {
+            let Some(token) = load_token(&device.device_id)? else {
+                return Ok(None);
             };
-            engine.set_paired_token(device.device_id.clone(), token);
-            true
+            Ok(Some((device, token)))
         })
-        .collect()
+        .filter_map(Result::transpose)
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(restored
+        .into_iter()
+        .map(|(device, token)| {
+            engine.set_paired_token(device.device_id.clone(), token);
+            device
+        })
+        .collect())
 }
 
 pub fn snapshot(shared: &SharedModel) -> AppState {
@@ -395,6 +440,8 @@ pub fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    use std::fs;
 
     #[test]
     fn paired_devices_without_accessible_tokens_are_removed_at_startup() {
@@ -413,13 +460,92 @@ mod tests {
         let mut engine = ProtocolEngine::new("desktop".into());
         let devices = restore_paired_devices(
             vec![available.clone(), legacy],
-            |device_id| (device_id == "available").then(|| "token".into()),
+            |device_id| Ok((device_id == "available").then(|| "token".into())),
             &mut engine,
-        );
+        )
+        .unwrap();
 
         assert_eq!(devices, vec![available]);
         assert_eq!(engine.token_for("available"), Some("token"));
         assert_eq!(engine.token_for("legacy"), None);
+    }
+
+    #[test]
+    fn pairing_restoration_is_transactional_when_storage_fails() {
+        let first = PairedDeviceView {
+            device_id: "first".into(),
+            device_name: "First phone".into(),
+            paired_at: 1,
+            last_seen_at: None,
+        };
+        let second = PairedDeviceView {
+            device_id: "second".into(),
+            device_name: "Second phone".into(),
+            paired_at: 2,
+            last_seen_at: None,
+        };
+        let mut engine = ProtocolEngine::new("desktop".into());
+        let result = restore_paired_devices(
+            vec![first, second],
+            |device_id| {
+                if device_id == "first" {
+                    Ok(Some("token".into()))
+                } else {
+                    Err("unreadable token store".into())
+                }
+            },
+            &mut engine,
+        );
+
+        assert_eq!(result.unwrap_err(), "unreadable token store");
+        assert_eq!(engine.token_for("first"), None);
+        assert_eq!(engine.token_for("second"), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn startup_storage_failure_preserves_persisted_pairing_metadata() {
+        let root = std::env::temp_dir().join(format!(
+            "switchify-preview-startup-pairing-error-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state_path = root.join("preview-state.json");
+        let storage = AppStorage::at(state_path);
+        let saved = PersistedState {
+            paired_devices: vec![PairedDeviceView {
+                device_id: "android-1".into(),
+                device_name: "Android phone".into(),
+                paired_at: 1,
+                last_seen_at: None,
+            }],
+            ..PersistedState::default()
+        };
+        storage.save(&saved).unwrap();
+        fs::write(root.join("pairing-tokens.json"), "not json").unwrap();
+
+        let model = AppModel::with_storage(storage);
+
+        assert!(model.snapshot().paired_devices.is_empty());
+        model.persist_settings(&AppSettings::default()).unwrap();
+        assert_eq!(model.storage.load().unwrap().paired_devices.len(), 1);
+
+        model
+            .shared
+            .lock()
+            .unwrap()
+            .state
+            .paired_devices
+            .push(PairedDeviceView {
+                device_id: "android-1".into(),
+                device_name: "Re-paired phone".into(),
+                paired_at: 2,
+                last_seen_at: None,
+            });
+        model.persist().unwrap();
+        let repaired = model.storage.load().unwrap();
+        assert_eq!(repaired.paired_devices.len(), 1);
+        assert_eq!(repaired.paired_devices[0].device_name, "Re-paired phone");
+        let _ = fs::remove_dir_all(root);
     }
     #[test]
     fn settings_default_to_a_persistent_cursor_overlay() {
