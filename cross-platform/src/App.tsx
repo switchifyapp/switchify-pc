@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Accessibility, Bluetooth, CheckCircle2, ChevronRight, CircleHelp, Download,
-  Home, Keyboard, MousePointer2, Plus, Power, Radio, RefreshCw, Save, Settings,
+  Home, Keyboard, Plus, Power, Radio, RefreshCw, Save, Settings,
   ShieldCheck, SlidersHorizontal, Smartphone, Trash2, WifiOff, Wrench, X,
 } from "lucide-react";
 import { api } from "./api";
 import type { AppSettings, AppState, SwitchProfile } from "./types";
 
 type View = "home" | "devices" | "profiles" | "settings" | "support";
+
+const brandIconUrl = new URL("../src-tauri/icons/icon.png", import.meta.url).href;
 
 const bluetoothLabels: Record<AppState["bluetooth"], string> = {
   initializing: "Starting Bluetooth...", advertising: "Ready to connect", connected: "Device connected",
@@ -237,7 +239,7 @@ export function App() {
 
   if (!state || !settings) return <div className="loading"><RefreshCw className="spin" size={24} /><span>Starting Switchify PC Preview...</span></div>;
   return <div className="app-shell">
-    <aside><div className="brand"><span className="brand-mark"><MousePointer2 size={21} /></span><div><strong>Switchify</strong><small>PC Preview</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id} icon={icon} onClick={() => setView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><CircleHelp size={16} /><span>{state.capabilities.platform === "macos" ? "macOS" : "Windows"} preview</span></div></aside>
+    <aside><div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC Preview</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id} icon={icon} onClick={() => setView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><CircleHelp size={16} /><span>{state.capabilities.platform === "macos" ? "macOS" : "Windows"} preview</span></div></aside>
     <main>
       {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
       {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onSetup={() => setView("support")} />}
