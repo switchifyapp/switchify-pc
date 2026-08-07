@@ -90,12 +90,14 @@ impl CursorOverlay {
         generation: u64,
         command: RepeatCommand,
         accelerated: bool,
+        dragging: bool,
         settings: AppSettings,
     ) {
         let _ = self.sender.send(Command::BeginRepeat(
             generation,
             command,
             accelerated,
+            dragging,
             settings,
         ));
     }
@@ -113,7 +115,7 @@ pub(crate) enum Command {
     Show(PointerFeedback, AppSettings),
     MarkControlActive(AppSettings),
     ApplySettings(AppSettings),
-    BeginRepeat(u64, RepeatCommand, bool, AppSettings),
+    BeginRepeat(u64, RepeatCommand, bool, bool, AppSettings),
     EndRepeat(u64),
     EndSession,
 }
@@ -202,16 +204,19 @@ impl OverlayEngine {
                 }
                 Update::None
             }
-            Command::BeginRepeat(generation, command, accelerated, settings) => {
+            Command::BeginRepeat(generation, command, accelerated, dragging, settings) => {
                 self.settings = settings;
                 if !self.settings.cursor_overlay_enabled {
                     return self.hide();
                 }
                 self.control_active = true;
-                self.drag_active = false;
+                self.drag_active = dragging;
                 self.repeat_generation = Some(generation);
                 let feedback = match command {
-                    RepeatCommand::Move { .. } => PointerFeedback::RepeatMove { accelerated },
+                    RepeatCommand::Move { .. } => PointerFeedback::RepeatMove {
+                        accelerated,
+                        dragging,
+                    },
                     RepeatCommand::Scroll { dx, dy } => PointerFeedback::RepeatScroll { dx, dy },
                 };
                 self.feedback = Some(feedback);
@@ -227,12 +232,18 @@ impl OverlayEngine {
                 self.repeat_generation = None;
                 if self.control_active
                     && self.settings.cursor_overlay_enabled
-                    && self.settings.cursor_overlay_visibility == "whileControlling"
+                    && (self.drag_active
+                        || self.settings.cursor_overlay_visibility == "whileControlling")
                 {
-                    self.feedback = Some(PointerFeedback::Move);
+                    let feedback = if self.drag_active {
+                        PointerFeedback::Drag
+                    } else {
+                        PointerFeedback::Move
+                    };
+                    self.feedback = Some(feedback);
                     self.next_follow = now + FOLLOW_INTERVAL;
                     self.visible = true;
-                    Update::Render(self.frame(PointerFeedback::Move))
+                    Update::Render(self.frame(feedback))
                 } else {
                     self.feedback = None;
                     self.hide()
@@ -263,7 +274,7 @@ impl OverlayEngine {
         }
         if self.visible && self.persistent() && now >= self.next_follow {
             self.next_follow = now + FOLLOW_INTERVAL;
-            let feedback = if self.drag_active {
+            let feedback = if self.drag_active && self.repeat_generation.is_none() {
                 PointerFeedback::Drag
             } else {
                 self.feedback.unwrap_or(PointerFeedback::Move)
@@ -350,8 +361,11 @@ pub(crate) fn render_marker(frame: &Frame, scale: f64) -> Pixmap {
             draw_ring(&mut pixmap, center, tokens, frame.color, false);
             draw_scroll(&mut pixmap, center, unit, frame.color, dx, dy);
         }
-        PointerFeedback::RepeatMove { accelerated } => {
-            draw_ring(&mut pixmap, center, tokens, frame.color, false);
+        PointerFeedback::RepeatMove {
+            accelerated,
+            dragging,
+        } => {
+            draw_ring(&mut pixmap, center, tokens, frame.color, dragging);
             if accelerated {
                 draw_repeat_progress(&mut pixmap, center, unit, frame.color);
             }
@@ -641,18 +655,32 @@ mod tests {
 
     #[test]
     fn drag_ring_uses_the_csharp_center_dot() {
-        let pixmap = render_marker(&ring_frame(PointerFeedback::Drag), 1.0);
-        let center = pixmap.width() / 2;
-        assert!(alpha_at(&pixmap, center, center) >= 240);
-        assert_eq!(alpha_at(&pixmap, center + 10, center), 0);
+        for feedback in [
+            PointerFeedback::Drag,
+            PointerFeedback::RepeatMove {
+                accelerated: true,
+                dragging: true,
+            },
+        ] {
+            let pixmap = render_marker(&ring_frame(feedback), 1.0);
+            let center = pixmap.width() / 2;
+            assert!(alpha_at(&pixmap, center, center) >= 240);
+            assert_eq!(alpha_at(&pixmap, center + 10, center), 0);
+        }
     }
 
     #[test]
     fn every_ring_feedback_state_renders_the_shared_base_ring() {
         for feedback in [
             PointerFeedback::Move,
-            PointerFeedback::RepeatMove { accelerated: false },
-            PointerFeedback::RepeatMove { accelerated: true },
+            PointerFeedback::RepeatMove {
+                accelerated: false,
+                dragging: false,
+            },
+            PointerFeedback::RepeatMove {
+                accelerated: true,
+                dragging: false,
+            },
             PointerFeedback::Drag,
             PointerFeedback::Scroll { dx: 0, dy: 4 },
             PointerFeedback::RepeatScroll { dx: 4, dy: 0 },
@@ -828,6 +856,7 @@ mod tests {
                 4,
                 RepeatCommand::Move { dx: 10, dy: 0 },
                 true,
+                false,
                 AppSettings::default(),
             ),
             now,
@@ -851,7 +880,13 @@ mod tests {
         };
         let mut engine = OverlayEngine::new(now);
         engine.handle(
-            Command::BeginRepeat(7, RepeatCommand::Scroll { dx: 0, dy: 5 }, false, settings),
+            Command::BeginRepeat(
+                7,
+                RepeatCommand::Scroll { dx: 0, dy: 5 },
+                false,
+                false,
+                settings,
+            ),
             now,
         );
         assert!(matches!(
@@ -862,5 +897,53 @@ mod tests {
             engine.handle(Command::EndRepeat(7), now + DEFAULT_DURATION),
             Update::Hide
         ));
+    }
+
+    #[test]
+    fn repeat_movement_preserves_drag_until_drag_end() {
+        let now = Instant::now();
+        let mut engine = OverlayEngine::new(now);
+        let settings = AppSettings {
+            cursor_overlay_visibility: "onInput".into(),
+            ..AppSettings::default()
+        };
+
+        engine.handle(Command::Show(PointerFeedback::Drag, settings.clone()), now);
+        let Update::Render(started) = engine.handle(
+            Command::BeginRepeat(
+                8,
+                RepeatCommand::Move { dx: 10, dy: 0 },
+                true,
+                true,
+                settings.clone(),
+            ),
+            now,
+        ) else {
+            panic!("expected drag repeat frame");
+        };
+        assert_eq!(
+            started.feedback,
+            PointerFeedback::RepeatMove {
+                accelerated: true,
+                dragging: true,
+            }
+        );
+
+        let Update::Render(followed) = engine.tick(now + FOLLOW_INTERVAL) else {
+            panic!("expected followed drag repeat frame");
+        };
+        assert_eq!(followed.feedback, started.feedback);
+
+        let Update::Render(stopped) = engine.handle(Command::EndRepeat(8), now) else {
+            panic!("expected restored drag frame");
+        };
+        assert_eq!(stopped.feedback, PointerFeedback::Drag);
+
+        let Update::Render(released) =
+            engine.handle(Command::Show(PointerFeedback::Move, settings), now)
+        else {
+            panic!("expected released movement frame");
+        };
+        assert_eq!(released.feedback, PointerFeedback::Move);
     }
 }

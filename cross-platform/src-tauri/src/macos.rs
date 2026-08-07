@@ -859,7 +859,7 @@ impl MacRuntime {
             } else {
                 1.0
             };
-            input.execute_repeat(repeat_command, initial_scale)?;
+            let initial_feedback = input.execute_repeat(repeat_command, initial_scale)?;
             let active = self.repeats.start(
                 command.device_id.clone(),
                 repeat_command,
@@ -870,6 +870,7 @@ impl MacRuntime {
                 active.generation,
                 repeat_command,
                 settings.mouse_repeat_acceleration_duration_ms > 0,
+                matches!(initial_feedback, PointerFeedback::Drag),
                 settings.clone(),
             );
             self.schedule_repeat_tick(

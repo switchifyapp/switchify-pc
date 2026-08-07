@@ -631,7 +631,7 @@ fn complete_repeat_start(
         } else {
             1.0
         };
-        let active = {
+        let (active, initial_feedback) = {
             let mut guard = runtime()
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -641,20 +641,24 @@ fn complete_repeat_start(
             runtime
                 .input
                 .set_pointer_scale_percent(settings.pointer_scale_percent);
-            runtime
+            let initial_feedback = runtime
                 .input
                 .execute_repeat(repeat_command, initial_scale)?;
-            runtime.repeats.start(
-                command.device_id.clone(),
-                repeat_command,
-                settings.mouse_repeat_acceleration_duration_ms,
-                crate::state::now_ms(),
+            (
+                runtime.repeats.start(
+                    command.device_id.clone(),
+                    repeat_command,
+                    settings.mouse_repeat_acceleration_duration_ms,
+                    crate::state::now_ms(),
+                ),
+                initial_feedback,
             )
         };
         app.state::<CursorOverlay>().begin_repeat(
             active.generation,
             repeat_command,
             settings.mouse_repeat_acceleration_duration_ms > 0,
+            matches!(initial_feedback, PointerFeedback::Drag),
             settings,
         );
         spawn_repeat_loop(
