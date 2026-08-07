@@ -5,6 +5,7 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --brand: #d32f2f;
+  --brand-label: #b3261e;
   --brand-hover: #b3261e;
   --brand-container: #ffdad6;
   --brand-border: #efb8b4;
@@ -38,7 +39,7 @@ aside { position: sticky; top: 0; display: flex; flex-direction: column; height:
 .brand { display: flex; align-items: center; gap: 11px; min-height: 44px; padding: 0 8px 18px; }
 .brand-mark { display: block; width: 36px; height: 36px; border-radius: 8px; object-fit: contain; }
 .brand strong, .brand small { display: block; }
-.brand strong { color: var(--brand); font-size: 15px; }
+.brand strong { color: var(--brand-label); font-size: 15px; }
 .brand small { margin-top: 2px; color: var(--muted); font-size: 12px; }
 nav { display: grid; gap: 3px; }
 .nav-button { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 40px; border: 0; border-radius: 6px; padding: 0 11px; color: var(--muted); background: transparent; cursor: pointer; text-align: left; }
@@ -206,6 +207,7 @@ button:disabled { cursor: default; opacity: 0.55; }
 @media (prefers-color-scheme: dark) {
   :root {
     --brand: #d65a52;
+    --brand-label: #ffb4ab;
     --brand-hover: #e06b63;
     --brand-container: #5b1b18;
     --brand-border: #8f4943;
