@@ -22,7 +22,7 @@ export const browserState: AppState = {
     platform: navigator.userAgent.includes("Mac") ? "macos" : "windows",
     grid3: false, uiAccess: false, displayNavigation: false, cursorOverlay: true,
   },
-  version: "0.1.0",
+  version: "1.0.0-beta.1",
 };
 
 const emptyBindings = () => Array.from({ length: 8 }, (_, index) => ({
