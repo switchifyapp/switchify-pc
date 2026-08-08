@@ -83,7 +83,7 @@ describe("Switchify PC shell", () => {
     render(<App />);
 
     const dialog = await screen.findByRole("dialog", { name: "Pairing requests" });
-    expect(dialog).toHaveFocus();
+    await waitFor(() => expect(dialog).toHaveFocus());
     expect(screen.getByText("Connected to Connected tablet")).toBeInTheDocument();
     const devices = within(dialog).getAllByRole("heading", { level: 3 });
     expect(devices.map((heading) => heading.textContent)).toEqual(["Galaxy", "Pixel"]);
