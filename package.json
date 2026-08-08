@@ -11,6 +11,8 @@
     "lint": "tsc --noEmit",
     "macos:setup-signing": "./scripts/setup-macos-dev-signing.sh",
     "macos:run": "./scripts/run-macos-signed.sh",
+    "windows:package": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Build-WindowsUiAccess.ps1",
+    "windows:verify-package": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Verify-WindowsUiAccessPackage.ps1",
     "tauri": "tauri"
   },
   "dependencies": {
