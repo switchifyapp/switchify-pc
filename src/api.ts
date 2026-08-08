@@ -6,7 +6,7 @@ export const browserState: AppState = {
   bluetooth: "initializing",
   accessibility: "required",
   desktopId: "browser",
-  pendingPairing: null,
+  pendingPairings: [],
   pairedDevices: [],
   connectedDeviceName: null,
   lastActivity: null,

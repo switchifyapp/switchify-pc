@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { api, browserState } from "./api";
@@ -13,6 +13,8 @@ function stateWithSettings(settings: AppSettings) {
 describe("Switchify PC shell", () => {
   beforeEach(() => {
     browserState.settings = structuredClone(defaultBrowserSettings);
+    browserState.pendingPairings = [];
+    browserState.connectedDeviceName = null;
   });
 
   afterEach(() => {
@@ -65,6 +67,33 @@ describe("Switchify PC shell", () => {
     expect(await screen.findByRole("heading", { name: "Switchify PC" })).toBeInTheDocument();
     expect(screen.getByText("Input access")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open Accessibility Settings" })).toBeInTheDocument();
+  });
+
+  it("handles simultaneous pairing requests without discarding the queue", async () => {
+    browserState.connectedDeviceName = "Connected tablet";
+    browserState.pendingPairings = [
+      { requestId: "pair-2", deviceId: "android-2", deviceName: "Galaxy", verificationCode: "222222", expiresAt: 2 },
+      { requestId: "pair-1", deviceId: "android-1", deviceName: "Pixel", verificationCode: "111111", expiresAt: 1 },
+    ];
+    const approve = vi.spyOn(api, "approvePairing").mockImplementation(async (requestId) => ({
+      ...structuredClone(browserState),
+      pendingPairings: browserState.pendingPairings.filter((request) => request.requestId !== requestId),
+    }));
+
+    render(<App />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Pairing requests" });
+    await waitFor(() => expect(dialog).toHaveFocus());
+    expect(screen.getByText("Connected to Connected tablet")).toBeInTheDocument();
+    const devices = within(dialog).getAllByRole("heading", { level: 3 });
+    expect(devices.map((heading) => heading.textContent)).toEqual(["Galaxy", "Pixel"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Accept pairing request from Galaxy, code 222222" }));
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Galaxy" })).not.toBeInTheDocument());
+    expect(approve).toHaveBeenCalledWith("pair-2");
+    expect(screen.getByRole("heading", { name: "Pixel" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reject pairing request from Pixel, code 111111" })).toHaveFocus();
   });
 
   it("opens settings with accessible native controls", async () => {

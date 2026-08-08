@@ -163,12 +163,19 @@ button:disabled { cursor: default; opacity: 0.55; }
 .task-list .permission-recovery { margin-top: 8px; color: var(--text); }
 
 .modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(28, 27, 31, 0.48); }
-.pairing-dialog { width: min(100%, 410px); border: 1px solid var(--border); border-radius: 8px; padding: 28px; color: var(--text); background: var(--surface); box-shadow: 0 20px 60px rgba(28, 27, 31, 0.2); text-align: center; }
-.pairing-dialog > svg { color: var(--brand); }
-.pairing-dialog h2 { margin-top: 12px; font-size: 19px; }
-.pairing-dialog p { margin-top: 7px; color: var(--muted); font-size: 13px; }
-.pairing-dialog output { display: block; margin: 22px 0; color: var(--text); font: 700 34px/1 ui-monospace, monospace; letter-spacing: 0.14em; }
-.pairing-dialog > div { display: flex; justify-content: flex-end; gap: 9px; }
+.pairing-dialog { width: min(100%, 620px); max-height: calc(100vh - 40px); overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 24px; color: var(--text); background: var(--surface); box-shadow: 0 20px 60px rgba(28, 27, 31, 0.2); }
+.pairing-dialog:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.pairing-dialog > header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 12px; }
+.pairing-dialog > header > svg { margin-top: 2px; color: var(--brand); }
+.pairing-dialog > header > span { display: grid; place-items: center; min-width: 28px; height: 28px; border-radius: 14px; color: var(--on-brand-container); background: var(--brand-container); font-size: 12px; font-weight: 700; }
+.pairing-dialog h2 { font-size: 19px; }
+.pairing-dialog h3 { font-size: 14px; }
+.pairing-dialog p { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.pairing-dialog .pairing-connection { color: var(--text); }
+.pairing-list { margin-top: 20px; border-top: 1px solid var(--border); }
+.pairing-list article { display: grid; grid-template-columns: minmax(110px, 1fr) auto auto; align-items: center; gap: 16px; min-height: 88px; border-bottom: 1px solid var(--border); padding: 12px 0; }
+.pairing-list output { color: var(--text); font: 700 25px/1 ui-monospace, monospace; letter-spacing: 0.12em; white-space: nowrap; }
+.pairing-actions { display: flex; gap: 8px; }
 .profile-dialog { width: min(100%, 700px); max-height: calc(100vh - 40px); overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 24px; color: inherit; background: var(--surface); box-shadow: 0 20px 60px rgba(28, 27, 31, 0.2); }
 .profile-dialog > header, .profile-dialog > footer { display: flex; align-items: center; gap: 10px; }
 .profile-dialog > header { justify-content: space-between; }
@@ -193,6 +200,8 @@ button:disabled { cursor: default; opacity: 0.55; }
   .brand, .sidebar-footer { display: none; }
   nav { grid-template-columns: repeat(5, 1fr); }
   .nav-button { justify-content: center; min-height: 48px; padding: 0; }
+  .pairing-list article { grid-template-columns: minmax(0, 1fr) auto; }
+  .pairing-actions { grid-column: 1 / -1; justify-content: flex-end; }
   .nav-button span { display: none; }
   .view { padding: 24px 20px 38px; }
   .connection-band { grid-template-columns: auto 1fr; }
