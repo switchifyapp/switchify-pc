@@ -18,7 +18,7 @@ describe("Switchify PC shell", () => {
     browserState.connectedDeviceName = null;
     browserState.diagnostics = { recentBluetooth: [], lastDisconnect: null, recentErrors: [] };
     browserState.telemetry = { consent: "undecided", available: true };
-    browserState.setup = { shown: true, completed: false };
+    browserState.setup = { shown: true, completed: false, autoOpenEligible: false };
   });
 
   afterEach(() => {
@@ -74,7 +74,7 @@ describe("Switchify PC shell", () => {
   });
 
   it("opens setup once for a fresh unpaired user and persists dismissal", async () => {
-    browserState.setup = { shown: false, completed: false };
+    browserState.setup = { shown: false, completed: false, autoOpenEligible: true };
     const markShown = vi.spyOn(api, "markSetupShown");
     render(<App />);
     const guide = await screen.findByRole("dialog", { name: "Bluetooth and input access" });
@@ -87,8 +87,16 @@ describe("Switchify PC shell", () => {
   });
 
   it("does not force setup on an existing paired user", async () => {
-    browserState.setup = { shown: false, completed: false };
+    browserState.setup = { shown: false, completed: false, autoOpenEligible: false };
     browserState.pairedDevices = [{ deviceId: "phone-1", deviceName: "Pixel", pairedAt: 1, lastSeenAt: null }];
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("does not infer first-run eligibility from a temporarily empty device list", async () => {
+    browserState.setup = { shown: false, completed: false, autoOpenEligible: false };
+    browserState.pairedDevices = [];
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -100,7 +108,7 @@ describe("Switchify PC shell", () => {
       ...structuredClone(browserState),
       settings: { ...structuredClone(browserState.settings), startWithSystem, shareDiagnostics },
       telemetry: { ...browserState.telemetry, consent: shareDiagnostics ? "enabled" : "disabled" },
-      setup: { shown: true, completed: true },
+      setup: { shown: true, completed: true, autoOpenEligible: false },
     }));
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Support" }));

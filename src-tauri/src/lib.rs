@@ -353,7 +353,8 @@ fn complete_setup(
         return Err("Pair an Android device before finishing setup.".into());
     }
     let mut settings = model.snapshot().settings;
-    if settings.start_with_system != start_with_system {
+    let previous_start = settings.start_with_system;
+    if previous_start != start_with_system {
         update_startup_registration(&app, start_with_system)?;
     }
     settings.start_with_system = start_with_system;
@@ -363,20 +364,19 @@ fn complete_setup(
     } else {
         TelemetryConsent::Disabled
     };
-    if !share_diagnostics {
-        model.set_telemetry_consent(consent);
+    match model.apply_setup_completion(settings, consent) {
+        Ok(state) => Ok(state),
+        Err(error) => {
+            if previous_start != start_with_system {
+                if let Err(rollback_error) = update_startup_registration(&app, previous_start) {
+                    return Err(format!(
+                        "{error}; startup registration could not be restored: {rollback_error}"
+                    ));
+                }
+            }
+            Err(error)
+        }
     }
-    model.persist_settings_with_telemetry(&settings, consent)?;
-    if share_diagnostics {
-        model.set_telemetry_consent(consent);
-    }
-    model
-        .shared
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .state
-        .settings = settings;
-    model.mark_setup_completed()
 }
 
 #[cfg(target_os = "windows")]

@@ -626,7 +626,7 @@ export function App() {
   useEffect(() => {
     if (!state || autoSetupHandled.current) return;
     autoSetupHandled.current = true;
-    if (!state.setup.shown && !state.setup.completed && state.pairedDevices.length === 0) openSetup();
+    if (state.setup.autoOpenEligible) openSetup();
   }, [state]);
 
   useEffect(() => {

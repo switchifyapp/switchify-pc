@@ -27,7 +27,7 @@ export const browserState: AppState = {
   version: "1.0.0-beta.1",
   diagnostics: { recentBluetooth: [], lastDisconnect: null, recentErrors: [] },
   telemetry: { consent: "undecided", available: true },
-  setup: { shown: false, completed: false },
+  setup: { shown: false, completed: false, autoOpenEligible: true },
 };
 
 const emptyBindings = () => Array.from({ length: 8 }, (_, index) => ({
@@ -78,7 +78,7 @@ export const api = {
     browserState.settings.startWithSystem = startWithSystem;
     browserState.settings.shareDiagnostics = shareDiagnostics;
     browserState.telemetry.consent = shareDiagnostics ? "enabled" : "disabled";
-    browserState.setup = { shown: true, completed: true };
+    browserState.setup = { shown: true, completed: true, autoOpenEligible: false };
     return Promise.resolve(structuredClone(browserState));
   },
   listProfiles: () => "__TAURI_INTERNALS__" in window

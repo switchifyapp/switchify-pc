@@ -270,6 +270,7 @@ pub struct AppState {
 pub struct SetupState {
     pub shown: bool,
     pub completed: bool,
+    pub auto_open_eligible: bool,
 }
 
 #[derive(Debug)]
@@ -332,6 +333,10 @@ impl AppModel {
             };
         let discarded_legacy_pairing =
             pairing_storage_error.is_none() && paired_devices.len() < saved_pairing_count;
+        let setup_auto_open_eligible = pairing_storage_error.is_none()
+            && saved_pairing_count == 0
+            && !saved.setup_shown
+            && !saved.setup_completed;
         let shared = Arc::new(Mutex::new(ModelData {
             engine,
             profiles,
@@ -363,6 +368,7 @@ impl AppModel {
                 setup: SetupState {
                     shown: saved.setup_shown,
                     completed: saved.setup_completed,
+                    auto_open_eligible: setup_auto_open_eligible,
                 },
             },
         }));
@@ -392,12 +398,12 @@ impl AppModel {
         snapshot(&self.shared)
     }
     pub fn persist(&self) -> Result<(), String> {
-        self.storage.save(&self.persisted_state(None, None))
+        self.storage.save(&self.persisted_state(None, None, None))
     }
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     pub fn persist_settings(&self, settings: &AppSettings) -> Result<(), String> {
         self.storage
-            .save(&self.persisted_state(Some(settings), None))
+            .save(&self.persisted_state(Some(settings), None, None))
     }
     pub fn persist_settings_with_telemetry(
         &self,
@@ -405,7 +411,7 @@ impl AppModel {
         consent: TelemetryConsent,
     ) -> Result<(), String> {
         self.storage
-            .save(&self.persisted_state(Some(settings), Some(consent)))
+            .save(&self.persisted_state(Some(settings), Some(consent), None))
     }
     pub fn record_updater(&self, status: &str, detail: Option<&str>) {
         let _emission = self
@@ -456,6 +462,7 @@ impl AppModel {
         &self,
         settings: Option<&AppSettings>,
         telemetry_consent: Option<TelemetryConsent>,
+        setup: Option<&SetupState>,
     ) -> PersistedState {
         let data = self
             .shared
@@ -492,8 +499,8 @@ impl AppModel {
                 TelemetryConsent::Disabled => Some(false),
                 TelemetryConsent::Undecided => None,
             },
-            setup_shown: data.state.setup.shown,
-            setup_completed: data.state.setup.completed,
+            setup_shown: setup.unwrap_or(&data.state.setup).shown,
+            setup_completed: setup.unwrap_or(&data.state.setup).completed,
         }
     }
 
@@ -505,6 +512,7 @@ impl AppModel {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let previous = data.state.setup.clone();
             data.state.setup.shown = true;
+            data.state.setup.auto_open_eligible = false;
             previous
         };
         if let Err(error) = self.persist() {
@@ -518,29 +526,33 @@ impl AppModel {
         Ok(self.snapshot())
     }
 
-    pub fn mark_setup_completed(&self) -> Result<AppState, String> {
-        let previous = {
-            let mut data = self
-                .shared
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if data.state.paired_devices.is_empty() {
-                return Err("Pair an Android device before finishing setup.".into());
-            }
-            let previous = data.state.setup.clone();
-            data.state.setup.shown = true;
-            data.state.setup.completed = true;
-            previous
-        };
-        if let Err(error) = self.persist() {
-            self.shared
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .state
-                .setup = previous;
-            return Err(error);
+    pub fn apply_setup_completion(
+        &self,
+        settings: AppSettings,
+        consent: TelemetryConsent,
+    ) -> Result<AppState, String> {
+        if self.snapshot().paired_devices.is_empty() {
+            return Err("Pair an Android device before finishing setup.".into());
         }
-        Ok(self.snapshot())
+        let completed = SetupState {
+            shown: true,
+            completed: true,
+            auto_open_eligible: false,
+        };
+        self.storage.save(&self.persisted_state(
+            Some(&settings),
+            Some(consent),
+            Some(&completed),
+        ))?;
+        self.telemetry.set_consent(consent);
+        let mut data = self
+            .shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        data.state.settings = settings;
+        data.state.telemetry = self.telemetry.view();
+        data.state.setup = completed;
+        Ok(data.state.clone())
     }
 }
 
@@ -669,7 +681,8 @@ mod tests {
             state.setup,
             SetupState {
                 shown: false,
-                completed: false
+                completed: false,
+                auto_open_eligible: true
             }
         );
         let saved = model.storage.load().unwrap();
@@ -689,7 +702,7 @@ mod tests {
         assert!(dismissed.snapshot().setup.shown);
         assert!(!dismissed.snapshot().setup.completed);
         assert_eq!(
-            dismissed.mark_setup_completed(),
+            dismissed.apply_setup_completion(AppSettings::default(), TelemetryConsent::Undecided),
             Err("Pair an Android device before finishing setup.".into())
         );
 
@@ -705,9 +718,58 @@ mod tests {
                 paired_at: 1,
                 last_seen_at: None,
             });
-        assert!(dismissed.mark_setup_completed().unwrap().setup.completed);
+        let chosen_settings = AppSettings {
+            start_with_system: true,
+            ..AppSettings::default()
+        };
+        assert!(
+            dismissed
+                .apply_setup_completion(chosen_settings.clone(), TelemetryConsent::Disabled)
+                .unwrap()
+                .setup
+                .completed
+        );
         let completed = AppModel::with_storage_for_test(AppStorage::at(path));
         assert!(completed.snapshot().setup.completed);
+        assert_eq!(completed.snapshot().settings, chosen_settings);
+        assert_eq!(
+            completed.snapshot().telemetry.consent,
+            TelemetryConsent::Disabled
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn setup_completion_does_not_change_memory_when_the_atomic_save_fails() {
+        let root = std::env::temp_dir().join(format!("switchify-setup-fail-{}", Uuid::new_v4()));
+        let state_path = root.join("state.json");
+        let model = AppModel::with_storage_for_test(AppStorage::at(state_path.clone()));
+        model
+            .shared
+            .lock()
+            .unwrap()
+            .state
+            .paired_devices
+            .push(PairedDeviceView {
+                device_id: "phone-1".into(),
+                device_name: "Pixel".into(),
+                paired_at: 1,
+                last_seen_at: None,
+            });
+        fs::remove_file(&state_path).unwrap();
+        fs::create_dir(&state_path).unwrap();
+        let chosen = AppSettings {
+            start_with_system: true,
+            ..AppSettings::default()
+        };
+
+        assert!(model
+            .apply_setup_completion(chosen, TelemetryConsent::Disabled)
+            .is_err());
+        let state = model.snapshot();
+        assert_eq!(state.settings, AppSettings::default());
+        assert!(!state.setup.completed);
+        assert_eq!(state.telemetry.consent, TelemetryConsent::Undecided);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -823,6 +885,7 @@ mod tests {
         let model = AppModel::with_storage(storage);
 
         assert!(model.snapshot().paired_devices.is_empty());
+        assert!(!model.snapshot().setup.auto_open_eligible);
         model.persist_settings(&AppSettings::default()).unwrap();
         assert_eq!(model.storage.load().unwrap().paired_devices.len(), 1);
 
