@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppSettings, AppState, SwitchProfile } from "./types";
 
 export type ProfileExitAction = "hide" | "quit";
+export type NavigationTarget = "home" | "settings" | "profiles";
 
 export const browserState: AppState = {
   bluetooth: "initializing",
@@ -109,5 +110,15 @@ export const api = {
   onProfileExitRequested: async (handler: (action: ProfileExitAction) => void): Promise<UnlistenFn> => {
     if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
     return listen<ProfileExitAction>("profile-exit-requested", (event) => handler(event.payload));
+  },
+  onNavigateRequested: async (handler: (target: NavigationTarget) => void): Promise<UnlistenFn> => {
+    if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
+    const takePending = async () => {
+      const target = await invoke<NavigationTarget | null>("take_navigation_request");
+      if (target) handler(target);
+    };
+    const unlisten = await listen<NavigationTarget>("navigate-requested", () => { void takePending(); });
+    await takePending();
+    return unlisten;
   },
 };

@@ -487,6 +487,7 @@ function PairingDialog({ requests, connectedDeviceName, busy, approve, reject }:
 export function App() {
   const [state, setState] = useState<AppState | null>(null);
   const [view, setView] = useState<View>("home");
+  const viewRef = useRef<View>("home");
   const [profiles, setProfiles] = useState<SwitchProfile[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [busy, setBusy] = useState(false);
@@ -624,6 +625,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    let unlisten: () => void = () => {};
+    void api.onNavigateRequested((target) => selectView(target)).then((stop) => { unlisten = stop; });
+    return () => unlisten();
+  }, []);
+
+  useEffect(() => {
     if (!state || autoSetupHandled.current) return;
     autoSetupHandled.current = true;
     if (state.setup.autoOpenEligible) openSetup();
@@ -656,9 +663,10 @@ export function App() {
   ] as const, []);
 
   const selectView = (next: View) => {
-    if (next === view) return;
+    if (next === viewRef.current) return;
     if (profileEditorDirty.current && !window.confirm("Discard unsaved profile changes?")) return;
     profileEditorDirty.current = false;
+    viewRef.current = next;
     setView(next);
   };
 

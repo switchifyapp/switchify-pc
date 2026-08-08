@@ -597,10 +597,14 @@ pub fn emit_state(app: &AppHandle, shared: &SharedModel) {
         let summary = model.diagnostics.observe(&current, now_ms());
         model.set_diagnostic_summary(summary);
         model.telemetry.observe(&current);
-        let _ = app.emit(APP_STATE_EVENT, snapshot(shared));
+        let state = snapshot(shared);
+        crate::sync_tray_state(app, &state);
+        let _ = app.emit(APP_STATE_EVENT, state);
         return;
     }
-    let _ = app.emit(APP_STATE_EVENT, snapshot(shared));
+    let state = snapshot(shared);
+    crate::sync_tray_state(app, &state);
+    let _ = app.emit(APP_STATE_EVENT, state);
 }
 pub fn set_activity(shared: &SharedModel, kind: ActivityKind, message: impl Into<String>) {
     shared
