@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Accessibility, Bluetooth, CheckCircle2, ChevronRight, CircleHelp, Download,
-  Home, Keyboard, Plus, Power, Radio, RefreshCw, Save, Settings,
+  Copy, Home, Keyboard, Plus, Power, Radio, RefreshCw, Save, Settings,
   ShieldCheck, SlidersHorizontal, Smartphone, Trash2, WifiOff, Wrench, X,
 } from "lucide-react";
 import { api } from "./api";
@@ -69,37 +69,181 @@ const newProfile = (): SwitchProfile => ({
   bindings: Array.from({ length: 8 }, (_, index) => ({ switchId: index + 1, type: "none" })),
 });
 
-function ProfileEditor({ profile, onClose, onSave, onDelete, busy }: { profile: SwitchProfile; onClose: () => void; onSave: (profile: SwitchProfile) => void; onDelete: (() => void) | null; busy: boolean }) {
+const modifierKeys = ["Ctrl", "Alt", "Shift", "Meta"];
+const namedKeys = new Set(["Space", "Enter", "Escape", "Tab", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", ...modifierKeys, ...Array.from({ length: 12 }, (_, index) => `F${index + 1}`)]);
+const friendlyKeys: Record<string, string> = { ArrowUp: "Up Arrow", ArrowDown: "Down Arrow", ArrowLeft: "Left Arrow", ArrowRight: "Right Arrow", Meta: "Command / Windows" };
+
+function canonicalKey(key: string) {
+  const aliases: Record<string, string> = { " ": "Space", Esc: "Escape", Control: "Ctrl", OS: "Meta" };
+  const canonical = aliases[key] ?? key;
+  return canonical.length === 1 ? canonical.toUpperCase() : canonical;
+}
+
+function friendlyKey(key: string) {
+  return friendlyKeys[key] ?? key;
+}
+
+function bindingLabel(binding: SwitchProfile["bindings"][number]) {
+  return binding.type === "shortcut"
+    ? (binding.keys ?? []).map(friendlyKey).join(" + ")
+    : friendlyKey(binding.value ?? "");
+}
+
+function isValidKey(key: string) {
+  return namedKeys.has(key) || /^[A-Z0-9]$/.test(key);
+}
+
+function bindingSignature(binding: SwitchProfile["bindings"][number]) {
+  if (binding.type === "shortcut") return JSON.stringify([binding.type, [...(binding.keys ?? [])].sort()]);
+  if (binding.type === "mouseClick") return JSON.stringify([binding.type, binding.value, binding.clickCount ?? 1]);
+  return JSON.stringify([binding.type, binding.value ?? null]);
+}
+
+function validateProfileDraft(draft: SwitchProfile, profiles: SwitchProfile[]) {
+  const errors: Record<string, string> = {};
+  const name = draft.name.trim();
+  if (!name) errors.name = "Enter a profile name.";
+  else if (draft.name.length > 50) errors.name = "Use 50 characters or fewer.";
+  else if (profiles.some((candidate) => candidate.id !== draft.id && candidate.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())) errors.name = "Profile names must be unique.";
+
+  const signatures = new Map<string, number>();
+  for (const binding of draft.bindings) {
+    const key = `binding-${binding.switchId}`;
+    if (binding.type === "key" && !isValidKey(binding.value ?? "")) errors[key] = "Record a valid key.";
+    if (binding.type === "shortcut") {
+      const keys = binding.keys ?? [];
+      if (keys.length === 0) errors[key] = "Record a shortcut.";
+      else if (keys.length > 4 || keys.some((item) => !isValidKey(item)) || new Set(keys).size !== keys.length) errors[key] = "Record a valid shortcut of up to four different keys.";
+      else if (keys.every((item) => modifierKeys.includes(item))) errors[key] = "Include a non-modifier key.";
+    }
+    if (binding.type === "none" || errors[key]) continue;
+    const signature = bindingSignature(binding);
+    const firstSwitch = signatures.get(signature);
+    if (firstSwitch) {
+      errors[key] = `This duplicates Switch ${firstSwitch}.`;
+      errors[`binding-${firstSwitch}`] = `This duplicates Switch ${binding.switchId}.`;
+    } else signatures.set(signature, binding.switchId);
+  }
+  return errors;
+}
+
+function duplicateProfile(source: SwitchProfile, profiles: SwitchProfile[]): SwitchProfile {
+  const baseName = `${source.name} copy`;
+  let name = baseName;
+  for (let suffix = 2; profiles.some((profile) => profile.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase()); suffix += 1) name = `${baseName} ${suffix}`;
+  return {
+    ...structuredClone(source),
+    id: crypto.randomUUID(),
+    version: 1,
+    name,
+    provider: "mapped",
+    builtIn: false,
+  };
+}
+
+type ProfileEditorProps = {
+  profile: SwitchProfile;
+  profiles: SwitchProfile[];
+  onClose: () => void;
+  onSave: (profile: SwitchProfile) => Promise<void>;
+  onDelete: (() => Promise<void>) | null;
+  onDuplicate: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+  busy: boolean;
+};
+
+function ProfileEditor({ profile, profiles, onClose, onSave, onDelete, onDuplicate, onDirtyChange, busy }: ProfileEditorProps) {
   const [draft, setDraft] = useState(profile);
+  const [confirmation, setConfirmation] = useState<"discard" | "delete" | "duplicate" | null>(null);
+  const [operationError, setOperationError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const confirmationButtonRef = useRef<HTMLButtonElement>(null);
+  const dirty = !profiles.some((candidate) => candidate.id === profile.id) || JSON.stringify(draft) !== JSON.stringify(profile);
+  const errors = validateProfileDraft(draft, profiles);
+  const firstError = Object.keys(errors)[0];
+
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    if (confirmation) confirmationButtonRef.current?.focus();
+    else dialogRef.current?.focus();
+  }, [confirmation]);
+
   const setBinding = (index: number, type: SwitchProfile["bindings"][number]["type"], value?: string, keys?: string[]) => {
     const defaults: Partial<Record<typeof type, string>> = { key: "Space", mouseButton: "left", mouseClick: "left", scroll: "down", media: "playPause" };
     const nextValue = value ?? defaults[type];
     const bindings = draft.bindings.map((binding, bindingIndex) => bindingIndex === index ? { switchId: index + 1, type, ...(nextValue ? { value: nextValue } : {}), ...(keys ? { keys } : {}), ...(type === "mouseClick" ? { clickCount: 1 } : {}) } : binding);
     setDraft({ ...draft, bindings });
   };
-  return <div className="modal-backdrop"><section className="profile-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-title">
-    <header><div><h2 id="profile-title">{profile.builtIn ? profile.name : "Edit switch profile"}</h2><p>Map each physical switch to a desktop action.</p></div><button className="icon-button" title="Close" onClick={onClose}><X size={18} /></button></header>
-    <label className="field"><span>Profile name</span><input value={draft.name} maxLength={50} disabled={profile.builtIn} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
-    <div className="binding-list">{draft.bindings.map((binding, index) => <div className="binding-row" key={binding.switchId}>
+  const requestClose = () => dirty ? setConfirmation("discard") : onClose();
+  const runSave = async () => {
+    if (firstError) {
+      dialogRef.current?.querySelector<HTMLElement>(`[data-error-key="${firstError}"]`)?.focus();
+      return;
+    }
+    setOperationError(null);
+    try { await onSave({ ...draft, name: draft.name.trim() }); }
+    catch (reason) { setOperationError(String(reason)); dialogRef.current?.focus(); }
+  };
+  const runDelete = async () => {
+    if (!onDelete) return;
+    setOperationError(null);
+    try { await onDelete(); }
+    catch (reason) { setConfirmation(null); setOperationError(String(reason)); dialogRef.current?.focus(); }
+  };
+  const recordKey = (index: number, binding: SwitchProfile["bindings"][number], event: React.KeyboardEvent<HTMLInputElement>) => {
+    event.preventDefault();
+    const pressed = canonicalKey(event.key);
+    const modifiers = [event.ctrlKey && "Ctrl", event.altKey && "Alt", event.shiftKey && "Shift", event.metaKey && "Meta"].filter((key): key is string => Boolean(key));
+    const keys = [...new Set([...modifiers, pressed])];
+    setBinding(index, binding.type, binding.type === "key" ? pressed : undefined, binding.type === "shortcut" ? keys : undefined);
+  };
+  const trapFocus = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape") { event.preventDefault(); confirmation ? setConfirmation(null) : requestClose(); return; }
+    if (event.key !== "Tab") return;
+    const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)') ?? [])].filter((control) => control.offsetParent !== null || control === document.activeElement);
+    if (controls.length === 0) return;
+    const first = controls[0]; const last = controls.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+
+  if (confirmation) return <div className="modal-backdrop"><section ref={dialogRef} className="profile-dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="profile-confirm-title" tabIndex={-1} onKeyDown={trapFocus}>
+    <header><div><h2 id="profile-confirm-title">{confirmation === "delete" ? `Delete ${profile.name}?` : "Discard unsaved changes?"}</h2><p>{confirmation === "delete" ? "This profile will no longer be available to switch sessions." : confirmation === "duplicate" ? "The duplicate will use the last saved version of this profile." : "Your profile changes have not been saved."}</p></div></header>
+    <footer><span /><button ref={confirmationButtonRef} className="secondary" onClick={() => setConfirmation(null)}>Keep editing</button><button className={confirmation === "duplicate" ? "primary" : "primary danger"} disabled={busy} onClick={() => confirmation === "delete" ? void runDelete() : confirmation === "duplicate" ? onDuplicate() : onClose()}>{confirmation === "delete" ? "Delete profile" : confirmation === "duplicate" ? "Discard and duplicate" : "Discard changes"}</button></footer>
+  </section></div>;
+
+  return <div className="modal-backdrop"><section ref={dialogRef} className="profile-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-title" tabIndex={-1} onKeyDown={trapFocus}>
+    <header><div><h2 id="profile-title">{profile.builtIn ? profile.name : "Edit switch profile"}</h2><p>Map each physical switch to a desktop action.</p></div><button className="icon-button" title="Close" onClick={requestClose}><X size={18} /></button></header>
+    {operationError && <div className="dialog-error" role="alert">{operationError}</div>}
+    <label className="field"><span>Profile name</span><input data-error-key="name" value={draft.name} maxLength={50} disabled={profile.builtIn} aria-invalid={Boolean(errors.name)} aria-describedby={errors.name ? "profile-name-error" : undefined} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />{errors.name && <span className="field-error" id="profile-name-error">{errors.name}</span>}</label>
+    <div className="binding-list">{draft.bindings.map((binding, index) => <div className="binding-row" key={binding.switchId} data-invalid={Boolean(errors[`binding-${binding.switchId}`])}>
       <strong>Switch {binding.switchId}</strong>
-      <select aria-label={`Switch ${binding.switchId} action`} value={binding.type} disabled={profile.builtIn} onChange={(event) => setBinding(index, event.target.value as typeof binding.type)}>
+      <select data-error-key={`binding-${binding.switchId}`} aria-label={`Switch ${binding.switchId} action`} aria-invalid={Boolean(errors[`binding-${binding.switchId}`])} aria-describedby={errors[`binding-${binding.switchId}`] ? `binding-${binding.switchId}-error` : undefined} value={binding.type} disabled={profile.builtIn} onChange={(event) => setBinding(index, event.target.value as typeof binding.type)}>
         <option value="none">No action</option><option value="key">Key</option><option value="shortcut">Shortcut</option><option value="mouseButton">Hold mouse button</option><option value="mouseClick">Mouse click</option><option value="scroll">Scroll</option><option value="media">Media</option>
       </select>
-      {(binding.type === "key" || binding.type === "shortcut") && <input className="key-recorder" aria-label={`Switch ${binding.switchId} key`} placeholder="Select, then press key" value={binding.type === "shortcut" ? (binding.keys ?? []).join("+") : binding.value ?? ""} readOnly disabled={profile.builtIn} onKeyDown={(event) => { event.preventDefault(); const pressed = [event.ctrlKey && "Ctrl", event.altKey && "Alt", event.shiftKey && "Shift", event.metaKey && "Meta", event.key.length === 1 ? event.key.toUpperCase() : event.key].filter((key): key is string => Boolean(key)); const keys = [...new Set(pressed)]; setBinding(index, binding.type, binding.type === "key" ? keys.at(-1) : undefined, binding.type === "shortcut" ? keys : undefined); }} />}
+      {(binding.type === "key" || binding.type === "shortcut") && <input className="key-recorder" aria-label={`Switch ${binding.switchId} key`} placeholder="Select, then press key" value={bindingLabel(binding)} readOnly disabled={profile.builtIn} onKeyDown={(event) => recordKey(index, binding, event)} />}
       {(binding.type === "mouseButton" || binding.type === "mouseClick") && <select aria-label={`Switch ${binding.switchId} mouse button`} value={binding.value ?? "left"} disabled={profile.builtIn} onChange={(event) => setBinding(index, binding.type, event.target.value)}><option value="left">Left</option><option value="right">Right</option><option value="middle">Middle</option></select>}
       {binding.type === "scroll" && <select aria-label={`Switch ${binding.switchId} scroll direction`} value={binding.value ?? "down"} disabled={profile.builtIn} onChange={(event) => setBinding(index, binding.type, event.target.value)}><option value="up">Up</option><option value="down">Down</option><option value="left">Left</option><option value="right">Right</option></select>}
       {binding.type === "media" && <select aria-label={`Switch ${binding.switchId} media action`} value={binding.value ?? "playPause"} disabled={profile.builtIn} onChange={(event) => setBinding(index, binding.type, event.target.value)}><option value="playPause">Play / pause</option><option value="nextTrack">Next track</option><option value="previousTrack">Previous track</option><option value="volumeUp">Volume up</option><option value="volumeDown">Volume down</option><option value="mute">Mute</option></select>}
+      {errors[`binding-${binding.switchId}`] && <span className="field-error binding-error" id={`binding-${binding.switchId}-error`}>{errors[`binding-${binding.switchId}`]}</span>}
     </div>)}</div>
-    <footer>{onDelete && <button className="secondary danger" disabled={busy} onClick={onDelete}><Trash2 size={16} />Delete</button>}<span /><button className="secondary" onClick={onClose}>Cancel</button>{!profile.builtIn && <button className="primary" disabled={busy || !draft.name.trim()} onClick={() => onSave({ ...draft, name: draft.name.trim() })}><Save size={16} />Save profile</button>}</footer>
+    <footer>{onDelete && <button className="secondary danger" disabled={busy} onClick={() => setConfirmation("delete")}><Trash2 size={16} />Delete</button>}<button className="secondary" disabled={busy} onClick={() => dirty ? setConfirmation("duplicate") : onDuplicate()}><Copy size={16} />Duplicate</button><span /><button className="secondary" onClick={requestClose}>Cancel</button>{!profile.builtIn && <button className="primary" disabled={busy || Boolean(firstError)} onClick={() => void runSave()}><Save size={16} />Save profile</button>}</footer>
   </section></div>;
 }
 
-function ProfilesView({ profiles, platform, saveProfile, deleteProfile, busy }: { profiles: SwitchProfile[]; platform: AppState["capabilities"]["platform"]; saveProfile: (profile: SwitchProfile) => void; deleteProfile: (id: string) => void; busy: boolean }) {
+function ProfilesView({ profiles, platform, saveProfile, deleteProfile, onDirtyChange, busy }: { profiles: SwitchProfile[]; platform: AppState["capabilities"]["platform"]; saveProfile: (profile: SwitchProfile) => Promise<void>; deleteProfile: (id: string) => Promise<void>; onDirtyChange: (dirty: boolean) => void; busy: boolean }) {
   const [editing, setEditing] = useState<SwitchProfile | null>(null);
-  return <div className="view"><header className="page-header"><div><h1>Switch control</h1><p>Profiles available to physical switch sessions</p></div><button className="primary" onClick={() => setEditing(newProfile())}><Plus size={16} />New profile</button></header>
-    <div className="profile-list">{profiles.map((profile) => <button className="profile-row" key={profile.id} onClick={() => setEditing(profile)}><div className="profile-icon"><SlidersHorizontal size={19} /></div><div><h2>{profile.name}</h2><p>{profile.provider === "grid3" ? "Grid 3" : `${profile.bindings.filter((binding) => binding.type !== "none").length} mapped switches`}</p></div><span>{profile.builtIn ? "Built in" : "Custom"}</span><ChevronRight size={18} /></button>)}</div>
+  const openerRef = useRef<HTMLButtonElement | null>(null);
+  const closeEditor = () => { setEditing(null); requestAnimationFrame(() => (openerRef.current?.isConnected ? openerRef.current : document.querySelector<HTMLButtonElement>(".page-header button"))?.focus()); };
+  const openEditor = (profile: SwitchProfile, opener: HTMLButtonElement) => { openerRef.current = opener; setEditing(profile); };
+  return <div className="view"><header className="page-header"><div><h1>Switch control</h1><p>Profiles available to physical switch sessions</p></div><button className="primary" onClick={(event) => openEditor(newProfile(), event.currentTarget)}><Plus size={16} />New profile</button></header>
+    <div className="profile-list">{profiles.map((profile) => <button className="profile-row" key={profile.id} onClick={(event) => openEditor(profile, event.currentTarget)}><div className="profile-icon"><SlidersHorizontal size={19} /></div><div><h2>{profile.name}</h2><p>{profile.provider === "grid3" ? "Grid 3" : `${profile.bindings.filter((binding) => binding.type !== "none").length} mapped switches`}</p></div><span>{profile.builtIn ? "Built in" : "Custom"}</span><ChevronRight size={18} /></button>)}</div>
     {platform === "macos" && <p className="capability-note">Grid 3 profiles are available on Windows only.</p>}
-    {editing && <ProfileEditor profile={editing} busy={busy} onClose={() => setEditing(null)} onSave={(profile) => { saveProfile(profile); setEditing(null); }} onDelete={editing.builtIn ? null : () => { deleteProfile(editing.id); setEditing(null); }} />}
+    {editing && <ProfileEditor key={editing.id} profile={editing} profiles={profiles} busy={busy} onDirtyChange={onDirtyChange} onClose={closeEditor} onDuplicate={() => setEditing(duplicateProfile(editing, profiles))} onSave={async (profile) => { await saveProfile(profile); closeEditor(); }} onDelete={editing.builtIn || !profiles.some((profile) => profile.id === editing.id) ? null : async () => { await deleteProfile(editing.id); closeEditor(); }} />}
   </div>;
 }
 
@@ -276,6 +420,7 @@ export function App() {
   const settingsSaveRunning = useRef(false);
   const settingsEventRevision = useRef(0);
   const locallyChangedSettings = useRef(new Set<keyof AppSettings>());
+  const profileEditorDirty = useRef(false);
 
   const syncState = (next: AppState) => {
     setState(next);
@@ -373,6 +518,16 @@ export function App() {
     return () => unlisten();
   }, []);
 
+  useEffect(() => {
+    const preventUnsavedUnload = (event: BeforeUnloadEvent) => {
+      if (!profileEditorDirty.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", preventUnsavedUnload);
+    return () => window.removeEventListener("beforeunload", preventUnsavedUnload);
+  }, []);
+
   useEffect(() => { if (view === "profiles") void api.listProfiles().then(setProfiles).catch((reason) => setError(String(reason))); }, [view]);
   const nav = useMemo(() => [
     ["home", "Home", <Home size={19} />], ["devices", "Devices", <Smartphone size={19} />],
@@ -380,14 +535,35 @@ export function App() {
     ["support", "Support", <CircleHelp size={19} />],
   ] as const, []);
 
+  const selectView = (next: View) => {
+    if (next === view) return;
+    if (profileEditorDirty.current && !window.confirm("Discard unsaved profile changes?")) return;
+    profileEditorDirty.current = false;
+    setView(next);
+  };
+
+  const saveProfile = async (profile: SwitchProfile) => {
+    setBusy(true); setError(null);
+    try { setProfiles(await api.saveProfile(profile)); }
+    catch (reason) { throw reason; }
+    finally { setBusy(false); }
+  };
+
+  const deleteProfile = async (id: string) => {
+    setBusy(true); setError(null);
+    try { setProfiles(await api.deleteProfile(id)); }
+    catch (reason) { throw reason; }
+    finally { setBusy(false); }
+  };
+
   if (!state || !settings) return <div className="loading"><RefreshCw className="spin" size={24} /><span>Starting Switchify PC...</span></div>;
   return <div className="app-shell">
-    <aside><div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id} icon={icon} onClick={() => setView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><span>v{state.version}</span><button className="footer-update-button" type="button" aria-label="Check for updates" title="Check for updates" disabled={busy} onClick={() => void checkForUpdates()}><RefreshCw className={checkingUpdates ? "spin" : undefined} size={15} /></button></div></aside>
+    <aside><div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id} icon={icon} onClick={() => selectView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><span>v{state.version}</span><button className="footer-update-button" type="button" aria-label="Check for updates" title="Check for updates" disabled={busy} onClick={() => void checkForUpdates()}><RefreshCw className={checkingUpdates ? "spin" : undefined} size={15} /></button></div></aside>
     <main>
       {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
       {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onSetup={() => setView("support")} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}
-      {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={(profile) => { setBusy(true); setError(null); void api.saveProfile(profile).then(setProfiles).catch((reason) => setError(String(reason))).finally(() => setBusy(false)); }} deleteProfile={(id) => { setBusy(true); setError(null); void api.deleteProfile(id).then(setProfiles).catch((reason) => setError(String(reason))).finally(() => setBusy(false)); }} />}
+      {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} />}
       {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} checkUpdates={() => void checkForUpdates()} busy={busy} />}
       {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} />}
     </main>

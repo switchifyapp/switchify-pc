@@ -249,13 +249,17 @@ fn list_switch_profiles(model: State<'_, AppModel>) -> Vec<SwitchProfile> {
 }
 
 fn validate_profile(profile: &SwitchProfile) -> Result<(), String> {
-    if profile.built_in
-        || profile.provider != "mapped"
-        || uuid::Uuid::parse_str(&profile.id).is_err()
-        || profile.name.trim().is_empty()
-        || profile.name.chars().count() > 50
-    {
-        return Err("Custom profile metadata is invalid.".into());
+    if profile.built_in {
+        return Err("Custom profiles cannot be marked as built in.".into());
+    }
+    if profile.provider != "mapped" || uuid::Uuid::parse_str(&profile.id).is_err() {
+        return Err("Custom profile identity is invalid.".into());
+    }
+    if profile.name.trim().is_empty() {
+        return Err("Profile name is required.".into());
+    }
+    if profile.name.chars().count() > 50 {
+        return Err("Profile name must use 50 characters or fewer.".into());
     }
     if profile.bindings.len() != 8
         || !profile
@@ -266,10 +270,45 @@ fn validate_profile(profile: &SwitchProfile) -> Result<(), String> {
     {
         return Err("Custom profiles must define switches 1 through 8.".into());
     }
-    if !profile.bindings.iter().all(valid_binding) {
-        return Err("A profile binding is invalid.".into());
+    for binding in &profile.bindings {
+        if !valid_binding(binding) {
+            return Err(format!("Switch {} binding is invalid.", binding.switch_id));
+        }
+    }
+    for (index, binding) in profile.bindings.iter().enumerate() {
+        if binding.binding_type == "none" {
+            continue;
+        }
+        if let Some(duplicate) = profile.bindings[..index]
+            .iter()
+            .find(|candidate| bindings_equivalent(candidate, binding))
+        {
+            return Err(format!(
+                "Switch {} duplicates Switch {}.",
+                binding.switch_id, duplicate.switch_id
+            ));
+        }
     }
     Ok(())
+}
+
+fn bindings_equivalent(left: &state::SwitchBinding, right: &state::SwitchBinding) -> bool {
+    if left.binding_type != right.binding_type {
+        return false;
+    }
+    match left.binding_type.as_str() {
+        "shortcut" => left.keys.as_ref().is_some_and(|left_keys| {
+            right.keys.as_ref().is_some_and(|right_keys| {
+                left_keys.len() == right_keys.len()
+                    && left_keys.iter().all(|key| right_keys.contains(key))
+            })
+        }),
+        "mouseClick" => {
+            left.value == right.value
+                && left.click_count.unwrap_or(1) == right.click_count.unwrap_or(1)
+        }
+        _ => left.value == right.value,
+    }
 }
 
 fn valid_binding(binding: &state::SwitchBinding) -> bool {
@@ -679,8 +718,28 @@ fn platform_disconnect_all(app: &AppHandle, shared: &state::SharedModel) -> Resu
 
 #[cfg(test)]
 mod tests {
-    use super::{has_start_hidden_argument, updater_has_endpoints};
+    use super::{has_start_hidden_argument, updater_has_endpoints, validate_profile};
+    use crate::state::{SwitchBinding, SwitchProfile};
     use serde_json::json;
+
+    fn custom_profile() -> SwitchProfile {
+        SwitchProfile {
+            id: "3a393675-6434-4e50-a62f-d85ac24bcdf5".into(),
+            version: 1,
+            name: "Accessible controls".into(),
+            provider: "mapped".into(),
+            built_in: false,
+            bindings: (1..=8)
+                .map(|switch_id| SwitchBinding {
+                    switch_id,
+                    binding_type: "none".into(),
+                    value: None,
+                    keys: None,
+                    click_count: None,
+                })
+                .collect(),
+        }
+    }
 
     #[test]
     fn update_checks_require_a_configured_endpoint() {
@@ -705,5 +764,34 @@ mod tests {
             "switchify-pc.exe".into(),
             "--start-hidden-now".into()
         ]));
+    }
+
+    #[test]
+    fn profile_validation_identifies_invalid_and_duplicate_switches() {
+        let mut profile = custom_profile();
+        profile.bindings[0].binding_type = "shortcut".into();
+        profile.bindings[0].keys = Some(vec!["Ctrl".into()]);
+        assert_eq!(
+            validate_profile(&profile),
+            Err("Switch 1 binding is invalid.".into())
+        );
+
+        profile.bindings[0].keys = Some(vec!["Ctrl".into(), "K".into()]);
+        profile.bindings[1].binding_type = "shortcut".into();
+        profile.bindings[1].keys = Some(vec!["K".into(), "Ctrl".into()]);
+        assert_eq!(
+            validate_profile(&profile),
+            Err("Switch 2 duplicates Switch 1.".into())
+        );
+    }
+
+    #[test]
+    fn profile_validation_identifies_the_name_field() {
+        let mut profile = custom_profile();
+        profile.name = "  ".into();
+        assert_eq!(
+            validate_profile(&profile),
+            Err("Profile name is required.".into())
+        );
     }
 }
