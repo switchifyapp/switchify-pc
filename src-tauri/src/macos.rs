@@ -27,7 +27,7 @@ const SERVICE_UUID: &str = "7a78f7e8-1d6d-4d92-9ef0-1f89d3db21f4";
 const RX_UUID: &str = "7a78f7e9-1d6d-4d92-9ef0-1f89d3db21f4";
 const TX_UUID: &str = "7a78f7ea-1d6d-4d92-9ef0-1f89d3db21f4";
 const STATUS_UUID: &str = "7a78f7eb-1d6d-4d92-9ef0-1f89d3db21f4";
-const DISPLAY_NAME: &str = "Switchify PC Preview";
+const DISPLAY_NAME: &str = "Switchify PC";
 const MAX_QUEUED_NOTIFICATIONS: usize = 512;
 const ACCESSIBILITY_SETTINGS_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
@@ -226,7 +226,7 @@ pub fn check_accessibility(
             set_activity(
                 shared,
                 ActivityKind::Info,
-                "Enable Switchify PC Preview in Accessibility, then return here. If it is already enabled but access is still required, remove the stale row and reopen Accessibility Settings from Switchify.",
+                "Enable Switchify PC in Accessibility, then return here. If it is already enabled but access is still required, remove the stale row and reopen Accessibility Settings from Switchify.",
             );
         }
         emit_state(app, shared);

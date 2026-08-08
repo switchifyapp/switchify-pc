@@ -8,8 +8,20 @@ use serde_json::Value;
 use crate::state::{AppSettings, PairedDeviceView, SwitchProfile};
 
 const SCHEMA_VERSION: u32 = 1;
+const APP_QUALIFIER: &str = "com";
+const APP_ORGANIZATION: &str = "Enabo Apps";
+const APP_NAME: &str = "Switchify PC";
+const STATE_FILE: &str = "state.json";
+const FALLBACK_STATE_FILE: &str = "switchify-pc-state.json";
+const DIAGNOSTICS_FILE: &str = "switchify-diagnostics.json";
 #[cfg(not(target_os = "macos"))]
-const KEYRING_SERVICE: &str = "com.enaboapps.switchify.pc.preview.pairing";
+const KEYRING_SERVICE: &str = "com.enaboapps.switchify.pc.pairing";
+
+fn default_state_path() -> PathBuf {
+    ProjectDirs::from(APP_QUALIFIER, APP_ORGANIZATION, APP_NAME)
+        .map(|dirs| dirs.config_dir().join(STATE_FILE))
+        .unwrap_or_else(|| PathBuf::from(FALLBACK_STATE_FILE))
+}
 
 trait PairingTokenStore: std::fmt::Debug + Send + Sync {
     fn save(&self, device_id: &str, token: &str) -> Result<(), String>;
@@ -157,7 +169,7 @@ fn platform_pairing_token_store(_state_path: &Path) -> Box<dyn PairingTokenStore
     Box::new(PlatformPairingTokenStore)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedState {
     pub schema_version: u32,
@@ -187,9 +199,7 @@ pub struct AppStorage {
 
 impl AppStorage {
     pub fn new() -> Self {
-        let path = ProjectDirs::from("com", "Enabo Apps", "Switchify PC Preview")
-            .map(|dirs| dirs.config_dir().join("preview-state.json"))
-            .unwrap_or_else(|| PathBuf::from("switchify-pc-preview-state.json"));
+        let path = default_state_path();
         let pairing_tokens = platform_pairing_token_store(&path);
         Self {
             path,
@@ -214,7 +224,7 @@ impl AppStorage {
         let state: PersistedState =
             serde_json::from_str(&raw).map_err(|error| error.to_string())?;
         if state.schema_version != SCHEMA_VERSION {
-            return Err("Unsupported preview state schema.".into());
+            return Err("Unsupported application state schema.".into());
         }
         Ok(state)
     }
@@ -249,7 +259,7 @@ impl AppStorage {
             .parent()
             .ok_or_else(|| "Diagnostics directory is unavailable.".to_string())?;
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        let path = parent.join("switchify-preview-diagnostics.json");
+        let path = parent.join(DIAGNOSTICS_FILE);
         let json =
             serde_json::to_string_pretty(diagnostics).map_err(|error| error.to_string())? + "\n";
         fs::write(&path, json).map_err(|error| error.to_string())?;
@@ -318,15 +328,57 @@ mod tests {
 
     fn isolated_storage(pairing_tokens: Box<dyn PairingTokenStore>) -> AppStorage {
         AppStorage {
-            path: std::env::temp_dir()
-                .join(format!("switchify-preview-{}.json", uuid::Uuid::new_v4())),
+            path: std::env::temp_dir().join(format!("switchify-{}.json", uuid::Uuid::new_v4())),
             pairing_tokens,
         }
     }
 
     #[test]
+    fn application_storage_uses_the_promoted_identity() {
+        assert_eq!(APP_NAME, "Switchify PC");
+        assert_eq!(STATE_FILE, "state.json");
+        assert_eq!(FALLBACK_STATE_FILE, "switchify-pc-state.json");
+        assert_eq!(DIAGNOSTICS_FILE, "switchify-diagnostics.json");
+        assert_eq!(default_state_path().file_name().unwrap(), STATE_FILE);
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(KEYRING_SERVICE, "com.enaboapps.switchify.pc.pairing");
+    }
+
+    #[test]
+    fn fresh_identity_ignores_an_adjacent_legacy_state_file() {
+        let root = std::env::temp_dir().join(format!("switchify-clean-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let legacy_file = ["pre", "view-state.json"].concat();
+        let legacy_state = PersistedState {
+            desktop_id: Some("legacy-desktop".into()),
+            ..PersistedState::default()
+        };
+        fs::write(
+            root.join(legacy_file),
+            serde_json::to_string(&legacy_state).unwrap(),
+        )
+        .unwrap();
+
+        let store = AppStorage::at(root.join(STATE_FILE));
+        assert_eq!(store.load().unwrap(), PersistedState::default());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn diagnostics_use_the_promoted_filename() {
+        let root =
+            std::env::temp_dir().join(format!("switchify-diagnostics-{}", uuid::Uuid::new_v4()));
+        let store = AppStorage::at(root.join(STATE_FILE));
+        let path = store
+            .export_diagnostics(&serde_json::json!({"ok": true}))
+            .unwrap();
+        assert_eq!(path.file_name().unwrap(), DIAGNOSTICS_FILE);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn state_round_trips_in_an_isolated_directory() {
-        let root = std::env::temp_dir().join(format!("switchify-preview-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("switchify-{}", uuid::Uuid::new_v4()));
         let store = AppStorage::at(root.join("state.json"));
         let state = PersistedState {
             desktop_id: Some("desktop-1".into()),
@@ -361,11 +413,9 @@ mod tests {
     fn macos_pairing_tokens_persist_with_user_only_permissions() {
         use std::os::unix::fs::PermissionsExt;
 
-        let root = std::env::temp_dir().join(format!(
-            "switchify-preview-pairing-tokens-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let state_path = root.join("preview-state.json");
+        let root =
+            std::env::temp_dir().join(format!("switchify-pairing-tokens-{}", uuid::Uuid::new_v4()));
+        let state_path = root.join(STATE_FILE);
         let first = AppStorage::at(state_path.clone());
         first
             .save_pairing_token("android-1", "persistent-token")
@@ -395,12 +445,12 @@ mod tests {
     #[test]
     fn macos_pairing_token_errors_are_reported_and_repairable_by_pairing() {
         let root = std::env::temp_dir().join(format!(
-            "switchify-preview-corrupt-pairing-tokens-{}",
+            "switchify-corrupt-pairing-tokens-{}",
             uuid::Uuid::new_v4()
         ));
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("pairing-tokens.json"), "not json").unwrap();
-        let store = AppStorage::at(root.join("preview-state.json"));
+        let store = AppStorage::at(root.join(STATE_FILE));
 
         assert!(store.load_pairing_token("android-1").is_err());
         store

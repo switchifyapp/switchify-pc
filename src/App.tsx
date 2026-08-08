@@ -34,7 +34,7 @@ function AccessibilityCopy({ state, detailed = false }: { state: AppState; detai
   if (state.accessibility === "unavailable") return <p>Unavailable on this system</p>;
   if (!detailed || state.capabilities.platform !== "macos") return <p>Permission required</p>;
   return <>
-    <p>Enable “Switchify PC Preview” in Accessibility, then return to the app. Status updates automatically.</p>
+    <p>Enable “Switchify PC” in Accessibility, then return to the app. Status updates automatically.</p>
     <p className="permission-recovery">If it is already enabled but access is still required, select the stale row, click Remove, return to Switchify, reopen Accessibility Settings, and enable the newly added entry.</p>
   </>;
 }
@@ -42,7 +42,7 @@ function AccessibilityCopy({ state, detailed = false }: { state: AppState; detai
 function HomeView({ state, onDisconnect, onAccessibility, onSetup }: { state: AppState; onDisconnect: () => void; onAccessibility: () => void; onSetup: () => void }) {
   const bluetoothOk = state.bluetooth === "advertising" || state.bluetooth === "connected";
   return <div className="view">
-    <header className="page-header"><div><h1>Switchify PC</h1><p>Android control for this computer</p></div><span className="preview-badge">Preview</span></header>
+    <header className="page-header"><div><h1>Switchify PC</h1><p>Android control for this computer</p></div></header>
     <section className="connection-band" data-connected={state.bluetooth === "connected"}>
       <StatusIcon ok={bluetoothOk}>{bluetoothOk ? <Radio size={20} /> : <WifiOff size={20} />}</StatusIcon>
       <div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.connectedDeviceName ?? state.lastActivity?.message ?? "Waiting for a nearby Android device."}</p></div>
@@ -58,8 +58,8 @@ function HomeView({ state, onDisconnect, onAccessibility, onSetup }: { state: Ap
 }
 
 function DevicesView({ state, forget }: { state: AppState; forget: (id: string) => void }) {
-  return <div className="view"><header className="page-header"><div><h1>Paired devices</h1><p>Android devices trusted by this preview</p></div><Smartphone size={24} /></header>
-    {state.pairedDevices.length === 0 ? <div className="empty-state"><Smartphone size={28} /><h2>No paired devices</h2><p>Pair from Switchify Android while this preview is advertising.</p></div> :
+  return <div className="view"><header className="page-header"><div><h1>Paired devices</h1><p>Android devices trusted by this computer</p></div><Smartphone size={24} /></header>
+    {state.pairedDevices.length === 0 ? <div className="empty-state"><Smartphone size={28} /><h2>No paired devices</h2><p>Pair from Switchify Android while this computer is advertising.</p></div> :
       <div className="device-list">{state.pairedDevices.map((device) => <article key={device.deviceId}><Smartphone size={20} /><div><h2>{device.deviceName}</h2><p>{device.lastSeenAt ? `Last seen ${new Date(device.lastSeenAt).toLocaleString()}` : "Not connected yet"}</p></div><button className="icon-button danger-icon" title={`Forget ${device.deviceName}`} onClick={() => forget(device.deviceId)}><Trash2 size={18} /></button></article>)}</div>}
   </div>;
 }
@@ -165,7 +165,7 @@ function SettingsView({ state, settings, setSettings, save, checkUpdates, busy }
       </>}
     </SettingGroup>
     <SettingGroup title="Privacy" description="Sanitized application health reports only."><Toggle label="Share diagnostic data" checked={settings.shareDiagnostics} onChange={(value) => update("shareDiagnostics", value)} /></SettingGroup>
-    <SettingGroup title="Updates" description={`Switchify PC Preview ${state.version}`}><button className="secondary" onClick={checkUpdates} disabled={busy}><RefreshCw size={16} />Check for updates</button></SettingGroup>
+    <SettingGroup title="Updates" description={`Switchify PC ${state.version}`}><button className="secondary" onClick={checkUpdates} disabled={busy}><RefreshCw size={16} />Check for updates</button></SettingGroup>
     <div className="save-bar"><button className="primary" onClick={save} disabled={busy}>{busy ? "Saving..." : "Save settings"}</button></div>
   </div>;
 }
@@ -183,7 +183,7 @@ function SupportView({ state, busy, perform }: { state: AppState; busy: boolean;
     </section> : <section className="task-list" aria-label="Troubleshooting actions">
       <article><Bluetooth size={20} /><div><h2>Bluetooth connection</h2><p>{bluetoothLabels[state.bluetooth]}</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.disconnectAll)}><Power size={16} />Disconnect</button></article>
       <article><Accessibility size={20} /><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" ? <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</button> : <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(false))}><RefreshCw size={16} />Check input access</button>}</article>
-      <article><RefreshCw size={20} /><div><h2>Application update</h2><p>Preview {state.version}</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.checkForUpdates)}>Check</button></article>
+      <article><RefreshCw size={20} /><div><h2>Application update</h2><p>Switchify PC {state.version}</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.checkForUpdates)}>Check</button></article>
       <article><Download size={20} /><div><h2>Diagnostics</h2><p>Export sanitized health and capability data</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.exportDiagnostics)}><Download size={16} />Export</button></article>
     </section>}
     {state.lastActivity && <section className="activity-panel" aria-live="polite"><span>Recent activity</span><p data-kind={state.lastActivity.kind}>{state.lastActivity.message}</p></section>}
@@ -196,6 +196,7 @@ export function App() {
   const [profiles, setProfiles] = useState<SwitchProfile[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [busy, setBusy] = useState(false);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const settingsDirty = useRef(false);
 
@@ -223,6 +224,12 @@ export function App() {
     finally { setBusy(false); }
   };
 
+  const checkForUpdates = async () => {
+    setCheckingUpdates(true);
+    try { await perform(api.checkForUpdates); }
+    finally { setCheckingUpdates(false); }
+  };
+
   useEffect(() => {
     let unlisten: () => void = () => {};
     void api.state().then(syncState).catch((reason) => setError(String(reason)));
@@ -237,15 +244,15 @@ export function App() {
     ["support", "Support", <CircleHelp size={19} />],
   ] as const, []);
 
-  if (!state || !settings) return <div className="loading"><RefreshCw className="spin" size={24} /><span>Starting Switchify PC Preview...</span></div>;
+  if (!state || !settings) return <div className="loading"><RefreshCw className="spin" size={24} /><span>Starting Switchify PC...</span></div>;
   return <div className="app-shell">
-    <aside><div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC Preview</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id} icon={icon} onClick={() => setView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><CircleHelp size={16} /><span>{state.capabilities.platform === "macos" ? "macOS" : "Windows"} preview</span></div></aside>
+    <aside><div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id} icon={icon} onClick={() => setView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><span>v{state.version}</span><button className="footer-update-button" type="button" aria-label="Check for updates" title="Check for updates" disabled={busy} onClick={() => void checkForUpdates()}><RefreshCw className={checkingUpdates ? "spin" : undefined} size={15} /></button></div></aside>
     <main>
       {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
       {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onSetup={() => setView("support")} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}
       {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={(profile) => { setBusy(true); setError(null); void api.saveProfile(profile).then(setProfiles).catch((reason) => setError(String(reason))).finally(() => setBusy(false)); }} deleteProfile={(id) => { setBusy(true); setError(null); void api.deleteProfile(id).then(setProfiles).catch((reason) => setError(String(reason))).finally(() => setBusy(false)); }} />}
-      {view === "settings" && <SettingsView state={state} settings={settings} setSettings={(next) => { settingsDirty.current = true; setSettings(next); }} save={() => void saveSettings()} checkUpdates={() => void perform(api.checkForUpdates)} busy={busy} />}
+      {view === "settings" && <SettingsView state={state} settings={settings} setSettings={(next) => { settingsDirty.current = true; setSettings(next); }} save={() => void saveSettings()} checkUpdates={() => void checkForUpdates()} busy={busy} />}
       {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} />}
     </main>
     {state.pendingPairing && <div className="modal-backdrop"><section className="pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="pairing-title"><Smartphone size={26} /><h2 id="pairing-title">Pair {state.pendingPairing.deviceName}</h2><p>Confirm that this code matches Switchify Android.</p><output>{state.pendingPairing.verificationCode}</output><div><button className="secondary danger" disabled={busy} onClick={() => void perform(() => api.rejectPairing(state.pendingPairing!.requestId))}>Reject</button><button className="primary" disabled={busy} onClick={() => void perform(() => api.approvePairing(state.pendingPairing!.requestId))}>Accept</button></div></section></div>}

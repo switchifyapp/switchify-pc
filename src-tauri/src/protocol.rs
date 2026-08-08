@@ -1387,12 +1387,11 @@ mod tests {
     #[test]
     fn bluetooth_status_advertises_platform_without_a_version_bump() {
         for platform in ["windows", "macos"] {
-            let payload =
-                bluetooth_status_payload("Switchify PC Preview", "desktop-1", platform).unwrap();
+            let payload = bluetooth_status_payload("Switchify PC", "desktop-1", platform).unwrap();
             let status: Value = serde_json::from_slice(&payload).unwrap();
 
             assert_eq!(status["protocolVersion"], PROTOCOL_VERSION);
-            assert_eq!(status["displayName"], "Switchify PC Preview");
+            assert_eq!(status["displayName"], "Switchify PC");
             assert_eq!(status["desktopId"], "desktop-1");
             assert_eq!(status["platform"], platform);
         }
@@ -1764,7 +1763,7 @@ mod tests {
     }
 
     #[test]
-    fn pointer_profile_advertises_the_full_preview_command_set() {
+    fn pointer_profile_advertises_the_full_desktop_command_set() {
         let profile = PointerProfile {
             display_id: "display:0:0:1920:1080:1".into(),
             scale_factor: 1.0,

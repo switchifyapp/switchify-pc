@@ -1,13 +1,13 @@
 [package]
-name = "switchify-pc-preview"
+name = "switchify-pc"
 version = "0.1.0"
-description = "Parallel cross-platform Switchify desktop preview"
+description = "Switchify desktop companion for Android control"
 authors = ["Enabo Apps"]
 edition = "2021"
 rust-version = "1.97.1"
 
 [lib]
-name = "switchify_pc_preview_lib"
+name = "switchify_pc_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
