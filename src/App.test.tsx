@@ -81,13 +81,23 @@ describe("Switchify PC shell", () => {
 
   it("releases tray navigation registered after the app unmounts", async () => {
     let finishRegistration: ((stop: () => void) => void) | undefined;
-    vi.spyOn(api, "onNavigateRequested").mockImplementation(() => new Promise((resolve) => {
+    let navigate: ((target: "home" | "settings" | "profiles") => void) | undefined;
+    vi.spyOn(api, "onNavigateRequested").mockImplementation((handler) => new Promise((resolve) => {
+      navigate = handler;
       finishRegistration = resolve;
     }));
+    const confirm = vi.spyOn(window, "confirm");
     const stop = vi.fn();
     const rendered = render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
+
+    act(() => navigate?.("profiles"));
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Pending navigation" } });
     rendered.unmount();
+
+    act(() => navigate?.("settings"));
+    expect(confirm).not.toHaveBeenCalled();
 
     await act(async () => finishRegistration?.(stop));
 

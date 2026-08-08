@@ -627,7 +627,9 @@ export function App() {
   useEffect(() => {
     let unlisten: () => void = () => {};
     let disposed = false;
-    void api.onNavigateRequested((target) => selectView(target)).then((stop) => {
+    void api.onNavigateRequested((target) => {
+      if (!disposed) selectView(target);
+    }).then((stop) => {
       if (disposed) stop();
       else unlisten = stop;
     });
