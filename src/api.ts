@@ -51,7 +51,11 @@ export const api = {
   checkAccessibility: (prompt: boolean) => call<AppState>("check_accessibility", { prompt }),
   disconnectAll: () => call<AppState>("disconnect_all"),
   forgetDevice: (deviceId: string) => call<AppState>("forget_device", { deviceId }),
-  saveSettings: (settings: AppSettings) => call<AppState>("save_settings", { settings }),
+  saveSettings: (settings: AppSettings) => {
+    if ("__TAURI_INTERNALS__" in window) return call<AppState>("save_settings", { settings });
+    browserState.settings = structuredClone(settings);
+    return Promise.resolve(structuredClone(browserState));
+  },
   listProfiles: () => "__TAURI_INTERNALS__" in window
     ? call<SwitchProfile[]>("list_switch_profiles")
     : Promise.resolve(structuredClone(browserProfiles)),

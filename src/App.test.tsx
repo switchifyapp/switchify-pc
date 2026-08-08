@@ -1,9 +1,24 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { api, browserState } from "./api";
+import type { AppSettings } from "./types";
+
+const defaultBrowserSettings = structuredClone(browserState.settings);
+
+function stateWithSettings(settings: AppSettings) {
+  return { ...structuredClone(browserState), settings: structuredClone(settings) };
+}
 
 describe("Switchify PC shell", () => {
+  beforeEach(() => {
+    browserState.settings = structuredClone(defaultBrowserSettings);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("uses the Switchify application icon in the sidebar", async () => {
     const { container } = render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
@@ -56,6 +71,7 @@ describe("Switchify PC shell", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save settings" })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Start with system" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "100% pointer speed" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("checkbox", { name: "Repeat mouse movement" })).toBeChecked();
@@ -80,6 +96,119 @@ describe("Switchify PC shell", () => {
     expect(screen.getByRole("checkbox", { name: "Show crosshairs" })).toBeChecked();
     fireEvent.click(screen.getByRole("checkbox", { name: "Show cursor overlay" }));
     expect(screen.getByRole("checkbox", { name: "Show crosshairs" })).toBeDisabled();
+  });
+
+  it("automatically saves a settings change", async () => {
+    const saveSettings = vi.spyOn(api, "saveSettings").mockImplementation(async (settings) => stateWithSettings(settings));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Share diagnostic data" }));
+
+    await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ shareDiagnostics: true })));
+    expect(screen.getByRole("checkbox", { name: "Share diagnostic data" })).toBeChecked();
+  });
+
+  it("serializes rapid settings changes without applying a stale response", async () => {
+    const saves: Array<{ settings: AppSettings; resolve: (state: typeof browserState) => void }> = [];
+    vi.spyOn(api, "saveSettings").mockImplementation((settings) => new Promise((resolve) => {
+      saves.push({ settings: structuredClone(settings), resolve });
+    }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
+    fireEvent.click(screen.getByRole("button", { name: "75% pointer speed" }));
+
+    expect(saves).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "75% pointer speed" })).toHaveAttribute("aria-pressed", "true");
+
+    await act(async () => {
+      saves[0].resolve(stateWithSettings(saves[0].settings));
+    });
+    await waitFor(() => expect(saves).toHaveLength(2));
+    expect(saves[1].settings.pointerScalePercent).toBe(75);
+    expect(screen.getByRole("button", { name: "75% pointer speed" })).toHaveAttribute("aria-pressed", "true");
+
+    await act(async () => {
+      saves[1].resolve(stateWithSettings(saves[1].settings));
+    });
+  });
+
+  it("preserves newer runtime state when a settings save completes", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    let finishSave: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    vi.spyOn(api, "saveSettings").mockImplementation(() => new Promise((resolve) => {
+      finishSave = resolve;
+    }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
+    const runtimeState = {
+      ...structuredClone(browserState),
+      bluetooth: "connected" as const,
+      connectedDeviceName: "Newer connected device",
+    };
+    act(() => stateHandler?.(runtimeState));
+    await act(async () => {
+      finishSave?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 50 }));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    expect(screen.getByText("Newer connected device")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
+  });
+
+  it("rebases local edits on newer backend settings", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    const saves: Array<{ settings: AppSettings; resolve: (state: typeof browserState) => void }> = [];
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    vi.spyOn(api, "saveSettings").mockImplementation((settings) => new Promise((resolve) => {
+      saves.push({ settings: structuredClone(settings), resolve });
+    }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Share diagnostic data" }));
+    fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
+    act(() => stateHandler?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 150 })));
+
+    expect(screen.getByRole("checkbox", { name: "Share diagnostic data" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("150");
+
+    await act(async () => {
+      saves[0].resolve(stateWithSettings(saves[0].settings));
+    });
+    await waitFor(() => expect(saves).toHaveLength(2));
+    expect(saves[1].settings).toEqual(expect.objectContaining({
+      pointerScalePercent: 150,
+      shareDiagnostics: true,
+    }));
+
+    await act(async () => {
+      saves[1].resolve(stateWithSettings(saves[1].settings));
+    });
+  });
+
+  it("restores confirmed settings when automatic saving fails", async () => {
+    vi.spyOn(api, "saveSettings").mockRejectedValueOnce(new Error("Settings storage unavailable"));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    const startup = screen.getByRole("checkbox", { name: "Start with system" });
+    fireEvent.click(startup);
+    expect(startup).toBeChecked();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Settings storage unavailable");
+    expect(startup).not.toBeChecked();
   });
 
   it("creates a profile and records a desired key", async () => {
