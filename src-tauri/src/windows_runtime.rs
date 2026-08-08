@@ -108,37 +108,6 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::tasklist_has_other_switchify_process;
-
-    #[test]
-    fn conflict_check_ignores_the_current_process() {
-        let output = r#""Switchify PC.exe","4242","Console","1","20,000 K""#;
-        assert!(!tasklist_has_other_switchify_process(output, 4242));
-    }
-
-    #[test]
-    fn conflict_check_detects_another_switchify_process() {
-        let output = concat!(
-            r#""Switchify PC.exe","4242","Console","1","20,000 K""#,
-            "\r\n",
-            r#""SWITCHIFY PC.EXE","7331","Console","1","18,000 K""#,
-        );
-        assert!(tasklist_has_other_switchify_process(output, 4242));
-    }
-
-    #[test]
-    fn conflict_check_ignores_unrelated_and_malformed_rows() {
-        let output = concat!(
-            r#""Other App.exe","7331","Console","1","18,000 K""#,
-            "\r\n",
-            r#""Switchify PC.exe","not-a-pid","Console","1","20,000 K""#,
-        );
-        assert!(!tasklist_has_other_switchify_process(output, 4242));
-    }
-}
-
 async fn create_characteristic(
     provider: &GattServiceProvider,
     uuid: GUID,
@@ -962,5 +931,36 @@ fn release_input_session() {
     {
         let _ = runtime.input.release_all();
         runtime.input.end_control_session();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tasklist_has_other_switchify_process;
+
+    #[test]
+    fn conflict_check_ignores_the_current_process() {
+        let output = r#""Switchify PC.exe","4242","Console","1","20,000 K""#;
+        assert!(!tasklist_has_other_switchify_process(output, 4242));
+    }
+
+    #[test]
+    fn conflict_check_detects_another_switchify_process() {
+        let output = concat!(
+            r#""Switchify PC.exe","4242","Console","1","20,000 K""#,
+            "\r\n",
+            r#""SWITCHIFY PC.EXE","7331","Console","1","18,000 K""#,
+        );
+        assert!(tasklist_has_other_switchify_process(output, 4242));
+    }
+
+    #[test]
+    fn conflict_check_ignores_unrelated_and_malformed_rows() {
+        let output = concat!(
+            r#""Other App.exe","7331","Console","1","18,000 K""#,
+            "\r\n",
+            r#""Switchify PC.exe","not-a-pid","Console","1","20,000 K""#,
+        );
+        assert!(!tasklist_has_other_switchify_process(output, 4242));
     }
 }
