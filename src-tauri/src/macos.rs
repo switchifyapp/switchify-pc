@@ -245,8 +245,7 @@ pub fn approve_pairing(
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let response = model.engine.approve_pairing(request_id, now_ms());
-            let pending = model.engine.pending_pairing();
-            model.state.pending_pairing = pending;
+            model.state.pending_pairings = model.engine.pending_pairings();
             response
         }?;
         runtime.enqueue_message(&response)?;
@@ -271,8 +270,7 @@ pub fn reject_pairing(
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let response = model.engine.reject_pairing(request_id);
-            let pending = model.engine.pending_pairing();
-            model.state.pending_pairing = pending;
+            model.state.pending_pairings = model.engine.pending_pairings();
             response
         }?;
         runtime.enqueue_message(&response)?;
@@ -570,14 +568,24 @@ impl MacRuntime {
         };
         match event {
             Ok(None) => {}
-            Ok(Some(EngineEvent::PendingPairing(pending))) => {
-                let request_id = pending.request_id.clone();
-                let delay_ms = pending.expires_at.saturating_sub(now_ms()) as u64;
-                self.shared
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .state
-                    .pending_pairing = Some(pending);
+            Ok(Some(EngineEvent::PendingPairing {
+                request,
+                replaced_response,
+            })) => {
+                let request_id = request.request_id.clone();
+                let delay_ms = request.expires_at.saturating_sub(now_ms()) as u64;
+                {
+                    let mut model = self
+                        .shared
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    model.state.pending_pairings = model.engine.pending_pairings();
+                }
+                if let Some(response) = replaced_response {
+                    if let Err(error) = self.enqueue_message(&response) {
+                        self.report_error(error);
+                    }
+                }
                 set_activity(
                     &self.shared,
                     ActivityKind::Info,
@@ -1227,8 +1235,7 @@ fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Re
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let response = model.engine.expire_pairing(request_id, now_ms());
-            let pending = model.engine.pending_pairing();
-            model.state.pending_pairing = pending;
+            model.state.pending_pairings = model.engine.pending_pairings();
             response
         };
         let Some(response) = response else {

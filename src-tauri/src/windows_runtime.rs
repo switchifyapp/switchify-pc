@@ -443,18 +443,25 @@ fn process_frame(
         .receive_frame(bytes, crate::state::now_ms())?;
     let response = match event {
         None => None,
-        Some(EngineEvent::PendingPairing(pending)) => {
-            shared
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .state
-                .pending_pairing = Some(pending);
+        Some(EngineEvent::PendingPairing {
+            request,
+            replaced_response,
+        }) => {
+            let request_id = request.request_id.clone();
+            let delay_ms = request.expires_at.saturating_sub(crate::state::now_ms()) as u64;
+            {
+                let mut model = shared
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                model.state.pending_pairings = model.engine.pending_pairings();
+            }
             set_activity(
                 shared,
                 ActivityKind::Info,
                 "Review the pairing code before approving this device.",
             );
-            None
+            schedule_pairing_expiration(app, shared, request_id, delay_ms);
+            replaced_response
         }
         Some(EngineEvent::Response(response)) => Some(response),
         Some(EngineEvent::PointerProfile(id)) => {
@@ -870,7 +877,7 @@ pub fn check_accessibility(
 }
 
 pub fn approve_pairing(
-    _app: &AppHandle,
+    app: &AppHandle,
     shared: &SharedModel,
     request_id: &str,
 ) -> Result<(), String> {
@@ -880,15 +887,17 @@ pub fn approve_pairing(
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let response = model
             .engine
-            .approve_pairing(request_id, crate::state::now_ms())?;
-        model.state.pending_pairing = None;
+            .approve_pairing(request_id, crate::state::now_ms());
+        model.state.pending_pairings = model.engine.pending_pairings();
         response
-    };
-    notify(response)
+    }?;
+    notify(response)?;
+    emit_state(app, shared);
+    Ok(())
 }
 
 pub fn reject_pairing(
-    _app: &AppHandle,
+    app: &AppHandle,
     shared: &SharedModel,
     request_id: &str,
 ) -> Result<(), String> {
@@ -897,10 +906,49 @@ pub fn reject_pairing(
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let response = model.engine.reject_pairing(request_id)?;
-        model.state.pending_pairing = None;
+        model.state.pending_pairings = model.engine.pending_pairings();
         response
     };
-    notify(response)
+    notify(response)?;
+    emit_state(app, shared);
+    Ok(())
+}
+
+fn schedule_pairing_expiration(
+    app: &AppHandle,
+    shared: &SharedModel,
+    request_id: String,
+    delay_ms: u64,
+) {
+    let app = app.clone();
+    let shared = shared.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        let callback_app = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let _ = expire_pairing(&callback_app, &shared, &request_id);
+        });
+    });
+}
+
+fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Result<(), String> {
+    let response = {
+        let mut model = shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let response = model
+            .engine
+            .expire_pairing(request_id, crate::state::now_ms());
+        model.state.pending_pairings = model.engine.pending_pairings();
+        response
+    };
+    let Some(response) = response else {
+        return Ok(());
+    };
+    notify(response)?;
+    set_activity(shared, ActivityKind::Info, "Pairing request expired.");
+    emit_state(app, shared);
+    Ok(())
 }
 
 pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), String> {

@@ -5,7 +5,7 @@ import {
   ShieldCheck, SlidersHorizontal, Smartphone, Trash2, WifiOff, Wrench, X,
 } from "lucide-react";
 import { api } from "./api";
-import type { AppSettings, AppState, SwitchProfile } from "./types";
+import type { AppSettings, AppState, PendingPairing, SwitchProfile } from "./types";
 
 type View = "home" | "devices" | "profiles" | "settings" | "support";
 
@@ -198,6 +198,69 @@ function SupportView({ state, busy, perform }: { state: AppState; busy: boolean;
   </div>;
 }
 
+function PairingDialog({ requests, connectedDeviceName, busy, approve, reject }: {
+  requests: PendingPairing[];
+  connectedDeviceName: string | null;
+  busy: boolean;
+  approve: (requestId: string) => Promise<void>;
+  reject: (requestId: string) => Promise<void>;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
+  const actedRequest = useRef<string | null>(null);
+
+  useEffect(() => {
+    previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
+    return () => previousFocus.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (!actedRequest.current || requests.some((request) => request.requestId === actedRequest.current)) return;
+    actedRequest.current = null;
+    dialogRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  }, [requests]);
+
+  const run = (requestId: string, operation: (id: string) => Promise<void>) => {
+    actedRequest.current = requestId;
+    void operation(requestId);
+  };
+
+  const trapFocus = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Tab") return;
+    const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
+    if (controls.length === 0) {
+      event.preventDefault();
+      dialogRef.current?.focus();
+      return;
+    }
+    const first = controls[0];
+    const last = controls.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  return <div className="modal-backdrop"><section ref={dialogRef} className="pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="pairing-title" tabIndex={-1} onKeyDown={trapFocus}>
+    <header><Smartphone size={26} /><div><h2 id="pairing-title">Pairing requests</h2><p>Confirm each code matches Switchify for Android.</p>{connectedDeviceName && <p className="pairing-connection">Connected to {connectedDeviceName}</p>}</div><span>{requests.length}</span></header>
+    <div className="pairing-list" aria-label="Pending pairing requests">
+      {requests.map((request, index) => {
+        const titleId = `pairing-request-${index}`;
+        const actionDescription = `${request.deviceName}, code ${request.verificationCode}`;
+        return <article key={request.requestId} aria-labelledby={titleId}>
+          <div><h3 id={titleId}>{request.deviceName}</h3><p>Verification code</p></div>
+          <output aria-label={`Verification code for ${request.deviceName}`}>{request.verificationCode}</output>
+          <div className="pairing-actions"><button className="secondary danger" disabled={busy} aria-label={`Reject pairing request from ${actionDescription}`} onClick={() => run(request.requestId, reject)}>Reject</button><button className="primary" disabled={busy} aria-label={`Accept pairing request from ${actionDescription}`} onClick={() => run(request.requestId, approve)}>Accept</button></div>
+        </article>;
+      })}
+    </div>
+  </section></div>;
+}
+
 export function App() {
   const [state, setState] = useState<AppState | null>(null);
   const [view, setView] = useState<View>("home");
@@ -328,6 +391,6 @@ export function App() {
       {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} checkUpdates={() => void checkForUpdates()} busy={busy} />}
       {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} />}
     </main>
-    {state.pendingPairing && <div className="modal-backdrop"><section className="pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="pairing-title"><Smartphone size={26} /><h2 id="pairing-title">Pair {state.pendingPairing.deviceName}</h2><p>Confirm that this code matches Switchify Android.</p><output>{state.pendingPairing.verificationCode}</output><div><button className="secondary danger" disabled={busy} onClick={() => void perform(() => api.rejectPairing(state.pendingPairing!.requestId))}>Reject</button><button className="primary" disabled={busy} onClick={() => void perform(() => api.approvePairing(state.pendingPairing!.requestId))}>Accept</button></div></section></div>}
+    {state.pendingPairings.length > 0 && <PairingDialog requests={state.pendingPairings} connectedDeviceName={state.connectedDeviceName} busy={busy} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}
   </div>;
 }

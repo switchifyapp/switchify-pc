@@ -69,7 +69,9 @@ async fn approve_pairing(
 ) -> Result<AppState, String> {
     let pending = model
         .snapshot()
-        .pending_pairing
+        .pending_pairings
+        .into_iter()
+        .find(|pending| pending.request_id == request_id)
         .ok_or_else(|| "Pairing request is no longer pending.".to_string())?;
     let shared = model.shared.clone();
     let operation_app = app.clone();

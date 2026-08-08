@@ -30,7 +30,7 @@ export type AppState = {
   bluetooth: BluetoothState;
   accessibility: "granted" | "required" | "unavailable";
   desktopId: string;
-  pendingPairing: PendingPairing | null;
+  pendingPairings: PendingPairing[];
   pairedDevices: PairedDevice[];
   connectedDeviceName: string | null;
   lastActivity: Activity | null;

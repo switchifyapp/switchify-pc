@@ -251,7 +251,7 @@ pub struct AppState {
     pub bluetooth: BluetoothState,
     pub accessibility: AccessibilityState,
     pub desktop_id: String,
-    pub pending_pairing: Option<PendingPairingSummary>,
+    pub pending_pairings: Vec<PendingPairingSummary>,
     pub paired_devices: Vec<PairedDeviceView>,
     pub connected_device_name: Option<String>,
     pub last_activity: Option<Activity>,
@@ -315,7 +315,7 @@ impl AppModel {
                 bluetooth: BluetoothState::Initializing,
                 accessibility: AccessibilityState::Required,
                 desktop_id,
-                pending_pairing: None,
+                pending_pairings: Vec::new(),
                 paired_devices,
                 connected_device_name: None,
                 last_activity: pairing_storage_error

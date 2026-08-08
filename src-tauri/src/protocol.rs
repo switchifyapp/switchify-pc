@@ -354,7 +354,10 @@ pub enum ResponseMode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EngineEvent {
-    PendingPairing(PendingPairingSummary),
+    PendingPairing {
+        request: PendingPairingSummary,
+        replaced_response: Option<String>,
+    },
     Response(String),
     PointerProfile(String),
     MouseMove(MouseMoveCommand),
@@ -367,7 +370,7 @@ pub enum EngineEvent {
 pub struct ProtocolEngine {
     desktop_id: String,
     reassembler: FrameReassembler,
-    pending_pairing: Option<PendingPairing>,
+    pending_pairings: HashMap<String, PendingPairing>,
     tokens: HashMap<String, String>,
     replay_cache: HashMap<String, i64>,
 }
@@ -377,7 +380,7 @@ impl ProtocolEngine {
         Self {
             desktop_id,
             reassembler: FrameReassembler::default(),
-            pending_pairing: None,
+            pending_pairings: HashMap::new(),
             tokens: HashMap::new(),
             replay_cache: HashMap::new(),
         }
@@ -389,8 +392,19 @@ impl ProtocolEngine {
     }
 
     #[cfg_attr(target_os = "windows", allow(dead_code))]
-    pub fn pending_pairing(&self) -> Option<PendingPairingSummary> {
-        self.pending_pairing.as_ref().map(PendingPairing::summary)
+    pub fn pending_pairings(&self) -> Vec<PendingPairingSummary> {
+        let mut pending: Vec<_> = self
+            .pending_pairings
+            .values()
+            .map(PendingPairing::summary)
+            .collect();
+        pending.sort_by(|left, right| {
+            right
+                .expires_at
+                .cmp(&left.expires_at)
+                .then_with(|| left.request_id.cmp(&right.request_id))
+        });
+        pending
     }
 
     pub fn set_paired_token(&mut self, device_id: String, token: String) {
@@ -421,15 +435,9 @@ impl ProtocolEngine {
     }
 
     pub fn approve_pairing(&mut self, request_id: &str, now_ms: i64) -> Result<String, String> {
-        if !matches!(
-            self.pending_pairing.as_ref(),
-            Some(pending) if pending.request_id == request_id
-        ) {
-            return Err("Pairing request is no longer pending.".into());
-        }
         let pending = self
-            .pending_pairing
-            .take()
+            .pending_pairings
+            .remove(request_id)
             .ok_or_else(|| "Pairing request is no longer pending.".to_string())?;
         if now_ms >= pending.expires_at {
             return Err("Pairing request has expired.".into());
@@ -455,15 +463,9 @@ impl ProtocolEngine {
     }
 
     pub fn reject_pairing(&mut self, request_id: &str) -> Result<String, String> {
-        if !matches!(
-            self.pending_pairing.as_ref(),
-            Some(pending) if pending.request_id == request_id
-        ) {
-            return Err("Pairing request is no longer pending.".into());
-        }
         let pending = self
-            .pending_pairing
-            .take()
+            .pending_pairings
+            .remove(request_id)
             .ok_or_else(|| "Pairing request is no longer pending.".to_string())?;
         Ok(error_response(
             Some(&pending.request_id),
@@ -474,13 +476,14 @@ impl ProtocolEngine {
 
     #[cfg_attr(target_os = "windows", allow(dead_code))]
     pub fn expire_pairing(&mut self, request_id: &str, now_ms: i64) -> Option<String> {
-        let should_expire = self.pending_pairing.as_ref().is_some_and(|pending| {
-            pending.request_id == request_id && now_ms >= pending.expires_at
-        });
+        let should_expire = self
+            .pending_pairings
+            .get(request_id)
+            .is_some_and(|pending| now_ms >= pending.expires_at);
         if !should_expire {
             return None;
         }
-        let pending = self.pending_pairing.take()?;
+        let pending = self.pending_pairings.remove(request_id)?;
         Some(error_response(
             Some(&pending.request_id),
             "invalid_auth",
@@ -698,8 +701,27 @@ impl ProtocolEngine {
             expires_at: now_ms + PAIRING_TIMEOUT_MS,
         };
         let summary = pending.summary();
-        self.pending_pairing = Some(pending);
-        Ok(EngineEvent::PendingPairing(summary))
+        let replaced_request_id = self
+            .pending_pairings
+            .contains_key(&pending.request_id)
+            .then(|| pending.request_id.clone())
+            .or_else(|| {
+                self.pending_pairings
+                    .values()
+                    .find(|existing| existing.device_id == pending.device_id)
+                    .map(|existing| existing.request_id.clone())
+            });
+        let replaced_response = replaced_request_id.and_then(|request_id| {
+            self.pending_pairings.remove(&request_id).map(|_| {
+                error_response(Some(&request_id), "invalid_auth", "pairing_request_expired")
+            })
+        });
+        self.pending_pairings
+            .insert(pending.request_id.clone(), pending);
+        Ok(EngineEvent::PendingPairing {
+            request: summary,
+            replaced_response,
+        })
     }
 
     fn validate_authenticated_command(
@@ -1400,6 +1422,20 @@ mod tests {
     const NOW: i64 = 1_724_000_000_000;
     const TOKEN: &str = "shared-token";
 
+    fn pairing_request(id: &str, device_id: &str, device_name: &str, nonce: &str) -> Value {
+        json!({
+            "version": 1,
+            "id": id,
+            "type": "pairing.request",
+            "payload": {
+                "deviceId": device_id,
+                "deviceName": device_name,
+                "desktopId": "desktop-1",
+                "requestNonce": nonce
+            }
+        })
+    }
+
     #[test]
     fn frames_round_trip_out_of_order_and_ignore_duplicate_chunks() {
         let message = "x".repeat(500);
@@ -1499,19 +1535,15 @@ mod tests {
     #[test]
     fn pairing_approval_is_memory_only_and_expires() {
         let mut engine = ProtocolEngine::new("desktop-1".into());
-        let request = json!({
-            "version": 1,
-            "id": "pair-1",
-            "type": "pairing.request",
-            "payload": {
-                "deviceId": "android-1",
-                "deviceName": "Pixel",
-                "desktopId": "desktop-1",
-                "requestNonce": "nonce-1"
-            }
-        });
+        let request = pairing_request("pair-1", "android-1", "Pixel", "nonce-1");
         let event = engine.process_message(&request.to_string(), NOW).unwrap();
-        assert!(matches!(event, EngineEvent::PendingPairing(_)));
+        assert!(matches!(
+            event,
+            EngineEvent::PendingPairing {
+                replaced_response: None,
+                ..
+            }
+        ));
         let response = engine.approve_pairing("pair-1", NOW + 1).unwrap();
         let response: Value = serde_json::from_str(&response).unwrap();
         assert_eq!(response["type"], "pairing.complete");
@@ -1522,6 +1554,111 @@ mod tests {
         assert!(expired
             .approve_pairing("pair-1", NOW + PAIRING_TIMEOUT_MS)
             .is_err());
+        assert!(expired.pending_pairings().is_empty());
+    }
+
+    #[test]
+    fn pairing_requests_are_newest_first_and_actions_are_targeted() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine
+            .process_message(
+                &pairing_request("pair-1", "android-1", "Pixel", "nonce-1").to_string(),
+                NOW,
+            )
+            .unwrap();
+        engine
+            .process_message(
+                &pairing_request("pair-2", "android-2", "Galaxy", "nonce-2").to_string(),
+                NOW + 1,
+            )
+            .unwrap();
+
+        let pending = engine.pending_pairings();
+        assert_eq!(
+            pending
+                .iter()
+                .map(|request| request.request_id.as_str())
+                .collect::<Vec<_>>(),
+            ["pair-2", "pair-1"]
+        );
+        engine.reject_pairing("pair-1").unwrap();
+        assert_eq!(engine.pending_pairings()[0].request_id, "pair-2");
+        assert!(engine.reject_pairing("pair-1").is_err());
+    }
+
+    #[test]
+    fn newer_request_from_same_device_replaces_only_that_device() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine
+            .process_message(
+                &pairing_request("pair-1", "android-1", "Pixel", "nonce-1").to_string(),
+                NOW,
+            )
+            .unwrap();
+        engine
+            .process_message(
+                &pairing_request("pair-2", "android-2", "Galaxy", "nonce-2").to_string(),
+                NOW + 1,
+            )
+            .unwrap();
+        let event = engine
+            .process_message(
+                &pairing_request("pair-3", "android-1", "Pixel", "nonce-3").to_string(),
+                NOW + 2,
+            )
+            .unwrap();
+
+        let EngineEvent::PendingPairing {
+            request,
+            replaced_response: Some(replaced_response),
+        } = event
+        else {
+            panic!("expected a replacement pairing event");
+        };
+        assert_eq!(request.request_id, "pair-3");
+        assert!(replaced_response.contains("pair-1"));
+        assert!(replaced_response.contains("pairing_request_expired"));
+        assert_eq!(
+            engine
+                .pending_pairings()
+                .iter()
+                .map(|request| request.request_id.as_str())
+                .collect::<Vec<_>>(),
+            ["pair-3", "pair-2"]
+        );
+        assert_eq!(
+            engine.expire_pairing("pair-1", NOW + PAIRING_TIMEOUT_MS),
+            None
+        );
+    }
+
+    #[test]
+    fn pairing_requests_expire_independently_and_summaries_exclude_nonces() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine
+            .process_message(
+                &pairing_request("pair-1", "android-1", "Pixel", "secret-nonce-1").to_string(),
+                NOW,
+            )
+            .unwrap();
+        engine
+            .process_message(
+                &pairing_request("pair-2", "android-2", "Galaxy", "secret-nonce-2").to_string(),
+                NOW + 1,
+            )
+            .unwrap();
+
+        let summaries = serde_json::to_string(&engine.pending_pairings()).unwrap();
+        assert!(!summaries.contains("nonce"));
+        let expired = engine
+            .expire_pairing("pair-1", NOW + PAIRING_TIMEOUT_MS)
+            .unwrap();
+        assert!(expired.contains("pairing_request_expired"));
+        assert_eq!(engine.pending_pairings()[0].request_id, "pair-2");
+        assert_eq!(
+            engine.expire_pairing("pair-2", NOW + PAIRING_TIMEOUT_MS),
+            None
+        );
     }
 
     #[test]
