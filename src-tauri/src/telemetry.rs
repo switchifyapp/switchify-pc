@@ -162,6 +162,7 @@ struct TelemetryInner {
     config: Option<TelemetryConfig>,
     data: Mutex<TelemetryData>,
     flushing: AtomicBool,
+    consent_tx: tokio::sync::watch::Sender<bool>,
     transport: Arc<dyn TelemetryTransport>,
 }
 
@@ -200,6 +201,7 @@ impl TelemetryService {
             .or_else(|| {
                 (consent == TelemetryConsent::Enabled).then(|| uuid::Uuid::new_v4().to_string())
             });
+        let (consent_tx, _) = tokio::sync::watch::channel(consent == TelemetryConsent::Enabled);
         let service = Self {
             inner: Arc::new(TelemetryInner {
                 path,
@@ -211,6 +213,7 @@ impl TelemetryService {
                     last_error: None,
                 }),
                 flushing: AtomicBool::new(false),
+                consent_tx,
                 transport,
             }),
         };
@@ -240,6 +243,9 @@ impl TelemetryService {
     }
 
     pub fn set_consent(&self, consent: TelemetryConsent) {
+        if consent != TelemetryConsent::Enabled {
+            self.inner.consent_tx.send_replace(false);
+        }
         {
             let mut data = self
                 .inner
@@ -260,6 +266,7 @@ impl TelemetryService {
         if consent != TelemetryConsent::Enabled {
             self.purge();
         } else {
+            self.inner.consent_tx.send_replace(true);
             self.flush();
         }
     }
@@ -320,8 +327,18 @@ impl TelemetryService {
             return;
         };
         let transport = self.inner.transport.clone();
+        let mut consent = self.inner.consent_tx.subscribe();
         tauri::async_runtime::spawn(async move {
-            let _ = transport.send(config, vec![log]).await;
+            if !*consent.borrow() {
+                return;
+            }
+            tokio::select! {
+                biased;
+                changed = consent.changed() => {
+                    let _ = changed;
+                }
+                _ = transport.send(config, vec![log]) => {}
+            }
         });
     }
 
@@ -370,6 +387,7 @@ impl TelemetryService {
         }
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
+            let mut retry_blocked = false;
             loop {
                 let next = {
                     let data = service
@@ -386,12 +404,23 @@ impl TelemetryService {
                 let Some(next) = next else {
                     break;
                 };
-                let outcome = service
-                    .inner
-                    .transport
-                    .send(config.clone(), vec![next.clone()])
-                    .await;
+                let mut consent = service.inner.consent_tx.subscribe();
+                if !*consent.borrow() {
+                    break;
+                }
+                let outcome = tokio::select! {
+                    biased;
+                    changed = consent.changed() => {
+                        let _ = changed;
+                        None
+                    }
+                    outcome = service.inner.transport.send(config.clone(), vec![next.clone()]) => Some(outcome)
+                };
+                let Some(outcome) = outcome else {
+                    break;
+                };
                 if outcome == SendOutcome::Retry {
+                    retry_blocked = true;
                     break;
                 }
                 let mut data = service
@@ -405,8 +434,23 @@ impl TelemetryService {
                 data.queue.retain(|queued| queued.id != next.id);
                 let _ = persist_locked(&service.inner.path, &data);
             }
-            service.inner.flushing.store(false, Ordering::Release);
+            if service.finish_flush(retry_blocked) {
+                service.flush();
+            }
         });
+    }
+
+    fn finish_flush(&self, retry_blocked: bool) -> bool {
+        self.inner.flushing.store(false, Ordering::Release);
+        if retry_blocked {
+            return false;
+        }
+        let data = self
+            .inner
+            .data
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        data.consent == TelemetryConsent::Enabled && !data.queue.is_empty()
     }
 
     fn purge(&self) {
@@ -517,6 +561,7 @@ fn persist_locked(path: &Path, data: &TelemetryData) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::collections::VecDeque;
+    use std::sync::atomic::AtomicUsize;
 
     struct FakeTransport {
         outcomes: Mutex<VecDeque<SendOutcome>>,
@@ -542,6 +587,26 @@ mod tests {
                 .pop_front()
                 .unwrap_or(SendOutcome::Sent);
             Box::pin(async move { outcome })
+        }
+    }
+
+    struct BlockingTransport {
+        started: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+        delivered: Arc<AtomicUsize>,
+    }
+
+    impl TelemetryTransport for BlockingTransport {
+        fn send(&self, _config: TelemetryConfig, _logs: Vec<TelemetryLog>) -> SendFuture {
+            let started = self.started.clone();
+            let release = self.release.clone();
+            let delivered = self.delivered.clone();
+            Box::pin(async move {
+                started.notify_one();
+                release.notified().await;
+                delivered.fetch_add(1, Ordering::SeqCst);
+                SendOutcome::Sent
+            })
         }
     }
 
@@ -613,6 +678,49 @@ mod tests {
         service.report_exception("another failure", "1.0.0", "windows");
         settle().await;
         assert_eq!(transport.sent.lock().unwrap().len(), sent_before);
+    }
+
+    #[tokio::test]
+    async fn opt_out_cancels_a_prepared_health_request() {
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let delivered = Arc::new(AtomicUsize::new(0));
+        let transport = Arc::new(BlockingTransport {
+            started: started.clone(),
+            release: release.clone(),
+            delivered: delivered.clone(),
+        });
+        let path = std::env::temp_dir()
+            .join(format!("switchify-telemetry-{}", uuid::Uuid::new_v4()))
+            .join("telemetry.json");
+        let service = TelemetryService::with_transport(
+            path.clone(),
+            TelemetryConsent::Enabled,
+            TelemetryConfig::new("https://telemetry.example.test", "test-key"),
+            transport,
+        );
+        let started_signal = started.notified();
+        service.report_health("app.healthy", "1.0.0", "macos");
+        started_signal.await;
+        service.set_consent(TelemetryConsent::Disabled);
+        release.notify_waiters();
+        settle().await;
+        assert_eq!(delivered.load(Ordering::SeqCst), 0);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn flush_shutdown_detects_reports_queued_during_handoff() {
+        let transport = Arc::new(FakeTransport::new([SendOutcome::Retry]));
+        let (service, path) = test_service(TelemetryConsent::Undecided, transport);
+        service.set_consent(TelemetryConsent::Enabled);
+        service.inner.flushing.store(true, Ordering::Release);
+        service.report_exception("handoff failure", "1.0.0", "macos");
+
+        assert!(service.finish_flush(false));
+        assert!(!service.inner.flushing.load(Ordering::Acquire));
+        assert_eq!(load_disk(&path).unwrap().queue.len(), 1);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[tokio::test]
