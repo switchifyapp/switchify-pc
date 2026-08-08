@@ -26,6 +26,7 @@ export const browserState: AppState = {
   },
   version: "1.0.0-beta.1",
   diagnostics: { recentBluetooth: [], lastDisconnect: null, recentErrors: [] },
+  telemetry: { consent: "undecided", available: true },
 };
 
 const emptyBindings = () => Array.from({ length: 8 }, (_, index) => ({
@@ -57,6 +58,12 @@ export const api = {
   saveSettings: (settings: AppSettings) => {
     if ("__TAURI_INTERNALS__" in window) return call<AppState>("save_settings", { settings });
     browserState.settings = structuredClone(settings);
+    return Promise.resolve(structuredClone(browserState));
+  },
+  setTelemetryConsent: (enabled: boolean) => {
+    if ("__TAURI_INTERNALS__" in window) return call<AppState>("set_telemetry_consent", { enabled });
+    browserState.telemetry = { ...browserState.telemetry, consent: enabled ? "enabled" : "disabled" };
+    browserState.settings.shareDiagnostics = enabled;
     return Promise.resolve(structuredClone(browserState));
   },
   listProfiles: () => "__TAURI_INTERNALS__" in window

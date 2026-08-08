@@ -10,6 +10,7 @@ mod overlay;
 mod protocol;
 mod state;
 mod storage;
+mod telemetry;
 #[cfg(target_os = "windows")]
 mod windows_runtime;
 #[cfg(target_os = "windows")]
@@ -27,6 +28,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(not(target_os = "windows"))]
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_updater::UpdaterExt;
+use telemetry::TelemetryConsent;
 
 #[tauri::command]
 fn get_app_state(model: State<'_, AppModel>) -> AppState {
@@ -275,17 +277,37 @@ fn save_settings(
     settings: AppSettings,
 ) -> Result<AppState, String> {
     let settings = settings.normalized()?;
-    let previous_start_with_system = model
-        .shared
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .state
-        .settings
-        .start_with_system;
+    let (previous_start_with_system, previous_share_diagnostics, previous_consent) = {
+        let state = &model
+            .shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .state;
+        (
+            state.settings.start_with_system,
+            state.settings.share_diagnostics,
+            state.telemetry.consent,
+        )
+    };
     if settings.start_with_system != previous_start_with_system {
         update_startup_registration(&app, settings.start_with_system)?;
     }
-    model.persist_settings(&settings)?;
+    let next_consent = if settings.share_diagnostics != previous_share_diagnostics {
+        if settings.share_diagnostics {
+            TelemetryConsent::Enabled
+        } else {
+            TelemetryConsent::Disabled
+        }
+    } else {
+        previous_consent
+    };
+    if next_consent == TelemetryConsent::Disabled {
+        model.set_telemetry_consent(next_consent);
+    }
+    model.persist_settings_with_telemetry(&settings, next_consent)?;
+    if next_consent != TelemetryConsent::Disabled {
+        model.set_telemetry_consent(next_consent);
+    }
     model
         .shared
         .lock()
@@ -297,6 +319,21 @@ fn save_settings(
     }
     overlay.apply_settings(settings);
     state::set_activity(&model.shared, ActivityKind::Success, "Settings saved.");
+    Ok(model.snapshot())
+}
+
+#[tauri::command]
+fn set_telemetry_consent(model: State<'_, AppModel>, enabled: bool) -> Result<AppState, String> {
+    model.apply_telemetry_choice(enabled)?;
+    state::set_activity(
+        &model.shared,
+        ActivityKind::Success,
+        if enabled {
+            "Anonymous diagnostics enabled."
+        } else {
+            "Anonymous diagnostics disabled."
+        },
+    );
     Ok(model.snapshot())
 }
 
@@ -598,6 +635,7 @@ fn export_diagnostics(model: State<'_, AppModel>) -> Result<AppState, String> {
             "connected": data.state.connected_device_name.is_some(),
             "customProfileCount": data.profiles.iter().filter(|profile| !profile.built_in).count(),
             "capabilities": data.state.capabilities,
+            "telemetry": data.state.telemetry,
             "diagnosticHistorySchemaVersion": 1,
             "events": events,
         })
@@ -663,6 +701,13 @@ pub fn run() {
         .manage(PendingProfileExit::default())
         .setup(move |app| {
             install_tray(app)?;
+            {
+                let model = app.state::<AppModel>();
+                let state = model.snapshot();
+                model
+                    .telemetry
+                    .start(&state.version, &state.capabilities.platform);
+            }
             app.manage(overlay::CursorOverlay::install(
                 app.handle().clone(),
                 overlay_shared.clone(),
@@ -740,6 +785,7 @@ pub fn run() {
             modifier_overlay_ready,
             forget_device,
             save_settings,
+            set_telemetry_consent,
             list_switch_profiles,
             save_switch_profile,
             delete_switch_profile,

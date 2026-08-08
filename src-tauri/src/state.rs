@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::diagnostics::{DiagnosticHistory, DiagnosticSummary};
 use crate::protocol::{PendingPairingSummary, ProtocolEngine};
 use crate::storage::{AppStorage, PersistedState};
+use crate::telemetry::{TelemetryConsent, TelemetryService, TelemetryView};
 
 pub const APP_STATE_EVENT: &str = "app-state-changed";
 
@@ -260,6 +261,7 @@ pub struct AppState {
     pub capabilities: PlatformCapabilities,
     pub version: String,
     pub diagnostics: DiagnosticSummary,
+    pub telemetry: TelemetryView,
 }
 
 #[derive(Debug)]
@@ -274,6 +276,7 @@ pub struct AppModel {
     pub shared: SharedModel,
     pub storage: AppStorage,
     pub diagnostics: DiagnosticHistory,
+    pub telemetry: TelemetryService,
     emission_lock: Mutex<()>,
     preserved_paired_devices: Vec<PairedDeviceView>,
 }
@@ -286,7 +289,15 @@ impl AppModel {
 
     fn with_storage(storage: AppStorage) -> Self {
         let diagnostics = DiagnosticHistory::new(storage.diagnostic_history_path());
-        let saved = storage.load().unwrap_or_else(|_| PersistedState::default());
+        let mut saved = storage.load().unwrap_or_else(|_| PersistedState::default());
+        let telemetry_consent = match saved.telemetry_consent {
+            Some(true) => TelemetryConsent::Enabled,
+            Some(false) => TelemetryConsent::Disabled,
+            None if saved.settings.share_diagnostics => TelemetryConsent::Enabled,
+            None => TelemetryConsent::Undecided,
+        };
+        saved.settings.share_diagnostics = telemetry_consent == TelemetryConsent::Enabled;
+        let telemetry = TelemetryService::new(storage.telemetry_path(), telemetry_consent);
         let desktop_id = saved
             .desktop_id
             .unwrap_or_else(|| Uuid::new_v4().to_string());
@@ -340,12 +351,14 @@ impl AppModel {
                 capabilities,
                 version: env!("CARGO_PKG_VERSION").into(),
                 diagnostics: DiagnosticSummary::default(),
+                telemetry: telemetry.view(),
             },
         }));
         let model = Self {
             shared,
             storage,
             diagnostics,
+            telemetry,
             emission_lock: Mutex::new(()),
             preserved_paired_devices,
         };
@@ -367,10 +380,20 @@ impl AppModel {
         snapshot(&self.shared)
     }
     pub fn persist(&self) -> Result<(), String> {
-        self.storage.save(&self.persisted_state(None))
+        self.storage.save(&self.persisted_state(None, None))
     }
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     pub fn persist_settings(&self, settings: &AppSettings) -> Result<(), String> {
-        self.storage.save(&self.persisted_state(Some(settings)))
+        self.storage
+            .save(&self.persisted_state(Some(settings), None))
+    }
+    pub fn persist_settings_with_telemetry(
+        &self,
+        settings: &AppSettings,
+        consent: TelemetryConsent,
+    ) -> Result<(), String> {
+        self.storage
+            .save(&self.persisted_state(Some(settings), Some(consent)))
     }
     pub fn record_updater(&self, status: &str, detail: Option<&str>) {
         let _emission = self
@@ -387,7 +410,41 @@ impl AppModel {
             .state
             .diagnostics = summary;
     }
-    fn persisted_state(&self, settings: Option<&AppSettings>) -> PersistedState {
+    pub fn set_telemetry_consent(&self, consent: TelemetryConsent) {
+        self.telemetry.set_consent(consent);
+        self.shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .state
+            .telemetry = self.telemetry.view();
+    }
+    pub fn apply_telemetry_choice(&self, enabled: bool) -> Result<AppState, String> {
+        let consent = if enabled {
+            TelemetryConsent::Enabled
+        } else {
+            TelemetryConsent::Disabled
+        };
+        let mut settings = self.snapshot().settings;
+        settings.share_diagnostics = enabled;
+        if !enabled {
+            self.set_telemetry_consent(consent);
+        }
+        self.persist_settings_with_telemetry(&settings, consent)?;
+        if enabled {
+            self.set_telemetry_consent(consent);
+        }
+        self.shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .state
+            .settings = settings;
+        Ok(self.snapshot())
+    }
+    fn persisted_state(
+        &self,
+        settings: Option<&AppSettings>,
+        telemetry_consent: Option<TelemetryConsent>,
+    ) -> PersistedState {
         let data = self
             .shared
             .lock()
@@ -418,6 +475,11 @@ impl AppModel {
                 .filter(|profile| !profile.built_in)
                 .cloned()
                 .collect(),
+            telemetry_consent: match telemetry_consent.unwrap_or(data.state.telemetry.consent) {
+                TelemetryConsent::Enabled => Some(true),
+                TelemetryConsent::Disabled => Some(false),
+                TelemetryConsent::Undecided => None,
+            },
         }
     }
 }
@@ -462,6 +524,7 @@ pub fn emit_state(app: &AppHandle, shared: &SharedModel) {
         let current = snapshot(shared);
         let summary = model.diagnostics.observe(&current, now_ms());
         model.set_diagnostic_summary(summary);
+        model.telemetry.observe(&current);
         let _ = app.emit(APP_STATE_EVENT, snapshot(shared));
         return;
     }
@@ -540,9 +603,40 @@ mod tests {
         assert!(uuid::Uuid::parse_str(&state.desktop_id).is_ok());
         assert!(state.paired_devices.is_empty());
         assert_eq!(state.settings, AppSettings::default());
+        assert_eq!(state.telemetry.consent, TelemetryConsent::Undecided);
+        assert!(!model.storage.telemetry_path().exists());
         let saved = model.storage.load().unwrap();
         assert_eq!(saved.desktop_id.as_deref(), Some(state.desktop_id.as_str()));
         assert!(saved.paired_devices.is_empty());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn legacy_true_setting_becomes_explicit_opt_in_but_false_stays_undecided() {
+        let root = std::env::temp_dir().join(format!("switchify-consent-{}", uuid::Uuid::new_v4()));
+        let storage = AppStorage::at(root.join("state.json"));
+        let mut saved = PersistedState::default();
+        saved.settings.share_diagnostics = true;
+        storage.save(&saved).unwrap();
+
+        let model = AppModel::with_storage(storage);
+        assert_eq!(
+            model.snapshot().telemetry.consent,
+            TelemetryConsent::Enabled
+        );
+        assert!(model.storage.telemetry_path().exists());
+
+        let settings = AppSettings::default();
+        model.set_telemetry_consent(TelemetryConsent::Disabled);
+        model
+            .persist_settings_with_telemetry(&settings, TelemetryConsent::Disabled)
+            .unwrap();
+        assert!(!model.storage.telemetry_path().exists());
+        let reloaded = AppModel::with_storage(AppStorage::at(root.join("state.json")));
+        assert_eq!(
+            reloaded.snapshot().telemetry.consent,
+            TelemetryConsent::Disabled
+        );
         let _ = fs::remove_dir_all(root);
     }
 

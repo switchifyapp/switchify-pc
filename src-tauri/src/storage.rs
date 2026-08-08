@@ -15,6 +15,7 @@ const STATE_FILE: &str = "state.json";
 const FALLBACK_STATE_FILE: &str = "switchify-pc-state.json";
 const DIAGNOSTICS_FILE: &str = "switchify-diagnostics.json";
 const DIAGNOSTIC_HISTORY_FILE: &str = "diagnostic-history.jsonl";
+const TELEMETRY_FILE: &str = "telemetry.json";
 #[cfg(not(target_os = "macos"))]
 const KEYRING_SERVICE: &str = "com.enaboapps.switchify.pc.pairing";
 
@@ -178,6 +179,8 @@ pub struct PersistedState {
     pub paired_devices: Vec<PairedDeviceView>,
     pub settings: AppSettings,
     pub profiles: Vec<SwitchProfile>,
+    #[serde(default)]
+    pub telemetry_consent: Option<bool>,
 }
 
 impl Default for PersistedState {
@@ -188,6 +191,7 @@ impl Default for PersistedState {
             paired_devices: vec![],
             settings: AppSettings::default(),
             profiles: vec![],
+            telemetry_consent: None,
         }
     }
 }
@@ -269,6 +273,10 @@ impl AppStorage {
 
     pub fn diagnostic_history_path(&self) -> PathBuf {
         self.path.with_file_name(DIAGNOSTIC_HISTORY_FILE)
+    }
+
+    pub fn telemetry_path(&self) -> PathBuf {
+        self.path.with_file_name(TELEMETRY_FILE)
     }
 }
 
