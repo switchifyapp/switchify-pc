@@ -1,3 +1,4 @@
+mod diagnostics;
 #[cfg(target_os = "windows")]
 mod grid3;
 mod input;
@@ -541,20 +542,34 @@ async fn check_for_updates(app: AppHandle, model: State<'_, AppModel>) -> Result
             ActivityKind::Info,
             "Updates are not configured for this build.",
         );
+        model.record_updater("unavailable", Some("update endpoints are not configured"));
         return Ok(model.snapshot());
     }
-    let update = app
-        .updater()
-        .map_err(|error| error.to_string())?
-        .check()
-        .await
-        .map_err(|error| error.to_string())?;
+    let updater = match app.updater() {
+        Ok(updater) => updater,
+        Err(error) => return Err(record_update_failure(&model, &error.to_string())),
+    };
+    let update = match updater.check().await {
+        Ok(update) => update,
+        Err(error) => return Err(record_update_failure(&model, &error.to_string())),
+    };
     let message = update.map_or_else(
         || "Switchify PC is up to date.".to_string(),
         |update| format!("Switchify PC {} is available.", update.version),
     );
     state::set_activity(&model.shared, ActivityKind::Info, message);
+    model.record_updater("checked", None);
     Ok(model.snapshot())
+}
+
+fn record_update_failure(model: &AppModel, error: &str) -> String {
+    state::set_activity(
+        &model.shared,
+        ActivityKind::Error,
+        format!("Update check failed: {error}"),
+    );
+    model.record_updater("failed", Some(error));
+    error.to_owned()
 }
 
 fn updater_has_endpoints(config: Option<&serde_json::Value>) -> bool {
@@ -566,6 +581,7 @@ fn updater_has_endpoints(config: Option<&serde_json::Value>) -> bool {
 
 #[tauri::command]
 fn export_diagnostics(model: State<'_, AppModel>) -> Result<AppState, String> {
+    let events = model.diagnostics.events();
     let diagnostics = {
         let data = model
             .shared
@@ -582,6 +598,8 @@ fn export_diagnostics(model: State<'_, AppModel>) -> Result<AppState, String> {
             "connected": data.state.connected_device_name.is_some(),
             "customProfileCount": data.profiles.iter().filter(|profile| !profile.built_in).count(),
             "capabilities": data.state.capabilities,
+            "diagnosticHistorySchemaVersion": 1,
+            "events": events,
         })
     };
     let path = model.storage.export_diagnostics(&diagnostics)?;
@@ -807,10 +825,11 @@ fn platform_disconnect_all(app: &AppHandle, shared: &state::SharedModel) -> Resu
 #[cfg(test)]
 mod tests {
     use super::{
-        has_start_hidden_argument, updater_has_endpoints, validate_profile, PendingProfileExit,
-        ProfileExitAction,
+        has_start_hidden_argument, record_update_failure, updater_has_endpoints, validate_profile,
+        PendingProfileExit, ProfileExitAction,
     };
-    use crate::state::{SwitchBinding, SwitchProfile};
+    use crate::state::{AppModel, SwitchBinding, SwitchProfile};
+    use crate::storage::AppStorage;
     use serde_json::json;
 
     fn custom_profile() -> SwitchProfile {
@@ -843,6 +862,28 @@ mod tests {
             "endpoints": ["https://updates.example.com/latest.json"],
             "pubkey": "test-key"
         }))));
+    }
+
+    #[test]
+    fn update_failures_are_sanitized_and_persisted() {
+        let root = std::env::temp_dir().join(format!("switchify-update-{}", uuid::Uuid::new_v4()));
+        let model = AppModel::with_storage_for_test(AppStorage::at(root.join("state.json")));
+        let error = "feed failed /Users/person/private token=secret";
+
+        assert_eq!(record_update_failure(&model, error), error);
+        let event = model
+            .diagnostics
+            .events()
+            .into_iter()
+            .rev()
+            .find(|event| event.category == "updater")
+            .unwrap();
+        assert_eq!(event.status, "failed");
+        assert_eq!(
+            event.detail.as_deref(),
+            Some("feed failed [redacted] [redacted]")
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

@@ -2,6 +2,12 @@ export type BluetoothState = "initializing" | "advertising" | "connected" | "pow
 export type PendingPairing = { requestId: string; deviceId: string; deviceName: string; verificationCode: string; expiresAt: number };
 export type PairedDevice = { deviceId: string; deviceName: string; pairedAt: number; lastSeenAt: number | null };
 export type Activity = { kind: "info" | "success" | "error"; message: string };
+export type DiagnosticEvent = { sequence: number; timestamp: number; category: string; status: string; detail?: string };
+export type DiagnosticSummary = {
+  recentBluetooth: DiagnosticEvent[];
+  lastDisconnect: DiagnosticEvent | null;
+  recentErrors: DiagnosticEvent[];
+};
 
 export type AppSettings = {
   startWithSystem: boolean;
@@ -37,6 +43,7 @@ export type AppState = {
   settings: AppSettings;
   capabilities: PlatformCapabilities;
   version: string;
+  diagnostics: DiagnosticSummary;
 };
 
 export type SwitchBinding = {

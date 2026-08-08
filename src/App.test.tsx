@@ -15,6 +15,7 @@ describe("Switchify PC shell", () => {
     browserState.settings = structuredClone(defaultBrowserSettings);
     browserState.pendingPairings = [];
     browserState.connectedDeviceName = null;
+    browserState.diagnostics = { recentBluetooth: [], lastDisconnect: null, recentErrors: [] };
   });
 
   afterEach(() => {
@@ -67,6 +68,21 @@ describe("Switchify PC shell", () => {
     expect(await screen.findByRole("heading", { name: "Switchify PC" })).toBeInTheDocument();
     expect(screen.getByText("Input access")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open Accessibility Settings" })).toBeInTheDocument();
+  });
+
+  it("shows the compact diagnostic history in troubleshooting", async () => {
+    browserState.diagnostics = {
+      recentBluetooth: [{ sequence: 1, timestamp: 1, category: "bluetooth", status: "advertising" }],
+      lastDisconnect: { sequence: 2, timestamp: 2, category: "disconnect", status: "disconnected", detail: "manual disconnect" },
+      recentErrors: [{ sequence: 3, timestamp: 3, category: "runtime", status: "failed", detail: "Bluetooth unavailable" }],
+    };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Support" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Troubleshooting" }));
+    expect(screen.getByText("Recent Bluetooth changes")).toBeInTheDocument();
+    expect(screen.getByText("advertising")).toBeInTheDocument();
+    expect(screen.getByText("manual disconnect")).toBeInTheDocument();
+    expect(screen.getByText("Bluetooth unavailable")).toBeInTheDocument();
   });
 
   it("handles simultaneous pairing requests without discarding the queue", async () => {

@@ -25,6 +25,7 @@ export const browserState: AppState = {
     grid3: false, uiAccess: false, displayNavigation: false, cursorOverlay: true,
   },
   version: "1.0.0-beta.1",
+  diagnostics: { recentBluetooth: [], lastDisconnect: null, recentErrors: [] },
 };
 
 const emptyBindings = () => Array.from({ length: 8 }, (_, index) => ({
