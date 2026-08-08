@@ -181,6 +181,10 @@ pub struct PersistedState {
     pub profiles: Vec<SwitchProfile>,
     #[serde(default)]
     pub telemetry_consent: Option<bool>,
+    #[serde(default)]
+    pub setup_shown: bool,
+    #[serde(default)]
+    pub setup_completed: bool,
 }
 
 impl Default for PersistedState {
@@ -192,6 +196,8 @@ impl Default for PersistedState {
             settings: AppSettings::default(),
             profiles: vec![],
             telemetry_consent: None,
+            setup_shown: false,
+            setup_completed: false,
         }
     }
 }
@@ -518,5 +524,15 @@ mod tests {
         value["settings"]["mouseRepeatAccelerationDurationMs"] = serde_json::json!(2000);
         let state: PersistedState = serde_json::from_value(value).unwrap();
         assert_eq!(state.settings.mouse_repeat_acceleration_duration_ms, 2000);
+    }
+
+    #[test]
+    fn state_without_setup_fields_is_eligible_for_first_run() {
+        let mut value = serde_json::to_value(PersistedState::default()).unwrap();
+        value.as_object_mut().unwrap().remove("setupShown");
+        value.as_object_mut().unwrap().remove("setupCompleted");
+        let state: PersistedState = serde_json::from_value(value).unwrap();
+        assert!(!state.setup_shown);
+        assert!(!state.setup_completed);
     }
 }

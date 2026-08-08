@@ -27,6 +27,7 @@ export const browserState: AppState = {
   version: "1.0.0-beta.1",
   diagnostics: { recentBluetooth: [], lastDisconnect: null, recentErrors: [] },
   telemetry: { consent: "undecided", available: true },
+  setup: { shown: false, completed: false, autoOpenEligible: true },
 };
 
 const emptyBindings = () => Array.from({ length: 8 }, (_, index) => ({
@@ -64,6 +65,20 @@ export const api = {
     if ("__TAURI_INTERNALS__" in window) return call<AppState>("set_telemetry_consent", { enabled });
     browserState.telemetry = { ...browserState.telemetry, consent: enabled ? "enabled" : "disabled" };
     browserState.settings.shareDiagnostics = enabled;
+    return Promise.resolve(structuredClone(browserState));
+  },
+  markSetupShown: () => {
+    if ("__TAURI_INTERNALS__" in window) return call<AppState>("mark_setup_shown");
+    browserState.setup.shown = true;
+    return Promise.resolve(structuredClone(browserState));
+  },
+  completeSetup: (startWithSystem: boolean, shareDiagnostics: boolean) => {
+    if ("__TAURI_INTERNALS__" in window) return call<AppState>("complete_setup", { startWithSystem, shareDiagnostics });
+    if (browserState.pairedDevices.length === 0) return Promise.reject(new Error("Pair an Android device before finishing setup."));
+    browserState.settings.startWithSystem = startWithSystem;
+    browserState.settings.shareDiagnostics = shareDiagnostics;
+    browserState.telemetry.consent = shareDiagnostics ? "enabled" : "disabled";
+    browserState.setup = { shown: true, completed: true, autoOpenEligible: false };
     return Promise.resolve(structuredClone(browserState));
   },
   listProfiles: () => "__TAURI_INTERNALS__" in window

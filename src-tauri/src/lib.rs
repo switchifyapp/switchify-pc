@@ -337,6 +337,48 @@ fn set_telemetry_consent(model: State<'_, AppModel>, enabled: bool) -> Result<Ap
     Ok(model.snapshot())
 }
 
+#[tauri::command]
+fn mark_setup_shown(model: State<'_, AppModel>) -> Result<AppState, String> {
+    model.mark_setup_shown()
+}
+
+#[tauri::command]
+fn complete_setup(
+    app: AppHandle,
+    model: State<'_, AppModel>,
+    start_with_system: bool,
+    share_diagnostics: bool,
+) -> Result<AppState, String> {
+    if model.snapshot().paired_devices.is_empty() {
+        return Err("Pair an Android device before finishing setup.".into());
+    }
+    let mut settings = model.snapshot().settings;
+    let previous_start = settings.start_with_system;
+    if previous_start != start_with_system {
+        update_startup_registration(&app, start_with_system)?;
+    }
+    settings.start_with_system = start_with_system;
+    settings.share_diagnostics = share_diagnostics;
+    let consent = if share_diagnostics {
+        TelemetryConsent::Enabled
+    } else {
+        TelemetryConsent::Disabled
+    };
+    match model.apply_setup_completion(settings, consent) {
+        Ok(state) => Ok(state),
+        Err(error) => {
+            if previous_start != start_with_system {
+                if let Err(rollback_error) = update_startup_registration(&app, previous_start) {
+                    return Err(format!(
+                        "{error}; startup registration could not be restored: {rollback_error}"
+                    ));
+                }
+            }
+            Err(error)
+        }
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn update_startup_registration(_app: &AppHandle, enabled: bool) -> Result<(), String> {
     windows_startup::apply(enabled)
@@ -786,6 +828,8 @@ pub fn run() {
             forget_device,
             save_settings,
             set_telemetry_consent,
+            mark_setup_shown,
+            complete_setup,
             list_switch_profiles,
             save_switch_profile,
             delete_switch_profile,

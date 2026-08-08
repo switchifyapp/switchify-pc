@@ -10,6 +10,8 @@ import type { AppSettings, AppState, PendingPairing, SwitchProfile } from "./typ
 type View = "home" | "devices" | "profiles" | "settings" | "support";
 
 const brandIconUrl = new URL("../src-tauri/icons/icon.png", import.meta.url).href;
+const androidQrUrl = new URL("./assets/android-download-qr.png", import.meta.url).href;
+const androidDownloadUrl = "https://play.google.com/store/apps/details?id=com.enaboapps.switchify";
 
 const bluetoothLabels: Record<AppState["bluetooth"], string> = {
   initializing: "Starting Bluetooth...", advertising: "Ready to connect", connected: "Device connected",
@@ -347,17 +349,17 @@ function SettingsView({ state, settings, onChange, chooseTelemetry, checkUpdates
   </div>;
 }
 
-function SupportView({ state, busy, perform }: { state: AppState; busy: boolean; perform: (operation: () => Promise<AppState>) => void }) {
+function SupportView({ state, busy, perform, openSetup }: { state: AppState; busy: boolean; perform: (operation: () => Promise<AppState>) => void; openSetup: () => void }) {
   const [tab, setTab] = useState<"setup" | "troubleshooting">("setup");
   const bluetoothReady = state.bluetooth === "advertising" || state.bluetooth === "connected";
   return <div className="view"><header className="page-header"><div><h1>Support</h1><p>Connection setup and system diagnostics</p></div><CircleHelp size={24} /></header>
     <div className="segmented" role="tablist" aria-label="Support view"><button role="tab" aria-selected={tab === "setup"} onClick={() => setTab("setup")}>Setup</button><button role="tab" aria-selected={tab === "troubleshooting"} onClick={() => setTab("troubleshooting")}>Troubleshooting</button></div>
-    {tab === "setup" ? <section className="task-list" aria-label="Setup status">
+    {tab === "setup" ? <><button className="primary setup-launch" onClick={openSetup}><Wrench size={16} />Open setup guide</button><section className="task-list" aria-label="Setup status">
       <article><StatusIcon ok={bluetoothReady}>{bluetoothReady ? <CheckCircle2 size={19} /> : <Bluetooth size={19} />}</StatusIcon><div><h2>Bluetooth</h2><p>{bluetoothLabels[state.bluetooth]}</p></div></article>
       <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" && <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</button>}</article>
       <article><StatusIcon ok={state.pairedDevices.length > 0}><Smartphone size={19} /></StatusIcon><div><h2>Android device</h2><p>{state.pairedDevices.length > 0 ? `${state.pairedDevices.length} paired` : "Open Switchify on Android and select this computer"}</p></div></article>
       <article><StatusIcon ok={state.bluetooth === "connected"}><Radio size={19} /></StatusIcon><div><h2>Connection</h2><p>{state.connectedDeviceName ?? "Waiting for a paired device"}</p></div></article>
-    </section> : <section className="task-list" aria-label="Troubleshooting actions">
+    </section></> : <section className="task-list" aria-label="Troubleshooting actions">
       <article><Bluetooth size={20} /><div><h2>Bluetooth connection</h2><p>{bluetoothLabels[state.bluetooth]}</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.disconnectAll)}><Power size={16} />Disconnect</button></article>
       <article><Accessibility size={20} /><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" ? <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</button> : <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(false))}><RefreshCw size={16} />Check input access</button>}</article>
       <article><RefreshCw size={20} /><div><h2>Application update</h2><p>Switchify PC {state.version}</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.checkForUpdates)}>Check</button></article>
@@ -368,6 +370,55 @@ function SupportView({ state, busy, perform }: { state: AppState; busy: boolean;
     </section>}
     {state.lastActivity && <section className="activity-panel" aria-live="polite"><span>Recent activity</span><p data-kind={state.lastActivity.kind}>{state.lastActivity.message}</p></section>}
   </div>;
+}
+
+function SetupGuide({ state, busy, error, skip, finish, accessibility, approve, reject }: {
+  state: AppState;
+  busy: boolean;
+  error: string | null;
+  skip: () => Promise<void>;
+  finish: (startWithSystem: boolean, shareDiagnostics: boolean) => Promise<void>;
+  accessibility: () => Promise<void>;
+  approve: (requestId: string) => Promise<void>;
+  reject: (requestId: string) => Promise<void>;
+}) {
+  const [step, setStep] = useState(0);
+  const [startupChoice, setStartupChoice] = useState<boolean | null>(state.setup.completed ? state.settings.startWithSystem : null);
+  const [diagnosticsChoice, setDiagnosticsChoice] = useState<boolean | null>(state.setup.completed && state.telemetry.consent !== "undecided" ? state.telemetry.consent === "enabled" : null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const titles = ["Bluetooth and input access", "Get Switchify for Android", "Pair securely", "Start with system", "Anonymous diagnostics"];
+  const bluetoothReady = state.bluetooth === "advertising" || state.bluetooth === "connected";
+  const canContinue = step === 2 ? state.pairedDevices.length > 0 : step === 3 ? startupChoice !== null : step === 4 ? diagnosticsChoice !== null : true;
+
+  useEffect(() => { dialogRef.current?.focus(); }, [step]);
+
+  const trapFocus = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Tab") return;
+    const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]') ?? [])];
+    if (controls.length === 0) return;
+    const first = controls[0]; const last = controls.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  };
+
+  return <div className="modal-backdrop setup-backdrop"><section ref={dialogRef} className="setup-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-title" tabIndex={-1} onKeyDown={trapFocus}>
+    <header><div><span>Setup guide</span><h2 id="setup-title">{titles[step]}</h2></div><strong aria-label={`Step ${step + 1} of 5`}>{step + 1} / 5</strong></header>
+    <div className="setup-progress" aria-hidden="true">{titles.map((title, index) => <span key={title} data-active={index <= step} />)}</div>
+    {error && <div className="dialog-error" role="alert">{error}</div>}
+    <div className="setup-content">
+      {step === 0 && <div className="setup-statuses">
+        <article><StatusIcon ok={bluetoothReady}><Bluetooth size={19} /></StatusIcon><div><h3>Bluetooth</h3><p>{bluetoothLabels[state.bluetooth]}</p></div></article>
+        <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" && <button className="secondary" disabled={busy} onClick={() => void accessibility()}>Open Accessibility Settings</button>}</article>
+      </div>}
+      {step === 1 && <div className="android-download"><div><h3>Install the Android app</h3><p>Install Switchify from Google Play, then open it near this computer.</p><a className="secondary" href={androidDownloadUrl} target="_blank" rel="noreferrer">Open Google Play</a></div><img src={androidQrUrl} alt="QR code for Switchify on Google Play" /></div>}
+      {step === 2 && <div><h3>{state.pairedDevices.length > 0 ? "Android device paired" : "Waiting for an Android device"}</h3><p>{state.pairedDevices.length > 0 ? "Secure pairing is complete. You can continue setup." : "In Switchify for Android, select this computer and confirm the matching code."}</p>
+        {state.pendingPairings.length > 0 && <div className="setup-pairings" aria-label="Pending pairing requests">{state.pendingPairings.map((request) => <article key={request.requestId}><div><strong>{request.deviceName}</strong><span>Verification code</span></div><output aria-label={`Verification code for ${request.deviceName}`}>{request.verificationCode}</output><div><button className="secondary danger" disabled={busy} aria-label={`Reject pairing request from ${request.deviceName}, code ${request.verificationCode}`} onClick={() => void reject(request.requestId)}>Reject</button><button className="primary" disabled={busy} aria-label={`Accept pairing request from ${request.deviceName}, code ${request.verificationCode}`} onClick={() => void approve(request.requestId)}>Accept</button></div></article>)}</div>}
+      </div>}
+      {step === 3 && <div><h3>Choose startup behavior</h3><p>Switchify can start quietly when you sign in, ready for your Android device.</p><div className="setup-choices" role="group" aria-label="Start with system choice"><button className="secondary" aria-pressed={startupChoice === true} onClick={() => setStartupChoice(true)}>Start with system</button><button className="secondary" aria-pressed={startupChoice === false} onClick={() => setStartupChoice(false)}>Start manually</button></div></div>}
+      {step === 4 && <div><h3>Choose whether to share diagnostics</h3><p>Optional anonymous app health and sanitized errors help improve Switchify. Typed text, commands, pairing secrets, device names, and full paths are never included.</p><div className="setup-choices" role="group" aria-label="Anonymous diagnostics choice"><button className="secondary" disabled={!state.telemetry.available} aria-pressed={diagnosticsChoice === true} onClick={() => setDiagnosticsChoice(true)}>Share diagnostics</button><button className="secondary" aria-pressed={diagnosticsChoice === false} onClick={() => setDiagnosticsChoice(false)}>Don’t share</button></div><a className="setup-privacy" href="https://switchifyapp.com/privacy" target="_blank" rel="noreferrer">Privacy policy</a></div>}
+    </div>
+    <footer><button className="text-button" disabled={busy} onClick={() => void skip()}>Skip for now</button><span /><button className="secondary" disabled={busy || step === 0} onClick={() => setStep((current) => current - 1)}>Back</button><button className="primary" disabled={busy || !canContinue} onClick={() => step === 4 ? void finish(startupChoice!, diagnosticsChoice!) : setStep((current) => current + 1)}>{step === 4 ? "Finish" : "Next"}</button></footer>
+  </section></div>;
 }
 
 function PairingDialog({ requests, connectedDeviceName, busy, approve, reject }: {
@@ -440,6 +491,7 @@ export function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [profileExitRequest, setProfileExitRequest] = useState<ProfileExitAction | null>(null);
   const settingsDirty = useRef(false);
@@ -450,6 +502,7 @@ export function App() {
   const settingsEventRevision = useRef(0);
   const locallyChangedSettings = useRef(new Set<keyof AppSettings>());
   const profileEditorDirty = useRef(false);
+  const autoSetupHandled = useRef(false);
 
   const syncState = (next: AppState) => {
     setState(next);
@@ -540,12 +593,41 @@ export function App() {
     finally { setCheckingUpdates(false); }
   };
 
+  const openSetup = () => {
+    setSetupOpen(true);
+    void perform(api.markSetupShown);
+  };
+
+  const finishSetup = async (startWithSystem: boolean, shareDiagnostics: boolean) => {
+    setBusy(true); setError(null);
+    try {
+      syncState(await api.completeSetup(startWithSystem, shareDiagnostics));
+      setSetupOpen(false);
+    } catch (reason) { setError(String(reason)); }
+    finally { setBusy(false); }
+  };
+
+  const skipSetup = async () => {
+    setBusy(true); setError(null);
+    try {
+      syncState(await api.markSetupShown());
+      setSetupOpen(false);
+    } catch (reason) { setError(String(reason)); }
+    finally { setBusy(false); }
+  };
+
   useEffect(() => {
     let unlisten: () => void = () => {};
     void api.state().then(syncState).catch((reason) => setError(String(reason)));
     void api.onState(syncState).then((stop) => { unlisten = stop; });
     return () => unlisten();
   }, []);
+
+  useEffect(() => {
+    if (!state || autoSetupHandled.current) return;
+    autoSetupHandled.current = true;
+    if (state.setup.autoOpenEligible) openSetup();
+  }, [state]);
 
   useEffect(() => {
     let unlisten: () => void = () => {};
@@ -610,12 +692,13 @@ export function App() {
     <aside><div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id} icon={icon} onClick={() => selectView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><span>v{state.version}</span><button className="footer-update-button" type="button" aria-label="Check for updates" title="Check for updates" disabled={busy} onClick={() => void checkForUpdates()}><RefreshCw className={checkingUpdates ? "spin" : undefined} size={15} /></button></div></aside>
     <main>
       {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
-      {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onSetup={() => setView("support")} />}
+      {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onSetup={openSetup} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}
       {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} nativeExitRequest={profileExitRequest} onConfirmNativeExit={confirmProfileExit} onCancelNativeExit={cancelProfileExit} />}
       {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} checkUpdates={() => void checkForUpdates()} busy={busy} />}
-      {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} />}
+      {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} />}
     </main>
-    {state.pendingPairings.length > 0 && <PairingDialog requests={state.pendingPairings} connectedDeviceName={state.connectedDeviceName} busy={busy} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}
+    {setupOpen && <SetupGuide state={state} busy={busy} error={error} skip={skipSetup} finish={finishSetup} accessibility={() => perform(() => api.checkAccessibility(true))} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}
+    {!setupOpen && state.pendingPairings.length > 0 && <PairingDialog requests={state.pendingPairings} connectedDeviceName={state.connectedDeviceName} busy={busy} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}
   </div>;
 }
