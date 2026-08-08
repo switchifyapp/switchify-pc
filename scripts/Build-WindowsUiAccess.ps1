@@ -1,4 +1,7 @@
-param([switch]$SkipSign)
+param(
+  [switch]$SkipSign,
+  [string]$TauriConfig = 'src-tauri/tauri.windows-uiaccess.conf.json'
+)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -29,7 +32,7 @@ try {
     & (Join-Path $PSScriptRoot 'Sign-Windows.ps1') $sidecar
   }
 
-  & $npm run tauri build -- --bundles nsis --config src-tauri/tauri.windows-uiaccess.conf.json
+  & $npm run tauri build -- --bundles nsis --config $TauriConfig
   if ($LASTEXITCODE -ne 0) { throw "Tauri package build failed with exit code $LASTEXITCODE." }
 
   if (-not $SkipSign) {

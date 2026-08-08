@@ -1,0 +1,143 @@
+name: Release Tauri beta
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version without a leading v
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tauri-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      tag: ${{ steps.version.outputs.tag }}
+    env:
+      UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
+      APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+      CERTUM_CERT_THUMBPRINT: ${{ vars.CERTUM_CERT_THUMBPRINT }}
+      TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - id: version
+        shell: bash
+        run: |
+          version='${{ inputs.version }}'
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo 'Invalid semantic version.' >&2; exit 1; }
+          configured=$(node -p "require('./package.json').version")
+          [[ "$version" == "$configured" ]] || { echo "package.json is $configured, not $version" >&2; exit 1; }
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=tauri-v$version" >> "$GITHUB_OUTPUT"
+      - name: Require release signing configuration
+        shell: bash
+        run: |
+          missing=0
+          for name in UPDATER_PUBLIC_KEY APPLE_SIGNING_IDENTITY CERTUM_CERT_THUMBPRINT TAURI_PRIVATE_KEY TAURI_PRIVATE_KEY_PASSWORD APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [[ -n "${!name}" ]] || { echo "Missing release configuration: $name" >&2; missing=1; }
+          done
+          exit "$missing"
+
+  macos:
+    needs: prepare
+    runs-on: macos-14
+    env:
+      SWITCHIFY_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with: { node-version: 24, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { toolchain: 1.97.1 }
+      - run: npm ci
+      - run: node scripts/render-updater-config.mjs src-tauri/tauri.release.generated.json
+      - run: npm run tauri build -- --bundles app,dmg --config src-tauri/tauri.release.generated.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-release
+          path: |
+            src-tauri/target/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
+            src-tauri/target/release/bundle/dmg/*.dmg
+
+  windows:
+    needs: prepare
+    runs-on: [self-hosted, Windows, X64, switchify-release]
+    env:
+      SWITCHIFY_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
+      SWITCHIFY_CERTUM_CERT_THUMBPRINT: ${{ vars.CERTUM_CERT_THUMBPRINT }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with: { node-version: 24, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { toolchain: 1.97.1 }
+      - run: npm ci
+      - run: node scripts/render-updater-config.mjs src-tauri/tauri.release.windows.generated.json --windows
+      - shell: powershell
+        run: ./scripts/Build-WindowsUiAccess.ps1 -TauriConfig src-tauri/tauri.release.windows.generated.json
+      - shell: powershell
+        run: ./scripts/Verify-WindowsUiAccessPackage.ps1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-release
+          path: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/nsis/*-setup.exe.sig
+
+  publish:
+    needs: [prepare, macos, windows]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with: { node-version: 24 }
+      - uses: actions/download-artifact@v7
+        with: { path: release-artifacts }
+      - run: node scripts/create-update-feed.mjs release-artifacts '${{ needs.prepare.outputs.version }}' '${{ needs.prepare.outputs.tag }}' latest.json
+      - name: Publish prerelease assets
+        shell: bash
+        run: |
+          tag='${{ needs.prepare.outputs.tag }}'
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --title "Switchify PC ${{ needs.prepare.outputs.version }}"
+          find release-artifacts -type f ! -name '*.sig' -print0 | xargs -0 gh release upload "$tag" --clobber
+          find release-artifacts -type f -name '*.sig' -print0 | xargs -0 gh release upload "$tag" --clobber
+      - name: Publish dedicated Tauri update feed
+        shell: bash
+        run: |
+          gh api repos/${{ github.repository }}/git/ref/heads/update-feed >/dev/null 2>&1 || \
+            gh api --method POST repos/${{ github.repository }}/git/refs -f ref=refs/heads/update-feed -f sha="$GITHUB_SHA"
+          content=$(base64 -w0 latest.json)
+          sha=$(gh api repos/${{ github.repository }}/contents/latest.json?ref=update-feed --jq .sha 2>/dev/null || true)
+          args=(-f message="Update Tauri feed to ${{ needs.prepare.outputs.version }}" -f content="$content" -f branch=update-feed)
+          [[ -z "$sha" ]] || args+=(-f sha="$sha")
+          gh api --method PUT repos/${{ github.repository }}/contents/latest.json "${args[@]}"

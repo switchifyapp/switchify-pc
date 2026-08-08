@@ -5,7 +5,7 @@ import {
   ShieldCheck, SlidersHorizontal, Smartphone, Trash2, WifiOff, Wrench, X,
 } from "lucide-react";
 import { api, type ProfileExitAction } from "./api";
-import type { AppSettings, AppState, PendingPairing, SwitchProfile } from "./types";
+import type { AppSettings, AppState, PendingPairing, SwitchProfile, UpdateState } from "./types";
 
 type View = "home" | "devices" | "profiles" | "settings" | "support";
 
@@ -302,7 +302,45 @@ function applyLocalSettings(base: AppSettings, local: AppSettings, keys: Set<key
   return merged;
 }
 
-function SettingsView({ state, settings, onChange, chooseTelemetry, checkUpdates, busy }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; checkUpdates: () => void; busy: boolean }) {
+type UpdateAction = "check" | "download" | "install";
+
+function updateDescription(update: UpdateState) {
+  switch (update.status) {
+    case "unconfigured": return "Updates are unavailable in this build because its signed feed is not configured.";
+    case "idle": return "Automatic update checks are enabled.";
+    case "checking": return "Checking for updates…";
+    case "available": return `Switchify PC ${update.version} is available.`;
+    case "downloading": return `Downloading Switchify PC ${update.version}…`;
+    case "readyToInstall": return `Switchify PC ${update.version} is ready to install.`;
+    case "applying": return `Installing Switchify PC ${update.version}…`;
+    case "current": return "Switchify PC is up to date.";
+    case "failed": return update.error ?? "The update operation failed.";
+    case "cancelled": return "Download cancelled. You can resume when ready.";
+  }
+}
+
+function UpdateControls({ update, run, cancel }: { update: UpdateState; run: (action: UpdateAction) => void; cancel: () => void }) {
+  const percent = update.totalBytes && update.totalBytes > 0
+    ? Math.min(100, Math.round(update.downloadedBytes * 100 / update.totalBytes))
+    : null;
+  const action = update.status === "available" || update.status === "cancelled" ? "download"
+    : update.status === "readyToInstall" ? "install"
+      : update.status === "failed" ? update.retryAction
+        : update.status === "idle" || update.status === "current" || update.status === "unconfigured" ? "check" : null;
+  const label = update.status === "failed" ? "Retry"
+    : action === "download" ? (update.status === "cancelled" ? "Resume download" : "Download")
+      : action === "install" ? "Install and restart" : "Check for updates";
+  return <div className="update-controls">
+    <p role={update.status === "failed" ? "alert" : "status"}>{updateDescription(update)}</p>
+    {update.status === "downloading" && <>
+      <progress aria-label="Update download progress" value={update.downloadedBytes} max={update.totalBytes ?? undefined} />
+      <span>{percent === null ? `${update.downloadedBytes.toLocaleString()} bytes` : `${percent}%`}</span>
+    </>}
+    <div>{action && <button className="secondary" type="button" onClick={() => run(action)}>{action === "download" && <Download size={16} />}{action === "check" && <RefreshCw size={16} />}{label}</button>}{update.status === "downloading" && <button className="secondary" type="button" onClick={cancel}><X size={16} />Cancel</button>}{(update.status === "checking" || update.status === "applying") && <button className="secondary" type="button" disabled><RefreshCw className="spin" size={16} />{update.status === "checking" ? "Checking" : "Installing"}</button>}</div>
+  </div>;
+}
+
+function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean }) {
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => onChange({ ...settings, [key]: value });
   return <div className="view"><header className="page-header"><div><h1>Settings</h1><p>Startup, pointer, privacy, and updates</p></div><Settings size={24} /></header>
     <SettingGroup title="General" description="System startup and background behavior."><Toggle label="Start with system" checked={settings.startWithSystem} onChange={(value) => update("startWithSystem", value)} /></SettingGroup>
@@ -345,7 +383,7 @@ function SettingsView({ state, settings, onChange, chooseTelemetry, checkUpdates
       </>}
     </SettingGroup>
     <SettingGroup title="Privacy" description="Optional anonymous app health and sanitized error reports. Never includes typed text, commands, pairing secrets, device names, or full paths."><Toggle label="Share anonymous diagnostic data" disabled={!state.telemetry.available && !settings.shareDiagnostics} checked={settings.shareDiagnostics} onChange={(value) => update("shareDiagnostics", value)} />{state.telemetry.consent === "undecided" && <div className="privacy-choice" role="group" aria-label="Anonymous diagnostics choice"><button className="secondary" type="button" disabled={busy || !state.telemetry.available} onClick={() => chooseTelemetry(true)}>Share diagnostics</button><button className="secondary" type="button" disabled={busy} onClick={() => chooseTelemetry(false)}>Don't share</button></div>}<p className="setting-note">{state.telemetry.available ? state.telemetry.consent === "undecided" ? "No choice recorded yet. Nothing is sent unless you choose Share diagnostics." : state.telemetry.consent === "enabled" ? "Consent recorded. You can turn this off at any time to delete queued reports." : "Opted out. No diagnostic reports are stored or sent." : "Diagnostic reporting is unavailable in this build."} <a href="https://switchifyapp.com/privacy" target="_blank" rel="noreferrer">Privacy policy</a></p></SettingGroup>
-    <SettingGroup title="Updates" description={`Switchify PC ${state.version}`}><button className="secondary" onClick={checkUpdates} disabled={busy}><RefreshCw size={16} />Check for updates</button></SettingGroup>
+    <SettingGroup title="Updates" description={`Switchify PC ${state.version}`}><UpdateControls update={state.updater} run={updateAction} cancel={cancelUpdate} /></SettingGroup>
   </div>;
 }
 
@@ -594,6 +632,22 @@ export function App() {
     finally { setCheckingUpdates(false); }
   };
 
+  const runUpdate = async (action: UpdateAction) => {
+    setError(null);
+    if (action === "check") setCheckingUpdates(true);
+    try {
+      const operation = action === "check" ? api.checkForUpdates : action === "download" ? api.downloadUpdate : api.installUpdate;
+      syncState(await operation());
+    } catch (reason) { setError(String(reason)); }
+    finally { if (action === "check") setCheckingUpdates(false); }
+  };
+
+  const cancelUpdate = async () => {
+    setError(null);
+    try { syncState(await api.cancelUpdateDownload()); }
+    catch (reason) { setError(String(reason)); }
+  };
+
   const openSetup = () => {
     setSetupOpen(true);
     void perform(api.markSetupShown);
@@ -709,7 +763,7 @@ export function App() {
       {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onSetup={openSetup} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}
       {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} nativeExitRequest={profileExitRequest} onConfirmNativeExit={confirmProfileExit} onCancelNativeExit={cancelProfileExit} />}
-      {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} checkUpdates={() => void checkForUpdates()} busy={busy} />}
+      {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} />}
       {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} />}
     </main>
     {setupOpen && <SetupGuide state={state} busy={busy} error={error} skip={skipSetup} finish={finishSetup} accessibility={() => perform(() => api.checkAccessibility(true))} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}

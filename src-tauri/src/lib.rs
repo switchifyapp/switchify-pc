@@ -13,6 +13,7 @@ mod protocol;
 mod state;
 mod storage;
 mod telemetry;
+mod updater;
 #[cfg(target_os = "windows")]
 mod windows_runtime;
 #[cfg(target_os = "windows")]
@@ -31,6 +32,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_updater::UpdaterExt;
 use telemetry::TelemetryConsent;
+use updater::{Operation as UpdateOperation, RetryAction, UpdateManager, UpdateView};
 
 #[tauri::command]
 fn get_app_state(model: State<'_, AppModel>) -> AppState {
@@ -715,34 +717,278 @@ fn delete_switch_profile(
     Ok(list_switch_profiles(model))
 }
 
-#[tauri::command]
-async fn check_for_updates(app: AppHandle, model: State<'_, AppModel>) -> Result<AppState, String> {
-    if !updater_has_endpoints(app.config().plugins.0.get("updater")) {
+fn publish_update(app: &AppHandle, model: &AppModel, update: UpdateView) -> AppState {
+    model
+        .shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .state
+        .updater = update;
+    state::emit_state(app, &model.shared);
+    model.snapshot()
+}
+
+fn update_failure(
+    app: &AppHandle,
+    model: &AppModel,
+    version: Option<String>,
+    retry: RetryAction,
+    context: &str,
+    error: &str,
+) -> AppState {
+    let message = format!("{context}: {error}");
+    state::set_activity(&model.shared, ActivityKind::Error, &message);
+    model.record_updater("failed", Some(error));
+    publish_update(app, model, UpdateView::failed(version, message, retry))
+}
+
+async fn check_for_updates_inner(app: &AppHandle) -> AppState {
+    let model = app.state::<AppModel>();
+    let manager = app.state::<UpdateManager>();
+    if !updater_is_configured(app.config().plugins.0.get("updater")) {
         state::set_activity(
             &model.shared,
             ActivityKind::Info,
             "Updates are not configured for this build.",
         );
-        model.record_updater("unavailable", Some("update endpoints are not configured"));
-        return Ok(model.snapshot());
+        model.record_updater(
+            "unavailable",
+            Some("update endpoint or public key is missing"),
+        );
+        return publish_update(app, &model, UpdateView::unconfigured());
     }
-    let updater = match app.updater() {
-        Ok(updater) => updater,
-        Err(error) => return Err(record_update_failure(&model, &error.to_string())),
+    if manager.has_download() {
+        return model.snapshot();
+    }
+    if !manager.begin(UpdateOperation::Check) {
+        return model.snapshot();
+    }
+    publish_update(app, &model, UpdateView::checking());
+    let result = match app.updater() {
+        Ok(updater) => updater.check().await.map_err(|error| error.to_string()),
+        Err(error) => Err(error.to_string()),
     };
-    let update = match updater.check().await {
-        Ok(update) => update,
-        Err(error) => return Err(record_update_failure(&model, &error.to_string())),
-    };
-    let message = update.map_or_else(
-        || "Switchify PC is up to date.".to_string(),
-        |update| format!("Switchify PC {} is available.", update.version),
-    );
-    state::set_activity(&model.shared, ActivityKind::Info, message);
-    model.record_updater("checked", None);
-    Ok(model.snapshot())
+    manager.finish(UpdateOperation::Check);
+    match result {
+        Ok(Some(update)) => {
+            let version = update.version.clone();
+            manager.replace_available(Some(update));
+            state::set_activity(
+                &model.shared,
+                ActivityKind::Info,
+                format!("Switchify PC {version} is available."),
+            );
+            model.record_updater("available", None);
+            publish_update(app, &model, UpdateView::available(version))
+        }
+        Ok(None) => {
+            manager.replace_available(None);
+            state::set_activity(
+                &model.shared,
+                ActivityKind::Success,
+                "Switchify PC is up to date.",
+            );
+            model.record_updater("current", None);
+            publish_update(app, &model, UpdateView::current())
+        }
+        Err(error) => update_failure(
+            app,
+            &model,
+            None,
+            RetryAction::Check,
+            "Update check failed",
+            &error,
+        ),
+    }
 }
 
+#[tauri::command]
+async fn check_for_updates(app: AppHandle) -> Result<AppState, String> {
+    Ok(check_for_updates_inner(&app).await)
+}
+
+#[tauri::command]
+async fn download_update(app: AppHandle) -> Result<AppState, String> {
+    let model = app.state::<AppModel>();
+    let manager = app.state::<UpdateManager>();
+    if !manager.begin(UpdateOperation::Download) {
+        return Ok(model.snapshot());
+    }
+    let Some(update) = manager.available() else {
+        manager.finish(UpdateOperation::Download);
+        return Ok(update_failure(
+            &app,
+            &model,
+            None,
+            RetryAction::Check,
+            "Update download could not start",
+            "check for an update first",
+        ));
+    };
+    let version = update.version.clone();
+    let (cancel_sender, mut cancel_receiver) = tokio::sync::watch::channel(false);
+    manager.set_download_cancel(cancel_sender);
+    state::set_activity(
+        &model.shared,
+        ActivityKind::Info,
+        format!("Downloading Switchify PC {version}…"),
+    );
+    publish_update(&app, &model, UpdateView::downloading(version.clone()));
+
+    let progress_app = app.clone();
+    let progress_shared = model.shared.clone();
+    let download = update.download(
+        move |chunk, total| {
+            {
+                let mut data = progress_shared
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                data.state.updater.add_progress(chunk, total);
+            }
+            state::emit_state(&progress_app, &progress_shared);
+        },
+        || {},
+    );
+    tokio::pin!(download);
+    enum DownloadResult {
+        Complete(Result<Vec<u8>, String>),
+        Cancelled,
+    }
+    let result = tokio::select! {
+        result = &mut download => DownloadResult::Complete(result.map_err(|error| error.to_string())),
+        changed = cancel_receiver.changed() => {
+            let _ = changed;
+            DownloadResult::Cancelled
+        }
+    };
+    manager.finish(UpdateOperation::Download);
+    match result {
+        DownloadResult::Complete(Ok(bytes)) => {
+            let downloaded_bytes = bytes.len() as u64;
+            let total_bytes = model.snapshot().updater.total_bytes;
+            manager.store_download(bytes);
+            state::set_activity(
+                &model.shared,
+                ActivityKind::Success,
+                format!("Switchify PC {version} is ready to install."),
+            );
+            model.record_updater("ready", None);
+            Ok(publish_update(
+                &app,
+                &model,
+                UpdateView::ready(version, downloaded_bytes, total_bytes),
+            ))
+        }
+        DownloadResult::Complete(Err(error)) => Ok(update_failure(
+            &app,
+            &model,
+            Some(version),
+            RetryAction::Download,
+            "Update download failed",
+            &error,
+        )),
+        DownloadResult::Cancelled => {
+            state::set_activity(
+                &model.shared,
+                ActivityKind::Info,
+                "Update download cancelled.",
+            );
+            model.record_updater("cancelled", None);
+            Ok(publish_update(&app, &model, UpdateView::cancelled(version)))
+        }
+    }
+}
+
+#[tauri::command]
+fn cancel_update_download(
+    app: AppHandle,
+    model: State<'_, AppModel>,
+    manager: State<'_, UpdateManager>,
+) -> AppState {
+    if manager.cancel_download() {
+        state::set_activity(
+            &model.shared,
+            ActivityKind::Info,
+            "Cancelling update download…",
+        );
+        state::emit_state(&app, &model.shared);
+    }
+    model.snapshot()
+}
+
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<AppState, String> {
+    let model = app.state::<AppModel>();
+    let manager = app.state::<UpdateManager>();
+    if !manager.begin(UpdateOperation::Install) {
+        return Ok(model.snapshot());
+    }
+    let Some(update) = manager.available() else {
+        manager.finish(UpdateOperation::Install);
+        return Ok(update_failure(
+            &app,
+            &model,
+            None,
+            RetryAction::Check,
+            "Update installation could not start",
+            "check for an update first",
+        ));
+    };
+    let Some(bytes) = manager.take_download() else {
+        manager.finish(UpdateOperation::Install);
+        return Ok(update_failure(
+            &app,
+            &model,
+            Some(update.version),
+            RetryAction::Download,
+            "Update installation could not start",
+            "download the update first",
+        ));
+    };
+    let version = update.version.clone();
+    let downloaded_bytes = bytes.len() as u64;
+    let total_bytes = model.snapshot().updater.total_bytes;
+    let overlay = app.state::<overlay::CursorOverlay>();
+    let modifier_overlay = app.state::<modifier_overlay::ModifierOverlay>();
+    if let Err(error) = disconnect_all_inner(&app, &model, &overlay, &modifier_overlay) {
+        manager.store_download(bytes);
+        manager.finish(UpdateOperation::Install);
+        return Ok(update_failure(
+            &app,
+            &model,
+            Some(version),
+            RetryAction::Install,
+            "Update installation failed",
+            &error,
+        ));
+    }
+    state::set_activity(
+        &model.shared,
+        ActivityKind::Info,
+        format!("Installing Switchify PC {version}…"),
+    );
+    publish_update(
+        &app,
+        &model,
+        UpdateView::applying(version.clone(), downloaded_bytes, total_bytes),
+    );
+    if let Err(error) = update.install(&bytes) {
+        manager.store_download(bytes);
+        manager.finish(UpdateOperation::Install);
+        return Ok(update_failure(
+            &app,
+            &model,
+            Some(version),
+            RetryAction::Install,
+            "Update installation failed",
+            &error.to_string(),
+        ));
+    }
+    model.record_updater("installed", None);
+    app.restart();
+}
+
+#[cfg(test)]
 fn record_update_failure(model: &AppModel, error: &str) -> String {
     state::set_activity(
         &model.shared,
@@ -753,11 +999,26 @@ fn record_update_failure(model: &AppModel, error: &str) -> String {
     error.to_owned()
 }
 
-fn updater_has_endpoints(config: Option<&serde_json::Value>) -> bool {
-    config
+fn updater_is_configured(config: Option<&serde_json::Value>) -> bool {
+    let has_endpoints = config
         .and_then(|config| config.get("endpoints"))
         .and_then(serde_json::Value::as_array)
-        .is_some_and(|endpoints| !endpoints.is_empty())
+        .is_some_and(|endpoints| !endpoints.is_empty());
+    let has_public_key = config
+        .and_then(|config| config.get("pubkey"))
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|key| !key.trim().is_empty());
+    has_endpoints && has_public_key
+}
+
+fn start_update_scheduler(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+        loop {
+            let _ = check_for_updates_inner(&app).await;
+            tokio::time::sleep(std::time::Duration::from_secs(6 * 60 * 60)).await;
+        }
+    });
 }
 
 #[tauri::command]
@@ -900,10 +1161,16 @@ pub fn run() {
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(model)
+        .manage(UpdateManager::default())
         .manage(PendingProfileExit::default())
         .manage(PendingNavigation::default())
         .setup(move |app| {
             install_tray(app)?;
+            if updater_is_configured(app.config().plugins.0.get("updater")) {
+                let model = app.state::<AppModel>();
+                publish_update(app.handle(), &model, UpdateView::idle());
+                start_update_scheduler(app.handle().clone());
+            }
             {
                 let model = app.state::<AppModel>();
                 let state = model.snapshot();
@@ -998,6 +1265,9 @@ pub fn run() {
             cancel_profile_exit,
             take_navigation_request,
             check_for_updates,
+            download_update,
+            cancel_update_download,
+            install_update,
             export_diagnostics
         ])
         .run(tauri::generate_context!())
@@ -1077,7 +1347,7 @@ fn platform_disconnect_all(app: &AppHandle, shared: &state::SharedModel) -> Resu
 #[cfg(test)]
 mod tests {
     use super::{
-        has_start_hidden_argument, record_update_failure, updater_has_endpoints, validate_profile,
+        has_start_hidden_argument, record_update_failure, updater_is_configured, validate_profile,
         PendingNavigation, PendingProfileExit, ProfileExitAction, TraySnapshot,
         NAVIGATE_REQUESTED_EVENT,
     };
@@ -1106,12 +1376,16 @@ mod tests {
 
     #[test]
     fn update_checks_require_a_configured_endpoint() {
-        assert!(!updater_has_endpoints(None));
-        assert!(!updater_has_endpoints(Some(&json!({
+        assert!(!updater_is_configured(None));
+        assert!(!updater_is_configured(Some(&json!({
             "endpoints": [],
             "pubkey": ""
         }))));
-        assert!(updater_has_endpoints(Some(&json!({
+        assert!(!updater_is_configured(Some(&json!({
+            "endpoints": ["https://updates.example.com/latest.json"],
+            "pubkey": ""
+        }))));
+        assert!(updater_is_configured(Some(&json!({
             "endpoints": ["https://updates.example.com/latest.json"],
             "pubkey": "test-key"
         }))));

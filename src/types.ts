@@ -9,6 +9,15 @@ export type DiagnosticSummary = {
   recentErrors: DiagnosticEvent[];
 };
 export type TelemetryState = { consent: "undecided" | "enabled" | "disabled"; available: boolean };
+export type UpdateStatus = "unconfigured" | "idle" | "checking" | "available" | "downloading" | "readyToInstall" | "applying" | "current" | "failed" | "cancelled";
+export type UpdateState = {
+  status: UpdateStatus;
+  version: string | null;
+  downloadedBytes: number;
+  totalBytes: number | null;
+  error: string | null;
+  retryAction: "check" | "download" | "install" | null;
+};
 
 export type AppSettings = {
   startWithSystem: boolean;
@@ -47,6 +56,7 @@ export type AppState = {
   diagnostics: DiagnosticSummary;
   telemetry: TelemetryState;
   setup: { shown: boolean; completed: boolean; autoOpenEligible: boolean };
+  updater: UpdateState;
 };
 
 export type SwitchBinding = {

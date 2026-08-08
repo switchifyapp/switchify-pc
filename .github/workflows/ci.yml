@@ -26,6 +26,18 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
+      - name: Validate release updater configuration
+        shell: bash
+        run: |
+          npx tauri signer generate --ci --password validation-only --write-keys "$RUNNER_TEMP/updater.key"
+          SWITCHIFY_UPDATER_PUBLIC_KEY="$(cat "$RUNNER_TEMP/updater.key.pub")" node scripts/render-updater-config.mjs "$RUNNER_TEMP/tauri.release.json"
+          node -e 'const c=require(process.argv[1]); if (!c.bundle.createUpdaterArtifacts || c.plugins.updater.endpoints.length !== 1 || !c.plugins.updater.pubkey) process.exit(1)' "$RUNNER_TEMP/tauri.release.json"
+          mkdir -p "$RUNNER_TEMP/artifacts/mac" "$RUNNER_TEMP/artifacts/windows"
+          touch "$RUNNER_TEMP/artifacts/mac/Switchify.PC.app.tar.gz" "$RUNNER_TEMP/artifacts/windows/Switchify.PC_1.0.0_x64-setup.exe"
+          printf 'mac-signature' > "$RUNNER_TEMP/artifacts/mac/Switchify.PC.app.tar.gz.sig"
+          printf 'windows-signature' > "$RUNNER_TEMP/artifacts/windows/Switchify.PC_1.0.0_x64-setup.exe.sig"
+          node scripts/create-update-feed.mjs "$RUNNER_TEMP/artifacts" 1.0.0-beta.1 tauri-v1.0.0-beta.1 "$RUNNER_TEMP/latest.json"
+          node -e 'const f=require(process.argv[1]); if (f.platforms["darwin-aarch64"].signature !== "mac-signature" || f.platforms["windows-x86_64"].signature !== "windows-signature") process.exit(1)' "$RUNNER_TEMP/latest.json"
       - run: npm run lint
       - run: npm test
       - run: npm run build
