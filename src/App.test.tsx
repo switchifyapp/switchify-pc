@@ -79,6 +79,21 @@ describe("Switchify PC shell", () => {
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
   });
 
+  it("releases tray navigation registered after the app unmounts", async () => {
+    let finishRegistration: ((stop: () => void) => void) | undefined;
+    vi.spyOn(api, "onNavigateRequested").mockImplementation(() => new Promise((resolve) => {
+      finishRegistration = resolve;
+    }));
+    const stop = vi.fn();
+    const rendered = render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    rendered.unmount();
+
+    await act(async () => finishRegistration?.(stop));
+
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
   it("reports update-check failures from the footer", async () => {
     const checkForUpdates = vi.spyOn(api, "checkForUpdates").mockRejectedValue(new Error("Update service unavailable"));
     render(<App />);

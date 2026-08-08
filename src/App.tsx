@@ -626,8 +626,12 @@ export function App() {
 
   useEffect(() => {
     let unlisten: () => void = () => {};
-    void api.onNavigateRequested((target) => selectView(target)).then((stop) => { unlisten = stop; });
-    return () => unlisten();
+    let disposed = false;
+    void api.onNavigateRequested((target) => selectView(target)).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    });
+    return () => { disposed = true; unlisten(); };
   }, []);
 
   useEffect(() => {
