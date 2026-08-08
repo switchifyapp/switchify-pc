@@ -700,17 +700,20 @@ impl ProtocolEngine {
             device_name,
             expires_at: now_ms + PAIRING_TIMEOUT_MS,
         };
+        if self.pending_pairings.contains_key(&pending.request_id) {
+            return Ok(EngineEvent::Response(error_response(
+                Some(&pending.request_id),
+                "duplicate_request",
+                "Pairing request ID is already pending.",
+            )));
+        }
+
         let summary = pending.summary();
         let replaced_request_id = self
             .pending_pairings
-            .contains_key(&pending.request_id)
-            .then(|| pending.request_id.clone())
-            .or_else(|| {
-                self.pending_pairings
-                    .values()
-                    .find(|existing| existing.device_id == pending.device_id)
-                    .map(|existing| existing.request_id.clone())
-            });
+            .values()
+            .find(|existing| existing.device_id == pending.device_id)
+            .map(|existing| existing.request_id.clone());
         let replaced_response = replaced_request_id.and_then(|request_id| {
             self.pending_pairings.remove(&request_id).map(|_| {
                 error_response(Some(&request_id), "invalid_auth", "pairing_request_expired")
@@ -1630,6 +1633,39 @@ mod tests {
             engine.expire_pairing("pair-1", NOW + PAIRING_TIMEOUT_MS),
             None
         );
+    }
+
+    #[test]
+    fn duplicate_pairing_request_id_does_not_replace_another_device() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine
+            .process_message(
+                &pairing_request("pair-1", "android-1", "Pixel", "nonce-1").to_string(),
+                NOW,
+            )
+            .unwrap();
+        let original = engine.pending_pairings().remove(0);
+
+        let event = engine
+            .process_message(
+                &pairing_request("pair-1", "android-2", "Galaxy", "nonce-2").to_string(),
+                NOW + 1,
+            )
+            .unwrap();
+
+        let EngineEvent::Response(response) = event else {
+            panic!("expected a duplicate request response");
+        };
+        let response: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["error"]["code"], "duplicate_request");
+
+        let pending = engine.pending_pairings();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].request_id, original.request_id);
+        assert_eq!(pending[0].device_id, original.device_id);
+        assert_eq!(pending[0].device_name, original.device_name);
+        assert_eq!(pending[0].verification_code, original.verification_code);
+        assert_eq!(pending[0].expires_at, original.expires_at);
     }
 
     #[test]
