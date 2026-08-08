@@ -8,6 +8,7 @@ export type DiagnosticSummary = {
   lastDisconnect: DiagnosticEvent | null;
   recentErrors: DiagnosticEvent[];
 };
+export type TelemetryState = { consent: "undecided" | "enabled" | "disabled"; available: boolean };
 
 export type AppSettings = {
   startWithSystem: boolean;
@@ -44,6 +45,7 @@ export type AppState = {
   capabilities: PlatformCapabilities;
   version: string;
   diagnostics: DiagnosticSummary;
+  telemetry: TelemetryState;
 };
 
 export type SwitchBinding = {

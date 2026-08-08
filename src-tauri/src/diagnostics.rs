@@ -255,7 +255,7 @@ fn write_events(path: &Path, events: &VecDeque<DiagnosticEvent>) -> Result<(), S
     replace_file(&temp, path)
 }
 
-fn sanitize_detail(value: &str) -> String {
+pub(crate) fn sanitize_detail(value: &str) -> String {
     let mut words = Vec::new();
     for word in value.split_whitespace().take(30) {
         let lower = word.to_ascii_lowercase();
@@ -267,6 +267,12 @@ fn sanitize_detail(value: &str) -> String {
             || lower.contains("token")
             || lower.contains("nonce")
             || lower.contains("signature")
+            || lower.contains("password")
+            || lower.contains("secret")
+            || lower.contains("pairing")
+            || lower.contains("bearer")
+            || lower.contains("api_key")
+            || lower.starts_with("tb_")
             || (word.len() >= 24
                 && word.chars().all(|character| {
                     character.is_ascii_alphanumeric() || "-_=.".contains(character)

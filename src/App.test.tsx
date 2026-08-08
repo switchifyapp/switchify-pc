@@ -16,6 +16,7 @@ describe("Switchify PC shell", () => {
     browserState.pendingPairings = [];
     browserState.connectedDeviceName = null;
     browserState.diagnostics = { recentBluetooth: [], lastDisconnect: null, recentErrors: [] };
+    browserState.telemetry = { consent: "undecided", available: true };
   });
 
   afterEach(() => {
@@ -148,10 +149,28 @@ describe("Switchify PC shell", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Share diagnostic data" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" }));
 
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ shareDiagnostics: true })));
-    expect(screen.getByRole("checkbox", { name: "Share diagnostic data" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" })).toBeChecked();
+  });
+
+  it("explains telemetry consent and links to the privacy policy", async () => {
+    const first = render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(screen.getByText(/Nothing is sent unless you choose Share diagnostics/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Don't share" }));
+    expect(await screen.findByText("Opted out. No diagnostic reports are stored or sent.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "https://switchifyapp.com/privacy");
+
+    first.unmount();
+    browserState.telemetry = { consent: "undecided", available: false };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("checkbox", { name: "Share anonymous diagnostic data" })).toBeDisabled();
+    expect(screen.getByText("Diagnostic reporting is unavailable in this build.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Share diagnostics" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Don't share" })).toBeEnabled();
   });
 
   it("serializes rapid settings changes without applying a stale response", async () => {
@@ -222,11 +241,11 @@ describe("Switchify PC shell", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Share diagnostic data" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" }));
     fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
     act(() => stateHandler?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 150 })));
 
-    expect(screen.getByRole("checkbox", { name: "Share diagnostic data" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" })).toBeChecked();
     expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("150");
 
     await act(async () => {
