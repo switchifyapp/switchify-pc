@@ -87,24 +87,28 @@ fn apply_for_executable(executable: &Path, enabled: bool) -> Result<(), String> 
     let run = current_user
         .open_subkey_with_flags(RUN_KEY, KEY_READ | KEY_SET_VALUE)
         .map_err(|error| error.to_string())?;
-    let approved = current_user
-        .open_subkey_with_flags(STARTUP_APPROVED_KEY, KEY_READ | KEY_SET_VALUE)
-        .ok();
+    let approved = if enabled {
+        Some(
+            current_user
+                .create_subkey(STARTUP_APPROVED_KEY)
+                .map_err(|error| error.to_string())?
+                .0,
+        )
+    } else {
+        current_user
+            .open_subkey_with_flags(STARTUP_APPROVED_KEY, KEY_READ | KEY_SET_VALUE)
+            .ok()
+    };
 
     if enabled {
+        let approved = approved
+            .as_ref()
+            .ok_or_else(|| "The Windows startup approval key is unavailable.".to_string())?;
+        // Keep the entry disabled until both its command and approval marker can be committed.
+        set_startup_approved(approved, STARTUP_APPROVED_DISABLED.to_vec())?;
         run.set_value(CANONICAL_VALUE_NAME, &quoted_path(&launcher))
             .map_err(|error| error.to_string())?;
-        if let Some(approved) = &approved {
-            approved
-                .set_raw_value(
-                    CANONICAL_VALUE_NAME,
-                    &RegValue {
-                        bytes: STARTUP_APPROVED_ENABLED.to_vec(),
-                        vtype: winreg::enums::RegType::REG_BINARY,
-                    },
-                )
-                .map_err(|error| error.to_string())?;
-        }
+        set_startup_approved(approved, STARTUP_APPROVED_ENABLED.to_vec())?;
     } else {
         delete_value_if_present(&run, CANONICAL_VALUE_NAME)?;
         if let Some(approved) = &approved {
@@ -115,6 +119,17 @@ fn apply_for_executable(executable: &Path, enabled: bool) -> Result<(), String> 
     remove_recognized_legacy_value(&run, approved.as_ref(), TAURI_VALUE_NAME)?;
     remove_legacy_task_if_owned();
     Ok(())
+}
+
+fn set_startup_approved(key: &RegKey, bytes: Vec<u8>) -> Result<(), String> {
+    key.set_raw_value(
+        CANONICAL_VALUE_NAME,
+        &RegValue {
+            bytes,
+            vtype: winreg::enums::RegType::REG_BINARY,
+        },
+    )
+    .map_err(|error| error.to_string())
 }
 
 fn migrate_disabled_registration(executable: &Path, marker: Vec<u8>) -> Result<(), String> {
@@ -128,19 +143,14 @@ fn migrate_disabled_registration(executable: &Path, marker: Vec<u8>) -> Result<(
         .map_err(|error| error.to_string())?;
 
     // Commit the disabled marker first so a partial migration cannot enable startup.
-    approved
-        .set_raw_value(
-            CANONICAL_VALUE_NAME,
-            &RegValue {
-                bytes: if marker.first() == Some(&3) {
-                    marker
-                } else {
-                    STARTUP_APPROVED_DISABLED.to_vec()
-                },
-                vtype: winreg::enums::RegType::REG_BINARY,
-            },
-        )
-        .map_err(|error| error.to_string())?;
+    set_startup_approved(
+        &approved,
+        if marker.first() == Some(&3) {
+            marker
+        } else {
+            STARTUP_APPROVED_DISABLED.to_vec()
+        },
+    )?;
     run.set_value(CANONICAL_VALUE_NAME, &quoted_path(&launcher))
         .map_err(|error| error.to_string())?;
     remove_recognized_legacy_value(&run, Some(&approved), TAURI_VALUE_NAME)?;
