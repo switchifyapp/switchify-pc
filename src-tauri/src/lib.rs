@@ -11,6 +11,10 @@ mod state;
 mod storage;
 #[cfg(target_os = "windows")]
 mod windows_runtime;
+#[cfg(target_os = "windows")]
+mod windows_security;
+#[cfg(target_os = "windows")]
+mod windows_startup;
 
 use state::{
     snapshot, ActivityKind, AppModel, AppSettings, AppState, PairedDeviceView, SwitchProfile,
@@ -18,6 +22,7 @@ use state::{
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, State};
+#[cfg(not(target_os = "windows"))]
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_updater::UpdaterExt;
 
@@ -185,13 +190,7 @@ fn save_settings(
         .settings
         .start_with_system;
     if settings.start_with_system != previous_start_with_system {
-        let autostart = app.autolaunch();
-        if settings.start_with_system {
-            autostart.enable()
-        } else {
-            autostart.disable()
-        }
-        .map_err(|error| error.to_string())?;
+        update_startup_registration(&app, settings.start_with_system)?;
     }
     model.persist_settings(&settings)?;
     model
@@ -206,6 +205,22 @@ fn save_settings(
     overlay.apply_settings(settings);
     state::set_activity(&model.shared, ActivityKind::Success, "Settings saved.");
     Ok(model.snapshot())
+}
+
+#[cfg(target_os = "windows")]
+fn update_startup_registration(_app: &AppHandle, enabled: bool) -> Result<(), String> {
+    windows_startup::apply(enabled)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn update_startup_registration(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    let autostart = app.autolaunch();
+    if enabled {
+        autostart.enable()
+    } else {
+        autostart.disable()
+    }
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(target_os = "macos")]
@@ -485,7 +500,10 @@ pub fn run() {
     let overlay_shared = shared.clone();
     let modifier_overlay_shared = shared.clone();
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            if has_start_hidden_argument(&args) {
+                return;
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -513,6 +531,44 @@ pub fn run() {
             );
             platform_install(app.handle().clone(), shared.clone())
                 .map_err(std::io::Error::other)?;
+            #[cfg(target_os = "windows")]
+            {
+                let start_with_system = shared
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .state
+                    .settings
+                    .start_with_system;
+                match windows_startup::repair(start_with_system) {
+                    Ok(repaired_enabled) if repaired_enabled != start_with_system => {
+                        let settings = {
+                            let mut data = shared
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                            data.state.settings.start_with_system = repaired_enabled;
+                            data.state.settings.clone()
+                        };
+                        if let Err(error) = app.state::<AppModel>().persist_settings(&settings) {
+                            state::set_activity(
+                                &shared,
+                                ActivityKind::Error,
+                                format!("Startup preference could not be migrated: {error}"),
+                            );
+                        }
+                    }
+                    Err(error) => state::set_activity(
+                        &shared,
+                        ActivityKind::Error,
+                        format!("Startup registration could not be repaired: {error}"),
+                    ),
+                    _ => {}
+                }
+            }
+            if has_start_hidden_argument(&std::env::args().collect::<Vec<_>>()) {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -547,6 +603,10 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Switchify PC");
+}
+
+fn has_start_hidden_argument(args: &[String]) -> bool {
+    args.iter().any(|argument| argument == "--start-hidden")
 }
 
 #[cfg(target_os = "macos")]
@@ -617,7 +677,7 @@ fn platform_disconnect_all(app: &AppHandle, shared: &state::SharedModel) -> Resu
 
 #[cfg(test)]
 mod tests {
-    use super::updater_has_endpoints;
+    use super::{has_start_hidden_argument, updater_has_endpoints};
     use serde_json::json;
 
     #[test]
@@ -631,5 +691,17 @@ mod tests {
             "endpoints": ["https://updates.example.com/latest.json"],
             "pubkey": "test-key"
         }))));
+    }
+
+    #[test]
+    fn hidden_start_requires_the_exact_argument() {
+        assert!(has_start_hidden_argument(&[
+            "switchify-pc.exe".into(),
+            "--start-hidden".into()
+        ]));
+        assert!(!has_start_hidden_argument(&[
+            "switchify-pc.exe".into(),
+            "--start-hidden-now".into()
+        ]));
     }
 }

@@ -148,7 +148,7 @@ impl PlatformCapabilities {
         return Self {
             platform: "windows".into(),
             grid3: true,
-            ui_access: false,
+            ui_access: crate::windows_security::has_ui_access(),
             display_navigation: false,
             cursor_overlay: true,
         };

@@ -31,7 +31,7 @@ The first time, choose **Open Accessibility Settings**, enable **Switchify PC**,
 
 The signed macOS application stores Android pairing tokens in `pairing-tokens.json` in its application-data directory. The file is written atomically with user-only `0600` permissions, and its parent directory is restricted to `0700`. Windows uses its native credential store.
 
-The promoted identity starts with new settings, a new desktop ID, and no paired devices. Data, credentials, Accessibility approval, certificates, and autostart registration from earlier development builds are not migrated or removed. Disable any older autostart entry manually and pair Android again.
+The promoted identity starts with new settings, a new desktop ID, and no paired devices. Data, credentials, Accessibility approval, and certificates from earlier development builds are not migrated or removed. Recognized Switchify startup entries are migrated to the signed launcher without changing their enabled state; pair Android again after upgrading.
 
 For UI and hot-reload development only:
 
@@ -54,6 +54,18 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 Rust tests use fake input adapters and never control the local pointer or keyboard. Native checks and unsigned bundles run on Windows and macOS in `.github/workflows/ci.yml`.
 
+## Windows UIAccess package
+
+Windows grants UIAccess only to a trusted, signed executable installed in a secure location. Sign in to SimplySign Desktop, expose the Certum code-signing certificate, and set its thumbprint before packaging:
+
+```powershell
+$env:SWITCHIFY_CERTUM_CERT_THUMBPRINT = '<certificate thumbprint>'
+npm run windows:package
+npm run windows:verify-package
+```
+
+The per-machine NSIS installer places the signed main executable and signed startup launcher under Program Files. Release builds request `highestAvailable` with UIAccess; debug builds remain `asInvoker` without UIAccess. Start with system registers the non-UIAccess launcher, which asks Windows Shell to start the main app hidden.
+
 ## Legacy C# release
 
 The C# 0.10.0 application is frozen. Its archival source snapshot is held in the private, read-only `switchifyapp/switchify-pc-legacy` repository for authorized organization members.
@@ -62,7 +74,7 @@ Existing public Git history, tags, releases, update metadata, and installer down
 
 ## Development boundaries
 
-- The macOS development identity is local-only. The application has no production Developer ID signing, notarization, or release publishing workflow; macOS CI builds with `--no-sign`.
+- The macOS development identity is local-only. The application has no production Developer ID signing, notarization, or release publishing workflow; macOS CI builds with `--no-sign`. Windows production packages use the locally available Certum/SimplySign identity and are not published automatically.
 - Linux may appear in capability data but is not a supported Bluetooth target.
 - Windows Grid 3 output uses the native `Sensory_SwitchInput` broadcast contract. Grid 3 is omitted from macOS capabilities and profiles.
 - Update installation requires a signed Tauri update feed. Local development builds can only report updater configuration errors.

@@ -1,0 +1,21 @@
+{
+  "bundle": {
+    "externalBin": ["binaries/switchify-pc-startup"],
+    "windows": {
+      "signCommand": {
+        "cmd": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "../scripts/Sign-Windows.ps1",
+          "%1"
+        ]
+      },
+      "nsis": {
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
+    }
+  }
+}
