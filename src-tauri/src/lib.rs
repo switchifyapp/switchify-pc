@@ -19,9 +19,10 @@ mod windows_startup;
 use state::{
     snapshot, ActivityKind, AppModel, AppSettings, AppState, PairedDeviceView, SwitchProfile,
 };
+use std::sync::Mutex;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(not(target_os = "windows"))]
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_updater::UpdaterExt;
@@ -29,6 +30,95 @@ use tauri_plugin_updater::UpdaterExt;
 #[tauri::command]
 fn get_app_state(model: State<'_, AppModel>) -> AppState {
     model.snapshot()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProfileExitAction {
+    Hide,
+    Quit,
+}
+
+impl ProfileExitAction {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Hide => "hide",
+            Self::Quit => "quit",
+        }
+    }
+}
+
+#[derive(Default)]
+struct PendingProfileExit(Mutex<Option<ProfileExitAction>>);
+
+impl PendingProfileExit {
+    fn begin(&self, action: ProfileExitAction) -> bool {
+        let mut pending = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if pending.is_some() {
+            return false;
+        }
+        *pending = Some(action);
+        true
+    }
+
+    fn take(&self) -> Option<ProfileExitAction> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+    }
+
+    fn cancel(&self) {
+        self.take();
+    }
+}
+
+fn request_profile_exit(app: &AppHandle, action: ProfileExitAction) {
+    if !app.state::<PendingProfileExit>().begin(action) {
+        return;
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = window.emit("profile-exit-requested", action.as_str());
+    }
+}
+
+fn finish_app_exit(app: &AppHandle) {
+    let model = app.state::<AppModel>();
+    let _ = platform_disconnect_all(app, &model.shared);
+    app.state::<overlay::CursorOverlay>().end_session();
+    app.state::<modifier_overlay::ModifierOverlay>()
+        .end_session();
+    app.exit(0);
+}
+
+#[tauri::command]
+fn complete_profile_exit(
+    app: AppHandle,
+    pending: State<'_, PendingProfileExit>,
+) -> Result<(), String> {
+    match pending
+        .take()
+        .ok_or_else(|| "No window action is pending.".to_string())?
+    {
+        ProfileExitAction::Hide => app
+            .get_webview_window("main")
+            .ok_or_else(|| "The main window is unavailable.".to_string())?
+            .hide()
+            .map_err(|error| error.to_string()),
+        ProfileExitAction::Quit => {
+            finish_app_exit(&app);
+            Ok(())
+        }
+    }
+}
+
+#[tauri::command]
+fn cancel_profile_exit(pending: State<'_, PendingProfileExit>) {
+    pending.cancel();
 }
 
 async fn on_main_thread<T, F>(app: AppHandle, operation: F) -> Result<T, String>
@@ -249,13 +339,17 @@ fn list_switch_profiles(model: State<'_, AppModel>) -> Vec<SwitchProfile> {
 }
 
 fn validate_profile(profile: &SwitchProfile) -> Result<(), String> {
-    if profile.built_in
-        || profile.provider != "mapped"
-        || uuid::Uuid::parse_str(&profile.id).is_err()
-        || profile.name.trim().is_empty()
-        || profile.name.chars().count() > 50
-    {
-        return Err("Custom profile metadata is invalid.".into());
+    if profile.built_in {
+        return Err("Custom profiles cannot be marked as built in.".into());
+    }
+    if profile.provider != "mapped" || uuid::Uuid::parse_str(&profile.id).is_err() {
+        return Err("Custom profile identity is invalid.".into());
+    }
+    if profile.name.trim().is_empty() {
+        return Err("Profile name is required.".into());
+    }
+    if profile.name.chars().count() > 50 {
+        return Err("Profile name must use 50 characters or fewer.".into());
     }
     if profile.bindings.len() != 8
         || !profile
@@ -266,10 +360,45 @@ fn validate_profile(profile: &SwitchProfile) -> Result<(), String> {
     {
         return Err("Custom profiles must define switches 1 through 8.".into());
     }
-    if !profile.bindings.iter().all(valid_binding) {
-        return Err("A profile binding is invalid.".into());
+    for binding in &profile.bindings {
+        if !valid_binding(binding) {
+            return Err(format!("Switch {} binding is invalid.", binding.switch_id));
+        }
+    }
+    for (index, binding) in profile.bindings.iter().enumerate() {
+        if binding.binding_type == "none" {
+            continue;
+        }
+        if let Some(duplicate) = profile.bindings[..index]
+            .iter()
+            .find(|candidate| bindings_equivalent(candidate, binding))
+        {
+            return Err(format!(
+                "Switch {} duplicates Switch {}.",
+                binding.switch_id, duplicate.switch_id
+            ));
+        }
     }
     Ok(())
+}
+
+fn bindings_equivalent(left: &state::SwitchBinding, right: &state::SwitchBinding) -> bool {
+    if left.binding_type != right.binding_type {
+        return false;
+    }
+    match left.binding_type.as_str() {
+        "shortcut" => left.keys.as_ref().is_some_and(|left_keys| {
+            right.keys.as_ref().is_some_and(|right_keys| {
+                left_keys.len() == right_keys.len()
+                    && left_keys.iter().all(|key| right_keys.contains(key))
+            })
+        }),
+        "mouseClick" => {
+            left.value == right.value
+                && left.click_count.unwrap_or(1) == right.click_count.unwrap_or(1)
+        }
+        _ => left.value == right.value,
+    }
 }
 
 fn valid_binding(binding: &state::SwitchBinding) -> bool {
@@ -483,12 +612,7 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 }
             }
             "quit" => {
-                let model = app.state::<AppModel>();
-                let _ = platform_disconnect_all(app, &model.shared);
-                app.state::<overlay::CursorOverlay>().end_session();
-                app.state::<modifier_overlay::ModifierOverlay>()
-                    .end_session();
-                app.exit(0);
+                request_profile_exit(app, ProfileExitAction::Quit);
             }
             _ => {}
         })
@@ -518,6 +642,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(model)
+        .manage(PendingProfileExit::default())
         .setup(move |app| {
             install_tray(app)?;
             app.manage(overlay::CursorOverlay::install(
@@ -585,7 +710,7 @@ pub fn run() {
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                let _ = window.hide();
+                request_profile_exit(window.app_handle(), ProfileExitAction::Hide);
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -600,6 +725,8 @@ pub fn run() {
             list_switch_profiles,
             save_switch_profile,
             delete_switch_profile,
+            complete_profile_exit,
+            cancel_profile_exit,
             check_for_updates,
             export_diagnostics
         ])
@@ -679,8 +806,31 @@ fn platform_disconnect_all(app: &AppHandle, shared: &state::SharedModel) -> Resu
 
 #[cfg(test)]
 mod tests {
-    use super::{has_start_hidden_argument, updater_has_endpoints};
+    use super::{
+        has_start_hidden_argument, updater_has_endpoints, validate_profile, PendingProfileExit,
+        ProfileExitAction,
+    };
+    use crate::state::{SwitchBinding, SwitchProfile};
     use serde_json::json;
+
+    fn custom_profile() -> SwitchProfile {
+        SwitchProfile {
+            id: "3a393675-6434-4e50-a62f-d85ac24bcdf5".into(),
+            version: 1,
+            name: "Accessible controls".into(),
+            provider: "mapped".into(),
+            built_in: false,
+            bindings: (1..=8)
+                .map(|switch_id| SwitchBinding {
+                    switch_id,
+                    binding_type: "none".into(),
+                    value: None,
+                    keys: None,
+                    click_count: None,
+                })
+                .collect(),
+        }
+    }
 
     #[test]
     fn update_checks_require_a_configured_endpoint() {
@@ -705,5 +855,47 @@ mod tests {
             "switchify-pc.exe".into(),
             "--start-hidden-now".into()
         ]));
+    }
+
+    #[test]
+    fn profile_validation_identifies_invalid_and_duplicate_switches() {
+        let mut profile = custom_profile();
+        profile.bindings[0].binding_type = "shortcut".into();
+        profile.bindings[0].keys = Some(vec!["Ctrl".into()]);
+        assert_eq!(
+            validate_profile(&profile),
+            Err("Switch 1 binding is invalid.".into())
+        );
+
+        profile.bindings[0].keys = Some(vec!["Ctrl".into(), "K".into()]);
+        profile.bindings[1].binding_type = "shortcut".into();
+        profile.bindings[1].keys = Some(vec!["K".into(), "Ctrl".into()]);
+        assert_eq!(
+            validate_profile(&profile),
+            Err("Switch 2 duplicates Switch 1.".into())
+        );
+    }
+
+    #[test]
+    fn profile_validation_identifies_the_name_field() {
+        let mut profile = custom_profile();
+        profile.name = "  ".into();
+        assert_eq!(
+            validate_profile(&profile),
+            Err("Profile name is required.".into())
+        );
+    }
+
+    #[test]
+    fn profile_exit_requests_can_be_completed_or_cancelled() {
+        let pending = PendingProfileExit::default();
+        assert!(pending.begin(ProfileExitAction::Hide));
+        assert!(!pending.begin(ProfileExitAction::Quit));
+        assert_eq!(pending.take(), Some(ProfileExitAction::Hide));
+        assert_eq!(pending.take(), None);
+
+        assert!(pending.begin(ProfileExitAction::Quit));
+        pending.cancel();
+        assert_eq!(pending.take(), None);
     }
 }

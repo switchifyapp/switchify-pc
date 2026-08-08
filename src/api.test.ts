@@ -22,4 +22,15 @@ describe("runtime state events", () => {
 
     expect(listen).toHaveBeenCalledWith("app-state-changed", expect.any(Function));
   });
+
+  it("subscribes to native profile exit requests", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+
+    await api.onProfileExitRequested(() => undefined);
+
+    expect(listen).toHaveBeenCalledWith("profile-exit-requested", expect.any(Function));
+  });
 });

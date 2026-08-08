@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { api, browserState } from "./api";
-import type { AppSettings } from "./types";
+import type { AppSettings, SwitchProfile } from "./types";
 
 const defaultBrowserSettings = structuredClone(browserState.settings);
 
@@ -241,6 +241,11 @@ describe("Switchify PC shell", () => {
   });
 
   it("creates a profile and records a desired key", async () => {
+    let saved: SwitchProfile | undefined;
+    vi.spyOn(api, "saveProfile").mockImplementation(async (profile) => {
+      saved = structuredClone(profile);
+      return [profile];
+    });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
     const newProfile = await screen.findByRole("button", { name: "New profile" });
@@ -248,10 +253,150 @@ describe("Switchify PC shell", () => {
     fireEvent.click(newProfile);
     fireEvent.change(screen.getByRole("combobox", { name: "Switch 1 action" }), { target: { value: "shortcut" } });
     const recorder = screen.getByRole("textbox", { name: "Switch 1 key" });
-    fireEvent.keyDown(recorder, { key: "K", ctrlKey: true });
-    expect(recorder).toHaveValue("Ctrl+K");
+    fireEvent.keyDown(recorder, { key: "ArrowUp", ctrlKey: true });
+    expect(recorder).toHaveValue("Ctrl + Up Arrow");
     fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
     expect(await screen.findByText("New profile")).toBeInTheDocument();
+    expect(saved?.bindings[0].keys).toEqual(["Ctrl", "ArrowUp"]);
+  });
+
+  it("duplicates a built-in profile as a uniquely named editable custom profile", async () => {
+    const source: SwitchProfile = {
+      id: "builtin.keyboard", version: 4, name: "Generic keyboard", provider: "mapped", builtIn: true,
+      bindings: Array.from({ length: 8 }, (_, index) => ({ switchId: index + 1, type: index === 0 ? "key" as const : "none" as const, ...(index === 0 ? { value: "Space" } : {}) })),
+    };
+    vi.spyOn(api, "listProfiles").mockResolvedValue([source, { ...source, id: crypto.randomUUID(), name: "Generic keyboard copy", builtIn: false }]);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Generic keyboard.*Built in/ }));
+    expect(screen.getByRole("textbox", { name: "Profile name" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+
+    const name = screen.getByRole("textbox", { name: "Profile name" });
+    expect(name).toBeEnabled();
+    expect(name).toHaveValue("Generic keyboard copy 2");
+    expect(screen.getByRole("textbox", { name: "Switch 1 key" })).toHaveValue("Space");
+  });
+
+  it("identifies duplicate names and bindings at their fields", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Generic keyboard" } });
+    expect(screen.getByText("Profile names must be unique.")).toBeInTheDocument();
+
+    for (const switchId of [1, 2]) {
+      fireEvent.change(screen.getByRole("combobox", { name: `Switch ${switchId} action` }), { target: { value: "key" } });
+      fireEvent.keyDown(screen.getByRole("textbox", { name: `Switch ${switchId} key` }), { key: " " });
+    }
+
+    expect(screen.getByText("This duplicates Switch 2.")).toBeInTheDocument();
+    expect(screen.getByText("This duplicates Switch 1.")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Switch 1 action" })).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("button", { name: "Save profile" })).toBeDisabled();
+  });
+
+  it("confirms dirty editor dismissal and restores focus", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    const opener = await screen.findByRole("button", { name: "New profile" });
+    fireEvent.click(opener);
+    fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Unsaved controls" } });
+    fireEvent.click(screen.getByTitle("Close"));
+
+    const confirmation = screen.getByRole("alertdialog", { name: "Discard unsaved changes?" });
+    expect(within(confirmation).getByRole("button", { name: "Keep editing" })).toHaveFocus();
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Discard changes" }));
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
+
+  it("closes pristine new and duplicated profiles without a discard prompt", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    const newProfile = await screen.findByRole("button", { name: "New profile" });
+    fireEvent.click(newProfile);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(newProfile).toHaveFocus());
+
+    const builtIn = screen.getByRole("button", { name: /Generic keyboard.*Built in/ });
+    fireEvent.click(builtIn);
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("prevents navigation from discarding a modified profile", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Modified controls" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    expect(confirm).toHaveBeenCalledWith("Discard unsaved profile changes?");
+    expect(screen.getByRole("dialog", { name: "Edit switch profile" })).toBeInTheDocument();
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    expect(await screen.findByRole("heading", { name: "Switchify PC" })).toBeInTheDocument();
+  });
+
+  it("coordinates native close and quit with the dirty editor", async () => {
+    let exitHandler: ((action: "hide" | "quit") => void) | undefined;
+    const cancelExit = vi.spyOn(api, "cancelProfileExit").mockResolvedValue();
+    const completeExit = vi.spyOn(api, "completeProfileExit").mockResolvedValue();
+    vi.spyOn(api, "onProfileExitRequested").mockImplementation(async (handler) => {
+      exitHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Unsaved controls" } });
+
+    act(() => exitHandler?.("hide"));
+    expect(await screen.findByText("The window will close and your profile changes will be lost.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(cancelExit).toHaveBeenCalledOnce();
+    expect(screen.getByRole("dialog", { name: "Edit switch profile" })).toBeInTheDocument();
+
+    act(() => exitHandler?.("quit"));
+    expect(await screen.findByText("Switchify PC will quit and your profile changes will be lost.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Discard and quit" }));
+    expect(completeExit).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog", { name: "Edit switch profile" })).not.toBeInTheDocument();
+  });
+
+  it("confirms deletion and moves focus when the profile row is removed", async () => {
+    const custom: SwitchProfile = {
+      id: crypto.randomUUID(), version: 1, name: "Scanning controls", provider: "mapped", builtIn: false,
+      bindings: Array.from({ length: 8 }, (_, index) => ({ switchId: index + 1, type: "none" as const })),
+    };
+    vi.spyOn(api, "listProfiles").mockResolvedValue([custom]);
+    vi.spyOn(api, "deleteProfile").mockResolvedValue([]);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Scanning controls.*Custom/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Changed controls" } });
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    const confirmation = screen.getByRole("alertdialog", { name: "Delete Scanning controls?" });
+    expect(within(confirmation).getByRole("button", { name: "Keep editing" })).toHaveFocus();
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Delete profile" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "New profile" })).toHaveFocus());
+  });
+
+  it("keeps the editor open and focused when saving fails", async () => {
+    vi.spyOn(api, "saveProfile").mockRejectedValue(new Error("Profile storage unavailable"));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(await screen.findByRole("alert", { name: "" })).toHaveTextContent("Profile storage unavailable");
+    expect(screen.getByRole("dialog", { name: "Edit switch profile" })).toHaveFocus();
   });
 
   it("exposes setup status and troubleshooting actions", async () => {
