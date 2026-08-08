@@ -4,7 +4,7 @@ import {
   Copy, Home, Keyboard, Plus, Power, Radio, RefreshCw, Save, Settings,
   ShieldCheck, SlidersHorizontal, Smartphone, Trash2, WifiOff, Wrench, X,
 } from "lucide-react";
-import { api } from "./api";
+import { api, type ProfileExitAction } from "./api";
 import type { AppSettings, AppState, PendingPairing, SwitchProfile } from "./types";
 
 type View = "home" | "devices" | "profiles" | "settings" | "support";
@@ -149,16 +149,19 @@ type ProfileEditorProps = {
   onDelete: (() => Promise<void>) | null;
   onDuplicate: () => void;
   onDirtyChange: (dirty: boolean) => void;
+  nativeExitRequest: ProfileExitAction | null;
+  onConfirmNativeExit: () => void;
+  onCancelNativeExit: () => void;
   busy: boolean;
 };
 
-function ProfileEditor({ profile, profiles, onClose, onSave, onDelete, onDuplicate, onDirtyChange, busy }: ProfileEditorProps) {
+function ProfileEditor({ profile, profiles, onClose, onSave, onDelete, onDuplicate, onDirtyChange, nativeExitRequest, onConfirmNativeExit, onCancelNativeExit, busy }: ProfileEditorProps) {
   const [draft, setDraft] = useState(profile);
-  const [confirmation, setConfirmation] = useState<"discard" | "delete" | "duplicate" | null>(null);
+  const [confirmation, setConfirmation] = useState<"discard" | "delete" | "duplicate" | "native" | null>(null);
   const [operationError, setOperationError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const confirmationButtonRef = useRef<HTMLButtonElement>(null);
-  const dirty = !profiles.some((candidate) => candidate.id === profile.id) || JSON.stringify(draft) !== JSON.stringify(profile);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(profile);
   const errors = validateProfileDraft(draft, profiles);
   const firstError = Object.keys(errors)[0];
 
@@ -171,6 +174,10 @@ function ProfileEditor({ profile, profiles, onClose, onSave, onDelete, onDuplica
     if (confirmation) confirmationButtonRef.current?.focus();
     else dialogRef.current?.focus();
   }, [confirmation]);
+
+  useEffect(() => {
+    if (nativeExitRequest) setConfirmation("native");
+  }, [nativeExitRequest]);
 
   const setBinding = (index: number, type: SwitchProfile["bindings"][number]["type"], value?: string, keys?: string[]) => {
     const defaults: Partial<Record<typeof type, string>> = { key: "Space", mouseButton: "left", mouseClick: "left", scroll: "down", media: "playPause" };
@@ -202,7 +209,7 @@ function ProfileEditor({ profile, profiles, onClose, onSave, onDelete, onDuplica
     setBinding(index, binding.type, binding.type === "key" ? pressed : undefined, binding.type === "shortcut" ? keys : undefined);
   };
   const trapFocus = (event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key === "Escape") { event.preventDefault(); confirmation ? setConfirmation(null) : requestClose(); return; }
+    if (event.key === "Escape") { event.preventDefault(); if (confirmation === "native") onCancelNativeExit(); confirmation ? setConfirmation(null) : requestClose(); return; }
     if (event.key !== "Tab") return;
     const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)') ?? [])].filter((control) => control.offsetParent !== null || control === document.activeElement);
     if (controls.length === 0) return;
@@ -211,9 +218,27 @@ function ProfileEditor({ profile, profiles, onClose, onSave, onDelete, onDuplica
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   };
 
+  const confirmationTitle = confirmation === "delete" ? `Delete ${profile.name}?` : "Discard unsaved changes?";
+  const confirmationCopy = confirmation === "delete" ? "This profile will no longer be available to switch sessions."
+    : confirmation === "duplicate" ? "The duplicate will use the last saved version of this profile."
+      : confirmation === "native" && nativeExitRequest === "quit" ? "Switchify PC will quit and your profile changes will be lost."
+        : confirmation === "native" ? "The window will close and your profile changes will be lost."
+          : "Your profile changes have not been saved.";
+  const confirmationAction = confirmation === "delete" ? "Delete profile" : confirmation === "duplicate" ? "Discard and duplicate" : confirmation === "native" && nativeExitRequest === "quit" ? "Discard and quit" : confirmation === "native" ? "Discard and close" : "Discard changes";
+  const cancelConfirmation = () => {
+    if (confirmation === "native") onCancelNativeExit();
+    setConfirmation(null);
+  };
+  const confirmAction = () => {
+    if (confirmation === "delete") void runDelete();
+    else if (confirmation === "duplicate") onDuplicate();
+    else if (confirmation === "native") onConfirmNativeExit();
+    else onClose();
+  };
+
   if (confirmation) return <div className="modal-backdrop"><section ref={dialogRef} className="profile-dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="profile-confirm-title" tabIndex={-1} onKeyDown={trapFocus}>
-    <header><div><h2 id="profile-confirm-title">{confirmation === "delete" ? `Delete ${profile.name}?` : "Discard unsaved changes?"}</h2><p>{confirmation === "delete" ? "This profile will no longer be available to switch sessions." : confirmation === "duplicate" ? "The duplicate will use the last saved version of this profile." : "Your profile changes have not been saved."}</p></div></header>
-    <footer><span /><button ref={confirmationButtonRef} className="secondary" onClick={() => setConfirmation(null)}>Keep editing</button><button className={confirmation === "duplicate" ? "primary" : "primary danger"} disabled={busy} onClick={() => confirmation === "delete" ? void runDelete() : confirmation === "duplicate" ? onDuplicate() : onClose()}>{confirmation === "delete" ? "Delete profile" : confirmation === "duplicate" ? "Discard and duplicate" : "Discard changes"}</button></footer>
+    <header><div><h2 id="profile-confirm-title">{confirmationTitle}</h2><p>{confirmationCopy}</p></div></header>
+    <footer><span /><button ref={confirmationButtonRef} className="secondary" onClick={cancelConfirmation}>Keep editing</button><button className={confirmation === "duplicate" ? "primary" : "primary danger"} disabled={busy} onClick={confirmAction}>{confirmationAction}</button></footer>
   </section></div>;
 
   return <div className="modal-backdrop"><section ref={dialogRef} className="profile-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-title" tabIndex={-1} onKeyDown={trapFocus}>
@@ -235,7 +260,7 @@ function ProfileEditor({ profile, profiles, onClose, onSave, onDelete, onDuplica
   </section></div>;
 }
 
-function ProfilesView({ profiles, platform, saveProfile, deleteProfile, onDirtyChange, busy }: { profiles: SwitchProfile[]; platform: AppState["capabilities"]["platform"]; saveProfile: (profile: SwitchProfile) => Promise<void>; deleteProfile: (id: string) => Promise<void>; onDirtyChange: (dirty: boolean) => void; busy: boolean }) {
+function ProfilesView({ profiles, platform, saveProfile, deleteProfile, onDirtyChange, nativeExitRequest, onConfirmNativeExit, onCancelNativeExit, busy }: { profiles: SwitchProfile[]; platform: AppState["capabilities"]["platform"]; saveProfile: (profile: SwitchProfile) => Promise<void>; deleteProfile: (id: string) => Promise<void>; onDirtyChange: (dirty: boolean) => void; nativeExitRequest: ProfileExitAction | null; onConfirmNativeExit: () => void; onCancelNativeExit: () => void; busy: boolean }) {
   const [editing, setEditing] = useState<SwitchProfile | null>(null);
   const openerRef = useRef<HTMLButtonElement | null>(null);
   const closeEditor = () => { setEditing(null); requestAnimationFrame(() => (openerRef.current?.isConnected ? openerRef.current : document.querySelector<HTMLButtonElement>(".page-header button"))?.focus()); };
@@ -243,7 +268,7 @@ function ProfilesView({ profiles, platform, saveProfile, deleteProfile, onDirtyC
   return <div className="view"><header className="page-header"><div><h1>Switch control</h1><p>Profiles available to physical switch sessions</p></div><button className="primary" onClick={(event) => openEditor(newProfile(), event.currentTarget)}><Plus size={16} />New profile</button></header>
     <div className="profile-list">{profiles.map((profile) => <button className="profile-row" key={profile.id} onClick={(event) => openEditor(profile, event.currentTarget)}><div className="profile-icon"><SlidersHorizontal size={19} /></div><div><h2>{profile.name}</h2><p>{profile.provider === "grid3" ? "Grid 3" : `${profile.bindings.filter((binding) => binding.type !== "none").length} mapped switches`}</p></div><span>{profile.builtIn ? "Built in" : "Custom"}</span><ChevronRight size={18} /></button>)}</div>
     {platform === "macos" && <p className="capability-note">Grid 3 profiles are available on Windows only.</p>}
-    {editing && <ProfileEditor key={editing.id} profile={editing} profiles={profiles} busy={busy} onDirtyChange={onDirtyChange} onClose={closeEditor} onDuplicate={() => setEditing(duplicateProfile(editing, profiles))} onSave={async (profile) => { await saveProfile(profile); closeEditor(); }} onDelete={editing.builtIn || !profiles.some((profile) => profile.id === editing.id) ? null : async () => { await deleteProfile(editing.id); closeEditor(); }} />}
+    {editing && <ProfileEditor key={editing.id} profile={editing} profiles={profiles} busy={busy} onDirtyChange={onDirtyChange} nativeExitRequest={nativeExitRequest} onConfirmNativeExit={() => { closeEditor(); onConfirmNativeExit(); }} onCancelNativeExit={onCancelNativeExit} onClose={closeEditor} onDuplicate={() => setEditing(duplicateProfile(editing, profiles))} onSave={async (profile) => { await saveProfile(profile); closeEditor(); }} onDelete={editing.builtIn || !profiles.some((profile) => profile.id === editing.id) ? null : async () => { await deleteProfile(editing.id); closeEditor(); }} />}
   </div>;
 }
 
@@ -413,6 +438,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [profileExitRequest, setProfileExitRequest] = useState<ProfileExitAction | null>(null);
   const settingsDirty = useRef(false);
   const confirmedSettings = useRef<AppSettings | null>(null);
   const displayedSettings = useRef<AppSettings | null>(null);
@@ -519,6 +545,15 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    let unlisten: () => void = () => {};
+    void api.onProfileExitRequested((action) => {
+      if (profileEditorDirty.current) setProfileExitRequest(action);
+      else void api.completeProfileExit().catch((reason) => setError(String(reason)));
+    }).then((stop) => { unlisten = stop; });
+    return () => unlisten();
+  }, []);
+
+  useEffect(() => {
     const preventUnsavedUnload = (event: BeforeUnloadEvent) => {
       if (!profileEditorDirty.current) return;
       event.preventDefault();
@@ -556,6 +591,17 @@ export function App() {
     finally { setBusy(false); }
   };
 
+  const cancelProfileExit = () => {
+    setProfileExitRequest(null);
+    void api.cancelProfileExit().catch((reason) => setError(String(reason)));
+  };
+
+  const confirmProfileExit = () => {
+    setProfileExitRequest(null);
+    profileEditorDirty.current = false;
+    void api.completeProfileExit().catch((reason) => setError(String(reason)));
+  };
+
   if (!state || !settings) return <div className="loading"><RefreshCw className="spin" size={24} /><span>Starting Switchify PC...</span></div>;
   return <div className="app-shell">
     <aside><div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id} icon={icon} onClick={() => selectView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><span>v{state.version}</span><button className="footer-update-button" type="button" aria-label="Check for updates" title="Check for updates" disabled={busy} onClick={() => void checkForUpdates()}><RefreshCw className={checkingUpdates ? "spin" : undefined} size={15} /></button></div></aside>
@@ -563,7 +609,7 @@ export function App() {
       {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
       {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onSetup={() => setView("support")} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}
-      {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} />}
+      {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} nativeExitRequest={profileExitRequest} onConfirmNativeExit={confirmProfileExit} onCancelNativeExit={cancelProfileExit} />}
       {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} checkUpdates={() => void checkForUpdates()} busy={busy} />}
       {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} />}
     </main>

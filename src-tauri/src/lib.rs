@@ -19,9 +19,10 @@ mod windows_startup;
 use state::{
     snapshot, ActivityKind, AppModel, AppSettings, AppState, PairedDeviceView, SwitchProfile,
 };
+use std::sync::Mutex;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(not(target_os = "windows"))]
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_updater::UpdaterExt;
@@ -29,6 +30,95 @@ use tauri_plugin_updater::UpdaterExt;
 #[tauri::command]
 fn get_app_state(model: State<'_, AppModel>) -> AppState {
     model.snapshot()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProfileExitAction {
+    Hide,
+    Quit,
+}
+
+impl ProfileExitAction {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Hide => "hide",
+            Self::Quit => "quit",
+        }
+    }
+}
+
+#[derive(Default)]
+struct PendingProfileExit(Mutex<Option<ProfileExitAction>>);
+
+impl PendingProfileExit {
+    fn begin(&self, action: ProfileExitAction) -> bool {
+        let mut pending = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if pending.is_some() {
+            return false;
+        }
+        *pending = Some(action);
+        true
+    }
+
+    fn take(&self) -> Option<ProfileExitAction> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+    }
+
+    fn cancel(&self) {
+        self.take();
+    }
+}
+
+fn request_profile_exit(app: &AppHandle, action: ProfileExitAction) {
+    if !app.state::<PendingProfileExit>().begin(action) {
+        return;
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = window.emit("profile-exit-requested", action.as_str());
+    }
+}
+
+fn finish_app_exit(app: &AppHandle) {
+    let model = app.state::<AppModel>();
+    let _ = platform_disconnect_all(app, &model.shared);
+    app.state::<overlay::CursorOverlay>().end_session();
+    app.state::<modifier_overlay::ModifierOverlay>()
+        .end_session();
+    app.exit(0);
+}
+
+#[tauri::command]
+fn complete_profile_exit(
+    app: AppHandle,
+    pending: State<'_, PendingProfileExit>,
+) -> Result<(), String> {
+    match pending
+        .take()
+        .ok_or_else(|| "No window action is pending.".to_string())?
+    {
+        ProfileExitAction::Hide => app
+            .get_webview_window("main")
+            .ok_or_else(|| "The main window is unavailable.".to_string())?
+            .hide()
+            .map_err(|error| error.to_string()),
+        ProfileExitAction::Quit => {
+            finish_app_exit(&app);
+            Ok(())
+        }
+    }
+}
+
+#[tauri::command]
+fn cancel_profile_exit(pending: State<'_, PendingProfileExit>) {
+    pending.cancel();
 }
 
 async fn on_main_thread<T, F>(app: AppHandle, operation: F) -> Result<T, String>
@@ -522,12 +612,7 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 }
             }
             "quit" => {
-                let model = app.state::<AppModel>();
-                let _ = platform_disconnect_all(app, &model.shared);
-                app.state::<overlay::CursorOverlay>().end_session();
-                app.state::<modifier_overlay::ModifierOverlay>()
-                    .end_session();
-                app.exit(0);
+                request_profile_exit(app, ProfileExitAction::Quit);
             }
             _ => {}
         })
@@ -557,6 +642,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(model)
+        .manage(PendingProfileExit::default())
         .setup(move |app| {
             install_tray(app)?;
             app.manage(overlay::CursorOverlay::install(
@@ -624,7 +710,7 @@ pub fn run() {
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                let _ = window.hide();
+                request_profile_exit(window.app_handle(), ProfileExitAction::Hide);
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -639,6 +725,8 @@ pub fn run() {
             list_switch_profiles,
             save_switch_profile,
             delete_switch_profile,
+            complete_profile_exit,
+            cancel_profile_exit,
             check_for_updates,
             export_diagnostics
         ])
@@ -718,7 +806,10 @@ fn platform_disconnect_all(app: &AppHandle, shared: &state::SharedModel) -> Resu
 
 #[cfg(test)]
 mod tests {
-    use super::{has_start_hidden_argument, updater_has_endpoints, validate_profile};
+    use super::{
+        has_start_hidden_argument, updater_has_endpoints, validate_profile, PendingProfileExit,
+        ProfileExitAction,
+    };
     use crate::state::{SwitchBinding, SwitchProfile};
     use serde_json::json;
 
@@ -793,5 +884,18 @@ mod tests {
             validate_profile(&profile),
             Err("Profile name is required.".into())
         );
+    }
+
+    #[test]
+    fn profile_exit_requests_can_be_completed_or_cancelled() {
+        let pending = PendingProfileExit::default();
+        assert!(pending.begin(ProfileExitAction::Hide));
+        assert!(!pending.begin(ProfileExitAction::Quit));
+        assert_eq!(pending.take(), Some(ProfileExitAction::Hide));
+        assert_eq!(pending.take(), None);
+
+        assert!(pending.begin(ProfileExitAction::Quit));
+        pending.cancel();
+        assert_eq!(pending.take(), None);
     }
 }

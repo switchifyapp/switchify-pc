@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppSettings, AppState, SwitchProfile } from "./types";
 
+export type ProfileExitAction = "hide" | "quit";
+
 export const browserState: AppState = {
   bluetooth: "initializing",
   accessibility: "required",
@@ -69,10 +71,20 @@ export const api = {
     browserProfiles = browserProfiles.filter((item) => item.id !== profileId || item.builtIn);
     return Promise.resolve(structuredClone(browserProfiles));
   },
+  completeProfileExit: () => "__TAURI_INTERNALS__" in window
+    ? invoke<void>("complete_profile_exit")
+    : Promise.resolve(),
+  cancelProfileExit: () => "__TAURI_INTERNALS__" in window
+    ? invoke<void>("cancel_profile_exit")
+    : Promise.resolve(),
   checkForUpdates: () => call<AppState>("check_for_updates"),
   exportDiagnostics: () => call<AppState>("export_diagnostics"),
   onState: async (handler: (state: AppState) => void): Promise<UnlistenFn> => {
     if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
     return listen<AppState>("app-state-changed", (event) => handler(event.payload));
+  },
+  onProfileExitRequested: async (handler: (action: ProfileExitAction) => void): Promise<UnlistenFn> => {
+    if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
+    return listen<ProfileExitAction>("profile-exit-requested", (event) => handler(event.payload));
   },
 };

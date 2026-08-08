@@ -311,11 +311,28 @@ describe("Switchify PC shell", () => {
     await waitFor(() => expect(opener).toHaveFocus());
   });
 
-  it("prevents navigation from discarding an unsaved profile", async () => {
+  it("closes pristine new and duplicated profiles without a discard prompt", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    const newProfile = await screen.findByRole("button", { name: "New profile" });
+    fireEvent.click(newProfile);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(newProfile).toHaveFocus());
+
+    const builtIn = screen.getByRole("button", { name: /Generic keyboard.*Built in/ });
+    fireEvent.click(builtIn);
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("prevents navigation from discarding a modified profile", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Modified controls" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
     expect(confirm).toHaveBeenCalledWith("Discard unsaved profile changes?");
@@ -324,6 +341,32 @@ describe("Switchify PC shell", () => {
     confirm.mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
     expect(await screen.findByRole("heading", { name: "Switchify PC" })).toBeInTheDocument();
+  });
+
+  it("coordinates native close and quit with the dirty editor", async () => {
+    let exitHandler: ((action: "hide" | "quit") => void) | undefined;
+    const cancelExit = vi.spyOn(api, "cancelProfileExit").mockResolvedValue();
+    const completeExit = vi.spyOn(api, "completeProfileExit").mockResolvedValue();
+    vi.spyOn(api, "onProfileExitRequested").mockImplementation(async (handler) => {
+      exitHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Unsaved controls" } });
+
+    act(() => exitHandler?.("hide"));
+    expect(await screen.findByText("The window will close and your profile changes will be lost.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(cancelExit).toHaveBeenCalledOnce();
+    expect(screen.getByRole("dialog", { name: "Edit switch profile" })).toBeInTheDocument();
+
+    act(() => exitHandler?.("quit"));
+    expect(await screen.findByText("Switchify PC will quit and your profile changes will be lost.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Discard and quit" }));
+    expect(completeExit).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog", { name: "Edit switch profile" })).not.toBeInTheDocument();
   });
 
   it("confirms deletion and moves focus when the profile row is removed", async () => {
