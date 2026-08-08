@@ -33,6 +33,8 @@ The signed macOS application stores Android pairing tokens in `pairing-tokens.js
 
 The promoted identity starts with new settings, a new desktop ID, and no paired devices. Data, credentials, Accessibility approval, and certificates from earlier development builds are not migrated or removed. Recognized Switchify startup entries are migrated to the signed launcher without changing their enabled state; pair Android again after upgrading.
 
+On a fresh unpaired installation, Switchify opens a five-step setup guide once. It checks Bluetooth and input access, links to Switchify on Google Play with a QR code, presents live secure-pairing approvals, and records explicit startup and anonymous-diagnostics choices. **Skip for now** dismisses the automatic prompt without marking setup complete; reopen it at any time from Home or Support. Existing paired users are never forced into the guide.
+
 For UI and hot-reload development only:
 
 ```bash

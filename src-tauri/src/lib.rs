@@ -337,6 +337,48 @@ fn set_telemetry_consent(model: State<'_, AppModel>, enabled: bool) -> Result<Ap
     Ok(model.snapshot())
 }
 
+#[tauri::command]
+fn mark_setup_shown(model: State<'_, AppModel>) -> Result<AppState, String> {
+    model.mark_setup_shown()
+}
+
+#[tauri::command]
+fn complete_setup(
+    app: AppHandle,
+    model: State<'_, AppModel>,
+    start_with_system: bool,
+    share_diagnostics: bool,
+) -> Result<AppState, String> {
+    if model.snapshot().paired_devices.is_empty() {
+        return Err("Pair an Android device before finishing setup.".into());
+    }
+    let mut settings = model.snapshot().settings;
+    if settings.start_with_system != start_with_system {
+        update_startup_registration(&app, start_with_system)?;
+    }
+    settings.start_with_system = start_with_system;
+    settings.share_diagnostics = share_diagnostics;
+    let consent = if share_diagnostics {
+        TelemetryConsent::Enabled
+    } else {
+        TelemetryConsent::Disabled
+    };
+    if !share_diagnostics {
+        model.set_telemetry_consent(consent);
+    }
+    model.persist_settings_with_telemetry(&settings, consent)?;
+    if share_diagnostics {
+        model.set_telemetry_consent(consent);
+    }
+    model
+        .shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .state
+        .settings = settings;
+    model.mark_setup_completed()
+}
+
 #[cfg(target_os = "windows")]
 fn update_startup_registration(_app: &AppHandle, enabled: bool) -> Result<(), String> {
     windows_startup::apply(enabled)
@@ -786,6 +828,8 @@ pub fn run() {
             forget_device,
             save_settings,
             set_telemetry_consent,
+            mark_setup_shown,
+            complete_setup,
             list_switch_profiles,
             save_switch_profile,
             delete_switch_profile,

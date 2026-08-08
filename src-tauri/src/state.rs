@@ -262,6 +262,14 @@ pub struct AppState {
     pub version: String,
     pub diagnostics: DiagnosticSummary,
     pub telemetry: TelemetryView,
+    pub setup: SetupState,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupState {
+    pub shown: bool,
+    pub completed: bool,
 }
 
 #[derive(Debug)]
@@ -352,6 +360,10 @@ impl AppModel {
                 version: env!("CARGO_PKG_VERSION").into(),
                 diagnostics: DiagnosticSummary::default(),
                 telemetry: telemetry.view(),
+                setup: SetupState {
+                    shown: saved.setup_shown,
+                    completed: saved.setup_completed,
+                },
             },
         }));
         let model = Self {
@@ -480,7 +492,55 @@ impl AppModel {
                 TelemetryConsent::Disabled => Some(false),
                 TelemetryConsent::Undecided => None,
             },
+            setup_shown: data.state.setup.shown,
+            setup_completed: data.state.setup.completed,
         }
+    }
+
+    pub fn mark_setup_shown(&self) -> Result<AppState, String> {
+        let previous = {
+            let mut data = self
+                .shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let previous = data.state.setup.clone();
+            data.state.setup.shown = true;
+            previous
+        };
+        if let Err(error) = self.persist() {
+            self.shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .state
+                .setup = previous;
+            return Err(error);
+        }
+        Ok(self.snapshot())
+    }
+
+    pub fn mark_setup_completed(&self) -> Result<AppState, String> {
+        let previous = {
+            let mut data = self
+                .shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if data.state.paired_devices.is_empty() {
+                return Err("Pair an Android device before finishing setup.".into());
+            }
+            let previous = data.state.setup.clone();
+            data.state.setup.shown = true;
+            data.state.setup.completed = true;
+            previous
+        };
+        if let Err(error) = self.persist() {
+            self.shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .state
+                .setup = previous;
+            return Err(error);
+        }
+        Ok(self.snapshot())
     }
 }
 
@@ -605,9 +665,49 @@ mod tests {
         assert_eq!(state.settings, AppSettings::default());
         assert_eq!(state.telemetry.consent, TelemetryConsent::Undecided);
         assert!(!model.storage.telemetry_path().exists());
+        assert_eq!(
+            state.setup,
+            SetupState {
+                shown: false,
+                completed: false
+            }
+        );
         let saved = model.storage.load().unwrap();
         assert_eq!(saved.desktop_id.as_deref(), Some(state.desktop_id.as_str()));
         assert!(saved.paired_devices.is_empty());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn setup_dismissal_and_completion_persist() {
+        let root = std::env::temp_dir().join(format!("switchify-setup-{}", Uuid::new_v4()));
+        let path = root.join("state.json");
+        let model = AppModel::with_storage_for_test(AppStorage::at(path.clone()));
+        assert!(model.mark_setup_shown().unwrap().setup.shown);
+
+        let dismissed = AppModel::with_storage_for_test(AppStorage::at(path.clone()));
+        assert!(dismissed.snapshot().setup.shown);
+        assert!(!dismissed.snapshot().setup.completed);
+        assert_eq!(
+            dismissed.mark_setup_completed(),
+            Err("Pair an Android device before finishing setup.".into())
+        );
+
+        dismissed
+            .shared
+            .lock()
+            .unwrap()
+            .state
+            .paired_devices
+            .push(PairedDeviceView {
+                device_id: "phone-1".into(),
+                device_name: "Pixel".into(),
+                paired_at: 1,
+                last_seen_at: None,
+            });
+        assert!(dismissed.mark_setup_completed().unwrap().setup.completed);
+        let completed = AppModel::with_storage_for_test(AppStorage::at(path));
+        assert!(completed.snapshot().setup.completed);
         let _ = fs::remove_dir_all(root);
     }
 

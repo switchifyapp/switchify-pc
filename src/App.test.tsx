@@ -14,9 +14,11 @@ describe("Switchify PC shell", () => {
   beforeEach(() => {
     browserState.settings = structuredClone(defaultBrowserSettings);
     browserState.pendingPairings = [];
+    browserState.pairedDevices = [];
     browserState.connectedDeviceName = null;
     browserState.diagnostics = { recentBluetooth: [], lastDisconnect: null, recentErrors: [] };
     browserState.telemetry = { consent: "undecided", available: true };
+    browserState.setup = { shown: true, completed: false };
   });
 
   afterEach(() => {
@@ -69,6 +71,52 @@ describe("Switchify PC shell", () => {
     expect(await screen.findByRole("heading", { name: "Switchify PC" })).toBeInTheDocument();
     expect(screen.getByText("Input access")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open Accessibility Settings" })).toBeInTheDocument();
+  });
+
+  it("opens setup once for a fresh unpaired user and persists dismissal", async () => {
+    browserState.setup = { shown: false, completed: false };
+    const markShown = vi.spyOn(api, "markSetupShown");
+    render(<App />);
+    const guide = await screen.findByRole("dialog", { name: "Bluetooth and input access" });
+    await waitFor(() => expect(guide).toHaveFocus());
+    expect(screen.getByLabelText("Step 1 of 5")).toBeInTheDocument();
+    await waitFor(() => expect(markShown).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Bluetooth and input access" })).not.toBeInTheDocument());
+    expect(markShown).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not force setup on an existing paired user", async () => {
+    browserState.setup = { shown: false, completed: false };
+    browserState.pairedDevices = [{ deviceId: "phone-1", deviceName: "Pixel", pairedAt: 1, lastSeenAt: null }];
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("reopens setup from Support with the Android download and explicit choices", async () => {
+    browserState.pairedDevices = [{ deviceId: "phone-1", deviceName: "Pixel", pairedAt: 1, lastSeenAt: null }];
+    const complete = vi.spyOn(api, "completeSetup").mockImplementation(async (startWithSystem, shareDiagnostics) => ({
+      ...structuredClone(browserState),
+      settings: { ...structuredClone(browserState.settings), startWithSystem, shareDiagnostics },
+      telemetry: { ...browserState.telemetry, consent: shareDiagnostics ? "enabled" : "disabled" },
+      setup: { shown: true, completed: true },
+    }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Support" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+    expect(screen.getByRole("link", { name: "Open Google Play" })).toHaveAttribute("href", "https://play.google.com/store/apps/details?id=com.enaboapps.switchify");
+    expect(screen.getByRole("img", { name: "QR code for Switchify on Google Play" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Start manually" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("button", { name: "Finish" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Don’t share" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+    await waitFor(() => expect(complete).toHaveBeenCalledWith(false, false));
   });
 
   it("shows the compact diagnostic history in troubleshooting", async () => {

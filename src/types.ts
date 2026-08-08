@@ -46,6 +46,7 @@ export type AppState = {
   version: string;
   diagnostics: DiagnosticSummary;
   telemetry: TelemetryState;
+  setup: { shown: boolean; completed: boolean };
 };
 
 export type SwitchBinding = {
