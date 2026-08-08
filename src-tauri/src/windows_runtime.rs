@@ -73,7 +73,7 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         set_activity(
             &shared,
             ActivityKind::Info,
-            "Close the current Switchify PC app to test preview Bluetooth.",
+            "Close the other Switchify PC app to use Bluetooth.",
         );
         emit_state(&app, &shared);
         return Ok(());
@@ -401,7 +401,7 @@ async fn handle_status_read(
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let payload = bluetooth_status_payload(
-            "Switchify PC Preview",
+            "Switchify PC",
             &model.state.desktop_id,
             &model.state.capabilities.platform,
         )?;

@@ -519,7 +519,7 @@ impl<I: InputInjector> DesktopInput<I> {
             "grid.switch.set" => self.apply_legacy_grid_edge(device_id, payload, profiles),
             "grid.switch.sync" => self.sync_legacy_grid(device_id, payload, profiles),
             "pointer.display.move" => {
-                Err("Display navigation is not available in this preview build.".into())
+                Err("Display navigation is not available in this build.".into())
             }
             _ => Err(format!("Unsupported desktop command: {command_type}")),
         };

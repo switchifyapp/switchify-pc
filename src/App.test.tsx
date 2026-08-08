@@ -1,16 +1,48 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import { api, browserPreviewState } from "./api";
+import { api, browserState } from "./api";
 
-describe("Switchify PC Preview shell", () => {
+describe("Switchify PC shell", () => {
   it("uses the Switchify application icon in the sidebar", async () => {
     const { container } = render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     const brand = container.querySelector(".brand");
-    expect(brand).toHaveTextContent("SwitchifyPC Preview");
+    expect(brand).toHaveTextContent("SwitchifyPC");
+    expect(screen.queryByText(new RegExp(["pre", "view"].join(""), "i"))).not.toBeInTheDocument();
     expect(brand?.querySelector("img.brand-mark")).toHaveAttribute("src", expect.stringContaining("icon.png"));
     expect(brand?.querySelector("img.brand-mark")).toHaveAttribute("alt", "");
+  });
+
+  it("shows the version instead of the OS and checks for updates from the footer", async () => {
+    let finishUpdate: ((state: typeof browserState) => void) | undefined;
+    const checkForUpdates = vi.spyOn(api, "checkForUpdates").mockImplementation(() => new Promise((resolve) => { finishUpdate = resolve; }));
+    const { container } = render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+
+    const footer = container.querySelector(".sidebar-footer");
+    expect(footer).toHaveTextContent(`v${browserState.version}`);
+    expect(footer).not.toHaveTextContent(browserState.capabilities.platform === "macos" ? "macOS" : "Windows");
+
+    const button = screen.getByRole("button", { name: "Check for updates" });
+    fireEvent.click(button);
+    expect(checkForUpdates).toHaveBeenCalledOnce();
+    expect(button).toBeDisabled();
+    expect(button.querySelector("svg")).toHaveClass("spin");
+
+    finishUpdate?.(structuredClone(browserState));
+    await waitFor(() => expect(button).not.toBeDisabled());
+    expect(button.querySelector("svg")).not.toHaveClass("spin");
+    checkForUpdates.mockRestore();
+  });
+
+  it("reports update-check failures from the footer", async () => {
+    const checkForUpdates = vi.spyOn(api, "checkForUpdates").mockRejectedValue(new Error("Update service unavailable"));
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Update service unavailable");
+    checkForUpdates.mockRestore();
   });
 
   it("renders the connection and permission state", async () => {
@@ -74,25 +106,25 @@ describe("Switchify PC Preview shell", () => {
   });
 
   it("guides macOS users through required and stale accessibility entries", async () => {
-    const originalPlatform = browserPreviewState.capabilities.platform;
-    browserPreviewState.capabilities.platform = "macos";
+    const originalPlatform = browserState.capabilities.platform;
+    browserState.capabilities.platform = "macos";
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Support" }));
-    expect(screen.getByText(/Enable “Switchify PC Preview” in Accessibility/)).toBeInTheDocument();
+    expect(screen.getByText(/Enable “Switchify PC” in Accessibility/)).toBeInTheDocument();
     expect(screen.getByText(/select the stale row, click Remove/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open Accessibility Settings" })).toBeInTheDocument();
-    browserPreviewState.capabilities.platform = originalPlatform;
+    browserState.capabilities.platform = originalPlatform;
   });
 
   it("updates accessibility to Ready from the runtime event", async () => {
-    let stateHandler: ((state: typeof browserPreviewState) => void) | undefined;
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
     const listener = vi.spyOn(api, "onState").mockImplementation(async (handler) => {
       stateHandler = handler;
       return () => undefined;
     });
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
-    stateHandler?.({ ...structuredClone(browserPreviewState), accessibility: "granted" });
+    stateHandler?.({ ...structuredClone(browserState), accessibility: "granted" });
     expect(await screen.findByText("Ready")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Accessibility Settings" })).not.toBeInTheDocument();
     listener.mockRestore();

@@ -8,6 +8,8 @@ use uuid::Uuid;
 use crate::protocol::{PendingPairingSummary, ProtocolEngine};
 use crate::storage::{AppStorage, PersistedState};
 
+pub const APP_STATE_EVENT: &str = "app-state-changed";
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(target_os = "windows", allow(dead_code))]
@@ -419,7 +421,7 @@ pub fn snapshot(shared: &SharedModel) -> AppState {
         .clone()
 }
 pub fn emit_state(app: &AppHandle, shared: &SharedModel) {
-    let _ = app.emit("preview-state-changed", snapshot(shared));
+    let _ = app.emit(APP_STATE_EVENT, snapshot(shared));
 }
 pub fn set_activity(shared: &SharedModel, kind: ActivityKind, message: impl Into<String>) {
     shared
@@ -440,8 +442,27 @@ pub fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(target_os = "macos")]
     use std::fs;
+
+    #[test]
+    fn state_updates_use_the_promoted_event_name() {
+        assert_eq!(APP_STATE_EVENT, "app-state-changed");
+    }
+
+    #[test]
+    fn fresh_storage_starts_with_a_new_unpaired_identity() {
+        let root = std::env::temp_dir().join(format!("switchify-fresh-{}", uuid::Uuid::new_v4()));
+        let model = AppModel::with_storage(AppStorage::at(root.join("state.json")));
+        let state = model.snapshot();
+
+        assert!(uuid::Uuid::parse_str(&state.desktop_id).is_ok());
+        assert!(state.paired_devices.is_empty());
+        assert_eq!(state.settings, AppSettings::default());
+        let saved = model.storage.load().unwrap();
+        assert_eq!(saved.desktop_id.as_deref(), Some(state.desktop_id.as_str()));
+        assert!(saved.paired_devices.is_empty());
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn paired_devices_without_accessible_tokens_are_removed_at_startup() {
@@ -506,10 +527,10 @@ mod tests {
     #[test]
     fn startup_storage_failure_preserves_persisted_pairing_metadata() {
         let root = std::env::temp_dir().join(format!(
-            "switchify-preview-startup-pairing-error-{}",
+            "switchify-startup-pairing-error-{}",
             uuid::Uuid::new_v4()
         ));
-        let state_path = root.join("preview-state.json");
+        let state_path = root.join("state.json");
         let storage = AppStorage::at(state_path);
         let saved = PersistedState {
             paired_devices: vec![PairedDeviceView {

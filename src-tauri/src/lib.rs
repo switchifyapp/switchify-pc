@@ -393,7 +393,7 @@ async fn check_for_updates(app: AppHandle, model: State<'_, AppModel>) -> Result
         state::set_activity(
             &model.shared,
             ActivityKind::Info,
-            "Updates are not configured for preview builds.",
+            "Updates are not configured for this build.",
         );
         return Ok(model.snapshot());
     }
@@ -404,8 +404,8 @@ async fn check_for_updates(app: AppHandle, model: State<'_, AppModel>) -> Result
         .await
         .map_err(|error| error.to_string())?;
     let message = update.map_or_else(
-        || "Switchify PC Preview is up to date.".to_string(),
-        |update| format!("Switchify PC Preview {} is available.", update.version),
+        || "Switchify PC is up to date.".to_string(),
+        |update| format!("Switchify PC {} is available.", update.version),
     );
     state::set_activity(&model.shared, ActivityKind::Info, message);
     Ok(model.snapshot())
@@ -448,12 +448,12 @@ fn export_diagnostics(model: State<'_, AppModel>) -> Result<AppState, String> {
 }
 
 fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show Switchify PC Preview", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "Show Switchify PC", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
-    let mut builder = TrayIconBuilder::with_id("switchify-preview")
+    let mut builder = TrayIconBuilder::with_id("switchify")
         .menu(&menu)
-        .tooltip("Switchify PC Preview");
+        .tooltip("Switchify PC");
     if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
     }
@@ -546,7 +546,7 @@ pub fn run() {
             export_diagnostics
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Switchify PC Preview");
+        .expect("error while running Switchify PC");
 }
 
 #[cfg(target_os = "macos")]

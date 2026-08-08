@@ -1,5 +1,5 @@
 {
-  "name": "switchify-pc-preview",
+  "name": "switchify-pc",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -11,7 +11,6 @@
     "lint": "tsc --noEmit",
     "macos:setup-signing": "./scripts/setup-macos-dev-signing.sh",
     "macos:run": "./scripts/run-macos-signed.sh",
-    "preview": "vite preview",
     "tauri": "tauri"
   },
   "dependencies": {

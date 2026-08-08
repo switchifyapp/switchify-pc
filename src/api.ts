@@ -2,10 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppSettings, AppState, SwitchProfile } from "./types";
 
-export const browserPreviewState: AppState = {
+export const browserState: AppState = {
   bluetooth: "initializing",
   accessibility: "required",
-  desktopId: "preview",
+  desktopId: "browser",
   pendingPairing: null,
   pairedDevices: [],
   connectedDeviceName: null,
@@ -40,7 +40,7 @@ let browserProfiles: SwitchProfile[] = [{
 }];
 
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  if (!("__TAURI_INTERNALS__" in window)) return structuredClone(browserPreviewState) as T;
+  if (!("__TAURI_INTERNALS__" in window)) return structuredClone(browserState) as T;
   return invoke<T>(command, args);
 }
 
@@ -69,6 +69,6 @@ export const api = {
   exportDiagnostics: () => call<AppState>("export_diagnostics"),
   onState: async (handler: (state: AppState) => void): Promise<UnlistenFn> => {
     if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
-    return listen<AppState>("preview-state-changed", (event) => handler(event.payload));
+    return listen<AppState>("app-state-changed", (event) => handler(event.payload));
   },
 };

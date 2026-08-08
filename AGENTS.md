@@ -2,7 +2,7 @@
 
 ## Project
 
-Switchify PC Preview is a Rust/Tauri 2 application at the repository root. The React/TypeScript UI lives in `src/`, the Rust backend and platform adapters live in `src-tauri/`, and the vendored CoreBluetooth dependency lives in `vendor/`.
+Switchify PC is a Rust/Tauri 2 application at the repository root. The React/TypeScript UI lives in `src/`, the Rust backend and platform adapters live in `src-tauri/`, and the vendored CoreBluetooth dependency lives in `vendor/`.
 
 The frozen C# application is not maintained in this repository. Do not reintroduce its source, installer, packaging, or release workflow. Existing public C# tags and releases must remain available unchanged.
 
@@ -37,6 +37,6 @@ For macOS Bluetooth and Accessibility testing, use `npm run macos:run`. `npm run
 - Preserve framed transport limits, canonical JSON authentication, timestamp and replay checks, constant-time signature comparison, pairing approval, and sanitized state/events.
 - Never log or expose received typed text, pairing tokens, authentication signatures, or other secrets.
 - Keep input cleanup deterministic across disconnects, authentication shutdown, Bluetooth unsubscribe, and runtime exit.
-- Preserve the Preview identity: `Switchify PC Preview`, `com.enaboapps.switchify.pc.preview`, its application data and pairing storage, Accessibility identity, development signing identity, and updater configuration. Promotion to a shipping identity requires a separate issue and review.
+- Preserve the shipping identity: `Switchify PC`, `com.enaboapps.switchify.pc`, its application data and pairing storage, Accessibility identity, development signing identity, and updater configuration. Identity changes require a separate issue and review.
 - Keep native overlays non-focusable, click-through, and synchronized with session cleanup.
 - Do not change protocol interfaces or persisted schemas without compatibility tests for existing Android and desktop clients.

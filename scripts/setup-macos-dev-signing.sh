@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-identity_name="Switchify PC Preview Development"
+identity_name="Switchify PC Development"
 login_keychain="${HOME}/Library/Keychains/login.keychain-db"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -32,7 +32,7 @@ prompt = no
 [subject]
 C = IE
 O = Enabo Apps
-CN = Switchify PC Preview Development
+CN = Switchify PC Development
 
 [extensions]
 basicConstraints = critical,CA:true

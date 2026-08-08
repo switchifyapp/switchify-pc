@@ -4,9 +4,9 @@ set -euo pipefail
 
 script_directory="$(cd "$(dirname "$0")" && pwd)"
 project_directory="$(cd "${script_directory}/.." && pwd)"
-app_path="${project_directory}/src-tauri/target/debug/bundle/macos/Switchify PC Preview.app"
-bundle_identifier="com.enaboapps.switchify.pc.preview"
-identity_name="Switchify PC Preview Development"
+app_path="${project_directory}/src-tauri/target/debug/bundle/macos/Switchify PC.app"
+bundle_identifier="com.enaboapps.switchify.pc"
+identity_name="Switchify PC Development"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "This command is only supported on macOS." >&2
@@ -14,7 +14,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 "${script_directory}/setup-macos-dev-signing.sh"
-pkill -x switchify-pc-preview 2>/dev/null || true
+pkill -x switchify-pc 2>/dev/null || true
 
 cd "$project_directory"
 npm run tauri -- build --debug --bundles app
