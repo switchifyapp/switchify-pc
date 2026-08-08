@@ -6,6 +6,7 @@ $launcherManifest = Join-Path $root 'src-tauri\startup-launcher\Cargo.toml'
 $launcherSource = Join-Path $root 'src-tauri\startup-launcher\target\x86_64-pc-windows-msvc\release\switchify-pc-startup.exe'
 $sidecarDirectory = Join-Path $root 'src-tauri\binaries'
 $sidecar = Join-Path $sidecarDirectory 'switchify-pc-startup-x86_64-pc-windows-msvc.exe'
+$main = Join-Path $root 'src-tauri\target\release\switchify-pc.exe'
 $cargo = Get-Command cargo.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
 if (-not $cargo) { $cargo = Join-Path $env:USERPROFILE '.cargo\bin\cargo.exe' }
 $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
@@ -30,6 +31,10 @@ try {
 
   & $npm run tauri build -- --bundles nsis --config src-tauri/tauri.windows-uiaccess.conf.json
   if ($LASTEXITCODE -ne 0) { throw "Tauri package build failed with exit code $LASTEXITCODE." }
+
+  if (-not $SkipSign) {
+    & (Join-Path $PSScriptRoot 'Sign-Windows.ps1') $main
+  }
 } finally {
   Pop-Location
 }
