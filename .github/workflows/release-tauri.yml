@@ -25,13 +25,6 @@ jobs:
       UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
       APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
       CERTUM_CERT_THUMBPRINT: ${{ vars.CERTUM_CERT_THUMBPRINT }}
-      TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -39,8 +32,10 @@ jobs:
           node-version: 24
       - id: version
         shell: bash
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
         run: |
-          version='${{ inputs.version }}'
+          version="$VERSION_INPUT"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo 'Invalid semantic version.' >&2; exit 1; }
           configured=$(node -p "require('./package.json').version")
           [[ "$version" == "$configured" ]] || { echo "package.json is $configured, not $version" >&2; exit 1; }
@@ -50,7 +45,7 @@ jobs:
         shell: bash
         run: |
           missing=0
-          for name in UPDATER_PUBLIC_KEY APPLE_SIGNING_IDENTITY CERTUM_CERT_THUMBPRINT TAURI_PRIVATE_KEY TAURI_PRIVATE_KEY_PASSWORD APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+          for name in UPDATER_PUBLIC_KEY APPLE_SIGNING_IDENTITY CERTUM_CERT_THUMBPRINT; do
             [[ -n "${!name}" ]] || { echo "Missing release configuration: $name" >&2; missing=1; }
           done
           exit "$missing"
@@ -60,16 +55,25 @@ jobs:
     runs-on: macos-14
     env:
       SWITCHIFY_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v6
+      - name: Require macOS release secrets
+        shell: bash
+        env:
+          UPDATER_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          UPDATER_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=0
+          for name in UPDATER_PRIVATE_KEY UPDATER_PRIVATE_KEY_PASSWORD APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [[ -n "${!name}" ]] || { echo "Missing macOS release secret: $name" >&2; missing=1; }
+          done
+          exit "$missing"
       - uses: actions/setup-node@v6
         with: { node-version: 24, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
@@ -77,6 +81,14 @@ jobs:
       - run: npm ci
       - run: node scripts/render-updater-config.mjs src-tauri/tauri.release.generated.json
       - run: npm run tauri build -- --bundles app,dmg --config src-tauri/tauri.release.generated.json
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       - uses: actions/upload-artifact@v7
         with:
           name: macos-release
@@ -91,10 +103,16 @@ jobs:
     env:
       SWITCHIFY_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
       SWITCHIFY_CERTUM_CERT_THUMBPRINT: ${{ vars.CERTUM_CERT_THUMBPRINT }}
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v6
+      - name: Require Windows release secrets
+        shell: powershell
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw 'Missing Windows release secret: TAURI_SIGNING_PRIVATE_KEY' }
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) { throw 'Missing Windows release secret: TAURI_SIGNING_PRIVATE_KEY_PASSWORD' }
       - uses: actions/setup-node@v6
         with: { node-version: 24, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
@@ -103,6 +121,9 @@ jobs:
       - run: node scripts/render-updater-config.mjs src-tauri/tauri.release.windows.generated.json --windows
       - shell: powershell
         run: ./scripts/Build-WindowsUiAccess.ps1 -TauriConfig src-tauri/tauri.release.windows.generated.json
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - shell: powershell
         run: ./scripts/Verify-WindowsUiAccessPackage.ps1
       - uses: actions/upload-artifact@v7
