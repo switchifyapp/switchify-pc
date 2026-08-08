@@ -22,8 +22,8 @@ use state::{
     snapshot, ActivityKind, AppModel, AppSettings, AppState, PairedDeviceView, SwitchProfile,
 };
 use std::sync::Mutex;
-use tauri::menu::{Menu, MenuItem};
-use tauri::tray::TrayIconBuilder;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(not(target_os = "windows"))]
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
@@ -86,6 +86,95 @@ fn request_profile_exit(app: &AppHandle, action: ProfileExitAction) {
         let _ = window.show();
         let _ = window.set_focus();
         let _ = window.emit("profile-exit-requested", action.as_str());
+    }
+}
+
+const NAVIGATE_REQUESTED_EVENT: &str = "navigate-requested";
+
+#[derive(Default)]
+struct PendingNavigation(Mutex<Option<String>>);
+
+impl PendingNavigation {
+    fn set(&self, destination: &str) {
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(destination.to_owned());
+    }
+
+    fn take(&self) -> Option<String> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+    }
+}
+
+fn show_main_window(app: &AppHandle, destination: Option<&str>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        if let Some(destination) = destination {
+            app.state::<PendingNavigation>().set(destination);
+            let _ = window.emit(NAVIGATE_REQUESTED_EVENT, destination);
+        }
+    }
+}
+
+#[tauri::command]
+fn take_navigation_request(pending: State<'_, PendingNavigation>) -> Option<String> {
+    pending.take()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TraySnapshot {
+    status: String,
+    can_disconnect: bool,
+}
+
+impl TraySnapshot {
+    fn from_state(state: &AppState) -> Self {
+        let status = if let Some(device) = &state.connected_device_name {
+            format!("Status: Connected to {device}")
+        } else {
+            let label = match state.bluetooth {
+                state::BluetoothState::Initializing => "Starting Bluetooth",
+                state::BluetoothState::Advertising => "Ready to connect",
+                state::BluetoothState::Connected => "Device connected",
+                state::BluetoothState::PoweredOff => "Bluetooth is off",
+                state::BluetoothState::Unauthorized => "Bluetooth permission required",
+                #[cfg(target_os = "windows")]
+                state::BluetoothState::Conflict => "Another Switchify PC is running",
+                state::BluetoothState::Unsupported => "Bluetooth unavailable",
+                state::BluetoothState::Error => "Bluetooth error",
+            };
+            format!("Status: {label}")
+        };
+        Self {
+            status,
+            can_disconnect: state.connected_device_name.is_some()
+                || state.bluetooth == state::BluetoothState::Connected,
+        }
+    }
+}
+
+struct TrayController {
+    status: MenuItem<tauri::Wry>,
+    disconnect: MenuItem<tauri::Wry>,
+}
+
+impl TrayController {
+    fn sync(&self, state: &AppState) {
+        let snapshot = TraySnapshot::from_state(state);
+        let _ = self.status.set_text(snapshot.status);
+        let _ = self.disconnect.set_enabled(snapshot.can_disconnect);
+    }
+}
+
+pub(crate) fn sync_tray_state(app: &AppHandle, state: &AppState) {
+    if let Some(tray) = app.try_state::<TrayController>() {
+        tray.sync(state);
     }
 }
 
@@ -226,7 +315,16 @@ fn disconnect_all(
     overlay: State<'_, overlay::CursorOverlay>,
     modifier_overlay: State<'_, modifier_overlay::ModifierOverlay>,
 ) -> Result<AppState, String> {
-    platform_disconnect_all(&app, &model.shared)?;
+    disconnect_all_inner(&app, &model, &overlay, &modifier_overlay)
+}
+
+fn disconnect_all_inner(
+    app: &AppHandle,
+    model: &AppModel,
+    overlay: &overlay::CursorOverlay,
+    modifier_overlay: &modifier_overlay::ModifierOverlay,
+) -> Result<AppState, String> {
+    platform_disconnect_all(app, &model.shared)?;
     overlay.end_session();
     modifier_overlay.end_session();
     {
@@ -241,7 +339,9 @@ fn disconnect_all(
         ActivityKind::Info,
         "All devices disconnected.",
     );
-    Ok(model.snapshot())
+    state::emit_state(app, &model.shared);
+    let state = model.snapshot();
+    Ok(state)
 }
 
 #[tauri::command]
@@ -693,10 +793,45 @@ fn export_diagnostics(model: State<'_, AppModel>) -> Result<AppState, String> {
 
 fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show Switchify PC", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Open settings", true, None::<&str>)?;
+    let profiles = MenuItem::with_id(
+        app,
+        "profiles",
+        "Switch control profiles",
+        true,
+        None::<&str>,
+    )?;
+    let status = MenuItem::with_id(
+        app,
+        "status",
+        "Status: Starting Bluetooth",
+        false,
+        None::<&str>,
+    )?;
+    let disconnect =
+        MenuItem::with_id(app, "disconnect", "Disconnect devices", false, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let first_separator = PredefinedMenuItem::separator(app)?;
+    let second_separator = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(
+        app,
+        &[
+            &show,
+            &settings,
+            &profiles,
+            &first_separator,
+            &status,
+            &disconnect,
+            &second_separator,
+            &quit,
+        ],
+    )?;
+    let controller = TrayController { status, disconnect };
+    controller.sync(&app.state::<AppModel>().snapshot());
+    app.manage(controller);
     let mut builder = TrayIconBuilder::with_id("switchify")
         .menu(&menu)
+        .show_menu_on_left_click(false)
         .tooltip("Switchify PC");
     if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
@@ -704,15 +839,38 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
     builder
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                show_main_window(app, None);
+            }
+            "settings" => show_main_window(app, Some("settings")),
+            "profiles" => show_main_window(app, Some("profiles")),
+            "disconnect" => {
+                let model = app.state::<AppModel>();
+                let overlay = app.state::<overlay::CursorOverlay>();
+                let modifier_overlay = app.state::<modifier_overlay::ModifierOverlay>();
+                if let Err(error) = disconnect_all_inner(app, &model, &overlay, &modifier_overlay) {
+                    state::set_activity(
+                        &model.shared,
+                        ActivityKind::Error,
+                        format!("Disconnect failed: {error}"),
+                    );
+                    state::emit_state(app, &model.shared);
                 }
             }
             "quit" => {
                 request_profile_exit(app, ProfileExitAction::Quit);
             }
             _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if matches!(
+                event,
+                TrayIconEvent::DoubleClick {
+                    button: MouseButton::Left,
+                    ..
+                }
+            ) {
+                show_main_window(tray.app_handle(), None);
+            }
         })
         .build(app)?;
     Ok(())
@@ -741,6 +899,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(model)
         .manage(PendingProfileExit::default())
+        .manage(PendingNavigation::default())
         .setup(move |app| {
             install_tray(app)?;
             {
@@ -835,6 +994,7 @@ pub fn run() {
             delete_switch_profile,
             complete_profile_exit,
             cancel_profile_exit,
+            take_navigation_request,
             check_for_updates,
             export_diagnostics
         ])
@@ -916,9 +1076,10 @@ fn platform_disconnect_all(app: &AppHandle, shared: &state::SharedModel) -> Resu
 mod tests {
     use super::{
         has_start_hidden_argument, record_update_failure, updater_has_endpoints, validate_profile,
-        PendingProfileExit, ProfileExitAction,
+        PendingNavigation, PendingProfileExit, ProfileExitAction, TraySnapshot,
+        NAVIGATE_REQUESTED_EVENT,
     };
-    use crate::state::{AppModel, SwitchBinding, SwitchProfile};
+    use crate::state::{AppModel, BluetoothState, SwitchBinding, SwitchProfile};
     use crate::storage::AppStorage;
     use serde_json::json;
 
@@ -1027,6 +1188,55 @@ mod tests {
 
         assert!(pending.begin(ProfileExitAction::Quit));
         pending.cancel();
+        assert_eq!(pending.take(), None);
+    }
+
+    #[test]
+    fn tray_snapshot_tracks_connection_status_and_disconnect_availability() {
+        let root = std::env::temp_dir().join(format!("switchify-tray-{}", uuid::Uuid::new_v4()));
+        let model = AppModel::with_storage_for_test(AppStorage::at(root.join("state.json")));
+        assert_eq!(
+            TraySnapshot::from_state(&model.snapshot()),
+            TraySnapshot {
+                status: "Status: Starting Bluetooth".into(),
+                can_disconnect: false,
+            }
+        );
+
+        {
+            let mut data = model.shared.lock().unwrap();
+            data.state.bluetooth = BluetoothState::Advertising;
+        }
+        assert_eq!(
+            TraySnapshot::from_state(&model.snapshot()),
+            TraySnapshot {
+                status: "Status: Ready to connect".into(),
+                can_disconnect: false,
+            }
+        );
+
+        {
+            let mut data = model.shared.lock().unwrap();
+            data.state.bluetooth = BluetoothState::Connected;
+            data.state.connected_device_name = Some("Pixel".into());
+        }
+        assert_eq!(
+            TraySnapshot::from_state(&model.snapshot()),
+            TraySnapshot {
+                status: "Status: Connected to Pixel".into(),
+                can_disconnect: true,
+            }
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn tray_navigation_uses_the_internal_navigation_event() {
+        assert_eq!(NAVIGATE_REQUESTED_EVENT, "navigate-requested");
+        let pending = PendingNavigation::default();
+        pending.set("settings");
+        pending.set("profiles");
+        assert_eq!(pending.take().as_deref(), Some("profiles"));
         assert_eq!(pending.take(), None);
     }
 }

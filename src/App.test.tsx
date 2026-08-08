@@ -57,6 +57,53 @@ describe("Switchify PC shell", () => {
     checkForUpdates.mockRestore();
   });
 
+  it("routes tray navigation without discarding a dirty profile silently", async () => {
+    let navigate: ((target: "home" | "settings" | "profiles") => void) | undefined;
+    vi.spyOn(api, "onNavigateRequested").mockImplementation(async (handler) => {
+      navigate = handler;
+      return () => undefined;
+    });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+
+    act(() => navigate?.("profiles"));
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Unsaved tray profile" } });
+    act(() => navigate?.("settings"));
+    expect(confirm).toHaveBeenCalledWith("Discard unsaved profile changes?");
+    expect(screen.getByRole("textbox", { name: "Profile name" })).toBeInTheDocument();
+
+    confirm.mockReturnValue(true);
+    act(() => navigate?.("settings"));
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+  });
+
+  it("releases tray navigation registered after the app unmounts", async () => {
+    let finishRegistration: ((stop: () => void) => void) | undefined;
+    let navigate: ((target: "home" | "settings" | "profiles") => void) | undefined;
+    vi.spyOn(api, "onNavigateRequested").mockImplementation((handler) => new Promise((resolve) => {
+      navigate = handler;
+      finishRegistration = resolve;
+    }));
+    const confirm = vi.spyOn(window, "confirm");
+    const stop = vi.fn();
+    const rendered = render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+
+    act(() => navigate?.("profiles"));
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Pending navigation" } });
+    rendered.unmount();
+
+    act(() => navigate?.("settings"));
+    expect(confirm).not.toHaveBeenCalled();
+
+    await act(async () => finishRegistration?.(stop));
+
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
   it("reports update-check failures from the footer", async () => {
     const checkForUpdates = vi.spyOn(api, "checkForUpdates").mockRejectedValue(new Error("Update service unavailable"));
     render(<App />);
