@@ -49,13 +49,25 @@ fn runtime() -> &'static Mutex<Option<WindowsRuntime>> {
     RUNTIME.get_or_init(|| Mutex::new(None))
 }
 
-fn shipping_app_is_running() -> bool {
+fn tasklist_has_other_switchify_process(output: &str, current_pid: u32) -> bool {
+    output.lines().any(|line| {
+        let mut fields = line.split(',');
+        let image_name = fields.next().map(|field| field.trim_matches('"'));
+        let process_id = fields
+            .next()
+            .and_then(|field| field.trim_matches('"').parse::<u32>().ok());
+        image_name.is_some_and(|name| name.eq_ignore_ascii_case("Switchify PC.exe"))
+            && process_id.is_some_and(|pid| pid != current_pid)
+    })
+}
+
+fn another_switchify_app_is_running() -> bool {
     Command::new("tasklist")
         .args(["/FI", "IMAGENAME eq Switchify PC.exe", "/FO", "CSV", "/NH"])
         .output()
         .ok()
         .and_then(|output| String::from_utf8(output.stdout).ok())
-        .is_some_and(|output| output.contains("Switchify PC.exe"))
+        .is_some_and(|output| tasklist_has_other_switchify_process(&output, std::process::id()))
 }
 
 pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
@@ -64,7 +76,7 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .state
         .accessibility = AccessibilityState::Granted;
-    if shipping_app_is_running() {
+    if another_switchify_app_is_running() {
         shared
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -94,6 +106,37 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         }
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tasklist_has_other_switchify_process;
+
+    #[test]
+    fn conflict_check_ignores_the_current_process() {
+        let output = r#""Switchify PC.exe","4242","Console","1","20,000 K""#;
+        assert!(!tasklist_has_other_switchify_process(output, 4242));
+    }
+
+    #[test]
+    fn conflict_check_detects_another_switchify_process() {
+        let output = concat!(
+            r#""Switchify PC.exe","4242","Console","1","20,000 K""#,
+            "\r\n",
+            r#""SWITCHIFY PC.EXE","7331","Console","1","18,000 K""#,
+        );
+        assert!(tasklist_has_other_switchify_process(output, 4242));
+    }
+
+    #[test]
+    fn conflict_check_ignores_unrelated_and_malformed_rows() {
+        let output = concat!(
+            r#""Other App.exe","7331","Console","1","18,000 K""#,
+            "\r\n",
+            r#""Switchify PC.exe","not-a-pid","Console","1","20,000 K""#,
+        );
+        assert!(!tasklist_has_other_switchify_process(output, 4242));
+    }
 }
 
 async fn create_characteristic(
