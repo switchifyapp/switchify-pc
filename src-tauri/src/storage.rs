@@ -14,6 +14,7 @@ const APP_NAME: &str = "Switchify PC";
 const STATE_FILE: &str = "state.json";
 const FALLBACK_STATE_FILE: &str = "switchify-pc-state.json";
 const DIAGNOSTICS_FILE: &str = "switchify-diagnostics.json";
+const DIAGNOSTIC_HISTORY_FILE: &str = "diagnostic-history.jsonl";
 #[cfg(not(target_os = "macos"))]
 const KEYRING_SERVICE: &str = "com.enaboapps.switchify.pc.pairing";
 
@@ -265,15 +266,25 @@ impl AppStorage {
         fs::write(&path, json).map_err(|error| error.to_string())?;
         Ok(path)
     }
+
+    pub fn diagnostic_history_path(&self) -> PathBuf {
+        self.path.with_file_name(DIAGNOSTIC_HISTORY_FILE)
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn replace_file(source: &std::path::Path, destination: &std::path::Path) -> Result<(), String> {
+pub(crate) fn replace_file(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+) -> Result<(), String> {
     fs::rename(source, destination).map_err(|error| error.to_string())
 }
 
 #[cfg(target_os = "windows")]
-fn replace_file(source: &std::path::Path, destination: &std::path::Path) -> Result<(), String> {
+pub(crate) fn replace_file(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows::core::PCWSTR;
     use windows::Win32::Storage::FileSystem::{

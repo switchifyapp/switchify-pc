@@ -54,6 +54,12 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 Rust tests use fake input adapters and never control the local pointer or keyboard. Native checks and unsigned bundles run on Windows and macOS in `.github/workflows/ci.yml`.
 
+## Diagnostics
+
+Switchify keeps up to 500 sanitized diagnostic events locally in `diagnostic-history.jsonl`. The history covers application startup, Bluetooth and Accessibility transitions, disconnects, runtime failures, and update checks. It never stores typed text, command payloads, pairing secrets, device names, or full paths; malformed or unwritable history is ignored so diagnostics cannot prevent startup.
+
+Support → Troubleshooting shows a compact summary of recent Bluetooth changes, the last disconnect, and recent errors. Export writes the current sanitized state, the diagnostic schema version, and the complete ordered bounded history to `switchify-diagnostics.json`.
+
 ## Windows UIAccess package
 
 Windows grants UIAccess only to a trusted, signed executable installed in a secure location. Sign in to SimplySign Desktop, expose the Certum code-signing certificate, and set its thumbprint before packaging:

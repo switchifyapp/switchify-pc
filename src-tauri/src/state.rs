@@ -2,9 +2,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
+use crate::diagnostics::{DiagnosticHistory, DiagnosticSummary};
 use crate::protocol::{PendingPairingSummary, ProtocolEngine};
 use crate::storage::{AppStorage, PersistedState};
 
@@ -258,6 +259,7 @@ pub struct AppState {
     pub settings: AppSettings,
     pub capabilities: PlatformCapabilities,
     pub version: String,
+    pub diagnostics: DiagnosticSummary,
 }
 
 #[derive(Debug)]
@@ -271,6 +273,7 @@ pub type SharedModel = Arc<Mutex<ModelData>>;
 pub struct AppModel {
     pub shared: SharedModel,
     pub storage: AppStorage,
+    pub diagnostics: DiagnosticHistory,
     preserved_paired_devices: Vec<PairedDeviceView>,
 }
 
@@ -281,6 +284,7 @@ impl AppModel {
     }
 
     fn with_storage(storage: AppStorage) -> Self {
+        let diagnostics = DiagnosticHistory::new(storage.diagnostic_history_path());
         let saved = storage.load().unwrap_or_else(|_| PersistedState::default());
         let desktop_id = saved
             .desktop_id
@@ -334,15 +338,27 @@ impl AppModel {
                 settings: saved.settings,
                 capabilities,
                 version: env!("CARGO_PKG_VERSION").into(),
+                diagnostics: DiagnosticSummary::default(),
             },
         }));
         let model = Self {
             shared,
             storage,
+            diagnostics,
             preserved_paired_devices,
         };
         let _ = model.persist();
+        let summary = model.diagnostics.startup(now_ms());
+        model.set_diagnostic_summary(summary);
+        let state = model.snapshot();
+        let summary = model.diagnostics.observe(&state, now_ms());
+        model.set_diagnostic_summary(summary);
         model
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_storage_for_test(storage: AppStorage) -> Self {
+        Self::with_storage(storage)
     }
 
     pub fn snapshot(&self) -> AppState {
@@ -353,6 +369,17 @@ impl AppModel {
     }
     pub fn persist_settings(&self, settings: &AppSettings) -> Result<(), String> {
         self.storage.save(&self.persisted_state(Some(settings)))
+    }
+    pub fn record_updater(&self, status: &str, detail: Option<&str>) {
+        let summary = self.diagnostics.updater(now_ms(), status, detail);
+        self.set_diagnostic_summary(summary);
+    }
+    fn set_diagnostic_summary(&self, summary: DiagnosticSummary) {
+        self.shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .state
+            .diagnostics = summary;
     }
     fn persisted_state(&self, settings: Option<&AppSettings>) -> PersistedState {
         let data = self
@@ -421,6 +448,11 @@ pub fn snapshot(shared: &SharedModel) -> AppState {
         .clone()
 }
 pub fn emit_state(app: &AppHandle, shared: &SharedModel) {
+    let current = snapshot(shared);
+    if let Some(model) = app.try_state::<AppModel>() {
+        let summary = model.diagnostics.observe(&current, now_ms());
+        model.set_diagnostic_summary(summary);
+    }
     let _ = app.emit(APP_STATE_EVENT, snapshot(shared));
 }
 pub fn set_activity(shared: &SharedModel, kind: ActivityKind, message: impl Into<String>) {

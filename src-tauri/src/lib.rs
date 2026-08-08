@@ -1,3 +1,4 @@
+mod diagnostics;
 #[cfg(target_os = "windows")]
 mod grid3;
 mod input;
@@ -541,6 +542,7 @@ async fn check_for_updates(app: AppHandle, model: State<'_, AppModel>) -> Result
             ActivityKind::Info,
             "Updates are not configured for this build.",
         );
+        model.record_updater("unavailable", Some("update endpoints are not configured"));
         return Ok(model.snapshot());
     }
     let update = app
@@ -554,6 +556,7 @@ async fn check_for_updates(app: AppHandle, model: State<'_, AppModel>) -> Result
         |update| format!("Switchify PC {} is available.", update.version),
     );
     state::set_activity(&model.shared, ActivityKind::Info, message);
+    model.record_updater("checked", None);
     Ok(model.snapshot())
 }
 
@@ -566,6 +569,7 @@ fn updater_has_endpoints(config: Option<&serde_json::Value>) -> bool {
 
 #[tauri::command]
 fn export_diagnostics(model: State<'_, AppModel>) -> Result<AppState, String> {
+    let events = model.diagnostics.events();
     let diagnostics = {
         let data = model
             .shared
@@ -582,6 +586,8 @@ fn export_diagnostics(model: State<'_, AppModel>) -> Result<AppState, String> {
             "connected": data.state.connected_device_name.is_some(),
             "customProfileCount": data.profiles.iter().filter(|profile| !profile.built_in).count(),
             "capabilities": data.state.capabilities,
+            "diagnosticHistorySchemaVersion": 1,
+            "events": events,
         })
     };
     let path = model.storage.export_diagnostics(&diagnostics)?;
