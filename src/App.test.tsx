@@ -164,6 +164,40 @@ describe("Switchify PC shell", () => {
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
   });
 
+  it("rebases local edits on newer backend settings", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    const saves: Array<{ settings: AppSettings; resolve: (state: typeof browserState) => void }> = [];
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    vi.spyOn(api, "saveSettings").mockImplementation((settings) => new Promise((resolve) => {
+      saves.push({ settings: structuredClone(settings), resolve });
+    }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Share diagnostic data" }));
+    fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
+    act(() => stateHandler?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 150 })));
+
+    expect(screen.getByRole("checkbox", { name: "Share diagnostic data" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("150");
+
+    await act(async () => {
+      saves[0].resolve(stateWithSettings(saves[0].settings));
+    });
+    await waitFor(() => expect(saves).toHaveLength(2));
+    expect(saves[1].settings).toEqual(expect.objectContaining({
+      pointerScalePercent: 150,
+      shareDiagnostics: true,
+    }));
+
+    await act(async () => {
+      saves[1].resolve(stateWithSettings(saves[1].settings));
+    });
+  });
+
   it("restores confirmed settings when automatic saving fails", async () => {
     vi.spyOn(api, "saveSettings").mockRejectedValueOnce(new Error("Settings storage unavailable"));
     render(<App />);

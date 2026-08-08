@@ -122,6 +122,15 @@ function movementValue(base: number, scale: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
+const changedSettingKeys = (previous: AppSettings, next: AppSettings) =>
+  (Object.keys(next) as Array<keyof AppSettings>).filter((key) => previous[key] !== next[key]);
+
+function applyLocalSettings(base: AppSettings, local: AppSettings, keys: Set<keyof AppSettings>) {
+  const merged = { ...base };
+  for (const key of keys) Object.assign(merged, { [key]: local[key] });
+  return merged;
+}
+
 function SettingsView({ state, settings, onChange, checkUpdates, busy }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; checkUpdates: () => void; busy: boolean }) {
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => onChange({ ...settings, [key]: value });
   return <div className="view"><header className="page-header"><div><h1>Settings</h1><p>Startup, pointer, privacy, and updates</p></div><Settings size={24} /></header>
@@ -199,14 +208,34 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const settingsDirty = useRef(false);
   const confirmedSettings = useRef<AppSettings | null>(null);
+  const displayedSettings = useRef<AppSettings | null>(null);
   const pendingSettings = useRef<AppSettings | null>(null);
   const settingsSaveRunning = useRef(false);
+  const settingsEventRevision = useRef(0);
+  const locallyChangedSettings = useRef(new Set<keyof AppSettings>());
 
   const syncState = (next: AppState) => {
     setState(next);
     if (!settingsDirty.current) {
       confirmedSettings.current = next.settings;
+      displayedSettings.current = next.settings;
       setSettings(next.settings);
+    } else if (!confirmedSettings.current || changedSettingKeys(confirmedSettings.current, next.settings).length > 0) {
+      settingsEventRevision.current += 1;
+      if (confirmedSettings.current) {
+        for (const key of changedSettingKeys(confirmedSettings.current, next.settings)) {
+          locallyChangedSettings.current.delete(key);
+        }
+      }
+      confirmedSettings.current = next.settings;
+      const rebased = applyLocalSettings(
+        next.settings,
+        displayedSettings.current ?? next.settings,
+        locallyChangedSettings.current,
+      );
+      pendingSettings.current = rebased;
+      displayedSettings.current = rebased;
+      setSettings(rebased);
     }
   };
 
@@ -223,19 +252,29 @@ export function App() {
     try {
       while (pendingSettings.current) {
         const requested = pendingSettings.current;
+        const requestRevision = settingsEventRevision.current;
         pendingSettings.current = null;
         try {
           const next = await api.saveSettings(requested);
-          confirmedSettings.current = next.settings;
-          setState((current) => current ? { ...current, settings: next.settings } : next);
+          if (requestRevision === settingsEventRevision.current) {
+            confirmedSettings.current = next.settings;
+            setState((current) => current ? { ...current, settings: next.settings } : next);
+          }
           if (!pendingSettings.current) {
             settingsDirty.current = false;
-            setSettings(next.settings);
+            locallyChangedSettings.current.clear();
+            const confirmed = confirmedSettings.current ?? next.settings;
+            displayedSettings.current = confirmed;
+            setSettings(confirmed);
           }
         } catch (reason) {
           pendingSettings.current = null;
           settingsDirty.current = false;
-          if (confirmedSettings.current) setSettings(confirmedSettings.current);
+          locallyChangedSettings.current.clear();
+          if (confirmedSettings.current) {
+            displayedSettings.current = confirmedSettings.current;
+            setSettings(confirmedSettings.current);
+          }
           setError(String(reason));
           break;
         }
@@ -246,8 +285,13 @@ export function App() {
   };
 
   const changeSettings = (next: AppSettings) => {
+    const current = displayedSettings.current;
+    if (current) {
+      for (const key of changedSettingKeys(current, next)) locallyChangedSettings.current.add(key);
+    }
     settingsDirty.current = true;
     pendingSettings.current = next;
+    displayedSettings.current = next;
     setSettings(next);
     setError(null);
     void processSettingsSaves();
