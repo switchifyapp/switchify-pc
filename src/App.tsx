@@ -227,7 +227,7 @@ export function App() {
         try {
           const next = await api.saveSettings(requested);
           confirmedSettings.current = next.settings;
-          setState(next);
+          setState((current) => current ? { ...current, settings: next.settings } : next);
           if (!pendingSettings.current) {
             settingsDirty.current = false;
             setSettings(next.settings);

@@ -135,6 +135,35 @@ describe("Switchify PC shell", () => {
     });
   });
 
+  it("preserves newer runtime state when a settings save completes", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    let finishSave: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    vi.spyOn(api, "saveSettings").mockImplementation(() => new Promise((resolve) => {
+      finishSave = resolve;
+    }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
+    const runtimeState = {
+      ...structuredClone(browserState),
+      bluetooth: "connected" as const,
+      connectedDeviceName: "Newer connected device",
+    };
+    act(() => stateHandler?.(runtimeState));
+    await act(async () => {
+      finishSave?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 50 }));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    expect(screen.getByText("Newer connected device")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
+  });
+
   it("restores confirmed settings when automatic saving fails", async () => {
     vi.spyOn(api, "saveSettings").mockRejectedValueOnce(new Error("Settings storage unavailable"));
     render(<App />);
