@@ -274,6 +274,7 @@ pub struct AppModel {
     pub shared: SharedModel,
     pub storage: AppStorage,
     pub diagnostics: DiagnosticHistory,
+    emission_lock: Mutex<()>,
     preserved_paired_devices: Vec<PairedDeviceView>,
 }
 
@@ -345,6 +346,7 @@ impl AppModel {
             shared,
             storage,
             diagnostics,
+            emission_lock: Mutex::new(()),
             preserved_paired_devices,
         };
         let _ = model.persist();
@@ -371,6 +373,10 @@ impl AppModel {
         self.storage.save(&self.persisted_state(Some(settings)))
     }
     pub fn record_updater(&self, status: &str, detail: Option<&str>) {
+        let _emission = self
+            .emission_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let summary = self.diagnostics.updater(now_ms(), status, detail);
         self.set_diagnostic_summary(summary);
     }
@@ -448,10 +454,16 @@ pub fn snapshot(shared: &SharedModel) -> AppState {
         .clone()
 }
 pub fn emit_state(app: &AppHandle, shared: &SharedModel) {
-    let current = snapshot(shared);
     if let Some(model) = app.try_state::<AppModel>() {
+        let _emission = model
+            .emission_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let current = snapshot(shared);
         let summary = model.diagnostics.observe(&current, now_ms());
         model.set_diagnostic_summary(summary);
+        let _ = app.emit(APP_STATE_EVENT, snapshot(shared));
+        return;
     }
     let _ = app.emit(APP_STATE_EVENT, snapshot(shared));
 }
@@ -475,10 +487,48 @@ pub fn now_ms() -> i64 {
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn state_updates_use_the_promoted_event_name() {
         assert_eq!(APP_STATE_EVENT, "app-state-changed");
+    }
+
+    #[test]
+    fn diagnostic_emission_transactions_cannot_overlap() {
+        let root = std::env::temp_dir().join(format!("switchify-emit-{}", uuid::Uuid::new_v4()));
+        let model = Arc::new(AppModel::with_storage(AppStorage::at(
+            root.join("state.json"),
+        )));
+        let (first_locked_tx, first_locked_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (second_locked_tx, second_locked_rx) = mpsc::channel();
+
+        let first = model.clone();
+        let first_thread = thread::spawn(move || {
+            let _guard = first.emission_lock.lock().unwrap();
+            first_locked_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        first_locked_rx.recv().unwrap();
+
+        let second = model.clone();
+        let second_thread = thread::spawn(move || {
+            let _guard = second.emission_lock.lock().unwrap();
+            second_locked_tx.send(()).unwrap();
+        });
+        assert!(second_locked_rx
+            .recv_timeout(Duration::from_millis(50))
+            .is_err());
+        release_tx.send(()).unwrap();
+        second_locked_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+        first_thread.join().unwrap();
+        second_thread.join().unwrap();
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
