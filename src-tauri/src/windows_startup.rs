@@ -127,8 +127,7 @@ fn migrate_disabled_registration(executable: &Path, marker: Vec<u8>) -> Result<(
         .create_subkey(STARTUP_APPROVED_KEY)
         .map_err(|error| error.to_string())?;
 
-    run.set_value(CANONICAL_VALUE_NAME, &quoted_path(&launcher))
-        .map_err(|error| error.to_string())?;
+    // Commit the disabled marker first so a partial migration cannot enable startup.
     approved
         .set_raw_value(
             CANONICAL_VALUE_NAME,
@@ -141,6 +140,8 @@ fn migrate_disabled_registration(executable: &Path, marker: Vec<u8>) -> Result<(
                 vtype: winreg::enums::RegType::REG_BINARY,
             },
         )
+        .map_err(|error| error.to_string())?;
+    run.set_value(CANONICAL_VALUE_NAME, &quoted_path(&launcher))
         .map_err(|error| error.to_string())?;
     remove_recognized_legacy_value(&run, Some(&approved), TAURI_VALUE_NAME)?;
     remove_legacy_task_if_owned();
