@@ -48,6 +48,7 @@
       "nsis": { "installMode": "perMachine" }
     },
     "macOS": {
+      "hardenedRuntime": true,
       "minimumSystemVersion": "13.0",
       "infoPlist": "Info.plist"
     }

@@ -58,6 +58,12 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 Rust tests use fake input adapters and never control the local pointer or keyboard. Native checks and unsigned bundles run on Windows and macOS in `.github/workflows/ci.yml`.
 
+## macOS releases
+
+Production macOS releases are Apple Silicon DMGs signed with an Apple-issued Developer ID Application certificate, submitted to Apple's notarization service, and stapled for offline Gatekeeper verification. A `v*` tag or manual release run creates or updates the matching GitHub Release after verifying the tag, app version, architecture, nested-code signatures, hardened runtime, secure timestamp, and notarization tickets.
+
+The production certificate and App Store Connect API key are held only in the GitHub `production` environment and imported into an ephemeral runner keychain. They are separate from the machine-local `Switchify PC Development` identity used by `npm run macos:run`. See [macOS production releases](docs/macos-releases.md) for certificate creation, GitHub configuration, release, recovery, and rotation instructions.
+
 ## Diagnostics
 
 Switchify keeps up to 500 sanitized diagnostic events locally in `diagnostic-history.jsonl`. The history covers application startup, Bluetooth and Accessibility transitions, disconnects, runtime failures, and update checks. It never stores typed text, command payloads, pairing secrets, device names, or full paths; malformed or unwritable history is ignored so diagnostics cannot prevent startup.
@@ -86,7 +92,7 @@ Existing public Git history, tags, releases, update metadata, and installer down
 
 ## Development boundaries
 
-- The macOS development identity is local-only. The application has no production Developer ID signing, notarization, or release publishing workflow; macOS CI builds with `--no-sign`. Windows production packages use the locally available Certum/SimplySign identity and are not published automatically.
+- Pull-request and `main` macOS CI remains unsigned. Only authorized release tags and manual recovery runs can access the production Developer ID and notarization credentials. Windows production packages continue to use the locally available Certum/SimplySign identity and are not published automatically.
 - Linux may appear in capability data but is not a supported Bluetooth target.
 - Windows Grid 3 output uses the native `Sensory_SwitchInput` broadcast contract. Grid 3 is omitted from macOS capabilities and profiles.
 - Update installation requires a signed Tauri update feed. Local development builds can only report updater configuration errors.
