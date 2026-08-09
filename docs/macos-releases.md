@@ -10,7 +10,7 @@ Switchify PC is distributed outside the Mac App Store as an Apple Silicon DMG. P
 4. Export the certificate and private key together as a password-protected `.p12`. Keep an encrypted offline backup of the `.p12` and its password. Never commit either one.
 5. In App Store Connect → Users and Access → Integrations, create a team API key with **Developer** access. Download the `.p8` immediately; Apple only permits downloading it once.
 
-Do not revoke or replace the certificate during normal renewal. Revocation invalidates future signing and can require an emergency rotation. Keep the local `Switchify PC Development`, earlier development, POC, and Preview identities untouched.
+Do not revoke or replace the certificate during normal renewal. Revocation invalidates future signing and can require an emergency rotation. Keep the local `Switchify PC Development`, earlier development, POC, and retired identities untouched.
 
 ## Configure GitHub
 
