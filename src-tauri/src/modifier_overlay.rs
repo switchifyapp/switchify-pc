@@ -6,6 +6,8 @@ use tauri::{
 };
 
 use crate::input::ModifierKey;
+#[cfg(target_os = "macos")]
+use crate::macos_overlay_window;
 use crate::state::{emit_state, set_activity, ActivityKind, SharedModel};
 
 const OVERLAY_WINDOW_LABEL: &str = "modifier-overlay";
@@ -65,6 +67,7 @@ impl ModifierOverlay {
         .visible(false)
         .build()
         .map_err(|error| error.to_string())?;
+        configure_platform_window(&window)?;
         window
             .set_ignore_cursor_events(true)
             .map_err(|error| error.to_string())?;
@@ -182,6 +185,21 @@ impl ModifierOverlay {
         );
         emit_state(&self.inner.app, &self.inner.shared);
     }
+}
+
+#[cfg(target_os = "macos")]
+fn configure_platform_window(window: &WebviewWindow) -> Result<(), String> {
+    window
+        .with_webview(|webview| unsafe {
+            let window: &objc2_app_kit::NSWindow = &*webview.ns_window().cast();
+            macos_overlay_window::configure(window);
+        })
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn configure_platform_window(_window: &WebviewWindow) -> Result<(), String> {
+    Ok(())
 }
 
 impl ModifierKeyOverlayNotifier for ModifierOverlay {

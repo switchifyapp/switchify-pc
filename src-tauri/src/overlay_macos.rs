@@ -7,12 +7,12 @@ use objc2::rc::Retained;
 use objc2::{AnyThread, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSBackingStoreType, NSBitmapFormat, NSBitmapImageRep, NSCalibratedRGBColorSpace, NSColor,
-    NSEvent, NSImage, NSImageRep, NSImageView, NSPanel, NSScreen, NSStatusWindowLevel,
-    NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSEvent, NSImage, NSImageRep, NSImageView, NSPanel, NSScreen, NSWindowStyleMask,
 };
 use objc2_foundation::{NSArray, NSPoint, NSRect, NSSize};
 use tauri::AppHandle;
 
+use crate::macos_overlay_window;
 use crate::overlay::{render_marker, run_loop, Command, Frame};
 use crate::state::{emit_state, set_activity, ActivityKind, SharedModel};
 
@@ -195,12 +195,7 @@ fn make_panel(mtm: MainThreadMarker) -> Retained<NSPanel> {
     panel.setBackgroundColor(Some(&NSColor::clearColor()));
     panel.setHasShadow(false);
     panel.setIgnoresMouseEvents(true);
-    panel.setLevel(NSStatusWindowLevel);
-    panel.setCollectionBehavior(
-        NSWindowCollectionBehavior::CanJoinAllSpaces
-            | NSWindowCollectionBehavior::FullScreenAuxiliary
-            | NSWindowCollectionBehavior::IgnoresCycle,
-    );
+    macos_overlay_window::configure(&panel);
     panel
 }
 

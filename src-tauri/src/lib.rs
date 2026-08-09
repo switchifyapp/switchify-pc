@@ -4,6 +4,8 @@ mod grid3;
 mod input;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+mod macos_overlay_window;
 mod modifier_overlay;
 mod mouse_repeat;
 mod overlay;
