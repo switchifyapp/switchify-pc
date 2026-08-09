@@ -31,4 +31,5 @@ fn application_configuration_uses_the_promoted_identity() {
         macos["bundle"]["macOS"]["signingIdentity"],
         "Switchify PC Development"
     );
+    assert_eq!(config["bundle"]["macOS"]["hardenedRuntime"], true);
 }
