@@ -219,14 +219,19 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
             let subscriber_count = sender
                 .as_ref()
                 .and_then(|value| value.SubscribedClients().ok())
-                .and_then(|clients| clients.Size().ok())
-                .unwrap_or(0);
+                .and_then(|clients| clients.Size().ok());
+            let Some(subscriber_count) = subscriber_count else {
+                eprintln!(
+                    "Switchify BLE subscriber count was unavailable; preserving connection state."
+                );
+                return Ok(());
+            };
             let connected = subscriber_count > 0;
             let cancelled = {
                 let mut model = subscribe_shared
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
-                let cancelled = if should_cancel_pending_pairings(subscriber_count) {
+                let cancelled = if should_cancel_pending_pairings(Some(subscriber_count)) {
                     model.engine.cancel_all_pairings()
                 } else {
                     0
@@ -334,8 +339,8 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     Ok(())
 }
 
-fn should_cancel_pending_pairings(subscriber_count: u32) -> bool {
-    subscriber_count == 0
+fn should_cancel_pending_pairings(subscriber_count: Option<u32>) -> bool {
+    subscriber_count == Some(0)
 }
 
 fn update_advertisement_status(
@@ -1006,9 +1011,10 @@ mod tests {
 
     #[test]
     fn pending_pairings_clear_only_after_the_final_subscriber_leaves() {
-        assert!(should_cancel_pending_pairings(0));
-        assert!(!should_cancel_pending_pairings(1));
-        assert!(!should_cancel_pending_pairings(2));
+        assert!(should_cancel_pending_pairings(Some(0)));
+        assert!(!should_cancel_pending_pairings(Some(1)));
+        assert!(!should_cancel_pending_pairings(Some(2)));
+        assert!(!should_cancel_pending_pairings(None));
     }
 
     #[test]
