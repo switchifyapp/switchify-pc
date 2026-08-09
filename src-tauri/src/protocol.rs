@@ -407,6 +407,18 @@ impl ProtocolEngine {
         pending
     }
 
+    pub fn cancel_pairing(&mut self, request_id: &str) -> bool {
+        self.pending_pairings.remove(request_id).is_some()
+    }
+
+    pub fn cancel_all_pairings(&mut self) -> usize {
+        let request_ids = self.pending_pairings.keys().cloned().collect::<Vec<_>>();
+        request_ids
+            .iter()
+            .filter(|request_id| self.cancel_pairing(request_id))
+            .count()
+    }
+
     pub fn set_paired_token(&mut self, device_id: String, token: String) {
         self.tokens.insert(device_id, token);
     }
@@ -1587,6 +1599,34 @@ mod tests {
         engine.reject_pairing("pair-1").unwrap();
         assert_eq!(engine.pending_pairings()[0].request_id, "pair-2");
         assert!(engine.reject_pairing("pair-1").is_err());
+    }
+
+    #[test]
+    fn pairing_cancellation_is_targeted_and_makes_expiry_harmless() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine
+            .process_message(
+                &pairing_request("pair-1", "android-1", "Pixel", "nonce-1").to_string(),
+                NOW,
+            )
+            .unwrap();
+        engine
+            .process_message(
+                &pairing_request("pair-2", "android-2", "Galaxy", "nonce-2").to_string(),
+                NOW + 1,
+            )
+            .unwrap();
+
+        assert!(engine.cancel_pairing("pair-1"));
+        assert!(!engine.cancel_pairing("pair-1"));
+        assert_eq!(engine.pending_pairings()[0].request_id, "pair-2");
+        assert_eq!(
+            engine.expire_pairing("pair-1", NOW + PAIRING_TIMEOUT_MS),
+            None
+        );
+        assert_eq!(engine.cancel_all_pairings(), 1);
+        assert_eq!(engine.cancel_all_pairings(), 0);
+        assert!(engine.pending_pairings().is_empty());
     }
 
     #[test]

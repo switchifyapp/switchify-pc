@@ -216,6 +216,33 @@ describe("Switchify PC shell", () => {
     expect(screen.getByRole("button", { name: "Reject pairing request from Pixel, code 111111" })).toHaveFocus();
   });
 
+  it("clears a cancelled pairing request from the setup guide runtime event", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    browserState.setup = { shown: false, completed: false, autoOpenEligible: true };
+    browserState.pendingPairings = [
+      { requestId: "pair-cancelled", deviceId: "android-1", deviceName: "Galaxy", verificationCode: "063781", expiresAt: 1 },
+    ];
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+
+    render(<App />);
+    const setup = await screen.findByRole("dialog", { name: "Bluetooth and input access" });
+    fireEvent.click(within(setup).getByRole("button", { name: "Next" }));
+    fireEvent.click(within(setup).getByRole("button", { name: "Next" }));
+    expect(screen.getByLabelText("Verification code for Galaxy")).toHaveTextContent("063781");
+
+    act(() => stateHandler?.({
+      ...structuredClone(browserState),
+      pendingPairings: [],
+      lastActivity: { kind: "info", message: "Pairing request cancelled." },
+    }));
+
+    await waitFor(() => expect(screen.queryByLabelText("Verification code for Galaxy")).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "Waiting for an Android device" })).toBeInTheDocument();
+  });
+
   it("opens settings with accessible native controls", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
