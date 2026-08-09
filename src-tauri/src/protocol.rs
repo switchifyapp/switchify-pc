@@ -412,9 +412,11 @@ impl ProtocolEngine {
     }
 
     pub fn cancel_all_pairings(&mut self) -> usize {
-        let cancelled = self.pending_pairings.len();
-        self.pending_pairings.clear();
-        cancelled
+        let request_ids = self.pending_pairings.keys().cloned().collect::<Vec<_>>();
+        request_ids
+            .iter()
+            .filter(|request_id| self.cancel_pairing(request_id))
+            .count()
     }
 
     pub fn set_paired_token(&mut self, device_id: String, token: String) {
