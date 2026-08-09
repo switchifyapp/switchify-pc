@@ -45,7 +45,7 @@ The workflow writes credentials only beneath the ephemeral runner directory, imp
 
 ## Publish a release
 
-Keep `package.json` and `src-tauri/tauri.conf.json` versions identical, then create and push the corresponding tag, for example `v1.0.0-beta.1`. The release workflow checks out that exact tag, builds on an Apple Silicon runner, signs and notarizes the app and DMG, validates Gatekeeper and stapled tickets, and creates or updates the matching GitHub Release.
+Keep `package.json` and `src-tauri/tauri.conf.json` versions identical, then create and push the corresponding tag, for example `v1.0.0-beta.1`. The release workflow checks out that exact tag, builds on an Apple Silicon runner, lets Tauri sign and notarize the app, then separately submits and staples the finished signed DMG. It validates Gatekeeper and both stapled tickets before creating or updating the matching GitHub Release.
 
 The workflow can be manually dispatched with an existing tag to recover or replace a macOS asset. It never modifies earlier tags or release assets. The published DMG is accompanied by `SHA256SUMS-macos.txt`.
 
