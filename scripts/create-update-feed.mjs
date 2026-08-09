@@ -5,7 +5,10 @@ const [root, version, tag, output] = process.argv.slice(2);
 if (!root || !version || !tag || !output) {
   throw new Error("Usage: node scripts/create-update-feed.mjs <artifacts> <version> <tag> <output>");
 }
-if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error("Invalid semantic version.");
+if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) {
+  throw new Error("Invalid semantic version.");
+}
+if (tag !== `v${version}`) throw new Error(`Release tag ${tag} does not match v${version}.`);
 
 const files = [];
 const walk = (directory) => {
@@ -25,7 +28,11 @@ const pick = (predicate, label) => {
 const mac = pick((name) => name.endsWith(".app.tar.gz"), "macOS");
 const windows = pick((name) => name.endsWith("-setup.exe"), "Windows NSIS");
 const asset = (path) => `https://github.com/switchifyapp/switchify-pc/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(basename(path))}`;
-const platform = (path) => ({ signature: readFileSync(`${path}.sig`, "utf8").trim(), url: asset(path) });
+const platform = (path) => {
+  const signature = readFileSync(`${path}.sig`, "utf8").trim();
+  if (!signature) throw new Error(`Updater signature is empty for ${basename(path)}.`);
+  return { signature, url: asset(path) };
+};
 
 writeFileSync(resolve(output), `${JSON.stringify({
   version,

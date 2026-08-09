@@ -1,10 +1,13 @@
-name: Release Tauri beta
+name: Release Switchify PC
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
-      version:
-        description: Version without a leading v
+      tag:
+        description: Existing release tag to publish, for example v1.0.0-beta.1
         required: true
         type: string
 
@@ -12,153 +15,393 @@ permissions:
   contents: write
 
 concurrency:
-  group: tauri-release
+  group: release-${{ github.ref_name || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
   prepare:
+    name: Validate release
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.value }}
-      tag: ${{ steps.version.outputs.tag }}
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      ref: ${{ steps.release.outputs.ref }}
     env:
+      RELEASE_EVENT_NAME: ${{ github.event_name }}
+      RELEASE_INPUT_TAG: ${{ inputs.tag }}
+      RELEASE_REF_NAME: ${{ github.ref_name }}
       UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
-      APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
-      CERTUM_CERT_THUMBPRINT: ${{ vars.CERTUM_CERT_THUMBPRINT }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_tag="$RELEASE_REF_NAME"
+          release_ref="$GITHUB_REF"
+          if [[ "$RELEASE_EVENT_NAME" == 'workflow_dispatch' ]]; then
+            release_tag="$RELEASE_INPUT_TAG"
+            release_ref="refs/tags/$release_tag"
+          fi
+          if [[ ! "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must be a semantic version beginning with v. Received: $release_tag" >&2
+            exit 1
+          fi
+          if [[ -z "$UPDATER_PUBLIC_KEY" ]]; then
+            echo 'TAURI_UPDATER_PUBLIC_KEY is not configured.' >&2
+            exit 1
+          fi
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "version=${release_tag#v}" >> "$GITHUB_OUTPUT"
+          echo "ref=$release_ref" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ steps.release.outputs.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
-      - id: version
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Verify source versions
         shell: bash
         env:
-          VERSION_INPUT: ${{ inputs.version }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
-          version="$VERSION_INPUT"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo 'Invalid semantic version.' >&2; exit 1; }
-          configured=$(node -p "require('./package.json').version")
-          [[ "$version" == "$configured" ]] || { echo "package.json is $configured, not $version" >&2; exit 1; }
-          echo "value=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=tauri-v$version" >> "$GITHUB_OUTPUT"
-      - name: Require release signing configuration
-        shell: bash
-        run: |
-          missing=0
-          for name in UPDATER_PUBLIC_KEY APPLE_SIGNING_IDENTITY CERTUM_CERT_THUMBPRINT; do
-            [[ -n "${!name}" ]] || { echo "Missing release configuration: $name" >&2; missing=1; }
-          done
-          exit "$missing"
+          set -euo pipefail
+          node_version="$(node -p "require('./package.json').version")"
+          tauri_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          cargo_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' src-tauri/Cargo.toml | head -1)"
+          if [[ "$node_version" != "$tauri_version" || "$node_version" != "$cargo_version" ]]; then
+            echo "Version mismatch: package=$node_version tauri=$tauri_version cargo=$cargo_version" >&2
+            exit 1
+          fi
+          if [[ "$RELEASE_TAG" != "v$node_version" ]]; then
+            echo "Release tag $RELEASE_TAG does not match app version v$node_version." >&2
+            exit 1
+          fi
 
   macos:
+    name: Sign and notarize macOS
     needs: prepare
-    runs-on: macos-14
+    runs-on: macos-15
+    environment: production
+    timeout-minutes: 60
     env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_REF: ${{ needs.prepare.outputs.ref }}
       SWITCHIFY_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
       APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      SWITCHIFY_TELEMETRY_ENDPOINT: ${{ vars.TIMBERLOGS_ENDPOINT }}
     steps:
-      - uses: actions/checkout@v6
-      - name: Require macOS release secrets
+      - name: Checkout release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: 1.97.1
+          targets: aarch64-apple-darwin
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify macOS release configuration
         shell: bash
         env:
-          UPDATER_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          UPDATER_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          missing=0
-          for name in UPDATER_PRIVATE_KEY UPDATER_PRIVATE_KEY_PASSWORD APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            [[ -n "${!name}" ]] || { echo "Missing macOS release secret: $name" >&2; missing=1; }
-          done
-          exit "$missing"
-      - uses: actions/setup-node@v6
-        with: { node-version: 24, cache: npm }
-      - uses: dtolnay/rust-toolchain@stable
-        with: { toolchain: 1.97.1 }
-      - run: npm ci
-      - run: node scripts/render-updater-config.mjs src-tauri/tauri.release.generated.json
-      - run: npm run tauri build -- --bundles app,dmg --config src-tauri/tauri.release.generated.json
-        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          TIMBERLOGS_API_KEY: ${{ secrets.TIMBERLOGS_API_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        run: |
+          set -euo pipefail
+          if [[ "$APPLE_SIGNING_IDENTITY" != 'Developer ID Application: '* ]] || \
+             [[ "$APPLE_SIGNING_IDENTITY" != *"($APPLE_TEAM_ID)" ]]; then
+            echo 'APPLE_SIGNING_IDENTITY must be a Developer ID Application identity for APPLE_TEAM_ID.' >&2
+            exit 1
+          fi
+          for required_name in APPLE_API_ISSUER APPLE_API_KEY TIMBERLOGS_API_KEY \
+            SWITCHIFY_TELEMETRY_ENDPOINT TAURI_SIGNING_PRIVATE_KEY \
+            TAURI_SIGNING_PRIVATE_KEY_PASSWORD SWITCHIFY_UPDATER_PUBLIC_KEY; do
+            if [[ -z "${!required_name:-}" ]]; then
+              echo "Missing macOS release configuration: $required_name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Install Developer ID certificate
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      - uses: actions/upload-artifact@v7
+        run: |
+          set -euo pipefail
+          if [[ -z "$APPLE_CERTIFICATE_BASE64" || -z "$APPLE_CERTIFICATE_PASSWORD" ]]; then
+            echo 'The production Developer ID certificate is not configured.' >&2
+            exit 1
+          fi
+          certificate_path="$RUNNER_TEMP/switchify-developer-id.p12"
+          keychain_path="$RUNNER_TEMP/switchify-signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          echo "::add-mask::$keychain_password"
+          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate_path"
+          chmod 600 "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          identity_output="$(security find-identity -v -p codesigning "$keychain_path")"
+          if ! grep -Fq "\"$APPLE_SIGNING_IDENTITY\"" <<< "$identity_output"; then
+            echo 'The configured Developer ID identity was not found after import.' >&2
+            exit 1
+          fi
+          echo "APPLE_KEYCHAIN_PATH=$keychain_path" >> "$GITHUB_ENV"
+
+      - name: Install notarization API key
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$APPLE_API_PRIVATE_KEY" ]]; then
+            echo 'APPLE_API_PRIVATE_KEY is not configured.' >&2
+            exit 1
+          fi
+          api_key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$api_key_path"
+          chmod 600 "$api_key_path"
+          echo "APPLE_API_KEY_PATH=$api_key_path" >> "$GITHUB_ENV"
+
+      - name: Render updater configuration
+        run: node scripts/render-updater-config.mjs src-tauri/tauri.release.generated.json
+
+      - name: Build signed and notarized app, updater, and DMG
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          TIMBERLOGS_API_KEY: ${{ secrets.TIMBERLOGS_API_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build -- --bundles app,dmg --target aarch64-apple-darwin --config src-tauri/tauri.release.generated.json
+
+      - name: Notarize and staple DMG
+        shell: bash
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          dmg_path="$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          if [[ -z "$dmg_path" ]]; then
+            echo 'No signed DMG was produced for notarization.' >&2
+            exit 1
+          fi
+          xcrun notarytool submit "$dmg_path" --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
+            --wait --timeout 20m
+          xcrun stapler staple "$dmg_path"
+
+      - name: Verify and stage macOS release
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/verify-macos-release.sh "$RELEASE_TAG" "$APPLE_SIGNING_IDENTITY" "$APPLE_TEAM_ID"
+          bundle_root='src-tauri/target/aarch64-apple-darwin/release/bundle'
+          dmg_path="$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          updater_path="$(find "$bundle_root/macos" -maxdepth 1 -type f -name '*.app.tar.gz' -print -quit)"
+          if [[ -z "$updater_path" || ! -s "$updater_path.sig" ]]; then
+            echo 'The signed macOS updater artifact is missing.' >&2
+            exit 1
+          fi
+          mkdir -p dist/macos
+          cp "$dmg_path" "$updater_path" "$updater_path.sig" dist/macos/
+          (cd dist/macos && shasum -a 256 -- *.dmg *.app.tar.gz > SHA256SUMS-macos.txt)
+
+      - name: Upload macOS release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: macos-release
-          path: |
-            src-tauri/target/release/bundle/macos/*.app.tar.gz
-            src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
-            src-tauri/target/release/bundle/dmg/*.dmg
+          path: dist/macos/*
+          if-no-files-found: error
+
+      - name: Remove temporary signing material
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${APPLE_KEYCHAIN_PATH:-}" ]]; then
+            security delete-keychain "$APPLE_KEYCHAIN_PATH" 2>/dev/null || true
+          fi
+          rm -f "$RUNNER_TEMP/switchify-developer-id.p12" "$RUNNER_TEMP"/AuthKey_*.p8
 
   windows:
+    name: Sign Windows installer
     needs: prepare
-    runs-on: [self-hosted, Windows, X64, switchify-release]
+    runs-on: [self-hosted, Windows, X64, switchify-signing]
+    environment: production
+    timeout-minutes: 60
     env:
+      RELEASE_REF: ${{ needs.prepare.outputs.ref }}
       SWITCHIFY_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
       SWITCHIFY_CERTUM_CERT_THUMBPRINT: ${{ vars.CERTUM_CERT_THUMBPRINT }}
+      SWITCHIFY_TELEMETRY_ENDPOINT: ${{ vars.TIMBERLOGS_ENDPOINT }}
     steps:
-      - uses: actions/checkout@v6
-      - name: Require Windows release secrets
+      - name: Checkout release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: 1.97.1
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify Windows release configuration
         shell: powershell
         env:
+          TIMBERLOGS_API_KEY: ${{ secrets.TIMBERLOGS_API_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw 'Missing Windows release secret: TAURI_SIGNING_PRIVATE_KEY' }
-          if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) { throw 'Missing Windows release secret: TAURI_SIGNING_PRIVATE_KEY_PASSWORD' }
-      - uses: actions/setup-node@v6
-        with: { node-version: 24, cache: npm }
-      - uses: dtolnay/rust-toolchain@stable
-        with: { toolchain: 1.97.1 }
-      - run: npm ci
-      - run: node scripts/render-updater-config.mjs src-tauri/tauri.release.windows.generated.json --windows
-      - shell: powershell
-        run: ./scripts/Build-WindowsUiAccess.ps1 -TauriConfig src-tauri/tauri.release.windows.generated.json
+          foreach ($name in @(
+            'SWITCHIFY_UPDATER_PUBLIC_KEY',
+            'SWITCHIFY_CERTUM_CERT_THUMBPRINT',
+            'SWITCHIFY_TELEMETRY_ENDPOINT',
+            'TIMBERLOGS_API_KEY',
+            'TAURI_SIGNING_PRIVATE_KEY',
+            'TAURI_SIGNING_PRIVATE_KEY_PASSWORD'
+          )) {
+            if (-not [Environment]::GetEnvironmentVariable($name)) {
+              throw "Missing Windows release configuration: $name"
+            }
+          }
+
+      - name: Render updater configuration
+        run: node scripts/render-updater-config.mjs src-tauri/tauri.release.windows.generated.json --windows
+
+      - name: Build signed Windows package
+        shell: powershell
         env:
+          TIMBERLOGS_API_KEY: ${{ secrets.TIMBERLOGS_API_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      - shell: powershell
+        run: ./scripts/Build-WindowsUiAccess.ps1 -TauriConfig src-tauri/tauri.release.windows.generated.json
+
+      - name: Verify Windows package
+        shell: powershell
         run: ./scripts/Verify-WindowsUiAccessPackage.ps1
-      - uses: actions/upload-artifact@v7
+
+      - name: Stage Windows release
+        shell: powershell
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis' -Filter '*-setup.exe' |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer -or -not (Test-Path -LiteralPath "$($installer.FullName).sig")) {
+            throw 'The signed Windows updater artifact is missing.'
+          }
+          New-Item -ItemType Directory -Path dist/windows -Force | Out-Null
+          Copy-Item -LiteralPath $installer.FullName -Destination dist/windows
+          Copy-Item -LiteralPath "$($installer.FullName).sig" -Destination dist/windows
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName).Hash.ToLowerInvariant()
+          "$hash  $($installer.Name)" | Set-Content -NoNewline dist/windows/SHA256SUMS-windows.txt
+
+      - name: Upload Windows release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: windows-release
-          path: |
-            src-tauri/target/release/bundle/nsis/*-setup.exe
-            src-tauri/target/release/bundle/nsis/*-setup.exe.sig
+          path: dist/windows/*
+          if-no-files-found: error
 
   publish:
+    name: Publish release and updater feed
     needs: [prepare, macos, windows]
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_REF: ${{ needs.prepare.outputs.ref }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with: { node-version: 24 }
-      - uses: actions/download-artifact@v7
-        with: { path: release-artifacts }
-      - run: node scripts/create-update-feed.mjs release-artifacts '${{ needs.prepare.outputs.version }}' '${{ needs.prepare.outputs.tag }}' latest.json
-      - name: Publish prerelease assets
+      - name: Checkout release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: release-artifacts
+
+      - name: Create updater feed
+        run: node scripts/create-update-feed.mjs release-artifacts "$RELEASE_VERSION" "$RELEASE_TAG" latest.json
+
+      - name: Publish verified release assets
         shell: bash
         run: |
-          tag='${{ needs.prepare.outputs.tag }}'
-          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --title "Switchify PC ${{ needs.prepare.outputs.version }}"
-          find release-artifacts -type f ! -name '*.sig' -print0 | xargs -0 gh release upload "$tag" --clobber
-          find release-artifacts -type f -name '*.sig' -print0 | xargs -0 gh release upload "$tag" --clobber
-      - name: Publish dedicated Tauri update feed
+          set -euo pipefail
+          mapfile -d '' assets < <(find release-artifacts -type f -print0)
+          if (( ${#assets[@]} == 0 )); then
+            echo 'No release assets were downloaded.' >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          else
+            release_args=(--title "$RELEASE_TAG" --generate-notes --verify-tag)
+            if [[ "$RELEASE_VERSION" == *-* ]]; then
+              release_args+=(--prerelease)
+            fi
+            gh release create "$RELEASE_TAG" "${release_args[@]}" "${assets[@]}"
+          fi
+
+      - name: Publish updater feed last
         shell: bash
         run: |
-          gh api repos/${{ github.repository }}/git/ref/heads/update-feed >/dev/null 2>&1 || \
-            gh api --method POST repos/${{ github.repository }}/git/refs -f ref=refs/heads/update-feed -f sha="$GITHUB_SHA"
-          content=$(base64 -w0 latest.json)
-          sha=$(gh api repos/${{ github.repository }}/contents/latest.json?ref=update-feed --jq .sha 2>/dev/null || true)
-          args=(-f message="Update Tauri feed to ${{ needs.prepare.outputs.version }}" -f content="$content" -f branch=update-feed)
-          [[ -z "$sha" ]] || args+=(-f sha="$sha")
-          gh api --method PUT repos/${{ github.repository }}/contents/latest.json "${args[@]}"
+          set -euo pipefail
+          if ! gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/update-feed" >/dev/null 2>&1; then
+            release_sha="$(git rev-parse HEAD)"
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref=refs/heads/update-feed -f sha="$release_sha"
+          fi
+          content="$(base64 -w0 latest.json)"
+          current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/latest.json?ref=update-feed" --jq .sha 2>/dev/null || true)"
+          args=(-f message="Update Tauri feed to $RELEASE_VERSION" -f content="$content" -f branch=update-feed)
+          if [[ -n "$current_sha" ]]; then
+            args+=(-f sha="$current_sha")
+          fi
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/latest.json" "${args[@]}"

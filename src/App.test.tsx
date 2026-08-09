@@ -93,6 +93,17 @@ describe("Switchify PC shell", () => {
     expect(install).toHaveBeenCalledOnce();
   });
 
+  it("retries a cancelled download from the beginning", async () => {
+    browserState.updater = { status: "cancelled", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: "download" };
+    const download = vi.spyOn(api, "downloadUpdate").mockResolvedValue(structuredClone(browserState));
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Download cancelled. You can retry when ready.");
+    fireEvent.click(screen.getByRole("button", { name: "Retry download" }));
+    expect(download).toHaveBeenCalledOnce();
+  });
+
   it("routes tray navigation without discarding a dirty profile silently", async () => {
     let navigate: ((target: "home" | "settings" | "profiles") => void) | undefined;
     vi.spyOn(api, "onNavigateRequested").mockImplementation(async (handler) => {

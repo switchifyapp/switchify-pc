@@ -32,7 +32,10 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_updater::UpdaterExt;
 use telemetry::TelemetryConsent;
-use updater::{Operation as UpdateOperation, RetryAction, UpdateManager, UpdateView};
+use updater::{
+    download_with_cancel, DownloadResult, Operation as UpdateOperation, RetryAction,
+    UpdateArtifact, UpdateManager, UpdateView,
+};
 
 #[tauri::command]
 fn get_app_state(model: State<'_, AppModel>) -> AppState {
@@ -771,7 +774,7 @@ async fn check_for_updates_inner(app: &AppHandle) -> AppState {
     manager.finish(UpdateOperation::Check);
     match result {
         Ok(Some(update)) => {
-            let version = update.version.clone();
+            let version = update.version().to_owned();
             manager.replace_available(Some(update));
             state::set_activity(
                 &model.shared,
@@ -825,8 +828,8 @@ async fn download_update(app: AppHandle) -> Result<AppState, String> {
             "check for an update first",
         ));
     };
-    let version = update.version.clone();
-    let (cancel_sender, mut cancel_receiver) = tokio::sync::watch::channel(false);
+    let version = update.version().to_owned();
+    let (cancel_sender, cancel_receiver) = tokio::sync::watch::channel(false);
     manager.set_download_cancel(cancel_sender);
     state::set_activity(
         &model.shared,
@@ -837,30 +840,16 @@ async fn download_update(app: AppHandle) -> Result<AppState, String> {
 
     let progress_app = app.clone();
     let progress_shared = model.shared.clone();
-    let download = update.download(
-        move |chunk, total| {
-            {
-                let mut data = progress_shared
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                data.state.updater.add_progress(chunk, total);
-            }
-            state::emit_state(&progress_app, &progress_shared);
-        },
-        || {},
-    );
-    tokio::pin!(download);
-    enum DownloadResult {
-        Complete(Result<Vec<u8>, String>),
-        Cancelled,
-    }
-    let result = tokio::select! {
-        result = &mut download => DownloadResult::Complete(result.map_err(|error| error.to_string())),
-        changed = cancel_receiver.changed() => {
-            let _ = changed;
-            DownloadResult::Cancelled
+    let result = download_with_cancel(&update, cancel_receiver, move |chunk, total| {
+        {
+            let mut data = progress_shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            data.state.updater.add_progress(chunk, total);
         }
-    };
+        state::emit_state(&progress_app, &progress_shared);
+    });
+    let result = result.await;
     manager.finish(UpdateOperation::Download);
     match result {
         DownloadResult::Complete(Ok(bytes)) => {
@@ -939,13 +928,13 @@ async fn install_update(app: AppHandle) -> Result<AppState, String> {
         return Ok(update_failure(
             &app,
             &model,
-            Some(update.version),
+            Some(update.version().to_owned()),
             RetryAction::Download,
             "Update installation could not start",
             "download the update first",
         ));
     };
-    let version = update.version.clone();
+    let version = update.version().to_owned();
     let downloaded_bytes = bytes.len() as u64;
     let total_bytes = model.snapshot().updater.total_bytes;
     let overlay = app.state::<overlay::CursorOverlay>();
@@ -972,7 +961,7 @@ async fn install_update(app: AppHandle) -> Result<AppState, String> {
         &model,
         UpdateView::applying(version.clone(), downloaded_bytes, total_bytes),
     );
-    if let Err(error) = update.install(&bytes) {
+    if let Err(error) = UpdateArtifact::install(&update, &bytes) {
         manager.store_download(bytes);
         manager.finish(UpdateOperation::Install);
         return Ok(update_failure(
@@ -981,7 +970,7 @@ async fn install_update(app: AppHandle) -> Result<AppState, String> {
             Some(version),
             RetryAction::Install,
             "Update installation failed",
-            &error.to_string(),
+            &error,
         ));
     }
     model.record_updater("installed", None);
@@ -1161,7 +1150,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(model)
-        .manage(UpdateManager::default())
+        .manage(UpdateManager::<tauri_plugin_updater::Update>::default())
         .manage(PendingProfileExit::default())
         .manage(PendingNavigation::default())
         .setup(move |app| {

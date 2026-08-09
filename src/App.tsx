@@ -315,7 +315,7 @@ function updateDescription(update: UpdateState) {
     case "applying": return `Installing Switchify PC ${update.version}…`;
     case "current": return "Switchify PC is up to date.";
     case "failed": return update.error ?? "The update operation failed.";
-    case "cancelled": return "Download cancelled. You can resume when ready.";
+    case "cancelled": return "Download cancelled. You can retry when ready.";
   }
 }
 
@@ -328,7 +328,7 @@ function UpdateControls({ update, run, cancel }: { update: UpdateState; run: (ac
       : update.status === "failed" ? update.retryAction
         : update.status === "idle" || update.status === "current" || update.status === "unconfigured" ? "check" : null;
   const label = update.status === "failed" ? "Retry"
-    : action === "download" ? (update.status === "cancelled" ? "Resume download" : "Download")
+    : action === "download" ? (update.status === "cancelled" ? "Retry download" : "Download")
       : action === "install" ? "Install and restart" : "Check for updates";
   return <div className="update-controls">
     <p role={update.status === "failed" ? "alert" : "status"}>{updateDescription(update)}</p>

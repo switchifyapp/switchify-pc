@@ -9,7 +9,13 @@ const pubkey = process.env.SWITCHIFY_UPDATER_PUBLIC_KEY?.trim();
 
 if (!output) throw new Error("Usage: node scripts/render-updater-config.mjs <output> [--windows]");
 if (!pubkey) throw new Error("SWITCHIFY_UPDATER_PUBLIC_KEY is required.");
-if (!endpoint.startsWith("https://")) throw new Error("SWITCHIFY_UPDATER_ENDPOINT must use HTTPS.");
+let endpointUrl;
+try {
+  endpointUrl = new URL(endpoint);
+} catch {
+  throw new Error("SWITCHIFY_UPDATER_ENDPOINT must be a valid URL.");
+}
+if (endpointUrl.protocol !== "https:") throw new Error("SWITCHIFY_UPDATER_ENDPOINT must use HTTPS.");
 
 const config = {
   plugins: { updater: { endpoints: [endpoint], pubkey } },
@@ -23,7 +29,7 @@ if (windows) {
       cmd: "powershell.exe",
       args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "../scripts/Sign-Windows.ps1", "%1"],
     },
-    nsis: { installerHooks: "windows/installer-hooks.nsh" },
+    nsis: { installMode: "perMachine", installerHooks: "windows/installer-hooks.nsh" },
   };
 }
 
