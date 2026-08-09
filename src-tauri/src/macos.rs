@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use corebluetooth::prelude::*;
@@ -163,6 +163,7 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
             tx_characteristic: None,
             status_value: Vec::new(),
             subscribers: HashMap::new(),
+            pairing_centrals: PairingCentralRegistry::default(),
             outbound: OutboundQueue::default(),
             input: None,
             repeats: MouseRepeatController::default(),
@@ -248,6 +249,7 @@ pub fn approve_pairing(
             model.state.pending_pairings = model.engine.pending_pairings();
             response
         }?;
+        runtime.pairing_centrals.remove(request_id);
         runtime.enqueue_message(&response)?;
         set_activity(
             shared,
@@ -273,6 +275,7 @@ pub fn reject_pairing(
             model.state.pending_pairings = model.engine.pending_pairings();
             response
         }?;
+        runtime.pairing_centrals.remove(request_id);
         runtime.enqueue_message(&response)?;
         set_activity(shared, ActivityKind::Info, "Pairing request rejected.");
         emit_state(app, shared);
@@ -283,22 +286,27 @@ pub fn reject_pairing(
 pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), String> {
     with_runtime(|runtime| {
         runtime.stop_all_repeats();
-        if let Some(input) = runtime.input.as_mut() {
+        let release = if let Some(input) = runtime.input.as_mut() {
             let release = input.release_all();
             input.end_control_session();
-            release?;
-        }
+            release
+        } else {
+            Ok(())
+        };
         runtime.subscribers.clear();
+        runtime.pairing_centrals.clear();
         runtime.outbound.clear();
         {
             let mut model = shared
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
+            model.engine.cancel_all_pairings();
+            model.state.pending_pairings.clear();
             model.state.bluetooth = BluetoothState::Advertising;
             model.state.connected_device_name = None;
         }
         emit_state(app, shared);
-        Ok(())
+        release
     })
 }
 
@@ -329,9 +337,46 @@ struct MacRuntime {
     tx_characteristic: Option<MutableCharacteristic>,
     status_value: Vec<u8>,
     subscribers: HashMap<String, usize>,
+    pairing_centrals: PairingCentralRegistry,
     outbound: OutboundQueue,
     input: Option<DesktopInput<Enigo>>,
     repeats: MouseRepeatController,
+}
+
+#[derive(Debug, Default)]
+struct PairingCentralRegistry {
+    by_request: HashMap<String, String>,
+}
+
+impl PairingCentralRegistry {
+    fn associate(&mut self, request_id: String, central_id: String) {
+        self.by_request.insert(request_id, central_id);
+    }
+
+    fn retain_pending(&mut self, pending_request_ids: &HashSet<String>) {
+        self.by_request
+            .retain(|request_id, _| pending_request_ids.contains(request_id));
+    }
+
+    fn remove(&mut self, request_id: &str) {
+        self.by_request.remove(request_id);
+    }
+
+    fn take_for_central(&mut self, central_id: &str) -> Vec<String> {
+        let request_ids = self
+            .by_request
+            .iter()
+            .filter(|(_, associated_central)| associated_central.as_str() == central_id)
+            .map(|(request_id, _)| request_id.clone())
+            .collect::<Vec<_>>();
+        self.by_request
+            .retain(|_, associated_central| associated_central != central_id);
+        request_ids
+    }
+
+    fn clear(&mut self) {
+        self.by_request.clear();
+    }
 }
 
 impl MacRuntime {
@@ -502,7 +547,23 @@ impl MacRuntime {
         characteristic: Characteristic,
     ) -> Result<(), String> {
         if characteristic.uuid().eq_ignore_ascii_case(TX_UUID) {
-            self.subscribers.remove(&central.identifier());
+            let central_id = central.identifier();
+            self.subscribers.remove(&central_id);
+            let request_ids = self.pairing_centrals.take_for_central(&central_id);
+            let cancelled = if request_ids.is_empty() {
+                0
+            } else {
+                let mut model = self
+                    .shared
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let cancelled = request_ids
+                    .iter()
+                    .filter(|request_id| model.engine.cancel_pairing(request_id))
+                    .count();
+                model.state.pending_pairings = model.engine.pending_pairings();
+                cancelled
+            };
             if self.subscribers.is_empty() {
                 self.stop_all_repeats();
                 self.outbound.clear();
@@ -513,6 +574,13 @@ impl MacRuntime {
                 self.app.state::<CursorOverlay>().end_session();
                 self.app.state::<ModifierOverlay>().end_session();
                 self.set_bluetooth(BluetoothState::Advertising);
+            }
+            if cancelled > 0 {
+                set_activity(
+                    &self.shared,
+                    ActivityKind::Info,
+                    "Pairing request cancelled.",
+                );
             }
             emit_state(&self.app, &self.shared);
         }
@@ -538,6 +606,7 @@ impl MacRuntime {
     fn handle_writes(&mut self, requests: Vec<AttRequest>) -> Result<(), String> {
         for request in requests {
             let uuid = request.characteristic().uuid();
+            let central_id = request.central().identifier();
             let result = if !uuid.eq_ignore_ascii_case(RX_UUID) {
                 AttError::WriteNotPermitted
             } else if request.offset() != 0 {
@@ -545,7 +614,7 @@ impl MacRuntime {
             } else {
                 match request.value() {
                     Ok(Some(value)) => {
-                        self.handle_frame(&value);
+                        self.handle_frame(&central_id, &value);
                         AttError::Success
                     }
                     _ => AttError::InvalidPdu,
@@ -558,7 +627,7 @@ impl MacRuntime {
         Ok(())
     }
 
-    fn handle_frame(&mut self, bytes: &[u8]) {
+    fn handle_frame(&mut self, central_id: &str, bytes: &[u8]) {
         let event = {
             self.shared
                 .lock()
@@ -574,13 +643,22 @@ impl MacRuntime {
             })) => {
                 let request_id = request.request_id.clone();
                 let delay_ms = request.expires_at.saturating_sub(now_ms()) as u64;
-                {
+                let pending_request_ids = {
                     let mut model = self
                         .shared
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
                     model.state.pending_pairings = model.engine.pending_pairings();
-                }
+                    model
+                        .state
+                        .pending_pairings
+                        .iter()
+                        .map(|pending| pending.request_id.clone())
+                        .collect::<HashSet<_>>()
+                };
+                self.pairing_centrals.retain_pending(&pending_request_ids);
+                self.pairing_centrals
+                    .associate(request_id.clone(), central_id.to_string());
                 if let Some(response) = replaced_response {
                     if let Err(error) = self.enqueue_message(&response) {
                         self.report_error(error);
@@ -1175,7 +1253,16 @@ impl MacRuntime {
         self.service = None;
         self.tx_characteristic = None;
         self.subscribers.clear();
+        self.pairing_centrals.clear();
         self.outbound.clear();
+        {
+            let mut model = self
+                .shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            model.engine.cancel_all_pairings();
+            model.state.pending_pairings.clear();
+        }
         if let Some(input) = self.input.as_mut() {
             let _ = input.release_all();
             input.end_control_session();
@@ -1239,8 +1326,10 @@ fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Re
             response
         };
         let Some(response) = response else {
+            runtime.pairing_centrals.remove(request_id);
             return Ok(());
         };
+        runtime.pairing_centrals.remove(request_id);
         runtime.enqueue_message(&response)?;
         set_activity(shared, ActivityKind::Info, "Pairing request expired.");
         emit_state(app, shared);
@@ -1366,5 +1455,21 @@ mod tests {
     fn pointer_profile_caps_recommended_steps_at_protocol_maximum() {
         let profile = pointer_profile_for_display("Large", 1.0, 0, 0, 10_000, 10_000);
         assert_eq!(profile.large_delta, MAX_POINTER_DELTA as u32);
+    }
+
+    #[test]
+    fn pairing_central_registry_cancels_only_the_disconnected_central() {
+        let mut registry = PairingCentralRegistry::default();
+        registry.associate("pair-a-old".into(), "central-a".into());
+        registry.associate("pair-a".into(), "central-a".into());
+        registry.associate("pair-b".into(), "central-b".into());
+
+        registry.retain_pending(&HashSet::from(["pair-a".to_string(), "pair-b".to_string()]));
+        let mut cancelled = registry.take_for_central("central-a");
+        cancelled.sort();
+
+        assert_eq!(cancelled, ["pair-a"]);
+        assert!(registry.take_for_central("unknown").is_empty());
+        assert_eq!(registry.take_for_central("central-b"), ["pair-b"]);
     }
 }

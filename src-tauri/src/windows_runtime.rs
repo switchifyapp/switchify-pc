@@ -216,26 +216,38 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     let subscribe_shared = shared.clone();
     tx.SubscribedClientsChanged(
         &TypedEventHandler::<GattLocalCharacteristic, IInspectable>::new(move |sender, _| {
-            let connected = sender
+            let subscriber_count = sender
                 .as_ref()
                 .and_then(|value| value.SubscribedClients().ok())
                 .and_then(|clients| clients.Size().ok())
-                .is_some_and(|size| size > 0);
-            {
+                .unwrap_or(0);
+            let connected = subscriber_count > 0;
+            let cancelled = {
                 let mut model = subscribe_shared
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let cancelled = if should_cancel_pending_pairings(subscriber_count) {
+                    model.engine.cancel_all_pairings()
+                } else {
+                    0
+                };
+                if cancelled > 0 {
+                    model.state.pending_pairings = model.engine.pending_pairings();
+                }
                 model.state.bluetooth = if connected {
                     BluetoothState::Connected
                 } else {
                     BluetoothState::Advertising
                 };
                 model.state.connected_device_name = connected.then(|| "Bluetooth device".into());
-            }
+                cancelled
+            };
             set_activity(
                 &subscribe_shared,
                 ActivityKind::Info,
-                if connected {
+                if cancelled > 0 {
+                    "Pairing request cancelled."
+                } else if connected {
                     "Android device connected."
                 } else {
                     "Android device disconnected."
@@ -320,6 +332,10 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     update_advertisement_status(&app, &shared, status, BluetoothError::Success);
     Ok(())
+}
+
+fn should_cancel_pending_pairings(subscriber_count: u32) -> bool {
+    subscriber_count == 0
 }
 
 fn update_advertisement_status(
@@ -964,6 +980,8 @@ pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), Strin
     let mut model = shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    model.engine.cancel_all_pairings();
+    model.state.pending_pairings.clear();
     model.state.bluetooth = BluetoothState::Advertising;
     model.state.connected_device_name = None;
     drop(model);
@@ -984,7 +1002,14 @@ fn release_input_session() {
 
 #[cfg(test)]
 mod tests {
-    use super::tasklist_has_other_switchify_process;
+    use super::{should_cancel_pending_pairings, tasklist_has_other_switchify_process};
+
+    #[test]
+    fn pending_pairings_clear_only_after_the_final_subscriber_leaves() {
+        assert!(should_cancel_pending_pairings(0));
+        assert!(!should_cancel_pending_pairings(1));
+        assert!(!should_cancel_pending_pairings(2));
+    }
 
     #[test]
     fn conflict_check_ignores_the_current_process() {
