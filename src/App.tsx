@@ -19,6 +19,17 @@ const bluetoothLabels: Record<AppState["bluetooth"], string> = {
   conflict: "Current Switchify PC is running", unsupported: "Bluetooth unavailable", error: "Bluetooth unavailable",
 };
 
+const bluetoothDescriptions: Record<AppState["bluetooth"], string> = {
+  initializing: "Preparing this computer for nearby devices.",
+  advertising: "Waiting for a nearby Android device.",
+  connected: "Android device connected.",
+  poweredOff: "Turn on Bluetooth to connect an Android device.",
+  unauthorized: "Allow Bluetooth access in System Settings to connect.",
+  conflict: "Quit the other Switchify PC instance, then reopen this app.",
+  unsupported: "This computer does not support the required Bluetooth features.",
+  error: "Bluetooth could not start. Try restarting Switchify PC.",
+};
+
 function NavButton({ active, icon, children, onClick }: { active: boolean; icon: ReactNode; children: ReactNode; onClick: () => void }) {
   return <button className="nav-button" data-active={active} onClick={onClick}>{icon}<span>{children}</span></button>;
 }
@@ -47,7 +58,7 @@ function HomeView({ state, onDisconnect, onAccessibility, onSetup }: { state: Ap
     <header className="page-header"><div><h1>Switchify PC</h1><p>Android control for this computer</p></div></header>
     <section className="connection-band" data-connected={state.bluetooth === "connected"}>
       <StatusIcon ok={bluetoothOk}>{bluetoothOk ? <Radio size={20} /> : <WifiOff size={20} />}</StatusIcon>
-      <div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.connectedDeviceName ?? "Waiting for a nearby Android device."}</p></div>
+      <div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.connectedDeviceName ?? bluetoothDescriptions[state.bluetooth]}</p></div>
       {state.bluetooth === "connected" ? <button className="secondary" onClick={onDisconnect}><Power size={16} />Disconnect</button> : <button className="secondary" onClick={onSetup}><Wrench size={16} />Set up</button>}
     </section>
     <section className="status-list" aria-label="System status">

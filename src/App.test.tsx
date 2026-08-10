@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { api, browserState } from "./api";
-import type { AppSettings, SwitchProfile } from "./types";
+import type { AppSettings, BluetoothState, SwitchProfile } from "./types";
 
 const defaultBrowserSettings = structuredClone(browserState.settings);
 
@@ -82,6 +82,26 @@ describe("Switchify PC shell", () => {
     expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Recent errors" })).toBeInTheDocument();
     expect(screen.getByText("Bluetooth adapter failed")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["initializing", "Preparing this computer for nearby devices."],
+    ["advertising", "Waiting for a nearby Android device."],
+    ["connected", "Android device connected."],
+    ["poweredOff", "Turn on Bluetooth to connect an Android device."],
+    ["unauthorized", "Allow Bluetooth access in System Settings to connect."],
+    ["conflict", "Quit the other Switchify PC instance, then reopen this app."],
+    ["unsupported", "This computer does not support the required Bluetooth features."],
+    ["error", "Bluetooth could not start. Try restarting Switchify PC."],
+  ] satisfies Array<[BluetoothState, string]>)('uses recovery-appropriate Home copy for Bluetooth state "%s"', async (bluetooth, description) => {
+    browserState.bluetooth = bluetooth;
+    browserState.lastActivity = { kind: "error", message: "Internal runtime activity" };
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    expect(screen.getByText(description)).toBeInTheDocument();
+    expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
   });
 
   it("shows update progress and exposes cancellation in Settings", async () => {
