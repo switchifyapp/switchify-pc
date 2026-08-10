@@ -1,12 +1,26 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   isModifierOverlayRoute,
+  ModifierOverlay,
   ModifierOverlayView,
   newestModifierSnapshot,
 } from "./ModifierOverlay";
 
+const { invokeMock, listenMock } = vi.hoisted(() => ({
+  invokeMock: vi.fn(),
+  listenMock: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: listenMock }));
+
 describe("modifier overlay", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    listenMock.mockReset();
+  });
+
   it("selects only the dedicated overlay route", () => {
     expect(isModifierOverlayRoute("?view=modifier-overlay")).toBe(true);
     expect(isModifierOverlayRoute("?view=settings")).toBe(false);
@@ -36,6 +50,47 @@ describe("modifier overlay", () => {
     expect(newestModifierSnapshot(current, { revision: 9, labels: ["Command"] })).toEqual({
       revision: 9,
       labels: ["Command"],
+    });
+  });
+
+  it("registers the listener before requesting initial state", async () => {
+    const calls: string[] = [];
+    listenMock.mockImplementation(async () => {
+      calls.push("listen");
+      return vi.fn();
+    });
+    invokeMock.mockImplementation(async (command: string) => {
+      calls.push(command);
+      if (command === "modifier_overlay_ready") {
+        return { revision: 2, labels: [] };
+      }
+      return undefined;
+    });
+
+    render(<ModifierOverlay />);
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("modifier_overlay_ready"));
+    expect(calls.slice(0, 2)).toEqual(["listen", "modifier_overlay_ready"]);
+  });
+
+  it("requests presentation only after nonempty content is rendered", async () => {
+    listenMock.mockResolvedValue(vi.fn());
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "modifier_overlay_ready") {
+        return { revision: 6, labels: ["Ctrl", "Shift"] };
+      }
+      if (command === "modifier_overlay_present") {
+        expect(screen.getByRole("status", { name: "Active modifiers" })).toHaveTextContent(
+          "CtrlShift",
+        );
+      }
+      return undefined;
+    });
+
+    render(<ModifierOverlay />);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("modifier_overlay_present", { revision: 6 });
     });
   });
 });
