@@ -632,6 +632,16 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
     }
 
+    async fn wait_for_flush(service: &TelemetryService) {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while service.inner.flushing.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("telemetry flush should finish before the test timeout");
+    }
+
     #[tokio::test]
     async fn nothing_is_stored_or_sent_before_opt_in() {
         let transport = Arc::new(FakeTransport::new([]));
@@ -652,11 +662,11 @@ mod tests {
         let (service, path) = test_service(TelemetryConsent::Undecided, transport.clone());
         service.set_consent(TelemetryConsent::Enabled);
         service.report_exception("first failure", "1.0.0", "macos");
-        settle().await;
+        wait_for_flush(&service).await;
         let first_disk = load_disk(&path).unwrap();
         assert_eq!(first_disk.queue.len(), 1);
         service.report_exception("second failure", "1.0.0", "macos");
-        settle().await;
+        wait_for_flush(&service).await;
         let second_disk = load_disk(&path).unwrap();
         assert_eq!(second_disk.install_id, first_disk.install_id);
         assert!(second_disk.queue.is_empty());
