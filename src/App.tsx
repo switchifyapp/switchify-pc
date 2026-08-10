@@ -58,7 +58,7 @@ function HomeView({ state, onDisconnect, onAccessibility, onSetup }: { state: Ap
     <header className="page-header"><div><h1>Switchify PC</h1><p>Android control for this computer</p></div></header>
     <section className="connection-band" data-connected={state.bluetooth === "connected"}>
       <StatusIcon ok={bluetoothOk}>{bluetoothOk ? <Radio size={20} /> : <WifiOff size={20} />}</StatusIcon>
-      <div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.connectedDeviceName ?? bluetoothDescriptions[state.bluetooth]}</p></div>
+      <div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothDescriptions.connected : bluetoothDescriptions[state.bluetooth]}</p></div>
       {state.bluetooth === "connected" ? <button className="secondary" onClick={onDisconnect}><Power size={16} />Disconnect</button> : <button className="secondary" onClick={onSetup}><Wrench size={16} />Set up</button>}
     </section>
     <section className="status-list" aria-label="System status">

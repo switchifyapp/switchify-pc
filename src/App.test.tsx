@@ -85,22 +85,25 @@ describe("Switchify PC shell", () => {
   });
 
   it.each([
-    ["initializing", "Preparing this computer for nearby devices."],
-    ["advertising", "Waiting for a nearby Android device."],
-    ["connected", "Android device connected."],
-    ["poweredOff", "Turn on Bluetooth to connect an Android device."],
-    ["unauthorized", "Allow Bluetooth access in System Settings to connect."],
-    ["conflict", "Quit the other Switchify PC instance, then reopen this app."],
-    ["unsupported", "This computer does not support the required Bluetooth features."],
-    ["error", "Bluetooth could not start. Try restarting Switchify PC."],
-  ] satisfies Array<[BluetoothState, string]>)('uses recovery-appropriate Home copy for Bluetooth state "%s"', async (bluetooth, description) => {
+    ["initializing", "Stale tablet", "Preparing this computer for nearby devices."],
+    ["advertising", "Stale tablet", "Waiting for a nearby Android device."],
+    ["connected", null, "Android device connected."],
+    ["connected", "Pixel Tablet", "Pixel Tablet"],
+    ["poweredOff", "Stale tablet", "Turn on Bluetooth to connect an Android device."],
+    ["unauthorized", "Stale tablet", "Allow Bluetooth access in System Settings to connect."],
+    ["conflict", "Stale tablet", "Quit the other Switchify PC instance, then reopen this app."],
+    ["unsupported", "Stale tablet", "This computer does not support the required Bluetooth features."],
+    ["error", "Stale tablet", "Bluetooth could not start. Try restarting Switchify PC."],
+  ] satisfies Array<[BluetoothState, string | null, string]>)('uses recovery-appropriate Home copy for Bluetooth state "%s"', async (bluetooth, deviceName, description) => {
     browserState.bluetooth = bluetooth;
+    browserState.connectedDeviceName = deviceName;
     browserState.lastActivity = { kind: "error", message: "Internal runtime activity" };
 
     render(<App />);
 
     await screen.findByRole("heading", { name: "Switchify PC" });
     expect(screen.getByText(description)).toBeInTheDocument();
+    if (bluetooth !== "connected") expect(screen.queryByText("Stale tablet")).not.toBeInTheDocument();
     expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
   });
 
