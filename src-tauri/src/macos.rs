@@ -511,7 +511,7 @@ impl MacRuntime {
         let service_uuid =
             BluetoothUuid::from_string(SERVICE_UUID).map_err(|error| error.to_string())?;
         let advertisement = AdvertisementData::new()
-            .with_local_name(&self.display_name)
+            .with_local_name(FALLBACK_DISPLAY_NAME)
             .with_service_uuid(service_uuid);
         self.manager
             .start_advertising(&advertisement)
