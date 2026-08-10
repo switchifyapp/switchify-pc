@@ -665,7 +665,8 @@ mod tests {
         assert!(
             wait_until(|| {
                 !service.inner.flushing.load(Ordering::Acquire)
-                    && !transport.sent.lock().unwrap().is_empty()
+                    && transport.sent.lock().unwrap().len() == 1
+                    && load_disk(&path).is_some_and(|disk| disk.queue.len() == 1)
             })
             .await,
             "the retrying flush should finish"
