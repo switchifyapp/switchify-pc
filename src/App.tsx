@@ -19,6 +19,17 @@ const bluetoothLabels: Record<AppState["bluetooth"], string> = {
   conflict: "Current Switchify PC is running", unsupported: "Bluetooth unavailable", error: "Bluetooth unavailable",
 };
 
+const bluetoothDescriptions: Record<AppState["bluetooth"], string> = {
+  initializing: "Preparing this computer for nearby devices.",
+  advertising: "Waiting for a nearby Android device.",
+  connected: "Android device connected.",
+  poweredOff: "Turn on Bluetooth to connect an Android device.",
+  unauthorized: "Allow Bluetooth access in System Settings to connect.",
+  conflict: "Quit the other Switchify PC instance, then reopen this app.",
+  unsupported: "This computer does not support the required Bluetooth features.",
+  error: "Bluetooth could not start. Try restarting Switchify PC.",
+};
+
 function NavButton({ active, icon, children, onClick }: { active: boolean; icon: ReactNode; children: ReactNode; onClick: () => void }) {
   return <button className="nav-button" data-active={active} onClick={onClick}>{icon}<span>{children}</span></button>;
 }
@@ -47,7 +58,7 @@ function HomeView({ state, onDisconnect, onAccessibility, onSetup }: { state: Ap
     <header className="page-header"><div><h1>Switchify PC</h1><p>Android control for this computer</p></div></header>
     <section className="connection-band" data-connected={state.bluetooth === "connected"}>
       <StatusIcon ok={bluetoothOk}>{bluetoothOk ? <Radio size={20} /> : <WifiOff size={20} />}</StatusIcon>
-      <div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.connectedDeviceName ?? state.lastActivity?.message ?? "Waiting for a nearby Android device."}</p></div>
+      <div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothDescriptions.connected : bluetoothDescriptions[state.bluetooth]}</p></div>
       {state.bluetooth === "connected" ? <button className="secondary" onClick={onDisconnect}><Power size={16} />Disconnect</button> : <button className="secondary" onClick={onSetup}><Wrench size={16} />Set up</button>}
     </section>
     <section className="status-list" aria-label="System status">
@@ -55,7 +66,6 @@ function HomeView({ state, onDisconnect, onAccessibility, onSetup }: { state: Ap
       <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} /></div>{state.accessibility === "required" && <button className="text-button" onClick={onAccessibility}>Open Accessibility Settings</button>}</article>
       <article><StatusIcon ok><ShieldCheck size={19} /></StatusIcon><div><h3>Secure pairing</h3><p>{state.pairedDevices.length === 0 ? "No saved devices" : `${state.pairedDevices.length} saved device${state.pairedDevices.length === 1 ? "" : "s"}`}</p></div></article>
     </section>
-    <section className="activity-panel" aria-live="polite"><span>Recent activity</span><p data-kind={state.lastActivity?.kind}>{state.lastActivity?.message ?? "No recent activity."}</p></section>
   </div>;
 }
 
@@ -406,7 +416,6 @@ function SupportView({ state, busy, perform, openSetup }: { state: AppState; bus
       <article className="diagnostic-detail"><Power size={20} /><div><h2>Last disconnect</h2><p>{state.diagnostics.lastDisconnect ? `${state.diagnostics.lastDisconnect.detail ?? state.diagnostics.lastDisconnect.status}` : "No disconnect recorded yet"}</p></div></article>
       <article className="diagnostic-detail"><CircleHelp size={20} /><div><h2>Recent errors</h2><p>{state.diagnostics.recentErrors.length > 0 ? state.diagnostics.recentErrors.map((event) => event.detail ?? event.status).join(" · ") : "No recent errors"}</p></div></article>
     </section>}
-    {state.lastActivity && <section className="activity-panel" aria-live="polite"><span>Recent activity</span><p data-kind={state.lastActivity.kind}>{state.lastActivity.message}</p></section>}
   </div>;
 }
 

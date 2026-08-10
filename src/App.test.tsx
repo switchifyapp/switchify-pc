@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { api, browserState } from "./api";
-import type { AppSettings, SwitchProfile } from "./types";
+import type { AppSettings, BluetoothState, SwitchProfile } from "./types";
 
 const defaultBrowserSettings = structuredClone(browserState.settings);
 
@@ -13,9 +13,11 @@ function stateWithSettings(settings: AppSettings) {
 describe("Switchify PC shell", () => {
   beforeEach(() => {
     browserState.settings = structuredClone(defaultBrowserSettings);
+    browserState.bluetooth = "initializing";
     browserState.pendingPairings = [];
     browserState.pairedDevices = [];
     browserState.connectedDeviceName = null;
+    browserState.lastActivity = null;
     browserState.diagnostics = { recentBluetooth: [], lastDisconnect: null, recentErrors: [] };
     browserState.telemetry = { consent: "undecided", available: true };
     browserState.updater = { status: "unconfigured", version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
@@ -56,6 +58,53 @@ describe("Switchify PC shell", () => {
     await waitFor(() => expect(button).not.toBeDisabled());
     expect(button.querySelector("svg")).not.toHaveClass("spin");
     checkForUpdates.mockRestore();
+  });
+
+  it("keeps internal activity out of Home and Support while retaining troubleshooting history", async () => {
+    browserState.bluetooth = "advertising";
+    browserState.lastActivity = { kind: "error", message: "Internal runtime activity" };
+    browserState.diagnostics = {
+      recentBluetooth: [{ sequence: 1, timestamp: 1, category: "bluetooth", status: "advertising" }],
+      lastDisconnect: null,
+      recentErrors: [{ sequence: 2, timestamp: 2, category: "runtime", status: "failed", detail: "Bluetooth adapter failed" }],
+    };
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    expect(screen.getByText("Waiting for a nearby Android device.")).toBeInTheDocument();
+    expect(screen.queryByText("Recent activity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Support" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Troubleshooting" }));
+    expect(screen.queryByText("Recent activity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Recent errors" })).toBeInTheDocument();
+    expect(screen.getByText("Bluetooth adapter failed")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["initializing", "Stale tablet", "Preparing this computer for nearby devices."],
+    ["advertising", "Stale tablet", "Waiting for a nearby Android device."],
+    ["connected", null, "Android device connected."],
+    ["connected", "Pixel Tablet", "Pixel Tablet"],
+    ["poweredOff", "Stale tablet", "Turn on Bluetooth to connect an Android device."],
+    ["unauthorized", "Stale tablet", "Allow Bluetooth access in System Settings to connect."],
+    ["conflict", "Stale tablet", "Quit the other Switchify PC instance, then reopen this app."],
+    ["unsupported", "Stale tablet", "This computer does not support the required Bluetooth features."],
+    ["error", "Stale tablet", "Bluetooth could not start. Try restarting Switchify PC."],
+  ] satisfies Array<[BluetoothState, string | null, string]>)('uses recovery-appropriate Home copy for Bluetooth state "%s"', async (bluetooth, deviceName, description) => {
+    browserState.bluetooth = bluetooth;
+    browserState.connectedDeviceName = deviceName;
+    browserState.lastActivity = { kind: "error", message: "Internal runtime activity" };
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    expect(screen.getByText(description)).toBeInTheDocument();
+    if (bluetooth !== "connected") expect(screen.queryByText("Stale tablet")).not.toBeInTheDocument();
+    expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
   });
 
   it("shows update progress and exposes cancellation in Settings", async () => {
