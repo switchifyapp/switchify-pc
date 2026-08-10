@@ -1,8 +1,6 @@
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-#[cfg(test)]
-use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -164,10 +162,6 @@ struct TelemetryInner {
     config: Option<TelemetryConfig>,
     data: Mutex<TelemetryData>,
     flushing: AtomicBool,
-    #[cfg(test)]
-    flush_requested: AtomicU64,
-    #[cfg(test)]
-    flush_completed_tx: tokio::sync::watch::Sender<u64>,
     consent_tx: tokio::sync::watch::Sender<bool>,
     transport: Arc<dyn TelemetryTransport>,
 }
@@ -208,8 +202,6 @@ impl TelemetryService {
                 (consent == TelemetryConsent::Enabled).then(|| uuid::Uuid::new_v4().to_string())
             });
         let (consent_tx, _) = tokio::sync::watch::channel(consent == TelemetryConsent::Enabled);
-        #[cfg(test)]
-        let (flush_completed_tx, _) = tokio::sync::watch::channel(0);
         let service = Self {
             inner: Arc::new(TelemetryInner {
                 path,
@@ -221,10 +213,6 @@ impl TelemetryService {
                     last_error: None,
                 }),
                 flushing: AtomicBool::new(false),
-                #[cfg(test)]
-                flush_requested: AtomicU64::new(0),
-                #[cfg(test)]
-                flush_completed_tx,
                 consent_tx,
                 transport,
             }),
@@ -328,8 +316,6 @@ impl TelemetryService {
             }
             let _ = persist_locked(&self.inner.path, &data);
         }
-        #[cfg(test)]
-        self.inner.flush_requested.fetch_add(1, Ordering::AcqRel);
         self.flush();
     }
 
@@ -450,12 +436,6 @@ impl TelemetryService {
             }
             if service.finish_flush(retry_blocked) {
                 service.flush();
-            } else {
-                #[cfg(test)]
-                {
-                    let completed = service.inner.flush_requested.load(Ordering::Acquire);
-                    service.inner.flush_completed_tx.send_replace(completed);
-                }
             }
         });
     }
@@ -652,19 +632,14 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
     }
 
-    async fn wait_for_flush(service: &TelemetryService) {
-        let requested = service.inner.flush_requested.load(Ordering::Acquire);
-        let mut completed = service.inner.flush_completed_tx.subscribe();
+    async fn wait_until(mut condition: impl FnMut() -> bool) -> bool {
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            while *completed.borrow() < requested {
-                completed
-                    .changed()
-                    .await
-                    .expect("flush completion sender should remain available");
+            while !condition() {
+                tokio::task::yield_now().await;
             }
         })
         .await
-        .expect("telemetry flush should finish before the test timeout");
+        .is_ok()
     }
 
     #[tokio::test]
@@ -687,11 +662,37 @@ mod tests {
         let (service, path) = test_service(TelemetryConsent::Undecided, transport.clone());
         service.set_consent(TelemetryConsent::Enabled);
         service.report_exception("first failure", "1.0.0", "macos");
-        wait_for_flush(&service).await;
+        assert!(
+            wait_until(|| {
+                !service.inner.flushing.load(Ordering::Acquire)
+                    && !transport.sent.lock().unwrap().is_empty()
+            })
+            .await,
+            "the retrying flush should finish"
+        );
         let first_disk = load_disk(&path).unwrap();
         assert_eq!(first_disk.queue.len(), 1);
         service.report_exception("second failure", "1.0.0", "macos");
-        wait_for_flush(&service).await;
+        let flushed = wait_until(|| {
+            let queue_empty = service
+                .inner
+                .data
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .queue
+                .is_empty();
+            queue_empty
+                && !service.inner.flushing.load(Ordering::Acquire)
+                && transport.sent.lock().unwrap().len() >= 3
+        })
+        .await;
+        assert!(
+            flushed,
+            "the successful flush should persist an empty queue (sent={}, flushing={}, queued={:?})",
+            transport.sent.lock().unwrap().len(),
+            service.inner.flushing.load(Ordering::Acquire),
+            load_disk(&path).map(|disk| disk.queue.len())
+        );
         let second_disk = load_disk(&path).unwrap();
         assert_eq!(second_disk.install_id, first_disk.install_id);
         assert!(second_disk.queue.is_empty());
