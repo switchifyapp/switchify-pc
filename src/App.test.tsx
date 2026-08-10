@@ -18,6 +18,7 @@ describe("Switchify PC shell", () => {
     browserState.connectedDeviceName = null;
     browserState.diagnostics = { recentBluetooth: [], lastDisconnect: null, recentErrors: [] };
     browserState.telemetry = { consent: "undecided", available: true };
+    browserState.updater = { status: "unconfigured", version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
     browserState.setup = { shown: true, completed: false, autoOpenEligible: false };
   });
 
@@ -55,6 +56,52 @@ describe("Switchify PC shell", () => {
     await waitFor(() => expect(button).not.toBeDisabled());
     expect(button.querySelector("svg")).not.toHaveClass("spin");
     checkForUpdates.mockRestore();
+  });
+
+  it("shows update progress and exposes cancellation in Settings", async () => {
+    browserState.updater = { status: "downloading", version: "1.0.0-beta.2", downloadedBytes: 50, totalBytes: 200, error: null, retryAction: null };
+    const cancel = vi.spyOn(api, "cancelUpdateDownload").mockResolvedValue(structuredClone(browserState));
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("Downloading Switchify PC 1.0.0-beta.2");
+    expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "50");
+    expect(document.querySelector(".update-controls > span")).toHaveTextContent("25%");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("offers the correct retry action after a failure", async () => {
+    browserState.updater = { status: "failed", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: "Download failed", retryAction: "download" };
+    const download = vi.spyOn(api, "downloadUpdate").mockResolvedValue(structuredClone(browserState));
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Download failed");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(download).toHaveBeenCalledOnce();
+  });
+
+  it("offers installation and restart when a download is ready", async () => {
+    browserState.updater = { status: "readyToInstall", version: "1.0.0-beta.2", downloadedBytes: 200, totalBytes: 200, error: null, retryAction: null };
+    const install = vi.spyOn(api, "installUpdate").mockResolvedValue(structuredClone(browserState));
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Install and restart" }));
+    expect(install).toHaveBeenCalledOnce();
+  });
+
+  it("retries a cancelled download from the beginning", async () => {
+    browserState.updater = { status: "cancelled", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: "download" };
+    const download = vi.spyOn(api, "downloadUpdate").mockResolvedValue(structuredClone(browserState));
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Download cancelled. You can retry when ready.");
+    fireEvent.click(screen.getByRole("button", { name: "Retry download" }));
+    expect(download).toHaveBeenCalledOnce();
   });
 
   it("routes tray navigation without discarding a dirty profile silently", async () => {

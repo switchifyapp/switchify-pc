@@ -9,6 +9,7 @@ use crate::diagnostics::{DiagnosticHistory, DiagnosticSummary};
 use crate::protocol::{PendingPairingSummary, ProtocolEngine};
 use crate::storage::{AppStorage, PersistedState};
 use crate::telemetry::{TelemetryConsent, TelemetryService, TelemetryView};
+use crate::updater::UpdateView;
 
 pub const APP_STATE_EVENT: &str = "app-state-changed";
 
@@ -263,6 +264,7 @@ pub struct AppState {
     pub diagnostics: DiagnosticSummary,
     pub telemetry: TelemetryView,
     pub setup: SetupState,
+    pub updater: UpdateView,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -370,6 +372,7 @@ impl AppModel {
                     completed: saved.setup_completed,
                     auto_open_eligible: setup_auto_open_eligible,
                 },
+                updater: UpdateView::default(),
             },
         }));
         let model = Self {

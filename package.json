@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/create-update-feed.node-test.mjs",
     "lint": "tsc --noEmit",
     "macos:setup-signing": "./scripts/setup-macos-dev-signing.sh",
     "macos:run": "./scripts/run-macos-signed.sh",

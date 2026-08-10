@@ -105,6 +105,10 @@ button:disabled { cursor: default; opacity: 0.55; }
 .setting-group h2 { font-size: 15px; }
 .setting-group header p { margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .setting-controls { display: grid; align-content: start; gap: 17px; }
+.update-controls { display: grid; gap: 10px; color: var(--muted); font-size: 12px; }
+.update-controls > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.update-controls progress { width: 100%; accent-color: var(--brand); }
+.update-controls > span { font-variant-numeric: tabular-nums; }
 .toggle-row, .range-row { display: grid; align-items: center; gap: 12px; font-size: 13px; }
 .toggle-row { grid-template-columns: 1fr auto; cursor: pointer; }
 .toggle-row input { position: absolute; width: 1px; height: 1px; opacity: 0; }

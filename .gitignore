@@ -3,6 +3,7 @@ dist/
 src-tauri/target/
 src-tauri/binaries/
 src-tauri/startup-launcher/target/
+tools/updater-signature-verifier/target/
 src-tauri/gen/
 .certs/
 .env
@@ -12,3 +13,4 @@ Thumbs.db
 *.log
 src-tauri/icons/android/
 src-tauri/icons/ios/
+src-tauri/tauri.release*.generated.json

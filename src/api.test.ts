@@ -50,6 +50,20 @@ describe("runtime state events", () => {
     expect(invoke).toHaveBeenCalledWith("take_navigation_request");
   });
 
+  it("invokes each updater lifecycle command", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+
+    await api.checkForUpdates();
+    await api.downloadUpdate();
+    await api.cancelUpdateDownload();
+    await api.installUpdate();
+
+    expect(invoke).toHaveBeenCalledWith("check_for_updates", undefined);
+    expect(invoke).toHaveBeenCalledWith("download_update", undefined);
+    expect(invoke).toHaveBeenCalledWith("cancel_update_download", undefined);
+    expect(invoke).toHaveBeenCalledWith("install_update", undefined);
+  });
+
   it("delivers tray navigation queued before the listener was ready", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,

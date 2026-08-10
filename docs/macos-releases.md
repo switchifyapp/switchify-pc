@@ -26,6 +26,8 @@ Configure these environment secrets:
 | `APPLE_API_KEY` | App Store Connect API key ID |
 | `APPLE_API_PRIVATE_KEY` | Complete contents of the downloaded `.p8` file |
 | `TIMBERLOGS_API_KEY` | Production telemetry API key |
+| `TAURI_SIGNING_PRIVATE_KEY` | Password-protected Tauri updater private key |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for the updater private key |
 
 Configure these environment variables:
 
@@ -34,6 +36,8 @@ Configure these environment variables:
 | `APPLE_SIGNING_IDENTITY` | Full `Developer ID Application: … (TEAMID)` identity |
 | `APPLE_TEAM_ID` | Apple Developer team ID from the identity |
 | `TIMBERLOGS_ENDPOINT` | Production HTTPS telemetry endpoint |
+
+Configure `TAURI_UPDATER_PUBLIC_KEY` as a repository variable. Keep an encrypted offline backup of the updater private key and password: installed applications cannot accept future updates if that key is lost.
 
 Encode the certificate without line wrapping on macOS:
 
@@ -45,11 +49,9 @@ The workflow writes credentials only beneath the ephemeral runner directory, imp
 
 ## Publish a release
 
-Keep `package.json` and `src-tauri/tauri.conf.json` versions identical, then create and push the corresponding tag, for example `v1.0.0-beta.1`. The release workflow checks out that exact tag, builds on an Apple Silicon runner, lets Tauri sign and notarize the app, then separately submits and staples the finished signed DMG. It validates Gatekeeper and both stapled tickets before creating or updating the matching GitHub Release.
+Keep `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` versions identical, then create and push the corresponding tag, for example `v1.0.0-beta.1`. The release workflow checks out that exact tag, builds on an Apple Silicon runner, lets Tauri sign and notarize the app, then separately submits and staples the finished signed DMG. The Windows job runs on the `switchify-signing` self-hosted runner with SimplySign authenticated. Both packages and updater signatures must pass verification before the matching GitHub Release and `update-feed/latest.json` are updated.
 
-The workflow can be manually dispatched with an existing tag to recover or replace a macOS asset. It never modifies earlier tags or release assets. The published DMG is accompanied by `SHA256SUMS-macos.txt`.
-
-Updater feed generation and updater signing are intentionally separate work. Publishing a DMG does not make the in-app updater functional.
+The workflow can be manually dispatched with an existing tag to recover or replace assets for that tag. It never modifies earlier tags or their assets. Checksums accompany both platform installers.
 
 ## Rotation and troubleshooting
 

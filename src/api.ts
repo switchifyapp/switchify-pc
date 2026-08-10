@@ -29,6 +29,7 @@ export const browserState: AppState = {
   diagnostics: { recentBluetooth: [], lastDisconnect: null, recentErrors: [] },
   telemetry: { consent: "undecided", available: true },
   setup: { shown: false, completed: false, autoOpenEligible: true },
+  updater: { status: "unconfigured", version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null },
 };
 
 const emptyBindings = () => Array.from({ length: 8 }, (_, index) => ({
@@ -102,6 +103,9 @@ export const api = {
     ? invoke<void>("cancel_profile_exit")
     : Promise.resolve(),
   checkForUpdates: () => call<AppState>("check_for_updates"),
+  downloadUpdate: () => call<AppState>("download_update"),
+  cancelUpdateDownload: () => call<AppState>("cancel_update_download"),
+  installUpdate: () => call<AppState>("install_update"),
   exportDiagnostics: () => call<AppState>("export_diagnostics"),
   onState: async (handler: (state: AppState) => void): Promise<UnlistenFn> => {
     if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
