@@ -1,6 +1,8 @@
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+#[cfg(test)]
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -162,6 +164,10 @@ struct TelemetryInner {
     config: Option<TelemetryConfig>,
     data: Mutex<TelemetryData>,
     flushing: AtomicBool,
+    #[cfg(test)]
+    flush_requested: AtomicU64,
+    #[cfg(test)]
+    flush_completed_tx: tokio::sync::watch::Sender<u64>,
     consent_tx: tokio::sync::watch::Sender<bool>,
     transport: Arc<dyn TelemetryTransport>,
 }
@@ -202,6 +208,8 @@ impl TelemetryService {
                 (consent == TelemetryConsent::Enabled).then(|| uuid::Uuid::new_v4().to_string())
             });
         let (consent_tx, _) = tokio::sync::watch::channel(consent == TelemetryConsent::Enabled);
+        #[cfg(test)]
+        let (flush_completed_tx, _) = tokio::sync::watch::channel(0);
         let service = Self {
             inner: Arc::new(TelemetryInner {
                 path,
@@ -213,6 +221,10 @@ impl TelemetryService {
                     last_error: None,
                 }),
                 flushing: AtomicBool::new(false),
+                #[cfg(test)]
+                flush_requested: AtomicU64::new(0),
+                #[cfg(test)]
+                flush_completed_tx,
                 consent_tx,
                 transport,
             }),
@@ -316,6 +328,8 @@ impl TelemetryService {
             }
             let _ = persist_locked(&self.inner.path, &data);
         }
+        #[cfg(test)]
+        self.inner.flush_requested.fetch_add(1, Ordering::AcqRel);
         self.flush();
     }
 
@@ -436,6 +450,12 @@ impl TelemetryService {
             }
             if service.finish_flush(retry_blocked) {
                 service.flush();
+            } else {
+                #[cfg(test)]
+                {
+                    let completed = service.inner.flush_requested.load(Ordering::Acquire);
+                    service.inner.flush_completed_tx.send_replace(completed);
+                }
             }
         });
     }
@@ -633,9 +653,14 @@ mod tests {
     }
 
     async fn wait_for_flush(service: &TelemetryService) {
+        let requested = service.inner.flush_requested.load(Ordering::Acquire);
+        let mut completed = service.inner.flush_completed_tx.subscribe();
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            while service.inner.flushing.load(Ordering::Acquire) {
-                tokio::task::yield_now().await;
+            while *completed.borrow() < requested {
+                completed
+                    .changed()
+                    .await
+                    .expect("flush completion sender should remain available");
             }
         })
         .await
