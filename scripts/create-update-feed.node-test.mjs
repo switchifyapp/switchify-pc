@@ -18,8 +18,8 @@ const fixtures = () => {
   const windowsDirectory = join(root, "windows-release");
   mkdirSync(macDirectory);
   mkdirSync(windowsDirectory);
-  const mac = join(macDirectory, "Switchify.PC.app.tar.gz");
-  const windows = join(windowsDirectory, "Switchify.PC_1.0.0_x64-setup.exe");
+  const mac = join(macDirectory, "Switchify PC.app.tar.gz");
+  const windows = join(windowsDirectory, "Switchify PC_1.0.0_x64-setup.exe");
   writeFileSync(mac, gzipSync("archive fixture"));
   const pe = Buffer.alloc(128);
   pe.write("MZ", 0, "ascii");
@@ -46,6 +46,18 @@ describe("createUpdateFeed", () => {
     assert.deepEqual(verified, [fixture.mac, fixture.windows]);
     assert.equal(feed.platforms["darwin-aarch64"].signature, "mac-signature");
     assert.equal(feed.platforms["windows-x86_64"].signature, "windows-signature");
+  });
+
+  it("uses the dot-normalized names GitHub assigns to release assets", () => {
+    const feed = createUpdateFeed(options(fixtures()));
+    assert.equal(
+      feed.platforms["darwin-aarch64"].url,
+      "https://github.com/switchifyapp/switchify-pc/releases/download/v1.0.0-beta.1/Switchify.PC.app.tar.gz",
+    );
+    assert.equal(
+      feed.platforms["windows-x86_64"].url,
+      "https://github.com/switchifyapp/switchify-pc/releases/download/v1.0.0-beta.1/Switchify.PC_1.0.0_x64-setup.exe",
+    );
   });
 
   it("refuses a non-empty signature that fails cryptographic verification", () => {
