@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useLayoutEffect, useState } from "react";
 import "./modifier-overlay.css";
 
@@ -66,8 +65,9 @@ export function ModifierOverlay() {
   }, []);
 
   useLayoutEffect(() => {
-    const window = getCurrentWindow();
-    void (snapshot.labels.length > 0 ? window.show() : window.hide()).catch(() => undefined);
+    if (snapshot.labels.length > 0) {
+      void invoke("modifier_overlay_present", { revision: snapshot.revision }).catch(() => undefined);
+    }
   }, [snapshot]);
 
   return <ModifierOverlayView snapshot={snapshot} />;

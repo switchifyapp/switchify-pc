@@ -377,6 +377,15 @@ fn modifier_overlay_ready(
 }
 
 #[tauri::command]
+fn modifier_overlay_present(
+    window: tauri::WebviewWindow,
+    overlay: State<'_, modifier_overlay::ModifierOverlay>,
+    revision: u64,
+) -> Result<(), String> {
+    overlay.present(window.label(), revision)
+}
+
+#[tauri::command]
 fn forget_device(model: State<'_, AppModel>, device_id: String) -> Result<AppState, String> {
     {
         let mut data = model
@@ -1257,6 +1266,7 @@ pub fn run() {
             reject_pairing,
             disconnect_all,
             modifier_overlay_ready,
+            modifier_overlay_present,
             forget_device,
             save_settings,
             set_telemetry_consent,

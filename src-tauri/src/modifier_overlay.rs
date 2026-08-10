@@ -1,8 +1,12 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use serde::Serialize;
 use tauri::{
-    Emitter, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    utils::config::Color, Emitter, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
 };
 
 use crate::input::ModifierKey;
@@ -14,6 +18,8 @@ const OVERLAY_WINDOW_LABEL: &str = "modifier-overlay";
 const OVERLAY_WIDTH: f64 = 480.0;
 const OVERLAY_HEIGHT: f64 = 70.0;
 const OVERLAY_MARGIN: f64 = 16.0;
+const WINDOWS_BOOTSTRAP_POSITION: f64 = -32_000.0;
+const READINESS_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub trait ModifierKeyOverlayNotifier: Send + Sync {
     fn set_active_modifiers(&self, active_modifiers: &[ModifierKey]);
@@ -44,11 +50,25 @@ struct ModifierOverlayState {
     revision: u64,
     active_modifiers: Vec<ModifierKey>,
     ready: bool,
+    readiness_failure_reported: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct BootstrapPolicy {
+    visible: bool,
+    position: Option<(f64, f64)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PresentationAction {
+    Ignore,
+    Show,
 }
 
 impl ModifierOverlay {
     pub fn install(app: tauri::AppHandle, shared: SharedModel) -> Result<Self, String> {
-        let window = WebviewWindowBuilder::new(
+        let policy = current_bootstrap_policy();
+        let mut builder = WebviewWindowBuilder::new(
             &app,
             OVERLAY_WINDOW_LABEL,
             WebviewUrl::App("index.html?view=modifier-overlay".into()),
@@ -64,21 +84,26 @@ impl ModifierOverlay {
         .skip_taskbar(true)
         .focusable(false)
         .focused(false)
-        .visible(false)
-        .build()
-        .map_err(|error| error.to_string())?;
+        .background_color(Color(0, 0, 0, 0))
+        .visible(policy.visible);
+        if let Some((x, y)) = policy.position {
+            builder = builder.position(x, y);
+        }
+        let window = builder.build().map_err(|error| error.to_string())?;
         configure_platform_window(&window)?;
         window
             .set_ignore_cursor_events(true)
             .map_err(|error| error.to_string())?;
-        Ok(Self {
+        let overlay = Self {
             inner: Arc::new(ModifierOverlayInner {
                 app,
                 shared,
                 window,
                 state: Mutex::new(ModifierOverlayState::default()),
             }),
-        })
+        };
+        overlay.start_readiness_watchdog();
+        Ok(overlay)
     }
 
     pub fn notifier(&self) -> Arc<dyn ModifierKeyOverlayNotifier> {
@@ -98,10 +123,37 @@ impl ModifierOverlay {
             state.ready = true;
             snapshot(&state)
         };
-        if !snapshot.labels.is_empty() {
-            self.position_window()?;
+        if snapshot.labels.is_empty() {
+            self.inner
+                .window
+                .hide()
+                .map_err(|error| error.to_string())?;
         }
         Ok(snapshot)
+    }
+
+    pub fn present(&self, window_label: &str, revision: u64) -> Result<(), String> {
+        if window_label != OVERLAY_WINDOW_LABEL {
+            return Err(
+                "Modifier overlay presentation is only available to its overlay window.".into(),
+            );
+        }
+        let action = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            presentation_action(&state, revision)
+        };
+        if action == PresentationAction::Show {
+            self.position_window()?;
+            self.inner
+                .window
+                .show()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
     }
 
     pub fn end_session(&self) {
@@ -110,7 +162,7 @@ impl ModifierOverlay {
 
     fn update(&self, active_modifiers: &[ModifierKey]) {
         let normalized = canonical_modifiers(active_modifiers);
-        let (snapshot, ready) = {
+        let snapshot = {
             let mut state = self
                 .inner
                 .state
@@ -121,7 +173,7 @@ impl ModifierOverlay {
             }
             state.active_modifiers = normalized;
             state.revision = state.revision.wrapping_add(1);
-            (snapshot(&state), state.ready)
+            snapshot(&state)
         };
         if let Err(error) = self
             .inner
@@ -134,16 +186,29 @@ impl ModifierOverlay {
             if let Err(error) = self.inner.window.hide() {
                 self.report_failure(&error.to_string());
             }
-        } else if ready {
-            if let Err(error) = self.position_window().and_then(|_| {
-                self.inner
-                    .window
-                    .show()
-                    .map_err(|window_error| window_error.to_string())
-            }) {
-                self.report_failure(&error);
-            }
         }
+    }
+
+    fn start_readiness_watchdog(&self) {
+        let overlay = self.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(READINESS_TIMEOUT).await;
+            let should_report = {
+                let mut state = overlay
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let should_report = readiness_watchdog_should_report(&state);
+                if should_report {
+                    state.readiness_failure_reported = true;
+                }
+                should_report
+            };
+            if should_report {
+                overlay.report_failure("the overlay page did not initialize in time");
+            }
+        });
     }
 
     fn position_window(&self) -> Result<(), String> {
@@ -185,6 +250,36 @@ impl ModifierOverlay {
         );
         emit_state(&self.inner.app, &self.inner.shared);
     }
+}
+
+fn current_bootstrap_policy() -> BootstrapPolicy {
+    bootstrap_policy(cfg!(target_os = "windows"))
+}
+
+fn bootstrap_policy(is_windows: bool) -> BootstrapPolicy {
+    if is_windows {
+        BootstrapPolicy {
+            visible: true,
+            position: Some((WINDOWS_BOOTSTRAP_POSITION, WINDOWS_BOOTSTRAP_POSITION)),
+        }
+    } else {
+        BootstrapPolicy {
+            visible: false,
+            position: None,
+        }
+    }
+}
+
+fn presentation_action(state: &ModifierOverlayState, revision: u64) -> PresentationAction {
+    if state.ready && revision == state.revision && !state.active_modifiers.is_empty() {
+        PresentationAction::Show
+    } else {
+        PresentationAction::Ignore
+    }
+}
+
+fn readiness_watchdog_should_report(state: &ModifierOverlayState) -> bool {
+    !state.ready && !state.readiness_failure_reported
 }
 
 #[cfg(target_os = "macos")]
@@ -343,5 +438,51 @@ mod tests {
             overlay_position(0, 0, 1920, PhysicalSize::new(480, 70), f64::NAN),
             PhysicalPosition::new(1424, 16)
         );
+    }
+
+    #[test]
+    fn windows_bootstraps_visible_and_offscreen() {
+        assert_eq!(
+            bootstrap_policy(true),
+            BootstrapPolicy {
+                visible: true,
+                position: Some((WINDOWS_BOOTSTRAP_POSITION, WINDOWS_BOOTSTRAP_POSITION)),
+            }
+        );
+        assert_eq!(
+            bootstrap_policy(false),
+            BootstrapPolicy {
+                visible: false,
+                position: None,
+            }
+        );
+    }
+
+    #[test]
+    fn presentation_requires_ready_current_nonempty_state() {
+        let mut state = ModifierOverlayState {
+            revision: 4,
+            active_modifiers: vec![ModifierKey::Ctrl],
+            ..ModifierOverlayState::default()
+        };
+        assert_eq!(presentation_action(&state, 4), PresentationAction::Ignore);
+
+        state.ready = true;
+        assert_eq!(presentation_action(&state, 3), PresentationAction::Ignore);
+        assert_eq!(presentation_action(&state, 4), PresentationAction::Show);
+
+        state.active_modifiers.clear();
+        assert_eq!(presentation_action(&state, 4), PresentationAction::Ignore);
+    }
+
+    #[test]
+    fn readiness_watchdog_reports_only_once_before_ready() {
+        let mut state = ModifierOverlayState::default();
+        assert!(readiness_watchdog_should_report(&state));
+        state.readiness_failure_reported = true;
+        assert!(!readiness_watchdog_should_report(&state));
+        state.readiness_failure_reported = false;
+        state.ready = true;
+        assert!(!readiness_watchdog_should_report(&state));
     }
 }
