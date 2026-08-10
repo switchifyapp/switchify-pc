@@ -632,6 +632,16 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
     }
 
+    async fn wait_until(mut condition: impl FnMut() -> bool) -> bool {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while !condition() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .is_ok()
+    }
+
     #[tokio::test]
     async fn nothing_is_stored_or_sent_before_opt_in() {
         let transport = Arc::new(FakeTransport::new([]));
@@ -652,11 +662,38 @@ mod tests {
         let (service, path) = test_service(TelemetryConsent::Undecided, transport.clone());
         service.set_consent(TelemetryConsent::Enabled);
         service.report_exception("first failure", "1.0.0", "macos");
-        settle().await;
+        assert!(
+            wait_until(|| {
+                !service.inner.flushing.load(Ordering::Acquire)
+                    && transport.sent.lock().unwrap().len() == 1
+                    && load_disk(&path).is_some_and(|disk| disk.queue.len() == 1)
+            })
+            .await,
+            "the retrying flush should finish"
+        );
         let first_disk = load_disk(&path).unwrap();
         assert_eq!(first_disk.queue.len(), 1);
         service.report_exception("second failure", "1.0.0", "macos");
-        settle().await;
+        let flushed = wait_until(|| {
+            let queue_empty = service
+                .inner
+                .data
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .queue
+                .is_empty();
+            queue_empty
+                && !service.inner.flushing.load(Ordering::Acquire)
+                && transport.sent.lock().unwrap().len() >= 3
+        })
+        .await;
+        assert!(
+            flushed,
+            "the successful flush should persist an empty queue (sent={}, flushing={}, queued={:?})",
+            transport.sent.lock().unwrap().len(),
+            service.inner.flushing.load(Ordering::Acquire),
+            load_disk(&path).map(|disk| disk.queue.len())
+        );
         let second_disk = load_disk(&path).unwrap();
         assert_eq!(second_disk.install_id, first_disk.install_id);
         assert!(second_disk.queue.is_empty());
