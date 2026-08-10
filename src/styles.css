@@ -69,11 +69,6 @@ main { min-width: 0; }
 .status-list h3 { font-size: 14px; }
 .status-list p { margin-top: 3px; color: var(--muted); font-size: 13px; }
 .status-list .status-icon { width: 34px; height: 34px; }
-.activity-panel { margin-top: 24px; border-left: 3px solid var(--inactive); padding: 12px 15px; background: var(--surface-muted); }
-.activity-panel span { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
-.activity-panel p { margin-top: 5px; font-size: 13px; }
-.activity-panel p[data-kind="success"] { color: var(--status-ok); }
-.activity-panel p[data-kind="error"] { color: var(--status-error); }
 
 .primary, .secondary, .text-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; border-radius: 6px; padding: 0 14px; cursor: pointer; }
 .primary { border: 1px solid var(--brand); color: var(--on-brand); background: var(--brand); font-weight: 650; }

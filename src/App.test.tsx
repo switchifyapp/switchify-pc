@@ -13,9 +13,11 @@ function stateWithSettings(settings: AppSettings) {
 describe("Switchify PC shell", () => {
   beforeEach(() => {
     browserState.settings = structuredClone(defaultBrowserSettings);
+    browserState.bluetooth = "initializing";
     browserState.pendingPairings = [];
     browserState.pairedDevices = [];
     browserState.connectedDeviceName = null;
+    browserState.lastActivity = null;
     browserState.diagnostics = { recentBluetooth: [], lastDisconnect: null, recentErrors: [] };
     browserState.telemetry = { consent: "undecided", available: true };
     browserState.updater = { status: "unconfigured", version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
@@ -56,6 +58,30 @@ describe("Switchify PC shell", () => {
     await waitFor(() => expect(button).not.toBeDisabled());
     expect(button.querySelector("svg")).not.toHaveClass("spin");
     checkForUpdates.mockRestore();
+  });
+
+  it("keeps internal activity out of Home and Support while retaining troubleshooting history", async () => {
+    browserState.bluetooth = "advertising";
+    browserState.lastActivity = { kind: "error", message: "Internal runtime activity" };
+    browserState.diagnostics = {
+      recentBluetooth: [{ sequence: 1, timestamp: 1, category: "bluetooth", status: "advertising" }],
+      lastDisconnect: null,
+      recentErrors: [{ sequence: 2, timestamp: 2, category: "runtime", status: "failed", detail: "Bluetooth adapter failed" }],
+    };
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    expect(screen.getByText("Waiting for a nearby Android device.")).toBeInTheDocument();
+    expect(screen.queryByText("Recent activity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Support" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Troubleshooting" }));
+    expect(screen.queryByText("Recent activity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Recent errors" })).toBeInTheDocument();
+    expect(screen.getByText("Bluetooth adapter failed")).toBeInTheDocument();
   });
 
   it("shows update progress and exposes cancellation in Settings", async () => {
