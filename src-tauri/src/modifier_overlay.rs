@@ -43,6 +43,7 @@ struct ModifierOverlayInner {
     shared: SharedModel,
     window: WebviewWindow,
     state: Mutex<ModifierOverlayState>,
+    window_actions: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -61,6 +62,7 @@ struct BootstrapPolicy {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PresentationAction {
+    Hide,
     Ignore,
     Show,
 }
@@ -100,6 +102,7 @@ impl ModifierOverlay {
                 shared,
                 window,
                 state: Mutex::new(ModifierOverlayState::default()),
+                window_actions: Mutex::new(()),
             }),
         };
         overlay.start_readiness_watchdog();
@@ -124,10 +127,7 @@ impl ModifierOverlay {
             snapshot(&state)
         };
         if snapshot.labels.is_empty() {
-            self.inner
-                .window
-                .hide()
-                .map_err(|error| error.to_string())?;
+            self.hide_if_current_empty(snapshot.revision)?;
         }
         Ok(snapshot)
     }
@@ -138,6 +138,11 @@ impl ModifierOverlay {
                 "Modifier overlay presentation is only available to its overlay window.".into(),
             );
         }
+        let _window_action = self
+            .inner
+            .window_actions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let action = {
             let state = self
                 .inner
@@ -183,10 +188,33 @@ impl ModifierOverlay {
             self.report_failure(&error.to_string());
         }
         if snapshot.labels.is_empty() {
-            if let Err(error) = self.inner.window.hide() {
-                self.report_failure(&error.to_string());
+            if let Err(error) = self.hide_if_current_empty(snapshot.revision) {
+                self.report_failure(&error);
             }
         }
+    }
+
+    fn hide_if_current_empty(&self, revision: u64) -> Result<(), String> {
+        let _window_action = self
+            .inner
+            .window_actions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let action = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            presentation_action(&state, revision)
+        };
+        if action == PresentationAction::Hide {
+            self.inner
+                .window
+                .hide()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
     }
 
     fn start_readiness_watchdog(&self) {
@@ -271,7 +299,12 @@ fn bootstrap_policy(is_windows: bool) -> BootstrapPolicy {
 }
 
 fn presentation_action(state: &ModifierOverlayState, revision: u64) -> PresentationAction {
-    if state.ready && revision == state.revision && !state.active_modifiers.is_empty() {
+    if revision != state.revision {
+        return PresentationAction::Ignore;
+    }
+    if state.active_modifiers.is_empty() {
+        PresentationAction::Hide
+    } else if state.ready {
         PresentationAction::Show
     } else {
         PresentationAction::Ignore
@@ -318,6 +351,11 @@ impl ModifierKeyOverlayNotifier for ModifierOverlay {
                 }
             }
         }
+        let _window_action = self
+            .inner
+            .window_actions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Err(error) = self.inner.window.hide() {
             self.report_failure(&error.to_string());
         }
@@ -472,7 +510,19 @@ mod tests {
         assert_eq!(presentation_action(&state, 4), PresentationAction::Show);
 
         state.active_modifiers.clear();
+        assert_eq!(presentation_action(&state, 4), PresentationAction::Hide);
+    }
+
+    #[test]
+    fn stale_empty_revision_cannot_hide_newer_nonempty_state() {
+        let state = ModifierOverlayState {
+            revision: 5,
+            active_modifiers: vec![ModifierKey::Shift],
+            ready: true,
+            ..ModifierOverlayState::default()
+        };
         assert_eq!(presentation_action(&state, 4), PresentationAction::Ignore);
+        assert_eq!(presentation_action(&state, 5), PresentationAction::Show);
     }
 
     #[test]
