@@ -25,7 +25,7 @@ export const browserState: AppState = {
     platform: navigator.userAgent.includes("Mac") ? "macos" : "windows",
     grid3: false, uiAccess: false, displayNavigation: false, cursorOverlay: true,
   },
-  version: "1.0.0-alpha.3",
+  version: "1.0.0-alpha.4",
   diagnostics: { recentBluetooth: [], lastDisconnect: null, recentErrors: [] },
   telemetry: { consent: "undecided", available: true },
   setup: { shown: false, completed: false, autoOpenEligible: true },
