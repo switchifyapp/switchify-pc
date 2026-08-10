@@ -316,13 +316,22 @@ async fn reject_pairing(
 }
 
 #[tauri::command]
-fn disconnect_all(
-    app: AppHandle,
-    model: State<'_, AppModel>,
-    overlay: State<'_, overlay::CursorOverlay>,
-    modifier_overlay: State<'_, modifier_overlay::ModifierOverlay>,
-) -> Result<AppState, String> {
-    disconnect_all_inner(&app, &model, &overlay, &modifier_overlay)
+async fn disconnect_all(app: AppHandle) -> Result<AppState, String> {
+    disconnect_all_on_main_thread(app).await
+}
+
+async fn disconnect_all_on_main_thread(app: AppHandle) -> Result<AppState, String> {
+    let shared = app.state::<AppModel>().shared.clone();
+    let operation_app = app.clone();
+    on_main_thread(app.clone(), move || {
+        platform_disconnect_all(&operation_app, &shared)
+    })
+    .await?;
+
+    let model = app.state::<AppModel>();
+    let overlay = app.state::<overlay::CursorOverlay>();
+    let modifier_overlay = app.state::<modifier_overlay::ModifierOverlay>();
+    Ok(finish_disconnect(&app, &model, &overlay, &modifier_overlay))
 }
 
 fn disconnect_all_inner(
@@ -332,6 +341,15 @@ fn disconnect_all_inner(
     modifier_overlay: &modifier_overlay::ModifierOverlay,
 ) -> Result<AppState, String> {
     platform_disconnect_all(app, &model.shared)?;
+    Ok(finish_disconnect(app, model, overlay, modifier_overlay))
+}
+
+fn finish_disconnect(
+    app: &AppHandle,
+    model: &AppModel,
+    overlay: &overlay::CursorOverlay,
+    modifier_overlay: &modifier_overlay::ModifierOverlay,
+) -> AppState {
     overlay.end_session();
     modifier_overlay.end_session();
     {
@@ -347,8 +365,7 @@ fn disconnect_all_inner(
         "All devices disconnected.",
     );
     state::emit_state(app, &model.shared);
-    let state = model.snapshot();
-    Ok(state)
+    model.snapshot()
 }
 
 #[tauri::command]
@@ -937,9 +954,7 @@ async fn install_update(app: AppHandle) -> Result<AppState, String> {
     let version = update.version().to_owned();
     let downloaded_bytes = bytes.len() as u64;
     let total_bytes = model.snapshot().updater.total_bytes;
-    let overlay = app.state::<overlay::CursorOverlay>();
-    let modifier_overlay = app.state::<modifier_overlay::ModifierOverlay>();
-    if let Err(error) = disconnect_all_inner(&app, &model, &overlay, &modifier_overlay) {
+    if let Err(error) = disconnect_all_on_main_thread(app.clone()).await {
         manager.store_download(bytes);
         manager.finish(UpdateOperation::Install);
         return Ok(update_failure(
