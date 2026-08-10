@@ -5,7 +5,8 @@ use std::time::Duration;
 use corebluetooth::prelude::*;
 use enigo::{Enigo, Settings};
 use objc2_app_kit::NSWorkspace;
-use objc2_foundation::{NSString, NSURL};
+#[allow(deprecated)]
+use objc2_foundation::{NSHost, NSString, NSURL};
 use tauri::{AppHandle, Manager};
 
 use crate::input::{DesktopInput, PointerFeedback};
@@ -27,7 +28,7 @@ const SERVICE_UUID: &str = "7a78f7e8-1d6d-4d92-9ef0-1f89d3db21f4";
 const RX_UUID: &str = "7a78f7e9-1d6d-4d92-9ef0-1f89d3db21f4";
 const TX_UUID: &str = "7a78f7ea-1d6d-4d92-9ef0-1f89d3db21f4";
 const STATUS_UUID: &str = "7a78f7eb-1d6d-4d92-9ef0-1f89d3db21f4";
-const DISPLAY_NAME: &str = "Switchify PC";
+const FALLBACK_DISPLAY_NAME: &str = "Switchify PC";
 const MAX_QUEUED_NOTIFICATIONS: usize = 512;
 const ACCESSIBILITY_SETTINGS_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
@@ -93,11 +94,28 @@ fn evaluate_accessibility<A: AccessibilityAdapter>(
     }
 }
 
+fn resolved_display_name(localized_name: Option<&str>) -> String {
+    localized_name
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(FALLBACK_DISPLAY_NAME)
+        .to_owned()
+}
+
+#[allow(deprecated)]
+fn system_display_name() -> String {
+    let localized_name = NSHost::currentHost()
+        .localizedName()
+        .map(|name| name.to_string());
+    resolved_display_name(localized_name.as_deref())
+}
+
 thread_local! {
     static RUNTIME: RefCell<Option<MacRuntime>> = const { RefCell::new(None) };
 }
 
 pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
+    let display_name = system_display_name();
     let state_app = app.clone();
     let service_app = app.clone();
     let advertising_app = app.clone();
@@ -158,6 +176,7 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         *slot.borrow_mut() = Some(MacRuntime {
             app,
             shared,
+            display_name,
             manager,
             service: None,
             tx_characteristic: None,
@@ -332,6 +351,7 @@ fn with_runtime<T>(
 struct MacRuntime {
     app: AppHandle,
     shared: SharedModel,
+    display_name: String,
     manager: PeripheralManager,
     service: Option<MutableService>,
     tx_characteristic: Option<MutableCharacteristic>,
@@ -454,7 +474,7 @@ impl MacRuntime {
                 model.state.capabilities.platform.clone(),
             )
         };
-        self.status_value = bluetooth_status_payload(DISPLAY_NAME, &desktop_id, &platform)?;
+        self.status_value = bluetooth_status_payload(&self.display_name, &desktop_id, &platform)?;
         let status = MutableCharacteristic::new(
             &status_uuid,
             CharacteristicProperties::READ,
@@ -491,7 +511,7 @@ impl MacRuntime {
         let service_uuid =
             BluetoothUuid::from_string(SERVICE_UUID).map_err(|error| error.to_string())?;
         let advertisement = AdvertisementData::new()
-            .with_local_name(DISPLAY_NAME)
+            .with_local_name(&self.display_name)
             .with_service_uuid(service_uuid);
         self.manager
             .start_advertising(&advertisement)
@@ -1434,6 +1454,31 @@ mod tests {
             "settings unavailable"
         );
         assert_eq!((adapter.prompt_requests, adapter.settings_opens), (1, 1));
+    }
+
+    #[test]
+    fn localized_computer_name_is_trimmed_and_preserves_unicode() {
+        assert_eq!(
+            resolved_display_name(Some("  Owen’s Mac Studio  ")),
+            "Owen’s Mac Studio"
+        );
+    }
+
+    #[test]
+    fn missing_or_blank_computer_name_uses_product_fallback() {
+        assert_eq!(resolved_display_name(None), FALLBACK_DISPLAY_NAME);
+        assert_eq!(resolved_display_name(Some(" \n\t ")), FALLBACK_DISPLAY_NAME);
+    }
+
+    #[test]
+    fn bluetooth_status_uses_resolved_computer_name() {
+        let display_name = resolved_display_name(Some("Owen’s Mac Studio"));
+        let payload = bluetooth_status_payload(&display_name, "desktop-1", "macos").unwrap();
+        let status: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+
+        assert_eq!(status["displayName"], "Owen’s Mac Studio");
+        assert_eq!(status["desktopId"], "desktop-1");
+        assert_eq!(status["platform"], "macos");
     }
 
     #[test]
