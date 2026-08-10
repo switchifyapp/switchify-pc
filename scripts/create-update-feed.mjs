@@ -68,6 +68,8 @@ const verifyWithExecutable = (verifier, artifact, signature) => {
   execFileSync(resolve(verifier), [artifact, signature], { stdio: "pipe" });
 };
 
+const githubReleaseAssetName = (path) => basename(path).replaceAll(" ", ".");
+
 export const createUpdateFeed = ({ root, version, tag, output, verifier, verifySignature }) => {
   if (!SEMVER.test(version)) throw new Error("Invalid semantic version.");
   if (tag !== `v${version}`) throw new Error(`Release tag ${tag} does not match v${version}.`);
@@ -86,7 +88,7 @@ export const createUpdateFeed = ({ root, version, tag, output, verifier, verifyS
     verify(path, signaturePath);
     return {
       signature,
-      url: `https://github.com/switchifyapp/switchify-pc/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(basename(path))}`,
+      url: `https://github.com/switchifyapp/switchify-pc/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(githubReleaseAssetName(path))}`,
     };
   };
 
