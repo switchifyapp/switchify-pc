@@ -18,7 +18,11 @@ const OVERLAY_WINDOW_LABEL: &str = "modifier-overlay";
 const OVERLAY_WIDTH: f64 = 480.0;
 const OVERLAY_HEIGHT: f64 = 70.0;
 const OVERLAY_MARGIN: f64 = 16.0;
-const WINDOWS_BOOTSTRAP_POSITION: f64 = -32_000.0;
+// Windows reports minimized windows at approximately (-32000, -32000). Using
+// that sentinel as a bootstrap position can leave the WebView window minimized
+// even after it is moved and shown. Keep the initially visible window safely
+// off-screen without entering the minimized placement range.
+const WINDOWS_BOOTSTRAP_POSITION: f64 = -2_000.0;
 const READINESS_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub trait ModifierKeyOverlayNotifier: Send + Sync {
@@ -153,6 +157,10 @@ impl ModifierOverlay {
         };
         if action == PresentationAction::Show {
             self.position_window()?;
+            self.inner
+                .window
+                .unminimize()
+                .map_err(|error| error.to_string())?;
             self.inner
                 .window
                 .show()
@@ -479,9 +487,10 @@ mod tests {
     }
 
     #[test]
-    fn windows_bootstraps_visible_and_offscreen() {
+    fn windows_bootstraps_visible_offscreen_without_using_the_minimized_sentinel() {
+        let policy = bootstrap_policy(true);
         assert_eq!(
-            bootstrap_policy(true),
+            policy,
             BootstrapPolicy {
                 visible: true,
                 position: Some((WINDOWS_BOOTSTRAP_POSITION, WINDOWS_BOOTSTRAP_POSITION)),
@@ -494,6 +503,12 @@ mod tests {
                 position: None,
             }
         );
+        let (x, y) = policy
+            .position
+            .expect("Windows bootstrap should be positioned");
+        assert!(x > -32_000.0);
+        assert!(y > -32_000.0);
+        assert!(x + OVERLAY_WIDTH < 0.0);
     }
 
     #[test]
