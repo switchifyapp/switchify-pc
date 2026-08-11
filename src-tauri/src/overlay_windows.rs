@@ -17,10 +17,10 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, GetCursorPos, RegisterClassW, ShowWindow, UpdateLayeredWindow,
-    CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, SW_HIDE, SW_SHOWNOACTIVATE, ULW_ALPHA, WINDOW_EX_STYLE,
-    WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
-    WS_POPUP,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetCursorPos, PeekMessageW, RegisterClassW,
+    ShowWindow, TranslateMessage, UpdateLayeredWindow, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, MSG,
+    PM_REMOVE, SW_HIDE, SW_SHOWNOACTIVATE, ULW_ALPHA, WINDOW_EX_STYLE, WM_QUIT, WNDCLASSW,
+    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 
 use crate::overlay::{render_marker, run_loop, Command, Frame};
@@ -49,10 +49,25 @@ pub(super) fn spawn(app: AppHandle, shared: SharedModel, receiver: Receiver<Comm
                     result
                 },
                 || host.borrow_mut().hide(),
+                pump_window_messages,
                 receiver,
             );
         })
         .expect("cursor overlay thread should start");
+}
+
+fn pump_window_messages() -> bool {
+    unsafe {
+        let mut message = MSG::default();
+        while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
+            if message.message == WM_QUIT {
+                return false;
+            }
+            let _ = TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+    true
 }
 
 fn report_failure(app: &AppHandle, shared: &SharedModel, error: &str) {
@@ -319,6 +334,12 @@ fn copy_premultiplied_rgba_to_bgra(source: &[u8], target: &mut [u8]) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc;
+    use std::time::Duration;
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        PostQuitMessage, SendMessageTimeoutW, SMTO_ABORTIFHUNG, WM_NULL,
+    };
 
     #[test]
     fn windows_conversion_preserves_premultiplied_channels_and_alpha() {
@@ -334,5 +355,56 @@ mod tests {
         assert!(copy_premultiplied_rgba_to_bgra(&[1, 2, 3, 4], &mut [0; 8]).is_err());
         assert!(validate_pixel_buffer(2, 2, 15).is_err());
         assert!(validate_pixel_buffer(-1, 2, 8).is_err());
+    }
+
+    #[test]
+    fn windows_overlay_thread_services_hidden_window_messages() {
+        let (command_sender, command_receiver) = mpsc::channel();
+        let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
+        let overlay_thread = thread::spawn(move || {
+            let host = RefCell::new(WindowsOverlayHost::new().unwrap());
+            let handles = {
+                let host = host.borrow();
+                [
+                    host.marker.0 as isize,
+                    host.horizontal.0 as isize,
+                    host.vertical.0 as isize,
+                ]
+            };
+            ready_sender.send(handles).unwrap();
+            run_loop(
+                |frame| host.borrow_mut().render(frame),
+                || host.borrow_mut().hide(),
+                pump_window_messages,
+                command_receiver,
+            );
+        });
+        let handles = ready_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        for handle in handles {
+            let mut message_result = 0;
+            let response = unsafe {
+                SendMessageTimeoutW(
+                    HWND(handle as *mut c_void),
+                    WM_NULL,
+                    WPARAM(0),
+                    LPARAM(0),
+                    SMTO_ABORTIFHUNG,
+                    1_000,
+                    Some(&mut message_result),
+                )
+            };
+            assert_ne!(response.0, 0, "overlay window did not service WM_NULL");
+        }
+
+        drop(command_sender);
+        overlay_thread.join().unwrap();
+    }
+
+    #[test]
+    fn windows_quit_message_stops_the_overlay_loop() {
+        unsafe { PostQuitMessage(0) };
+
+        assert!(!pump_window_messages());
     }
 }
