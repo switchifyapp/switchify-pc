@@ -13,12 +13,15 @@ use crate::input::ModifierKey;
 #[cfg(target_os = "macos")]
 use crate::macos_overlay_window;
 use crate::state::{emit_state, set_activity, ActivityKind, SharedModel};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+};
 
 const OVERLAY_WINDOW_LABEL: &str = "modifier-overlay";
 const OVERLAY_WIDTH: f64 = 480.0;
 const OVERLAY_HEIGHT: f64 = 70.0;
 const OVERLAY_MARGIN: f64 = 16.0;
-const WINDOWS_BOOTSTRAP_POSITION: f64 = -32_000.0;
 const READINESS_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub trait ModifierKeyOverlayNotifier: Send + Sync {
@@ -155,6 +158,10 @@ impl ModifierOverlay {
             self.position_window()?;
             self.inner
                 .window
+                .unminimize()
+                .map_err(|error| error.to_string())?;
+            self.inner
+                .window
                 .show()
                 .map_err(|error| error.to_string())?;
         }
@@ -281,14 +288,28 @@ impl ModifierOverlay {
 }
 
 fn current_bootstrap_policy() -> BootstrapPolicy {
-    bootstrap_policy(cfg!(target_os = "windows"))
+    #[cfg(target_os = "windows")]
+    {
+        let virtual_desktop_right = unsafe {
+            f64::from(GetSystemMetrics(SM_XVIRTUALSCREEN))
+                + f64::from(GetSystemMetrics(SM_CXVIRTUALSCREEN))
+        };
+        bootstrap_policy(Some(virtual_desktop_right))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    bootstrap_policy(None)
 }
 
-fn bootstrap_policy(is_windows: bool) -> BootstrapPolicy {
-    if is_windows {
+fn bootstrap_policy(virtual_desktop_right: Option<f64>) -> BootstrapPolicy {
+    if let Some(virtual_desktop_right) = virtual_desktop_right {
         BootstrapPolicy {
             visible: true,
-            position: Some((WINDOWS_BOOTSTRAP_POSITION, WINDOWS_BOOTSTRAP_POSITION)),
+            // A visible bootstrap window lets WebView2 initialize reliably.
+            // Place it beyond the current virtual desktop instead of using
+            // Windows' minimized-window sentinel or a fixed coordinate that
+            // could overlap a monitor in a negative-coordinate layout.
+            position: Some((virtual_desktop_right + OVERLAY_MARGIN, 0.0)),
         }
     } else {
         BootstrapPolicy {
@@ -479,16 +500,27 @@ mod tests {
     }
 
     #[test]
-    fn windows_bootstraps_visible_and_offscreen() {
+    fn windows_bootstraps_visible_beyond_the_virtual_desktop() {
+        let virtual_desktop_right = 1_920.0;
+        let policy = bootstrap_policy(Some(virtual_desktop_right));
         assert_eq!(
-            bootstrap_policy(true),
+            policy,
             BootstrapPolicy {
                 visible: true,
-                position: Some((WINDOWS_BOOTSTRAP_POSITION, WINDOWS_BOOTSTRAP_POSITION)),
+                position: Some((virtual_desktop_right + OVERLAY_MARGIN, 0.0)),
             }
         );
+        let (x, y) = policy
+            .position
+            .expect("Windows bootstrap should be positioned");
+        assert!(x > virtual_desktop_right);
+        assert_eq!(y, 0.0);
+
+        let negative_monitor_layout = bootstrap_policy(Some(0.0));
+        assert!(negative_monitor_layout.position.expect("positioned").0 > 0.0);
+
         assert_eq!(
-            bootstrap_policy(false),
+            bootstrap_policy(None),
             BootstrapPolicy {
                 visible: false,
                 position: None,
