@@ -1,5 +1,6 @@
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use enigo::{Enigo, Settings};
 use tauri::{AppHandle, Manager};
@@ -16,9 +17,7 @@ use windows::Security::Cryptography::CryptographicBuffer;
 
 use crate::input::{DesktopInput, PointerFeedback};
 use crate::modifier_overlay::ModifierOverlay;
-use crate::mouse_repeat::{
-    acceleration_scale, MouseRepeatController, RepeatCommand, INITIAL_SCALE,
-};
+use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERVAL_MS};
 use crate::overlay::CursorOverlay;
 use crate::protocol::{
     bluetooth_status_payload, create_notification_frames, pointer_profile_response,
@@ -664,13 +663,6 @@ fn complete_repeat_start(
             return Err("Mouse repeat is disabled in settings.".into());
         }
         stop_repeat_for_device(app, &command.device_id);
-        let initial_scale = if matches!(repeat_command, RepeatCommand::Move { .. })
-            && settings.mouse_repeat_acceleration_duration_ms > 0
-        {
-            INITIAL_SCALE
-        } else {
-            1.0
-        };
         let (active, initial_feedback) = {
             let mut guard = runtime()
                 .lock()
@@ -678,21 +670,35 @@ fn complete_repeat_start(
             let runtime = guard
                 .as_mut()
                 .ok_or_else(|| "Bluetooth runtime is not ready.".to_string())?;
-            runtime
-                .input
-                .set_pointer_scale_percent(settings.pointer_scale_percent);
-            let initial_feedback = runtime
-                .input
-                .execute_repeat(repeat_command, initial_scale)?;
-            (
-                runtime.repeats.start(
-                    command.device_id.clone(),
-                    repeat_command,
-                    settings.mouse_repeat_acceleration_duration_ms,
-                    crate::state::now_ms(),
-                ),
-                initial_feedback,
-            )
+            let active = runtime.repeats.start(
+                command.device_id.clone(),
+                repeat_command,
+                settings.mouse_repeat_acceleration_duration_ms,
+                Instant::now(),
+            );
+            let initial = match repeat_command {
+                RepeatCommand::Move { .. } => {
+                    let (dx, dy) = runtime
+                        .repeats
+                        .initial_move(&command.device_id, active.generation)
+                        .unwrap_or((0, 0));
+                    if dx == 0 && dy == 0 {
+                        Ok(runtime.input.pointer_feedback_for_move())
+                    } else {
+                        runtime.input.move_pointer_pixels(dx, dy)
+                    }
+                }
+                RepeatCommand::Scroll { dx, dy } => runtime.input.execute_repeat_scroll(dx, dy),
+            };
+            match initial {
+                Ok(feedback) => (active, feedback),
+                Err(error) => {
+                    runtime
+                        .repeats
+                        .stop_if_current(&command.device_id, active.generation);
+                    return Err(error);
+                }
+            }
         };
         app.state::<CursorOverlay>().begin_repeat(
             active.generation,
@@ -749,10 +755,11 @@ fn spawn_repeat_loop(app: AppHandle, shared: SharedModel, device_id: String, gen
                 stop_repeat_if_current(&app, &device_id, generation);
                 return;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(u64::from(
-                active.command.interval_ms(&settings),
-            )))
-            .await;
+            let delay_ms = match active.command {
+                RepeatCommand::Move { .. } => MOVE_TICK_INTERVAL_MS,
+                RepeatCommand::Scroll { .. } => u64::from(active.command.interval_ms(&settings)),
+            };
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             let settings = overlay_settings(&shared);
             let result = {
                 let mut guard = runtime()
@@ -767,21 +774,27 @@ fn spawn_repeat_loop(app: AppHandle, shared: SharedModel, device_id: String, gen
                 if !settings.mouse_repeat_enabled {
                     Err("Mouse repeat was disabled.".to_string())
                 } else {
-                    runtime
-                        .input
-                        .set_pointer_scale_percent(settings.pointer_scale_percent);
-                    let scale = if matches!(active.command, RepeatCommand::Move { .. }) {
-                        acceleration_scale(
-                            crate::state::now_ms() - active.started_at_ms,
-                            active.acceleration_duration_ms,
-                        )
-                    } else {
-                        1.0
-                    };
-                    runtime
-                        .input
-                        .execute_repeat(active.command, scale)
-                        .map(|_| ())
+                    match active.command {
+                        RepeatCommand::Move { .. } => {
+                            let Some((dx, dy)) = runtime.repeats.advance_move(
+                                &device_id,
+                                generation,
+                                Instant::now(),
+                                settings.move_repeat_interval_ms,
+                                settings.pointer_scale_percent,
+                            ) else {
+                                return;
+                            };
+                            if dx == 0 && dy == 0 {
+                                Ok(())
+                            } else {
+                                runtime.input.move_pointer_pixels(dx, dy).map(|_| ())
+                            }
+                        }
+                        RepeatCommand::Scroll { dx, dy } => {
+                            runtime.input.execute_repeat_scroll(dx, dy).map(|_| ())
+                        }
+                    }
                 }
             };
             if let Err(error) = result {

@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use corebluetooth::prelude::*;
 use enigo::{Enigo, Settings};
@@ -11,9 +11,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::input::{DesktopInput, PointerFeedback};
 use crate::modifier_overlay::ModifierOverlay;
-use crate::mouse_repeat::{
-    acceleration_scale, MouseRepeatController, RepeatCommand, INITIAL_SCALE,
-};
+use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERVAL_MS};
 use crate::overlay::CursorOverlay;
 use crate::protocol::{
     bluetooth_status_payload, pointer_profile_response, switch_profile_catalog_response,
@@ -954,24 +952,43 @@ impl MacRuntime {
                     "Accessibility permission is required before the pointer can move.".into(),
                 );
             }
-            let input = self.input.as_mut().ok_or_else(|| {
-                "Accessibility permission is required before the pointer can move.".to_string()
-            })?;
-            input.set_pointer_scale_percent(settings.pointer_scale_percent);
-            let initial_scale = if matches!(repeat_command, RepeatCommand::Move { .. })
-                && settings.mouse_repeat_acceleration_duration_ms > 0
-            {
-                INITIAL_SCALE
-            } else {
-                1.0
-            };
-            let initial_feedback = input.execute_repeat(repeat_command, initial_scale)?;
             let active = self.repeats.start(
                 command.device_id.clone(),
                 repeat_command,
                 settings.mouse_repeat_acceleration_duration_ms,
-                now_ms(),
+                Instant::now(),
             );
+            let initial = match repeat_command {
+                RepeatCommand::Move { .. } => {
+                    let (dx, dy) = self
+                        .repeats
+                        .initial_move(&command.device_id, active.generation)
+                        .unwrap_or((0, 0));
+                    match self.input.as_mut() {
+                        Some(input) if dx == 0 && dy == 0 => Ok(input.pointer_feedback_for_move()),
+                        Some(input) => input.move_pointer_pixels(dx, dy),
+                        None => Err(
+                            "Accessibility permission is required before the pointer can move."
+                                .to_string(),
+                        ),
+                    }
+                }
+                RepeatCommand::Scroll { dx, dy } => match self.input.as_mut() {
+                    Some(input) => input.execute_repeat_scroll(dx, dy),
+                    None => Err(
+                        "Accessibility permission is required before input can be controlled."
+                            .to_string(),
+                    ),
+                },
+            };
+            let initial_feedback = match initial {
+                Ok(feedback) => feedback,
+                Err(error) => {
+                    self.repeats
+                        .stop_if_current(&command.device_id, active.generation);
+                    return Err(error);
+                }
+            };
             self.app.state::<CursorOverlay>().begin_repeat(
                 active.generation,
                 repeat_command,
@@ -982,7 +999,12 @@ impl MacRuntime {
             self.schedule_repeat_tick(
                 command.device_id.clone(),
                 active.generation,
-                repeat_command.interval_ms(&settings),
+                match repeat_command {
+                    RepeatCommand::Move { .. } => MOVE_TICK_INTERVAL_MS,
+                    RepeatCommand::Scroll { .. } => {
+                        u64::from(repeat_command.interval_ms(&settings))
+                    }
+                },
             );
             Ok(())
         });
@@ -1020,10 +1042,10 @@ impl MacRuntime {
         emit_state(&self.app, &self.shared);
     }
 
-    fn schedule_repeat_tick(&self, device_id: String, generation: u64, interval_ms: u32) {
+    fn schedule_repeat_tick(&self, device_id: String, generation: u64, interval_ms: u64) {
         let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(u64::from(interval_ms))).await;
+            tokio::time::sleep(Duration::from_millis(interval_ms)).await;
             let callback_app = app.clone();
             let _ = app.run_on_main_thread(move || {
                 let _ = with_runtime(|runtime| runtime.repeat_tick(device_id, generation));
@@ -1041,13 +1063,15 @@ impl MacRuntime {
             self.stop_repeat_if_current(&device_id, generation);
             return Ok(());
         }
-        let scale = if matches!(active.command, RepeatCommand::Move { .. }) {
-            acceleration_scale(
-                now_ms() - active.started_at_ms,
-                active.acceleration_duration_ms,
-            )
-        } else {
-            1.0
+        let movement = match active.command {
+            RepeatCommand::Move { .. } => self.repeats.advance_move(
+                &device_id,
+                generation,
+                Instant::now(),
+                settings.move_repeat_interval_ms,
+                settings.pointer_scale_percent,
+            ),
+            RepeatCommand::Scroll { .. } => None,
         };
         let result = self
             .input
@@ -1055,9 +1079,13 @@ impl MacRuntime {
             .ok_or_else(|| {
                 "Accessibility permission is required before input can be controlled.".to_string()
             })
-            .and_then(|input| {
-                input.set_pointer_scale_percent(settings.pointer_scale_percent);
-                input.execute_repeat(active.command, scale).map(|_| ())
+            .and_then(|input| match active.command {
+                RepeatCommand::Move { .. } => match movement {
+                    Some((0, 0)) => Ok(()),
+                    Some((dx, dy)) => input.move_pointer_pixels(dx, dy).map(|_| ()),
+                    None => Ok(()),
+                },
+                RepeatCommand::Scroll { dx, dy } => input.execute_repeat_scroll(dx, dy).map(|_| ()),
             });
         if let Err(error) = result {
             if self.stop_repeat_if_current(&device_id, generation) {
@@ -1065,7 +1093,11 @@ impl MacRuntime {
             }
             return Ok(());
         }
-        self.schedule_repeat_tick(device_id, generation, active.command.interval_ms(&settings));
+        let delay_ms = match active.command {
+            RepeatCommand::Move { .. } => MOVE_TICK_INTERVAL_MS,
+            RepeatCommand::Scroll { .. } => u64::from(active.command.interval_ms(&settings)),
+        };
+        self.schedule_repeat_tick(device_id, generation, delay_ms);
         Ok(())
     }
 

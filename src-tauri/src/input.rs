@@ -5,7 +5,6 @@ use enigo::{Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse};
 use serde_json::Value;
 
 use crate::modifier_overlay::ModifierKeyOverlayNotifier;
-use crate::mouse_repeat::RepeatCommand;
 use crate::protocol::MouseButton;
 use crate::state::{SwitchBinding, SwitchProfile};
 
@@ -295,21 +294,13 @@ impl<I: InputInjector> DesktopInput<I> {
     pub fn set_pointer_scale_percent(&mut self, scale_percent: u8) {
         self.pointer_scale_percent = u32::from(scale_percent.clamp(5, 225));
     }
-    pub fn execute_repeat(
-        &mut self,
-        command: RepeatCommand,
-        acceleration_scale: f64,
-    ) -> Result<PointerFeedback, String> {
-        match command.scaled(acceleration_scale) {
-            RepeatCommand::Move { dx, dy } => {
-                self.move_pointer(dx, dy)?;
-                Ok(self.pointer_feedback_for_move())
-            }
-            RepeatCommand::Scroll { dx, dy } => {
-                self.injector.scroll(dx, dy)?;
-                Ok(PointerFeedback::Scroll { dx, dy })
-            }
-        }
+    pub fn move_pointer_pixels(&mut self, dx: i32, dy: i32) -> Result<PointerFeedback, String> {
+        self.injector.move_pointer(dx, dy)?;
+        Ok(self.pointer_feedback_for_move())
+    }
+    pub fn execute_repeat_scroll(&mut self, dx: i32, dy: i32) -> Result<PointerFeedback, String> {
+        self.injector.scroll(dx, dy)?;
+        Ok(PointerFeedback::Scroll { dx, dy })
     }
     pub fn click_pointer(&mut self, button: MouseButton, click_count: u8) -> Result<(), String> {
         self.release_held_button()?;
@@ -1059,6 +1050,7 @@ mod tests {
     struct FakeInjector {
         text: Vec<String>,
         moves: Vec<(i32, i32)>,
+        scrolls: Vec<(i32, i32)>,
         clicks: Vec<(MouseButton, u8)>,
         pointer_states: Vec<(MouseButton, bool)>,
         fail_pointer_release: bool,
@@ -1086,7 +1078,8 @@ mod tests {
             self.pointer_states.push((button, down));
             Ok(())
         }
-        fn scroll(&mut self, _dx: i32, _dy: i32) -> Result<(), String> {
+        fn scroll(&mut self, dx: i32, dy: i32) -> Result<(), String> {
+            self.scrolls.push((dx, dy));
             Ok(())
         }
         fn set_key(&mut self, key: &str, down: bool) -> Result<(), String> {
@@ -1169,13 +1162,24 @@ mod tests {
     }
 
     #[test]
-    fn repeat_movement_applies_acceleration_and_pointer_speed() {
+    fn repeat_pixel_movement_bypasses_normal_pointer_scaling() {
         let mut input = DesktopInput::new(FakeInjector::default());
         input.set_pointer_scale_percent(50);
-        input
-            .execute_repeat(RepeatCommand::Move { dx: 40, dy: -20 }, 0.25)
-            .unwrap();
-        assert_eq!(input.injector.moves, vec![(5, -3)]);
+        assert_eq!(
+            input.move_pointer_pixels(1, -1).unwrap(),
+            PointerFeedback::Move
+        );
+        assert_eq!(input.injector.moves, vec![(1, -1)]);
+    }
+
+    #[test]
+    fn repeat_scroll_preserves_the_existing_delta() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        assert_eq!(
+            input.execute_repeat_scroll(4, -3).unwrap(),
+            PointerFeedback::Scroll { dx: 4, dy: -3 }
+        );
+        assert_eq!(input.injector.scrolls, vec![(4, -3)]);
     }
 
     #[test]
