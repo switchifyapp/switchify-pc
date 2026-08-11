@@ -561,10 +561,15 @@ fn draw_scroll(pixmap: &mut Pixmap, center: f32, unit: f32, color: [u8; 3], dx: 
 pub(crate) fn run_loop(
     mut render: impl FnMut(&Frame) -> Result<(), String>,
     mut hide: impl FnMut(),
+    mut service_platform_events: impl FnMut() -> bool,
     receiver: Receiver<Command>,
 ) {
     let mut engine = OverlayEngine::new(Instant::now());
     loop {
+        if !service_platform_events() {
+            hide();
+            break;
+        }
         let update = match receiver.recv_timeout(Duration::from_millis(25)) {
             Ok(command) => engine.handle(command, Instant::now()),
             Err(mpsc::RecvTimeoutError::Timeout) => engine.tick(Instant::now()),
@@ -945,5 +950,34 @@ mod tests {
             panic!("expected released movement frame");
         };
         assert_eq!(released.feedback, PointerFeedback::Move);
+    }
+
+    #[test]
+    fn run_loop_services_platform_events_before_waiting_for_commands() {
+        let (sender, receiver) = mpsc::channel();
+        drop(sender);
+        let mut service_count = 0;
+
+        run_loop(
+            |_| Ok(()),
+            || {},
+            || {
+                service_count += 1;
+                true
+            },
+            receiver,
+        );
+
+        assert_eq!(service_count, 1);
+    }
+
+    #[test]
+    fn platform_shutdown_hides_the_overlay_without_waiting_for_commands() {
+        let (_sender, receiver) = mpsc::channel();
+        let hidden = std::cell::Cell::new(false);
+
+        run_loop(|_| Ok(()), || hidden.set(true), || false, receiver);
+
+        assert!(hidden.get());
     }
 }

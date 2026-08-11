@@ -75,6 +75,7 @@ pub(super) fn spawn(app: AppHandle, shared: SharedModel, receiver: Receiver<Comm
                         });
                     });
                 },
+                || true,
                 receiver,
             );
         })
