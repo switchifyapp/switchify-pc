@@ -13,16 +13,15 @@ use crate::input::ModifierKey;
 #[cfg(target_os = "macos")]
 use crate::macos_overlay_window;
 use crate::state::{emit_state, set_activity, ActivityKind, SharedModel};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+};
 
 const OVERLAY_WINDOW_LABEL: &str = "modifier-overlay";
 const OVERLAY_WIDTH: f64 = 480.0;
 const OVERLAY_HEIGHT: f64 = 70.0;
 const OVERLAY_MARGIN: f64 = 16.0;
-// Windows reports minimized windows at approximately (-32000, -32000). Using
-// that sentinel as a bootstrap position can leave the WebView window minimized
-// even after it is moved and shown. Keep the initially visible window safely
-// off-screen without entering the minimized placement range.
-const WINDOWS_BOOTSTRAP_POSITION: f64 = -2_000.0;
 const READINESS_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub trait ModifierKeyOverlayNotifier: Send + Sync {
@@ -289,20 +288,30 @@ impl ModifierOverlay {
 }
 
 fn current_bootstrap_policy() -> BootstrapPolicy {
-    bootstrap_policy(cfg!(target_os = "windows"))
+    #[cfg(target_os = "windows")]
+    {
+        let virtual_desktop_right = unsafe {
+            f64::from(GetSystemMetrics(SM_XVIRTUALSCREEN))
+                + f64::from(GetSystemMetrics(SM_CXVIRTUALSCREEN))
+        };
+        windows_bootstrap_policy(virtual_desktop_right)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    BootstrapPolicy {
+        visible: false,
+        position: None,
+    }
 }
 
-fn bootstrap_policy(is_windows: bool) -> BootstrapPolicy {
-    if is_windows {
-        BootstrapPolicy {
-            visible: true,
-            position: Some((WINDOWS_BOOTSTRAP_POSITION, WINDOWS_BOOTSTRAP_POSITION)),
-        }
-    } else {
-        BootstrapPolicy {
-            visible: false,
-            position: None,
-        }
+fn windows_bootstrap_policy(virtual_desktop_right: f64) -> BootstrapPolicy {
+    BootstrapPolicy {
+        visible: true,
+        // A visible bootstrap window lets WebView2 initialize reliably. Place
+        // it beyond the current virtual desktop instead of using Windows'
+        // minimized-window sentinel or a fixed coordinate that could overlap
+        // a monitor in a negative-coordinate layout.
+        position: Some((virtual_desktop_right + OVERLAY_MARGIN, 0.0)),
     }
 }
 
@@ -487,28 +496,24 @@ mod tests {
     }
 
     #[test]
-    fn windows_bootstraps_visible_offscreen_without_using_the_minimized_sentinel() {
-        let policy = bootstrap_policy(true);
+    fn windows_bootstraps_visible_beyond_the_virtual_desktop() {
+        let virtual_desktop_right = 1_920.0;
+        let policy = windows_bootstrap_policy(virtual_desktop_right);
         assert_eq!(
             policy,
             BootstrapPolicy {
                 visible: true,
-                position: Some((WINDOWS_BOOTSTRAP_POSITION, WINDOWS_BOOTSTRAP_POSITION)),
-            }
-        );
-        assert_eq!(
-            bootstrap_policy(false),
-            BootstrapPolicy {
-                visible: false,
-                position: None,
+                position: Some((virtual_desktop_right + OVERLAY_MARGIN, 0.0)),
             }
         );
         let (x, y) = policy
             .position
             .expect("Windows bootstrap should be positioned");
-        assert!(x > -32_000.0);
-        assert!(y > -32_000.0);
-        assert!(x + OVERLAY_WIDTH < 0.0);
+        assert!(x > virtual_desktop_right);
+        assert_eq!(y, 0.0);
+
+        let negative_monitor_layout = windows_bootstrap_policy(0.0);
+        assert!(negative_monitor_layout.position.expect("positioned").0 > 0.0);
     }
 
     #[test]
