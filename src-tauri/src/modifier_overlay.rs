@@ -294,24 +294,28 @@ fn current_bootstrap_policy() -> BootstrapPolicy {
             f64::from(GetSystemMetrics(SM_XVIRTUALSCREEN))
                 + f64::from(GetSystemMetrics(SM_CXVIRTUALSCREEN))
         };
-        windows_bootstrap_policy(virtual_desktop_right)
+        bootstrap_policy(Some(virtual_desktop_right))
     }
 
     #[cfg(not(target_os = "windows"))]
-    BootstrapPolicy {
-        visible: false,
-        position: None,
-    }
+    bootstrap_policy(None)
 }
 
-fn windows_bootstrap_policy(virtual_desktop_right: f64) -> BootstrapPolicy {
-    BootstrapPolicy {
-        visible: true,
-        // A visible bootstrap window lets WebView2 initialize reliably. Place
-        // it beyond the current virtual desktop instead of using Windows'
-        // minimized-window sentinel or a fixed coordinate that could overlap
-        // a monitor in a negative-coordinate layout.
-        position: Some((virtual_desktop_right + OVERLAY_MARGIN, 0.0)),
+fn bootstrap_policy(virtual_desktop_right: Option<f64>) -> BootstrapPolicy {
+    if let Some(virtual_desktop_right) = virtual_desktop_right {
+        BootstrapPolicy {
+            visible: true,
+            // A visible bootstrap window lets WebView2 initialize reliably.
+            // Place it beyond the current virtual desktop instead of using
+            // Windows' minimized-window sentinel or a fixed coordinate that
+            // could overlap a monitor in a negative-coordinate layout.
+            position: Some((virtual_desktop_right + OVERLAY_MARGIN, 0.0)),
+        }
+    } else {
+        BootstrapPolicy {
+            visible: false,
+            position: None,
+        }
     }
 }
 
@@ -498,7 +502,7 @@ mod tests {
     #[test]
     fn windows_bootstraps_visible_beyond_the_virtual_desktop() {
         let virtual_desktop_right = 1_920.0;
-        let policy = windows_bootstrap_policy(virtual_desktop_right);
+        let policy = bootstrap_policy(Some(virtual_desktop_right));
         assert_eq!(
             policy,
             BootstrapPolicy {
@@ -512,8 +516,16 @@ mod tests {
         assert!(x > virtual_desktop_right);
         assert_eq!(y, 0.0);
 
-        let negative_monitor_layout = windows_bootstrap_policy(0.0);
+        let negative_monitor_layout = bootstrap_policy(Some(0.0));
         assert!(negative_monitor_layout.position.expect("positioned").0 > 0.0);
+
+        assert_eq!(
+            bootstrap_policy(None),
+            BootstrapPolicy {
+                visible: false,
+                position: None,
+            }
+        );
     }
 
     #[test]
