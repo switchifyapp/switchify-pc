@@ -3985,7 +3985,7 @@ dependencies = [
 
 [[package]]
 name = "switchify-pc"
-version = "1.0.0-alpha.5"
+version = "1.0.0-alpha.6"
 dependencies = [
  "base64 0.22.1",
  "corebluetooth-rs",
