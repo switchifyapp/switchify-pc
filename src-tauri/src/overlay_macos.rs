@@ -116,6 +116,10 @@ impl MacOverlayHost {
         let cursor = NSEvent::mouseLocation();
         let mtm = MainThreadMarker::new().ok_or("the AppKit main thread is unavailable")?;
         let screens = NSScreen::screens(mtm);
+        let screen_frames = screens
+            .iter()
+            .map(|candidate| candidate.frame())
+            .collect::<Vec<_>>();
         let screen = screen_at_or_nearest_point(&screens, cursor)
             .ok_or_else(|| "the active display could not be resolved".to_string())?;
         let scale = screen.backingScaleFactor();
@@ -128,8 +132,9 @@ impl MacOverlayHost {
             logical_size,
         )?;
         let screen_frame = screen.frame();
-        let marker_layout = clipped_marker_layout(screen_frame, cursor, logical_size, logical_size)
-            .ok_or_else(|| "the cursor marker is outside the active display".to_string())?;
+        let marker_layout =
+            clipped_marker_layout(&screen_frames, cursor, logical_size, logical_size)
+                .ok_or_else(|| "the cursor marker is outside the active display".to_string())?;
         self.marker.setFrame_display(marker_layout.panel, false);
         self.marker_view.setFrame(marker_layout.image);
         self.marker_view.setImage(Some(&image));
@@ -366,19 +371,33 @@ struct MarkerLayout {
 }
 
 fn clipped_marker_layout(
-    screen: NSRect,
+    screens: &[NSRect],
     cursor: NSPoint,
     width: f64,
     height: f64,
 ) -> Option<MarkerLayout> {
     let desired = centered_rect(cursor, width, height);
-    let min_x = desired.origin.x.max(screen.origin.x);
-    let min_y = desired.origin.y.max(screen.origin.y);
-    let max_x = (desired.origin.x + desired.size.width).min(screen.origin.x + screen.size.width);
-    let max_y = (desired.origin.y + desired.size.height).min(screen.origin.y + screen.size.height);
-    if max_x <= min_x || max_y <= min_y {
-        return None;
-    }
+    let desired_max_x = desired.origin.x + desired.size.width;
+    let desired_max_y = desired.origin.y + desired.size.height;
+    let intersections = screens.iter().filter_map(|screen| {
+        let min_x = desired.origin.x.max(screen.origin.x);
+        let min_y = desired.origin.y.max(screen.origin.y);
+        let max_x = desired_max_x.min(screen.origin.x + screen.size.width);
+        let max_y = desired_max_y.min(screen.origin.y + screen.size.height);
+        (max_x > min_x && max_y > min_y).then_some((min_x, min_y, max_x, max_y))
+    });
+    let (min_x, min_y, max_x, max_y) =
+        intersections.fold(None::<(f64, f64, f64, f64)>, |bounds, intersection| {
+            Some(match bounds {
+                None => intersection,
+                Some((min_x, min_y, max_x, max_y)) => (
+                    min_x.min(intersection.0),
+                    min_y.min(intersection.1),
+                    max_x.max(intersection.2),
+                    max_y.max(intersection.3),
+                ),
+            })
+        })?;
     let panel = rect(min_x, min_y, max_x - min_x, max_y - min_y);
     Some(MarkerLayout {
         panel,
@@ -565,7 +584,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                clipped_marker_layout(screen, cursor, 128.0, 128.0),
+                clipped_marker_layout(&[screen], cursor, 128.0, 128.0),
                 Some(MarkerLayout {
                     panel: expected_panel,
                     image: expected_image,
@@ -578,7 +597,7 @@ mod tests {
     fn marker_layout_shows_a_quarter_ring_at_an_outer_corner() {
         assert_eq!(
             clipped_marker_layout(
-                rect(0.0, 0.0, 1920.0, 1080.0),
+                &[rect(0.0, 0.0, 1920.0, 1080.0)],
                 NSPoint { x: 0.0, y: 0.0 },
                 128.0,
                 128.0,
@@ -586,6 +605,25 @@ mod tests {
             Some(MarkerLayout {
                 panel: rect(0.0, 0.0, 64.0, 64.0),
                 image: rect(-64.0, -64.0, 128.0, 128.0),
+            })
+        );
+    }
+
+    #[test]
+    fn marker_layout_remains_centered_across_an_internal_display_seam() {
+        assert_eq!(
+            clipped_marker_layout(
+                &[
+                    rect(-1920.0, 0.0, 1920.0, 1080.0),
+                    rect(0.0, 0.0, 1920.0, 1080.0),
+                ],
+                NSPoint { x: 0.0, y: 540.0 },
+                128.0,
+                128.0,
+            ),
+            Some(MarkerLayout {
+                panel: rect(-64.0, 476.0, 128.0, 128.0),
+                image: rect(0.0, 0.0, 128.0, 128.0),
             })
         );
     }
