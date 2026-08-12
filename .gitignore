@@ -10,6 +10,7 @@ src-tauri/gen/
 .env.*
 .DS_Store
 Thumbs.db
+.codex-remote-attachments/
 *.log
 src-tauri/icons/android/
 src-tauri/icons/ios/
