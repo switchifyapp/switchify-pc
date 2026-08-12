@@ -598,7 +598,6 @@ fn complete_desktop(
     if command.command_type == "mouse.repeat.stop" {
         return complete_repeat_stop(app, shared, command);
     }
-    stop_all_repeats(app);
     let profiles = shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -609,11 +608,22 @@ fn complete_desktop(
     }
     let (result, error_code) = if command.command_type == "pointer.display.move" {
         let direction = command.payload["direction"].as_str().unwrap_or_default();
-        match navigate_display(app, direction) {
+        let mut context = (app, shared);
+        match display_navigation::run_navigation_command(
+            &mut context,
+            direction,
+            |(app, _)| stop_all_repeats(app),
+            |(app, _), direction| navigate_display(app, direction),
+            |(app, shared), feedback| {
+                app.state::<CursorOverlay>()
+                    .show(feedback, overlay_settings(shared));
+            },
+        ) {
             Ok(feedback) => (Ok(Some(feedback)), "input_failed"),
             Err(error) => (Err(error.message), error.code),
         }
     } else {
+        stop_all_repeats(app);
         (
             with_runtime_input(|input| {
                 input.execute(
@@ -626,16 +636,18 @@ fn complete_desktop(
             "input_failed",
         )
     };
-    if let Ok(feedback) = &result {
-        let settings = overlay_settings(shared);
-        let overlay = app.state::<CursorOverlay>();
-        if let Some(feedback) = feedback {
-            overlay.show(*feedback, settings);
-        } else {
-            overlay.mark_control_active(settings);
-        }
-        if command.command_type == "connection.disconnecting" {
-            overlay.end_session();
+    if command.command_type != "pointer.display.move" {
+        if let Ok(feedback) = &result {
+            let settings = overlay_settings(shared);
+            let overlay = app.state::<CursorOverlay>();
+            if let Some(feedback) = feedback {
+                overlay.show(*feedback, settings);
+            } else {
+                overlay.mark_control_active(settings);
+            }
+            if command.command_type == "connection.disconnecting" {
+                overlay.end_session();
+            }
         }
     }
     if result.is_ok() && command.command_type == "pointer.speed.set" {

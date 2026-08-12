@@ -1,3 +1,4 @@
+use crate::input::PointerFeedback;
 use tauri::AppHandle;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,7 +125,7 @@ fn display_from_native_bounds(
     y: f64,
     width: f64,
     height: f64,
-    physical_width: usize,
+    physical_width: u64,
 ) -> Display {
     let scale_factor = if width.is_finite() && width > 0.0 {
         physical_width as f64 / width
@@ -154,6 +155,19 @@ pub fn map_injection<T>(result: Result<T, String>) -> Result<T, NavigationError>
         code: "adapter_failure",
         message: "The operating system could not move the pointer to another monitor.".into(),
     })
+}
+
+pub fn run_navigation_command<C>(
+    context: &mut C,
+    direction: &str,
+    stop_repeats: impl FnOnce(&mut C),
+    navigate: impl FnOnce(&mut C, &str) -> Result<PointerFeedback, NavigationError>,
+    show_feedback: impl FnOnce(&mut C, PointerFeedback),
+) -> Result<PointerFeedback, NavigationError> {
+    stop_repeats(context);
+    let feedback = navigate(context, direction)?;
+    show_feedback(context, feedback);
+    Ok(feedback)
 }
 
 pub fn current_display(cursor: (f64, f64), displays: &[Display]) -> Option<&Display> {
@@ -348,6 +362,45 @@ mod tests {
         assert_eq!(
             error.message,
             "The operating system could not move the pointer to another monitor."
+        );
+    }
+
+    #[test]
+    fn command_stops_repeat_before_navigation_and_forwards_overlay_feedback() {
+        #[derive(Default)]
+        struct FakeRuntime {
+            repeat_active: bool,
+            events: Vec<&'static str>,
+        }
+
+        let mut runtime = FakeRuntime {
+            repeat_active: true,
+            ..Default::default()
+        };
+        let feedback = run_navigation_command(
+            &mut runtime,
+            "right",
+            |runtime| {
+                runtime.repeat_active = false;
+                runtime.events.push("repeat stopped");
+            },
+            |runtime, direction| {
+                assert!(!runtime.repeat_active);
+                assert_eq!(direction, "right");
+                runtime.events.push("pointer moved");
+                Ok(PointerFeedback::Move)
+            },
+            |runtime, feedback| {
+                assert_eq!(feedback, PointerFeedback::Move);
+                runtime.events.push("overlay shown");
+            },
+        )
+        .unwrap();
+
+        assert_eq!(feedback, PointerFeedback::Move);
+        assert_eq!(
+            runtime.events,
+            vec!["repeat stopped", "pointer moved", "overlay shown"]
         );
     }
 }

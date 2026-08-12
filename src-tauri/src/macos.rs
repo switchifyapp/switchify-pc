@@ -853,7 +853,6 @@ impl MacRuntime {
             self.handle_repeat_stop(command);
             return;
         }
-        self.stop_all_repeats();
         let profiles = self
             .shared
             .lock()
@@ -870,11 +869,25 @@ impl MacRuntime {
         }
         let (injection, error_code) = if command.command_type == "pointer.display.move" {
             let direction = command.payload["direction"].as_str().unwrap_or_default();
-            match self.navigate_display(direction) {
+            match display_navigation::run_navigation_command(
+                self,
+                direction,
+                MacRuntime::stop_all_repeats,
+                MacRuntime::navigate_display,
+                |runtime, feedback| {
+                    runtime
+                        .app
+                        .state::<CursorOverlay>()
+                        .show(feedback, runtime.overlay_settings());
+                },
+            ) {
                 Ok(feedback) => (Ok(Some(feedback)), "input_failed"),
                 Err(error) => (Err(error.message), error.code),
             }
-        } else if self.input.is_none() && !self.refresh_accessibility(false).unwrap_or(false) {
+        } else if {
+            self.stop_all_repeats();
+            self.input.is_none() && !self.refresh_accessibility(false).unwrap_or(false)
+        } {
             (
                 Err(
                     "Accessibility permission is required before input can be controlled."
@@ -913,16 +926,18 @@ impl MacRuntime {
                     .map(|_| ())
                     .map_err(|error| (error_code, error.as_str())),
             );
-        if let Ok(feedback) = &injection {
-            let settings = self.overlay_settings();
-            let overlay = self.app.state::<CursorOverlay>();
-            if let Some(feedback) = feedback {
-                overlay.show(*feedback, settings);
-            } else {
-                overlay.mark_control_active(settings);
-            }
-            if command.command_type == "connection.disconnecting" {
-                overlay.end_session();
+        if command.command_type != "pointer.display.move" {
+            if let Ok(feedback) = &injection {
+                let settings = self.overlay_settings();
+                let overlay = self.app.state::<CursorOverlay>();
+                if let Some(feedback) = feedback {
+                    overlay.show(*feedback, settings);
+                } else {
+                    overlay.mark_control_active(settings);
+                }
+                if command.command_type == "connection.disconnecting" {
+                    overlay.end_session();
+                }
             }
         }
         if injection.is_ok() && command.command_type == "pointer.speed.set" {
