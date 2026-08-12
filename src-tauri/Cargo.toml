@@ -34,6 +34,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 corebluetooth-rs = "=0.3.6"
 core-graphics = { version = "0.25", features = ["highsierra"] }
+libc = "0.2"
 objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", features = ["NSBitmapImageRep", "NSColor", "NSControl", "NSEvent", "NSGraphics", "NSImage", "NSImageRep", "NSImageView", "NSPanel", "NSResponder", "NSScreen", "NSView", "NSWindow", "NSWorkspace", "objc2-core-foundation"] }
 objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSGeometry", "NSHost", "NSObject", "NSString", "NSThread", "NSURL"] }
