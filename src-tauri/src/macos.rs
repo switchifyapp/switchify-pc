@@ -1167,8 +1167,11 @@ impl MacRuntime {
         if dx == 0 && dy == 0 {
             return Ok(input.pointer_feedback_for_move());
         }
-        let before = display_navigation::cursor_position().map_err(|error| error.message)?;
-        let feedback = input.move_pointer_pixels(dx, dy)?;
+        let (before, displays) =
+            display_navigation::displays(&self.app).map_err(|error| error.message)?;
+        let target = display_navigation::clamped_pointer_target(before, dx, dy, &displays)
+            .ok_or_else(|| "No active display could be resolved.".to_string())?;
+        let feedback = input.move_pointer_pixels_absolute(target.0, target.1)?;
         self.pending_repeat_moves
             .insert(generation, PendingRepeatMove { before });
         Ok(feedback)
@@ -1265,7 +1268,14 @@ impl MacRuntime {
             "Accessibility permission is required before the pointer can move.".to_string()
         })?;
         input.set_pointer_scale_percent(scale);
-        input.move_pointer(dx, dy)
+        let (dx, dy) = input.scaled_pointer_delta(dx, dy);
+        let (cursor, displays) =
+            display_navigation::displays(&self.app).map_err(|error| error.message)?;
+        let target = display_navigation::clamped_pointer_target(cursor, dx, dy, &displays)
+            .ok_or_else(|| "No active display could be resolved.".to_string())?;
+        input
+            .move_pointer_pixels_absolute(target.0, target.1)
+            .map(|_| ())
     }
 
     fn inject_pointer_click(&mut self, button: MouseButton, click_count: u8) -> Result<(), String> {

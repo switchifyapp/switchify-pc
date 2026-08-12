@@ -52,6 +52,10 @@ impl ModifierKey {
 
 pub trait InputInjector {
     fn inject_text(&mut self, text: &str) -> Result<(), String>;
+    #[cfg_attr(
+        target_os = "macos",
+        allow(dead_code, reason = "Windows keeps relative pointer injection")
+    )]
     fn move_pointer(&mut self, dx: i32, dy: i32) -> Result<(), String>;
     fn move_pointer_absolute(&mut self, x: i32, y: i32) -> Result<(), String>;
     fn click_pointer(&mut self, button: MouseButton, click_count: u8) -> Result<(), String>;
@@ -298,9 +302,17 @@ impl<I: InputInjector> DesktopInput<I> {
     pub fn type_text(&mut self, text: &str) -> Result<(), String> {
         self.injector.inject_text(text)
     }
+    #[cfg_attr(
+        target_os = "macos",
+        allow(dead_code, reason = "Windows keeps relative pointer injection")
+    )]
     pub fn move_pointer(&mut self, dx: i32, dy: i32) -> Result<(), String> {
+        let (dx, dy) = self.scaled_pointer_delta(dx, dy);
+        self.injector.move_pointer(dx, dy)
+    }
+    pub fn scaled_pointer_delta(&self, dx: i32, dy: i32) -> (i32, i32) {
         let scale = self.pointer_scale_percent as f64 / 100.0;
-        self.injector.move_pointer(
+        (
             (dx as f64 * scale).round() as i32,
             (dy as f64 * scale).round() as i32,
         )
@@ -308,8 +320,24 @@ impl<I: InputInjector> DesktopInput<I> {
     pub fn set_pointer_scale_percent(&mut self, scale_percent: u8) {
         self.pointer_scale_percent = u32::from(scale_percent.clamp(5, 225));
     }
+    #[cfg_attr(
+        target_os = "macos",
+        allow(dead_code, reason = "Windows keeps relative repeat injection")
+    )]
     pub fn move_pointer_pixels(&mut self, dx: i32, dy: i32) -> Result<PointerFeedback, String> {
         self.injector.move_pointer(dx, dy)?;
+        Ok(self.pointer_feedback_for_move())
+    }
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(dead_code, reason = "macOS uses bounded absolute pointer injection")
+    )]
+    pub fn move_pointer_pixels_absolute(
+        &mut self,
+        x: i32,
+        y: i32,
+    ) -> Result<PointerFeedback, String> {
+        self.injector.move_pointer_absolute(x, y)?;
         Ok(self.pointer_feedback_for_move())
     }
     pub fn has_active_drag(&self) -> bool {
