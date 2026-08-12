@@ -1,13 +1,20 @@
 use std::ffi::OsString;
+use std::fs;
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use directories::ProjectDirs;
 use tauri::{AppHandle, Manager};
+
+use crate::diagnostics::sanitize_detail;
 
 const RELAUNCH_AFTER_PID_ARGUMENT: &str = "--switchify-relaunch-after-pid";
 const WAIT_INTERVAL: Duration = Duration::from_millis(100);
 const MAX_WAIT_ATTEMPTS: usize = 600;
+const FAILURE_MARKER_FILE: &str = "updater-relaunch-failure.txt";
 
 pub fn spawn_after_update(app: &AppHandle) -> Result<(), String> {
     let executable =
@@ -29,14 +36,62 @@ pub fn run_from_args() -> bool {
     let Some(result) = parse_relaunch_args(&args) else {
         return false;
     };
-    if let Ok(parent_pid) = result {
-        if let Ok(executable) = std::env::current_exe() {
-            if let Ok(bundle_path) = bundle_path_for_executable(&executable) {
-                let _ = run_relaunch(parent_pid, &bundle_path, &mut SystemRelaunchPlatform);
-            }
-        }
+    let result = result
+        .and_then(|parent_pid| {
+            std::env::current_exe()
+                .map_err(|error| error.to_string())
+                .map(|executable| (parent_pid, executable))
+        })
+        .and_then(|(parent_pid, executable)| {
+            bundle_path_for_executable(&executable).map(|bundle| (parent_pid, bundle))
+        })
+        .and_then(|(parent_pid, bundle)| {
+            run_relaunch(parent_pid, &bundle, &mut SystemRelaunchPlatform)
+        });
+    if let Err(error) = result {
+        let _ = write_failure_marker(&failure_marker_path(), &error);
     }
     true
+}
+
+pub fn take_failure() -> Option<String> {
+    take_failure_marker(&failure_marker_path())
+}
+
+fn failure_marker_path() -> PathBuf {
+    ProjectDirs::from("com", "Enabo Apps", "Switchify PC")
+        .map(|directories| directories.config_dir().join(FAILURE_MARKER_FILE))
+        .unwrap_or_else(|| std::env::temp_dir().join(FAILURE_MARKER_FILE))
+}
+
+fn write_failure_marker(path: &Path, error: &str) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "The updater restart diagnostic directory is unavailable.".to_string())?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let temporary = path.with_extension(format!("tmp-{}", uuid::Uuid::new_v4()));
+    let mut file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&temporary)
+        .map_err(|error| error.to_string())?;
+    let detail = sanitize_detail(error);
+    if let Err(error) = writeln!(file, "{detail}").and_then(|()| file.sync_all()) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+    fs::rename(&temporary, path).map_err(|error| {
+        let _ = fs::remove_file(&temporary);
+        error.to_string()
+    })
+}
+
+fn take_failure_marker(path: &Path) -> Option<String> {
+    let detail = fs::read_to_string(path).ok()?;
+    fs::remove_file(path).ok()?;
+    let detail = sanitize_detail(detail.trim());
+    (!detail.is_empty()).then_some(detail)
 }
 
 fn parse_relaunch_args(args: &[OsString]) -> Option<Result<u32, String>> {
@@ -103,8 +158,7 @@ impl RelaunchPlatform for SystemRelaunchPlatform {
     }
 
     fn open_bundle(&mut self, bundle: &Path) -> Result<(), String> {
-        let status = Command::new("/usr/bin/open")
-            .arg(bundle)
+        let status = open_bundle_command(bundle)
             .status()
             .map_err(|error| error.to_string())?;
         if status.success() {
@@ -113,6 +167,12 @@ impl RelaunchPlatform for SystemRelaunchPlatform {
             Err(format!("The macOS app launcher exited with {status}."))
         }
     }
+}
+
+fn open_bundle_command(bundle: &Path) -> Command {
+    let mut command = Command::new("/usr/bin/open");
+    command.arg("-n").arg(bundle);
+    command
 }
 
 #[cfg(test)]
@@ -181,6 +241,38 @@ mod tests {
             Ok(PathBuf::from("/Applications/Switchify PC.app"))
         );
         assert!(bundle_path_for_executable(Path::new("/tmp/switchify-pc")).is_err());
+    }
+
+    #[test]
+    fn forces_launch_services_to_start_a_new_instance() {
+        let command = open_bundle_command(Path::new("/Applications/Switchify PC.app"));
+        assert_eq!(command.get_program(), "/usr/bin/open");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["-n", "/Applications/Switchify PC.app"]
+        );
+    }
+
+    #[test]
+    fn failure_marker_is_sanitized_consumed_and_user_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root =
+            std::env::temp_dir().join(format!("switchify-relaunch-{}", uuid::Uuid::new_v4()));
+        let marker = root.join(FAILURE_MARKER_FILE);
+        write_failure_marker(&marker, "failed at /Users/example/secret").unwrap();
+
+        assert_eq!(
+            fs::metadata(&marker).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            take_failure_marker(&marker),
+            Some("failed at [redacted]".to_string())
+        );
+        assert!(!marker.exists());
+        assert_eq!(take_failure_marker(&marker), None);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

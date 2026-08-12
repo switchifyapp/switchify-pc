@@ -1178,6 +1178,15 @@ pub fn run() {
         return;
     }
     let model = AppModel::new();
+    #[cfg(target_os = "macos")]
+    if let Some(error) = macos_relaunch::take_failure() {
+        state::set_activity(
+            &model.shared,
+            ActivityKind::Error,
+            format!("The installed update could not restart automatically: {error}"),
+        );
+        model.record_updater("failed", Some(&error));
+    }
     let shared = model.shared.clone();
     let overlay_shared = shared.clone();
     let modifier_overlay_shared = shared.clone();
