@@ -53,6 +53,7 @@ impl ModifierKey {
 pub trait InputInjector {
     fn inject_text(&mut self, text: &str) -> Result<(), String>;
     fn move_pointer(&mut self, dx: i32, dy: i32) -> Result<(), String>;
+    fn move_pointer_absolute(&mut self, x: i32, y: i32) -> Result<(), String>;
     fn click_pointer(&mut self, button: MouseButton, click_count: u8) -> Result<(), String>;
     fn set_pointer_button(&mut self, button: MouseButton, down: bool) -> Result<(), String>;
     fn scroll(&mut self, dx: i32, dy: i32) -> Result<(), String>;
@@ -141,6 +142,19 @@ impl InputInjector for Enigo {
     fn move_pointer(&mut self, dx: i32, dy: i32) -> Result<(), String> {
         self.move_mouse(dx, dy, Coordinate::Rel)
             .map_err(enigo_error("move the pointer"))
+    }
+    fn move_pointer_absolute(&mut self, x: i32, y: i32) -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        unsafe {
+            windows::Win32::UI::WindowsAndMessaging::SetCursorPos(x, y).map_err(|_| {
+                "The operating system could not move the pointer to another monitor.".into()
+            })
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            self.move_mouse(x, y, Coordinate::Abs)
+                .map_err(enigo_error("move the pointer to another monitor"))
+        }
     }
     fn click_pointer(&mut self, button: MouseButton, click_count: u8) -> Result<(), String> {
         for _ in 0..click_count {
@@ -297,6 +311,20 @@ impl<I: InputInjector> DesktopInput<I> {
     pub fn move_pointer_pixels(&mut self, dx: i32, dy: i32) -> Result<PointerFeedback, String> {
         self.injector.move_pointer(dx, dy)?;
         Ok(self.pointer_feedback_for_move())
+    }
+    pub fn has_active_drag(&self) -> bool {
+        self.held_button.is_some()
+    }
+    pub fn has_active_switch_session(&self) -> bool {
+        self.switch_session.is_some()
+    }
+    pub fn move_pointer_absolute(&mut self, x: i32, y: i32) -> Result<PointerFeedback, String> {
+        if self.has_active_drag() {
+            return Err("End the active drag before moving to another monitor.".into());
+        }
+        self.injector.move_pointer_absolute(x, y)?;
+        self.pointer_feedback = Some(PointerFeedback::Move);
+        Ok(PointerFeedback::Move)
     }
     pub fn execute_repeat_scroll(&mut self, dx: i32, dy: i32) -> Result<PointerFeedback, String> {
         self.injector.scroll(dx, dy)?;
@@ -1050,6 +1078,7 @@ mod tests {
     struct FakeInjector {
         text: Vec<String>,
         moves: Vec<(i32, i32)>,
+        absolute_moves: Vec<(i32, i32)>,
         scrolls: Vec<(i32, i32)>,
         clicks: Vec<(MouseButton, u8)>,
         pointer_states: Vec<(MouseButton, bool)>,
@@ -1065,6 +1094,10 @@ mod tests {
         }
         fn move_pointer(&mut self, dx: i32, dy: i32) -> Result<(), String> {
             self.moves.push((dx, dy));
+            Ok(())
+        }
+        fn move_pointer_absolute(&mut self, x: i32, y: i32) -> Result<(), String> {
+            self.absolute_moves.push((x, y));
             Ok(())
         }
         fn click_pointer(&mut self, button: MouseButton, count: u8) -> Result<(), String> {
@@ -1170,6 +1203,30 @@ mod tests {
             PointerFeedback::Move
         );
         assert_eq!(input.injector.moves, vec![(1, -1)]);
+    }
+
+    #[test]
+    fn display_movement_is_absolute_and_rejects_an_active_drag() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        assert_eq!(
+            input.move_pointer_absolute(-640, 512).unwrap(),
+            PointerFeedback::Move
+        );
+        assert_eq!(input.injector.absolute_moves, vec![(-640, 512)]);
+
+        input
+            .execute(
+                "device",
+                "mouse.dragStart",
+                &serde_json::json!({"button": "left"}),
+                &[],
+            )
+            .unwrap();
+        assert_eq!(
+            input.move_pointer_absolute(2_880, 540).unwrap_err(),
+            "End the active drag before moving to another monitor."
+        );
+        assert_eq!(input.injector.absolute_moves, vec![(-640, 512)]);
     }
 
     #[test]

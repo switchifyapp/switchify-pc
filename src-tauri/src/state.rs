@@ -152,7 +152,7 @@ impl PlatformCapabilities {
             platform: "windows".into(),
             grid3: true,
             ui_access: crate::windows_security::has_ui_access(),
-            display_navigation: false,
+            display_navigation: true,
             cursor_overlay: true,
         };
         #[cfg(target_os = "macos")]
@@ -160,7 +160,7 @@ impl PlatformCapabilities {
             platform: "macos".into(),
             grid3: false,
             ui_access: false,
-            display_navigation: false,
+            display_navigation: true,
             cursor_overlay: true,
         };
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]

@@ -344,6 +344,7 @@ pub struct PointerProfile {
     pub small_delta: u32,
     pub medium_delta: u32,
     pub large_delta: u32,
+    pub display_count: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -533,6 +534,18 @@ impl ProtocolEngine {
         result: Result<(), &str>,
     ) -> Option<String> {
         complete_input_command(&command.id, command.response_mode, result)
+    }
+
+    pub fn complete_desktop_command_with_error(
+        &self,
+        command: &DesktopCommand,
+        result: Result<(), (&str, &str)>,
+    ) -> Option<String> {
+        match result {
+            Ok(()) if command.response_mode == ResponseMode::None => None,
+            Ok(()) => Some(ack_response(&command.id)),
+            Err((code, message)) => Some(error_response(Some(&command.id), code, message)),
+        }
     }
 
     fn process_message(&mut self, raw: &str, now_ms: i64) -> Result<EngineEvent, String> {
@@ -929,6 +942,13 @@ fn valid_desktop_payload(command: &str, payload: &Value) -> bool {
                     .and_then(Value::as_f64)
                     .is_some_and(|value| value.is_finite() && value > 0.0)
         }
+        "pointer.display.move" => {
+            object.len() == 1
+                && matches!(
+                    object.get("direction").and_then(Value::as_str),
+                    Some("left" | "right" | "up" | "down")
+                )
+        }
         "keyboard.textStream.open" => valid_stream_id(object.get("streamId")),
         "keyboard.textStream.char" => {
             valid_stream_item(object)
@@ -1301,8 +1321,8 @@ pub fn pointer_profile_response(
                     "effectiveMoveDelta": (128.0 * f64::from(settings.pointer_scale_percent) / 100.0).round() as u32
                 },
                 "displayNavigation": {
-                    "supported": false,
-                    "displayCount": 1
+                    "supported": true,
+                    "displayCount": profile.display_count
                 }
             }
         },
@@ -1325,6 +1345,7 @@ fn supported_commands() -> Vec<&'static str> {
         "connection.ping",
         "pointer.profile",
         "pointer.speed.set",
+        "pointer.display.move",
         "keyboard.key",
         "keyboard.modifierDown",
         "keyboard.modifierUp",
@@ -1987,6 +2008,7 @@ mod tests {
             small_delta: 49,
             medium_delta: 130,
             large_delta: 281,
+            display_count: 2,
         };
         let response: Value = serde_json::from_str(&pointer_profile_response(
             "profile-1",
@@ -2016,9 +2038,89 @@ mod tests {
             "media.control",
             "window.control",
             "switch.session.start",
+            "pointer.display.move",
         ] {
             assert!(commands.contains(&json!(command)), "missing {command}");
         }
+        assert_eq!(
+            response["payload"]["capabilities"]["displayNavigation"]["supported"],
+            true
+        );
+        assert_eq!(
+            response["payload"]["capabilities"]["displayNavigation"]["displayCount"],
+            2
+        );
+    }
+
+    #[test]
+    fn display_navigation_accepts_only_one_bounded_direction() {
+        for direction in ["left", "right", "up", "down"] {
+            assert!(valid_desktop_payload(
+                "pointer.display.move",
+                &json!({"direction": direction})
+            ));
+        }
+        for payload in [
+            json!({}),
+            json!({"direction": "diagonal"}),
+            json!({"direction": "left", "extra": true}),
+            json!({"direction": 1}),
+        ] {
+            assert!(!valid_desktop_payload("pointer.display.move", &payload));
+        }
+    }
+
+    #[test]
+    fn display_navigation_executes_only_after_authentication() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine.tokens.insert("android-1".into(), TOKEN.into());
+        let mut command = json!({
+            "version": 1,
+            "id": "display-auth",
+            "deviceId": "android-1",
+            "timestamp": NOW,
+            "type": "pointer.display.move",
+            "payload": { "direction": "right" },
+            "auth": ""
+        });
+        let mut rejected = command.clone();
+        rejected["id"] = Value::String("display-rejected".into());
+        rejected["auth"] = Value::String("bad-proof".into());
+        assert!(matches!(
+            engine.process_message(&rejected.to_string(), NOW).unwrap(),
+            EngineEvent::Response(response) if response.contains("invalid_auth")
+        ));
+
+        sign(&mut command, TOKEN, SlashEscaping::AndroidHtmlSafe);
+        let event = engine.process_message(&command.to_string(), NOW).unwrap();
+        let EngineEvent::Desktop(command) = event else {
+            panic!("expected a desktop command");
+        };
+        assert_eq!(command.command_type, "pointer.display.move");
+        assert_eq!(command.payload["direction"], "right");
+    }
+
+    #[test]
+    fn desktop_completion_can_preserve_structured_errors() {
+        let engine = ProtocolEngine::new("desktop".into());
+        let command = DesktopCommand {
+            id: "display-1".into(),
+            device_id: "device".into(),
+            command_type: "pointer.display.move".into(),
+            payload: json!({"direction": "right"}),
+            response_mode: ResponseMode::Ack,
+        };
+        let response: Value = serde_json::from_str(
+            &engine
+                .complete_desktop_command_with_error(
+                    &command,
+                    Err(("no_display_in_direction", "No monitor to the right.")),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(response["error"]["code"], "no_display_in_direction");
+        assert_eq!(response["error"]["message"], "No monitor to the right.");
     }
 
     #[test]

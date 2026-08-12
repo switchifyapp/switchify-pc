@@ -15,6 +15,7 @@ use windows::Devices::Bluetooth::GenericAttributeProfile::{
 use windows::Foundation::{Deferral, TypedEventHandler};
 use windows::Security::Cryptography::CryptographicBuffer;
 
+use crate::display_navigation::{self, NavigationError};
 use crate::input::{DesktopInput, PointerFeedback};
 use crate::modifier_overlay::ModifierOverlay;
 use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERVAL_MS};
@@ -493,7 +494,7 @@ fn process_frame(
                 .clone();
             Some(pointer_profile_response(
                 &id,
-                &default_pointer_profile(),
+                &current_pointer_profile(app),
                 &settings,
             ))
         }
@@ -606,14 +607,25 @@ fn complete_desktop(
     if command.command_type == "switch.profile.list" {
         return Some(switch_profile_catalog_response(&command.id, &profiles));
     }
-    let result = with_runtime_input(|input| {
-        input.execute(
-            &command.device_id,
-            &command.command_type,
-            &command.payload,
-            &profiles,
+    let (result, error_code) = if command.command_type == "pointer.display.move" {
+        let direction = command.payload["direction"].as_str().unwrap_or_default();
+        match navigate_display(app, direction) {
+            Ok(feedback) => (Ok(Some(feedback)), "input_failed"),
+            Err(error) => (Err(error.message), error.code),
+        }
+    } else {
+        (
+            with_runtime_input(|input| {
+                input.execute(
+                    &command.device_id,
+                    &command.command_type,
+                    &command.payload,
+                    &profiles,
+                )
+            }),
+            "input_failed",
         )
-    });
+    };
     if let Ok(feedback) = &result {
         let settings = overlay_settings(shared);
         let overlay = app.state::<CursorOverlay>();
@@ -644,10 +656,51 @@ fn complete_desktop(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .engine
-        .complete_desktop_command(
+        .complete_desktop_command_with_error(
             &command,
-            result.as_ref().map(|_| ()).map_err(String::as_str),
+            result
+                .as_ref()
+                .map(|_| ())
+                .map_err(|error| (error_code, error.as_str())),
         )
+}
+
+fn navigate_display(app: &AppHandle, direction: &str) -> Result<PointerFeedback, NavigationError> {
+    let mut guard = runtime()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let input = &mut guard
+        .as_mut()
+        .ok_or_else(|| NavigationError {
+            code: "adapter_failure",
+            message: "Bluetooth runtime is not ready.".into(),
+        })?
+        .input;
+    if input.has_active_switch_session() {
+        return Err(NavigationError {
+            code: "input_failed",
+            message: "Stop PC Switch Control before using other PC control commands.".into(),
+        });
+    }
+    if input.has_active_drag() {
+        return Err(NavigationError {
+            code: "drag_active",
+            message: "End the active drag before moving to another monitor.".into(),
+        });
+    }
+    let (cursor, displays) = display_navigation::displays(app)?;
+    let source =
+        display_navigation::current_display(cursor, &displays).ok_or_else(|| NavigationError {
+            code: "adapter_failure",
+            message: "The active monitor could not be resolved.".into(),
+        })?;
+    let (x, y) = display_navigation::target_center(source, &displays, direction)?;
+    input
+        .move_pointer_absolute(x, y)
+        .map_err(|_| NavigationError {
+            code: "adapter_failure",
+            message: "The operating system could not move the pointer to another monitor.".into(),
+        })
 }
 
 fn complete_repeat_start(
@@ -865,18 +918,65 @@ fn show_overlay(app: &AppHandle, shared: &SharedModel, feedback: PointerFeedback
     overlay.show(feedback, settings);
 }
 
-fn default_pointer_profile() -> PointerProfile {
+fn current_pointer_profile(app: &AppHandle) -> PointerProfile {
+    let Ok((cursor, displays)) = display_navigation::displays(app) else {
+        return fallback_pointer_profile();
+    };
+    let Some(display) = display_navigation::current_display(cursor, &displays) else {
+        return fallback_pointer_profile();
+    };
+    pointer_profile_for_display(display, displays.len().clamp(1, 64) as u8)
+}
+
+fn pointer_profile_for_display(
+    display: &display_navigation::Display,
+    display_count: u8,
+) -> PointerProfile {
+    let scale_factor = if display.scale_factor.is_finite() && display.scale_factor > 0.0 {
+        display.scale_factor
+    } else {
+        1.0
+    };
+    let x = (f64::from(display.x) / scale_factor).round() as i32;
+    let y = (f64::from(display.y) / scale_factor).round() as i32;
+    let width = (f64::from(display.width) / scale_factor)
+        .round()
+        .clamp(1.0, f64::from(u32::MAX)) as u32;
+    let height = (f64::from(display.height) / scale_factor)
+        .round()
+        .clamp(1.0, f64::from(u32::MAX)) as u32;
+    let short_edge = width.min(height);
+    let delta = |fraction: f64| {
+        (f64::from(short_edge) * fraction)
+            .round()
+            .clamp(1.0, crate::protocol::MAX_POINTER_DELTA) as u32
+    };
     PointerProfile {
-        display_id: "primary".into(),
-        scale_factor: 1.0,
-        x: 0,
-        y: 0,
-        width: 1920,
-        height: 1080,
-        small_delta: 19,
-        medium_delta: 96,
-        large_delta: 288,
+        display_id: format!("{}:{x}:{y}:{width}:{height}:{scale_factor}", display.name),
+        scale_factor,
+        x,
+        y,
+        width,
+        height,
+        small_delta: delta(0.0225),
+        medium_delta: delta(0.06),
+        large_delta: delta(0.13),
+        display_count,
     }
+}
+
+fn fallback_pointer_profile() -> PointerProfile {
+    pointer_profile_for_display(
+        &display_navigation::Display {
+            name: "fallback".into(),
+            scale_factor: 1.0,
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        },
+        1,
+    )
 }
 
 fn notify(message: String) -> Result<(), String> {
@@ -1020,7 +1120,11 @@ fn release_input_session() {
 
 #[cfg(test)]
 mod tests {
-    use super::{should_cancel_pending_pairings, tasklist_has_other_switchify_process};
+    use super::{
+        pointer_profile_for_display, should_cancel_pending_pairings,
+        tasklist_has_other_switchify_process,
+    };
+    use crate::display_navigation::Display;
 
     #[test]
     fn pending_pairings_clear_only_after_the_final_subscriber_leaves() {
@@ -1054,5 +1158,34 @@ mod tests {
             r#""Switchify PC.exe","not-a-pid","Console","1","20,000 K""#,
         );
         assert!(!tasklist_has_other_switchify_process(output, 4242));
+    }
+
+    #[test]
+    fn pointer_profile_uses_the_active_display_scale_and_live_count() {
+        let profile = pointer_profile_for_display(
+            &Display {
+                name: "Retina".into(),
+                scale_factor: 2.0,
+                x: -3840,
+                y: 0,
+                width: 3840,
+                height: 2160,
+            },
+            3,
+        );
+        assert_eq!(profile.display_id, "Retina:-1920:0:1920:1080:2");
+        assert_eq!(
+            (profile.x, profile.y, profile.width, profile.height),
+            (-1920, 0, 1920, 1080)
+        );
+        assert_eq!(profile.display_count, 3);
+        assert_eq!(
+            (
+                profile.small_delta,
+                profile.medium_delta,
+                profile.large_delta
+            ),
+            (24, 65, 140)
+        );
     }
 }
