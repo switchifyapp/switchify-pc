@@ -128,15 +128,10 @@ impl MacOverlayHost {
             logical_size,
         )?;
         let screen_frame = screen.frame();
-        let marker_frame =
-            contained_centered_rect(screen_frame, cursor, logical_size, logical_size);
+        let marker_frame = centered_rect(cursor, logical_size, logical_size);
         self.marker.setFrame_display(marker_frame, false);
-        self.marker_view.setFrame(rect(
-            0.0,
-            0.0,
-            marker_frame.size.width,
-            marker_frame.size.height,
-        ));
+        self.marker_view
+            .setFrame(rect(0.0, 0.0, logical_size, logical_size));
         self.marker_view.setImage(Some(&image));
         self.marker.orderFrontRegardless();
 
@@ -355,6 +350,15 @@ fn contained_centered_rect(container: NSRect, center: NSPoint, width: f64, heigh
     )
 }
 
+fn centered_rect(center: NSPoint, width: f64, height: f64) -> NSRect {
+    rect(
+        center.x - width / 2.0,
+        center.y - height / 2.0,
+        width,
+        height,
+    )
+}
+
 fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect {
     NSRect {
         origin: NSPoint { x, y },
@@ -454,57 +458,53 @@ mod tests {
     #[test]
     fn overlay_rect_stays_centered_away_from_edges() {
         assert_eq!(
-            contained_centered_rect(
-                rect(0.0, 0.0, 1920.0, 1080.0),
-                NSPoint { x: 960.0, y: 540.0 },
-                128.0,
-                128.0,
-            ),
+            centered_rect(NSPoint { x: 960.0, y: 540.0 }, 128.0, 128.0,),
             rect(896.0, 476.0, 128.0, 128.0)
         );
     }
 
     #[test]
-    fn overlay_rect_is_clamped_at_every_screen_edge() {
-        let screen = rect(0.0, 0.0, 1920.0, 1080.0);
+    fn overlay_rect_stays_pointer_centered_at_every_screen_edge() {
         for (cursor, expected) in [
-            (NSPoint { x: 0.0, y: 540.0 }, rect(0.0, 476.0, 128.0, 128.0)),
+            (
+                NSPoint { x: 0.0, y: 540.0 },
+                rect(-64.0, 476.0, 128.0, 128.0),
+            ),
             (
                 NSPoint {
                     x: 1920.0,
                     y: 540.0,
                 },
-                rect(1792.0, 476.0, 128.0, 128.0),
+                rect(1856.0, 476.0, 128.0, 128.0),
             ),
-            (NSPoint { x: 960.0, y: 0.0 }, rect(896.0, 0.0, 128.0, 128.0)),
+            (
+                NSPoint { x: 960.0, y: 0.0 },
+                rect(896.0, -64.0, 128.0, 128.0),
+            ),
             (
                 NSPoint {
                     x: 960.0,
                     y: 1080.0,
                 },
-                rect(896.0, 952.0, 128.0, 128.0),
+                rect(896.0, 1016.0, 128.0, 128.0),
             ),
-            (NSPoint { x: 0.0, y: 0.0 }, rect(0.0, 0.0, 128.0, 128.0)),
+            (NSPoint { x: 0.0, y: 0.0 }, rect(-64.0, -64.0, 128.0, 128.0)),
             (
                 NSPoint {
                     x: 1920.0,
                     y: 1080.0,
                 },
-                rect(1792.0, 952.0, 128.0, 128.0),
+                rect(1856.0, 1016.0, 128.0, 128.0),
             ),
         ] {
-            assert_eq!(
-                contained_centered_rect(screen, cursor, 128.0, 128.0),
-                expected
-            );
+            assert_eq!(centered_rect(cursor, 128.0, 128.0), expected);
         }
     }
 
     #[test]
     fn overlay_rect_supports_negative_screen_origins() {
         assert_eq!(
-            contained_centered_rect(
-                rect(-1600.0, -900.0, 1600.0, 900.0),
+            centered_rect(
                 NSPoint {
                     x: -1600.0,
                     y: -900.0
@@ -512,20 +512,15 @@ mod tests {
                 128.0,
                 128.0,
             ),
-            rect(-1600.0, -900.0, 128.0, 128.0)
+            rect(-1664.0, -964.0, 128.0, 128.0)
         );
     }
 
     #[test]
-    fn oversized_overlay_rect_is_reduced_to_the_screen() {
+    fn marker_size_is_not_reduced_to_fit_an_undersized_screen() {
         assert_eq!(
-            contained_centered_rect(
-                rect(-50.0, 25.0, 100.0, 80.0),
-                NSPoint { x: 0.0, y: 65.0 },
-                128.0,
-                128.0,
-            ),
-            rect(-50.0, 25.0, 100.0, 80.0)
+            centered_rect(NSPoint { x: 0.0, y: 65.0 }, 128.0, 128.0),
+            rect(-64.0, 1.0, 128.0, 128.0)
         );
     }
 
