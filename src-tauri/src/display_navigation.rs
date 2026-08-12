@@ -46,41 +46,40 @@ impl NavigationError {
     }
 }
 
+#[cfg(target_os = "macos")]
 pub fn displays(app: &AppHandle) -> Result<((f64, f64), Vec<Display>), NavigationError> {
-    #[cfg(target_os = "macos")]
-    {
-        let _ = app;
-        return macos_displays();
+    let _ = app;
+    macos_displays()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn displays(app: &AppHandle) -> Result<((f64, f64), Vec<Display>), NavigationError> {
+    let cursor = app
+        .cursor_position()
+        .map_err(|_| NavigationError::adapter("The pointer position could not be read."))?;
+    let displays = app
+        .available_monitors()
+        .map_err(|_| NavigationError::adapter("The connected monitors could not be read."))?
+        .into_iter()
+        .map(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            Display {
+                name: monitor.name().cloned().unwrap_or_else(|| "display".into()),
+                scale_factor: monitor.scale_factor(),
+                x: position.x,
+                y: position.y,
+                width: size.width,
+                height: size.height,
+            }
+        })
+        .collect::<Vec<_>>();
+    if displays.is_empty() {
+        return Err(NavigationError::adapter(
+            "No connected monitor could be resolved.",
+        ));
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let cursor = app
-            .cursor_position()
-            .map_err(|_| NavigationError::adapter("The pointer position could not be read."))?;
-        let displays = app
-            .available_monitors()
-            .map_err(|_| NavigationError::adapter("The connected monitors could not be read."))?
-            .into_iter()
-            .map(|monitor| {
-                let position = monitor.position();
-                let size = monitor.size();
-                Display {
-                    name: monitor.name().cloned().unwrap_or_else(|| "display".into()),
-                    scale_factor: monitor.scale_factor(),
-                    x: position.x,
-                    y: position.y,
-                    width: size.width,
-                    height: size.height,
-                }
-            })
-            .collect::<Vec<_>>();
-        if displays.is_empty() {
-            return Err(NavigationError::adapter(
-                "No connected monitor could be resolved.",
-            ));
-        }
-        Ok(((cursor.x, cursor.y), displays))
-    }
+    Ok(((cursor.x, cursor.y), displays))
 }
 
 #[cfg(target_os = "macos")]

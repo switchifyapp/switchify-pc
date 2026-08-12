@@ -868,6 +868,12 @@ impl MacRuntime {
             }
             return;
         }
+        let accessibility_unavailable = if command.command_type == "pointer.display.move" {
+            false
+        } else {
+            self.stop_all_repeats();
+            self.input.is_none() && !self.refresh_accessibility(false).unwrap_or(false)
+        };
         let (injection, error_code) = if command.command_type == "pointer.display.move" {
             let direction = command.payload["direction"].as_str().unwrap_or_default();
             match display_navigation::run_navigation_command(
@@ -885,10 +891,7 @@ impl MacRuntime {
                 Ok(feedback) => (Ok(Some(feedback)), "input_failed"),
                 Err(error) => (Err(error.message), error.code),
             }
-        } else if {
-            self.stop_all_repeats();
-            self.input.is_none() && !self.refresh_accessibility(false).unwrap_or(false)
-        } {
+        } else if accessibility_unavailable {
             (
                 Err(
                     "Accessibility permission is required before input can be controlled."
