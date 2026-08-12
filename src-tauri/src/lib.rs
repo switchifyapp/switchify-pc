@@ -7,6 +7,8 @@ mod input;
 mod macos;
 #[cfg(target_os = "macos")]
 mod macos_overlay_window;
+#[cfg(target_os = "macos")]
+mod macos_relaunch;
 mod modifier_overlay;
 mod mouse_repeat;
 mod overlay;
@@ -999,6 +1001,23 @@ async fn install_update(app: AppHandle) -> Result<AppState, String> {
         ));
     }
     model.record_updater("installed", None);
+    #[cfg(target_os = "macos")]
+    {
+        if let Err(error) = macos_relaunch::spawn_after_update(&app) {
+            manager.finish(UpdateOperation::Install);
+            return Ok(update_failure(
+                &app,
+                &model,
+                Some(version),
+                RetryAction::Check,
+                "Update installed but restart failed",
+                &error,
+            ));
+        }
+        app.exit(0);
+        Ok(model.snapshot())
+    }
+    #[cfg(not(target_os = "macos"))]
     app.restart();
 }
 
@@ -1154,7 +1173,20 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
 }
 
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    if macos_relaunch::run_from_args() {
+        return;
+    }
     let model = AppModel::new();
+    #[cfg(target_os = "macos")]
+    if let Some(error) = macos_relaunch::take_failure() {
+        state::set_activity(
+            &model.shared,
+            ActivityKind::Error,
+            format!("The installed update could not restart automatically: {error}"),
+        );
+        model.record_updater("failed", Some(&error));
+    }
     let shared = model.shared.clone();
     let overlay_shared = shared.clone();
     let modifier_overlay_shared = shared.clone();
