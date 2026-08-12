@@ -127,20 +127,20 @@ impl MacOverlayHost {
             pixmap.height() as usize,
             logical_size,
         )?;
-        let marker_frame = rect(
-            cursor.x - logical_size / 2.0,
-            cursor.y - logical_size / 2.0,
-            logical_size,
-            logical_size,
-        );
+        let screen_frame = screen.frame();
+        let marker_frame =
+            contained_centered_rect(screen_frame, cursor, logical_size, logical_size);
         self.marker.setFrame_display(marker_frame, false);
-        self.marker_view
-            .setFrame(rect(0.0, 0.0, logical_size, logical_size));
+        self.marker_view.setFrame(rect(
+            0.0,
+            0.0,
+            marker_frame.size.width,
+            marker_frame.size.height,
+        ));
         self.marker_view.setImage(Some(&image));
         self.marker.orderFrontRegardless();
 
         if frame.crosshairs {
-            let screen_frame = screen.frame();
             let thickness = 2.0;
             let color = NSColor::colorWithSRGBRed_green_blue_alpha(
                 f64::from(frame.color[0]) / 255.0,
@@ -151,18 +151,24 @@ impl MacOverlayHost {
             self.horizontal.setBackgroundColor(Some(&color));
             self.vertical.setBackgroundColor(Some(&color));
             self.horizontal.setFrame_display(
-                rect(
-                    screen_frame.origin.x,
-                    cursor.y - thickness / 2.0,
+                contained_centered_rect(
+                    screen_frame,
+                    NSPoint {
+                        x: screen_frame.origin.x + screen_frame.size.width / 2.0,
+                        y: cursor.y,
+                    },
                     screen_frame.size.width,
                     thickness,
                 ),
                 false,
             );
             self.vertical.setFrame_display(
-                rect(
-                    cursor.x - thickness / 2.0,
-                    screen_frame.origin.y,
+                contained_centered_rect(
+                    screen_frame,
+                    NSPoint {
+                        x: cursor.x,
+                        y: screen_frame.origin.y + screen_frame.size.height / 2.0,
+                    },
                     thickness,
                     screen_frame.size.height,
                 ),
@@ -334,6 +340,21 @@ fn axis_distance(value: f64, minimum: f64, maximum: f64) -> f64 {
     }
 }
 
+fn contained_centered_rect(container: NSRect, center: NSPoint, width: f64, height: f64) -> NSRect {
+    let container_width = container.size.width.max(0.0);
+    let container_height = container.size.height.max(0.0);
+    let width = width.max(0.0).min(container_width);
+    let height = height.max(0.0).min(container_height);
+    let maximum_x = container.origin.x + container_width - width;
+    let maximum_y = container.origin.y + container_height - height;
+    rect(
+        (center.x - width / 2.0).clamp(container.origin.x, maximum_x),
+        (center.y - height / 2.0).clamp(container.origin.y, maximum_y),
+        width,
+        height,
+    )
+}
+
 fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect {
     NSRect {
         origin: NSPoint { x, y },
@@ -428,6 +449,105 @@ mod tests {
     #[test]
     fn empty_display_list_cannot_resolve_a_screen() {
         assert_eq!(screen_index_at_point(&[], NSPoint { x: 0.0, y: 0.0 }), None);
+    }
+
+    #[test]
+    fn overlay_rect_stays_centered_away_from_edges() {
+        assert_eq!(
+            contained_centered_rect(
+                rect(0.0, 0.0, 1920.0, 1080.0),
+                NSPoint { x: 960.0, y: 540.0 },
+                128.0,
+                128.0,
+            ),
+            rect(896.0, 476.0, 128.0, 128.0)
+        );
+    }
+
+    #[test]
+    fn overlay_rect_is_clamped_at_every_screen_edge() {
+        let screen = rect(0.0, 0.0, 1920.0, 1080.0);
+        for (cursor, expected) in [
+            (NSPoint { x: 0.0, y: 540.0 }, rect(0.0, 476.0, 128.0, 128.0)),
+            (
+                NSPoint {
+                    x: 1920.0,
+                    y: 540.0,
+                },
+                rect(1792.0, 476.0, 128.0, 128.0),
+            ),
+            (NSPoint { x: 960.0, y: 0.0 }, rect(896.0, 0.0, 128.0, 128.0)),
+            (
+                NSPoint {
+                    x: 960.0,
+                    y: 1080.0,
+                },
+                rect(896.0, 952.0, 128.0, 128.0),
+            ),
+            (NSPoint { x: 0.0, y: 0.0 }, rect(0.0, 0.0, 128.0, 128.0)),
+            (
+                NSPoint {
+                    x: 1920.0,
+                    y: 1080.0,
+                },
+                rect(1792.0, 952.0, 128.0, 128.0),
+            ),
+        ] {
+            assert_eq!(
+                contained_centered_rect(screen, cursor, 128.0, 128.0),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn overlay_rect_supports_negative_screen_origins() {
+        assert_eq!(
+            contained_centered_rect(
+                rect(-1600.0, -900.0, 1600.0, 900.0),
+                NSPoint {
+                    x: -1600.0,
+                    y: -900.0
+                },
+                128.0,
+                128.0,
+            ),
+            rect(-1600.0, -900.0, 128.0, 128.0)
+        );
+    }
+
+    #[test]
+    fn oversized_overlay_rect_is_reduced_to_the_screen() {
+        assert_eq!(
+            contained_centered_rect(
+                rect(-50.0, 25.0, 100.0, 80.0),
+                NSPoint { x: 0.0, y: 65.0 },
+                128.0,
+                128.0,
+            ),
+            rect(-50.0, 25.0, 100.0, 80.0)
+        );
+    }
+
+    #[test]
+    fn crosshair_rects_are_clamped_perpendicular_to_screen_edges() {
+        let screen = rect(0.0, 0.0, 1920.0, 1080.0);
+        assert_eq!(
+            contained_centered_rect(screen, NSPoint { x: 960.0, y: 0.0 }, 1920.0, 2.0,),
+            rect(0.0, 0.0, 1920.0, 2.0)
+        );
+        assert_eq!(
+            contained_centered_rect(
+                screen,
+                NSPoint {
+                    x: 1920.0,
+                    y: 540.0
+                },
+                2.0,
+                1080.0,
+            ),
+            rect(1918.0, 0.0, 2.0, 1080.0)
+        );
     }
 
     #[test]
