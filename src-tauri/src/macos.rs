@@ -185,6 +185,7 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
             outbound: OutboundQueue::default(),
             input: None,
             repeats: MouseRepeatController::default(),
+            pending_repeat_moves: HashMap::new(),
         });
     });
     with_runtime(|runtime| {
@@ -360,6 +361,12 @@ struct MacRuntime {
     outbound: OutboundQueue,
     input: Option<DesktopInput<Enigo>>,
     repeats: MouseRepeatController,
+    pending_repeat_moves: HashMap<u64, PendingRepeatMove>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PendingRepeatMove {
+    before: (f64, f64),
 }
 
 #[derive(Debug, Default)]
@@ -978,6 +985,10 @@ impl MacRuntime {
         let settings = self.overlay_settings();
         let parsed = RepeatCommand::parse(&command.payload);
         let injection = parsed.and_then(|repeat_command| {
+            if repeat_move_is_stationary(repeat_command) {
+                self.stop_repeat_for_device(&command.device_id);
+                return Ok(());
+            }
             if !settings.mouse_repeat_enabled {
                 self.stop_repeat_for_device(&command.device_id);
                 return Err("Mouse repeat is disabled in settings.".into());
@@ -1000,14 +1011,7 @@ impl MacRuntime {
                         .repeats
                         .initial_move(&command.device_id, active.generation)
                         .unwrap_or((0, 0));
-                    match self.input.as_mut() {
-                        Some(input) if dx == 0 && dy == 0 => Ok(input.pointer_feedback_for_move()),
-                        Some(input) => input.move_pointer_pixels(dx, dy),
-                        None => Err(
-                            "Accessibility permission is required before the pointer can move."
-                                .to_string(),
-                        ),
-                    }
+                    self.execute_repeat_move(active.generation, dx, dy)
                 }
                 RepeatCommand::Scroll { dx, dy } => match self.input.as_mut() {
                     Some(input) => input.execute_repeat_scroll(dx, dy),
@@ -1099,6 +1103,21 @@ impl MacRuntime {
             self.stop_repeat_if_current(&device_id, generation);
             return Ok(());
         }
+        if matches!(active.command, RepeatCommand::Move { .. }) {
+            match self.pending_repeat_made_progress(generation, active.command) {
+                Ok(true) => {}
+                Ok(false) => {
+                    self.stop_repeat_if_current(&device_id, generation);
+                    return Ok(());
+                }
+                Err(error) => {
+                    if self.stop_repeat_if_current(&device_id, generation) {
+                        self.report_error(format!("Mouse repeat stopped: {error}"));
+                    }
+                    return Ok(());
+                }
+            }
+        }
         let movement = match active.command {
             RepeatCommand::Move { .. } => self.repeats.advance_move(
                 &device_id,
@@ -1109,20 +1128,19 @@ impl MacRuntime {
             ),
             RepeatCommand::Scroll { .. } => None,
         };
-        let result = self
-            .input
-            .as_mut()
-            .ok_or_else(|| {
-                "Accessibility permission is required before input can be controlled.".to_string()
-            })
-            .and_then(|input| match active.command {
-                RepeatCommand::Move { .. } => match movement {
-                    Some((0, 0)) => Ok(()),
-                    Some((dx, dy)) => input.move_pointer_pixels(dx, dy).map(|_| ()),
-                    None => Ok(()),
-                },
-                RepeatCommand::Scroll { dx, dy } => input.execute_repeat_scroll(dx, dy).map(|_| ()),
-            });
+        let result = match active.command {
+            RepeatCommand::Move { .. } => match movement {
+                Some((dx, dy)) => self.execute_repeat_move(generation, dx, dy).map(|_| ()),
+                None => Ok(()),
+            },
+            RepeatCommand::Scroll { dx, dy } => match self.input.as_mut() {
+                Some(input) => input.execute_repeat_scroll(dx, dy).map(|_| ()),
+                None => Err(
+                    "Accessibility permission is required before input can be controlled."
+                        .to_string(),
+                ),
+            },
+        };
         if let Err(error) = result {
             if self.stop_repeat_if_current(&device_id, generation) {
                 self.report_error(format!("Mouse repeat stopped: {error}"));
@@ -1137,9 +1155,51 @@ impl MacRuntime {
         Ok(())
     }
 
+    fn execute_repeat_move(
+        &mut self,
+        generation: u64,
+        dx: i32,
+        dy: i32,
+    ) -> Result<PointerFeedback, String> {
+        let input = self.input.as_mut().ok_or_else(|| {
+            "Accessibility permission is required before the pointer can move.".to_string()
+        })?;
+        if dx == 0 && dy == 0 {
+            return Ok(input.pointer_feedback_for_move());
+        }
+        let before = display_navigation::cursor_position().map_err(|error| error.message)?;
+        let feedback = input.move_pointer_pixels(dx, dy)?;
+        self.pending_repeat_moves
+            .insert(generation, PendingRepeatMove { before });
+        Ok(feedback)
+    }
+
+    fn pending_repeat_made_progress(
+        &mut self,
+        generation: u64,
+        command: RepeatCommand,
+    ) -> Result<bool, String> {
+        let Some(pending) = self.pending_repeat_moves.remove(&generation) else {
+            return Ok(true);
+        };
+        let RepeatCommand::Move { dx, dy } = command else {
+            return Ok(true);
+        };
+        let after = display_navigation::cursor_position().map_err(|error| error.message)?;
+        if repeat_move_made_progress(dx, dy, pending.before, after) {
+            return Ok(true);
+        }
+        let (_, displays) =
+            display_navigation::displays(&self.app).map_err(|error| error.message)?;
+        Ok(repeat_direction_has_available_space(
+            dx, dy, after, &displays,
+        ))
+    }
+
     fn stop_repeat_if_current(&mut self, device_id: &str, generation: u64) -> bool {
         let stopped = self.repeats.stop_if_current(device_id, generation);
         if stopped {
+            self.pending_repeat_moves.remove(&generation);
             self.app.state::<CursorOverlay>().end_repeat(generation);
         }
         stopped
@@ -1147,6 +1207,7 @@ impl MacRuntime {
 
     fn stop_repeat_for_device(&mut self, device_id: &str) {
         if let Some(active) = self.repeats.stop(device_id) {
+            self.pending_repeat_moves.remove(&active.generation);
             self.app
                 .state::<CursorOverlay>()
                 .end_repeat(active.generation);
@@ -1155,6 +1216,7 @@ impl MacRuntime {
 
     fn stop_all_repeats(&mut self) {
         for active in self.repeats.stop_all() {
+            self.pending_repeat_moves.remove(&active.generation);
             self.app
                 .state::<CursorOverlay>()
                 .end_repeat(active.generation);
@@ -1422,6 +1484,39 @@ fn pointer_profile_for_display(
     }
 }
 
+fn repeat_move_made_progress(dx: i32, dy: i32, before: (f64, f64), after: (f64, f64)) -> bool {
+    const POSITION_EPSILON: f64 = 0.01;
+    let axis_progress = |requested: i32, before: f64, after: f64| match requested.cmp(&0) {
+        std::cmp::Ordering::Greater => after > before + POSITION_EPSILON,
+        std::cmp::Ordering::Less => after < before - POSITION_EPSILON,
+        std::cmp::Ordering::Equal => false,
+    };
+    axis_progress(dx, before.0, after.0) || axis_progress(dy, before.1, after.1)
+}
+
+fn repeat_move_is_stationary(command: RepeatCommand) -> bool {
+    matches!(command, RepeatCommand::Move { dx: 0, dy: 0 })
+}
+
+fn repeat_direction_has_available_space(
+    dx: i32,
+    dy: i32,
+    cursor: (f64, f64),
+    displays: &[display_navigation::Display],
+) -> bool {
+    let contains = |point: (f64, f64)| {
+        displays.iter().any(|display| {
+            point.0 >= f64::from(display.x)
+                && point.0 < f64::from(display.x) + f64::from(display.width)
+                && point.1 >= f64::from(display.y)
+                && point.1 < f64::from(display.y) + f64::from(display.height)
+        })
+    };
+    let step = |value: i32| f64::from(value.signum());
+    (dx != 0 && contains((cursor.0 + step(dx), cursor.1)))
+        || (dy != 0 && contains((cursor.0, cursor.1 + step(dy))))
+}
+
 fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Result<(), String> {
     with_runtime(|runtime| {
         let response = {
@@ -1566,6 +1661,143 @@ mod tests {
         assert_eq!(status["displayName"], "Owen’s Mac Studio");
         assert_eq!(status["desktopId"], "desktop-1");
         assert_eq!(status["platform"], "macos");
+    }
+
+    #[test]
+    fn repeated_move_stops_when_the_requested_axis_cannot_move() {
+        assert!(!repeat_move_made_progress(
+            12,
+            0,
+            (1919.0, 540.0),
+            (1919.0, 540.0)
+        ));
+        assert!(!repeat_move_made_progress(
+            0,
+            -12,
+            (960.0, 0.0),
+            (960.0, 0.0)
+        ));
+        assert!(!repeat_move_made_progress(
+            12,
+            12,
+            (1919.0, 1079.0),
+            (1919.0, 1079.0)
+        ));
+    }
+
+    #[test]
+    fn repeated_diagonal_move_continues_along_a_free_axis() {
+        assert!(repeat_move_made_progress(
+            12,
+            12,
+            (1919.0, 500.0),
+            (1919.0, 512.0)
+        ));
+        assert!(repeat_move_made_progress(
+            -12,
+            -12,
+            (0.0, 500.0),
+            (0.0, 488.0)
+        ));
+    }
+
+    #[test]
+    fn repeated_move_requires_progress_in_the_requested_direction() {
+        assert!(repeat_move_made_progress(
+            12,
+            0,
+            (100.0, 100.0),
+            (112.0, 100.0)
+        ));
+        assert!(repeat_move_made_progress(
+            0,
+            -12,
+            (100.0, 100.0),
+            (100.0, 88.0)
+        ));
+        assert!(!repeat_move_made_progress(
+            12,
+            0,
+            (100.0, 100.0),
+            (99.0, 100.0)
+        ));
+        assert!(!repeat_move_made_progress(
+            0,
+            0,
+            (100.0, 100.0),
+            (112.0, 112.0)
+        ));
+    }
+
+    fn repeat_display(x: i32, y: i32, width: u32, height: u32) -> display_navigation::Display {
+        display_navigation::Display {
+            name: "test".into(),
+            scale_factor: 1.0,
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn uneven_diagonal_can_continue_on_a_free_minor_axis() {
+        let displays = [repeat_display(0, 0, 1920, 1080)];
+        assert!(repeat_direction_has_available_space(
+            10,
+            1,
+            (1919.0, 500.0),
+            &displays
+        ));
+        assert!(!repeat_direction_has_available_space(
+            10,
+            1,
+            (1919.0, 1079.0),
+            &displays
+        ));
+    }
+
+    #[test]
+    fn repeat_direction_crosses_an_adjacent_monitor_boundary() {
+        let displays = [
+            repeat_display(0, 0, 1920, 1080),
+            repeat_display(1920, 0, 1280, 1024),
+        ];
+        assert!(repeat_direction_has_available_space(
+            1,
+            0,
+            (1919.0, 500.0),
+            &displays
+        ));
+        assert!(!repeat_direction_has_available_space(
+            1,
+            0,
+            (3199.0, 500.0),
+            &displays
+        ));
+    }
+
+    #[test]
+    fn zero_vector_has_no_available_repeat_direction() {
+        let displays = [repeat_display(0, 0, 1920, 1080)];
+        assert!(repeat_move_is_stationary(RepeatCommand::Move {
+            dx: 0,
+            dy: 0
+        }));
+        assert!(!repeat_move_is_stationary(RepeatCommand::Move {
+            dx: 0,
+            dy: 1
+        }));
+        assert!(!repeat_move_is_stationary(RepeatCommand::Scroll {
+            dx: 0,
+            dy: 0
+        }));
+        assert!(!repeat_direction_has_available_space(
+            0,
+            0,
+            (960.0, 540.0),
+            &displays
+        ));
     }
 
     #[test]

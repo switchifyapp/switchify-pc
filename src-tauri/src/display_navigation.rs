@@ -52,6 +52,19 @@ pub fn displays(app: &AppHandle) -> Result<((f64, f64), Vec<Display>), Navigatio
     macos_displays()
 }
 
+#[cfg(target_os = "macos")]
+pub fn cursor_position() -> Result<(f64, f64), NavigationError> {
+    use core_graphics::event::CGEvent;
+    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+
+    let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
+        .map_err(|_| NavigationError::adapter("The pointer position could not be read."))?;
+    let cursor = CGEvent::new(source)
+        .map_err(|_| NavigationError::adapter("The pointer position could not be read."))?
+        .location();
+    Ok((cursor.x, cursor.y))
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn displays(app: &AppHandle) -> Result<((f64, f64), Vec<Display>), NavigationError> {
     let cursor = app
@@ -85,14 +98,8 @@ pub fn displays(app: &AppHandle) -> Result<((f64, f64), Vec<Display>), Navigatio
 #[cfg(target_os = "macos")]
 fn macos_displays() -> Result<((f64, f64), Vec<Display>), NavigationError> {
     use core_graphics::display::CGDisplay;
-    use core_graphics::event::CGEvent;
-    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 
-    let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
-        .map_err(|_| NavigationError::adapter("The pointer position could not be read."))?;
-    let cursor = CGEvent::new(source)
-        .map_err(|_| NavigationError::adapter("The pointer position could not be read."))?
-        .location();
+    let cursor = cursor_position()?;
     let displays = CGDisplay::active_displays()
         .map_err(|_| NavigationError::adapter("The connected monitors could not be read."))?
         .into_iter()
@@ -114,7 +121,7 @@ fn macos_displays() -> Result<((f64, f64), Vec<Display>), NavigationError> {
             "No connected monitor could be resolved.",
         ));
     }
-    Ok(((cursor.x, cursor.y), displays))
+    Ok((cursor, displays))
 }
 
 #[cfg(any(target_os = "macos", test))]
