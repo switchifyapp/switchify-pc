@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import {
   Accessibility, Bluetooth, CheckCircle2, ChevronRight, CircleHelp, Download,
   Copy, Home, Keyboard, Plus, Power, Radio, RefreshCw, Save, Settings,
@@ -284,8 +284,9 @@ function ProfilesView({ profiles, platform, saveProfile, deleteProfile, onDirtyC
   </div>;
 }
 
-function SettingGroup({ title, description, children }: { title: string; description: string; children: ReactNode }) {
-  return <section className="setting-group"><header><h2>{title}</h2><p>{description}</p></header><div className="setting-controls">{children}</div></section>;
+function SettingGroup({ title, description, children, id, sectionRef, focusable = false }: { title: string; description: string; children: ReactNode; id?: string; sectionRef?: Ref<HTMLElement>; focusable?: boolean }) {
+  const headingId = id ? `${id}-heading` : undefined;
+  return <section className="setting-group" id={id} ref={sectionRef} tabIndex={focusable ? -1 : undefined} aria-labelledby={headingId}><header><h2 id={headingId}>{title}</h2><p>{description}</p></header><div className="setting-controls">{children}</div></section>;
 }
 
 const pointerSpeedOptions = [5, 25, 50, 75, 100] as const;
@@ -314,6 +315,13 @@ function applyLocalSettings(base: AppSettings, local: AppSettings, keys: Set<key
 
 type UpdateAction = "check" | "download" | "install";
 
+function updateProgress(update: UpdateState) {
+  if (update.totalBytes && update.totalBytes > 0) {
+    return `${Math.min(100, Math.round(update.downloadedBytes * 100 / update.totalBytes))}%`;
+  }
+  return `${update.downloadedBytes.toLocaleString()} bytes`;
+}
+
 function updateDescription(update: UpdateState) {
   switch (update.status) {
     case "unconfigured": return "Updates are unavailable in this build because its signed feed is not configured.";
@@ -330,9 +338,6 @@ function updateDescription(update: UpdateState) {
 }
 
 function UpdateControls({ update, run, cancel }: { update: UpdateState; run: (action: UpdateAction) => void; cancel: () => void }) {
-  const percent = update.totalBytes && update.totalBytes > 0
-    ? Math.min(100, Math.round(update.downloadedBytes * 100 / update.totalBytes))
-    : null;
   const action = update.status === "available" || update.status === "cancelled" ? "download"
     : update.status === "readyToInstall" ? "install"
       : update.status === "failed" ? update.retryAction
@@ -344,13 +349,33 @@ function UpdateControls({ update, run, cancel }: { update: UpdateState; run: (ac
     <p role={update.status === "failed" ? "alert" : "status"}>{updateDescription(update)}</p>
     {update.status === "downloading" && <>
       <progress aria-label="Update download progress" value={update.downloadedBytes} max={update.totalBytes ?? undefined} />
-      <span>{percent === null ? `${update.downloadedBytes.toLocaleString()} bytes` : `${percent}%`}</span>
+      <span>{updateProgress(update)}</span>
     </>}
     <div>{action && <button className="secondary" type="button" onClick={() => run(action)}>{action === "download" && <Download size={16} />}{action === "check" && <RefreshCw size={16} />}{label}</button>}{update.status === "downloading" && <button className="secondary" type="button" onClick={cancel}><X size={16} />Cancel</button>}{(update.status === "checking" || update.status === "applying") && <button className="secondary" type="button" disabled><RefreshCw className="spin" size={16} />{update.status === "checking" ? "Checking" : "Installing"}</button>}</div>
   </div>;
 }
 
-function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean }) {
+function UpdateBanner({ update, openUpdates }: { update: UpdateState; openUpdates: () => void }) {
+  if (update.status !== "available" && update.status !== "downloading" && update.status !== "readyToInstall") return null;
+  const message = update.status === "available"
+    ? `Switchify PC ${update.version} is available.`
+    : update.status === "downloading"
+      ? `Downloading Switchify PC ${update.version} — ${updateProgress(update)}`
+      : `Switchify PC ${update.version} is ready to install.`;
+  return <section className="update-banner" role="status" aria-label="Application update">
+    <Download size={18} aria-hidden="true" />
+    <p>{message}</p>
+    <button className="text-button" type="button" onClick={openUpdates}>{update.status === "downloading" ? "View progress" : "View update"}</button>
+  </section>;
+}
+
+function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, updatesFocusRequest }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; updatesFocusRequest: number }) {
+  const updatesRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (updatesFocusRequest === 0) return;
+    updatesRef.current?.scrollIntoView?.({ block: "start" });
+    updatesRef.current?.focus({ preventScroll: true });
+  }, [updatesFocusRequest]);
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => onChange({ ...settings, [key]: value });
   return <div className="view"><header className="page-header"><div><h1>Settings</h1><p>Startup, pointer, privacy, and updates</p></div><Settings size={24} /></header>
     <SettingGroup title="General" description="System startup and background behavior."><Toggle label="Start with system" checked={settings.startWithSystem} onChange={(value) => update("startWithSystem", value)} /></SettingGroup>
@@ -393,11 +418,11 @@ function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction
       </>}
     </SettingGroup>
     <SettingGroup title="Privacy" description="Optional anonymous app health and sanitized error reports. Never includes typed text, commands, pairing secrets, device names, or full paths."><Toggle label="Share anonymous diagnostic data" disabled={!state.telemetry.available && !settings.shareDiagnostics} checked={settings.shareDiagnostics} onChange={(value) => update("shareDiagnostics", value)} />{state.telemetry.consent === "undecided" && <div className="privacy-choice" role="group" aria-label="Anonymous diagnostics choice"><button className="secondary" type="button" disabled={busy || !state.telemetry.available} onClick={() => chooseTelemetry(true)}>Share diagnostics</button><button className="secondary" type="button" disabled={busy} onClick={() => chooseTelemetry(false)}>Don't share</button></div>}<p className="setting-note">{state.telemetry.available ? state.telemetry.consent === "undecided" ? "No choice recorded yet. Nothing is sent unless you choose Share diagnostics." : state.telemetry.consent === "enabled" ? "Consent recorded. You can turn this off at any time to delete queued reports." : "Opted out. No diagnostic reports are stored or sent." : "Diagnostic reporting is unavailable in this build."} <a href="https://switchifyapp.com/privacy" target="_blank" rel="noreferrer">Privacy policy</a></p></SettingGroup>
-    <SettingGroup title="Updates" description={`Switchify PC ${state.version}`}><UpdateControls update={state.updater} run={updateAction} cancel={cancelUpdate} /></SettingGroup>
+    <SettingGroup id="settings-updates" sectionRef={updatesRef} focusable title="Updates" description={`Switchify PC ${state.version}`}><UpdateControls update={state.updater} run={updateAction} cancel={cancelUpdate} /></SettingGroup>
   </div>;
 }
 
-function SupportView({ state, busy, perform, openSetup }: { state: AppState; busy: boolean; perform: (operation: () => Promise<AppState>) => void; openSetup: () => void }) {
+function SupportView({ state, busy, perform, openSetup, openUpdates }: { state: AppState; busy: boolean; perform: (operation: () => Promise<AppState>) => void; openSetup: () => void; openUpdates: () => void }) {
   const [tab, setTab] = useState<"setup" | "troubleshooting">("setup");
   const bluetoothReady = state.bluetooth === "advertising" || state.bluetooth === "connected";
   return <div className="view"><header className="page-header"><div><h1>Support</h1><p>Connection setup and system diagnostics</p></div><CircleHelp size={24} /></header>
@@ -410,7 +435,7 @@ function SupportView({ state, busy, perform, openSetup }: { state: AppState; bus
     </section></> : <section className="task-list" aria-label="Troubleshooting actions">
       <article><Bluetooth size={20} /><div><h2>Bluetooth connection</h2><p>{bluetoothLabels[state.bluetooth]}</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.disconnectAll)}><Power size={16} />Disconnect</button></article>
       <article><Accessibility size={20} /><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" ? <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</button> : <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(false))}><RefreshCw size={16} />Check input access</button>}</article>
-      <article><RefreshCw size={20} /><div><h2>Application update</h2><p>Switchify PC {state.version}</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.checkForUpdates)}>Check</button></article>
+      <article><RefreshCw size={20} /><div><h2>Application update</h2><p>Switchify PC {state.version}</p></div><button className="secondary" onClick={openUpdates}>View updates</button></article>
       <article><Download size={20} /><div><h2>Diagnostics</h2><p>Export sanitized health, capability, and recent event data</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.exportDiagnostics)}><Download size={16} />Export</button></article>
       <article className="diagnostic-detail"><Bluetooth size={20} /><div><h2>Recent Bluetooth changes</h2><p>{state.diagnostics.recentBluetooth.length > 0 ? state.diagnostics.recentBluetooth.map((event) => event.status).join(" → ") : "No Bluetooth changes recorded yet"}</p></div></article>
       <article className="diagnostic-detail"><Power size={20} /><div><h2>Last disconnect</h2><p>{state.diagnostics.lastDisconnect ? `${state.diagnostics.lastDisconnect.detail ?? state.diagnostics.lastDisconnect.status}` : "No disconnect recorded yet"}</p></div></article>
@@ -538,7 +563,7 @@ export function App() {
   const [profiles, setProfiles] = useState<SwitchProfile[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [busy, setBusy] = useState(false);
-  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updatesFocusRequest, setUpdatesFocusRequest] = useState(0);
   const [setupOpen, setSetupOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [profileExitRequest, setProfileExitRequest] = useState<ProfileExitAction | null>(null);
@@ -635,20 +660,12 @@ export function App() {
     void processSettingsSaves();
   };
 
-  const checkForUpdates = async () => {
-    setCheckingUpdates(true);
-    try { await perform(api.checkForUpdates); }
-    finally { setCheckingUpdates(false); }
-  };
-
   const runUpdate = async (action: UpdateAction) => {
     setError(null);
-    if (action === "check") setCheckingUpdates(true);
     try {
       const operation = action === "check" ? api.checkForUpdates : action === "download" ? api.downloadUpdate : api.installUpdate;
       syncState(await operation());
     } catch (reason) { setError(String(reason)); }
-    finally { if (action === "check") setCheckingUpdates(false); }
   };
 
   const cancelUpdate = async () => {
@@ -739,6 +756,16 @@ export function App() {
     setView(next);
   };
 
+  const openUpdates = () => {
+    if (viewRef.current !== "settings") {
+      if (profileEditorDirty.current && !window.confirm("Discard unsaved profile changes?")) return;
+      profileEditorDirty.current = false;
+      viewRef.current = "settings";
+      setView("settings");
+    }
+    setUpdatesFocusRequest((request) => request + 1);
+  };
+
   const saveProfile = async (profile: SwitchProfile) => {
     setBusy(true); setError(null);
     try { setProfiles(await api.saveProfile(profile)); }
@@ -766,14 +793,15 @@ export function App() {
 
   if (!state || !settings) return <div className="loading"><RefreshCw className="spin" size={24} /><span>Starting Switchify PC...</span></div>;
   return <div className="app-shell">
-    <aside><div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id} icon={icon} onClick={() => selectView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><span>v{state.version}</span><button className="footer-update-button" type="button" aria-label="Check for updates" title="Check for updates" disabled={busy} onClick={() => void checkForUpdates()}><RefreshCw className={checkingUpdates ? "spin" : undefined} size={15} /></button></div></aside>
+    <aside><div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id} icon={icon} onClick={() => selectView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><span>v{state.version}</span></div></aside>
     <main>
       {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
+      <UpdateBanner update={state.updater} openUpdates={openUpdates} />
       {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onSetup={openSetup} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}
       {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} nativeExitRequest={profileExitRequest} onConfirmNativeExit={confirmProfileExit} onCancelNativeExit={cancelProfileExit} />}
-      {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} />}
-      {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} />}
+      {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} updatesFocusRequest={updatesFocusRequest} />}
+      {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} openUpdates={openUpdates} />}
     </main>
     {setupOpen && <SetupGuide state={state} busy={busy} error={error} skip={skipSetup} finish={finishSetup} accessibility={() => perform(() => api.checkAccessibility(true))} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}
     {!setupOpen && state.pendingPairings.length > 0 && <PairingDialog requests={state.pendingPairings} connectedDeviceName={state.connectedDeviceName} busy={busy} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}
