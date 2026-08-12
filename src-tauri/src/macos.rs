@@ -860,6 +860,7 @@ impl MacRuntime {
             .profiles
             .clone();
         if command.command_type == "switch.profile.list" {
+            self.stop_all_repeats();
             if let Err(error) =
                 self.enqueue_message(&switch_profile_catalog_response(&command.id, &profiles))
             {

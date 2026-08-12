@@ -604,6 +604,7 @@ fn complete_desktop(
         .profiles
         .clone();
     if command.command_type == "switch.profile.list" {
+        stop_all_repeats(app);
         return Some(switch_profile_catalog_response(&command.id, &profiles));
     }
     let (result, error_code) = if command.command_type == "pointer.display.move" {
