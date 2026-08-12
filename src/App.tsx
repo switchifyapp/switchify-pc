@@ -369,13 +369,14 @@ function UpdateBanner({ update, openUpdates }: { update: UpdateState; openUpdate
   </section>;
 }
 
-function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, updatesFocusRequest }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; updatesFocusRequest: number }) {
+function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void }) {
   const updatesRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    if (updatesFocusRequest === 0) return;
+    if (!focusUpdates) return;
     updatesRef.current?.scrollIntoView?.({ block: "start" });
     updatesRef.current?.focus({ preventScroll: true });
-  }, [updatesFocusRequest]);
+    onUpdatesFocused();
+  }, [focusUpdates, onUpdatesFocused]);
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => onChange({ ...settings, [key]: value });
   return <div className="view"><header className="page-header"><div><h1>Settings</h1><p>Startup, pointer, privacy, and updates</p></div><Settings size={24} /></header>
     <SettingGroup title="General" description="System startup and background behavior."><Toggle label="Start with system" checked={settings.startWithSystem} onChange={(value) => update("startWithSystem", value)} /></SettingGroup>
@@ -563,7 +564,7 @@ export function App() {
   const [profiles, setProfiles] = useState<SwitchProfile[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [busy, setBusy] = useState(false);
-  const [updatesFocusRequest, setUpdatesFocusRequest] = useState(0);
+  const [focusUpdates, setFocusUpdates] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [profileExitRequest, setProfileExitRequest] = useState<ProfileExitAction | null>(null);
@@ -763,7 +764,7 @@ export function App() {
       viewRef.current = "settings";
       setView("settings");
     }
-    setUpdatesFocusRequest((request) => request + 1);
+    setFocusUpdates(true);
   };
 
   const saveProfile = async (profile: SwitchProfile) => {
@@ -800,7 +801,7 @@ export function App() {
       {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onSetup={openSetup} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}
       {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} nativeExitRequest={profileExitRequest} onConfirmNativeExit={confirmProfileExit} onCancelNativeExit={cancelProfileExit} />}
-      {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} updatesFocusRequest={updatesFocusRequest} />}
+      {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} focusUpdates={focusUpdates} onUpdatesFocused={() => setFocusUpdates(false)} />}
       {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} openUpdates={openUpdates} />}
     </main>
     {setupOpen && <SetupGuide state={state} busy={busy} error={error} skip={skipSetup} finish={finishSetup} accessibility={() => perform(() => api.checkAccessibility(true))} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}

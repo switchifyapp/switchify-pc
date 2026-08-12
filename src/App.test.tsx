@@ -721,6 +721,19 @@ describe("Switchify PC shell", () => {
     await waitFor(() => expect(updates).toHaveFocus());
   });
 
+  it("does not replay a consumed Updates focus request on normal Settings navigation", async () => {
+    browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
+    render(<App />);
+    const banner = await screen.findByRole("status", { name: "Application update" });
+    fireEvent.click(within(banner).getByRole("button", { name: "View update" }));
+    const updates = await screen.findByRole("region", { name: "Updates" });
+    await waitFor(() => expect(updates).toHaveFocus());
+
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("region", { name: "Updates" })).not.toHaveFocus();
+  });
+
   it("guides macOS users through required and stale accessibility entries", async () => {
     const originalPlatform = browserState.capabilities.platform;
     browserState.capabilities.platform = "macos";
