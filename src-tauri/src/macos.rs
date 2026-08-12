@@ -9,6 +9,7 @@ use objc2_app_kit::NSWorkspace;
 use objc2_foundation::{NSHost, NSString, NSURL};
 use tauri::{AppHandle, Manager};
 
+use crate::display_navigation::{self, NavigationError};
 use crate::input::{DesktopInput, PointerFeedback};
 use crate::modifier_overlay::ModifierOverlay;
 use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERVAL_MS};
@@ -852,7 +853,6 @@ impl MacRuntime {
             self.handle_repeat_stop(command);
             return;
         }
-        self.stop_all_repeats();
         let profiles = self
             .shared
             .lock()
@@ -860,6 +860,7 @@ impl MacRuntime {
             .profiles
             .clone();
         if command.command_type == "switch.profile.list" {
+            self.stop_all_repeats();
             if let Err(error) =
                 self.enqueue_message(&switch_profile_catalog_response(&command.id, &profiles))
             {
@@ -867,45 +868,80 @@ impl MacRuntime {
             }
             return;
         }
-        let injection = if self.input.is_none()
-            && !self.refresh_accessibility(false).unwrap_or(false)
-        {
-            Err("Accessibility permission is required before input can be controlled.".to_string())
+        let accessibility_unavailable = if command.command_type == "pointer.display.move" {
+            false
         } else {
-            self.input
-                .as_mut()
-                .ok_or_else(|| {
+            self.stop_all_repeats();
+            self.input.is_none() && !self.refresh_accessibility(false).unwrap_or(false)
+        };
+        let (injection, error_code) = if command.command_type == "pointer.display.move" {
+            let direction = command.payload["direction"].as_str().unwrap_or_default();
+            match display_navigation::run_navigation_command(
+                self,
+                direction,
+                MacRuntime::stop_all_repeats,
+                MacRuntime::navigate_display,
+                |runtime, feedback| {
+                    runtime
+                        .app
+                        .state::<CursorOverlay>()
+                        .show(feedback, runtime.overlay_settings());
+                },
+            ) {
+                Ok(feedback) => (Ok(Some(feedback)), "input_failed"),
+                Err(error) => (Err(error.message), error.code),
+            }
+        } else if accessibility_unavailable {
+            (
+                Err(
                     "Accessibility permission is required before input can be controlled."
-                        .to_string()
-                })
-                .and_then(|input| {
-                    input.execute(
-                        &command.device_id,
-                        &command.command_type,
-                        &command.payload,
-                        &profiles,
-                    )
-                })
+                        .to_string(),
+                ),
+                "input_failed",
+            )
+        } else {
+            (
+                self.input
+                    .as_mut()
+                    .ok_or_else(|| {
+                        "Accessibility permission is required before input can be controlled."
+                            .to_string()
+                    })
+                    .and_then(|input| {
+                        input.execute(
+                            &command.device_id,
+                            &command.command_type,
+                            &command.payload,
+                            &profiles,
+                        )
+                    }),
+                "input_failed",
+            )
         };
         let response = self
             .shared
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .engine
-            .complete_desktop_command(
+            .complete_desktop_command_with_error(
                 &command,
-                injection.as_ref().map(|_| ()).map_err(String::as_str),
+                injection
+                    .as_ref()
+                    .map(|_| ())
+                    .map_err(|error| (error_code, error.as_str())),
             );
-        if let Ok(feedback) = &injection {
-            let settings = self.overlay_settings();
-            let overlay = self.app.state::<CursorOverlay>();
-            if let Some(feedback) = feedback {
-                overlay.show(*feedback, settings);
-            } else {
-                overlay.mark_control_active(settings);
-            }
-            if command.command_type == "connection.disconnecting" {
-                overlay.end_session();
+        if command.command_type != "pointer.display.move" {
+            if let Ok(feedback) = &injection {
+                let settings = self.overlay_settings();
+                let overlay = self.app.state::<CursorOverlay>();
+                if let Some(feedback) = feedback {
+                    overlay.show(*feedback, settings);
+                } else {
+                    overlay.mark_control_active(settings);
+                }
+                if command.command_type == "connection.disconnecting" {
+                    overlay.end_session();
+                }
             }
         }
         if injection.is_ok() && command.command_type == "pointer.speed.set" {
@@ -1185,31 +1221,55 @@ impl MacRuntime {
     }
 
     fn pointer_profile(&self) -> PointerProfile {
-        let monitor = self
-            .app
-            .cursor_position()
-            .ok()
-            .and_then(|position| {
-                self.app
-                    .monitor_from_point(position.x, position.y)
-                    .ok()
-                    .flatten()
-            })
-            .or_else(|| self.app.primary_monitor().ok().flatten());
-        let Some(monitor) = monitor else {
-            return pointer_profile_for_display("fallback", 1.0, 0, 0, 1920, 1080);
+        let Ok((cursor, displays)) = display_navigation::displays(&self.app) else {
+            return pointer_profile_for_display("fallback", 1.0, 0, 0, 1920, 1080, 1);
         };
-        let scale_factor = monitor.scale_factor();
-        let position = monitor.position();
-        let size = monitor.size();
+        let Some(monitor) = display_navigation::current_display(cursor, &displays) else {
+            return pointer_profile_for_display("fallback", 1.0, 0, 0, 1920, 1080, 1);
+        };
         pointer_profile_for_display(
-            monitor.name().map(String::as_str).unwrap_or("display"),
-            scale_factor,
-            position.x,
-            position.y,
-            size.width,
-            size.height,
+            &monitor.name,
+            monitor.scale_factor,
+            monitor.x,
+            monitor.y,
+            monitor.width,
+            monitor.height,
+            display_navigation::display_count(displays.len()),
         )
+    }
+
+    fn navigate_display(&mut self, direction: &str) -> Result<PointerFeedback, NavigationError> {
+        if self.input.is_none() && !self.refresh_accessibility(false).unwrap_or(false) {
+            return Err(NavigationError {
+                code: "adapter_failure",
+                message: "Accessibility permission is required before the pointer can move.".into(),
+            });
+        }
+        let input = self.input.as_mut().ok_or_else(|| NavigationError {
+            code: "adapter_failure",
+            message: "Accessibility permission is required before the pointer can move.".into(),
+        })?;
+        if input.has_active_switch_session() {
+            return Err(NavigationError {
+                code: "input_failed",
+                message: "Stop PC Switch Control before using other PC control commands.".into(),
+            });
+        }
+        if input.has_active_drag() {
+            return Err(NavigationError {
+                code: "drag_active",
+                message: "End the active drag before moving to another monitor.".into(),
+            });
+        }
+        let (cursor, displays) = display_navigation::displays(&self.app)?;
+        let source = display_navigation::current_display(cursor, &displays).ok_or_else(|| {
+            NavigationError {
+                code: "adapter_failure",
+                message: "The active monitor could not be resolved.".into(),
+            }
+        })?;
+        let (x, y) = display_navigation::target_center(source, &displays, direction)?;
+        display_navigation::map_injection(input.move_pointer_absolute(x, y))
     }
 
     fn refresh_accessibility(&mut self, prompt: bool) -> Result<bool, String> {
@@ -1327,24 +1387,17 @@ impl MacRuntime {
 fn pointer_profile_for_display(
     name: &str,
     scale_factor: f64,
-    physical_x: i32,
-    physical_y: i32,
-    physical_width: u32,
-    physical_height: u32,
+    logical_x: i32,
+    logical_y: i32,
+    logical_width: u32,
+    logical_height: u32,
+    display_count: u8,
 ) -> PointerProfile {
     let scale_factor = if scale_factor.is_finite() && scale_factor > 0.0 {
         scale_factor
     } else {
         1.0
     };
-    let logical_x = (f64::from(physical_x) / scale_factor).round() as i32;
-    let logical_y = (f64::from(physical_y) / scale_factor).round() as i32;
-    let logical_width = (f64::from(physical_width) / scale_factor)
-        .round()
-        .clamp(1.0, f64::from(u32::MAX)) as u32;
-    let logical_height = (f64::from(physical_height) / scale_factor)
-        .round()
-        .clamp(1.0, f64::from(u32::MAX)) as u32;
     let short_edge = logical_width.min(logical_height);
     let recommended_delta = |fraction: f64| {
         (f64::from(short_edge) * fraction)
@@ -1364,6 +1417,8 @@ fn pointer_profile_for_display(
         small_delta: recommended_delta(0.0225),
         medium_delta: recommended_delta(0.06),
         large_delta: recommended_delta(0.13),
+        display_navigation_supported: true,
+        display_count,
     }
 }
 
@@ -1515,7 +1570,7 @@ mod tests {
 
     #[test]
     fn pointer_profile_uses_logical_bounds_and_reduced_movement_steps() {
-        let profile = pointer_profile_for_display("Retina", 2.0, 0, 0, 3840, 2160);
+        let profile = pointer_profile_for_display("Retina", 2.0, 0, 0, 1920, 1080, 2);
         assert_eq!((profile.width, profile.height), (1920, 1080));
         assert_eq!(
             (
@@ -1530,7 +1585,7 @@ mod tests {
 
     #[test]
     fn pointer_profile_caps_recommended_steps_at_protocol_maximum() {
-        let profile = pointer_profile_for_display("Large", 1.0, 0, 0, 10_000, 10_000);
+        let profile = pointer_profile_for_display("Large", 1.0, 0, 0, 10_000, 10_000, 1);
         assert_eq!(profile.large_delta, MAX_POINTER_DELTA as u32);
     }
 

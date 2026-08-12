@@ -1,4 +1,5 @@
 mod diagnostics;
+mod display_navigation;
 #[cfg(target_os = "windows")]
 mod grid3;
 mod input;
