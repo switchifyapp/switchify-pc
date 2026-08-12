@@ -1215,7 +1215,7 @@ impl MacRuntime {
             monitor.y,
             monitor.width,
             monitor.height,
-            displays.len().clamp(1, 64) as u8,
+            display_navigation::display_count(displays.len()),
         )
     }
 
@@ -1250,13 +1250,7 @@ impl MacRuntime {
             }
         })?;
         let (x, y) = display_navigation::target_center(source, &displays, direction)?;
-        input
-            .move_pointer_absolute(x, y)
-            .map_err(|_| NavigationError {
-                code: "adapter_failure",
-                message: "The operating system could not move the pointer to another monitor."
-                    .into(),
-            })
+        display_navigation::map_injection(input.move_pointer_absolute(x, y))
     }
 
     fn refresh_accessibility(&mut self, prompt: bool) -> Result<bool, String> {
@@ -1374,10 +1368,10 @@ impl MacRuntime {
 fn pointer_profile_for_display(
     name: &str,
     scale_factor: f64,
-    physical_x: i32,
-    physical_y: i32,
-    physical_width: u32,
-    physical_height: u32,
+    logical_x: i32,
+    logical_y: i32,
+    logical_width: u32,
+    logical_height: u32,
     display_count: u8,
 ) -> PointerProfile {
     let scale_factor = if scale_factor.is_finite() && scale_factor > 0.0 {
@@ -1385,14 +1379,6 @@ fn pointer_profile_for_display(
     } else {
         1.0
     };
-    let logical_x = (f64::from(physical_x) / scale_factor).round() as i32;
-    let logical_y = (f64::from(physical_y) / scale_factor).round() as i32;
-    let logical_width = (f64::from(physical_width) / scale_factor)
-        .round()
-        .clamp(1.0, f64::from(u32::MAX)) as u32;
-    let logical_height = (f64::from(physical_height) / scale_factor)
-        .round()
-        .clamp(1.0, f64::from(u32::MAX)) as u32;
     let short_edge = logical_width.min(logical_height);
     let recommended_delta = |fraction: f64| {
         (f64::from(short_edge) * fraction)
@@ -1412,6 +1398,7 @@ fn pointer_profile_for_display(
         small_delta: recommended_delta(0.0225),
         medium_delta: recommended_delta(0.06),
         large_delta: recommended_delta(0.13),
+        display_navigation_supported: true,
         display_count,
     }
 }
@@ -1564,7 +1551,7 @@ mod tests {
 
     #[test]
     fn pointer_profile_uses_logical_bounds_and_reduced_movement_steps() {
-        let profile = pointer_profile_for_display("Retina", 2.0, 0, 0, 3840, 2160, 2);
+        let profile = pointer_profile_for_display("Retina", 2.0, 0, 0, 1920, 1080, 2);
         assert_eq!((profile.width, profile.height), (1920, 1080));
         assert_eq!(
             (

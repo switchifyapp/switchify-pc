@@ -344,6 +344,7 @@ pub struct PointerProfile {
     pub small_delta: u32,
     pub medium_delta: u32,
     pub large_delta: u32,
+    pub display_navigation_supported: bool,
     pub display_count: u8,
 }
 
@@ -1297,7 +1298,7 @@ pub fn pointer_profile_response(
                     "window.control",
                     "switch.edge"
                 ],
-                "supportedCommands": supported_commands(),
+                "supportedCommands": supported_commands(profile.display_navigation_supported),
                 "mouseRepeat": {
                     "supported": true,
                     "enabled": settings.mouse_repeat_enabled,
@@ -1321,7 +1322,7 @@ pub fn pointer_profile_response(
                     "effectiveMoveDelta": (128.0 * f64::from(settings.pointer_scale_percent) / 100.0).round() as u32
                 },
                 "displayNavigation": {
-                    "supported": true,
+                    "supported": profile.display_navigation_supported,
                     "displayCount": profile.display_count
                 }
             }
@@ -1331,8 +1332,8 @@ pub fn pointer_profile_response(
     .to_string()
 }
 
-fn supported_commands() -> Vec<&'static str> {
-    let commands = vec![
+fn supported_commands(display_navigation_supported: bool) -> Vec<&'static str> {
+    let mut commands = vec![
         "mouse.move",
         "mouse.click",
         "mouse.doubleClick",
@@ -1345,7 +1346,6 @@ fn supported_commands() -> Vec<&'static str> {
         "connection.ping",
         "pointer.profile",
         "pointer.speed.set",
-        "pointer.display.move",
         "keyboard.key",
         "keyboard.modifierDown",
         "keyboard.modifierUp",
@@ -1365,9 +1365,11 @@ fn supported_commands() -> Vec<&'static str> {
         "switch.session.stop",
         "connection.disconnecting",
     ];
+    if display_navigation_supported {
+        commands.push("pointer.display.move");
+    }
     #[cfg(target_os = "windows")]
     {
-        let mut commands = commands;
         commands.extend(["grid.switch.set", "grid.switch.sync"]);
         commands
     }
@@ -2008,6 +2010,7 @@ mod tests {
             small_delta: 49,
             medium_delta: 130,
             large_delta: 281,
+            display_navigation_supported: true,
             display_count: 2,
         };
         let response: Value = serde_json::from_str(&pointer_profile_response(
@@ -2050,6 +2053,25 @@ mod tests {
             response["payload"]["capabilities"]["displayNavigation"]["displayCount"],
             2
         );
+
+        let unsupported = PointerProfile {
+            display_navigation_supported: false,
+            ..profile
+        };
+        let response: Value = serde_json::from_str(&pointer_profile_response(
+            "profile-unsupported",
+            &unsupported,
+            &AppSettings::default(),
+        ))
+        .unwrap();
+        assert_eq!(
+            response["payload"]["capabilities"]["displayNavigation"]["supported"],
+            false
+        );
+        assert!(!response["payload"]["capabilities"]["supportedCommands"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("pointer.display.move")));
     }
 
     #[test]

@@ -46,24 +46,67 @@ impl NavigationError {
 }
 
 pub fn displays(app: &AppHandle) -> Result<((f64, f64), Vec<Display>), NavigationError> {
-    let cursor = app
-        .cursor_position()
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        return macos_displays();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let cursor = app
+            .cursor_position()
+            .map_err(|_| NavigationError::adapter("The pointer position could not be read."))?;
+        let displays = app
+            .available_monitors()
+            .map_err(|_| NavigationError::adapter("The connected monitors could not be read."))?
+            .into_iter()
+            .map(|monitor| {
+                let position = monitor.position();
+                let size = monitor.size();
+                Display {
+                    name: monitor.name().cloned().unwrap_or_else(|| "display".into()),
+                    scale_factor: monitor.scale_factor(),
+                    x: position.x,
+                    y: position.y,
+                    width: size.width,
+                    height: size.height,
+                }
+            })
+            .collect::<Vec<_>>();
+        if displays.is_empty() {
+            return Err(NavigationError::adapter(
+                "No connected monitor could be resolved.",
+            ));
+        }
+        Ok(((cursor.x, cursor.y), displays))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_displays() -> Result<((f64, f64), Vec<Display>), NavigationError> {
+    use core_graphics::display::CGDisplay;
+    use core_graphics::event::CGEvent;
+    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+
+    let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
         .map_err(|_| NavigationError::adapter("The pointer position could not be read."))?;
-    let displays = app
-        .available_monitors()
+    let cursor = CGEvent::new(source)
+        .map_err(|_| NavigationError::adapter("The pointer position could not be read."))?
+        .location();
+    let displays = CGDisplay::active_displays()
         .map_err(|_| NavigationError::adapter("The connected monitors could not be read."))?
         .into_iter()
-        .map(|monitor| {
-            let position = monitor.position();
-            let size = monitor.size();
-            Display {
-                name: monitor.name().cloned().unwrap_or_else(|| "display".into()),
-                scale_factor: monitor.scale_factor(),
-                x: position.x,
-                y: position.y,
-                width: size.width,
-                height: size.height,
-            }
+        .map(|id| {
+            let display = CGDisplay::new(id);
+            let bounds = display.bounds();
+            display_from_native_bounds(
+                format!("display-{id}"),
+                bounds.origin.x,
+                bounds.origin.y,
+                bounds.size.width,
+                bounds.size.height,
+                display.pixels_wide(),
+            )
         })
         .collect::<Vec<_>>();
     if displays.is_empty() {
@@ -72,6 +115,45 @@ pub fn displays(app: &AppHandle) -> Result<((f64, f64), Vec<Display>), Navigatio
         ));
     }
     Ok(((cursor.x, cursor.y), displays))
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn display_from_native_bounds(
+    name: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    physical_width: usize,
+) -> Display {
+    let scale_factor = if width.is_finite() && width > 0.0 {
+        physical_width as f64 / width
+    } else {
+        1.0
+    };
+    Display {
+        name,
+        scale_factor: if scale_factor.is_finite() && scale_factor > 0.0 {
+            scale_factor
+        } else {
+            1.0
+        },
+        x: x.round().clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32,
+        y: y.round().clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32,
+        width: width.round().clamp(1.0, f64::from(u32::MAX)) as u32,
+        height: height.round().clamp(1.0, f64::from(u32::MAX)) as u32,
+    }
+}
+
+pub fn display_count(count: usize) -> u8 {
+    count.clamp(1, 64) as u8
+}
+
+pub fn map_injection<T>(result: Result<T, String>) -> Result<T, NavigationError> {
+    result.map_err(|_| NavigationError {
+        code: "adapter_failure",
+        message: "The operating system could not move the pointer to another monitor.".into(),
+    })
 }
 
 pub fn current_display(cursor: (f64, f64), displays: &[Display]) -> Option<&Display> {
@@ -233,6 +315,39 @@ mod tests {
         assert_eq!(
             current_display((50.0, 100.0), &[left.clone(), right.clone()]),
             Some(&left)
+        );
+    }
+
+    #[test]
+    fn native_bounds_keep_core_graphics_coordinates_and_derive_scale() {
+        let retina =
+            display_from_native_bounds("retina".into(), -1920.0, -900.0, 1920.0, 1080.0, 3840);
+        assert_eq!(
+            (retina.x, retina.y, retina.width, retina.height),
+            (-1920, -900, 1920, 1080)
+        );
+        assert_eq!(retina.scale_factor, 2.0);
+        assert_eq!(
+            target_center(
+                &display(0, 0, 1920, 1080),
+                &[display(0, 0, 1920, 1080), retina],
+                "left"
+            )
+            .unwrap(),
+            (-960, -360)
+        );
+    }
+
+    #[test]
+    fn capability_count_is_bounded_and_native_failures_are_structured() {
+        assert_eq!(display_count(0), 1);
+        assert_eq!(display_count(3), 3);
+        assert_eq!(display_count(100), 64);
+        let error = map_injection::<()>(Err("native failure".into())).unwrap_err();
+        assert_eq!(error.code, "adapter_failure");
+        assert_eq!(
+            error.message,
+            "The operating system could not move the pointer to another monitor."
         );
     }
 }

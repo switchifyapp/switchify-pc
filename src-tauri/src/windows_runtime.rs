@@ -695,12 +695,7 @@ fn navigate_display(app: &AppHandle, direction: &str) -> Result<PointerFeedback,
             message: "The active monitor could not be resolved.".into(),
         })?;
     let (x, y) = display_navigation::target_center(source, &displays, direction)?;
-    input
-        .move_pointer_absolute(x, y)
-        .map_err(|_| NavigationError {
-            code: "adapter_failure",
-            message: "The operating system could not move the pointer to another monitor.".into(),
-        })
+    display_navigation::map_injection(input.move_pointer_absolute(x, y))
 }
 
 fn complete_repeat_start(
@@ -925,7 +920,7 @@ fn current_pointer_profile(app: &AppHandle) -> PointerProfile {
     let Some(display) = display_navigation::current_display(cursor, &displays) else {
         return fallback_pointer_profile();
     };
-    pointer_profile_for_display(display, displays.len().clamp(1, 64) as u8)
+    pointer_profile_for_display(display, display_navigation::display_count(displays.len()))
 }
 
 fn pointer_profile_for_display(
@@ -961,6 +956,7 @@ fn pointer_profile_for_display(
         small_delta: delta(0.0225),
         medium_delta: delta(0.06),
         large_delta: delta(0.13),
+        display_navigation_supported: true,
         display_count,
     }
 }
