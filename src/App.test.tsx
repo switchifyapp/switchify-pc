@@ -38,26 +38,14 @@ describe("Switchify PC shell", () => {
     expect(brand?.querySelector("img.brand-mark")).toHaveAttribute("alt", "");
   });
 
-  it("shows the version instead of the OS and checks for updates from the footer", async () => {
-    let finishUpdate: ((state: typeof browserState) => void) | undefined;
-    const checkForUpdates = vi.spyOn(api, "checkForUpdates").mockImplementation(() => new Promise((resolve) => { finishUpdate = resolve; }));
+  it("shows only the version in the sidebar footer", async () => {
     const { container } = render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
 
     const footer = container.querySelector(".sidebar-footer");
     expect(footer).toHaveTextContent(`v${browserState.version}`);
     expect(footer).not.toHaveTextContent(browserState.capabilities.platform === "macos" ? "macOS" : "Windows");
-
-    const button = screen.getByRole("button", { name: "Check for updates" });
-    fireEvent.click(button);
-    expect(checkForUpdates).toHaveBeenCalledOnce();
-    expect(button).toBeDisabled();
-    expect(button.querySelector("svg")).toHaveClass("spin");
-
-    finishUpdate?.(structuredClone(browserState));
-    await waitFor(() => expect(button).not.toBeDisabled());
-    expect(button.querySelector("svg")).not.toHaveClass("spin");
-    checkForUpdates.mockRestore();
+    expect(within(footer as HTMLElement).queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("keeps internal activity out of Home and Support while retaining troubleshooting history", async () => {
@@ -114,7 +102,7 @@ describe("Switchify PC shell", () => {
     await screen.findByRole("heading", { name: "Switchify PC" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
-    expect(screen.getByRole("status")).toHaveTextContent("Downloading Switchify PC 1.0.0-beta.2");
+    expect(screen.getByText("Downloading Switchify PC 1.0.0-beta.2…")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "50");
     expect(document.querySelector(".update-controls > span")).toHaveTextContent("25%");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -200,13 +188,64 @@ describe("Switchify PC shell", () => {
     expect(stop).toHaveBeenCalledOnce();
   });
 
-  it("reports update-check failures from the footer", async () => {
+  it("reports manual update-check failures in Settings", async () => {
     const checkForUpdates = vi.spyOn(api, "checkForUpdates").mockRejectedValue(new Error("Update service unavailable"));
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Update service unavailable");
     checkForUpdates.mockRestore();
+  });
+
+  it.each([
+    ["checking", "Checking for updates…", "Checking"],
+    ["current", "Switchify PC is up to date.", "Check for updates"],
+  ] as const)("keeps the %s update state visible in Settings", async (status, description, action) => {
+    browserState.updater = { status, version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(screen.getByText(description)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: action })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["available", "Switchify PC 1.0.0-beta.2 is available.", "View update"],
+    ["downloading", "Downloading Switchify PC 1.0.0-beta.2 — 25%", "View progress"],
+    ["readyToInstall", "Switchify PC 1.0.0-beta.2 is ready to install.", "View update"],
+  ] as const)("surfaces the %s updater state and opens the Updates section", async (status, message, action) => {
+    browserState.updater = {
+      status,
+      version: "1.0.0-beta.2",
+      downloadedBytes: status === "downloading" ? 50 : 0,
+      totalBytes: status === "downloading" ? 200 : null,
+      error: null,
+      retryAction: null,
+    };
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+
+    const banner = screen.getByRole("status", { name: "Application update" });
+    expect(banner).toHaveTextContent(message);
+    fireEvent.click(within(banner).getByRole("button", { name: action }));
+
+    const updates = await screen.findByRole("region", { name: "Updates" });
+    await waitFor(() => expect(updates).toHaveFocus());
+  });
+
+  it.each(["unconfigured", "idle", "checking", "current", "cancelled", "failed", "applying"] as const)("keeps the %s updater state out of the global banner", async (status) => {
+    browserState.updater = {
+      status,
+      version: status === "unconfigured" || status === "idle" || status === "checking" || status === "current" ? null : "1.0.0-beta.2",
+      downloadedBytes: 0,
+      totalBytes: null,
+      error: status === "failed" ? "Update failed" : null,
+      retryAction: status === "failed" ? "check" : null,
+    };
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    expect(screen.queryByRole("status", { name: "Application update" })).not.toBeInTheDocument();
   });
 
   it("renders the connection and permission state", async () => {
@@ -667,6 +706,32 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Troubleshooting" }));
     expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Application update" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "View updates" }));
+    const updates = await screen.findByRole("region", { name: "Updates" });
+    await waitFor(() => expect(updates).toHaveFocus());
+  });
+
+  it("focuses Updates when the update banner is selected from Settings", async () => {
+    browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    const updates = screen.getByRole("region", { name: "Updates" });
+    expect(updates).not.toHaveFocus();
+    fireEvent.click(within(screen.getByRole("status", { name: "Application update" })).getByRole("button", { name: "View update" }));
+    await waitFor(() => expect(updates).toHaveFocus());
+  });
+
+  it("does not replay a consumed Updates focus request on normal Settings navigation", async () => {
+    browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
+    render(<App />);
+    const banner = await screen.findByRole("status", { name: "Application update" });
+    fireEvent.click(within(banner).getByRole("button", { name: "View update" }));
+    const updates = await screen.findByRole("region", { name: "Updates" });
+    await waitFor(() => expect(updates).toHaveFocus());
+
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("region", { name: "Updates" })).not.toHaveFocus();
   });
 
   it("guides macOS users through required and stale accessibility entries", async () => {
