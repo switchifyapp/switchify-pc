@@ -211,6 +211,10 @@ pub fn current_display(cursor: (f64, f64), displays: &[Display]) -> Option<&Disp
         })
 }
 
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(dead_code, reason = "macOS clamps pointer injection to display bounds")
+)]
 pub fn clamped_pointer_target(
     cursor: (f64, f64),
     dx: i32,
@@ -227,6 +231,10 @@ pub fn clamped_pointer_target(
     )
 }
 
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(dead_code, reason = "macOS clamps pointer injection to display bounds")
+)]
 fn nearest_display_point(point: (f64, f64), displays: &[Display]) -> Option<(i32, i32)> {
     displays
         .iter()

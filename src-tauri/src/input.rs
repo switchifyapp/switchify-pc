@@ -328,6 +328,10 @@ impl<I: InputInjector> DesktopInput<I> {
         self.injector.move_pointer(dx, dy)?;
         Ok(self.pointer_feedback_for_move())
     }
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(dead_code, reason = "macOS uses bounded absolute pointer injection")
+    )]
     pub fn move_pointer_pixels_absolute(
         &mut self,
         x: i32,
