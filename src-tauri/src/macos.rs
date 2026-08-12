@@ -367,8 +367,6 @@ struct MacRuntime {
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct PendingRepeatMove {
     before: (f64, f64),
-    dx: i32,
-    dy: i32,
 }
 
 #[derive(Debug, Default)]
@@ -987,6 +985,10 @@ impl MacRuntime {
         let settings = self.overlay_settings();
         let parsed = RepeatCommand::parse(&command.payload);
         let injection = parsed.and_then(|repeat_command| {
+            if repeat_move_is_stationary(repeat_command) {
+                self.stop_repeat_for_device(&command.device_id);
+                return Ok(());
+            }
             if !settings.mouse_repeat_enabled {
                 self.stop_repeat_for_device(&command.device_id);
                 return Err("Mouse repeat is disabled in settings.".into());
@@ -1102,7 +1104,7 @@ impl MacRuntime {
             return Ok(());
         }
         if matches!(active.command, RepeatCommand::Move { .. }) {
-            match self.pending_repeat_made_progress(generation) {
+            match self.pending_repeat_made_progress(generation, active.command) {
                 Ok(true) => {}
                 Ok(false) => {
                     self.stop_repeat_if_current(&device_id, generation);
@@ -1168,20 +1170,29 @@ impl MacRuntime {
         let before = display_navigation::cursor_position().map_err(|error| error.message)?;
         let feedback = input.move_pointer_pixels(dx, dy)?;
         self.pending_repeat_moves
-            .insert(generation, PendingRepeatMove { before, dx, dy });
+            .insert(generation, PendingRepeatMove { before });
         Ok(feedback)
     }
 
-    fn pending_repeat_made_progress(&mut self, generation: u64) -> Result<bool, String> {
+    fn pending_repeat_made_progress(
+        &mut self,
+        generation: u64,
+        command: RepeatCommand,
+    ) -> Result<bool, String> {
         let Some(pending) = self.pending_repeat_moves.remove(&generation) else {
             return Ok(true);
         };
+        let RepeatCommand::Move { dx, dy } = command else {
+            return Ok(true);
+        };
         let after = display_navigation::cursor_position().map_err(|error| error.message)?;
-        Ok(repeat_move_made_progress(
-            pending.dx,
-            pending.dy,
-            pending.before,
-            after,
+        if repeat_move_made_progress(dx, dy, pending.before, after) {
+            return Ok(true);
+        }
+        let (_, displays) =
+            display_navigation::displays(&self.app).map_err(|error| error.message)?;
+        Ok(repeat_direction_has_available_space(
+            dx, dy, after, &displays,
         ))
     }
 
@@ -1483,6 +1494,29 @@ fn repeat_move_made_progress(dx: i32, dy: i32, before: (f64, f64), after: (f64, 
     axis_progress(dx, before.0, after.0) || axis_progress(dy, before.1, after.1)
 }
 
+fn repeat_move_is_stationary(command: RepeatCommand) -> bool {
+    matches!(command, RepeatCommand::Move { dx: 0, dy: 0 })
+}
+
+fn repeat_direction_has_available_space(
+    dx: i32,
+    dy: i32,
+    cursor: (f64, f64),
+    displays: &[display_navigation::Display],
+) -> bool {
+    let contains = |point: (f64, f64)| {
+        displays.iter().any(|display| {
+            point.0 >= f64::from(display.x)
+                && point.0 < f64::from(display.x) + f64::from(display.width)
+                && point.1 >= f64::from(display.y)
+                && point.1 < f64::from(display.y) + f64::from(display.height)
+        })
+    };
+    let step = |value: i32| f64::from(value.signum());
+    (dx != 0 && contains((cursor.0 + step(dx), cursor.1)))
+        || (dy != 0 && contains((cursor.0, cursor.1 + step(dy))))
+}
+
 fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Result<(), String> {
     with_runtime(|runtime| {
         let response = {
@@ -1692,6 +1726,77 @@ mod tests {
             0,
             (100.0, 100.0),
             (112.0, 112.0)
+        ));
+    }
+
+    fn repeat_display(x: i32, y: i32, width: u32, height: u32) -> display_navigation::Display {
+        display_navigation::Display {
+            name: "test".into(),
+            scale_factor: 1.0,
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn uneven_diagonal_can_continue_on_a_free_minor_axis() {
+        let displays = [repeat_display(0, 0, 1920, 1080)];
+        assert!(repeat_direction_has_available_space(
+            10,
+            1,
+            (1919.0, 500.0),
+            &displays
+        ));
+        assert!(!repeat_direction_has_available_space(
+            10,
+            1,
+            (1919.0, 1079.0),
+            &displays
+        ));
+    }
+
+    #[test]
+    fn repeat_direction_crosses_an_adjacent_monitor_boundary() {
+        let displays = [
+            repeat_display(0, 0, 1920, 1080),
+            repeat_display(1920, 0, 1280, 1024),
+        ];
+        assert!(repeat_direction_has_available_space(
+            1,
+            0,
+            (1919.0, 500.0),
+            &displays
+        ));
+        assert!(!repeat_direction_has_available_space(
+            1,
+            0,
+            (3199.0, 500.0),
+            &displays
+        ));
+    }
+
+    #[test]
+    fn zero_vector_has_no_available_repeat_direction() {
+        let displays = [repeat_display(0, 0, 1920, 1080)];
+        assert!(repeat_move_is_stationary(RepeatCommand::Move {
+            dx: 0,
+            dy: 0
+        }));
+        assert!(!repeat_move_is_stationary(RepeatCommand::Move {
+            dx: 0,
+            dy: 1
+        }));
+        assert!(!repeat_move_is_stationary(RepeatCommand::Scroll {
+            dx: 0,
+            dy: 0
+        }));
+        assert!(!repeat_direction_has_available_space(
+            0,
+            0,
+            (960.0, 540.0),
+            &displays
         ));
     }
 
