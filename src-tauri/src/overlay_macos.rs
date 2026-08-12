@@ -128,10 +128,10 @@ impl MacOverlayHost {
             logical_size,
         )?;
         let screen_frame = screen.frame();
-        let marker_frame = centered_rect(cursor, logical_size, logical_size);
-        self.marker.setFrame_display(marker_frame, false);
-        self.marker_view
-            .setFrame(rect(0.0, 0.0, logical_size, logical_size));
+        let marker_layout = clipped_marker_layout(screen_frame, cursor, logical_size, logical_size)
+            .ok_or_else(|| "the cursor marker is outside the active display".to_string())?;
+        self.marker.setFrame_display(marker_layout.panel, false);
+        self.marker_view.setFrame(marker_layout.image);
         self.marker_view.setImage(Some(&image));
         self.marker.orderFrontRegardless();
 
@@ -359,6 +359,38 @@ fn centered_rect(center: NSPoint, width: f64, height: f64) -> NSRect {
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct MarkerLayout {
+    panel: NSRect,
+    image: NSRect,
+}
+
+fn clipped_marker_layout(
+    screen: NSRect,
+    cursor: NSPoint,
+    width: f64,
+    height: f64,
+) -> Option<MarkerLayout> {
+    let desired = centered_rect(cursor, width, height);
+    let min_x = desired.origin.x.max(screen.origin.x);
+    let min_y = desired.origin.y.max(screen.origin.y);
+    let max_x = (desired.origin.x + desired.size.width).min(screen.origin.x + screen.size.width);
+    let max_y = (desired.origin.y + desired.size.height).min(screen.origin.y + screen.size.height);
+    if max_x <= min_x || max_y <= min_y {
+        return None;
+    }
+    let panel = rect(min_x, min_y, max_x - min_x, max_y - min_y);
+    Some(MarkerLayout {
+        panel,
+        image: rect(
+            desired.origin.x - panel.origin.x,
+            desired.origin.y - panel.origin.y,
+            desired.size.width,
+            desired.size.height,
+        ),
+    })
+}
+
 fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect {
     NSRect {
         origin: NSPoint { x, y },
@@ -499,6 +531,63 @@ mod tests {
         ] {
             assert_eq!(centered_rect(cursor, 128.0, 128.0), expected);
         }
+    }
+
+    #[test]
+    fn marker_layout_clips_the_ring_at_each_outer_edge() {
+        let screen = rect(0.0, 0.0, 1920.0, 1080.0);
+        for (cursor, expected_panel, expected_image) in [
+            (
+                NSPoint { x: 0.0, y: 540.0 },
+                rect(0.0, 476.0, 64.0, 128.0),
+                rect(-64.0, 0.0, 128.0, 128.0),
+            ),
+            (
+                NSPoint {
+                    x: 1920.0,
+                    y: 540.0,
+                },
+                rect(1856.0, 476.0, 64.0, 128.0),
+                rect(0.0, 0.0, 128.0, 128.0),
+            ),
+            (
+                NSPoint { x: 960.0, y: 0.0 },
+                rect(896.0, 0.0, 128.0, 64.0),
+                rect(0.0, -64.0, 128.0, 128.0),
+            ),
+            (
+                NSPoint {
+                    x: 960.0,
+                    y: 1080.0,
+                },
+                rect(896.0, 1016.0, 128.0, 64.0),
+                rect(0.0, 0.0, 128.0, 128.0),
+            ),
+        ] {
+            assert_eq!(
+                clipped_marker_layout(screen, cursor, 128.0, 128.0),
+                Some(MarkerLayout {
+                    panel: expected_panel,
+                    image: expected_image,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn marker_layout_shows_a_quarter_ring_at_an_outer_corner() {
+        assert_eq!(
+            clipped_marker_layout(
+                rect(0.0, 0.0, 1920.0, 1080.0),
+                NSPoint { x: 0.0, y: 0.0 },
+                128.0,
+                128.0,
+            ),
+            Some(MarkerLayout {
+                panel: rect(0.0, 0.0, 64.0, 64.0),
+                image: rect(-64.0, -64.0, 128.0, 128.0),
+            })
+        );
     }
 
     #[test]

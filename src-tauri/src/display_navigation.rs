@@ -211,6 +211,53 @@ pub fn current_display(cursor: (f64, f64), displays: &[Display]) -> Option<&Disp
         })
 }
 
+pub fn clamped_pointer_target(
+    cursor: (f64, f64),
+    dx: i32,
+    dy: i32,
+    displays: &[Display],
+) -> Option<(i32, i32)> {
+    let current = nearest_display_point(cursor, displays)?;
+    nearest_display_point(
+        (
+            f64::from(current.0) + f64::from(dx),
+            f64::from(current.1) + f64::from(dy),
+        ),
+        displays,
+    )
+}
+
+fn nearest_display_point(point: (f64, f64), displays: &[Display]) -> Option<(i32, i32)> {
+    displays
+        .iter()
+        .map(|display| {
+            let min_x = i64::from(display.x);
+            let min_y = i64::from(display.y);
+            let max_x = min_x + i64::from(display.width.saturating_sub(1));
+            let max_y = min_y + i64::from(display.height.saturating_sub(1));
+            let rounded_x = point.0.round().clamp(i64::MIN as f64, i64::MAX as f64) as i64;
+            let rounded_y = point.1.round().clamp(i64::MIN as f64, i64::MAX as f64) as i64;
+            let x = rounded_x.clamp(min_x, max_x);
+            let y = rounded_y.clamp(min_y, max_y);
+            let dx = point.0 - x as f64;
+            let dy = point.1 - y as f64;
+            ((dx * dx + dy * dy), x, y)
+        })
+        .min_by(|first, second| {
+            first
+                .0
+                .total_cmp(&second.0)
+                .then_with(|| first.1.cmp(&second.1))
+                .then_with(|| first.2.cmp(&second.2))
+        })
+        .map(|(_, x, y)| {
+            (
+                x.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+                y.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+            )
+        })
+}
+
 pub fn target_center(
     source: &Display,
     displays: &[Display],
@@ -335,6 +382,51 @@ mod tests {
         assert_eq!(
             current_display((50.0, 100.0), &[left.clone(), right.clone()]),
             Some(&left)
+        );
+    }
+
+    #[test]
+    fn clamps_pointer_targets_to_all_outer_edges_and_corners() {
+        let displays = [display(0, 0, 1920, 1080)];
+        for (cursor, delta, expected) in [
+            ((0.0, 540.0), (-20, 0), (0, 540)),
+            ((1919.0, 540.0), (20, 0), (1919, 540)),
+            ((960.0, 0.0), (0, -20), (960, 0)),
+            ((960.0, 1079.0), (0, 20), (960, 1079)),
+            ((0.0, 0.0), (-20, -20), (0, 0)),
+            ((1919.0, 1079.0), (20, 20), (1919, 1079)),
+        ] {
+            assert_eq!(
+                clamped_pointer_target(cursor, delta.0, delta.1, &displays),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn clamping_preserves_a_free_diagonal_axis() {
+        let displays = [display(0, 0, 1920, 1080)];
+        assert_eq!(
+            clamped_pointer_target((1919.0, 500.0), 10, 4, &displays),
+            Some((1919, 504))
+        );
+    }
+
+    #[test]
+    fn clamping_crosses_reachable_adjacent_displays() {
+        let displays = [display(0, 0, 1920, 1080), display(1920, 0, 2560, 1440)];
+        assert_eq!(
+            clamped_pointer_target((1919.0, 500.0), 10, 0, &displays),
+            Some((1929, 500))
+        );
+    }
+
+    #[test]
+    fn clamping_recovers_an_existing_out_of_bounds_event_position() {
+        let displays = [display(0, 0, 1920, 1080)];
+        assert_eq!(
+            clamped_pointer_target((2500.0, 540.0), 10, 0, &displays),
+            Some((1919, 540))
         );
     }
 
