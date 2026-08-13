@@ -1,5 +1,6 @@
 mod diagnostics;
 mod display_navigation;
+mod dwell;
 #[cfg(target_os = "windows")]
 mod grid3;
 mod input;
@@ -189,6 +190,7 @@ pub(crate) fn sync_tray_state(app: &AppHandle, state: &AppState) {
 }
 
 fn finish_app_exit(app: &AppHandle) {
+    app.state::<dwell::DwellController>().cancel(app);
     let model = app.state::<AppModel>();
     let _ = platform_disconnect_all(app, &model.shared);
     app.state::<overlay::CursorOverlay>().end_session();
@@ -353,6 +355,7 @@ fn finish_disconnect(
     overlay: &overlay::CursorOverlay,
     modifier_overlay: &modifier_overlay::ModifierOverlay,
 ) -> AppState {
+    app.state::<dwell::DwellController>().cancel(app);
     overlay.end_session();
     modifier_overlay.end_session();
     {
@@ -413,7 +416,13 @@ fn save_settings(
     settings: AppSettings,
 ) -> Result<AppState, String> {
     let settings = settings.normalized()?;
-    let (previous_start_with_system, previous_share_diagnostics, previous_consent) = {
+    let (
+        previous_start_with_system,
+        previous_share_diagnostics,
+        previous_consent,
+        previous_dwell_enabled,
+        previous_dwell_delay,
+    ) = {
         let state = &model
             .shared
             .lock()
@@ -423,6 +432,8 @@ fn save_settings(
             state.settings.start_with_system,
             state.settings.share_diagnostics,
             state.telemetry.consent,
+            state.settings.dwell_click_enabled,
+            state.settings.dwell_click_delay_ms,
         )
     };
     if settings.start_with_system != previous_start_with_system {
@@ -438,6 +449,11 @@ fn save_settings(
         previous_consent
     };
     model.apply_settings_with_telemetry(settings.clone(), next_consent)?;
+    if settings.dwell_click_enabled != previous_dwell_enabled
+        || settings.dwell_click_delay_ms != previous_dwell_delay
+    {
+        app.state::<dwell::DwellController>().cancel(&app);
+    }
     if !settings.mouse_repeat_enabled {
         platform_stop_mouse_repeat(&app);
     }
@@ -531,6 +547,21 @@ fn platform_stop_mouse_repeat(app: &AppHandle) {
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn platform_stop_mouse_repeat(_app: &AppHandle) {}
+
+#[cfg(target_os = "macos")]
+fn platform_dwell_click(app: &AppHandle) -> Result<(), String> {
+    macos::dwell_click(app)
+}
+
+#[cfg(target_os = "windows")]
+fn platform_dwell_click(app: &AppHandle) -> Result<(), String> {
+    windows_runtime::dwell_click(app)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn platform_dwell_click(_app: &AppHandle) -> Result<(), String> {
+    Err("Dwell click is unavailable on this platform.".into())
+}
 
 #[tauri::command]
 fn list_switch_profiles(model: State<'_, AppModel>) -> Vec<SwitchProfile> {
@@ -1216,6 +1247,7 @@ pub fn run() {
                 app.handle().clone(),
                 overlay_shared.clone(),
             ));
+            app.manage(dwell::DwellController::default());
             app.manage(
                 modifier_overlay::ModifierOverlay::install(
                     app.handle().clone(),

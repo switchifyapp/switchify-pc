@@ -26,6 +26,8 @@ export type AppSettings = {
   moveRepeatIntervalMs: number;
   scrollRepeatIntervalMs: number;
   mouseRepeatAccelerationDurationMs: number;
+  dwellClickEnabled: boolean;
+  dwellClickDelayMs: number;
   cursorOverlayEnabled: boolean;
   cursorOverlaySize: "small" | "medium" | "large";
   cursorOverlayColor: "red" | "green" | "blue" | "yellow" | "white";

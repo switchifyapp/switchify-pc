@@ -62,6 +62,10 @@ pub struct AppSettings {
     pub scroll_repeat_interval_ms: u32,
     #[serde(default = "default_mouse_repeat_acceleration")]
     pub mouse_repeat_acceleration_duration_ms: u32,
+    #[serde(default)]
+    pub dwell_click_enabled: bool,
+    #[serde(default = "default_dwell_click_delay")]
+    pub dwell_click_delay_ms: u32,
     pub cursor_overlay_enabled: bool,
     pub cursor_overlay_size: String,
     pub cursor_overlay_color: String,
@@ -80,6 +84,8 @@ impl Default for AppSettings {
             move_repeat_interval_ms: 250,
             scroll_repeat_interval_ms: 250,
             mouse_repeat_acceleration_duration_ms: default_mouse_repeat_acceleration(),
+            dwell_click_enabled: false,
+            dwell_click_delay_ms: default_dwell_click_delay(),
             cursor_overlay_enabled: true,
             cursor_overlay_size: "medium".into(),
             cursor_overlay_color: "red".into(),
@@ -104,6 +110,9 @@ impl AppSettings {
         }
         if ![0, 500, 1000, 2000].contains(&self.mouse_repeat_acceleration_duration_ms) {
             return Err("Mouse repeat acceleration is invalid.".into());
+        }
+        if ![500, 1000, 1500, 2000, 3000].contains(&self.dwell_click_delay_ms) {
+            return Err("Dwell click delay is invalid.".into());
         }
         if !["small", "medium", "large"].contains(&self.cursor_overlay_size.as_str())
             || !["red", "green", "blue", "yellow", "white"]
@@ -130,6 +139,10 @@ fn default_cursor_overlay_visibility() -> String {
 }
 
 fn default_mouse_repeat_acceleration() -> u32 {
+    1000
+}
+
+fn default_dwell_click_delay() -> u32 {
     1000
 }
 
@@ -1109,6 +1122,28 @@ mod tests {
             ..AppSettings::default()
         };
         assert!(value.normalized().is_err());
+    }
+    #[test]
+    fn dwell_click_defaults_are_safe_and_delays_are_bounded() {
+        let defaults = AppSettings::default();
+        assert!(!defaults.dwell_click_enabled);
+        assert_eq!(defaults.dwell_click_delay_ms, 1000);
+        for delay in [500, 1000, 1500, 2000, 3000] {
+            assert!(AppSettings {
+                dwell_click_delay_ms: delay,
+                ..AppSettings::default()
+            }
+            .normalized()
+            .is_ok());
+        }
+        for delay in [0, 499, 750, 3001, u32::MAX] {
+            assert!(AppSettings {
+                dwell_click_delay_ms: delay,
+                ..AppSettings::default()
+            }
+            .normalized()
+            .is_err());
+        }
     }
     #[test]
     fn mac_capability_shape_can_omit_grid3() {

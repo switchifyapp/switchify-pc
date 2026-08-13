@@ -298,6 +298,7 @@ const accelerationOptions = [
   { value: 1000, label: "Medium" },
   { value: 2000, label: "Long" },
 ] as const;
+const dwellDelayOptions = [500, 1000, 1500, 2000, 3000] as const;
 
 function movementValue(base: number, scale: number) {
   const value = Math.min(50, Math.max(1, Math.round((base * scale / 100) * 2) / 2));
@@ -400,6 +401,15 @@ function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction
           <fieldset disabled={!settings.mouseRepeatEnabled}><legend>Scroll interval</legend><div className="segmented compact four">
             {repeatIntervalOptions.map((value) => <button type="button" key={value} aria-pressed={settings.scrollRepeatIntervalMs === value} onClick={() => update("scrollRepeatIntervalMs", value)}>{value / 1000}s</button>)}
           </div></fieldset>
+        </div>
+      </div>
+      <div className="repeat-settings dwell-settings">
+        <Toggle label="Dwell to click" checked={settings.dwellClickEnabled} onChange={(value) => update("dwellClickEnabled", value)} />
+        <div className="repeat-options" data-disabled={!settings.dwellClickEnabled}>
+          <fieldset disabled={!settings.dwellClickEnabled}><legend>Dwell delay</legend><div className="segmented compact five">
+            {dwellDelayOptions.map((value) => <button type="button" key={value} aria-pressed={settings.dwellClickDelayMs === value} onClick={() => update("dwellClickDelayMs", value)}>{value / 1000}s</button>)}
+          </div></fieldset>
+          <p className="setting-note">After Android pointer movement stops, a countdown appears and performs one left click. Move again to rearm it.</p>
         </div>
       </div>
       {state.capabilities.cursorOverlay && <>
