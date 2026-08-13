@@ -584,8 +584,8 @@ mod tests {
     use super::*;
     use windows::Win32::Foundation::{LPARAM, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, IsWindowVisible, SendMessageTimeoutW, GWL_EXSTYLE, SMTO_ABORTIFHUNG,
-        WM_NULL,
+        GetWindowLongPtrW, GetWindowRect, IsWindowVisible, SendMessageTimeoutW, GWL_EXSTYLE,
+        SMTO_ABORTIFHUNG, WM_NULL,
     };
 
     #[derive(Default)]
@@ -730,6 +730,23 @@ mod tests {
         }
         stop_sender.send(()).unwrap();
         thread.join().unwrap();
+    }
+
+    #[test]
+    fn native_window_render_smoke_becomes_visible_and_hides() {
+        let mut host = NativeHost::new().unwrap();
+        host.render(&["Ctrl".into(), "Shift".into()]).unwrap();
+        unsafe {
+            assert!(IsWindowVisible(host.window).as_bool());
+            let mut bounds = RECT::default();
+            assert!(GetWindowRect(host.window, &mut bounds).is_ok());
+            assert!(bounds.right > bounds.left);
+            assert!(bounds.bottom > bounds.top);
+        }
+        host.hide();
+        unsafe {
+            assert!(!IsWindowVisible(host.window).as_bool());
+        }
     }
 
     #[test]
