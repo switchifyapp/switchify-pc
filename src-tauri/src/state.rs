@@ -296,6 +296,7 @@ pub struct AppModel {
     pub diagnostics: DiagnosticHistory,
     pub telemetry: TelemetryService,
     emission_lock: Mutex<()>,
+    settings_lock: Mutex<()>,
     preserved_paired_devices: Vec<PairedDeviceView>,
 }
 
@@ -388,6 +389,7 @@ impl AppModel {
             diagnostics,
             telemetry,
             emission_lock: Mutex::new(()),
+            settings_lock: Mutex::new(()),
             preserved_paired_devices,
         };
         let _ = model.persist();
@@ -412,14 +414,29 @@ impl AppModel {
     }
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     pub fn persist_settings(&self, settings: &AppSettings) -> Result<(), String> {
+        let _transaction = self
+            .settings_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.persist_settings_unlocked(settings, None)
+    }
+    fn persist_settings_unlocked(
+        &self,
+        settings: &AppSettings,
+        consent: Option<TelemetryConsent>,
+    ) -> Result<(), String> {
         self.storage
-            .save(&self.persisted_state(Some(settings), None, None))
+            .save(&self.persisted_state(Some(settings), consent, None))
     }
     pub fn apply_pointer_scale_percent(&self, scale_percent: u8) -> Result<(), String> {
+        let _transaction = self
+            .settings_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut settings = self.snapshot().settings;
         settings.pointer_scale_percent = scale_percent;
         let settings = settings.normalized()?;
-        self.persist_settings(&settings)?;
+        self.persist_settings_unlocked(&settings, None)?;
         self.shared
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -427,13 +444,22 @@ impl AppModel {
             .settings = settings;
         Ok(())
     }
-    pub fn persist_settings_with_telemetry(
+    pub fn apply_settings_with_telemetry(
         &self,
-        settings: &AppSettings,
+        settings: AppSettings,
         consent: TelemetryConsent,
     ) -> Result<(), String> {
-        self.storage
-            .save(&self.persisted_state(Some(settings), Some(consent), None))
+        let _transaction = self
+            .settings_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.persist_settings_unlocked(&settings, Some(consent))?;
+        self.shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .state
+            .settings = settings;
+        Ok(())
     }
     pub fn record_updater(&self, status: &str, detail: Option<&str>) {
         let _emission = self
@@ -469,15 +495,10 @@ impl AppModel {
         if !enabled {
             self.set_telemetry_consent(consent);
         }
-        self.persist_settings_with_telemetry(&settings, consent)?;
+        self.apply_settings_with_telemetry(settings, consent)?;
         if enabled {
             self.set_telemetry_consent(consent);
         }
-        self.shared
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .state
-            .settings = settings;
         Ok(self.snapshot())
     }
     fn persisted_state(
@@ -817,7 +838,7 @@ mod tests {
         let settings = AppSettings::default();
         model.set_telemetry_consent(TelemetryConsent::Disabled);
         model
-            .persist_settings_with_telemetry(&settings, TelemetryConsent::Disabled)
+            .apply_settings_with_telemetry(settings, TelemetryConsent::Disabled)
             .unwrap();
         assert!(!model.storage.telemetry_path().exists());
         let reloaded = AppModel::with_storage(AppStorage::at(root.join("state.json")));
@@ -956,6 +977,41 @@ mod tests {
         assert_eq!(normalize_pointer_scale_percent(500.0), Ok(225));
         assert!(normalize_pointer_scale_percent(0.0).is_err());
         assert!(normalize_pointer_scale_percent(f64::NAN).is_err());
+    }
+    #[test]
+    fn pointer_speed_transaction_preserves_a_serialized_settings_change() {
+        let root = std::env::temp_dir().join(format!(
+            "switchify-pointer-settings-race-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state_path = root.join("state.json");
+        let model = Arc::new(AppModel::with_storage_for_test(AppStorage::at(
+            state_path.clone(),
+        )));
+        let transaction = model.settings_lock.lock().unwrap();
+        let (started_tx, started_rx) = mpsc::channel();
+        let pointer_model = model.clone();
+        let pointer_thread = thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            pointer_model.apply_pointer_scale_percent(150)
+        });
+        started_rx.recv().unwrap();
+
+        let mut desktop_settings = model.snapshot().settings;
+        desktop_settings.cursor_crosshairs = true;
+        model
+            .persist_settings_unlocked(&desktop_settings, None)
+            .unwrap();
+        model.shared.lock().unwrap().state.settings = desktop_settings;
+        drop(transaction);
+        pointer_thread.join().unwrap().unwrap();
+
+        let state = model.snapshot();
+        assert_eq!(state.settings.pointer_scale_percent, 150);
+        assert!(state.settings.cursor_crosshairs);
+        let restored = AppModel::with_storage_for_test(AppStorage::at(state_path));
+        assert_eq!(restored.snapshot().settings, state.settings);
+        let _ = fs::remove_dir_all(root);
     }
     #[test]
     fn settings_reject_unknown_overlay_visibility() {
