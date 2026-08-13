@@ -14,7 +14,7 @@ use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromPoint, ReleaseDC, SelectObject, SetBkMode, SetTextColor,
     AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION,
     CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_QUALITY, DIB_RGB_COLORS, DT_CENTER,
-    DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, FW_BOLD, HGDIOBJ, MONITORINFO,
+    DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, FW_BOLD, HDC, HGDIOBJ, MONITORINFO,
     MONITOR_DEFAULTTONEAREST, OUT_DEFAULT_PRECIS, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -44,14 +44,16 @@ enum Command {
 }
 
 pub(super) struct WindowsModifierOverlay {
-    sender: Sender<Command>,
+    sender: Option<Sender<Command>>,
 }
 
 impl WindowsModifierOverlay {
-    pub(super) fn spawn(app: AppHandle, shared: SharedModel) -> Result<Self, String> {
+    pub(super) fn spawn(app: AppHandle, shared: SharedModel) -> Self {
         let (sender, receiver) = mpsc::channel();
         let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
-        thread::Builder::new()
+        let failure_app = app.clone();
+        let failure_shared = shared.clone();
+        let thread = thread::Builder::new()
             .name("Switchify modifier overlay".into())
             .spawn(move || {
                 let host = NativeHost::new();
@@ -63,16 +65,29 @@ impl WindowsModifierOverlay {
                         });
                     }
                     Err(error) => {
-                        let _ = ready_sender.send(Err(error.clone()));
                         report_failure(&app, &shared, &error);
+                        let _ = ready_sender.send(Err(error));
                     }
                 }
-            })
-            .map_err(|error| error.to_string())?;
-        ready_receiver.recv().map_err(|_| {
-            "the native modifier overlay thread stopped during startup".to_string()
-        })??;
-        Ok(Self { sender })
+            });
+        if let Err(error) = thread {
+            report_failure(&failure_app, &failure_shared, &error.to_string());
+            return Self { sender: None };
+        }
+        match ready_receiver.recv() {
+            Ok(Ok(())) => Self {
+                sender: Some(sender),
+            },
+            Ok(Err(_)) => Self { sender: None },
+            Err(_) => {
+                report_failure(
+                    &failure_app,
+                    &failure_shared,
+                    "the native modifier overlay thread stopped during startup",
+                );
+                Self { sender: None }
+            }
+        }
     }
 
     pub(super) fn set_snapshot(&self, revision: u64, labels: Vec<String>) -> Result<(), String> {
@@ -80,15 +95,20 @@ impl WindowsModifierOverlay {
     }
 
     fn send(&self, command: Command) -> Result<(), String> {
-        self.sender
+        let Some(sender) = &self.sender else {
+            return Ok(());
+        };
+        sender
             .send(command)
-            .map_err(|_| "the native modifier overlay is unavailable".to_string())
+            .map_err(|_| "the native modifier overlay stopped after it initialized".to_string())
     }
 }
 
 impl Drop for WindowsModifierOverlay {
     fn drop(&mut self) {
-        let _ = self.sender.send(Command::Shutdown);
+        if let Some(sender) = &self.sender {
+            let _ = sender.send(Command::Shutdown);
+        }
     }
 }
 
@@ -146,6 +166,49 @@ fn run_loop<H: OverlayHost>(
 
 struct NativeHost {
     window: HWND,
+}
+
+struct ScreenDc(HDC);
+
+impl Drop for ScreenDc {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = ReleaseDC(None, self.0);
+        }
+    }
+}
+
+struct MemoryDc(HDC);
+
+impl Drop for MemoryDc {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = DeleteDC(self.0);
+        }
+    }
+}
+
+struct GdiObject(HGDIOBJ);
+
+impl Drop for GdiObject {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = DeleteObject(self.0);
+        }
+    }
+}
+
+struct SelectedObject {
+    dc: HDC,
+    previous: HGDIOBJ,
+}
+
+impl Drop for SelectedObject {
+    fn drop(&mut self) {
+        unsafe {
+            SelectObject(self.dc, self.previous);
+        }
+    }
 }
 
 impl NativeHost {
@@ -398,13 +461,12 @@ fn present_pixmap_with_text(
     rgba: &[u8],
 ) -> Result<(), String> {
     unsafe {
-        let screen = GetDC(None);
-        if screen.is_invalid() {
+        let screen = ScreenDc(GetDC(None));
+        if screen.0.is_invalid() {
             return Err("the screen drawing context is unavailable".into());
         }
-        let memory = CreateCompatibleDC(Some(screen));
-        if memory.is_invalid() {
-            let _ = ReleaseDC(None, screen);
+        let memory = MemoryDc(CreateCompatibleDC(Some(screen.0)));
+        if memory.0.is_invalid() {
             return Err("the modifier overlay drawing context is unavailable".into());
         }
         let mut bits: *mut c_void = ptr::null_mut();
@@ -421,7 +483,7 @@ fn present_pixmap_with_text(
             ..Default::default()
         };
         let bitmap = CreateDIBSection(
-            Some(screen),
+            Some(screen.0),
             &bitmap_info,
             DIB_RGB_COLORS,
             &mut bits,
@@ -429,7 +491,11 @@ fn present_pixmap_with_text(
             0,
         )
         .map_err(|error| error.to_string())?;
-        let old_bitmap = SelectObject(memory, HGDIOBJ(bitmap.0));
+        let bitmap = GdiObject(HGDIOBJ(bitmap.0));
+        let _bitmap_selection = SelectedObject {
+            dc: memory.0,
+            previous: SelectObject(memory.0, bitmap.0),
+        };
         let output = std::slice::from_raw_parts_mut(bits.cast::<u8>(), rgba.len());
         copy_rgba_to_bgra(rgba, output)?;
 
@@ -451,20 +517,20 @@ fn present_pixmap_with_text(
             w!("Segoe UI"),
         );
         if font.is_invalid() {
-            SelectObject(memory, old_bitmap);
-            let _ = DeleteObject(HGDIOBJ(bitmap.0));
-            let _ = DeleteDC(memory);
-            let _ = ReleaseDC(None, screen);
             return Err("the modifier overlay font could not be created".into());
         }
-        let old_font = SelectObject(memory, HGDIOBJ(font.0));
-        SetBkMode(memory, TRANSPARENT);
-        SetTextColor(memory, COLORREF(0x00ff_ffff));
+        let font = GdiObject(HGDIOBJ(font.0));
+        let _font_selection = SelectedObject {
+            dc: memory.0,
+            previous: SelectObject(memory.0, font.0),
+        };
+        SetBkMode(memory.0, TRANSPARENT);
+        SetTextColor(memory.0, COLORREF(0x00ff_ffff));
         for (label, chip) in labels.iter().zip(&layout.chips) {
             let mut text = label.encode_utf16().collect::<Vec<_>>();
             let mut text_rect = *chip;
             let _ = DrawTextW(
-                memory,
+                memory.0,
                 &mut text,
                 &mut text_rect,
                 DT_CENTER | DT_VCENTER | DT_SINGLELINE,
@@ -488,21 +554,15 @@ fn present_pixmap_with_text(
         };
         let result = UpdateLayeredWindow(
             window,
-            Some(screen),
+            Some(screen.0),
             Some(&destination),
             Some(&size),
-            Some(memory),
+            Some(memory.0),
             Some(&source),
             COLORREF(0),
             Some(&blend),
             ULW_ALPHA,
         );
-        SelectObject(memory, old_font);
-        SelectObject(memory, old_bitmap);
-        let _ = DeleteObject(HGDIOBJ(font.0));
-        let _ = DeleteObject(HGDIOBJ(bitmap.0));
-        let _ = DeleteDC(memory);
-        let _ = ReleaseDC(None, screen);
         result.map_err(|error| error.to_string())?;
         let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
         Ok(())
@@ -657,7 +717,7 @@ mod tests {
                 assert!(styles.contains(required));
             }
             let mut response = 0;
-            SendMessageTimeoutW(
+            let message = SendMessageTimeoutW(
                 window,
                 WM_NULL,
                 WPARAM(0),
@@ -666,6 +726,7 @@ mod tests {
                 1_000,
                 Some(&mut response),
             );
+            assert_ne!(message.0, 0, "modifier overlay did not service WM_NULL");
         }
         stop_sender.send(()).unwrap();
         thread.join().unwrap();
@@ -677,5 +738,13 @@ mod tests {
         let mut target = [0; 8];
         copy_rgba_to_bgra(&source, &mut target).unwrap();
         assert_eq!(target, [0x2f, 0x2f, 0xd3, 0xff, 0x23, 0x1f, 0x1f, 0xff]);
+    }
+
+    #[test]
+    fn unavailable_overlay_is_a_safe_no_op() {
+        let overlay = WindowsModifierOverlay { sender: None };
+        overlay
+            .set_snapshot(1, vec!["Ctrl".into()])
+            .expect("optional overlay failures must not affect input");
     }
 }

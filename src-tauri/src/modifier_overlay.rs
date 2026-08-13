@@ -79,7 +79,7 @@ enum PresentationAction {
 impl ModifierOverlay {
     pub fn install(app: tauri::AppHandle, shared: SharedModel) -> Result<Self, String> {
         #[cfg(target_os = "windows")]
-        let window = windows_backend::WindowsModifierOverlay::spawn(app.clone(), shared.clone())?;
+        let window = windows_backend::WindowsModifierOverlay::spawn(app.clone(), shared.clone());
 
         #[cfg(not(target_os = "windows"))]
         let window = {
