@@ -10,7 +10,7 @@ use objc2_foundation::{NSHost, NSString, NSURL};
 use tauri::{AppHandle, Manager};
 
 use crate::display_navigation::{self, NavigationError};
-use crate::input::{persist_pointer_scale_change, DesktopInput, PointerFeedback};
+use crate::input::{execute_desktop_command, DesktopInput, PointerFeedback};
 use crate::modifier_overlay::ModifierOverlay;
 use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERVAL_MS};
 use crate::overlay::CursorOverlay;
@@ -882,7 +882,7 @@ impl MacRuntime {
             self.stop_all_repeats();
             self.input.is_none() && !self.refresh_accessibility(false).unwrap_or(false)
         };
-        let (mut injection, error_code) = if command.command_type == "pointer.display.move" {
+        let (injection, error_code) = if command.command_type == "pointer.display.move" {
             let direction = command.payload["direction"].as_str().unwrap_or_default();
             match display_navigation::run_navigation_command(
                 self,
@@ -908,6 +908,7 @@ impl MacRuntime {
                 "input_failed",
             )
         } else {
+            let model = self.app.state::<AppModel>();
             (
                 self.input
                     .as_mut()
@@ -916,7 +917,9 @@ impl MacRuntime {
                             .to_string()
                     })
                     .and_then(|input| {
-                        input.execute(
+                        execute_desktop_command(
+                            input,
+                            &model,
                             &command.device_id,
                             &command.command_type,
                             &command.payload,
@@ -926,21 +929,6 @@ impl MacRuntime {
                 "input_failed",
             )
         };
-        if injection.is_ok() && command.command_type == "pointer.speed.set" {
-            let scale = command.payload["scalePercent"].as_f64().unwrap_or_default();
-            let model = self.app.state::<AppModel>();
-            injection = self
-                .input
-                .as_mut()
-                .ok_or_else(|| {
-                    "Accessibility permission is required before input can be controlled."
-                        .to_string()
-                })
-                .and_then(|input| {
-                    persist_pointer_scale_change(input, &model, scale)?;
-                    Ok(None)
-                });
-        }
         let response = self
             .shared
             .lock()

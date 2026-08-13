@@ -16,7 +16,7 @@ use windows::Foundation::{Deferral, TypedEventHandler};
 use windows::Security::Cryptography::CryptographicBuffer;
 
 use crate::display_navigation::{self, NavigationError};
-use crate::input::{persist_pointer_scale_change, DesktopInput, PointerFeedback};
+use crate::input::{execute_desktop_command, DesktopInput, PointerFeedback};
 use crate::modifier_overlay::ModifierOverlay;
 use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERVAL_MS};
 use crate::overlay::CursorOverlay;
@@ -608,7 +608,7 @@ fn complete_desktop(
         stop_all_repeats(app);
         return Some(switch_profile_catalog_response(&command.id, &profiles));
     }
-    let (mut result, error_code) = if command.command_type == "pointer.display.move" {
+    let (result, error_code) = if command.command_type == "pointer.display.move" {
         let direction = command.payload["direction"].as_str().unwrap_or_default();
         let mut context = (app, shared);
         match display_navigation::run_navigation_command(
@@ -626,9 +626,12 @@ fn complete_desktop(
         }
     } else {
         stop_all_repeats(app);
+        let model = app.state::<AppModel>();
         (
             with_runtime_input(|input| {
-                input.execute(
+                execute_desktop_command(
+                    input,
+                    &model,
                     &command.device_id,
                     &command.command_type,
                     &command.payload,
@@ -638,14 +641,6 @@ fn complete_desktop(
             "input_failed",
         )
     };
-    if result.is_ok() && command.command_type == "pointer.speed.set" {
-        let scale = command.payload["scalePercent"].as_f64().unwrap_or_default();
-        let model = app.state::<AppModel>();
-        result = with_runtime_input(|input| {
-            persist_pointer_scale_change(input, &model, scale)?;
-            Ok(None)
-        });
-    }
     if command.command_type != "pointer.display.move" {
         if let Ok(feedback) = &result {
             let settings = overlay_settings(shared);

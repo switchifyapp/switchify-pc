@@ -296,7 +296,7 @@ pub struct AppModel {
     pub diagnostics: DiagnosticHistory,
     pub telemetry: TelemetryService,
     emission_lock: Mutex<()>,
-    settings_lock: Mutex<()>,
+    persistence_lock: Mutex<()>,
     preserved_paired_devices: Vec<PairedDeviceView>,
 }
 
@@ -389,7 +389,7 @@ impl AppModel {
             diagnostics,
             telemetry,
             emission_lock: Mutex::new(()),
-            settings_lock: Mutex::new(()),
+            persistence_lock: Mutex::new(()),
             preserved_paired_devices,
         };
         let _ = model.persist();
@@ -410,12 +410,19 @@ impl AppModel {
         snapshot(&self.shared)
     }
     pub fn persist(&self) -> Result<(), String> {
+        let _transaction = self
+            .persistence_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.persist_unlocked()
+    }
+    fn persist_unlocked(&self) -> Result<(), String> {
         self.storage.save(&self.persisted_state(None, None, None))
     }
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     pub fn persist_settings(&self, settings: &AppSettings) -> Result<(), String> {
         let _transaction = self
-            .settings_lock
+            .persistence_lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         self.persist_settings_unlocked(settings, None)
@@ -430,7 +437,7 @@ impl AppModel {
     }
     pub fn apply_pointer_scale_percent(&self, scale_percent: u8) -> Result<(), String> {
         let _transaction = self
-            .settings_lock
+            .persistence_lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut settings = self.snapshot().settings;
@@ -450,7 +457,7 @@ impl AppModel {
         consent: TelemetryConsent,
     ) -> Result<(), String> {
         let _transaction = self
-            .settings_lock
+            .persistence_lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         self.persist_settings_unlocked(&settings, Some(consent))?;
@@ -548,6 +555,10 @@ impl AppModel {
     }
 
     pub fn mark_setup_shown(&self) -> Result<AppState, String> {
+        let _transaction = self
+            .persistence_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let previous = {
             let mut data = self
                 .shared
@@ -558,7 +569,7 @@ impl AppModel {
             data.state.setup.auto_open_eligible = false;
             previous
         };
-        if let Err(error) = self.persist() {
+        if let Err(error) = self.persist_unlocked() {
             self.shared
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -574,6 +585,10 @@ impl AppModel {
         settings: AppSettings,
         consent: TelemetryConsent,
     ) -> Result<AppState, String> {
+        let _transaction = self
+            .persistence_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if self.snapshot().paired_devices.is_empty() {
             return Err("Pair an Android device before finishing setup.".into());
         }
@@ -988,7 +1003,7 @@ mod tests {
         let model = Arc::new(AppModel::with_storage_for_test(AppStorage::at(
             state_path.clone(),
         )));
-        let transaction = model.settings_lock.lock().unwrap();
+        let transaction = model.persistence_lock.lock().unwrap();
         let (started_tx, started_rx) = mpsc::channel();
         let pointer_model = model.clone();
         let pointer_thread = thread::spawn(move || {

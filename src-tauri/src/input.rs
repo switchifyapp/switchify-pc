@@ -1073,6 +1073,22 @@ pub fn persist_pointer_scale_change<I: InputInjector>(
     Ok(())
 }
 
+pub fn execute_desktop_command<I: InputInjector>(
+    input: &mut DesktopInput<I>,
+    model: &AppModel,
+    device_id: &str,
+    command_type: &str,
+    payload: &Value,
+    profiles: &[SwitchProfile],
+) -> Result<Option<PointerFeedback>, String> {
+    let result = input.execute(device_id, command_type, payload, profiles)?;
+    if command_type == "pointer.speed.set" {
+        let scale_percent = payload["scalePercent"].as_f64().unwrap_or_default();
+        persist_pointer_scale_change(input, model, scale_percent)?;
+    }
+    Ok(result)
+}
+
 fn string<'a>(payload: &'a Value, key: &str) -> Result<&'a str, String> {
     payload
         .get(key)
@@ -1114,6 +1130,7 @@ fn payload_button(payload: &Value) -> Result<MouseButton, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::{DesktopCommand, ProtocolEngine, ResponseMode};
     use crate::storage::AppStorage;
     use std::fs;
     use std::sync::Mutex;
@@ -1256,17 +1273,38 @@ mod tests {
         let state_path = root.join("state.json");
         let model = AppModel::with_storage_for_test(AppStorage::at(state_path.clone()));
         let mut input = DesktopInput::new(FakeInjector::default());
+        let command = DesktopCommand {
+            id: "pointer-speed-1".into(),
+            device_id: "android-1".into(),
+            command_type: "pointer.speed.set".into(),
+            payload: serde_json::json!({"scalePercent": 123.0}),
+            response_mode: ResponseMode::Ack,
+        };
+        let result = execute_desktop_command(
+            &mut input,
+            &model,
+            &command.device_id,
+            &command.command_type,
+            &command.payload,
+            &[],
+        );
+        let engine = ProtocolEngine::new("desktop".into());
+        let response: Value = serde_json::from_str(
+            &engine
+                .complete_desktop_command_with_error(
+                    &command,
+                    result
+                        .as_ref()
+                        .map(|_| ())
+                        .map_err(|error| ("input_failed", error.as_str())),
+                )
+                .unwrap(),
+        )
+        .unwrap();
 
-        input
-            .execute(
-                "android-1",
-                "pointer.speed.set",
-                &serde_json::json!({"scalePercent": 123.0}),
-                &[],
-            )
-            .unwrap();
-        persist_pointer_scale_change(&mut input, &model, 123.0).unwrap();
-
+        assert!(result.is_ok());
+        assert_eq!(response["type"], "ack");
+        assert_eq!(response["ok"], true);
         assert_eq!(input.scaled_pointer_delta(100, 0), (125, 0));
         assert_eq!(model.snapshot().settings.pointer_scale_percent, 125);
         let restored = AppModel::with_storage_for_test(AppStorage::at(state_path));
@@ -1286,21 +1324,45 @@ mod tests {
         fs::remove_file(&state_path).unwrap();
         fs::create_dir(&state_path).unwrap();
 
-        input
-            .execute(
-                "android-1",
-                "pointer.speed.set",
-                &serde_json::json!({"scalePercent": 175.0}),
-                &[],
-            )
-            .unwrap();
-        assert_eq!(
-            persist_pointer_scale_change(&mut input, &model, 175.0),
-            Err("Pointer speed could not be saved.".into())
+        let command = DesktopCommand {
+            id: "pointer-speed-1".into(),
+            device_id: "android-1".into(),
+            command_type: "pointer.speed.set".into(),
+            payload: serde_json::json!({"scalePercent": 175.0}),
+            response_mode: ResponseMode::Ack,
+        };
+        let result = execute_desktop_command(
+            &mut input,
+            &model,
+            &command.device_id,
+            &command.command_type,
+            &command.payload,
+            &[],
         );
+        assert_eq!(result, Err("Pointer speed could not be saved.".into()));
+        let engine = ProtocolEngine::new("desktop".into());
+        let response: Value = serde_json::from_str(
+            &engine
+                .complete_desktop_command_with_error(
+                    &command,
+                    result
+                        .as_ref()
+                        .map(|_| ())
+                        .map_err(|error| ("input_failed", error.as_str())),
+                )
+                .unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(input.scaled_pointer_delta(100, 0), (100, 0));
         assert_eq!(model.snapshot().settings.pointer_scale_percent, 100);
+        assert_eq!(response["type"], "error");
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "input_failed");
+        assert_eq!(
+            response["error"]["message"],
+            "Pointer speed could not be saved."
+        );
         let _ = fs::remove_dir_all(root);
     }
 
