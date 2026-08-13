@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::modifier_overlay::ModifierKeyOverlayNotifier;
 use crate::protocol::MouseButton;
-use crate::state::{SwitchBinding, SwitchProfile};
+use crate::state::{normalize_pointer_scale_percent, AppModel, SwitchBinding, SwitchProfile};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PointerFeedback {
@@ -550,9 +550,8 @@ impl<I: InputInjector> DesktopInput<I> {
                 let scale = payload
                     .get("scalePercent")
                     .and_then(Value::as_f64)
-                    .filter(|scale| scale.is_finite() && *scale > 0.0)
                     .ok_or_else(|| "Pointer speed is invalid.".to_string())?;
-                self.pointer_scale_percent = ((scale / 5.0).round() * 5.0).clamp(5.0, 225.0) as u32;
+                self.pointer_scale_percent = u32::from(normalize_pointer_scale_percent(scale)?);
                 Ok(())
             }
             "connection.disconnecting" => {
@@ -1059,6 +1058,21 @@ impl<I: InputInjector> DesktopInput<I> {
     }
 }
 
+pub fn persist_pointer_scale_change<I: InputInjector>(
+    input: &mut DesktopInput<I>,
+    model: &AppModel,
+    scale_percent: f64,
+) -> Result<(), String> {
+    let scale_percent = normalize_pointer_scale_percent(scale_percent)?;
+    let previous_scale = model.snapshot().settings.pointer_scale_percent;
+    input.set_pointer_scale_percent(scale_percent);
+    if model.apply_pointer_scale_percent(scale_percent).is_err() {
+        input.set_pointer_scale_percent(previous_scale);
+        return Err("Pointer speed could not be saved.".into());
+    }
+    Ok(())
+}
+
 fn string<'a>(payload: &'a Value, key: &str) -> Result<&'a str, String> {
     payload
         .get(key)
@@ -1100,6 +1114,8 @@ fn payload_button(payload: &Value) -> Result<MouseButton, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::AppStorage;
+    use std::fs;
     use std::sync::Mutex;
 
     #[derive(Default)]
@@ -1231,6 +1247,61 @@ mod tests {
             PointerFeedback::Move
         );
         assert_eq!(input.injector.moves, vec![(1, -1)]);
+    }
+
+    #[test]
+    fn android_pointer_speed_changes_persist_and_restore() {
+        let root =
+            std::env::temp_dir().join(format!("switchify-pointer-speed-{}", uuid::Uuid::new_v4()));
+        let state_path = root.join("state.json");
+        let model = AppModel::with_storage_for_test(AppStorage::at(state_path.clone()));
+        let mut input = DesktopInput::new(FakeInjector::default());
+
+        input
+            .execute(
+                "android-1",
+                "pointer.speed.set",
+                &serde_json::json!({"scalePercent": 123.0}),
+                &[],
+            )
+            .unwrap();
+        persist_pointer_scale_change(&mut input, &model, 123.0).unwrap();
+
+        assert_eq!(input.scaled_pointer_delta(100, 0), (125, 0));
+        assert_eq!(model.snapshot().settings.pointer_scale_percent, 125);
+        let restored = AppModel::with_storage_for_test(AppStorage::at(state_path));
+        assert_eq!(restored.snapshot().settings.pointer_scale_percent, 125);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn failed_pointer_speed_save_restores_the_active_scale() {
+        let root = std::env::temp_dir().join(format!(
+            "switchify-pointer-speed-fail-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state_path = root.join("state.json");
+        let model = AppModel::with_storage_for_test(AppStorage::at(state_path.clone()));
+        let mut input = DesktopInput::new(FakeInjector::default());
+        fs::remove_file(&state_path).unwrap();
+        fs::create_dir(&state_path).unwrap();
+
+        input
+            .execute(
+                "android-1",
+                "pointer.speed.set",
+                &serde_json::json!({"scalePercent": 175.0}),
+                &[],
+            )
+            .unwrap();
+        assert_eq!(
+            persist_pointer_scale_change(&mut input, &model, 175.0),
+            Err("Pointer speed could not be saved.".into())
+        );
+
+        assert_eq!(input.scaled_pointer_delta(100, 0), (100, 0));
+        assert_eq!(model.snapshot().settings.pointer_scale_percent, 100);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

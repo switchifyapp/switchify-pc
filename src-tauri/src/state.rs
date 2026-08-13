@@ -118,6 +118,13 @@ impl AppSettings {
     }
 }
 
+pub fn normalize_pointer_scale_percent(scale_percent: f64) -> Result<u8, String> {
+    if !scale_percent.is_finite() || scale_percent <= 0.0 {
+        return Err("Pointer speed is invalid.".into());
+    }
+    Ok(((scale_percent / 5.0).round() * 5.0).clamp(5.0, 225.0) as u8)
+}
+
 fn default_cursor_overlay_visibility() -> String {
     "whileControlling".into()
 }
@@ -407,6 +414,18 @@ impl AppModel {
     pub fn persist_settings(&self, settings: &AppSettings) -> Result<(), String> {
         self.storage
             .save(&self.persisted_state(Some(settings), None, None))
+    }
+    pub fn apply_pointer_scale_percent(&self, scale_percent: u8) -> Result<(), String> {
+        let mut settings = self.snapshot().settings;
+        settings.pointer_scale_percent = scale_percent;
+        let settings = settings.normalized()?;
+        self.persist_settings(&settings)?;
+        self.shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .state
+            .settings = settings;
+        Ok(())
     }
     pub fn persist_settings_with_telemetry(
         &self,
@@ -928,6 +947,15 @@ mod tests {
             ..AppSettings::default()
         };
         assert!(value.normalized().is_err());
+    }
+    #[test]
+    fn pointer_speed_normalization_rounds_and_clamps_to_supported_steps() {
+        assert_eq!(normalize_pointer_scale_percent(1.0), Ok(5));
+        assert_eq!(normalize_pointer_scale_percent(122.0), Ok(120));
+        assert_eq!(normalize_pointer_scale_percent(123.0), Ok(125));
+        assert_eq!(normalize_pointer_scale_percent(500.0), Ok(225));
+        assert!(normalize_pointer_scale_percent(0.0).is_err());
+        assert!(normalize_pointer_scale_percent(f64::NAN).is_err());
     }
     #[test]
     fn settings_reject_unknown_overlay_visibility() {
