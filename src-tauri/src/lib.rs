@@ -437,19 +437,7 @@ fn save_settings(
     } else {
         previous_consent
     };
-    if next_consent == TelemetryConsent::Disabled {
-        model.set_telemetry_consent(next_consent);
-    }
-    model.persist_settings_with_telemetry(&settings, next_consent)?;
-    if next_consent != TelemetryConsent::Disabled {
-        model.set_telemetry_consent(next_consent);
-    }
-    model
-        .shared
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .state
-        .settings = settings.clone();
+    model.apply_settings_with_telemetry(settings.clone(), next_consent)?;
     if !settings.mouse_repeat_enabled {
         platform_stop_mouse_repeat(&app);
     }

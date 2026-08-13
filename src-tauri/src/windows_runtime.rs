@@ -16,7 +16,7 @@ use windows::Foundation::{Deferral, TypedEventHandler};
 use windows::Security::Cryptography::CryptographicBuffer;
 
 use crate::display_navigation::{self, NavigationError};
-use crate::input::{DesktopInput, PointerFeedback};
+use crate::input::{execute_desktop_command, DesktopInput, PointerFeedback};
 use crate::modifier_overlay::ModifierOverlay;
 use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERVAL_MS};
 use crate::overlay::CursorOverlay;
@@ -26,7 +26,8 @@ use crate::protocol::{
     MouseMoveCommand, PointerProfile, TextCommand,
 };
 use crate::state::{
-    emit_state, set_activity, AccessibilityState, ActivityKind, BluetoothState, SharedModel,
+    emit_state, set_activity, AccessibilityState, ActivityKind, AppModel, BluetoothState,
+    SharedModel,
 };
 
 const SERVICE_UUID: GUID = GUID::from_u128(0x7a78f7e8_1d6d_4d92_9ef0_1f89d3db21f4);
@@ -625,9 +626,12 @@ fn complete_desktop(
         }
     } else {
         stop_all_repeats(app);
+        let model = app.state::<AppModel>();
         (
             with_runtime_input(|input| {
-                input.execute(
+                execute_desktop_command(
+                    input,
+                    &model,
                     &command.device_id,
                     &command.command_type,
                     &command.payload,
@@ -649,20 +653,6 @@ fn complete_desktop(
             if command.command_type == "connection.disconnecting" {
                 overlay.end_session();
             }
-        }
-    }
-    if result.is_ok() && command.command_type == "pointer.speed.set" {
-        if let Some(scale) = command
-            .payload
-            .get("scalePercent")
-            .and_then(serde_json::Value::as_f64)
-        {
-            shared
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .state
-                .settings
-                .pointer_scale_percent = ((scale / 5.0).round() * 5.0).clamp(5.0, 225.0) as u8;
         }
     }
     shared
