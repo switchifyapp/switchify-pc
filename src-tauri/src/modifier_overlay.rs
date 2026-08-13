@@ -1,27 +1,32 @@
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::sync::{Arc, Mutex};
+#[cfg(not(target_os = "windows"))]
+use std::time::Duration;
 
 use serde::Serialize;
+#[cfg(not(target_os = "windows"))]
 use tauri::{
     utils::config::Color, Emitter, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
 };
+#[cfg(target_os = "windows")]
+use tauri::{PhysicalPosition, PhysicalSize};
 
 use crate::input::ModifierKey;
 #[cfg(target_os = "macos")]
 use crate::macos_overlay_window;
 use crate::state::{emit_state, set_activity, ActivityKind, SharedModel};
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-};
+#[path = "modifier_overlay_windows.rs"]
+mod windows_backend;
 
 const OVERLAY_WINDOW_LABEL: &str = "modifier-overlay";
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 const OVERLAY_WIDTH: f64 = 480.0;
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 const OVERLAY_HEIGHT: f64 = 70.0;
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 const OVERLAY_MARGIN: f64 = 16.0;
+#[cfg(not(target_os = "windows"))]
 const READINESS_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub trait ModifierKeyOverlayNotifier: Send + Sync {
@@ -44,8 +49,12 @@ pub struct ModifierOverlay {
 struct ModifierOverlayInner {
     app: tauri::AppHandle,
     shared: SharedModel,
+    #[cfg(not(target_os = "windows"))]
     window: WebviewWindow,
+    #[cfg(target_os = "windows")]
+    window: windows_backend::WindowsModifierOverlay,
     state: Mutex<ModifierOverlayState>,
+    #[cfg(not(target_os = "windows"))]
     window_actions: Mutex<()>,
 }
 
@@ -53,16 +62,13 @@ struct ModifierOverlayInner {
 struct ModifierOverlayState {
     revision: u64,
     active_modifiers: Vec<ModifierKey>,
+    #[cfg(not(target_os = "windows"))]
     ready: bool,
+    #[cfg(not(target_os = "windows"))]
     readiness_failure_reported: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct BootstrapPolicy {
-    visible: bool,
-    position: Option<(f64, f64)>,
-}
-
+#[cfg(not(target_os = "windows"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PresentationAction {
     Hide,
@@ -72,42 +78,48 @@ enum PresentationAction {
 
 impl ModifierOverlay {
     pub fn install(app: tauri::AppHandle, shared: SharedModel) -> Result<Self, String> {
-        let policy = current_bootstrap_policy();
-        let mut builder = WebviewWindowBuilder::new(
-            &app,
-            OVERLAY_WINDOW_LABEL,
-            WebviewUrl::App("index.html?view=modifier-overlay".into()),
-        )
-        .title("Switchify active modifiers")
-        .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
-        .resizable(false)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .always_on_top(true)
-        .visible_on_all_workspaces(true)
-        .skip_taskbar(true)
-        .focusable(false)
-        .focused(false)
-        .background_color(Color(0, 0, 0, 0))
-        .visible(policy.visible);
-        if let Some((x, y)) = policy.position {
-            builder = builder.position(x, y);
-        }
-        let window = builder.build().map_err(|error| error.to_string())?;
-        configure_platform_window(&window)?;
-        window
-            .set_ignore_cursor_events(true)
+        #[cfg(target_os = "windows")]
+        let window = windows_backend::WindowsModifierOverlay::spawn(app.clone(), shared.clone());
+
+        #[cfg(not(target_os = "windows"))]
+        let window = {
+            let window = WebviewWindowBuilder::new(
+                &app,
+                OVERLAY_WINDOW_LABEL,
+                WebviewUrl::App("index.html?view=modifier-overlay".into()),
+            )
+            .title("Switchify active modifiers")
+            .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
+            .resizable(false)
+            .decorations(false)
+            .transparent(true)
+            .shadow(false)
+            .always_on_top(true)
+            .visible_on_all_workspaces(true)
+            .skip_taskbar(true)
+            .focusable(false)
+            .focused(false)
+            .background_color(Color(0, 0, 0, 0))
+            .visible(false)
+            .build()
             .map_err(|error| error.to_string())?;
+            configure_platform_window(&window)?;
+            window
+                .set_ignore_cursor_events(true)
+                .map_err(|error| error.to_string())?;
+            window
+        };
         let overlay = Self {
             inner: Arc::new(ModifierOverlayInner {
                 app,
                 shared,
                 window,
                 state: Mutex::new(ModifierOverlayState::default()),
+                #[cfg(not(target_os = "windows"))]
                 window_actions: Mutex::new(()),
             }),
         };
+        #[cfg(not(target_os = "windows"))]
         overlay.start_readiness_watchdog();
         Ok(overlay)
     }
@@ -120,19 +132,25 @@ impl ModifierOverlay {
         if window_label != OVERLAY_WINDOW_LABEL {
             return Err("Modifier overlay state is only available to its overlay window.".into());
         }
-        let snapshot = {
-            let mut state = self
-                .inner
-                .state
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            state.ready = true;
-            snapshot(&state)
-        };
-        if snapshot.labels.is_empty() {
-            self.hide_if_current_empty(snapshot.revision)?;
+        #[cfg(target_os = "windows")]
+        return Err("The Windows modifier overlay does not use a WebView.".into());
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let snapshot = {
+                let mut state = self
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                state.ready = true;
+                snapshot(&state)
+            };
+            if snapshot.labels.is_empty() {
+                self.hide_if_current_empty(snapshot.revision)?;
+            }
+            Ok(snapshot)
         }
-        Ok(snapshot)
     }
 
     pub fn present(&self, window_label: &str, revision: u64) -> Result<(), String> {
@@ -141,31 +159,40 @@ impl ModifierOverlay {
                 "Modifier overlay presentation is only available to its overlay window.".into(),
             );
         }
-        let _window_action = self
-            .inner
-            .window_actions
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let action = {
-            let state = self
+        #[cfg(target_os = "windows")]
+        {
+            let _ = revision;
+            Err("The Windows modifier overlay does not use a WebView.".into())
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _window_action = self
                 .inner
-                .state
+                .window_actions
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            presentation_action(&state, revision)
-        };
-        if action == PresentationAction::Show {
-            self.position_window()?;
-            self.inner
-                .window
-                .unminimize()
-                .map_err(|error| error.to_string())?;
-            self.inner
-                .window
-                .show()
-                .map_err(|error| error.to_string())?;
+            let action = {
+                let state = self
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                presentation_action(&state, revision)
+            };
+            if action == PresentationAction::Show {
+                self.position_window()?;
+                self.inner
+                    .window
+                    .unminimize()
+                    .map_err(|error| error.to_string())?;
+                self.inner
+                    .window
+                    .show()
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok(())
         }
-        Ok(())
     }
 
     pub fn end_session(&self) {
@@ -187,6 +214,7 @@ impl ModifierOverlay {
             state.revision = state.revision.wrapping_add(1);
             snapshot(&state)
         };
+        #[cfg(not(target_os = "windows"))]
         if let Err(error) = self
             .inner
             .window
@@ -194,6 +222,15 @@ impl ModifierOverlay {
         {
             self.report_failure(&error.to_string());
         }
+        #[cfg(target_os = "windows")]
+        if let Err(error) = self
+            .inner
+            .window
+            .set_snapshot(snapshot.revision, snapshot.labels.clone())
+        {
+            self.report_failure(&error);
+        }
+        #[cfg(not(target_os = "windows"))]
         if snapshot.labels.is_empty() {
             if let Err(error) = self.hide_if_current_empty(snapshot.revision) {
                 self.report_failure(&error);
@@ -201,6 +238,7 @@ impl ModifierOverlay {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn hide_if_current_empty(&self, revision: u64) -> Result<(), String> {
         let _window_action = self
             .inner
@@ -224,6 +262,7 @@ impl ModifierOverlay {
         Ok(())
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn start_readiness_watchdog(&self) {
         let overlay = self.clone();
         tauri::async_runtime::spawn(async move {
@@ -246,6 +285,7 @@ impl ModifierOverlay {
         });
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn position_window(&self) -> Result<(), String> {
         let cursor = self
             .inner
@@ -287,38 +327,7 @@ impl ModifierOverlay {
     }
 }
 
-fn current_bootstrap_policy() -> BootstrapPolicy {
-    #[cfg(target_os = "windows")]
-    {
-        let virtual_desktop_right = unsafe {
-            f64::from(GetSystemMetrics(SM_XVIRTUALSCREEN))
-                + f64::from(GetSystemMetrics(SM_CXVIRTUALSCREEN))
-        };
-        bootstrap_policy(Some(virtual_desktop_right))
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    bootstrap_policy(None)
-}
-
-fn bootstrap_policy(virtual_desktop_right: Option<f64>) -> BootstrapPolicy {
-    if let Some(virtual_desktop_right) = virtual_desktop_right {
-        BootstrapPolicy {
-            visible: true,
-            // A visible bootstrap window lets WebView2 initialize reliably.
-            // Place it beyond the current virtual desktop instead of using
-            // Windows' minimized-window sentinel or a fixed coordinate that
-            // could overlap a monitor in a negative-coordinate layout.
-            position: Some((virtual_desktop_right + OVERLAY_MARGIN, 0.0)),
-        }
-    } else {
-        BootstrapPolicy {
-            visible: false,
-            position: None,
-        }
-    }
-}
-
+#[cfg(not(target_os = "windows"))]
 fn presentation_action(state: &ModifierOverlayState, revision: u64) -> PresentationAction {
     if revision != state.revision {
         return PresentationAction::Ignore;
@@ -332,6 +341,7 @@ fn presentation_action(state: &ModifierOverlayState, revision: u64) -> Presentat
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 fn readiness_watchdog_should_report(state: &ModifierOverlayState) -> bool {
     !state.ready && !state.readiness_failure_reported
 }
@@ -346,7 +356,7 @@ fn configure_platform_window(window: &WebviewWindow) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 fn configure_platform_window(_window: &WebviewWindow) -> Result<(), String> {
     Ok(())
 }
@@ -357,7 +367,7 @@ impl ModifierKeyOverlayNotifier for ModifierOverlay {
     }
 
     fn end_control_session(&self) {
-        {
+        let revision = {
             let mut state = self
                 .inner
                 .state
@@ -366,19 +376,33 @@ impl ModifierKeyOverlayNotifier for ModifierOverlay {
             if !state.active_modifiers.is_empty() {
                 state.active_modifiers.clear();
                 state.revision = state.revision.wrapping_add(1);
-                let current = snapshot(&state);
-                if let Err(error) = self.inner.window.emit("modifier-overlay-changed", current) {
-                    self.report_failure(&error.to_string());
+                #[cfg(not(target_os = "windows"))]
+                {
+                    let current = snapshot(&state);
+                    if let Err(error) = self.inner.window.emit("modifier-overlay-changed", current)
+                    {
+                        self.report_failure(&error.to_string());
+                    }
                 }
             }
+            state.revision
+        };
+        #[cfg(not(target_os = "windows"))]
+        let _ = revision;
+        #[cfg(target_os = "windows")]
+        if let Err(error) = self.inner.window.set_snapshot(revision, Vec::new()) {
+            self.report_failure(&error);
         }
-        let _window_action = self
-            .inner
-            .window_actions
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Err(error) = self.inner.window.hide() {
-            self.report_failure(&error.to_string());
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _window_action = self
+                .inner
+                .window_actions
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Err(error) = self.inner.window.hide() {
+                self.report_failure(&error.to_string());
+            }
         }
     }
 }
@@ -430,6 +454,7 @@ fn labels_for_platform(active_modifiers: &[ModifierKey], style: LabelStyle) -> V
         .collect()
 }
 
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 fn overlay_position(
     work_x: i32,
     work_y: i32,
@@ -499,35 +524,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn windows_bootstraps_visible_beyond_the_virtual_desktop() {
-        let virtual_desktop_right = 1_920.0;
-        let policy = bootstrap_policy(Some(virtual_desktop_right));
-        assert_eq!(
-            policy,
-            BootstrapPolicy {
-                visible: true,
-                position: Some((virtual_desktop_right + OVERLAY_MARGIN, 0.0)),
-            }
-        );
-        let (x, y) = policy
-            .position
-            .expect("Windows bootstrap should be positioned");
-        assert!(x > virtual_desktop_right);
-        assert_eq!(y, 0.0);
-
-        let negative_monitor_layout = bootstrap_policy(Some(0.0));
-        assert!(negative_monitor_layout.position.expect("positioned").0 > 0.0);
-
-        assert_eq!(
-            bootstrap_policy(None),
-            BootstrapPolicy {
-                visible: false,
-                position: None,
-            }
-        );
-    }
-
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn presentation_requires_ready_current_nonempty_state() {
         let mut state = ModifierOverlayState {
@@ -545,6 +542,7 @@ mod tests {
         assert_eq!(presentation_action(&state, 4), PresentationAction::Hide);
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn stale_empty_revision_cannot_hide_newer_nonempty_state() {
         let state = ModifierOverlayState {
@@ -557,6 +555,7 @@ mod tests {
         assert_eq!(presentation_action(&state, 5), PresentationAction::Show);
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn readiness_watchdog_reports_only_once_before_ready() {
         let mut state = ModifierOverlayState::default();
