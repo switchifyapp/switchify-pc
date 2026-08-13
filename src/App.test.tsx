@@ -396,6 +396,16 @@ describe("Switchify PC shell", () => {
     expect(screen.getByText("5.5")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: "Repeat mouse movement" }));
     expect(screen.getByRole("group", { name: "Movement acceleration" })).toBeDisabled();
+    const dwell = screen.getByRole("checkbox", { name: "Dwell to click" });
+    expect(dwell).not.toBeChecked();
+    expect(screen.getByRole("group", { name: "Dwell delay" })).toBeDisabled();
+    fireEvent.click(dwell);
+    const dwellDelay = screen.getByRole("group", { name: "Dwell delay" });
+    expect(dwellDelay).not.toBeDisabled();
+    expect(within(dwellDelay).getByRole("button", { name: "1s" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(dwellDelay).getByRole("button", { name: "1.5s" }));
+    expect(within(dwellDelay).getByRole("button", { name: "1.5s" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/After Android pointer movement stops/)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Show cursor overlay" })).toBeChecked();
     expect(screen.getByRole("button", { name: "While controlling" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText(/On input hides shortly/)).toBeInTheDocument();
@@ -418,6 +428,30 @@ describe("Switchify PC shell", () => {
 
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ shareDiagnostics: true })));
     expect(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" })).toBeChecked();
+  });
+
+  it("persists dwell enablement and delay through automatic settings saves", async () => {
+    const saveSettings = vi.spyOn(api, "saveSettings").mockImplementation(async (settings) => stateWithSettings(settings));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Dwell to click" }));
+    await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 1000 })));
+    const dwellDelay = screen.getByRole("group", { name: "Dwell delay" });
+    fireEvent.click(within(dwellDelay).getByRole("button", { name: "2s" }));
+    await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 2000 })));
+  });
+
+  it("restores confirmed dwell settings when automatic saving fails", async () => {
+    vi.spyOn(api, "saveSettings").mockRejectedValueOnce(new Error("Settings storage unavailable"));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Dwell to click" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Settings storage unavailable");
+    expect(screen.getByRole("checkbox", { name: "Dwell to click" })).not.toBeChecked();
+    expect(screen.getByRole("group", { name: "Dwell delay" })).toBeDisabled();
   });
 
   it("explains telemetry consent and links to the privacy policy", async () => {

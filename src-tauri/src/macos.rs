@@ -10,7 +10,8 @@ use objc2_foundation::{NSHost, NSString, NSURL};
 use tauri::{AppHandle, Manager};
 
 use crate::display_navigation::{self, NavigationError};
-use crate::input::{execute_desktop_command, DesktopInput, PointerFeedback};
+use crate::dwell::DwellController;
+use crate::input::{execute_desktop_command, execute_dwell_click, DesktopInput, PointerFeedback};
 use crate::modifier_overlay::ModifierOverlay;
 use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERVAL_MS};
 use crate::overlay::CursorOverlay;
@@ -304,6 +305,7 @@ pub fn reject_pairing(
 }
 
 pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), String> {
+    app.state::<DwellController>().cancel(app);
     with_runtime(|runtime| {
         runtime.stop_all_repeats();
         let release = if let Some(input) = runtime.input.as_mut() {
@@ -335,6 +337,15 @@ pub fn stop_mouse_repeat(app: &AppHandle) {
         runtime.stop_all_repeats();
         Ok(())
     });
+}
+
+pub fn dwell_click(_app: &AppHandle) -> Result<(), String> {
+    with_runtime(|runtime| {
+        let input = runtime.input.as_mut().ok_or_else(|| {
+            "Accessibility permission is required before the pointer can click.".to_string()
+        })?;
+        execute_dwell_click(input).map(|_| ())
+    })
 }
 
 fn with_runtime<T>(
@@ -592,6 +603,7 @@ impl MacRuntime {
                 cancelled
             };
             if self.subscribers.is_empty() {
+                self.app.state::<DwellController>().cancel(&self.app);
                 self.stop_all_repeats();
                 self.outbound.clear();
                 if let Some(input) = self.input.as_mut() {
@@ -739,6 +751,7 @@ impl MacRuntime {
                 .map(DesktopInput::pointer_feedback_for_move)
                 .unwrap_or(PointerFeedback::Move);
             self.show_overlay(feedback);
+            self.app.state::<DwellController>().arm(&self.app);
         }
         let response = {
             self.shared
@@ -770,6 +783,7 @@ impl MacRuntime {
     }
 
     fn handle_mouse_click(&mut self, command: MouseClickCommand) {
+        self.app.state::<DwellController>().cancel(&self.app);
         self.stop_all_repeats();
         let injection = self.inject_pointer_click(command.button, command.click_count);
         if injection.is_ok() {
@@ -860,6 +874,19 @@ impl MacRuntime {
         if command.command_type == "mouse.repeat.stop" {
             self.handle_repeat_stop(command);
             return;
+        }
+        if matches!(
+            command.command_type.as_str(),
+            "mouse.scroll"
+                | "mouse.dragStart"
+                | "mouse.dragEnd"
+                | "mouse.click"
+                | "mouse.doubleClick"
+                | "mouse.rightClick"
+                | "switch.session.start"
+                | "connection.disconnecting"
+        ) {
+            self.app.state::<DwellController>().cancel(&self.app);
         }
         let profiles = self
             .shared
@@ -955,6 +982,9 @@ impl MacRuntime {
                 }
             }
         }
+        if command.command_type == "pointer.display.move" && injection.is_ok() {
+            self.app.state::<DwellController>().arm(&self.app);
+        }
         match injection {
             Ok(_) => set_activity(
                 &self.shared,
@@ -972,6 +1002,7 @@ impl MacRuntime {
     }
 
     fn handle_repeat_start(&mut self, command: DesktopCommand) {
+        self.app.state::<DwellController>().cancel(&self.app);
         let settings = self.overlay_settings();
         let parsed = RepeatCommand::parse(&command.payload);
         let injection = parsed.and_then(|repeat_command| {
@@ -1042,7 +1073,10 @@ impl MacRuntime {
     }
 
     fn handle_repeat_stop(&mut self, command: DesktopCommand) {
-        self.stop_repeat_for_device(&command.device_id);
+        let stopped = self.stop_repeat_for_device(&command.device_id);
+        if stopped.is_some_and(|active| matches!(active.command, RepeatCommand::Move { .. })) {
+            self.app.state::<DwellController>().arm(&self.app);
+        }
         self.complete_repeat_command(command, Ok(()));
     }
 
@@ -1090,18 +1124,18 @@ impl MacRuntime {
             return Ok(());
         };
         if !settings.mouse_repeat_enabled {
-            self.stop_repeat_if_current(&device_id, generation);
+            self.stop_repeat_if_current(&device_id, generation, false);
             return Ok(());
         }
         if matches!(active.command, RepeatCommand::Move { .. }) {
             match self.pending_repeat_made_progress(generation, active.command) {
                 Ok(true) => {}
                 Ok(false) => {
-                    self.stop_repeat_if_current(&device_id, generation);
+                    self.stop_repeat_if_current(&device_id, generation, true);
                     return Ok(());
                 }
                 Err(error) => {
-                    if self.stop_repeat_if_current(&device_id, generation) {
+                    if self.stop_repeat_if_current(&device_id, generation, false) {
                         self.report_error(format!("Mouse repeat stopped: {error}"));
                     }
                     return Ok(());
@@ -1132,7 +1166,7 @@ impl MacRuntime {
             },
         };
         if let Err(error) = result {
-            if self.stop_repeat_if_current(&device_id, generation) {
+            if self.stop_repeat_if_current(&device_id, generation, false) {
                 self.report_error(format!("Mouse repeat stopped: {error}"));
             }
             return Ok(());
@@ -1189,22 +1223,39 @@ impl MacRuntime {
         ))
     }
 
-    fn stop_repeat_if_current(&mut self, device_id: &str, generation: u64) -> bool {
+    fn stop_repeat_if_current(
+        &mut self,
+        device_id: &str,
+        generation: u64,
+        arm_dwell: bool,
+    ) -> bool {
+        let was_move = self
+            .repeats
+            .current(device_id, generation)
+            .is_some_and(|active| matches!(active.command, RepeatCommand::Move { .. }));
         let stopped = self.repeats.stop_if_current(device_id, generation);
         if stopped {
             self.pending_repeat_moves.remove(&generation);
             self.app.state::<CursorOverlay>().end_repeat(generation);
+            if arm_dwell && was_move {
+                self.app.state::<DwellController>().arm(&self.app);
+            }
         }
         stopped
     }
 
-    fn stop_repeat_for_device(&mut self, device_id: &str) {
-        if let Some(active) = self.repeats.stop(device_id) {
+    fn stop_repeat_for_device(
+        &mut self,
+        device_id: &str,
+    ) -> Option<crate::mouse_repeat::ActiveRepeat> {
+        let active = self.repeats.stop(device_id);
+        if let Some(active) = active {
             self.pending_repeat_moves.remove(&active.generation);
             self.app
                 .state::<CursorOverlay>()
                 .end_repeat(active.generation);
         }
+        active
     }
 
     fn stop_all_repeats(&mut self) {
@@ -1335,6 +1386,7 @@ impl MacRuntime {
     }
 
     fn refresh_accessibility(&mut self, prompt: bool) -> Result<bool, String> {
+        self.app.state::<DwellController>().cancel(&self.app);
         if let Some(input) = self.input.as_mut() {
             let release = input.release_all();
             input.end_control_session();
@@ -1354,6 +1406,9 @@ impl MacRuntime {
             }
         };
         let granted = self.input.is_some();
+        if !granted {
+            self.app.state::<DwellController>().cancel(&self.app);
+        }
         self.set_accessibility_state(if granted {
             AccessibilityState::Granted
         } else {
@@ -1422,6 +1477,7 @@ impl MacRuntime {
     }
 
     fn reset_gatt(&mut self) {
+        self.app.state::<DwellController>().cancel(&self.app);
         self.stop_all_repeats();
         self.manager.stop_advertising();
         self.service = None;
@@ -1541,6 +1597,7 @@ fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Re
 
 impl Drop for MacRuntime {
     fn drop(&mut self) {
+        self.app.state::<DwellController>().cancel(&self.app);
         if let Some(input) = self.input.as_mut() {
             let _ = input.release_all();
             input.end_control_session();

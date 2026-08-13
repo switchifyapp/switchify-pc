@@ -85,6 +85,16 @@ impl CursorOverlay {
         let _ = self.sender.send(Command::ApplySettings(settings));
     }
 
+    pub fn show_dwell(&self, permille: u16, settings: AppSettings) {
+        let _ = self
+            .sender
+            .send(Command::ShowDwell(permille.min(1000), settings));
+    }
+
+    pub fn end_dwell(&self) {
+        let _ = self.sender.send(Command::EndDwell);
+    }
+
     pub fn begin_repeat(
         &self,
         generation: u64,
@@ -115,6 +125,8 @@ pub(crate) enum Command {
     Show(PointerFeedback, AppSettings),
     MarkControlActive(AppSettings),
     ApplySettings(AppSettings),
+    ShowDwell(u16, AppSettings),
+    EndDwell,
     BeginRepeat(u64, RepeatCommand, bool, bool, AppSettings),
     EndRepeat(u64),
     EndSession,
@@ -141,6 +153,7 @@ pub(crate) struct OverlayEngine {
     control_active: bool,
     drag_active: bool,
     repeat_generation: Option<u64>,
+    dwell_active: bool,
     deadline: Option<Instant>,
     next_follow: Instant,
     visible: bool,
@@ -154,6 +167,7 @@ impl OverlayEngine {
             control_active: false,
             drag_active: false,
             repeat_generation: None,
+            dwell_active: false,
             deadline: None,
             next_follow: now,
             visible: false,
@@ -193,7 +207,7 @@ impl OverlayEngine {
             }
             Command::ApplySettings(settings) => {
                 self.settings = settings;
-                if !self.settings.cursor_overlay_enabled {
+                if !self.settings.cursor_overlay_enabled && !self.dwell_active {
                     return self.hide();
                 }
                 if self.visible || self.repeat_generation.is_some() {
@@ -203,6 +217,46 @@ impl OverlayEngine {
                     return Update::Render(self.frame(feedback));
                 }
                 Update::None
+            }
+            Command::ShowDwell(permille, settings) => {
+                self.settings = settings;
+                self.control_active = true;
+                self.dwell_active = true;
+                let feedback = PointerFeedback::DwellProgress { permille };
+                self.feedback = Some(feedback);
+                self.deadline = None;
+                self.next_follow = now + FOLLOW_INTERVAL;
+                self.visible = true;
+                Update::Render(self.frame(feedback))
+            }
+            Command::EndDwell => {
+                if !self.dwell_active {
+                    return Update::None;
+                }
+                self.dwell_active = false;
+                if self.control_active
+                    && self.settings.cursor_overlay_enabled
+                    && (self.drag_active
+                        || self.repeat_generation.is_some()
+                        || self.settings.cursor_overlay_visibility == "whileControlling")
+                {
+                    let feedback = if self.drag_active {
+                        PointerFeedback::Drag
+                    } else {
+                        self.feedback
+                            .filter(|feedback| {
+                                !matches!(feedback, PointerFeedback::DwellProgress { .. })
+                            })
+                            .unwrap_or(PointerFeedback::Move)
+                    };
+                    self.feedback = Some(feedback);
+                    self.next_follow = now + FOLLOW_INTERVAL;
+                    self.visible = true;
+                    Update::Render(self.frame(feedback))
+                } else {
+                    self.feedback = None;
+                    self.hide()
+                }
             }
             Command::BeginRepeat(generation, command, accelerated, dragging, settings) => {
                 self.settings = settings;
@@ -253,6 +307,7 @@ impl OverlayEngine {
                 self.control_active = false;
                 self.drag_active = false;
                 self.repeat_generation = None;
+                self.dwell_active = false;
                 self.feedback = None;
                 self.deadline = None;
                 self.hide()
@@ -286,6 +341,7 @@ impl OverlayEngine {
 
     fn persistent(&self) -> bool {
         self.drag_active
+            || self.dwell_active
             || self.repeat_generation.is_some()
             || (self.control_active
                 && self.settings.cursor_overlay_visibility == "whileControlling")
@@ -321,6 +377,7 @@ fn duration_for(feedback: PointerFeedback) -> Duration {
         PointerFeedback::Click { .. } | PointerFeedback::Scroll { .. } => LANDING_DURATION,
         PointerFeedback::Move
         | PointerFeedback::Drag
+        | PointerFeedback::DwellProgress { .. }
         | PointerFeedback::RepeatMove { .. }
         | PointerFeedback::RepeatScroll { .. } => DEFAULT_DURATION,
     }
@@ -352,6 +409,9 @@ pub(crate) fn render_marker(frame: &Frame, scale: f64) -> Pixmap {
     let unit = tokens.unit;
     let center = tokens.window_size as f32 / 2.0;
     match frame.feedback {
+        PointerFeedback::DwellProgress { permille } => {
+            draw_dwell_progress(&mut pixmap, center, unit, frame.color, permille)
+        }
         PointerFeedback::Click { .. } => draw_landing(&mut pixmap, center, unit, frame.color),
         PointerFeedback::Scroll { dx, dy } => {
             draw_ring(&mut pixmap, center, tokens, frame.color, false);
@@ -374,6 +434,51 @@ pub(crate) fn render_marker(frame: &Frame, scale: f64) -> Pixmap {
         PointerFeedback::Move => draw_ring(&mut pixmap, center, tokens, frame.color, false),
     }
     pixmap
+}
+
+fn draw_dwell_progress(pixmap: &mut Pixmap, center: f32, unit: f32, color: [u8; 3], permille: u16) {
+    let radius = unit * 0.29;
+    let width = (unit * 0.045).max(3.0);
+    let segments = 64usize;
+    let mut background = PathBuilder::new();
+    let mut progress = PathBuilder::new();
+    for index in 0..=segments {
+        let angle =
+            -std::f32::consts::FRAC_PI_2 + std::f32::consts::TAU * index as f32 / segments as f32;
+        let x = center + radius * angle.cos();
+        let y = center + radius * angle.sin();
+        if index == 0 {
+            background.move_to(x, y);
+        } else {
+            background.line_to(x, y);
+        }
+    }
+    let visible = ((usize::from(permille.min(1000)) * segments) / 1000).max(1);
+    for index in 0..=visible {
+        let angle =
+            -std::f32::consts::FRAC_PI_2 + std::f32::consts::TAU * index as f32 / segments as f32;
+        let x = center + radius * angle.cos();
+        let y = center + radius * angle.sin();
+        if index == 0 {
+            progress.move_to(x, y);
+        } else {
+            progress.line_to(x, y);
+        }
+    }
+    let stroke = |width| Stroke {
+        width,
+        line_cap: LineCap::Round,
+        ..Stroke::default()
+    };
+    let mut paint = Paint::default();
+    paint.set_color_rgba8(color[0], color[1], color[2], 55);
+    if let Some(path) = background.finish() {
+        pixmap.stroke_path(&path, &paint, &stroke(width), Transform::identity(), None);
+    }
+    paint.set_color_rgba8(color[0], color[1], color[2], 245);
+    if let Some(path) = progress.finish() {
+        pixmap.stroke_path(&path, &paint, &stroke(width), Transform::identity(), None);
+    }
 }
 
 fn normalized_scale(scale: f64) -> f64 {
@@ -714,6 +819,76 @@ mod tests {
                 assert!(pixel[2] <= pixel[3]);
             }
         }
+    }
+
+    #[test]
+    fn dwell_progress_fills_the_native_countdown_ring() {
+        let early = render_marker(
+            &ring_frame(PointerFeedback::DwellProgress { permille: 250 }),
+            1.0,
+        );
+        let late = render_marker(
+            &ring_frame(PointerFeedback::DwellProgress { permille: 750 }),
+            1.0,
+        );
+        let strong_pixels = |pixmap: &Pixmap| {
+            pixmap
+                .data()
+                .chunks_exact(4)
+                .filter(|pixel| pixel[3] > 150)
+                .count()
+        };
+        assert!(strong_pixels(&late) > strong_pixels(&early));
+    }
+
+    #[test]
+    fn dwell_is_visible_when_the_normal_overlay_is_disabled_and_restores_it() {
+        let now = Instant::now();
+        let mut engine = OverlayEngine::new(now);
+        let disabled = AppSettings {
+            cursor_overlay_enabled: false,
+            ..AppSettings::default()
+        };
+        let Update::Render(frame) = engine.handle(Command::ShowDwell(400, disabled), now) else {
+            panic!("expected forced dwell progress");
+        };
+        assert_eq!(
+            frame.feedback,
+            PointerFeedback::DwellProgress { permille: 400 }
+        );
+        assert!(matches!(
+            engine.handle(Command::EndDwell, now),
+            Update::Hide
+        ));
+
+        let mut engine = OverlayEngine::new(now);
+        engine.handle(
+            Command::ShowDwell(
+                500,
+                AppSettings {
+                    cursor_overlay_enabled: false,
+                    ..AppSettings::default()
+                },
+            ),
+            now,
+        );
+        assert!(matches!(
+            engine.handle(Command::EndSession, now),
+            Update::Hide
+        ));
+        assert!(matches!(
+            engine.handle(Command::EndDwell, now),
+            Update::None
+        ));
+
+        let mut engine = OverlayEngine::new(now);
+        let persistent = AppSettings::default();
+        engine.handle(Command::MarkControlActive(persistent.clone()), now);
+        engine.handle(Command::ShowDwell(800, persistent), now);
+        let Update::Render(restored) = engine.handle(Command::EndDwell, now) else {
+            panic!("expected the persistent pointer overlay to return");
+        };
+        assert_eq!(restored.feedback, PointerFeedback::Move);
     }
 
     #[test]

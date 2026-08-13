@@ -37,6 +37,7 @@ core-graphics = { version = "0.25", features = ["highsierra"] }
 libc = "0.2"
 objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", features = ["NSBitmapImageRep", "NSColor", "NSControl", "NSEvent", "NSGraphics", "NSImage", "NSImageRep", "NSImageView", "NSPanel", "NSResponder", "NSScreen", "NSView", "NSWindow", "NSWorkspace", "objc2-core-foundation"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["CGEventSource", "CGEventTypes"] }
 objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSGeometry", "NSHost", "NSObject", "NSString", "NSThread", "NSURL"] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
@@ -59,6 +60,7 @@ windows = { version = "0.62.2", features = [
   "Win32_System_Registry",
   "Win32_System_Threading",
   "Win32_UI_HiDpi",
+  "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_WindowsAndMessaging"
 ] }
 winreg = "0.55"

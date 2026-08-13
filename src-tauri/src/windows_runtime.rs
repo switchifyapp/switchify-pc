@@ -16,7 +16,8 @@ use windows::Foundation::{Deferral, TypedEventHandler};
 use windows::Security::Cryptography::CryptographicBuffer;
 
 use crate::display_navigation::{self, NavigationError};
-use crate::input::{execute_desktop_command, DesktopInput, PointerFeedback};
+use crate::dwell::DwellController;
+use crate::input::{execute_desktop_command, execute_dwell_click, DesktopInput, PointerFeedback};
 use crate::modifier_overlay::ModifierOverlay;
 use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERVAL_MS};
 use crate::overlay::CursorOverlay;
@@ -260,6 +261,9 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
                 },
             );
             if !connected {
+                subscribe_app
+                    .state::<DwellController>()
+                    .cancel(&subscribe_app);
                 stop_all_repeats(&subscribe_app);
                 release_input_session();
                 subscribe_app.state::<CursorOverlay>().end_session();
@@ -539,6 +543,7 @@ fn complete_mouse_move(
     });
     if let Ok(feedback) = &result {
         show_overlay(app, shared, *feedback);
+        app.state::<DwellController>().arm(app);
     }
     shared
         .lock()
@@ -554,6 +559,7 @@ fn complete_mouse_click(
     shared: &SharedModel,
     command: MouseClickCommand,
 ) -> Option<String> {
+    app.state::<DwellController>().cancel(app);
     stop_all_repeats(app);
     let result =
         with_runtime_input(|input| input.click_pointer(command.button, command.click_count));
@@ -598,6 +604,19 @@ fn complete_desktop(
     }
     if command.command_type == "mouse.repeat.stop" {
         return complete_repeat_stop(app, shared, command);
+    }
+    if matches!(
+        command.command_type.as_str(),
+        "mouse.scroll"
+            | "mouse.dragStart"
+            | "mouse.dragEnd"
+            | "mouse.click"
+            | "mouse.doubleClick"
+            | "mouse.rightClick"
+            | "switch.session.start"
+            | "connection.disconnecting"
+    ) {
+        app.state::<DwellController>().cancel(app);
     }
     let profiles = shared
         .lock()
@@ -655,6 +674,9 @@ fn complete_desktop(
             }
         }
     }
+    if command.command_type == "pointer.display.move" && result.is_ok() {
+        app.state::<DwellController>().arm(app);
+    }
     shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -706,6 +728,7 @@ fn complete_repeat_start(
     shared: &SharedModel,
     command: DesktopCommand,
 ) -> Option<String> {
+    app.state::<DwellController>().cancel(app);
     let settings = overlay_settings(shared);
     let repeat_command = RepeatCommand::parse(&command.payload);
     let result = repeat_command.and_then(|repeat_command| {
@@ -781,7 +804,10 @@ fn complete_repeat_stop(
     shared: &SharedModel,
     command: DesktopCommand,
 ) -> Option<String> {
-    stop_repeat_for_device(app, &command.device_id);
+    let stopped = stop_repeat_for_device(app, &command.device_id);
+    if stopped.is_some_and(|active| matches!(active.command, RepeatCommand::Move { .. })) {
+        app.state::<DwellController>().arm(app);
+    }
     shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -875,7 +901,10 @@ fn stop_repeat_if_current(app: &AppHandle, device_id: &str, generation: u64) -> 
     stopped
 }
 
-fn stop_repeat_for_device(app: &AppHandle, device_id: &str) {
+fn stop_repeat_for_device(
+    app: &AppHandle,
+    device_id: &str,
+) -> Option<crate::mouse_repeat::ActiveRepeat> {
     let active = runtime()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -884,6 +913,7 @@ fn stop_repeat_for_device(app: &AppHandle, device_id: &str) {
     if let Some(active) = active {
         app.state::<CursorOverlay>().end_repeat(active.generation);
     }
+    active
 }
 
 fn stop_all_repeats(app: &AppHandle) {
@@ -899,6 +929,11 @@ fn stop_all_repeats(app: &AppHandle) {
 
 pub fn stop_mouse_repeat(app: &AppHandle) {
     stop_all_repeats(app);
+}
+
+pub fn dwell_click(app: &AppHandle) -> Result<(), String> {
+    stop_all_repeats(app);
+    with_runtime_input(execute_dwell_click).map(|_| ())
 }
 
 fn overlay_settings(shared: &SharedModel) -> crate::state::AppSettings {
@@ -1085,6 +1120,7 @@ fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Re
 }
 
 pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), String> {
+    app.state::<DwellController>().cancel(app);
     stop_all_repeats(app);
     if let Some(runtime) = runtime()
         .lock()

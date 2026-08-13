@@ -527,6 +527,27 @@ mod tests {
     }
 
     #[test]
+    fn state_without_dwell_settings_uses_disabled_shipping_defaults() {
+        let mut value = serde_json::to_value(PersistedState::default()).unwrap();
+        let settings = value["settings"].as_object_mut().unwrap();
+        settings.remove("dwellClickEnabled");
+        settings.remove("dwellClickDelayMs");
+        let state: PersistedState = serde_json::from_value(value).unwrap();
+        assert!(!state.settings.dwell_click_enabled);
+        assert_eq!(state.settings.dwell_click_delay_ms, 1000);
+    }
+
+    #[test]
+    fn state_preserves_explicit_dwell_settings() {
+        let mut value = serde_json::to_value(PersistedState::default()).unwrap();
+        value["settings"]["dwellClickEnabled"] = serde_json::json!(true);
+        value["settings"]["dwellClickDelayMs"] = serde_json::json!(2000);
+        let state: PersistedState = serde_json::from_value(value).unwrap();
+        assert!(state.settings.dwell_click_enabled);
+        assert_eq!(state.settings.dwell_click_delay_ms, 2000);
+    }
+
+    #[test]
     fn state_without_setup_fields_is_eligible_for_first_run() {
         let mut value = serde_json::to_value(PersistedState::default()).unwrap();
         value.as_object_mut().unwrap().remove("setupShown");

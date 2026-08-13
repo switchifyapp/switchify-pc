@@ -12,6 +12,7 @@ use crate::state::{normalize_pointer_scale_percent, AppModel, SwitchBinding, Swi
 pub enum PointerFeedback {
     Move,
     Drag,
+    DwellProgress { permille: u16 },
     RepeatMove { accelerated: bool, dragging: bool },
     RepeatScroll { dx: i32, dy: i32 },
     Click { button: MouseButton, count: u8 },
@@ -1089,6 +1090,16 @@ pub fn execute_desktop_command<I: InputInjector>(
     Ok(result)
 }
 
+pub fn execute_dwell_click<I: InputInjector>(
+    input: &mut DesktopInput<I>,
+) -> Result<PointerFeedback, String> {
+    input.click_pointer(MouseButton::Left, 1)?;
+    Ok(PointerFeedback::Click {
+        button: MouseButton::Left,
+        count: 1,
+    })
+}
+
 fn string<'a>(payload: &'a Value, key: &str) -> Result<&'a str, String> {
     payload
         .get(key)
@@ -1142,6 +1153,7 @@ mod tests {
         absolute_moves: Vec<(i32, i32)>,
         scrolls: Vec<(i32, i32)>,
         clicks: Vec<(MouseButton, u8)>,
+        fail_click: bool,
         pointer_states: Vec<(MouseButton, bool)>,
         fail_pointer_release: bool,
         keys: Vec<(String, bool)>,
@@ -1162,6 +1174,9 @@ mod tests {
             Ok(())
         }
         fn click_pointer(&mut self, button: MouseButton, count: u8) -> Result<(), String> {
+            if self.fail_click {
+                return Err("click injection failed".into());
+            }
             self.clicks.push((button, count));
             Ok(())
         }
@@ -1226,6 +1241,23 @@ mod tests {
         let mut input = DesktopInput::new(FakeInjector::default());
         input.move_pointer(12, -6).unwrap();
         assert_eq!(input.injector.moves, vec![(12, -6)]);
+    }
+
+    #[test]
+    fn dwell_click_uses_the_runtime_input_adapter_once() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        assert_eq!(
+            execute_dwell_click(&mut input).unwrap(),
+            PointerFeedback::Click {
+                button: MouseButton::Left,
+                count: 1,
+            }
+        );
+        assert_eq!(input.injector.clicks, vec![(MouseButton::Left, 1)]);
+
+        input.injector.fail_click = true;
+        assert!(execute_dwell_click(&mut input).is_err());
+        assert_eq!(input.injector.clicks, vec![(MouseButton::Left, 1)]);
     }
 
     #[test]
