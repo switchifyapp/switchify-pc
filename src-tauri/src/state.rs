@@ -456,16 +456,30 @@ impl AppModel {
         settings: AppSettings,
         consent: TelemetryConsent,
     ) -> Result<(), String> {
+        // Opting out takes effect immediately even if the following save fails.
+        if consent == TelemetryConsent::Disabled {
+            self.set_telemetry_consent(consent);
+        }
         let _transaction = self
             .persistence_lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.apply_settings_with_telemetry_unlocked(settings, consent)
+    }
+    fn apply_settings_with_telemetry_unlocked(
+        &self,
+        settings: AppSettings,
+        consent: TelemetryConsent,
+    ) -> Result<(), String> {
         self.persist_settings_unlocked(&settings, Some(consent))?;
-        self.shared
+        self.telemetry.set_consent(consent);
+        let telemetry = self.telemetry.view();
+        let mut data = self
+            .shared
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .state
-            .settings = settings;
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        data.state.settings = settings;
+        data.state.telemetry = telemetry;
         Ok(())
     }
     pub fn record_updater(&self, status: &str, detail: Option<&str>) {
@@ -497,15 +511,16 @@ impl AppModel {
         } else {
             TelemetryConsent::Disabled
         };
-        let mut settings = self.snapshot().settings;
-        settings.share_diagnostics = enabled;
         if !enabled {
             self.set_telemetry_consent(consent);
         }
-        self.apply_settings_with_telemetry(settings, consent)?;
-        if enabled {
-            self.set_telemetry_consent(consent);
-        }
+        let _transaction = self
+            .persistence_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut settings = self.snapshot().settings;
+        settings.share_diagnostics = enabled;
+        self.apply_settings_with_telemetry_unlocked(settings, consent)?;
         Ok(self.snapshot())
     }
     fn persisted_state(
@@ -1026,6 +1041,50 @@ mod tests {
         assert!(state.settings.cursor_crosshairs);
         let restored = AppModel::with_storage_for_test(AppStorage::at(state_path));
         assert_eq!(restored.snapshot().settings, state.settings);
+        let _ = fs::remove_dir_all(root);
+    }
+    #[test]
+    fn telemetry_opt_in_and_pointer_speed_remain_durable_when_concurrent() {
+        let root = std::env::temp_dir().join(format!(
+            "switchify-telemetry-pointer-race-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state_path = root.join("state.json");
+        let model = Arc::new(AppModel::with_storage_for_test(AppStorage::at(
+            state_path.clone(),
+        )));
+        let transaction = model.persistence_lock.lock().unwrap();
+        let (started_tx, started_rx) = mpsc::channel();
+
+        let telemetry_model = model.clone();
+        let telemetry_started = started_tx.clone();
+        let telemetry_thread = thread::spawn(move || {
+            telemetry_started.send(()).unwrap();
+            telemetry_model.apply_telemetry_choice(true)
+        });
+        let pointer_model = model.clone();
+        let pointer_thread = thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            pointer_model.apply_pointer_scale_percent(150)
+        });
+        started_rx.recv().unwrap();
+        started_rx.recv().unwrap();
+        drop(transaction);
+
+        telemetry_thread.join().unwrap().unwrap();
+        pointer_thread.join().unwrap().unwrap();
+
+        let state = model.snapshot();
+        assert!(state.settings.share_diagnostics);
+        assert_eq!(state.settings.pointer_scale_percent, 150);
+        assert_eq!(state.telemetry.consent, TelemetryConsent::Enabled);
+        let restored = AppModel::with_storage_for_test(AppStorage::at(state_path));
+        assert!(restored.snapshot().settings.share_diagnostics);
+        assert_eq!(restored.snapshot().settings.pointer_scale_percent, 150);
+        assert_eq!(
+            restored.snapshot().telemetry.consent,
+            TelemetryConsent::Enabled
+        );
         let _ = fs::remove_dir_all(root);
     }
     #[test]

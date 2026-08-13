@@ -437,13 +437,7 @@ fn save_settings(
     } else {
         previous_consent
     };
-    if next_consent == TelemetryConsent::Disabled {
-        model.set_telemetry_consent(next_consent);
-    }
     model.apply_settings_with_telemetry(settings.clone(), next_consent)?;
-    if next_consent != TelemetryConsent::Disabled {
-        model.set_telemetry_consent(next_consent);
-    }
     if !settings.mouse_repeat_enabled {
         platform_stop_mouse_repeat(&app);
     }
