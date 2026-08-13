@@ -211,10 +211,10 @@ fn schedule_tick(app: AppHandle, generation: u64) {
 fn sample_pointer(app: &AppHandle) -> Result<PointerSample, String> {
     let (position, displays) = display_navigation::displays(app)
         .map_err(|_| "The dwell pointer position could not be read.".to_string())?;
-    let display = display_navigation::current_display(position, &displays)
+    let _display = display_navigation::current_display(position, &displays)
         .ok_or_else(|| "The dwell pointer display could not be resolved.".to_string())?;
     #[cfg(target_os = "windows")]
-    let native_units_per_logical_pixel = display.scale_factor;
+    let native_units_per_logical_pixel = _display.scale_factor;
     #[cfg(not(target_os = "windows"))]
     let native_units_per_logical_pixel = 1.0;
     Ok(PointerSample {
