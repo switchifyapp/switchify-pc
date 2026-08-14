@@ -2,7 +2,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
 use tauri::AppHandle;
-use tiny_skia::{Color, LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform};
+use tiny_skia::{Color, LineCap, Paint, PathBuilder, Pixmap, Stroke, StrokeDash, Transform};
 
 use crate::input::PointerFeedback;
 use crate::mouse_repeat::RepeatCommand;
@@ -490,20 +490,34 @@ fn normalized_scale(scale: f64) -> f64 {
 }
 
 fn draw_repeat_progress(pixmap: &mut Pixmap, center: f32, unit: f32, color: [u8; 3]) {
-    let radius = unit * 0.39;
-    let dot = (unit * 0.015).max(1.5);
-    for index in 0..12 {
-        let angle = std::f32::consts::TAU * index as f32 / 12.0;
-        circle(
-            pixmap,
-            center + radius * angle.cos(),
-            center + radius * angle.sin(),
-            dot,
-            color,
-            190,
-            None,
-        );
-    }
+    let radius = unit * 0.390625;
+    let width = unit * 0.03125;
+    let Some(path) = PathBuilder::from_circle(center, center, radius) else {
+        return;
+    };
+    let track = Stroke {
+        width,
+        ..Stroke::default()
+    };
+    pixmap.stroke_path(
+        &path,
+        &paint(color, 70),
+        &track,
+        Transform::identity(),
+        None,
+    );
+    let notches = Stroke {
+        width,
+        dash: StrokeDash::new(vec![width, width], 0.0),
+        ..Stroke::default()
+    };
+    pixmap.stroke_path(
+        &path,
+        &paint(color, 210),
+        &notches,
+        Transform::identity(),
+        None,
+    );
 }
 
 fn paint(color: [u8; 3], alpha: u8) -> Paint<'static> {
@@ -714,6 +728,30 @@ mod tests {
         pixmap.pixel(x, y).unwrap().alpha()
     }
 
+    fn repeat_ring_samples(pixmap: &Pixmap, logical_size: u32, scale: f64) -> Vec<u8> {
+        let tokens = CursorOverlayVisualTokens::create(logical_size, scale);
+        let center = tokens.window_size as f32 / 2.0;
+        let radius = tokens.unit * 0.390625;
+        (0..1440)
+            .map(|index| {
+                let angle = std::f32::consts::TAU * index as f32 / 1440.0;
+                alpha_at(
+                    pixmap,
+                    (center + radius * angle.cos()).round() as u32,
+                    (center + radius * angle.sin()).round() as u32,
+                )
+            })
+            .collect()
+    }
+
+    fn high_alpha_runs(samples: &[u8]) -> usize {
+        samples
+            .iter()
+            .zip(samples.iter().cycle().skip(1))
+            .filter(|(current, next)| **current <= 140 && **next > 140)
+            .count()
+    }
+
     #[test]
     fn visual_tokens_match_csharp_geometry_across_sizes_and_scales() {
         for (logical_size, expected) in [
@@ -798,6 +836,53 @@ mod tests {
             let pixmap = render_marker(&ring_frame(feedback), 1.0);
             let center = pixmap.width() / 2;
             assert!(alpha_at(&pixmap, center + 36, center) > 200);
+        }
+    }
+
+    #[test]
+    fn accelerated_repeat_restores_the_dense_legacy_notches_and_track() {
+        let mut notch_counts = Vec::new();
+        for logical_size in [96, 128, 176] {
+            for scale in [1.0, 1.5, 2.0] {
+                let frame = Frame {
+                    feedback: PointerFeedback::RepeatMove {
+                        accelerated: true,
+                        dragging: false,
+                    },
+                    logical_size,
+                    color: [211, 47, 47],
+                    crosshairs: false,
+                };
+                let pixmap = render_marker(&frame, scale);
+                let samples = repeat_ring_samples(&pixmap, logical_size, scale);
+                let notches = high_alpha_runs(&samples);
+                assert!(
+                    (35..=42).contains(&notches),
+                    "expected legacy notch density at {logical_size}px/{scale}x, got {notches}"
+                );
+                assert!(
+                    samples.iter().all(|alpha| *alpha > 0),
+                    "the faint repeat track must remain visible between notches"
+                );
+                notch_counts.push(notches);
+            }
+        }
+        assert!(notch_counts.iter().max().unwrap() - notch_counts.iter().min().unwrap() <= 3);
+    }
+
+    #[test]
+    fn ordinary_movement_and_unaccelerated_repeat_have_no_outer_notches() {
+        for feedback in [
+            PointerFeedback::Move,
+            PointerFeedback::RepeatMove {
+                accelerated: false,
+                dragging: false,
+            },
+        ] {
+            let pixmap = render_marker(&ring_frame(feedback), 1.0);
+            let samples = repeat_ring_samples(&pixmap, 128, 1.0);
+            assert_eq!(high_alpha_runs(&samples), 0);
+            assert!(samples.iter().all(|alpha| *alpha <= 80));
         }
     }
 
