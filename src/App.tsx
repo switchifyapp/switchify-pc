@@ -298,7 +298,7 @@ const accelerationOptions = [
   { value: 1000, label: "Medium" },
   { value: 2000, label: "Long" },
 ] as const;
-const dwellDelayOptions = [500, 1000, 1500, 2000, 3000] as const;
+const dwellDelayOptions = [500, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000] as const;
 
 function movementValue(base: number, scale: number) {
   const value = Math.min(50, Math.max(1, Math.round((base * scale / 100) * 2) / 2));

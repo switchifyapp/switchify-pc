@@ -402,6 +402,10 @@ describe("Switchify PC shell", () => {
     fireEvent.click(dwell);
     const dwellDelay = screen.getByRole("group", { name: "Dwell delay" });
     expect(dwellDelay).not.toBeDisabled();
+    expect(within(dwellDelay).getAllByRole("button")).toHaveLength(10);
+    for (const label of ["0.5s", "1s", "1.5s", "2s", "3s", "4s", "5s", "6s", "7s", "8s"]) {
+      expect(within(dwellDelay).getByRole("button", { name: label })).toBeInTheDocument();
+    }
     expect(within(dwellDelay).getByRole("button", { name: "1s" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(within(dwellDelay).getByRole("button", { name: "1.5s" }));
     expect(within(dwellDelay).getByRole("button", { name: "1.5s" })).toHaveAttribute("aria-pressed", "true");
@@ -438,8 +442,9 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Dwell to click" }));
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 1000 })));
     const dwellDelay = screen.getByRole("group", { name: "Dwell delay" });
-    fireEvent.click(within(dwellDelay).getByRole("button", { name: "2s" }));
-    await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 2000 })));
+    fireEvent.click(within(dwellDelay).getByRole("button", { name: "8s" }));
+    await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 8000 })));
+    expect(within(dwellDelay).getByRole("button", { name: "8s" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("restores confirmed dwell settings when automatic saving fails", async () => {
