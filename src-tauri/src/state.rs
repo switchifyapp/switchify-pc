@@ -111,7 +111,9 @@ impl AppSettings {
         if ![0, 500, 1000, 2000].contains(&self.mouse_repeat_acceleration_duration_ms) {
             return Err("Mouse repeat acceleration is invalid.".into());
         }
-        if ![500, 1000, 1500, 2000, 3000].contains(&self.dwell_click_delay_ms) {
+        if ![500, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000]
+            .contains(&self.dwell_click_delay_ms)
+        {
             return Err("Dwell click delay is invalid.".into());
         }
         if !["small", "medium", "large"].contains(&self.cursor_overlay_size.as_str())
@@ -1128,7 +1130,7 @@ mod tests {
         let defaults = AppSettings::default();
         assert!(!defaults.dwell_click_enabled);
         assert_eq!(defaults.dwell_click_delay_ms, 1000);
-        for delay in [500, 1000, 1500, 2000, 3000] {
+        for delay in [500, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000] {
             assert!(AppSettings {
                 dwell_click_delay_ms: delay,
                 ..AppSettings::default()
@@ -1136,7 +1138,7 @@ mod tests {
             .normalized()
             .is_ok());
         }
-        for delay in [0, 499, 750, 3001, u32::MAX] {
+        for delay in [0, 499, 750, 3001, 8001, u32::MAX] {
             assert!(AppSettings {
                 dwell_click_delay_ms: delay,
                 ..AppSettings::default()

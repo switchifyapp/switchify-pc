@@ -541,10 +541,10 @@ mod tests {
     fn state_preserves_explicit_dwell_settings() {
         let mut value = serde_json::to_value(PersistedState::default()).unwrap();
         value["settings"]["dwellClickEnabled"] = serde_json::json!(true);
-        value["settings"]["dwellClickDelayMs"] = serde_json::json!(2000);
+        value["settings"]["dwellClickDelayMs"] = serde_json::json!(8000);
         let state: PersistedState = serde_json::from_value(value).unwrap();
         assert!(state.settings.dwell_click_enabled);
-        assert_eq!(state.settings.dwell_click_delay_ms, 2000);
+        assert_eq!(state.settings.dwell_click_delay_ms, 8000);
     }
 
     #[test]
