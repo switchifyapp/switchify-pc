@@ -444,7 +444,7 @@ impl<I: InputInjector> DesktopInput<I> {
                     | "connection.disconnecting"
             )
         {
-            return Err("Stop PC Switch Control before using other PC control commands.".into());
+            return Err("Stop Switch Forwarding before using other PC control commands.".into());
         }
         let result = match command_type {
             "mouse.scroll" => {

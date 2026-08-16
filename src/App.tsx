@@ -277,7 +277,7 @@ function ProfilesView({ profiles, platform, saveProfile, deleteProfile, onDirtyC
   const openerRef = useRef<HTMLButtonElement | null>(null);
   const closeEditor = () => { setEditing(null); requestAnimationFrame(() => (openerRef.current?.isConnected ? openerRef.current : document.querySelector<HTMLButtonElement>(".page-header button"))?.focus()); };
   const openEditor = (profile: SwitchProfile, opener: HTMLButtonElement) => { openerRef.current = opener; setEditing(profile); };
-  return <div className="view"><header className="page-header"><div><h1>Switch control</h1><p>Profiles available to physical switch sessions</p></div><button className="primary" onClick={(event) => openEditor(newProfile(), event.currentTarget)}><Plus size={16} />New profile</button></header>
+  return <div className="view"><header className="page-header"><div><h1>Switch Forwarding</h1><p>Profiles available to physical switch sessions</p></div><button className="primary" onClick={(event) => openEditor(newProfile(), event.currentTarget)}><Plus size={16} />New profile</button></header>
     <div className="profile-list">{profiles.map((profile) => <button className="profile-row" key={profile.id} onClick={(event) => openEditor(profile, event.currentTarget)}><div className="profile-icon"><SlidersHorizontal size={19} /></div><div><h2>{profile.name}</h2><p>{profile.provider === "grid3" ? "Grid 3" : `${profile.bindings.filter((binding) => binding.type !== "none").length} mapped switches`}</p></div><span>{profile.builtIn ? "Built in" : "Custom"}</span><ChevronRight size={18} /></button>)}</div>
     {platform === "macos" && <p className="capability-note">Grid 3 profiles are available on Windows only.</p>}
     {editing && <ProfileEditor key={editing.id} profile={editing} profiles={profiles} busy={busy} onDirtyChange={onDirtyChange} nativeExitRequest={nativeExitRequest} onConfirmNativeExit={() => { closeEditor(); onConfirmNativeExit(); }} onCancelNativeExit={onCancelNativeExit} onClose={closeEditor} onDuplicate={() => setEditing(duplicateProfile(editing, profiles))} onSave={async (profile) => { await saveProfile(profile); closeEditor(); }} onDelete={editing.builtIn || !profiles.some((profile) => profile.id === editing.id) ? null : async () => { await deleteProfile(editing.id); closeEditor(); }} />}
@@ -755,7 +755,7 @@ export function App() {
   useEffect(() => { if (view === "profiles") void api.listProfiles().then(setProfiles).catch((reason) => setError(String(reason))); }, [view]);
   const nav = useMemo(() => [
     ["home", "Home", <Home size={19} />], ["devices", "Devices", <Smartphone size={19} />],
-    ["profiles", "Switch control", <Keyboard size={19} />], ["settings", "Settings", <Settings size={19} />],
+    ["profiles", "Switch Forwarding", <Keyboard size={19} />], ["settings", "Settings", <Settings size={19} />],
     ["support", "Support", <CircleHelp size={19} />],
   ] as const, []);
 

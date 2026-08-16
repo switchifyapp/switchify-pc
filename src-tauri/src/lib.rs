@@ -1118,7 +1118,7 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let profiles = MenuItem::with_id(
         app,
         "profiles",
-        "Switch control profiles",
+        "Switch Forwarding profiles",
         true,
         None::<&str>,
     )?;
