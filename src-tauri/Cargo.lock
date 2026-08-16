@@ -3985,7 +3985,7 @@ dependencies = [
 
 [[package]]
 name = "switchify-pc"
-version = "1.0.0-beta.6"
+version = "1.0.0-beta.7"
 dependencies = [
  "base64 0.22.1",
  "core-graphics",
