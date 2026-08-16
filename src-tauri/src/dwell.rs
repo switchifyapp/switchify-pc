@@ -156,15 +156,18 @@ impl DwellController {
                 return;
             }
         };
-        let result = self
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .tick(generation, sample, Instant::now());
-        match result {
-            TickResult::Progress(permille) => {
+        let result = tick_and_publish_progress(
+            &self.state,
+            generation,
+            sample,
+            Instant::now(),
+            |permille| {
                 app.state::<CursorOverlay>()
-                    .show_dwell(permille, snapshot.settings);
+                    .show_dwell(permille, snapshot.settings.clone());
+            },
+        );
+        match result {
+            TickResult::Progress(_) => {
                 schedule_tick(app.clone(), generation);
             }
             TickResult::Cancel => app.state::<CursorOverlay>().end_dwell(),
@@ -194,6 +197,23 @@ impl DwellController {
         set_activity(&model.shared, ActivityKind::Error, message.into());
         emit_state(app, &model.shared);
     }
+}
+
+fn tick_and_publish_progress(
+    state: &Mutex<DwellState>,
+    generation: u64,
+    sample: PointerSample,
+    now: Instant,
+    publish_progress: impl FnOnce(u16),
+) -> TickResult {
+    let mut state = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let result = state.tick(generation, sample, now);
+    if let TickResult::Progress(permille) = result {
+        publish_progress(permille);
+    }
+    result
 }
 
 fn schedule_tick(app: AppHandle, generation: u64) {
@@ -249,7 +269,9 @@ fn pointer_button_pressed() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{DwellState, PointerSample, TickResult};
+    use super::{tick_and_publish_progress, DwellState, PointerSample, TickResult};
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::thread;
     use std::time::{Duration, Instant};
 
     fn sample(x: f64, y: f64, scale: f64) -> PointerSample {
@@ -259,6 +281,50 @@ mod tests {
             native_units_per_logical_pixel: scale,
             button_pressed: false,
         }
+    }
+
+    #[test]
+    fn progress_publication_finishes_before_concurrent_cancellation() {
+        let now = Instant::now();
+        let state = Arc::new(Mutex::new(DwellState::default()));
+        let generation =
+            state
+                .lock()
+                .unwrap()
+                .arm(sample(0.0, 0.0, 1.0), now, Duration::from_secs(1));
+        let (event_tx, event_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (attempt_tx, attempt_rx) = mpsc::channel();
+        let tick_state = state.clone();
+        let tick_events = event_tx.clone();
+        let tick = thread::spawn(move || {
+            tick_and_publish_progress(
+                &tick_state,
+                generation,
+                sample(0.0, 0.0, 1.0),
+                now + Duration::from_millis(250),
+                |_| {
+                    tick_events.send("progress").unwrap();
+                    release_rx.recv().unwrap();
+                },
+            )
+        });
+        assert_eq!(event_rx.recv().unwrap(), "progress");
+
+        let cancel_state = state.clone();
+        let cancel_events = event_tx;
+        let cancel = thread::spawn(move || {
+            attempt_tx.send(()).unwrap();
+            cancel_state.lock().unwrap().cancel();
+            cancel_events.send("cancel").unwrap();
+        });
+        attempt_rx.recv().unwrap();
+        assert!(state.try_lock().is_err());
+        assert!(event_rx.recv_timeout(Duration::from_millis(25)).is_err());
+        release_tx.send(()).unwrap();
+        assert_eq!(event_rx.recv().unwrap(), "cancel");
+        assert_eq!(tick.join().unwrap(), TickResult::Progress(250));
+        cancel.join().unwrap();
     }
 
     #[test]

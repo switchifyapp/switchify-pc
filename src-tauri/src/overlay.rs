@@ -85,6 +85,10 @@ impl CursorOverlay {
         let _ = self.sender.send(Command::ApplySettings(settings));
     }
 
+    pub fn hide_for_typing(&self) {
+        let _ = self.sender.send(Command::HideForTyping);
+    }
+
     pub fn show_dwell(&self, permille: u16, settings: AppSettings) {
         let _ = self
             .sender
@@ -125,6 +129,7 @@ pub(crate) enum Command {
     Show(PointerFeedback, AppSettings),
     MarkControlActive(AppSettings),
     ApplySettings(AppSettings),
+    HideForTyping,
     ShowDwell(u16, AppSettings),
     EndDwell,
     BeginRepeat(u64, RepeatCommand, bool, bool, AppSettings),
@@ -157,6 +162,7 @@ pub(crate) struct OverlayEngine {
     deadline: Option<Instant>,
     next_follow: Instant,
     visible: bool,
+    typing_suppressed: bool,
 }
 
 impl OverlayEngine {
@@ -171,12 +177,14 @@ impl OverlayEngine {
             deadline: None,
             next_follow: now,
             visible: false,
+            typing_suppressed: false,
         }
     }
 
     pub(crate) fn handle(&mut self, command: Command, now: Instant) -> Update {
         match command {
             Command::Show(feedback, settings) => {
+                self.typing_suppressed = false;
                 self.settings = settings;
                 if !self.settings.cursor_overlay_enabled {
                     return self.hide();
@@ -192,6 +200,9 @@ impl OverlayEngine {
             Command::MarkControlActive(settings) => {
                 self.settings = settings;
                 self.control_active = true;
+                if self.typing_suppressed {
+                    return self.hide();
+                }
                 if !self.settings.cursor_overlay_enabled {
                     return self.hide();
                 }
@@ -207,6 +218,9 @@ impl OverlayEngine {
             }
             Command::ApplySettings(settings) => {
                 self.settings = settings;
+                if self.typing_suppressed {
+                    return self.hide();
+                }
                 if !self.settings.cursor_overlay_enabled && !self.dwell_active {
                     return self.hide();
                 }
@@ -218,8 +232,16 @@ impl OverlayEngine {
                 }
                 Update::None
             }
+            Command::HideForTyping => {
+                self.typing_suppressed = true;
+                self.deadline = None;
+                self.hide()
+            }
             Command::ShowDwell(permille, settings) => {
                 self.settings = settings;
+                if self.typing_suppressed {
+                    return self.hide();
+                }
                 self.control_active = true;
                 self.dwell_active = true;
                 let feedback = PointerFeedback::DwellProgress { permille };
@@ -234,6 +256,10 @@ impl OverlayEngine {
                     return Update::None;
                 }
                 self.dwell_active = false;
+                if self.typing_suppressed {
+                    self.feedback = None;
+                    return self.hide();
+                }
                 if self.control_active
                     && self.settings.cursor_overlay_enabled
                     && (self.drag_active
@@ -259,6 +285,7 @@ impl OverlayEngine {
                 }
             }
             Command::BeginRepeat(generation, command, accelerated, dragging, settings) => {
+                self.typing_suppressed = false;
                 self.settings = settings;
                 if !self.settings.cursor_overlay_enabled {
                     return self.hide();
@@ -284,6 +311,10 @@ impl OverlayEngine {
                     return Update::None;
                 }
                 self.repeat_generation = None;
+                if self.typing_suppressed {
+                    self.feedback = None;
+                    return self.hide();
+                }
                 if self.control_active
                     && self.settings.cursor_overlay_enabled
                     && (self.drag_active
@@ -310,6 +341,7 @@ impl OverlayEngine {
                 self.dwell_active = false;
                 self.feedback = None;
                 self.deadline = None;
+                self.typing_suppressed = false;
                 self.hide()
             }
         }
@@ -1003,6 +1035,133 @@ mod tests {
             panic!("expected persistent frame");
         };
         assert_eq!(frame.feedback, PointerFeedback::Move);
+    }
+
+    #[test]
+    fn typing_hides_the_overlay_until_the_next_pointer_action() {
+        let now = Instant::now();
+        let settings = AppSettings::default();
+        let mut engine = OverlayEngine::new(now);
+        engine.handle(Command::Show(PointerFeedback::Move, settings.clone()), now);
+
+        assert!(matches!(
+            engine.handle(Command::HideForTyping, now),
+            Update::Hide
+        ));
+        assert!(matches!(
+            engine.handle(Command::MarkControlActive(settings.clone()), now),
+            Update::None
+        ));
+        assert!(matches!(
+            engine.handle(Command::ApplySettings(settings.clone()), now),
+            Update::None
+        ));
+        assert!(matches!(engine.tick(now + DEFAULT_DURATION), Update::None));
+
+        for feedback in [
+            PointerFeedback::Move,
+            PointerFeedback::Drag,
+            PointerFeedback::Click {
+                button: crate::protocol::MouseButton::Left,
+                count: 1,
+            },
+            PointerFeedback::Scroll { dx: 0, dy: 5 },
+        ] {
+            assert!(matches!(
+                engine.handle(Command::Show(feedback, settings.clone()), now),
+                Update::Render(_)
+            ));
+            assert!(matches!(
+                engine.handle(Command::HideForTyping, now),
+                Update::Hide
+            ));
+        }
+
+        engine.handle(Command::Show(PointerFeedback::Move, settings.clone()), now);
+        assert!(matches!(
+            engine.handle(Command::ShowDwell(500, settings.clone()), now),
+            Update::Render(_)
+        ));
+        engine.handle(Command::HideForTyping, now);
+        assert!(matches!(
+            engine.handle(
+                Command::BeginRepeat(
+                    9,
+                    RepeatCommand::Move { dx: 10, dy: 0 },
+                    true,
+                    false,
+                    settings,
+                ),
+                now,
+            ),
+            Update::Render(_)
+        ));
+    }
+
+    #[test]
+    fn dwell_and_repeat_cleanup_do_not_restore_a_typing_suppressed_overlay() {
+        let now = Instant::now();
+        let settings = AppSettings::default();
+        let mut engine = OverlayEngine::new(now);
+        engine.handle(Command::ShowDwell(500, settings.clone()), now);
+        engine.handle(Command::HideForTyping, now);
+        assert!(matches!(
+            engine.handle(Command::EndDwell, now),
+            Update::None
+        ));
+
+        engine.handle(
+            Command::BeginRepeat(
+                4,
+                RepeatCommand::Scroll { dx: 0, dy: 5 },
+                false,
+                false,
+                settings,
+            ),
+            now,
+        );
+        engine.handle(Command::HideForTyping, now);
+        assert!(matches!(
+            engine.handle(Command::EndRepeat(4), now),
+            Update::None
+        ));
+    }
+
+    #[test]
+    fn stale_dwell_publication_cannot_clear_typing_suppression() {
+        let now = Instant::now();
+        let settings = AppSettings::default();
+        let mut engine = OverlayEngine::new(now);
+        engine.handle(Command::Show(PointerFeedback::Move, settings.clone()), now);
+        engine.handle(Command::HideForTyping, now);
+
+        assert!(matches!(
+            engine.handle(Command::ShowDwell(0, settings.clone()), now),
+            Update::None
+        ));
+        assert!(matches!(engine.tick(now + FOLLOW_INTERVAL), Update::None));
+
+        assert!(matches!(
+            engine.handle(Command::Show(PointerFeedback::Move, settings.clone()), now),
+            Update::Render(_)
+        ));
+        assert!(matches!(
+            engine.handle(Command::ShowDwell(0, settings), now),
+            Update::Render(_)
+        ));
+    }
+
+    #[test]
+    fn session_cleanup_clears_typing_suppression() {
+        let now = Instant::now();
+        let settings = AppSettings::default();
+        let mut engine = OverlayEngine::new(now);
+        engine.handle(Command::HideForTyping, now);
+        engine.handle(Command::EndSession, now);
+        assert!(matches!(
+            engine.handle(Command::MarkControlActive(settings), now),
+            Update::Render(_)
+        ));
     }
 
     #[test]

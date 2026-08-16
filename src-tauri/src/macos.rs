@@ -11,7 +11,10 @@ use tauri::{AppHandle, Manager};
 
 use crate::display_navigation::{self, NavigationError};
 use crate::dwell::DwellController;
-use crate::input::{execute_desktop_command, execute_dwell_click, DesktopInput, PointerFeedback};
+use crate::input::{
+    execute_desktop_command, execute_dwell_click, AndroidTypingRoute, DesktopCommandOutcome,
+    DesktopInput, PointerFeedback,
+};
 use crate::modifier_overlay::ModifierOverlay;
 use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERVAL_MS};
 use crate::overlay::CursorOverlay;
@@ -834,9 +837,17 @@ impl MacRuntime {
     }
 
     fn handle_text(&mut self, command: TextCommand) {
-        self.stop_all_repeats();
+        let typing_route = AndroidTypingRoute::for_text(&command.text);
+        let app = self.app.clone();
+        typing_route.prepare(
+            || app.state::<DwellController>().cancel(&app),
+            || self.stop_all_repeats(),
+        );
         let character_count = command.text.chars().count();
         let injection = self.inject_text(&command.text);
+        typing_route.finish(injection.is_ok(), || {
+            self.app.state::<CursorOverlay>().hide_for_typing()
+        });
         let response = {
             self.shared
                 .lock()
@@ -888,6 +899,7 @@ impl MacRuntime {
         ) {
             self.app.state::<DwellController>().cancel(&self.app);
         }
+        let typing_route = AndroidTypingRoute::for_command(&command.command_type);
         let profiles = self
             .shared
             .lock()
@@ -906,7 +918,15 @@ impl MacRuntime {
         let accessibility_unavailable = if command.command_type == "pointer.display.move" {
             false
         } else {
-            self.stop_all_repeats();
+            if typing_route.is_eligible() {
+                let app = self.app.clone();
+                typing_route.prepare(
+                    || app.state::<DwellController>().cancel(&app),
+                    || self.stop_all_repeats(),
+                );
+            } else {
+                self.stop_all_repeats();
+            }
             self.input.is_none() && !self.refresh_accessibility(false).unwrap_or(false)
         };
         let (injection, error_code) = if command.command_type == "pointer.display.move" {
@@ -923,7 +943,13 @@ impl MacRuntime {
                         .show(feedback, runtime.overlay_settings());
                 },
             ) {
-                Ok(feedback) => (Ok(Some(feedback)), "input_failed"),
+                Ok(feedback) => (
+                    Ok(DesktopCommandOutcome {
+                        pointer_feedback: Some(feedback),
+                        typing_injected: false,
+                    }),
+                    "input_failed",
+                ),
                 Err(error) => (Err(error.message), error.code),
             }
         } else if accessibility_unavailable {
@@ -969,13 +995,16 @@ impl MacRuntime {
                     .map_err(|error| (error_code, error.as_str())),
             );
         if command.command_type != "pointer.display.move" {
-            if let Ok(feedback) = &injection {
+            if let Ok(outcome) = &injection {
                 let settings = self.overlay_settings();
                 let overlay = self.app.state::<CursorOverlay>();
-                if let Some(feedback) = feedback {
-                    overlay.show(*feedback, settings);
-                } else {
-                    overlay.mark_control_active(settings);
+                typing_route.finish(outcome.typing_injected, || overlay.hide_for_typing());
+                if !outcome.typing_injected {
+                    if let Some(feedback) = &outcome.pointer_feedback {
+                        overlay.show(*feedback, settings);
+                    } else {
+                        overlay.mark_control_active(settings);
+                    }
                 }
                 if command.command_type == "connection.disconnecting" {
                     overlay.end_session();
@@ -1610,6 +1639,40 @@ impl Drop for MacRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    #[test]
+    fn mac_typing_route_orders_cleanup_before_successful_overlay_hiding() {
+        let events = Mutex::new(Vec::new());
+        let route = AndroidTypingRoute::for_text("Hello");
+        route.prepare(
+            || events.lock().unwrap().push("cancel dwell"),
+            || events.lock().unwrap().push("stop repeats"),
+        );
+        route.finish(true, || events.lock().unwrap().push("hide overlay"));
+        assert_eq!(
+            *events.lock().unwrap(),
+            ["cancel dwell", "stop repeats", "hide overlay"]
+        );
+
+        let events = Mutex::new(Vec::new());
+        let failed = AndroidTypingRoute::for_text("Hello");
+        failed.prepare(
+            || events.lock().unwrap().push("cancel dwell"),
+            || events.lock().unwrap().push("stop repeats"),
+        );
+        failed.finish(false, || events.lock().unwrap().push("hide overlay"));
+        assert_eq!(*events.lock().unwrap(), ["cancel dwell", "stop repeats"]);
+
+        let events = Mutex::new(Vec::new());
+        let empty = AndroidTypingRoute::for_text("");
+        empty.prepare(
+            || events.lock().unwrap().push("cancel dwell"),
+            || events.lock().unwrap().push("stop repeats"),
+        );
+        empty.finish(true, || events.lock().unwrap().push("hide overlay"));
+        assert!(events.lock().unwrap().is_empty());
+    }
 
     #[derive(Default)]
     struct FakeAccessibilityAdapter {

@@ -19,6 +19,56 @@ pub enum PointerFeedback {
     Scroll { dx: i32, dy: i32 },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DesktopCommandOutcome {
+    pub pointer_feedback: Option<PointerFeedback>,
+    pub typing_injected: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AndroidTypingRoute {
+    eligible: bool,
+}
+
+impl AndroidTypingRoute {
+    pub fn for_text(text: &str) -> Self {
+        Self {
+            eligible: !text.is_empty(),
+        }
+    }
+
+    pub fn for_command(command_type: &str) -> Self {
+        Self {
+            eligible: matches!(
+                command_type,
+                "keyboard.key"
+                    | "keyboard.shortcut"
+                    | "keyboard.typeText"
+                    | "keyboard.textStream.char"
+                    | "keyboard.textStream.chunk"
+                    | "keyboard.textStream.key"
+            ),
+        }
+    }
+
+    pub fn prepare(self, cancel_dwell: impl FnOnce(), stop_repeats: impl FnOnce()) {
+        if self.eligible {
+            cancel_dwell();
+            stop_repeats();
+        }
+    }
+
+    pub fn finish(self, typing_injected: bool, hide_overlay: impl FnOnce()) {
+        if self.eligible && typing_injected {
+            hide_overlay();
+        }
+    }
+
+    pub fn is_eligible(self) -> bool {
+        self.eligible
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModifierKey {
     Ctrl,
@@ -378,8 +428,9 @@ impl<I: InputInjector> DesktopInput<I> {
         command_type: &str,
         payload: &Value,
         profiles: &[SwitchProfile],
-    ) -> Result<Option<PointerFeedback>, String> {
+    ) -> Result<DesktopCommandOutcome, String> {
         self.pointer_feedback = None;
+        let mut typing_injected = false;
         if self.switch_session.is_some()
             && !matches!(
                 command_type,
@@ -434,7 +485,9 @@ impl<I: InputInjector> DesktopInput<I> {
             "keyboard.key" => {
                 let key = string(payload, "key")?;
                 self.injector.set_key(key, true)?;
-                self.injector.set_key(key, false)
+                self.injector.set_key(key, false)?;
+                typing_injected = true;
+                Ok(())
             }
             "keyboard.modifierDown" => {
                 let key = ModifierKey::parse(string(payload, "key")?)?;
@@ -477,14 +530,18 @@ impl<I: InputInjector> DesktopInput<I> {
                 if keys.is_empty() || keys.len() > 6 {
                     return Err("Shortcut key count is invalid.".into());
                 }
-                self.injector.press_shortcut(&keys)
+                self.injector.press_shortcut(&keys)?;
+                typing_injected = true;
+                Ok(())
             }
             "keyboard.typeText" => {
                 let text = string(payload, "text")?;
                 if text.chars().count() > 2000 {
                     return Err("Text payload is too large.".into());
                 }
-                self.injector.inject_text(text)
+                self.injector.inject_text(text)?;
+                typing_injected = true;
+                Ok(())
             }
             "media.control" => self.injector.media(string(payload, "action")?),
             "window.control" => self.injector.window(string(payload, "action")?),
@@ -502,7 +559,7 @@ impl<I: InputInjector> DesktopInput<I> {
             "keyboard.textStream.char" | "keyboard.textStream.chunk" => {
                 let key = text_stream_key(device_id, string(payload, "streamId")?);
                 if !self.begin_text_stream_item(&key, integer(payload, "seq")?)? {
-                    return Ok(None);
+                    return Ok(DesktopCommandOutcome::default());
                 }
                 let text = string(payload, "text")?;
                 if text.chars().count() > 2_000 {
@@ -512,12 +569,14 @@ impl<I: InputInjector> DesktopInput<I> {
                 if result.is_err() {
                     self.mark_text_stream_failed(&key);
                 }
-                result
+                result?;
+                typing_injected = true;
+                Ok(())
             }
             "keyboard.textStream.key" => {
                 let stream_key = text_stream_key(device_id, string(payload, "streamId")?);
                 if !self.begin_text_stream_item(&stream_key, integer(payload, "seq")?)? {
-                    return Ok(None);
+                    return Ok(DesktopCommandOutcome::default());
                 }
                 let key = string(payload, "key")?;
                 let result = self
@@ -527,7 +586,9 @@ impl<I: InputInjector> DesktopInput<I> {
                 if result.is_err() {
                     self.mark_text_stream_failed(&stream_key);
                 }
-                result
+                result?;
+                typing_injected = true;
+                Ok(())
             }
             "keyboard.textStream.close" => {
                 let key = text_stream_key(device_id, string(payload, "streamId")?);
@@ -571,7 +632,10 @@ impl<I: InputInjector> DesktopInput<I> {
             _ => Err(format!("Unsupported desktop command: {command_type}")),
         };
         result?;
-        Ok(self.pointer_feedback.take())
+        Ok(DesktopCommandOutcome {
+            pointer_feedback: self.pointer_feedback.take(),
+            typing_injected,
+        })
     }
 
     fn begin_text_stream_item(&mut self, key: &str, sequence: i64) -> Result<bool, String> {
@@ -1081,7 +1145,7 @@ pub fn execute_desktop_command<I: InputInjector>(
     command_type: &str,
     payload: &Value,
     profiles: &[SwitchProfile],
-) -> Result<Option<PointerFeedback>, String> {
+) -> Result<DesktopCommandOutcome, String> {
     let result = input.execute(device_id, command_type, payload, profiles)?;
     if command_type == "pointer.speed.set" {
         let scale_percent = payload["scalePercent"].as_f64().unwrap_or_default();
@@ -1159,6 +1223,7 @@ mod tests {
         keys: Vec<(String, bool)>,
         fail_key_down: bool,
         fail_key_up: Option<String>,
+        shortcuts: Vec<Vec<String>>,
     }
     impl InputInjector for FakeInjector {
         fn inject_text(&mut self, text: &str) -> Result<(), String> {
@@ -1198,7 +1263,8 @@ mod tests {
             }
             Ok(())
         }
-        fn press_shortcut(&mut self, _keys: &[String]) -> Result<(), String> {
+        fn press_shortcut(&mut self, keys: &[String]) -> Result<(), String> {
+            self.shortcuts.push(keys.to_vec());
             Ok(())
         }
         fn media(&mut self, _action: &str) -> Result<(), String> {
@@ -1235,6 +1301,157 @@ mod tests {
         let mut input = DesktopInput::new(FakeInjector::default());
         input.type_text("Hello").unwrap();
         assert_eq!(input.injector.text, vec!["Hello"]);
+    }
+
+    #[test]
+    fn android_typing_commands_report_only_actual_keyboard_injection() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+
+        for (command_type, payload) in [
+            ("keyboard.key", serde_json::json!({"key": "Enter"})),
+            (
+                "keyboard.shortcut",
+                serde_json::json!({"keys": ["Ctrl", "A"]}),
+            ),
+            ("keyboard.typeText", serde_json::json!({"text": "Hello"})),
+        ] {
+            let outcome = input
+                .execute("device", command_type, &payload, &[])
+                .unwrap();
+            assert!(outcome.typing_injected, "{command_type}");
+            assert_eq!(outcome.pointer_feedback, None);
+        }
+
+        input
+            .execute(
+                "device",
+                "keyboard.textStream.open",
+                &serde_json::json!({"streamId": "stream"}),
+                &[],
+            )
+            .unwrap();
+        for (sequence, command_type, payload) in [
+            (
+                0,
+                "keyboard.textStream.char",
+                serde_json::json!({"streamId": "stream", "seq": 0, "text": "a"}),
+            ),
+            (
+                1,
+                "keyboard.textStream.chunk",
+                serde_json::json!({"streamId": "stream", "seq": 1, "text": "bc"}),
+            ),
+            (
+                2,
+                "keyboard.textStream.key",
+                serde_json::json!({"streamId": "stream", "seq": 2, "key": "Enter"}),
+            ),
+        ] {
+            let outcome = input
+                .execute("device", command_type, &payload, &[])
+                .unwrap();
+            assert!(outcome.typing_injected, "sequence {sequence}");
+        }
+
+        let duplicate = input
+            .execute(
+                "device",
+                "keyboard.textStream.key",
+                &serde_json::json!({"streamId": "stream", "seq": 2, "key": "Enter"}),
+                &[],
+            )
+            .unwrap();
+        assert_eq!(duplicate, DesktopCommandOutcome::default());
+
+        for (command_type, payload) in [
+            ("keyboard.modifierDown", serde_json::json!({"key": "Ctrl"})),
+            ("keyboard.modifierUp", serde_json::json!({"key": "Ctrl"})),
+            (
+                "keyboard.textStream.close",
+                serde_json::json!({"streamId": "stream", "expectedCount": 3}),
+            ),
+            ("media.control", serde_json::json!({"action": "playPause"})),
+            ("window.control", serde_json::json!({"action": "minimize"})),
+        ] {
+            let outcome = input
+                .execute("device", command_type, &payload, &[])
+                .unwrap();
+            assert!(!outcome.typing_injected, "{command_type}");
+        }
+    }
+
+    #[test]
+    fn failed_android_typing_does_not_report_injection() {
+        let mut input = DesktopInput::new(FakeInjector {
+            fail_key_down: true,
+            ..FakeInjector::default()
+        });
+        assert!(input
+            .execute(
+                "device",
+                "keyboard.key",
+                &serde_json::json!({"key": "Enter"}),
+                &[],
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn typing_command_classification_excludes_lifecycle_and_modifier_commands() {
+        for command_type in [
+            "keyboard.key",
+            "keyboard.shortcut",
+            "keyboard.typeText",
+            "keyboard.textStream.char",
+            "keyboard.textStream.chunk",
+            "keyboard.textStream.key",
+        ] {
+            assert!(
+                AndroidTypingRoute::for_command(command_type).is_eligible(),
+                "{command_type}"
+            );
+        }
+        for command_type in [
+            "keyboard.modifierDown",
+            "keyboard.modifierUp",
+            "keyboard.textStream.open",
+            "keyboard.textStream.close",
+            "media.control",
+            "window.control",
+        ] {
+            assert!(
+                !AndroidTypingRoute::for_command(command_type).is_eligible(),
+                "{command_type}"
+            );
+        }
+        assert!(AndroidTypingRoute::for_text("a").is_eligible());
+        assert!(!AndroidTypingRoute::for_text("").is_eligible());
+    }
+
+    #[test]
+    fn typing_route_orders_prepare_and_successful_hide_effects() {
+        let events = Mutex::new(Vec::new());
+        let route = AndroidTypingRoute::for_text("Hello");
+        route.prepare(
+            || events.lock().unwrap().push("cancel dwell"),
+            || events.lock().unwrap().push("stop repeats"),
+        );
+        route.finish(true, || events.lock().unwrap().push("hide overlay"));
+        assert_eq!(
+            *events.lock().unwrap(),
+            ["cancel dwell", "stop repeats", "hide overlay"]
+        );
+
+        let events = Mutex::new(Vec::new());
+        AndroidTypingRoute::for_text("").prepare(
+            || events.lock().unwrap().push("cancel dwell"),
+            || events.lock().unwrap().push("stop repeats"),
+        );
+        AndroidTypingRoute::for_text("")
+            .finish(true, || events.lock().unwrap().push("hide overlay"));
+        AndroidTypingRoute::for_text("Hello")
+            .finish(false, || events.lock().unwrap().push("hide overlay"));
+        assert!(events.lock().unwrap().is_empty());
     }
     #[test]
     fn command_execution_uses_relative_pointer_input_without_system_input() {
@@ -1284,7 +1501,13 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(feedback, Some(PointerFeedback::Scroll { dx: 2, dy: -4 }));
+        assert_eq!(
+            feedback,
+            DesktopCommandOutcome {
+                pointer_feedback: Some(PointerFeedback::Scroll { dx: 2, dy: -4 }),
+                typing_injected: false,
+            }
+        );
     }
 
     #[test]
@@ -1525,10 +1748,13 @@ mod tests {
 
         assert_eq!(
             feedback,
-            Some(PointerFeedback::Click {
-                button: MouseButton::Left,
-                count: 2,
-            })
+            DesktopCommandOutcome {
+                pointer_feedback: Some(PointerFeedback::Click {
+                    button: MouseButton::Left,
+                    count: 2,
+                }),
+                typing_injected: false,
+            }
         );
     }
     #[test]
