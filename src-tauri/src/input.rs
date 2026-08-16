@@ -882,9 +882,9 @@ impl<I: InputInjector> DesktopInput<I> {
             }
             Some(session) => {
                 self.switch_session = Some(session);
-                Err("The switch-control session is not active.".into())
+                Err("The Switch Forwarding session is not active.".into())
             }
-            None => Err("The switch-control session is not active.".into()),
+            None => Err("The Switch Forwarding session is not active.".into()),
         }
     }
 
