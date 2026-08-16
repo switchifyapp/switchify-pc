@@ -586,7 +586,7 @@ describe("Switchify PC shell", () => {
       return [profile];
     });
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switch Forwarding" }));
     const newProfile = await screen.findByRole("button", { name: "New profile" });
     expect(newProfile).toHaveClass("primary");
     fireEvent.click(newProfile);
@@ -606,7 +606,7 @@ describe("Switchify PC shell", () => {
     };
     vi.spyOn(api, "listProfiles").mockResolvedValue([source, { ...source, id: crypto.randomUUID(), name: "Generic keyboard copy", builtIn: false }]);
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: /Generic keyboard.*Built in/ }));
     expect(screen.getByRole("textbox", { name: "Profile name" })).toBeDisabled();
 
@@ -620,7 +620,7 @@ describe("Switchify PC shell", () => {
 
   it("identifies duplicate names and bindings at their fields", async () => {
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Generic keyboard" } });
     expect(screen.getByText("Profile names must be unique.")).toBeInTheDocument();
@@ -638,7 +638,7 @@ describe("Switchify PC shell", () => {
 
   it("confirms dirty editor dismissal and restores focus", async () => {
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switch Forwarding" }));
     const opener = await screen.findByRole("button", { name: "New profile" });
     fireEvent.click(opener);
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Unsaved controls" } });
@@ -652,7 +652,7 @@ describe("Switchify PC shell", () => {
 
   it("closes pristine new and duplicated profiles without a discard prompt", async () => {
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switch Forwarding" }));
     const newProfile = await screen.findByRole("button", { name: "New profile" });
     fireEvent.click(newProfile);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -669,7 +669,7 @@ describe("Switchify PC shell", () => {
   it("prevents navigation from discarding a modified profile", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Modified controls" } });
 
@@ -691,7 +691,7 @@ describe("Switchify PC shell", () => {
       return () => undefined;
     });
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Unsaved controls" } });
 
@@ -716,7 +716,7 @@ describe("Switchify PC shell", () => {
     vi.spyOn(api, "listProfiles").mockResolvedValue([custom]);
     vi.spyOn(api, "deleteProfile").mockResolvedValue([]);
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: /Scanning controls.*Custom/ }));
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Changed controls" } });
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
@@ -730,7 +730,7 @@ describe("Switchify PC shell", () => {
   it("keeps the editor open and focused when saving fails", async () => {
     vi.spyOn(api, "saveProfile").mockRejectedValue(new Error("Profile storage unavailable"));
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Switch control" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
     fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
 

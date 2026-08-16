@@ -444,7 +444,7 @@ impl<I: InputInjector> DesktopInput<I> {
                     | "connection.disconnecting"
             )
         {
-            return Err("Stop PC Switch Control before using other PC control commands.".into());
+            return Err("Stop Switch Forwarding before using other PC control commands.".into());
         }
         let result = match command_type {
             "mouse.scroll" => {
@@ -882,9 +882,9 @@ impl<I: InputInjector> DesktopInput<I> {
             }
             Some(session) => {
                 self.switch_session = Some(session);
-                Err("The switch-control session is not active.".into())
+                Err("The Switch Forwarding session is not active.".into())
             }
-            None => Err("The switch-control session is not active.".into()),
+            None => Err("The Switch Forwarding session is not active.".into()),
         }
     }
 

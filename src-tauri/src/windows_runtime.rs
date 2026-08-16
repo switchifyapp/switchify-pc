@@ -731,7 +731,7 @@ fn navigate_display(app: &AppHandle, direction: &str) -> Result<PointerFeedback,
     if input.has_active_switch_session() {
         return Err(NavigationError {
             code: "input_failed",
-            message: "Stop PC Switch Control before using other PC control commands.".into(),
+            message: "Stop Switch Forwarding before using other PC control commands.".into(),
         });
     }
     if input.has_active_drag() {

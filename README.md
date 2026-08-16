@@ -35,7 +35,7 @@ The promoted identity starts with new settings, a new desktop ID, and no paired 
 
 On a fresh unpaired installation, Switchify opens a five-step setup guide once. It checks Bluetooth and input access, links to Switchify on Google Play with a QR code, presents live secure-pairing approvals, and records explicit startup and anonymous-diagnostics choices. **Skip for now** dismisses the automatic prompt without marking setup complete; reopen it at any time from Home or Support. Existing paired users are never forced into the guide.
 
-Closing the main window keeps Switchify available in the system tray. The tray shows live connection status and provides direct actions for the main window, Settings, Switch Control profiles, disconnecting active devices, and cleanly quitting the background service. Double-clicking the tray icon restores the window on Windows; use **Show Switchify PC** on macOS.
+Closing the main window keeps Switchify available in the system tray. The tray shows live connection status and provides direct actions for the main window, Settings, Switch Forwarding profiles, disconnecting active devices, and cleanly quitting the background service. Double-clicking the tray icon restores the window on Windows; use **Show Switchify PC** on macOS.
 
 For UI and hot-reload development only:
 
