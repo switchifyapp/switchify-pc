@@ -30,7 +30,9 @@ use state::{
 };
 use std::sync::Mutex;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
+use tauri::tray::TrayIconBuilder;
+#[cfg(target_os = "windows")]
+use tauri::tray::{MouseButton, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(not(target_os = "windows"))]
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
@@ -101,6 +103,10 @@ fn request_profile_exit(app: &AppHandle, action: ProfileExitAction) {
 }
 
 const NAVIGATE_REQUESTED_EVENT: &str = "navigate-requested";
+
+fn show_tray_menu_on_left_click() -> bool {
+    cfg!(target_os = "macos")
+}
 
 #[derive(Default)]
 struct PendingNavigation(Mutex<Option<String>>);
@@ -1146,48 +1152,48 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
     app.manage(controller);
     let mut builder = TrayIconBuilder::with_id("switchify")
         .menu(&menu)
-        .show_menu_on_left_click(false)
+        .show_menu_on_left_click(show_tray_menu_on_left_click())
         .tooltip("Switchify PC");
     if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
     }
-    builder
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" => {
-                show_main_window(app, None);
+    let builder = builder.on_menu_event(|app, event| match event.id.as_ref() {
+        "show" => {
+            show_main_window(app, None);
+        }
+        "settings" => show_main_window(app, Some("settings")),
+        "profiles" => show_main_window(app, Some("profiles")),
+        "disconnect" => {
+            let model = app.state::<AppModel>();
+            let overlay = app.state::<overlay::CursorOverlay>();
+            let modifier_overlay = app.state::<modifier_overlay::ModifierOverlay>();
+            if let Err(error) = disconnect_all_inner(app, &model, &overlay, &modifier_overlay) {
+                state::set_activity(
+                    &model.shared,
+                    ActivityKind::Error,
+                    format!("Disconnect failed: {error}"),
+                );
+                state::emit_state(app, &model.shared);
             }
-            "settings" => show_main_window(app, Some("settings")),
-            "profiles" => show_main_window(app, Some("profiles")),
-            "disconnect" => {
-                let model = app.state::<AppModel>();
-                let overlay = app.state::<overlay::CursorOverlay>();
-                let modifier_overlay = app.state::<modifier_overlay::ModifierOverlay>();
-                if let Err(error) = disconnect_all_inner(app, &model, &overlay, &modifier_overlay) {
-                    state::set_activity(
-                        &model.shared,
-                        ActivityKind::Error,
-                        format!("Disconnect failed: {error}"),
-                    );
-                    state::emit_state(app, &model.shared);
-                }
+        }
+        "quit" => {
+            request_profile_exit(app, ProfileExitAction::Quit);
+        }
+        _ => {}
+    });
+    #[cfg(target_os = "windows")]
+    let builder = builder.on_tray_icon_event(|tray, event| {
+        if matches!(
+            event,
+            TrayIconEvent::DoubleClick {
+                button: MouseButton::Left,
+                ..
             }
-            "quit" => {
-                request_profile_exit(app, ProfileExitAction::Quit);
-            }
-            _ => {}
-        })
-        .on_tray_icon_event(|tray, event| {
-            if matches!(
-                event,
-                TrayIconEvent::DoubleClick {
-                    button: MouseButton::Left,
-                    ..
-                }
-            ) {
-                show_main_window(tray.app_handle(), None);
-            }
-        })
-        .build(app)?;
+        ) {
+            show_main_window(tray.app_handle(), None);
+        }
+    });
+    builder.build(app)?;
     Ok(())
 }
 
@@ -1414,9 +1420,9 @@ fn platform_disconnect_all(app: &AppHandle, shared: &state::SharedModel) -> Resu
 #[cfg(test)]
 mod tests {
     use super::{
-        has_start_hidden_argument, record_update_failure, updater_is_configured, validate_profile,
-        PendingNavigation, PendingProfileExit, ProfileExitAction, TraySnapshot,
-        NAVIGATE_REQUESTED_EVENT,
+        has_start_hidden_argument, record_update_failure, show_tray_menu_on_left_click,
+        updater_is_configured, validate_profile, PendingNavigation, PendingProfileExit,
+        ProfileExitAction, TraySnapshot, NAVIGATE_REQUESTED_EVENT,
     };
     use crate::state::{AppModel, BluetoothState, SwitchBinding, SwitchProfile};
     use crate::storage::AppStorage;
@@ -1581,5 +1587,17 @@ mod tests {
         pending.set("profiles");
         assert_eq!(pending.take().as_deref(), Some("profiles"));
         assert_eq!(pending.take(), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_tray_menu_opens_on_left_click() {
+        assert!(show_tray_menu_on_left_click());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_tray_menu_does_not_open_on_left_click() {
+        assert!(!show_tray_menu_on_left_click());
     }
 }
