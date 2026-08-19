@@ -116,7 +116,11 @@ impl NotificationDispatcher {
         if !state.subscribed {
             return Err("No Android device is subscribed for notifications.".into());
         }
-        if state.queued_frames + frames.len() > MAX_QUEUED_NOTIFICATION_FRAMES {
+        // Keep the normal backlog at 512 frames, but always admit one otherwise-valid
+        // protocol message when the queue is empty. At the 160-byte Windows limit, a
+        // maximum-size protocol message itself can require more than 512 frames.
+        let admission_limit = MAX_QUEUED_NOTIFICATION_FRAMES.max(frames.len());
+        if state.queued_frames + frames.len() > admission_limit {
             return Err("Bluetooth notification queue is full.".into());
         }
         let generation = state.generation;
@@ -1770,6 +1774,23 @@ mod tests {
             Err("Bluetooth notification queue is full.".into())
         );
         assert_eq!(dispatcher.queued_frames(), MAX_QUEUED_NOTIFICATION_FRAMES);
+    }
+
+    #[test]
+    fn notification_queue_always_admits_one_maximum_size_protocol_message() {
+        let dispatcher = NotificationDispatcher::default();
+        dispatcher.subscribers_changed(1);
+        let message = "x".repeat(crate::protocol::MAX_MESSAGE_BYTES);
+        let frames = create_notification_frames(&message, NOTIFICATION_BYTES).unwrap();
+        assert!(frames.len() > MAX_QUEUED_NOTIFICATION_FRAMES);
+
+        dispatcher.enqueue_frames(frames.clone()).unwrap();
+        assert_eq!(dispatcher.queued_frames(), frames.len());
+        assert_eq!(
+            dispatcher.enqueue_frames(vec![vec![1]]),
+            Err("Bluetooth notification queue is full.".into())
+        );
+        assert_eq!(dispatcher.queued_frames(), frames.len());
     }
 
     #[tokio::test]
