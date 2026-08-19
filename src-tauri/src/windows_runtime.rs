@@ -1,5 +1,7 @@
+use std::collections::VecDeque;
+use std::future::Future;
 use std::process::Command;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use enigo::{Enigo, Settings};
@@ -7,13 +9,15 @@ use tauri::{AppHandle, Manager};
 use windows::core::{IInspectable, Ref, GUID, HSTRING};
 use windows::Devices::Bluetooth::BluetoothError;
 use windows::Devices::Bluetooth::GenericAttributeProfile::{
-    GattCharacteristicProperties, GattLocalCharacteristic, GattLocalCharacteristicParameters,
-    GattProtectionLevel, GattReadRequestedEventArgs, GattServiceProvider,
-    GattServiceProviderAdvertisementStatus, GattServiceProviderAdvertisementStatusChangedEventArgs,
+    GattCharacteristicProperties, GattCommunicationStatus, GattLocalCharacteristic,
+    GattLocalCharacteristicParameters, GattProtectionLevel, GattReadRequestedEventArgs,
+    GattServiceProvider, GattServiceProviderAdvertisementStatus,
+    GattServiceProviderAdvertisementStatusChangedEventArgs,
     GattServiceProviderAdvertisingParameters, GattWriteOption, GattWriteRequestedEventArgs,
 };
 use windows::Foundation::{Deferral, TypedEventHandler};
 use windows::Security::Cryptography::CryptographicBuffer;
+use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 
 use crate::display_navigation::{self, NavigationError};
 use crate::dwell::DwellController;
@@ -39,11 +43,205 @@ const RX_UUID: GUID = GUID::from_u128(0x7a78f7e9_1d6d_4d92_9ef0_1f89d3db21f4);
 const TX_UUID: GUID = GUID::from_u128(0x7a78f7ea_1d6d_4d92_9ef0_1f89d3db21f4);
 const STATUS_UUID: GUID = GUID::from_u128(0x7a78f7eb_1d6d_4d92_9ef0_1f89d3db21f4);
 const NOTIFICATION_BYTES: usize = 160;
+const MAX_QUEUED_NOTIFICATION_FRAMES: usize = 512;
+const NOTIFICATION_DELIVERY_ERROR: &str = "Bluetooth notification could not be delivered.";
+
+#[derive(Debug)]
+struct QueuedNotificationMessage {
+    generation: u64,
+    frames: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, Default)]
+struct NotificationQueueState {
+    generation: u64,
+    subscribed: bool,
+    queued_frames: usize,
+    messages: VecDeque<QueuedNotificationMessage>,
+}
+
+#[derive(Debug, Default)]
+struct NotificationQueueInner {
+    state: Mutex<NotificationQueueState>,
+    ready: tokio::sync::Notify,
+}
+
+#[derive(Clone, Debug, Default)]
+struct NotificationDispatcher {
+    inner: Arc<NotificationQueueInner>,
+}
+
+impl NotificationDispatcher {
+    fn subscribers_changed(&self, subscriber_count: u32) {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if subscriber_count == 0 {
+            Self::invalidate_locked(&mut state);
+        } else if !state.subscribed {
+            state.generation = state.generation.wrapping_add(1).max(1);
+            state.subscribed = true;
+        }
+    }
+
+    fn disconnect(&self) {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Self::invalidate_locked(&mut state);
+    }
+
+    fn invalidate_locked(state: &mut NotificationQueueState) {
+        state.generation = state.generation.wrapping_add(1).max(1);
+        state.subscribed = false;
+        state.queued_frames = 0;
+        state.messages.clear();
+    }
+
+    fn enqueue(&self, message: &str) -> Result<(), String> {
+        let frames = create_notification_frames(message, NOTIFICATION_BYTES)?;
+        self.enqueue_frames(frames)
+    }
+
+    fn enqueue_frames(&self, frames: Vec<Vec<u8>>) -> Result<(), String> {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !state.subscribed {
+            return Err("No Android device is subscribed for notifications.".into());
+        }
+        if state.queued_frames + frames.len() > MAX_QUEUED_NOTIFICATION_FRAMES {
+            return Err("Bluetooth notification queue is full.".into());
+        }
+        let generation = state.generation;
+        state.queued_frames += frames.len();
+        state
+            .messages
+            .push_back(QueuedNotificationMessage { generation, frames });
+        drop(state);
+        self.inner.ready.notify_one();
+        Ok(())
+    }
+
+    async fn next_message(&self) -> QueuedNotificationMessage {
+        loop {
+            let notified = self.inner.ready.notified();
+            if let Some(message) = {
+                let mut state = self
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let message = state.messages.pop_front();
+                if let Some(message) = message.as_ref() {
+                    state.queued_frames -= message.frames.len();
+                }
+                message
+            } {
+                return message;
+            }
+            notified.await;
+        }
+    }
+
+    fn is_current(&self, generation: u64) -> bool {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.subscribed && state.generation == generation
+    }
+
+    #[cfg(test)]
+    fn queued_frames(&self) -> usize {
+        self.inner
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .queued_frames
+    }
+}
+
+async fn run_notification_worker<SendFrame, SendFuture, ReportError>(
+    dispatcher: NotificationDispatcher,
+    mut send_frame: SendFrame,
+    mut report_error: ReportError,
+) where
+    SendFrame: FnMut(Vec<u8>) -> SendFuture,
+    SendFuture: Future<Output = Result<(), String>>,
+    ReportError: FnMut(&str),
+{
+    loop {
+        let message = dispatcher.next_message().await;
+        if !dispatcher.is_current(message.generation) {
+            continue;
+        }
+        for frame in message.frames {
+            if !dispatcher.is_current(message.generation) {
+                break;
+            }
+            let result = send_frame(frame).await;
+            if !dispatcher.is_current(message.generation) {
+                break;
+            }
+            if result.is_err() {
+                report_error(NOTIFICATION_DELIVERY_ERROR);
+                break;
+            }
+        }
+    }
+}
+
+fn validate_notification_statuses(
+    statuses: impl IntoIterator<Item = GattCommunicationStatus>,
+) -> Result<(), String> {
+    let mut statuses = statuses.into_iter().peekable();
+    if statuses.peek().is_none()
+        || statuses.any(|status| status != GattCommunicationStatus::Success)
+    {
+        return Err(NOTIFICATION_DELIVERY_ERROR.into());
+    }
+    Ok(())
+}
+
+async fn send_notification_frame(
+    tx: &GattLocalCharacteristic,
+    frame: Vec<u8>,
+) -> Result<(), String> {
+    let buffer = CryptographicBuffer::CreateFromByteArray(&frame)
+        .map_err(|_| NOTIFICATION_DELIVERY_ERROR.to_string())?;
+    let results = tx
+        .NotifyValueAsync(&buffer)
+        .map_err(|_| NOTIFICATION_DELIVERY_ERROR.to_string())?
+        .await
+        .map_err(|_| NOTIFICATION_DELIVERY_ERROR.to_string())?;
+    let result_count = results
+        .Size()
+        .map_err(|_| NOTIFICATION_DELIVERY_ERROR.to_string())?;
+    let mut statuses = Vec::with_capacity(result_count as usize);
+    for index in 0..result_count {
+        statuses.push(
+            results
+                .GetAt(index)
+                .and_then(|result| result.Status())
+                .map_err(|_| NOTIFICATION_DELIVERY_ERROR.to_string())?,
+        );
+    }
+    validate_notification_statuses(statuses)
+}
 
 struct WindowsRuntime {
     _provider: GattServiceProvider,
     _rx: GattLocalCharacteristic,
-    tx: GattLocalCharacteristic,
+    _tx: GattLocalCharacteristic,
+    notifications: NotificationDispatcher,
     _status: GattLocalCharacteristic,
     input: DesktopInput<Enigo>,
     repeats: MouseRepeatController,
@@ -186,6 +384,42 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     )
     .await?;
 
+    let notifications = NotificationDispatcher::default();
+    let worker_notifications = notifications.clone();
+    let worker_tx = tx.clone();
+    let worker_app = app.clone();
+    let worker_shared = shared.clone();
+    std::thread::Builder::new()
+        .name("switchify-ble-notifications".into())
+        .spawn(move || {
+            let initialized = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+            let worker_runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build();
+            match (initialized, worker_runtime) {
+                (Ok(()), Ok(worker_runtime)) => worker_runtime.block_on(run_notification_worker(
+                    worker_notifications,
+                    move |frame| {
+                        let tx = worker_tx.clone();
+                        async move { send_notification_frame(&tx, frame).await }
+                    },
+                    move |message| {
+                        set_activity(&worker_shared, ActivityKind::Error, message);
+                        emit_state(&worker_app, &worker_shared);
+                    },
+                )),
+                _ => {
+                    set_activity(
+                        &worker_shared,
+                        ActivityKind::Error,
+                        "Bluetooth notification worker could not start.",
+                    );
+                    emit_state(&worker_app, &worker_shared);
+                }
+            }
+        })
+        .map_err(|_| "Bluetooth notification worker could not start.".to_string())?;
+
     let write_app = app.clone();
     let write_shared = shared.clone();
     rx.WriteRequested(&TypedEventHandler::new(
@@ -219,6 +453,7 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
 
     let subscribe_app = app.clone();
     let subscribe_shared = shared.clone();
+    let subscribe_notifications = notifications.clone();
     tx.SubscribedClientsChanged(
         &TypedEventHandler::<GattLocalCharacteristic, IInspectable>::new(move |sender, _| {
             let subscriber_count = sender
@@ -231,6 +466,7 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
                 );
                 return Ok(());
             };
+            subscribe_notifications.subscribers_changed(subscriber_count);
             let connected = subscriber_count > 0;
             let cancelled = {
                 let mut model = subscribe_shared
@@ -321,7 +557,8 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(WindowsRuntime {
         _provider: provider.clone(),
         _rx: rx,
-        tx,
+        _tx: tx,
+        notifications,
         _status: status,
         input: DesktopInput::with_modifier_overlay(
             input,
@@ -1041,20 +1278,13 @@ fn fallback_pointer_profile() -> PointerProfile {
 }
 
 fn notify(message: String) -> Result<(), String> {
-    let tx = runtime()
+    let notifications = runtime()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .as_ref()
-        .map(|runtime| runtime.tx.clone())
+        .map(|runtime| runtime.notifications.clone())
         .ok_or_else(|| "Bluetooth runtime is not ready.".to_string())?;
-    for frame in create_notification_frames(&message, NOTIFICATION_BYTES)? {
-        let buffer =
-            CryptographicBuffer::CreateFromByteArray(&frame).map_err(|error| error.to_string())?;
-        let _operation = tx
-            .NotifyValueAsync(&buffer)
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(())
+    notifications.enqueue(&message)
 }
 
 pub fn check_accessibility(
@@ -1149,6 +1379,14 @@ fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Re
 pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), String> {
     app.state::<DwellController>().cancel(app);
     stop_all_repeats(app);
+    let notifications = runtime()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_ref()
+        .map(|runtime| runtime.notifications.clone());
+    if let Some(notifications) = notifications {
+        notifications.disconnect();
+    }
     if let Some(runtime) = runtime()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -1183,12 +1421,62 @@ fn release_input_session() {
 #[cfg(test)]
 mod tests {
     use super::{
-        pointer_profile_for_display, should_cancel_pending_pairings,
-        tasklist_has_other_switchify_process,
+        pointer_profile_for_display, run_notification_worker, should_cancel_pending_pairings,
+        tasklist_has_other_switchify_process, validate_notification_statuses,
+        NotificationDispatcher, MAX_QUEUED_NOTIFICATION_FRAMES, NOTIFICATION_BYTES,
+        NOTIFICATION_DELIVERY_ERROR,
     };
     use crate::display_navigation::Display;
     use crate::input::AndroidTypingRoute;
-    use std::sync::Mutex;
+    use crate::protocol::{
+        create_notification_frames, pointer_profile_response, BluetoothFrame, EngineEvent,
+        FrameReassembler, PointerProfile, ProtocolEngine,
+    };
+    use crate::state::AppSettings;
+    use serde_json::json;
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+    use windows::Devices::Bluetooth::GenericAttributeProfile::GattCommunicationStatus;
+
+    async fn wait_for_frame_count(frames: &Arc<Mutex<Vec<Vec<u8>>>>, expected: usize) {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if frames
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .len()
+                    >= expected
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("notification worker did not make progress");
+    }
+
+    fn reassemble_messages(frames: &[Vec<u8>]) -> Vec<String> {
+        let mut reassembler = FrameReassembler::default();
+        let mut messages = Vec::new();
+        for (index, frame) in frames.iter().enumerate() {
+            let frame: BluetoothFrame = serde_json::from_slice(frame).unwrap();
+            if let Some(message) = reassembler.accept(frame, index as i64).unwrap() {
+                messages.push(message);
+            }
+        }
+        messages
+    }
+
+    fn receive_engine_message(engine: &mut ProtocolEngine, message: &str) -> EngineEvent {
+        create_notification_frames(message, NOTIFICATION_BYTES)
+            .unwrap()
+            .into_iter()
+            .find_map(|frame| engine.receive_frame(&frame, 1_724_000_000_000).unwrap())
+            .expect("complete protocol message")
+    }
 
     #[test]
     fn windows_typing_route_orders_cleanup_before_successful_overlay_hiding() {
@@ -1229,6 +1517,412 @@ mod tests {
         assert!(!should_cancel_pending_pairings(Some(1)));
         assert!(!should_cancel_pending_pairings(Some(2)));
         assert!(!should_cancel_pending_pairings(None));
+    }
+
+    #[tokio::test]
+    async fn notification_worker_awaits_each_frame_before_submitting_the_next() {
+        let dispatcher = NotificationDispatcher::default();
+        dispatcher.subscribers_changed(1);
+        let message = "pointer-profile".repeat(80);
+        let expected = create_notification_frames(&message, NOTIFICATION_BYTES).unwrap();
+        assert!(expected.len() > 1);
+
+        let submitted = Arc::new(Mutex::new(Vec::new()));
+        let (release_tx, release_rx) = oneshot::channel();
+        let first_gate = Arc::new(Mutex::new(Some(release_rx)));
+        let worker_submitted = submitted.clone();
+        let worker_gate = first_gate.clone();
+        let worker = tokio::spawn(run_notification_worker(
+            dispatcher.clone(),
+            move |frame| {
+                let submitted = worker_submitted.clone();
+                let gate = worker_gate.clone();
+                async move {
+                    let release = {
+                        let mut submitted = submitted
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        submitted.push(frame);
+                        if submitted.len() == 1 {
+                            gate.lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                                .take()
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(release) = release {
+                        release.await.map_err(|_| "gate closed".to_string())?;
+                    }
+                    Ok(())
+                }
+            },
+            |_| {},
+        ));
+
+        dispatcher.enqueue(&message).unwrap();
+        wait_for_frame_count(&submitted, 1).await;
+        assert_eq!(
+            submitted
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .len(),
+            1
+        );
+        release_tx.send(()).unwrap();
+        wait_for_frame_count(&submitted, expected.len()).await;
+        let submitted = submitted
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        assert_eq!(submitted.len(), expected.len());
+        assert_eq!(reassemble_messages(&submitted), [message]);
+        worker.abort();
+    }
+
+    #[tokio::test]
+    async fn concurrent_notification_messages_never_interleave_frames() {
+        let dispatcher = NotificationDispatcher::default();
+        dispatcher.subscribers_changed(1);
+        let left = "left-response".repeat(70);
+        let right = "right-response".repeat(70);
+        let expected_frames = create_notification_frames(&left, NOTIFICATION_BYTES)
+            .unwrap()
+            .len()
+            + create_notification_frames(&right, NOTIFICATION_BYTES)
+                .unwrap()
+                .len();
+        let submitted = Arc::new(Mutex::new(Vec::new()));
+        let worker_submitted = submitted.clone();
+        let worker = tokio::spawn(run_notification_worker(
+            dispatcher.clone(),
+            move |frame| {
+                let submitted = worker_submitted.clone();
+                async move {
+                    submitted
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .push(frame);
+                    tokio::task::yield_now().await;
+                    Ok(())
+                }
+            },
+            |_| {},
+        ));
+
+        let left_dispatcher = dispatcher.clone();
+        let right_dispatcher = dispatcher.clone();
+        let queued_left = left.clone();
+        let queued_right = right.clone();
+        let (left_result, right_result) = tokio::join!(
+            async move { left_dispatcher.enqueue(&queued_left) },
+            async move { right_dispatcher.enqueue(&queued_right) }
+        );
+        left_result.unwrap();
+        right_result.unwrap();
+        wait_for_frame_count(&submitted, expected_frames).await;
+
+        let submitted = submitted
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let mut completed_ids = HashSet::new();
+        let mut current_id: Option<String> = None;
+        for frame in &submitted {
+            let frame: BluetoothFrame = serde_json::from_slice(frame).unwrap();
+            if current_id.as_deref() != Some(&frame.message_id) {
+                if let Some(previous) = current_id.replace(frame.message_id.clone()) {
+                    completed_ids.insert(previous);
+                }
+                assert!(!completed_ids.contains(&frame.message_id));
+            }
+        }
+        assert_eq!(
+            reassemble_messages(&submitted)
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            HashSet::from([left, right])
+        );
+        worker.abort();
+    }
+
+    #[tokio::test]
+    async fn pointer_profile_reassembles_after_serial_notification_delivery() {
+        let profile = PointerProfile {
+            display_id: "display-1".into(),
+            scale_factor: 1.5,
+            x: -1280,
+            y: 0,
+            width: 2560,
+            height: 1440,
+            small_delta: 32,
+            medium_delta: 86,
+            large_delta: 187,
+            display_navigation_supported: true,
+            display_count: 3,
+        };
+        let response = pointer_profile_response("profile-1", &profile, &AppSettings::default());
+        let expected_frames = create_notification_frames(&response, NOTIFICATION_BYTES)
+            .unwrap()
+            .len();
+        assert!(expected_frames > 1);
+        let dispatcher = NotificationDispatcher::default();
+        dispatcher.subscribers_changed(1);
+        let submitted = Arc::new(Mutex::new(Vec::new()));
+        let worker_submitted = submitted.clone();
+        let worker = tokio::spawn(run_notification_worker(
+            dispatcher.clone(),
+            move |frame| {
+                let submitted = worker_submitted.clone();
+                async move {
+                    submitted
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .push(frame);
+                    Ok(())
+                }
+            },
+            |_| {},
+        ));
+
+        dispatcher.enqueue(&response).unwrap();
+        wait_for_frame_count(&submitted, expected_frames).await;
+        assert_eq!(
+            reassemble_messages(
+                &submitted
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+            ),
+            [response]
+        );
+        worker.abort();
+    }
+
+    #[tokio::test]
+    async fn notification_failure_drops_only_the_current_message_remainder() {
+        let failed_message = "failed-response".repeat(70);
+        let next_message = json!({"type": "response", "ok": true}).to_string();
+        let next_frames = create_notification_frames(&next_message, NOTIFICATION_BYTES).unwrap();
+        let dispatcher = NotificationDispatcher::default();
+        dispatcher.subscribers_changed(1);
+        let submitted = Arc::new(Mutex::new(Vec::new()));
+        let errors = Arc::new(Mutex::new(Vec::new()));
+        let attempts = Arc::new(Mutex::new(0_usize));
+        let worker_submitted = submitted.clone();
+        let worker_errors = errors.clone();
+        let worker_attempts = attempts.clone();
+        let worker = tokio::spawn(run_notification_worker(
+            dispatcher.clone(),
+            move |frame| {
+                let submitted = worker_submitted.clone();
+                let attempts = worker_attempts.clone();
+                async move {
+                    submitted
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .push(frame);
+                    let mut attempts = attempts
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    *attempts += 1;
+                    if *attempts == 1 {
+                        Err("simulated failure".into())
+                    } else {
+                        Ok(())
+                    }
+                }
+            },
+            move |error| {
+                worker_errors
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .push(error.to_string());
+            },
+        ));
+
+        dispatcher.enqueue(&failed_message).unwrap();
+        dispatcher.enqueue(&next_message).unwrap();
+        wait_for_frame_count(&submitted, 1 + next_frames.len()).await;
+        let submitted = submitted
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        assert_eq!(submitted.len(), 1 + next_frames.len());
+        assert_eq!(reassemble_messages(&submitted), [next_message]);
+        assert_eq!(
+            *errors
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            [NOTIFICATION_DELIVERY_ERROR]
+        );
+        worker.abort();
+    }
+
+    #[test]
+    fn notification_queue_capacity_rejects_whole_messages_atomically() {
+        let dispatcher = NotificationDispatcher::default();
+        dispatcher.subscribers_changed(1);
+        dispatcher
+            .enqueue_frames(vec![vec![0]; MAX_QUEUED_NOTIFICATION_FRAMES])
+            .unwrap();
+        assert_eq!(
+            dispatcher.enqueue_frames(vec![vec![1], vec![2]]),
+            Err("Bluetooth notification queue is full.".into())
+        );
+        assert_eq!(dispatcher.queued_frames(), MAX_QUEUED_NOTIFICATION_FRAMES);
+    }
+
+    #[tokio::test]
+    async fn disconnect_discards_pending_and_in_flight_stale_output() {
+        let stale_message = "stale-response".repeat(70);
+        let pending_message = "pending-response".repeat(70);
+        let replacement_message = "replacement-response".repeat(70);
+        let replacement_frames =
+            create_notification_frames(&replacement_message, NOTIFICATION_BYTES).unwrap();
+        let dispatcher = NotificationDispatcher::default();
+        dispatcher.subscribers_changed(1);
+        let submitted = Arc::new(Mutex::new(Vec::new()));
+        let (release_tx, release_rx) = oneshot::channel();
+        let first_gate = Arc::new(Mutex::new(Some(release_rx)));
+        let worker_submitted = submitted.clone();
+        let worker_gate = first_gate.clone();
+        let worker = tokio::spawn(run_notification_worker(
+            dispatcher.clone(),
+            move |frame| {
+                let submitted = worker_submitted.clone();
+                let gate = worker_gate.clone();
+                async move {
+                    let release = {
+                        let mut submitted = submitted
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        submitted.push(frame);
+                        if submitted.len() == 1 {
+                            gate.lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                                .take()
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(release) = release {
+                        release.await.map_err(|_| "gate closed".to_string())?;
+                    }
+                    Ok(())
+                }
+            },
+            |_| {},
+        ));
+
+        dispatcher.enqueue(&stale_message).unwrap();
+        dispatcher.enqueue(&pending_message).unwrap();
+        wait_for_frame_count(&submitted, 1).await;
+        dispatcher.disconnect();
+        assert!(dispatcher.enqueue("disconnected").is_err());
+        dispatcher.subscribers_changed(1);
+        dispatcher.enqueue(&replacement_message).unwrap();
+        release_tx.send(()).unwrap();
+        wait_for_frame_count(&submitted, 1 + replacement_frames.len()).await;
+        assert_eq!(
+            reassemble_messages(
+                &submitted
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+            ),
+            [replacement_message]
+        );
+        worker.abort();
+    }
+
+    #[tokio::test]
+    async fn pairing_and_authentication_responses_use_the_serial_dispatcher() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        let pairing_request = json!({
+            "version": 1,
+            "id": "pair-1",
+            "type": "pairing.request",
+            "payload": {
+                "deviceId": "android-1",
+                "deviceName": "Pixel",
+                "desktopId": "desktop-1",
+                "requestNonce": "nonce-1"
+            }
+        })
+        .to_string();
+        assert!(matches!(
+            receive_engine_message(&mut engine, &pairing_request),
+            EngineEvent::PendingPairing { .. }
+        ));
+        let pairing_response = engine.approve_pairing("pair-1", 1_724_000_000_001).unwrap();
+        let invalid_auth = json!({
+            "version": 1,
+            "id": "ping-1",
+            "deviceId": "android-1",
+            "timestamp": 1_724_000_000_000_i64,
+            "type": "connection.ping",
+            "payload": {},
+            "auth": "invalid"
+        })
+        .to_string();
+        let EngineEvent::Response(authentication_response) =
+            receive_engine_message(&mut engine, &invalid_auth)
+        else {
+            panic!("expected authentication response");
+        };
+        assert!(authentication_response.contains("invalid_auth"));
+
+        let expected_frames = create_notification_frames(&pairing_response, NOTIFICATION_BYTES)
+            .unwrap()
+            .len()
+            + create_notification_frames(&authentication_response, NOTIFICATION_BYTES)
+                .unwrap()
+                .len();
+        let dispatcher = NotificationDispatcher::default();
+        dispatcher.subscribers_changed(1);
+        let submitted = Arc::new(Mutex::new(Vec::new()));
+        let worker_submitted = submitted.clone();
+        let worker = tokio::spawn(run_notification_worker(
+            dispatcher.clone(),
+            move |frame| {
+                let submitted = worker_submitted.clone();
+                async move {
+                    submitted
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .push(frame);
+                    Ok(())
+                }
+            },
+            |_| {},
+        ));
+        dispatcher.enqueue(&pairing_response).unwrap();
+        dispatcher.enqueue(&authentication_response).unwrap();
+        wait_for_frame_count(&submitted, expected_frames).await;
+        assert_eq!(
+            reassemble_messages(
+                &submitted
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+            ),
+            [pairing_response, authentication_response]
+        );
+        worker.abort();
+    }
+
+    #[test]
+    fn notification_statuses_require_at_least_one_successful_client() {
+        assert!(validate_notification_statuses([GattCommunicationStatus::Success]).is_ok());
+        assert_eq!(
+            validate_notification_statuses([]),
+            Err(NOTIFICATION_DELIVERY_ERROR.into())
+        );
+        assert_eq!(
+            validate_notification_statuses([
+                GattCommunicationStatus::Success,
+                GattCommunicationStatus::Unreachable,
+            ]),
+            Err(NOTIFICATION_DELIVERY_ERROR.into())
+        );
     }
 
     #[test]
