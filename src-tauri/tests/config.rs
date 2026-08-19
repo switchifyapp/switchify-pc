@@ -18,7 +18,7 @@ fn application_configuration_uses_the_promoted_identity() {
         serde_json::from_str(include_str!("../tauri.conf.json")).expect("valid Tauri config");
     assert_eq!(config["productName"], "Switchify PC");
     assert_eq!(config["identifier"], "com.enaboapps.switchify.pc");
-    assert_eq!(config["version"], "1.0.0-beta.7");
+    assert_eq!(config["version"], "1.0.0-beta.8");
     assert_eq!(config["app"]["windows"][0]["title"], "Switchify PC");
     assert_eq!(
         config["plugins"]["updater"]["endpoints"],
