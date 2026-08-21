@@ -333,6 +333,13 @@ pub struct DesktopCommand {
     pub response_mode: ResponseMode,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteNameUpdate {
+    pub id: String,
+    pub device_id: String,
+    pub device_name: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PointerProfile {
     pub display_id: String,
@@ -361,6 +368,7 @@ pub enum EngineEvent {
         replaced_response: Option<String>,
     },
     Response(String),
+    RemoteNameUpdate(RemoteNameUpdate),
     PointerProfile(String),
     MouseMove(MouseMoveCommand),
     MouseClick(MouseClickCommand),
@@ -549,6 +557,10 @@ impl ProtocolEngine {
         }
     }
 
+    pub fn complete_remote_name_update(&self, update: &RemoteNameUpdate) -> String {
+        ack_response(&update.id)
+    }
+
     fn process_message(&mut self, raw: &str, now_ms: i64) -> Result<EngineEvent, String> {
         let value: Value = serde_json::from_str(raw).map_err(|_| "invalid_json".to_string())?;
         let request_id = value.get("id").and_then(Value::as_str);
@@ -590,7 +602,21 @@ impl ProtocolEngine {
         };
 
         match command_type {
-            "connection.ping" => Ok(EngineEvent::Response(ack_response(&validated.id))),
+            "connection.ping" => match validated.payload.get("deviceName") {
+                None => Ok(EngineEvent::Response(ack_response(&validated.id))),
+                Some(value) => match value.as_str().and_then(normalize_remote_name) {
+                    Some(device_name) => Ok(EngineEvent::RemoteNameUpdate(RemoteNameUpdate {
+                        id: validated.id,
+                        device_id: validated.device_id,
+                        device_name,
+                    })),
+                    None => Ok(EngineEvent::Response(error_response(
+                        Some(&validated.id),
+                        "invalid_payload",
+                        "Remote name is invalid.",
+                    ))),
+                },
+            },
             "pointer.profile" => Ok(EngineEvent::PointerProfile(validated.id)),
             "mouse.move" => {
                 let Some(dx) = bounded_number(&validated.payload, "dx", MAX_POINTER_DELTA) else {
@@ -718,6 +744,8 @@ impl ProtocolEngine {
                 "pairing_mismatch",
             )));
         }
+        let device_name =
+            normalize_remote_name(&device_name).ok_or_else(|| "invalid_payload".to_string())?;
 
         let pending = PendingPairing {
             request_id: id,
@@ -1088,6 +1116,12 @@ fn required_map_string(value: &Map<String, Value>, key: &str) -> Result<String, 
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
         .ok_or_else(|| "invalid_payload".to_string())
+}
+
+fn normalize_remote_name(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty() && trimmed.chars().count() <= 40 && !trimmed.chars().any(char::is_control))
+        .then(|| trimmed.to_owned())
 }
 
 fn bounded_number(value: &Value, key: &str, maximum_magnitude: f64) -> Option<f64> {
@@ -1568,6 +1602,84 @@ mod tests {
         assert!(!is_safe_typed_text(&"😀".repeat(1_001)));
         assert!(!is_safe_typed_text("hello\0world"));
         assert!(!is_safe_typed_text("bad\u{0085}"));
+    }
+
+    #[test]
+    fn authenticated_ping_accepts_legacy_empty_payload_and_emits_valid_name_updates() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine.set_paired_token("remote-1".into(), TOKEN.into());
+
+        let mut legacy = json!({
+            "version": 1,
+            "id": "ping-legacy",
+            "deviceId": "remote-1",
+            "timestamp": NOW,
+            "type": "connection.ping",
+            "payload": {}
+        });
+        sign(&mut legacy, TOKEN, SlashEscaping::AndroidHtmlSafe);
+        let EngineEvent::Response(response) =
+            engine.process_message(&legacy.to_string(), NOW).unwrap()
+        else {
+            panic!("expected the legacy ping acknowledgement");
+        };
+        assert!(response.contains("\"type\":\"ack\""));
+
+        let mut named = json!({
+            "version": 1,
+            "id": "ping-named",
+            "deviceId": "remote-1",
+            "timestamp": NOW + 1,
+            "type": "connection.ping",
+            "payload": { "deviceName": "  Kitchen Remote 📱  " }
+        });
+        sign(&mut named, TOKEN, SlashEscaping::AndroidHtmlSafe);
+        let EngineEvent::RemoteNameUpdate(update) =
+            engine.process_message(&named.to_string(), NOW + 1).unwrap()
+        else {
+            panic!("expected a Remote name update");
+        };
+        assert_eq!(update.device_id, "remote-1");
+        assert_eq!(update.device_name, "Kitchen Remote 📱");
+        assert!(engine
+            .complete_remote_name_update(&update)
+            .contains("\"type\":\"ack\""));
+    }
+
+    #[test]
+    fn remote_names_reject_controls_and_more_than_forty_unicode_characters() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine.set_paired_token("remote-1".into(), TOKEN.into());
+        for (id, device_name) in [
+            ("ping-control", "Phone\nSpoof".to_owned()),
+            ("ping-long", "📱".repeat(41)),
+        ] {
+            let mut command = json!({
+                "version": 1,
+                "id": id,
+                "deviceId": "remote-1",
+                "timestamp": NOW,
+                "type": "connection.ping",
+                "payload": { "deviceName": device_name }
+            });
+            sign(&mut command, TOKEN, SlashEscaping::AndroidHtmlSafe);
+            let EngineEvent::Response(response) =
+                engine.process_message(&command.to_string(), NOW).unwrap()
+            else {
+                panic!("expected an invalid payload response");
+            };
+            assert!(response.contains("invalid_payload"));
+        }
+
+        let invalid_pairing = pairing_request("pair-invalid", "remote-2", "Phone\nSpoof", "nonce");
+        let EngineEvent::Response(response) = engine
+            .process_message(&invalid_pairing.to_string(), NOW)
+            .unwrap()
+        else {
+            panic!("expected an invalid pairing response");
+        };
+        assert!(response.contains("invalid_payload"));
+        assert!(engine.pending_pairings().is_empty());
     }
 
     #[test]
