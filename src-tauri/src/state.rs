@@ -469,10 +469,13 @@ impl AppModel {
                 .paired_devices
                 .iter_mut()
                 .find(|device| device.device_id == device_id)
+                .filter(|device| device.device_name == device_name)
             {
                 device.device_name = previous.0;
             }
-            data.state.connected_device_name = previous.1;
+            if data.state.connected_device_name.as_deref() == Some(device_name) {
+                data.state.connected_device_name = previous.1;
+            }
             return Err(error);
         }
         Ok(true)

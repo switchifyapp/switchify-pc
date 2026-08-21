@@ -76,7 +76,7 @@ Switchify keeps up to 500 sanitized diagnostic events locally in `diagnostic-his
 
 Support → Troubleshooting shows a compact summary of recent Bluetooth changes, the last disconnect, and recent errors. Export writes the current sanitized state, the diagnostic schema version, and the complete ordered bounded history to `switchify-diagnostics.json`.
 
-Protocol v1 clients may attach an optional `deviceName` to an authenticated `connection.ping`. Switchify updates the saved display name for that paired device without changing its device ID, token, or authorization. Empty pings from older clients remain valid, and older PC builds safely ignore the additional payload field.
+Protocol v1 clients may attach an optional `deviceName` to an authenticated `connection.ping`. Switchify updates the saved display name for that paired device without changing its device ID, token, or authorization. Empty pings from older clients remain valid, and older PC builds safely ignore the additional payload field. Persistence failures return the sanitized `name_update_failed` response so Remote can retry the name without failing authentication.
 
 Anonymous diagnostic telemetry is disabled until the user explicitly opts in. Opt-in creates an opaque installation UUID and permits best-effort health reports plus sanitized error reports; retryable error reports are bounded to 20, and opting out deletes the identifier and queue immediately. Builds expose telemetry only when `SWITCHIFY_TELEMETRY_ENDPOINT` is an HTTPS endpoint and `TIMBERLOGS_API_KEY` is supplied from release configuration. Neither value is committed to the repository. See the [privacy policy](https://switchifyapp.com/privacy).
 

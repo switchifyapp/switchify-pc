@@ -557,8 +557,16 @@ impl ProtocolEngine {
         }
     }
 
-    pub fn complete_remote_name_update(&self, update: &RemoteNameUpdate) -> String {
-        ack_response(&update.id)
+    pub fn complete_remote_name_update(&self, update: &RemoteNameUpdate, saved: bool) -> String {
+        if saved {
+            ack_response(&update.id)
+        } else {
+            error_response(
+                Some(&update.id),
+                "name_update_failed",
+                "The Remote name could not be saved.",
+            )
+        }
     }
 
     fn process_message(&mut self, raw: &str, now_ms: i64) -> Result<EngineEvent, String> {
@@ -1642,8 +1650,11 @@ mod tests {
         assert_eq!(update.device_id, "remote-1");
         assert_eq!(update.device_name, "Kitchen Remote 📱");
         assert!(engine
-            .complete_remote_name_update(&update)
+            .complete_remote_name_update(&update, true)
             .contains("\"type\":\"ack\""));
+        assert!(engine
+            .complete_remote_name_update(&update, false)
+            .contains("name_update_failed"));
     }
 
     #[test]

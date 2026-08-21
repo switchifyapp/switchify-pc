@@ -824,10 +824,10 @@ fn process_frame(
         Some(EngineEvent::RemoteNameUpdate(update)) => {
             let response = {
                 let model = app.state::<AppModel>();
-                if model
+                let saved = model
                     .apply_remote_name(&update.device_id, &update.device_name)
-                    .is_err()
-                {
+                    .unwrap_or(false);
+                if !saved {
                     set_activity(
                         shared,
                         ActivityKind::Error,
@@ -838,7 +838,7 @@ fn process_frame(
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .engine
-                    .complete_remote_name_update(&update)
+                    .complete_remote_name_update(&update, saved)
             };
             Some(response)
         }

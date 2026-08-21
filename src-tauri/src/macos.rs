@@ -721,10 +721,10 @@ impl MacRuntime {
             }
             Ok(Some(EngineEvent::RemoteNameUpdate(update))) => {
                 let model = self.app.state::<AppModel>();
-                if model
+                let saved = model
                     .apply_remote_name(&update.device_id, &update.device_name)
-                    .is_err()
-                {
+                    .unwrap_or(false);
+                if !saved {
                     set_activity(
                         &self.shared,
                         ActivityKind::Error,
@@ -736,7 +736,7 @@ impl MacRuntime {
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .engine
-                    .complete_remote_name_update(&update);
+                    .complete_remote_name_update(&update, saved);
                 if let Err(error) = self.enqueue_message(&response) {
                     self.report_error(error);
                 }
