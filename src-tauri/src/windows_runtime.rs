@@ -56,6 +56,7 @@ struct QueuedNotificationMessage {
 struct NotificationQueueState {
     generation: u64,
     subscribed: bool,
+    subscriber_count: u32,
     maximum_encoded_bytes: usize,
     queued_frames: usize,
     messages: VecDeque<QueuedNotificationMessage>,
@@ -74,6 +75,19 @@ struct NotificationDispatcher {
 
 impl NotificationDispatcher {
     fn subscribers_changed(&self, subscriber_count: u32, maximum_encoded_bytes: usize) {
+        self.update_subscribers(subscriber_count, maximum_encoded_bytes, true);
+    }
+
+    fn subscribers_refreshed(&self, subscriber_count: u32, maximum_encoded_bytes: usize) {
+        self.update_subscribers(subscriber_count, maximum_encoded_bytes, false);
+    }
+
+    fn update_subscribers(
+        &self,
+        subscriber_count: u32,
+        maximum_encoded_bytes: usize,
+        subscriber_list_changed: bool,
+    ) {
         let mut state = self
             .inner
             .state
@@ -85,7 +99,15 @@ impl NotificationDispatcher {
             if !state.subscribed {
                 state.generation = state.generation.wrapping_add(1).max(1);
                 state.subscribed = true;
+            } else if subscriber_list_changed
+                || state.subscriber_count != subscriber_count
+                || state.maximum_encoded_bytes != maximum_encoded_bytes
+            {
+                state.generation = state.generation.wrapping_add(1).max(1);
+                state.queued_frames = 0;
+                state.messages.clear();
             }
+            state.subscriber_count = subscriber_count;
             state.maximum_encoded_bytes = maximum_encoded_bytes;
         }
     }
@@ -102,12 +124,14 @@ impl NotificationDispatcher {
     fn invalidate_locked(state: &mut NotificationQueueState) {
         state.generation = state.generation.wrapping_add(1).max(1);
         state.subscribed = false;
+        state.subscriber_count = 0;
+        state.maximum_encoded_bytes = 0;
         state.queued_frames = 0;
         state.messages.clear();
     }
 
     fn enqueue(&self, message: &str) -> Result<(), String> {
-        let maximum_encoded_bytes = {
+        let (generation, maximum_encoded_bytes) = {
             let state = self
                 .inner
                 .state
@@ -116,13 +140,22 @@ impl NotificationDispatcher {
             if !state.subscribed {
                 return Err("No Android device is subscribed for notifications.".into());
             }
-            state.maximum_encoded_bytes
+            (state.generation, state.maximum_encoded_bytes)
         };
         let frames = create_notification_frames(message, maximum_encoded_bytes)?;
-        self.enqueue_frames(frames)
+        self.enqueue_frames_for(Some((generation, maximum_encoded_bytes)), frames)
     }
 
+    #[cfg(test)]
     fn enqueue_frames(&self, frames: Vec<Vec<u8>>) -> Result<(), String> {
+        self.enqueue_frames_for(None, frames)
+    }
+
+    fn enqueue_frames_for(
+        &self,
+        expected_delivery: Option<(u64, usize)>,
+        frames: Vec<Vec<u8>>,
+    ) -> Result<(), String> {
         let mut state = self
             .inner
             .state
@@ -130,6 +163,11 @@ impl NotificationDispatcher {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if !state.subscribed {
             return Err("No Android device is subscribed for notifications.".into());
+        }
+        if expected_delivery.is_some_and(|(generation, maximum_encoded_bytes)| {
+            state.generation != generation || state.maximum_encoded_bytes != maximum_encoded_bytes
+        }) {
+            return Err("Bluetooth notification subscription changed.".into());
         }
         // Keep the normal backlog at 512 frames, but always admit one otherwise-valid
         // protocol message when the queue is empty. At the 160-byte fallback limit, a
@@ -203,6 +241,7 @@ fn select_notification_bytes(
 fn refresh_notification_subscription(
     tx: &GattLocalCharacteristic,
     notifications: &NotificationDispatcher,
+    subscriber_list_changed: bool,
 ) -> Result<u32, String> {
     let clients = tx.SubscribedClients().map_err(|error| error.to_string())?;
     let subscriber_count = clients.Size().map_err(|error| error.to_string())?;
@@ -215,7 +254,11 @@ fn refresh_notification_subscription(
         limits.push(limit);
     }
     let maximum_encoded_bytes = select_notification_bytes(limits).unwrap_or(NOTIFICATION_BYTES);
-    notifications.subscribers_changed(subscriber_count, maximum_encoded_bytes);
+    if subscriber_list_changed {
+        notifications.subscribers_changed(subscriber_count, maximum_encoded_bytes);
+    } else {
+        notifications.subscribers_refreshed(subscriber_count, maximum_encoded_bytes);
+    }
     Ok(subscriber_count)
 }
 
@@ -507,7 +550,7 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     tx.SubscribedClientsChanged(
         &TypedEventHandler::<GattLocalCharacteristic, IInspectable>::new(move |sender, _| {
             let subscriber_count = sender.as_ref().and_then(|value| {
-                refresh_notification_subscription(value, &subscribe_notifications).ok()
+                refresh_notification_subscription(value, &subscribe_notifications, true).ok()
             });
             let Some(subscriber_count) = subscriber_count else {
                 eprintln!(
@@ -1335,7 +1378,7 @@ fn notify(message: String) -> Result<(), String> {
             .ok_or_else(|| "Bluetooth runtime is not ready.".to_string())?;
         (runtime._tx.clone(), runtime.notifications.clone())
     };
-    refresh_notification_subscription(&tx, &notifications)?;
+    refresh_notification_subscription(&tx, &notifications, false)?;
     notifications.enqueue(&message)
 }
 
@@ -1607,6 +1650,46 @@ mod tests {
         let narrow = dispatcher.next_message().await.frames;
         assert!(narrow.iter().all(|frame| frame.len() <= 247));
         assert!(narrow.len() > wide.len());
+    }
+
+    #[test]
+    fn subscriber_change_rejects_frames_built_for_the_previous_limit() {
+        let dispatcher = NotificationDispatcher::default();
+        dispatcher.subscribers_changed(1, 514);
+        let (generation, maximum_encoded_bytes) = {
+            let state = dispatcher
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            (state.generation, state.maximum_encoded_bytes)
+        };
+        let frames = create_notification_frames(&"pointer-profile".repeat(80), 514).unwrap();
+
+        dispatcher.subscribers_changed(2, 247);
+
+        assert_eq!(
+            dispatcher.enqueue_frames_for(Some((generation, maximum_encoded_bytes)), frames),
+            Err("Bluetooth notification subscription changed.".into())
+        );
+        assert!(!dispatcher.is_current(generation));
+        assert_eq!(dispatcher.queued_frames(), 0);
+    }
+
+    #[test]
+    fn unchanged_preflight_refresh_preserves_the_current_generation() {
+        let dispatcher = NotificationDispatcher::default();
+        dispatcher.subscribers_changed(1, 514);
+        let generation = dispatcher
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .generation;
+
+        dispatcher.subscribers_refreshed(1, 514);
+
+        assert!(dispatcher.is_current(generation));
     }
 
     #[tokio::test]
