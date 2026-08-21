@@ -56,6 +56,8 @@ struct QueuedNotificationMessage {
 struct NotificationQueueState {
     generation: u64,
     subscribed: bool,
+    subscriber_count: u32,
+    maximum_encoded_bytes: usize,
     queued_frames: usize,
     messages: VecDeque<QueuedNotificationMessage>,
 }
@@ -72,7 +74,20 @@ struct NotificationDispatcher {
 }
 
 impl NotificationDispatcher {
-    fn subscribers_changed(&self, subscriber_count: u32) {
+    fn subscribers_changed(&self, subscriber_count: u32, maximum_encoded_bytes: usize) {
+        self.update_subscribers(subscriber_count, maximum_encoded_bytes, true);
+    }
+
+    fn subscribers_refreshed(&self, subscriber_count: u32, maximum_encoded_bytes: usize) {
+        self.update_subscribers(subscriber_count, maximum_encoded_bytes, false);
+    }
+
+    fn update_subscribers(
+        &self,
+        subscriber_count: u32,
+        maximum_encoded_bytes: usize,
+        subscriber_list_changed: bool,
+    ) {
         let mut state = self
             .inner
             .state
@@ -80,9 +95,20 @@ impl NotificationDispatcher {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if subscriber_count == 0 {
             Self::invalidate_locked(&mut state);
-        } else if !state.subscribed {
-            state.generation = state.generation.wrapping_add(1).max(1);
-            state.subscribed = true;
+        } else {
+            if !state.subscribed {
+                state.generation = state.generation.wrapping_add(1).max(1);
+                state.subscribed = true;
+            } else if subscriber_list_changed
+                || state.subscriber_count != subscriber_count
+                || state.maximum_encoded_bytes != maximum_encoded_bytes
+            {
+                state.generation = state.generation.wrapping_add(1).max(1);
+                state.queued_frames = 0;
+                state.messages.clear();
+            }
+            state.subscriber_count = subscriber_count;
+            state.maximum_encoded_bytes = maximum_encoded_bytes;
         }
     }
 
@@ -98,16 +124,38 @@ impl NotificationDispatcher {
     fn invalidate_locked(state: &mut NotificationQueueState) {
         state.generation = state.generation.wrapping_add(1).max(1);
         state.subscribed = false;
+        state.subscriber_count = 0;
+        state.maximum_encoded_bytes = 0;
         state.queued_frames = 0;
         state.messages.clear();
     }
 
     fn enqueue(&self, message: &str) -> Result<(), String> {
-        let frames = create_notification_frames(message, NOTIFICATION_BYTES)?;
-        self.enqueue_frames(frames)
+        let (generation, maximum_encoded_bytes) = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if !state.subscribed {
+                return Err("No Android device is subscribed for notifications.".into());
+            }
+            (state.generation, state.maximum_encoded_bytes)
+        };
+        let frames = create_notification_frames(message, maximum_encoded_bytes)?;
+        self.enqueue_frames_for(Some((generation, maximum_encoded_bytes)), frames)
     }
 
+    #[cfg(test)]
     fn enqueue_frames(&self, frames: Vec<Vec<u8>>) -> Result<(), String> {
+        self.enqueue_frames_for(None, frames)
+    }
+
+    fn enqueue_frames_for(
+        &self,
+        expected_delivery: Option<(u64, usize)>,
+        frames: Vec<Vec<u8>>,
+    ) -> Result<(), String> {
         let mut state = self
             .inner
             .state
@@ -116,8 +164,13 @@ impl NotificationDispatcher {
         if !state.subscribed {
             return Err("No Android device is subscribed for notifications.".into());
         }
+        if expected_delivery.is_some_and(|(generation, maximum_encoded_bytes)| {
+            state.generation != generation || state.maximum_encoded_bytes != maximum_encoded_bytes
+        }) {
+            return Err("Bluetooth notification subscription changed.".into());
+        }
         // Keep the normal backlog at 512 frames, but always admit one otherwise-valid
-        // protocol message when the queue is empty. At the 160-byte Windows limit, a
+        // protocol message when the queue is empty. At the 160-byte fallback limit, a
         // maximum-size protocol message itself can require more than 512 frames.
         let admission_limit = MAX_QUEUED_NOTIFICATION_FRAMES.max(frames.len());
         if state.queued_frames + frames.len() > admission_limit {
@@ -171,6 +224,42 @@ impl NotificationDispatcher {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .queued_frames
     }
+}
+
+fn select_notification_bytes(
+    subscriber_limits: impl IntoIterator<Item = Option<u16>>,
+) -> Option<usize> {
+    subscriber_limits
+        .into_iter()
+        .map(|limit| match limit {
+            Some(limit) if limit > 0 => usize::from(limit),
+            _ => NOTIFICATION_BYTES,
+        })
+        .min()
+}
+
+fn refresh_notification_subscription(
+    tx: &GattLocalCharacteristic,
+    notifications: &NotificationDispatcher,
+    subscriber_list_changed: bool,
+) -> Result<u32, String> {
+    let clients = tx.SubscribedClients().map_err(|error| error.to_string())?;
+    let subscriber_count = clients.Size().map_err(|error| error.to_string())?;
+    let mut limits = Vec::with_capacity(subscriber_count as usize);
+    for index in 0..subscriber_count {
+        let limit = clients
+            .GetAt(index)
+            .ok()
+            .and_then(|client| client.MaxNotificationSize().ok());
+        limits.push(limit);
+    }
+    let maximum_encoded_bytes = select_notification_bytes(limits).unwrap_or(NOTIFICATION_BYTES);
+    if subscriber_list_changed {
+        notifications.subscribers_changed(subscriber_count, maximum_encoded_bytes);
+    } else {
+        notifications.subscribers_refreshed(subscriber_count, maximum_encoded_bytes);
+    }
+    Ok(subscriber_count)
 }
 
 async fn run_notification_worker<SendFrame, SendFuture, ReportError>(
@@ -460,17 +549,15 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     let subscribe_notifications = notifications.clone();
     tx.SubscribedClientsChanged(
         &TypedEventHandler::<GattLocalCharacteristic, IInspectable>::new(move |sender, _| {
-            let subscriber_count = sender
-                .as_ref()
-                .and_then(|value| value.SubscribedClients().ok())
-                .and_then(|clients| clients.Size().ok());
+            let subscriber_count = sender.as_ref().and_then(|value| {
+                refresh_notification_subscription(value, &subscribe_notifications, true).ok()
+            });
             let Some(subscriber_count) = subscriber_count else {
                 eprintln!(
                     "Switchify BLE subscriber count was unavailable; preserving connection state."
                 );
                 return Ok(());
             };
-            subscribe_notifications.subscribers_changed(subscriber_count);
             let connected = subscriber_count > 0;
             let cancelled = {
                 let mut model = subscribe_shared
@@ -1282,12 +1369,16 @@ fn fallback_pointer_profile() -> PointerProfile {
 }
 
 fn notify(message: String) -> Result<(), String> {
-    let notifications = runtime()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .as_ref()
-        .map(|runtime| runtime.notifications.clone())
-        .ok_or_else(|| "Bluetooth runtime is not ready.".to_string())?;
+    let (tx, notifications) = {
+        let guard = runtime()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let runtime = guard
+            .as_ref()
+            .ok_or_else(|| "Bluetooth runtime is not ready.".to_string())?;
+        (runtime._tx.clone(), runtime.notifications.clone())
+    };
+    refresh_notification_subscription(&tx, &notifications, false)?;
     notifications.enqueue(&message)
 }
 
@@ -1425,10 +1516,10 @@ fn release_input_session() {
 #[cfg(test)]
 mod tests {
     use super::{
-        pointer_profile_for_display, run_notification_worker, should_cancel_pending_pairings,
-        tasklist_has_other_switchify_process, validate_notification_statuses,
-        NotificationDispatcher, MAX_QUEUED_NOTIFICATION_FRAMES, NOTIFICATION_BYTES,
-        NOTIFICATION_DELIVERY_ERROR,
+        pointer_profile_for_display, run_notification_worker, select_notification_bytes,
+        should_cancel_pending_pairings, tasklist_has_other_switchify_process,
+        validate_notification_statuses, NotificationDispatcher, MAX_QUEUED_NOTIFICATION_FRAMES,
+        NOTIFICATION_BYTES, NOTIFICATION_DELIVERY_ERROR,
     };
     use crate::display_navigation::Display;
     use crate::input::AndroidTypingRoute;
@@ -1523,10 +1614,88 @@ mod tests {
         assert!(!should_cancel_pending_pairings(None));
     }
 
+    #[test]
+    fn notification_size_uses_the_smallest_current_subscriber_limit() {
+        assert_eq!(select_notification_bytes([Some(514)]), Some(514));
+        assert_eq!(
+            select_notification_bytes([Some(514), Some(247), Some(380)]),
+            Some(247)
+        );
+        assert_eq!(select_notification_bytes([Some(514), None]), Some(160));
+        assert_eq!(select_notification_bytes([Some(0)]), Some(160));
+        assert_eq!(select_notification_bytes([]), None);
+    }
+
+    #[test]
+    fn notification_queue_rejects_messages_without_a_subscriber() {
+        let dispatcher = NotificationDispatcher::default();
+        assert_eq!(
+            dispatcher.enqueue("response"),
+            Err("No Android device is subscribed for notifications.".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn notification_queue_uses_the_latest_reported_limit_for_each_message() {
+        let dispatcher = NotificationDispatcher::default();
+        let message = "pointer-profile".repeat(80);
+
+        dispatcher.subscribers_changed(1, 514);
+        dispatcher.enqueue(&message).unwrap();
+        let wide = dispatcher.next_message().await.frames;
+        assert!(wide.iter().all(|frame| frame.len() <= 514));
+
+        dispatcher.subscribers_changed(1, 247);
+        dispatcher.enqueue(&message).unwrap();
+        let narrow = dispatcher.next_message().await.frames;
+        assert!(narrow.iter().all(|frame| frame.len() <= 247));
+        assert!(narrow.len() > wide.len());
+    }
+
+    #[test]
+    fn subscriber_change_rejects_frames_built_for_the_previous_limit() {
+        let dispatcher = NotificationDispatcher::default();
+        dispatcher.subscribers_changed(1, 514);
+        let (generation, maximum_encoded_bytes) = {
+            let state = dispatcher
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            (state.generation, state.maximum_encoded_bytes)
+        };
+        let frames = create_notification_frames(&"pointer-profile".repeat(80), 514).unwrap();
+
+        dispatcher.subscribers_changed(2, 247);
+
+        assert_eq!(
+            dispatcher.enqueue_frames_for(Some((generation, maximum_encoded_bytes)), frames),
+            Err("Bluetooth notification subscription changed.".into())
+        );
+        assert!(!dispatcher.is_current(generation));
+        assert_eq!(dispatcher.queued_frames(), 0);
+    }
+
+    #[test]
+    fn unchanged_preflight_refresh_preserves_the_current_generation() {
+        let dispatcher = NotificationDispatcher::default();
+        dispatcher.subscribers_changed(1, 514);
+        let generation = dispatcher
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .generation;
+
+        dispatcher.subscribers_refreshed(1, 514);
+
+        assert!(dispatcher.is_current(generation));
+    }
+
     #[tokio::test]
     async fn notification_worker_awaits_each_frame_before_submitting_the_next() {
         let dispatcher = NotificationDispatcher::default();
-        dispatcher.subscribers_changed(1);
+        dispatcher.subscribers_changed(1, NOTIFICATION_BYTES);
         let message = "pointer-profile".repeat(80);
         let expected = create_notification_frames(&message, NOTIFICATION_BYTES).unwrap();
         assert!(expected.len() > 1);
@@ -1587,7 +1756,7 @@ mod tests {
     #[tokio::test]
     async fn concurrent_notification_messages_never_interleave_frames() {
         let dispatcher = NotificationDispatcher::default();
-        dispatcher.subscribers_changed(1);
+        dispatcher.subscribers_changed(1, NOTIFICATION_BYTES);
         let left = "left-response".repeat(70);
         let right = "right-response".repeat(70);
         let expected_frames = create_notification_frames(&left, NOTIFICATION_BYTES)
@@ -1671,7 +1840,7 @@ mod tests {
             .len();
         assert!(expected_frames > 1);
         let dispatcher = NotificationDispatcher::default();
-        dispatcher.subscribers_changed(1);
+        dispatcher.subscribers_changed(1, NOTIFICATION_BYTES);
         let submitted = Arc::new(Mutex::new(Vec::new()));
         let worker_submitted = submitted.clone();
         let worker = tokio::spawn(run_notification_worker(
@@ -1703,12 +1872,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn negotiated_profile_delivery_finishes_inside_remote_timeout() {
+        let profile = PointerProfile {
+            display_id: "display-1".into(),
+            scale_factor: 1.5,
+            x: -1280,
+            y: 0,
+            width: 2560,
+            height: 1440,
+            small_delta: 32,
+            medium_delta: 86,
+            large_delta: 187,
+            display_navigation_supported: true,
+            display_count: 3,
+        };
+        let response = pointer_profile_response("profile-1", &profile, &AppSettings::default());
+        let legacy_frames = create_notification_frames(&response, NOTIFICATION_BYTES).unwrap();
+        let negotiated_frames = create_notification_frames(&response, 514).unwrap();
+        assert!(negotiated_frames.len() * 2 < legacy_frames.len());
+        assert!(negotiated_frames.iter().all(|frame| frame.len() <= 514));
+
+        let dispatcher = NotificationDispatcher::default();
+        dispatcher.subscribers_changed(1, 514);
+        let submitted = Arc::new(Mutex::new(Vec::new()));
+        let worker_submitted = submitted.clone();
+        let worker = tokio::spawn(run_notification_worker(
+            dispatcher.clone(),
+            move |frame| {
+                let submitted = worker_submitted.clone();
+                async move {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    submitted
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .push(frame);
+                    Ok(())
+                }
+            },
+            |_| {},
+        ));
+
+        dispatcher.enqueue(&response).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            wait_for_frame_count(&submitted, negotiated_frames.len()).await;
+        })
+        .await
+        .expect("profile delivery exceeded Remote's timeout");
+        assert_eq!(
+            reassemble_messages(
+                &submitted
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+            ),
+            [response]
+        );
+        worker.abort();
+    }
+
+    #[tokio::test]
     async fn notification_failure_drops_only_the_current_message_remainder() {
         let failed_message = "failed-response".repeat(70);
         let next_message = json!({"type": "response", "ok": true}).to_string();
         let next_frames = create_notification_frames(&next_message, NOTIFICATION_BYTES).unwrap();
         let dispatcher = NotificationDispatcher::default();
-        dispatcher.subscribers_changed(1);
+        dispatcher.subscribers_changed(1, NOTIFICATION_BYTES);
         let submitted = Arc::new(Mutex::new(Vec::new()));
         let errors = Arc::new(Mutex::new(Vec::new()));
         let attempts = Arc::new(Mutex::new(0_usize));
@@ -1765,7 +1992,7 @@ mod tests {
     #[test]
     fn notification_queue_capacity_rejects_whole_messages_atomically() {
         let dispatcher = NotificationDispatcher::default();
-        dispatcher.subscribers_changed(1);
+        dispatcher.subscribers_changed(1, NOTIFICATION_BYTES);
         dispatcher
             .enqueue_frames(vec![vec![0]; MAX_QUEUED_NOTIFICATION_FRAMES])
             .unwrap();
@@ -1779,7 +2006,7 @@ mod tests {
     #[test]
     fn notification_queue_always_admits_one_maximum_size_protocol_message() {
         let dispatcher = NotificationDispatcher::default();
-        dispatcher.subscribers_changed(1);
+        dispatcher.subscribers_changed(1, NOTIFICATION_BYTES);
         let message = "x".repeat(crate::protocol::MAX_MESSAGE_BYTES);
         let frames = create_notification_frames(&message, NOTIFICATION_BYTES).unwrap();
         assert!(frames.len() > MAX_QUEUED_NOTIFICATION_FRAMES);
@@ -1801,7 +2028,7 @@ mod tests {
         let replacement_frames =
             create_notification_frames(&replacement_message, NOTIFICATION_BYTES).unwrap();
         let dispatcher = NotificationDispatcher::default();
-        dispatcher.subscribers_changed(1);
+        dispatcher.subscribers_changed(1, NOTIFICATION_BYTES);
         let submitted = Arc::new(Mutex::new(Vec::new()));
         let (release_tx, release_rx) = oneshot::channel();
         let first_gate = Arc::new(Mutex::new(Some(release_rx)));
@@ -1840,7 +2067,7 @@ mod tests {
         wait_for_frame_count(&submitted, 1).await;
         dispatcher.disconnect();
         assert!(dispatcher.enqueue("disconnected").is_err());
-        dispatcher.subscribers_changed(1);
+        dispatcher.subscribers_changed(1, NOTIFICATION_BYTES);
         dispatcher.enqueue(&replacement_message).unwrap();
         release_tx.send(()).unwrap();
         wait_for_frame_count(&submitted, 1 + replacement_frames.len()).await;
@@ -1899,7 +2126,7 @@ mod tests {
                 .unwrap()
                 .len();
         let dispatcher = NotificationDispatcher::default();
-        dispatcher.subscribers_changed(1);
+        dispatcher.subscribers_changed(1, NOTIFICATION_BYTES);
         let submitted = Arc::new(Mutex::new(Vec::new()));
         let worker_submitted = submitted.clone();
         let worker = tokio::spawn(run_notification_worker(
