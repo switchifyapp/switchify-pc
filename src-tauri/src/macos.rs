@@ -719,6 +719,29 @@ impl MacRuntime {
                     self.report_error(error);
                 }
             }
+            Ok(Some(EngineEvent::RemoteNameUpdate(update))) => {
+                let model = self.app.state::<AppModel>();
+                let saved = model
+                    .apply_remote_name(&update.device_id, &update.device_name)
+                    .unwrap_or(false);
+                if !saved {
+                    set_activity(
+                        &self.shared,
+                        ActivityKind::Error,
+                        "The Remote name could not be saved.",
+                    );
+                }
+                let response = self
+                    .shared
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .engine
+                    .complete_remote_name_update(&update, saved);
+                if let Err(error) = self.enqueue_message(&response) {
+                    self.report_error(error);
+                }
+                emit_state(&self.app, &self.shared);
+            }
             Ok(Some(EngineEvent::PointerProfile(id))) => self.handle_pointer_profile(&id),
             Ok(Some(EngineEvent::MouseMove(command))) => self.handle_mouse_move(command),
             Ok(Some(EngineEvent::MouseClick(command))) => self.handle_mouse_click(command),

@@ -821,6 +821,27 @@ fn process_frame(
             replaced_response
         }
         Some(EngineEvent::Response(response)) => Some(response),
+        Some(EngineEvent::RemoteNameUpdate(update)) => {
+            let response = {
+                let model = app.state::<AppModel>();
+                let saved = model
+                    .apply_remote_name(&update.device_id, &update.device_name)
+                    .unwrap_or(false);
+                if !saved {
+                    set_activity(
+                        shared,
+                        ActivityKind::Error,
+                        "The Remote name could not be saved.",
+                    );
+                }
+                shared
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .engine
+                    .complete_remote_name_update(&update, saved)
+            };
+            Some(response)
+        }
         Some(EngineEvent::PointerProfile(id)) => {
             let settings = shared
                 .lock()
