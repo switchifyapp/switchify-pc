@@ -719,16 +719,21 @@ impl MacRuntime {
                     self.report_error(error);
                 }
             }
-            Ok(Some(EngineEvent::RemoteNameUpdate(update))) => {
+            Ok(Some(EngineEvent::AuthenticatedConnection(connection))) => {
                 let model = self.app.state::<AppModel>();
                 let saved = model
-                    .apply_remote_name(&update.device_id, &update.device_name)
+                    .record_authenticated_connection(
+                        &connection.device_id,
+                        connection.device_name.as_deref(),
+                        connection.connected_at,
+                        connection.received_order,
+                    )
                     .unwrap_or(false);
                 if !saved {
                     set_activity(
                         &self.shared,
                         ActivityKind::Error,
-                        "The Remote name could not be saved.",
+                        "The device connection details could not be saved.",
                     );
                 }
                 let response = self
@@ -736,7 +741,7 @@ impl MacRuntime {
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .engine
-                    .complete_remote_name_update(&update, saved);
+                    .complete_authenticated_connection(&connection, saved);
                 if let Err(error) = self.enqueue_message(&response) {
                     self.report_error(error);
                 }

@@ -334,10 +334,12 @@ pub struct DesktopCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RemoteNameUpdate {
+pub struct AuthenticatedConnection {
     pub id: String,
     pub device_id: String,
-    pub device_name: String,
+    pub device_name: Option<String>,
+    pub connected_at: i64,
+    pub received_order: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -368,7 +370,7 @@ pub enum EngineEvent {
         replaced_response: Option<String>,
     },
     Response(String),
-    RemoteNameUpdate(RemoteNameUpdate),
+    AuthenticatedConnection(AuthenticatedConnection),
     PointerProfile(String),
     MouseMove(MouseMoveCommand),
     MouseClick(MouseClickCommand),
@@ -383,6 +385,7 @@ pub struct ProtocolEngine {
     pending_pairings: HashMap<String, PendingPairing>,
     tokens: HashMap<String, String>,
     replay_cache: HashMap<String, i64>,
+    connection_order: u64,
 }
 
 impl ProtocolEngine {
@@ -393,6 +396,7 @@ impl ProtocolEngine {
             pending_pairings: HashMap::new(),
             tokens: HashMap::new(),
             replay_cache: HashMap::new(),
+            connection_order: 0,
         }
     }
 
@@ -557,12 +561,16 @@ impl ProtocolEngine {
         }
     }
 
-    pub fn complete_remote_name_update(&self, update: &RemoteNameUpdate, saved: bool) -> String {
-        if saved {
-            ack_response(&update.id)
+    pub fn complete_authenticated_connection(
+        &self,
+        connection: &AuthenticatedConnection,
+        saved: bool,
+    ) -> String {
+        if saved || connection.device_name.is_none() {
+            ack_response(&connection.id)
         } else {
             error_response(
-                Some(&update.id),
+                Some(&connection.id),
                 "name_update_failed",
                 "The Remote name could not be saved.",
             )
@@ -610,21 +618,31 @@ impl ProtocolEngine {
         };
 
         match command_type {
-            "connection.ping" => match validated.payload.get("deviceName") {
-                None => Ok(EngineEvent::Response(ack_response(&validated.id))),
-                Some(value) => match value.as_str().and_then(normalize_remote_name) {
-                    Some(device_name) => Ok(EngineEvent::RemoteNameUpdate(RemoteNameUpdate {
+            "connection.ping" => {
+                let device_name = match validated.payload.get("deviceName") {
+                    None => None,
+                    Some(value) => match value.as_str().and_then(normalize_remote_name) {
+                        Some(device_name) => Some(device_name),
+                        None => {
+                            return Ok(EngineEvent::Response(error_response(
+                                Some(&validated.id),
+                                "invalid_payload",
+                                "Remote name is invalid.",
+                            )))
+                        }
+                    },
+                };
+                self.connection_order = self.connection_order.saturating_add(1);
+                Ok(EngineEvent::AuthenticatedConnection(
+                    AuthenticatedConnection {
                         id: validated.id,
                         device_id: validated.device_id,
                         device_name,
-                    })),
-                    None => Ok(EngineEvent::Response(error_response(
-                        Some(&validated.id),
-                        "invalid_payload",
-                        "Remote name is invalid.",
-                    ))),
-                },
-            },
+                        connected_at: now_ms,
+                        received_order: self.connection_order,
+                    },
+                ))
+            }
             "pointer.profile" => Ok(EngineEvent::PointerProfile(validated.id)),
             "mouse.move" => {
                 let Some(dx) = bounded_number(&validated.payload, "dx", MAX_POINTER_DELTA) else {
@@ -1613,7 +1631,7 @@ mod tests {
     }
 
     #[test]
-    fn authenticated_ping_accepts_legacy_empty_payload_and_emits_valid_name_updates() {
+    fn authenticated_ping_emits_connection_events_for_legacy_and_named_payloads() {
         let mut engine = ProtocolEngine::new("desktop-1".into());
         engine.set_paired_token("remote-1".into(), TOKEN.into());
 
@@ -1626,12 +1644,18 @@ mod tests {
             "payload": {}
         });
         sign(&mut legacy, TOKEN, SlashEscaping::AndroidHtmlSafe);
-        let EngineEvent::Response(response) =
+        let EngineEvent::AuthenticatedConnection(legacy_connection) =
             engine.process_message(&legacy.to_string(), NOW).unwrap()
         else {
-            panic!("expected the legacy ping acknowledgement");
+            panic!("expected an authenticated connection");
         };
-        assert!(response.contains("\"type\":\"ack\""));
+        assert_eq!(legacy_connection.device_id, "remote-1");
+        assert_eq!(legacy_connection.device_name, None);
+        assert_eq!(legacy_connection.connected_at, NOW);
+        assert_eq!(legacy_connection.received_order, 1);
+        assert!(engine
+            .complete_authenticated_connection(&legacy_connection, false)
+            .contains("\"type\":\"ack\""));
 
         let mut named = json!({
             "version": 1,
@@ -1642,18 +1666,20 @@ mod tests {
             "payload": { "deviceName": "  Kitchen Remote 📱  " }
         });
         sign(&mut named, TOKEN, SlashEscaping::AndroidHtmlSafe);
-        let EngineEvent::RemoteNameUpdate(update) =
+        let EngineEvent::AuthenticatedConnection(connection) =
             engine.process_message(&named.to_string(), NOW + 1).unwrap()
         else {
-            panic!("expected a Remote name update");
+            panic!("expected an authenticated connection");
         };
-        assert_eq!(update.device_id, "remote-1");
-        assert_eq!(update.device_name, "Kitchen Remote 📱");
+        assert_eq!(connection.device_id, "remote-1");
+        assert_eq!(connection.device_name.as_deref(), Some("Kitchen Remote 📱"));
+        assert_eq!(connection.connected_at, NOW + 1);
+        assert_eq!(connection.received_order, 2);
         assert!(engine
-            .complete_remote_name_update(&update, true)
+            .complete_authenticated_connection(&connection, true)
             .contains("\"type\":\"ack\""));
         assert!(engine
-            .complete_remote_name_update(&update, false)
+            .complete_authenticated_connection(&connection, false)
             .contains("name_update_failed"));
     }
 
