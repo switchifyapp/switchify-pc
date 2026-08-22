@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -312,6 +313,7 @@ pub struct AppModel {
     pub telemetry: TelemetryService,
     emission_lock: Mutex<()>,
     persistence_lock: Mutex<()>,
+    connection_orders: Mutex<HashMap<String, u64>>,
     preserved_paired_devices: Vec<PairedDeviceView>,
 }
 
@@ -405,6 +407,7 @@ impl AppModel {
             telemetry,
             emission_lock: Mutex::new(()),
             persistence_lock: Mutex::new(()),
+            connection_orders: Mutex::new(HashMap::new()),
             preserved_paired_devices,
         };
         let _ = model.persist();
@@ -439,6 +442,7 @@ impl AppModel {
         device_id: &str,
         device_name: Option<&str>,
         connected_at: i64,
+        received_order: u64,
     ) -> Result<bool, String> {
         let _transaction = self
             .persistence_lock
@@ -452,6 +456,15 @@ impl AppModel {
         else {
             return Ok(false);
         };
+        if self
+            .connection_orders
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(device_id)
+            .is_some_and(|latest_order| *latest_order > received_order)
+        {
+            return Ok(true);
+        }
         candidate_device.last_seen_at = Some(connected_at);
         if let Some(device_name) = device_name {
             candidate_device.device_name = device_name.to_owned();
@@ -478,6 +491,10 @@ impl AppModel {
                 data.state.connected_device_name = Some(device_name.to_owned());
             }
         }
+        self.connection_orders
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(device_id.to_owned(), received_order);
         Ok(true)
     }
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
@@ -931,7 +948,7 @@ mod tests {
         model.persist().unwrap();
 
         assert!(model
-            .record_authenticated_connection(&device_id, Some("Kitchen Remote"), 42)
+            .record_authenticated_connection(&device_id, Some("Kitchen Remote"), 42, 1)
             .unwrap());
         let state = model.snapshot();
         assert_eq!(state.paired_devices[0].device_name, "Kitchen Remote");
@@ -942,13 +959,13 @@ mod tests {
         );
 
         assert!(model
-            .record_authenticated_connection(&device_id, None, 99)
+            .record_authenticated_connection(&device_id, None, 99, 2)
             .unwrap());
         let state = model.snapshot();
         assert_eq!(state.paired_devices[0].device_name, "Kitchen Remote");
         assert_eq!(state.paired_devices[0].last_seen_at, Some(99));
         assert!(!model
-            .record_authenticated_connection("missing", None, 100)
+            .record_authenticated_connection("missing", None, 100, 3)
             .unwrap());
 
         model
@@ -984,12 +1001,54 @@ mod tests {
         fs::create_dir(&state_path).unwrap();
 
         assert!(model
-            .record_authenticated_connection("remote-1", Some("New name"), 42)
+            .record_authenticated_connection("remote-1", Some("New name"), 42, 1)
             .is_err());
         let state = model.snapshot();
         assert_eq!(state.paired_devices[0].device_name, "Old name");
         assert_eq!(state.paired_devices[0].last_seen_at, Some(7));
         assert_eq!(state.connected_device_name.as_deref(), Some("Old name"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn stale_authenticated_connection_cannot_replace_newer_metadata() {
+        let root =
+            std::env::temp_dir().join(format!("switchify-stale-connection-{}", Uuid::new_v4()));
+        let state_path = root.join("state.json");
+        let model = Arc::new(AppModel::with_storage_for_test(AppStorage::at(state_path)));
+        {
+            let mut data = model.shared.lock().unwrap();
+            data.state.paired_devices.push(PairedDeviceView {
+                device_id: "remote-1".into(),
+                device_name: "Original name".into(),
+                paired_at: 1,
+                last_seen_at: None,
+            });
+        }
+        model.persist().unwrap();
+
+        let (parsed_tx, parsed_rx) = mpsc::channel();
+        let (continue_tx, continue_rx) = mpsc::channel();
+        let older_model = model.clone();
+        let older = thread::spawn(move || {
+            parsed_tx.send(()).unwrap();
+            continue_rx.recv().unwrap();
+            older_model.record_authenticated_connection("remote-1", Some("Stale name"), 42, 1)
+        });
+
+        parsed_rx.recv().unwrap();
+        assert!(model
+            .record_authenticated_connection("remote-1", Some("Current name"), 99, 2)
+            .unwrap());
+        continue_tx.send(()).unwrap();
+        assert!(older.join().unwrap().unwrap());
+
+        let state = model.snapshot();
+        assert_eq!(state.paired_devices[0].device_name, "Current name");
+        assert_eq!(state.paired_devices[0].last_seen_at, Some(99));
+        let stored = model.storage.load().unwrap();
+        assert_eq!(stored.paired_devices[0].device_name, "Current name");
+        assert_eq!(stored.paired_devices[0].last_seen_at, Some(99));
         let _ = fs::remove_dir_all(root);
     }
 

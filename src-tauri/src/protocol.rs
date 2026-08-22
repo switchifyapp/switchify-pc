@@ -339,6 +339,7 @@ pub struct AuthenticatedConnection {
     pub device_id: String,
     pub device_name: Option<String>,
     pub connected_at: i64,
+    pub received_order: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -384,6 +385,7 @@ pub struct ProtocolEngine {
     pending_pairings: HashMap<String, PendingPairing>,
     tokens: HashMap<String, String>,
     replay_cache: HashMap<String, i64>,
+    connection_order: u64,
 }
 
 impl ProtocolEngine {
@@ -394,6 +396,7 @@ impl ProtocolEngine {
             pending_pairings: HashMap::new(),
             tokens: HashMap::new(),
             replay_cache: HashMap::new(),
+            connection_order: 0,
         }
     }
 
@@ -615,31 +618,31 @@ impl ProtocolEngine {
         };
 
         match command_type {
-            "connection.ping" => match validated.payload.get("deviceName") {
-                None => Ok(EngineEvent::AuthenticatedConnection(
+            "connection.ping" => {
+                let device_name = match validated.payload.get("deviceName") {
+                    None => None,
+                    Some(value) => match value.as_str().and_then(normalize_remote_name) {
+                        Some(device_name) => Some(device_name),
+                        None => {
+                            return Ok(EngineEvent::Response(error_response(
+                                Some(&validated.id),
+                                "invalid_payload",
+                                "Remote name is invalid.",
+                            )))
+                        }
+                    },
+                };
+                self.connection_order = self.connection_order.saturating_add(1);
+                Ok(EngineEvent::AuthenticatedConnection(
                     AuthenticatedConnection {
                         id: validated.id,
                         device_id: validated.device_id,
-                        device_name: None,
+                        device_name,
                         connected_at: now_ms,
+                        received_order: self.connection_order,
                     },
-                )),
-                Some(value) => match value.as_str().and_then(normalize_remote_name) {
-                    Some(device_name) => Ok(EngineEvent::AuthenticatedConnection(
-                        AuthenticatedConnection {
-                            id: validated.id,
-                            device_id: validated.device_id,
-                            device_name: Some(device_name),
-                            connected_at: now_ms,
-                        },
-                    )),
-                    None => Ok(EngineEvent::Response(error_response(
-                        Some(&validated.id),
-                        "invalid_payload",
-                        "Remote name is invalid.",
-                    ))),
-                },
-            },
+                ))
+            }
             "pointer.profile" => Ok(EngineEvent::PointerProfile(validated.id)),
             "mouse.move" => {
                 let Some(dx) = bounded_number(&validated.payload, "dx", MAX_POINTER_DELTA) else {
@@ -1649,6 +1652,7 @@ mod tests {
         assert_eq!(legacy_connection.device_id, "remote-1");
         assert_eq!(legacy_connection.device_name, None);
         assert_eq!(legacy_connection.connected_at, NOW);
+        assert_eq!(legacy_connection.received_order, 1);
         assert!(engine
             .complete_authenticated_connection(&legacy_connection, false)
             .contains("\"type\":\"ack\""));
@@ -1670,6 +1674,7 @@ mod tests {
         assert_eq!(connection.device_id, "remote-1");
         assert_eq!(connection.device_name.as_deref(), Some("Kitchen Remote 📱"));
         assert_eq!(connection.connected_at, NOW + 1);
+        assert_eq!(connection.received_order, 2);
         assert!(engine
             .complete_authenticated_connection(&connection, true)
             .contains("\"type\":\"ack\""));

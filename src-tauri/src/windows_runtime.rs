@@ -829,6 +829,7 @@ fn process_frame(
                         &connection.device_id,
                         connection.device_name.as_deref(),
                         connection.connected_at,
+                        connection.received_order,
                     )
                     .unwrap_or(false);
                 if !saved {
