@@ -821,24 +821,28 @@ fn process_frame(
             replaced_response
         }
         Some(EngineEvent::Response(response)) => Some(response),
-        Some(EngineEvent::RemoteNameUpdate(update)) => {
+        Some(EngineEvent::AuthenticatedConnection(connection)) => {
             let response = {
                 let model = app.state::<AppModel>();
                 let saved = model
-                    .apply_remote_name(&update.device_id, &update.device_name)
+                    .record_authenticated_connection(
+                        &connection.device_id,
+                        connection.device_name.as_deref(),
+                        connection.connected_at,
+                    )
                     .unwrap_or(false);
                 if !saved {
                     set_activity(
                         shared,
                         ActivityKind::Error,
-                        "The Remote name could not be saved.",
+                        "The device connection details could not be saved.",
                     );
                 }
                 shared
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .engine
-                    .complete_remote_name_update(&update, saved)
+                    .complete_authenticated_connection(&connection, saved)
             };
             Some(response)
         }

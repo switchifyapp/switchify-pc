@@ -434,49 +434,49 @@ impl AppModel {
     fn persist_unlocked(&self) -> Result<(), String> {
         self.storage.save(&self.persisted_state(None, None, None))
     }
-    pub fn apply_remote_name(&self, device_id: &str, device_name: &str) -> Result<bool, String> {
+    pub fn record_authenticated_connection(
+        &self,
+        device_id: &str,
+        device_name: Option<&str>,
+        connected_at: i64,
+    ) -> Result<bool, String> {
         let _transaction = self
             .persistence_lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let previous = {
-            let mut data = self
-                .shared
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let Some(device) = data
-                .state
-                .paired_devices
-                .iter_mut()
-                .find(|device| device.device_id == device_id)
-            else {
-                return Ok(false);
-            };
-            let previous_name = std::mem::replace(&mut device.device_name, device_name.to_owned());
-            let previous_connected_name = data.state.connected_device_name.clone();
-            if previous_connected_name.is_some() {
+        let mut candidate = self.persisted_state(None, None, None);
+        let Some(candidate_device) = candidate
+            .paired_devices
+            .iter_mut()
+            .find(|device| device.device_id == device_id)
+        else {
+            return Ok(false);
+        };
+        candidate_device.last_seen_at = Some(connected_at);
+        if let Some(device_name) = device_name {
+            candidate_device.device_name = device_name.to_owned();
+        }
+
+        self.storage.save(&candidate)?;
+
+        let mut data = self
+            .shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(device) = data
+            .state
+            .paired_devices
+            .iter_mut()
+            .find(|device| device.device_id == device_id)
+        else {
+            return Ok(false);
+        };
+        device.last_seen_at = Some(connected_at);
+        if let Some(device_name) = device_name {
+            device.device_name = device_name.to_owned();
+            if data.state.connected_device_name.is_some() {
                 data.state.connected_device_name = Some(device_name.to_owned());
             }
-            (previous_name, previous_connected_name)
-        };
-        if let Err(error) = self.persist_unlocked() {
-            let mut data = self
-                .shared
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if let Some(device) = data
-                .state
-                .paired_devices
-                .iter_mut()
-                .find(|device| device.device_id == device_id)
-                .filter(|device| device.device_name == device_name)
-            {
-                device.device_name = previous.0;
-            }
-            if data.state.connected_device_name.as_deref() == Some(device_name) {
-                data.state.connected_device_name = previous.1;
-            }
-            return Err(error);
         }
         Ok(true)
     }
@@ -912,14 +912,16 @@ mod tests {
     }
 
     #[test]
-    fn remote_name_updates_persist_and_refresh_connected_state() {
-        let root = std::env::temp_dir().join(format!("switchify-remote-name-{}", Uuid::new_v4()));
+    fn authenticated_connections_persist_time_and_refresh_the_remote_name() {
+        let root =
+            std::env::temp_dir().join(format!("switchify-last-connection-{}", Uuid::new_v4()));
         let state_path = root.join("state.json");
-        let model = AppModel::with_storage_for_test(AppStorage::at(state_path));
+        let model = AppModel::with_storage_for_test(AppStorage::at(state_path.clone()));
+        let device_id = format!("remote-{}", Uuid::new_v4());
         {
             let mut data = model.shared.lock().unwrap();
             data.state.paired_devices.push(PairedDeviceView {
-                device_id: "remote-1".into(),
+                device_id: device_id.clone(),
                 device_name: "Old name".into(),
                 paired_at: 1,
                 last_seen_at: None,
@@ -929,26 +931,42 @@ mod tests {
         model.persist().unwrap();
 
         assert!(model
-            .apply_remote_name("remote-1", "Kitchen Remote")
+            .record_authenticated_connection(&device_id, Some("Kitchen Remote"), 42)
             .unwrap());
         let state = model.snapshot();
         assert_eq!(state.paired_devices[0].device_name, "Kitchen Remote");
+        assert_eq!(state.paired_devices[0].last_seen_at, Some(42));
         assert_eq!(
             state.connected_device_name.as_deref(),
             Some("Kitchen Remote")
         );
-        assert_eq!(
-            model.storage.load().unwrap().paired_devices[0].device_name,
-            "Kitchen Remote"
-        );
-        assert!(!model.apply_remote_name("missing", "Unknown").unwrap());
+
+        assert!(model
+            .record_authenticated_connection(&device_id, None, 99)
+            .unwrap());
+        let state = model.snapshot();
+        assert_eq!(state.paired_devices[0].device_name, "Kitchen Remote");
+        assert_eq!(state.paired_devices[0].last_seen_at, Some(99));
+        assert!(!model
+            .record_authenticated_connection("missing", None, 100)
+            .unwrap());
+
+        model
+            .storage
+            .save_pairing_token(&device_id, "test-token")
+            .unwrap();
+        let restored = AppModel::with_storage_for_test(AppStorage::at(state_path));
+        let restored_device = &restored.snapshot().paired_devices[0];
+        assert_eq!(restored_device.device_name, "Kitchen Remote");
+        assert_eq!(restored_device.last_seen_at, Some(99));
+        restored.storage.delete_pairing_token(&device_id).unwrap();
         let _ = fs::remove_dir_all(root);
     }
 
     #[test]
-    fn remote_name_update_rolls_back_when_persistence_fails() {
+    fn authenticated_connection_stays_unchanged_when_persistence_fails() {
         let root =
-            std::env::temp_dir().join(format!("switchify-remote-name-fail-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("switchify-last-connection-fail-{}", Uuid::new_v4()));
         let state_path = root.join("state.json");
         let model = AppModel::with_storage_for_test(AppStorage::at(state_path.clone()));
         {
@@ -957,7 +975,7 @@ mod tests {
                 device_id: "remote-1".into(),
                 device_name: "Old name".into(),
                 paired_at: 1,
-                last_seen_at: None,
+                last_seen_at: Some(7),
             });
             data.state.connected_device_name = Some("Old name".into());
         }
@@ -965,9 +983,12 @@ mod tests {
         fs::remove_file(&state_path).unwrap();
         fs::create_dir(&state_path).unwrap();
 
-        assert!(model.apply_remote_name("remote-1", "New name").is_err());
+        assert!(model
+            .record_authenticated_connection("remote-1", Some("New name"), 42)
+            .is_err());
         let state = model.snapshot();
         assert_eq!(state.paired_devices[0].device_name, "Old name");
+        assert_eq!(state.paired_devices[0].last_seen_at, Some(7));
         assert_eq!(state.connected_device_name.as_deref(), Some("Old name"));
         let _ = fs::remove_dir_all(root);
     }

@@ -48,6 +48,21 @@ describe("Switchify PC shell", () => {
     expect(within(footer as HTMLElement).queryByRole("button")).not.toBeInTheDocument();
   });
 
+  it("shows when paired devices last connected", async () => {
+    const connectedAt = Date.UTC(2026, 7, 22, 12, 30);
+    browserState.pairedDevices = [
+      { deviceId: "phone-1", deviceName: "Pixel", pairedAt: 1, lastSeenAt: connectedAt },
+      { deviceId: "phone-2", deviceName: "Tablet", pairedAt: 2, lastSeenAt: null },
+    ];
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Devices" }));
+
+    expect(screen.getByText(`Last connected ${new Date(connectedAt).toLocaleString()}`)).toBeInTheDocument();
+    expect(screen.getByText("Not connected yet")).toBeInTheDocument();
+  });
+
   it("keeps internal activity out of Home and Support while retaining troubleshooting history", async () => {
     browserState.bluetooth = "advertising";
     browserState.lastActivity = { kind: "error", message: "Internal runtime activity" };
