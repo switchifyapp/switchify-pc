@@ -126,7 +126,55 @@ fn pointer_button(button: MouseButton) -> Button {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn windows_alphanumeric_key(name: &str) -> Option<Key> {
+    Some(match name {
+        "A" => Key::A,
+        "B" => Key::B,
+        "C" => Key::C,
+        "D" => Key::D,
+        "E" => Key::E,
+        "F" => Key::F,
+        "G" => Key::G,
+        "H" => Key::H,
+        "I" => Key::I,
+        "J" => Key::J,
+        "K" => Key::K,
+        "L" => Key::L,
+        "M" => Key::M,
+        "N" => Key::N,
+        "O" => Key::O,
+        "P" => Key::P,
+        "Q" => Key::Q,
+        "R" => Key::R,
+        "S" => Key::S,
+        "T" => Key::T,
+        "U" => Key::U,
+        "V" => Key::V,
+        "W" => Key::W,
+        "X" => Key::X,
+        "Y" => Key::Y,
+        "Z" => Key::Z,
+        "0" => Key::Num0,
+        "1" => Key::Num1,
+        "2" => Key::Num2,
+        "3" => Key::Num3,
+        "4" => Key::Num4,
+        "5" => Key::Num5,
+        "6" => Key::Num6,
+        "7" => Key::Num7,
+        "8" => Key::Num8,
+        "9" => Key::Num9,
+        _ => return None,
+    })
+}
+
 fn named_key(name: &str) -> Option<Key> {
+    #[cfg(target_os = "windows")]
+    if let Some(key) = windows_alphanumeric_key(name) {
+        return Some(key);
+    }
+
     Some(match name {
         "Backspace" => Key::Backspace,
         "Delete" => Key::Delete,
@@ -171,22 +219,50 @@ fn enigo_scroll_delta(dx: i32, dy: i32) -> (i32, i32) {
     (dx, -dy)
 }
 
+fn run_shortcut_sequence<K: Copy>(
+    keys: &[K],
+    mut send: impl FnMut(K, Direction) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut pressed = Vec::with_capacity(keys.len());
+    let mut first_error = None;
+
+    for key in keys {
+        match send(*key, Direction::Press) {
+            Ok(()) => pressed.push(*key),
+            Err(error) => {
+                first_error = Some(error);
+                break;
+            }
+        }
+    }
+
+    for key in pressed.into_iter().rev() {
+        if let Err(error) = send(key, Direction::Release) {
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+        }
+    }
+
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
 fn send_shortcut(enigo: &mut Enigo, keys: &[&str]) -> Result<(), String> {
     let parsed: Vec<Key> = keys
         .iter()
         .map(|key| named_key(key).ok_or_else(|| format!("Unsupported key: {key}")))
         .collect::<Result<_, _>>()?;
-    for key in &parsed {
-        enigo
-            .key(*key, Direction::Press)
-            .map_err(enigo_error("press the shortcut"))?;
-    }
-    for key in parsed.iter().rev() {
-        enigo
-            .key(*key, Direction::Release)
-            .map_err(enigo_error("release the shortcut"))?;
-    }
-    Ok(())
+    run_shortcut_sequence(&parsed, |key, direction| {
+        let action = if direction == Direction::Press {
+            "press the shortcut"
+        } else {
+            "release the shortcut"
+        };
+        enigo.key(key, direction).map_err(enigo_error(action))
+    })
 }
 
 impl InputInjector for Enigo {
@@ -530,7 +606,15 @@ impl<I: InputInjector> DesktopInput<I> {
                 if keys.is_empty() || keys.len() > 6 {
                     return Err("Shortcut key count is invalid.".into());
                 }
-                self.injector.press_shortcut(&keys)?;
+                let keys_to_press = keys
+                    .into_iter()
+                    .filter(|key| {
+                        ModifierKey::parse(key)
+                            .map(|modifier| !self.held_modifiers.contains(&modifier))
+                            .unwrap_or(true)
+                    })
+                    .collect::<Vec<_>>();
+                self.injector.press_shortcut(&keys_to_press)?;
                 typing_injected = true;
                 Ok(())
             }
@@ -1301,6 +1385,200 @@ mod tests {
         let mut input = DesktopInput::new(FakeInjector::default());
         input.type_text("Hello").unwrap();
         assert_eq!(input.injector.text, vec!["Hello"]);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn canonical_windows_alphanumeric_keys_use_physical_keys() {
+        let expected = [
+            ("A", Key::A),
+            ("B", Key::B),
+            ("C", Key::C),
+            ("D", Key::D),
+            ("E", Key::E),
+            ("F", Key::F),
+            ("G", Key::G),
+            ("H", Key::H),
+            ("I", Key::I),
+            ("J", Key::J),
+            ("K", Key::K),
+            ("L", Key::L),
+            ("M", Key::M),
+            ("N", Key::N),
+            ("O", Key::O),
+            ("P", Key::P),
+            ("Q", Key::Q),
+            ("R", Key::R),
+            ("S", Key::S),
+            ("T", Key::T),
+            ("U", Key::U),
+            ("V", Key::V),
+            ("W", Key::W),
+            ("X", Key::X),
+            ("Y", Key::Y),
+            ("Z", Key::Z),
+            ("0", Key::Num0),
+            ("1", Key::Num1),
+            ("2", Key::Num2),
+            ("3", Key::Num3),
+            ("4", Key::Num4),
+            ("5", Key::Num5),
+            ("6", Key::Num6),
+            ("7", Key::Num7),
+            ("8", Key::Num8),
+            ("9", Key::Num9),
+        ];
+
+        for (protocol_name, physical_key) in expected {
+            assert_eq!(named_key(protocol_name), Some(physical_key));
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn canonical_macos_alphanumeric_keys_remain_layout_dependent() {
+        assert_eq!(named_key("A"), Some(Key::Unicode('A')));
+        assert_eq!(named_key("0"), Some(Key::Unicode('0')));
+    }
+
+    #[test]
+    fn shortcut_press_failure_releases_every_key_pressed_first() {
+        let mut events = Vec::new();
+        let result = run_shortcut_sequence(&["Ctrl", "A"], |key, direction| {
+            events.push((key, direction));
+            if key == "A" && direction == Direction::Press {
+                Err("A press failed".into())
+            } else {
+                Ok(())
+            }
+        });
+
+        assert_eq!(result, Err("A press failed".into()));
+        assert_eq!(
+            events,
+            vec![
+                ("Ctrl", Direction::Press),
+                ("A", Direction::Press),
+                ("Ctrl", Direction::Release),
+            ]
+        );
+    }
+
+    #[test]
+    fn shortcut_release_failure_continues_cleanup_and_preserves_the_first_error() {
+        let mut events = Vec::new();
+        let result = run_shortcut_sequence(&["Ctrl", "A"], |key, direction| {
+            events.push((key, direction));
+            if direction == Direction::Release {
+                Err(format!("{key} release failed"))
+            } else {
+                Ok(())
+            }
+        });
+
+        assert_eq!(result, Err("A release failed".into()));
+        assert_eq!(
+            events,
+            vec![
+                ("Ctrl", Direction::Press),
+                ("A", Direction::Press),
+                ("A", Direction::Release),
+                ("Ctrl", Direction::Release),
+            ]
+        );
+    }
+
+    #[test]
+    fn shortcuts_do_not_repress_modifiers_held_by_the_remote() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        for modifier in ["Ctrl", "Shift"] {
+            input
+                .execute(
+                    "device",
+                    "keyboard.modifierDown",
+                    &serde_json::json!({"key": modifier}),
+                    &[],
+                )
+                .unwrap();
+        }
+
+        input
+            .execute(
+                "device",
+                "keyboard.shortcut",
+                &serde_json::json!({"keys": ["Ctrl", "Shift", "A"]}),
+                &[],
+            )
+            .unwrap();
+
+        assert_eq!(input.injector.shortcuts, vec![vec!["A"]]);
+        assert_eq!(
+            input.held_modifiers,
+            HashSet::from([ModifierKey::Ctrl, ModifierKey::Shift])
+        );
+        assert_eq!(
+            input.injector.keys,
+            vec![("Ctrl".into(), true), ("Shift".into(), true)]
+        );
+    }
+
+    #[test]
+    fn remote_editing_shortcuts_use_the_held_ctrl_key() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        input
+            .execute(
+                "device",
+                "keyboard.modifierDown",
+                &serde_json::json!({"key": "Ctrl"}),
+                &[],
+            )
+            .unwrap();
+
+        for key in ["A", "C", "V", "X"] {
+            input
+                .execute(
+                    "device",
+                    "keyboard.shortcut",
+                    &serde_json::json!({"keys": ["Ctrl", key]}),
+                    &[],
+                )
+                .unwrap();
+        }
+
+        assert_eq!(
+            input.injector.shortcuts,
+            vec![vec!["A"], vec!["C"], vec!["V"], vec!["X"]]
+        );
+        assert!(input.held_modifiers.contains(&ModifierKey::Ctrl));
+
+        input
+            .execute(
+                "device",
+                "keyboard.modifierUp",
+                &serde_json::json!({"key": "Ctrl"}),
+                &[],
+            )
+            .unwrap();
+        assert!(input.held_modifiers.is_empty());
+        assert_eq!(
+            input.injector.keys,
+            vec![("Ctrl".into(), true), ("Ctrl".into(), false)]
+        );
+    }
+
+    #[test]
+    fn standalone_shortcuts_still_press_the_complete_key_list() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        input
+            .execute(
+                "device",
+                "keyboard.shortcut",
+                &serde_json::json!({"keys": ["Meta", "Alt", "S"]}),
+                &[],
+            )
+            .unwrap();
+
+        assert_eq!(input.injector.shortcuts, vec![vec!["Meta", "Alt", "S"]]);
     }
 
     #[test]
