@@ -219,22 +219,50 @@ fn enigo_scroll_delta(dx: i32, dy: i32) -> (i32, i32) {
     (dx, -dy)
 }
 
+fn run_shortcut_sequence<K: Copy>(
+    keys: &[K],
+    mut send: impl FnMut(K, Direction) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut pressed = Vec::with_capacity(keys.len());
+    let mut first_error = None;
+
+    for key in keys {
+        match send(*key, Direction::Press) {
+            Ok(()) => pressed.push(*key),
+            Err(error) => {
+                first_error = Some(error);
+                break;
+            }
+        }
+    }
+
+    for key in pressed.into_iter().rev() {
+        if let Err(error) = send(key, Direction::Release) {
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+        }
+    }
+
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
 fn send_shortcut(enigo: &mut Enigo, keys: &[&str]) -> Result<(), String> {
     let parsed: Vec<Key> = keys
         .iter()
         .map(|key| named_key(key).ok_or_else(|| format!("Unsupported key: {key}")))
         .collect::<Result<_, _>>()?;
-    for key in &parsed {
-        enigo
-            .key(*key, Direction::Press)
-            .map_err(enigo_error("press the shortcut"))?;
-    }
-    for key in parsed.iter().rev() {
-        enigo
-            .key(*key, Direction::Release)
-            .map_err(enigo_error("release the shortcut"))?;
-    }
-    Ok(())
+    run_shortcut_sequence(&parsed, |key, direction| {
+        let action = if direction == Direction::Press {
+            "press the shortcut"
+        } else {
+            "release the shortcut"
+        };
+        enigo.key(key, direction).map_err(enigo_error(action))
+    })
 }
 
 impl InputInjector for Enigo {
@@ -1411,6 +1439,53 @@ mod tests {
     fn canonical_macos_alphanumeric_keys_remain_layout_dependent() {
         assert_eq!(named_key("A"), Some(Key::Unicode('A')));
         assert_eq!(named_key("0"), Some(Key::Unicode('0')));
+    }
+
+    #[test]
+    fn shortcut_press_failure_releases_every_key_pressed_first() {
+        let mut events = Vec::new();
+        let result = run_shortcut_sequence(&["Ctrl", "A"], |key, direction| {
+            events.push((key, direction));
+            if key == "A" && direction == Direction::Press {
+                Err("A press failed".into())
+            } else {
+                Ok(())
+            }
+        });
+
+        assert_eq!(result, Err("A press failed".into()));
+        assert_eq!(
+            events,
+            vec![
+                ("Ctrl", Direction::Press),
+                ("A", Direction::Press),
+                ("Ctrl", Direction::Release),
+            ]
+        );
+    }
+
+    #[test]
+    fn shortcut_release_failure_continues_cleanup_and_preserves_the_first_error() {
+        let mut events = Vec::new();
+        let result = run_shortcut_sequence(&["Ctrl", "A"], |key, direction| {
+            events.push((key, direction));
+            if direction == Direction::Release {
+                Err(format!("{key} release failed"))
+            } else {
+                Ok(())
+            }
+        });
+
+        assert_eq!(result, Err("A release failed".into()));
+        assert_eq!(
+            events,
+            vec![
+                ("Ctrl", Direction::Press),
+                ("A", Direction::Press),
+                ("A", Direction::Release),
+                ("Ctrl", Direction::Release),
+            ]
+        );
     }
 
     #[test]
