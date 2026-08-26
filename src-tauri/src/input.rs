@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use enigo::{Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse};
+#[cfg(not(target_os = "windows"))]
+use enigo::Coordinate;
+use enigo::{Axis, Button, Direction, Enigo, Key, Keyboard, Mouse};
 use serde_json::Value;
 
 use crate::modifier_overlay::ModifierKeyOverlayNotifier;
@@ -219,6 +221,50 @@ fn enigo_scroll_delta(dx: i32, dy: i32) -> (i32, i32) {
     (dx, -dy)
 }
 
+#[cfg(target_os = "windows")]
+const WINDOWS_POINTER_MOVE_ERROR: &str = "The operating system could not move the pointer.";
+
+#[cfg(target_os = "windows")]
+trait WindowsCursorPosition {
+    fn position(&mut self) -> Result<(i32, i32), String>;
+    fn set_position(&mut self, x: i32, y: i32) -> Result<(), String>;
+}
+
+#[cfg(target_os = "windows")]
+struct SystemWindowsCursor;
+
+#[cfg(target_os = "windows")]
+impl WindowsCursorPosition for SystemWindowsCursor {
+    fn position(&mut self) -> Result<(i32, i32), String> {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+        let mut point = POINT::default();
+        unsafe { GetCursorPos(&mut point) }
+            .map(|()| (point.x, point.y))
+            .map_err(|_| WINDOWS_POINTER_MOVE_ERROR.into())
+    }
+
+    fn set_position(&mut self, x: i32, y: i32) -> Result<(), String> {
+        unsafe { windows::Win32::UI::WindowsAndMessaging::SetCursorPos(x, y) }
+            .map_err(|_| WINDOWS_POINTER_MOVE_ERROR.into())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn move_windows_pointer_relative(
+    cursor: &mut impl WindowsCursorPosition,
+    dx: i32,
+    dy: i32,
+) -> Result<(), String> {
+    let (x, y) = cursor
+        .position()
+        .map_err(|_| WINDOWS_POINTER_MOVE_ERROR.to_string())?;
+    cursor
+        .set_position(x.saturating_add(dx), y.saturating_add(dy))
+        .map_err(|_| WINDOWS_POINTER_MOVE_ERROR.to_string())
+}
+
 fn run_shortcut_sequence<K: Copy>(
     keys: &[K],
     mut send: impl FnMut(K, Direction) -> Result<(), String>,
@@ -271,8 +317,15 @@ impl InputInjector for Enigo {
             .map_err(enigo_error("type the received text"))
     }
     fn move_pointer(&mut self, dx: i32, dy: i32) -> Result<(), String> {
-        self.move_mouse(dx, dy, Coordinate::Rel)
-            .map_err(enigo_error("move the pointer"))
+        #[cfg(target_os = "windows")]
+        {
+            move_windows_pointer_relative(&mut SystemWindowsCursor, dx, dy)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            self.move_mouse(dx, dy, Coordinate::Rel)
+                .map_err(enigo_error("move the pointer"))
+        }
     }
     fn move_pointer_absolute(&mut self, x: i32, y: i32) -> Result<(), String> {
         #[cfg(target_os = "windows")]
@@ -1359,6 +1412,36 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "windows")]
+    #[derive(Default)]
+    struct FakeWindowsCursor {
+        current: (i32, i32),
+        positions: Vec<(i32, i32)>,
+        fail_read: bool,
+        fail_write: bool,
+    }
+
+    #[cfg(target_os = "windows")]
+    impl WindowsCursorPosition for FakeWindowsCursor {
+        fn position(&mut self) -> Result<(i32, i32), String> {
+            if self.fail_read {
+                Err("private cursor read failure".into())
+            } else {
+                Ok(self.current)
+            }
+        }
+
+        fn set_position(&mut self, x: i32, y: i32) -> Result<(), String> {
+            self.positions.push((x, y));
+            if self.fail_write {
+                Err("private cursor write failure".into())
+            } else {
+                self.current = (x, y);
+                Ok(())
+            }
+        }
+    }
+
     #[derive(Default)]
     struct FakeModifierOverlay {
         changes: Mutex<Vec<Vec<ModifierKey>>>,
@@ -1736,6 +1819,65 @@ mod tests {
         let mut input = DesktopInput::new(FakeInjector::default());
         input.move_pointer(12, -6).unwrap();
         assert_eq!(input.injector.moves, vec![(12, -6)]);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_relative_pointer_movement_preserves_axis_on_every_monitor_origin() {
+        for (current, delta, expected) in [
+            ((960, 540), (0, -64), (960, 476)),
+            ((3_200, 900), (0, 64), (3_200, 964)),
+            ((-1_280, 720), (0, -64), (-1_280, 656)),
+            ((2_560, -300), (-64, 0), (2_496, -300)),
+            ((-640, 512), (64, -64), (-576, 448)),
+        ] {
+            let mut cursor = FakeWindowsCursor {
+                current,
+                ..FakeWindowsCursor::default()
+            };
+
+            move_windows_pointer_relative(&mut cursor, delta.0, delta.1).unwrap();
+
+            assert_eq!(cursor.positions, vec![expected]);
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_relative_pointer_movement_saturates_coordinate_overflow() {
+        let mut cursor = FakeWindowsCursor {
+            current: (i32::MAX - 2, i32::MIN + 2),
+            ..FakeWindowsCursor::default()
+        };
+
+        move_windows_pointer_relative(&mut cursor, 64, -64).unwrap();
+
+        assert_eq!(cursor.positions, vec![(i32::MAX, i32::MIN)]);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_relative_pointer_movement_sanitizes_native_failures() {
+        let mut read_failure = FakeWindowsCursor {
+            fail_read: true,
+            ..FakeWindowsCursor::default()
+        };
+        assert_eq!(
+            move_windows_pointer_relative(&mut read_failure, 0, 64),
+            Err(WINDOWS_POINTER_MOVE_ERROR.into())
+        );
+        assert!(read_failure.positions.is_empty());
+
+        let mut write_failure = FakeWindowsCursor {
+            current: (-1_280, 720),
+            fail_write: true,
+            ..FakeWindowsCursor::default()
+        };
+        assert_eq!(
+            move_windows_pointer_relative(&mut write_failure, 0, -64),
+            Err(WINDOWS_POINTER_MOVE_ERROR.into())
+        );
+        assert_eq!(write_failure.positions, vec![(-1_280, 656)]);
     }
 
     #[test]
