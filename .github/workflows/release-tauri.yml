@@ -26,6 +26,7 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       version: ${{ steps.release.outputs.version }}
       ref: ${{ steps.release.outputs.ref }}
+      commit: ${{ steps.verify_tag.outputs.commit }}
     env:
       RELEASE_EVENT_NAME: ${{ github.event_name }}
       RELEASE_INPUT_TAG: ${{ inputs.tag }}
@@ -62,6 +63,7 @@ jobs:
           fetch-depth: 0
 
       - name: Verify annotated tag is on main
+        id: verify_tag
         shell: bash
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -77,6 +79,7 @@ jobs:
             echo "Release tag $RELEASE_TAG does not point to a commit reachable from origin/main." >&2
             exit 1
           fi
+          echo "commit=$release_commit" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -125,7 +128,7 @@ jobs:
     timeout-minutes: 60
     env:
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-      RELEASE_REF: ${{ needs.prepare.outputs.ref }}
+      RELEASE_REF: ${{ needs.prepare.outputs.commit }}
       SWITCHIFY_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
       APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
@@ -302,7 +305,7 @@ jobs:
     environment: production
     timeout-minutes: 60
     env:
-      RELEASE_REF: ${{ needs.prepare.outputs.ref }}
+      RELEASE_REF: ${{ needs.prepare.outputs.commit }}
       SWITCHIFY_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
       SWITCHIFY_CERTUM_CERT_THUMBPRINT: ${{ vars.CERTUM_CERT_THUMBPRINT }}
       SWITCHIFY_TELEMETRY_ENDPOINT: ${{ vars.TIMBERLOGS_ENDPOINT }}
@@ -406,13 +409,30 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
-      RELEASE_REF: ${{ needs.prepare.outputs.ref }}
+      RELEASE_REF: ${{ needs.prepare.outputs.commit }}
+      RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
       SWITCHIFY_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
     steps:
       - name: Checkout release tag
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ env.RELEASE_REF }}
+          fetch-depth: 0
+
+      - name: Verify release tag has not moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/release-current"
+          if [[ "$(git cat-file -t refs/tags/release-current)" != tag ]]; then
+            echo "Release tag $RELEASE_TAG is no longer annotated." >&2
+            exit 1
+          fi
+          current_commit="$(git rev-list -n 1 refs/tags/release-current)"
+          if [[ "$current_commit" != "$RELEASE_COMMIT" ]]; then
+            echo "Release tag $RELEASE_TAG moved after validation." >&2
+            exit 1
+          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
