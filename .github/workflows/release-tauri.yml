@@ -96,6 +96,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit dependencies at release tag
+        run: |
+          npm audit --audit-level=high
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit --file src-tauri/Cargo.lock
+          cargo audit --file src-tauri/startup-launcher/Cargo.lock
+          cargo audit --file tools/updater-signature-verifier/Cargo.lock
+
       - name: Validate frontend at release tag
         run: |
           npm run lint
