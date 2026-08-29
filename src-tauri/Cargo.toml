@@ -18,6 +18,7 @@ base64 = "0.22"
 directories = "6.0.0"
 enigo = "=0.6.1"
 hmac = "0.12"
+keyring = "4.1.6"
 rand = "0.8"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1", features = ["derive"] }
@@ -39,9 +40,6 @@ objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", features = ["NSBitmapImageRep", "NSColor", "NSControl", "NSEvent", "NSGraphics", "NSImage", "NSImageRep", "NSImageView", "NSPanel", "NSResponder", "NSScreen", "NSView", "NSWindow", "NSWorkspace", "objc2-core-foundation"] }
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["CGEventSource", "CGEventTypes"] }
 objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSGeometry", "NSHost", "NSObject", "NSString", "NSThread", "NSURL"] }
-
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-keyring = "4.1.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62.2", features = [
