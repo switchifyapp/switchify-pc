@@ -14,7 +14,11 @@ use crate::state::AppSettings;
 
 pub const PROTOCOL_VERSION: i64 = 1;
 pub const FRAME_PAYLOAD_BYTES: usize = 160;
+const MAX_ENCODED_CHUNK_BYTES: usize = 4 * FRAME_PAYLOAD_BYTES.div_ceil(3);
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024;
+pub const MAX_PARTIAL_MESSAGES: usize = 8;
+pub const MAX_PENDING_PAIRINGS: usize = 8;
+pub const MAX_IDENTIFIER_BYTES: usize = 128;
 pub const PARTIAL_TIMEOUT_MS: i64 = 10_000;
 pub const PAIRING_TIMEOUT_MS: i64 = 2 * 60 * 1_000;
 pub const COMMAND_TIMESTAMP_TOLERANCE_MS: i64 = 2 * 60 * 1_000;
@@ -73,6 +77,8 @@ impl FrameReassembler {
         self.clear_expired(now_ms);
         if frame.version != PROTOCOL_VERSION
             || frame.message_id.is_empty()
+            || frame.message_id.len() > MAX_IDENTIFIER_BYTES
+            || frame.payload_base64.len() > MAX_ENCODED_CHUNK_BYTES
             || frame.sequence < 0
             || frame.total_bytes < 0
             || frame.total_bytes as usize > MAX_MESSAGE_BYTES
@@ -88,6 +94,23 @@ impl FrameReassembler {
             .decode(&frame.payload_base64)
             .map_err(|_| "invalid_frame".to_string())?;
         let total_bytes = frame.total_bytes as usize;
+        let sequence = frame.sequence as usize;
+        let invalid_empty_message =
+            total_bytes == 0 && (sequence != 0 || !frame.is_final || !chunk.is_empty());
+        let invalid_nonempty_message = total_bytes > 0
+            && (chunk.is_empty()
+                || chunk.len() > FRAME_PAYLOAD_BYTES
+                || chunk.len() > total_bytes
+                || sequence >= total_bytes);
+        if invalid_empty_message || invalid_nonempty_message {
+            self.partials.remove(&frame.message_id);
+            return Err("invalid_frame".into());
+        }
+        if !self.partials.contains_key(&frame.message_id)
+            && self.partials.len() >= MAX_PARTIAL_MESSAGES
+        {
+            return Err("invalid_frame".into());
+        }
         let partial = self
             .partials
             .entry(frame.message_id.clone())
@@ -104,6 +127,10 @@ impl FrameReassembler {
         }
 
         partial.chunks.entry(frame.sequence).or_insert(chunk);
+        if partial.chunks.values().map(Vec::len).sum::<usize>() > total_bytes {
+            self.partials.remove(&frame.message_id);
+            return Err("invalid_frame".into());
+        }
         if frame.is_final {
             if partial
                 .final_sequence
@@ -579,7 +606,10 @@ impl ProtocolEngine {
 
     fn process_message(&mut self, raw: &str, now_ms: i64) -> Result<EngineEvent, String> {
         let value: Value = serde_json::from_str(raw).map_err(|_| "invalid_json".to_string())?;
-        let request_id = value.get("id").and_then(Value::as_str);
+        let request_id = value
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| valid_identifier(id));
         if value.get("version").and_then(Value::as_i64) != Some(PROTOCOL_VERSION) {
             return Ok(EngineEvent::Response(error_response(
                 request_id,
@@ -763,6 +793,13 @@ impl ProtocolEngine {
         let device_name = required_map_string(payload, "deviceName")?;
         let desktop_id = required_map_string(payload, "desktopId")?;
         let nonce = required_map_string(payload, "requestNonce")?;
+        if !valid_identifier(&id)
+            || !valid_identifier(&device_id)
+            || !valid_identifier(&desktop_id)
+            || !valid_identifier(&nonce)
+        {
+            return Err("invalid_payload".into());
+        }
         if desktop_id != self.desktop_id {
             return Ok(EngineEvent::Response(error_response(
                 Some(&id),
@@ -794,6 +831,9 @@ impl ProtocolEngine {
             .values()
             .find(|existing| existing.device_id == pending.device_id)
             .map(|existing| existing.request_id.clone());
+        if replaced_request_id.is_none() && self.pending_pairings.len() >= MAX_PENDING_PAIRINGS {
+            return Err("invalid_payload".into());
+        }
         let replaced_response = replaced_request_id.and_then(|request_id| {
             self.pending_pairings.remove(&request_id).map(|_| {
                 error_response(Some(&request_id), "invalid_auth", "pairing_request_expired")
@@ -814,6 +854,9 @@ impl ProtocolEngine {
     ) -> Result<ValidatedCommand, String> {
         let id = required_string(value, "id").map_err(|_| "invalid_payload")?;
         let device_id = required_string(value, "deviceId").map_err(|_| "invalid_payload")?;
+        if !valid_identifier(&id) || !valid_identifier(&device_id) {
+            return Err("invalid_payload".into());
+        }
         let timestamp = value
             .get("timestamp")
             .and_then(Value::as_i64)
@@ -1142,6 +1185,10 @@ fn required_map_string(value: &Map<String, Value>, key: &str) -> Result<String, 
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
         .ok_or_else(|| "invalid_payload".to_string())
+}
+
+fn valid_identifier(value: &str) -> bool {
+    !value.is_empty() && value.len() <= MAX_IDENTIFIER_BYTES
 }
 
 fn normalize_remote_name(value: &str) -> Option<String> {
@@ -1582,6 +1629,78 @@ mod tests {
     }
 
     #[test]
+    fn rejects_malformed_chunks_and_bounds_partial_message_floods() {
+        let frame =
+            |message_id: &str, sequence, is_final, total_bytes, payload: &[u8]| BluetoothFrame {
+                version: PROTOCOL_VERSION,
+                message_id: message_id.into(),
+                sequence,
+                is_final,
+                total_bytes,
+                payload_base64: general_purpose::STANDARD.encode(payload),
+            };
+
+        for invalid in [
+            frame("empty", 0, false, 1, b""),
+            frame("sequence", 2, true, 2, b"a"),
+            frame("chunk", 0, true, 161, &[b'a'; FRAME_PAYLOAD_BYTES + 1]),
+        ] {
+            assert_eq!(
+                FrameReassembler::default().accept(invalid, NOW),
+                Err("invalid_frame".into())
+            );
+        }
+
+        let mut aggregate = FrameReassembler::default();
+        assert_eq!(
+            aggregate.accept(frame("aggregate", 0, false, 2, b"aa"), NOW),
+            Ok(None)
+        );
+        assert_eq!(
+            aggregate.accept(frame("aggregate", 1, true, 2, b"b"), NOW),
+            Err("invalid_frame".into())
+        );
+
+        let oversized_id = "é".repeat(MAX_IDENTIFIER_BYTES / 2 + 1);
+        assert_eq!(
+            FrameReassembler::default().accept(frame(&oversized_id, 0, true, 1, b"a"), NOW,),
+            Err("invalid_frame".into())
+        );
+
+        let mut flooded = FrameReassembler::default();
+        for index in 0..MAX_PARTIAL_MESSAGES {
+            assert_eq!(
+                flooded.accept(frame(&format!("partial-{index}"), 0, false, 2, b"a"), NOW,),
+                Ok(None)
+            );
+        }
+        assert_eq!(
+            flooded.accept(frame("partial-overflow", 0, false, 2, b"a"), NOW),
+            Err("invalid_frame".into())
+        );
+        assert_eq!(
+            flooded.accept(frame("partial-0", 1, true, 2, b"b"), NOW),
+            Ok(Some("ab".into()))
+        );
+    }
+
+    #[test]
+    fn empty_message_requires_one_final_empty_chunk() {
+        let valid = BluetoothFrame {
+            version: PROTOCOL_VERSION,
+            message_id: "empty".into(),
+            sequence: 0,
+            is_final: true,
+            total_bytes: 0,
+            payload_base64: String::new(),
+        };
+        assert_eq!(
+            FrameReassembler::default().accept(valid, NOW),
+            Ok(Some(String::new()))
+        );
+    }
+
+    #[test]
     fn matches_pairing_code_fixture() {
         assert_eq!(
             verification_code("desktop-1", "android-1", "nonce-1"),
@@ -1771,6 +1890,77 @@ mod tests {
         engine.reject_pairing("pair-1").unwrap();
         assert_eq!(engine.pending_pairings()[0].request_id, "pair-2");
         assert!(engine.reject_pairing("pair-1").is_err());
+    }
+
+    #[test]
+    fn pairing_queue_is_bounded_but_allows_same_device_replacement() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        for index in 0..MAX_PENDING_PAIRINGS {
+            let event = engine
+                .process_message(
+                    &pairing_request(
+                        &format!("pair-{index}"),
+                        &format!("android-{index}"),
+                        "Phone",
+                        &format!("nonce-{index}"),
+                    )
+                    .to_string(),
+                    NOW + index as i64,
+                )
+                .unwrap();
+            assert!(matches!(event, EngineEvent::PendingPairing { .. }));
+        }
+
+        let overflow = engine
+            .process_message(
+                &pairing_request("pair-overflow", "android-new", "Phone", "nonce-new").to_string(),
+                NOW + 20,
+            )
+            .unwrap();
+        let EngineEvent::Response(overflow) = overflow else {
+            panic!("expected pairing overflow response");
+        };
+        assert!(overflow.contains("invalid_payload"));
+        assert_eq!(engine.pending_pairings().len(), MAX_PENDING_PAIRINGS);
+
+        let replacement = engine
+            .process_message(
+                &pairing_request("pair-replacement", "android-0", "Phone", "nonce-new").to_string(),
+                NOW + 21,
+            )
+            .unwrap();
+        assert!(matches!(
+            replacement,
+            EngineEvent::PendingPairing {
+                replaced_response: Some(_),
+                ..
+            }
+        ));
+        assert_eq!(engine.pending_pairings().len(), MAX_PENDING_PAIRINGS);
+    }
+
+    #[test]
+    fn pairing_identifiers_are_limited_by_utf8_bytes() {
+        let oversized = "é".repeat(MAX_IDENTIFIER_BYTES / 2 + 1);
+        for request in [
+            pairing_request(&oversized, "android-1", "Phone", "nonce-1"),
+            pairing_request("pair-1", &oversized, "Phone", "nonce-1"),
+            pairing_request("pair-1", "android-1", "Phone", &oversized),
+            {
+                let mut request = pairing_request("pair-1", "android-1", "Phone", "nonce-1");
+                request["payload"]["desktopId"] = json!(oversized);
+                request
+            },
+        ] {
+            let mut engine = ProtocolEngine::new("desktop-1".into());
+            let EngineEvent::Response(response) =
+                engine.process_message(&request.to_string(), NOW).unwrap()
+            else {
+                panic!("expected invalid identifier response");
+            };
+            assert!(response.contains("invalid_payload"));
+            assert!(engine.pending_pairings().is_empty());
+        }
     }
 
     #[test]
