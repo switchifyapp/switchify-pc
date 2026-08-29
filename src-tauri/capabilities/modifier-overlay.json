@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "modifier-overlay",
+  "description": "Minimal capability for the non-interactive modifier overlay",
+  "windows": ["modifier-overlay"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-modifier-overlay-ready",
+    "allow-modifier-overlay-present"
+  ]
+}

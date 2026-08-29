@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-check-accessibility"
+description = "Enables the check_accessibility command without any pre-configured scope."
+commands.allow = ["check_accessibility"]
+
+[[permission]]
+identifier = "deny-check-accessibility"
+description = "Denies the check_accessibility command without any pre-configured scope."
+commands.deny = ["check_accessibility"]
