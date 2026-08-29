@@ -186,15 +186,17 @@ impl PairingTokenStore for MigratingPairingTokenStore {
         let secure = self.secure.load(device_id);
         let legacy = self.legacy.load(device_id);
         match (secure, legacy) {
-            (Ok(Some(secure_token)), Ok(Some(legacy_token))) if secure_token == legacy_token => {
+            (Ok(Some(secure_token)), Ok(Some(_))) => {
                 let _ = self.legacy.delete(device_id);
                 Ok(Some(secure_token))
             }
-            (Ok(Some(_)), Ok(Some(legacy_token))) | (Ok(None), Ok(Some(legacy_token))) => {
+            (Ok(None), Ok(Some(legacy_token))) => {
                 let verified = self.secure.save(device_id, &legacy_token).is_ok()
                     && matches!(self.secure.load(device_id), Ok(Some(ref stored)) if stored == &legacy_token);
                 if verified {
                     let _ = self.legacy.delete(device_id);
+                } else {
+                    let _ = self.secure.delete(device_id);
                 }
                 Ok(Some(legacy_token))
             }
@@ -617,6 +619,23 @@ mod tests {
             Some("legacy-token")
         );
         assert_eq!(secure.token("android-1").as_deref(), Some("legacy-token"));
+        assert_eq!(legacy.token("android-1"), None);
+    }
+
+    #[test]
+    fn existing_secure_value_wins_over_stale_legacy_value() {
+        let secure = SharedPairingTokenStore::default();
+        let legacy = SharedPairingTokenStore::default();
+        secure.save("android-1", "secure-token").unwrap();
+        legacy.save("android-1", "stale-token").unwrap();
+        let store =
+            MigratingPairingTokenStore::new(Box::new(secure.clone()), Box::new(legacy.clone()));
+
+        assert_eq!(
+            store.load("android-1").unwrap().as_deref(),
+            Some("secure-token")
+        );
+        assert_eq!(secure.token("android-1").as_deref(), Some("secure-token"));
         assert_eq!(legacy.token("android-1"), None);
     }
 
