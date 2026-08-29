@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-complete-profile-exit"
+description = "Enables the complete_profile_exit command without any pre-configured scope."
+commands.allow = ["complete_profile_exit"]
+
+[[permission]]
+identifier = "deny-complete-profile-exit"
+description = "Denies the complete_profile_exit command without any pre-configured scope."
+commands.deny = ["complete_profile_exit"]

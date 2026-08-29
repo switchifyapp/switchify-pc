@@ -1,0 +1,30 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Application capability for the main Switchify PC window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "allow-get-app-state",
+    "allow-check-accessibility",
+    "allow-approve-pairing",
+    "allow-reject-pairing",
+    "allow-disconnect-all",
+    "allow-forget-device",
+    "allow-save-settings",
+    "allow-set-telemetry-consent",
+    "allow-mark-setup-shown",
+    "allow-complete-setup",
+    "allow-list-switch-profiles",
+    "allow-save-switch-profile",
+    "allow-delete-switch-profile",
+    "allow-complete-profile-exit",
+    "allow-cancel-profile-exit",
+    "allow-take-navigation-request",
+    "allow-check-for-updates",
+    "allow-download-update",
+    "allow-cancel-update-download",
+    "allow-install-update",
+    "allow-export-diagnostics"
+  ]
+}

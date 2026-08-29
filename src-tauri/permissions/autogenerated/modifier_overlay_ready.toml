@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-modifier-overlay-ready"
+description = "Enables the modifier_overlay_ready command without any pre-configured scope."
+commands.allow = ["modifier_overlay_ready"]
+
+[[permission]]
+identifier = "deny-modifier-overlay-ready"
+description = "Denies the modifier_overlay_ready command without any pre-configured scope."
+commands.deny = ["modifier_overlay_ready"]

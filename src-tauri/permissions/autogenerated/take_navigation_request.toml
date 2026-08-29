@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-take-navigation-request"
+description = "Enables the take_navigation_request command without any pre-configured scope."
+commands.allow = ["take_navigation_request"]
+
+[[permission]]
+identifier = "deny-take-navigation-request"
+description = "Denies the take_navigation_request command without any pre-configured scope."
+commands.deny = ["take_navigation_request"]
