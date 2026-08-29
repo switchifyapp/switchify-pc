@@ -16,7 +16,6 @@ const FALLBACK_STATE_FILE: &str = "switchify-pc-state.json";
 const DIAGNOSTICS_FILE: &str = "switchify-diagnostics.json";
 const DIAGNOSTIC_HISTORY_FILE: &str = "diagnostic-history.jsonl";
 const TELEMETRY_FILE: &str = "telemetry.json";
-#[cfg(not(target_os = "macos"))]
 const KEYRING_SERVICE: &str = "com.enaboapps.switchify.pc.pairing";
 
 fn default_state_path() -> PathBuf {
@@ -33,13 +32,13 @@ trait PairingTokenStore: std::fmt::Debug + Send + Sync {
 
 #[cfg(target_os = "macos")]
 #[derive(Debug)]
-struct PlatformPairingTokenStore {
+struct LegacyFilePairingTokenStore {
     path: PathBuf,
     lock: std::sync::Mutex<()>,
 }
 
 #[cfg(target_os = "macos")]
-impl PlatformPairingTokenStore {
+impl LegacyFilePairingTokenStore {
     fn new(state_path: &Path) -> Self {
         Self {
             path: state_path.with_file_name("pairing-tokens.json"),
@@ -84,7 +83,7 @@ impl PlatformPairingTokenStore {
 }
 
 #[cfg(target_os = "macos")]
-impl PairingTokenStore for PlatformPairingTokenStore {
+impl PairingTokenStore for LegacyFilePairingTokenStore {
     fn save(&self, device_id: &str, token: &str) -> Result<(), String> {
         let _guard = self
             .lock
@@ -120,23 +119,24 @@ impl PairingTokenStore for PlatformPairingTokenStore {
         if tokens.remove(device_id).is_none() {
             return Ok(());
         }
-        self.write(&tokens)
+        if tokens.is_empty() {
+            fs::remove_file(&self.path).map_err(|error| error.to_string())
+        } else {
+            self.write(&tokens)
+        }
     }
 }
 
-#[cfg(not(target_os = "macos"))]
 #[derive(Debug, Default)]
-struct PlatformPairingTokenStore;
+struct KeyringPairingTokenStore;
 
-#[cfg(not(target_os = "macos"))]
-impl PlatformPairingTokenStore {
+impl KeyringPairingTokenStore {
     fn entry(device_id: &str) -> Result<keyring::Entry, String> {
         keyring::Entry::new(KEYRING_SERVICE, device_id).map_err(|error| error.to_string())
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-impl PairingTokenStore for PlatformPairingTokenStore {
+impl PairingTokenStore for KeyringPairingTokenStore {
     fn save(&self, device_id: &str, token: &str) -> Result<(), String> {
         Self::entry(device_id)?
             .set_password(token)
@@ -161,14 +161,73 @@ impl PairingTokenStore for PlatformPairingTokenStore {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug)]
+struct MigratingPairingTokenStore {
+    secure: Box<dyn PairingTokenStore>,
+    legacy: Box<dyn PairingTokenStore>,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl MigratingPairingTokenStore {
+    fn new(secure: Box<dyn PairingTokenStore>, legacy: Box<dyn PairingTokenStore>) -> Self {
+        Self { secure, legacy }
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl PairingTokenStore for MigratingPairingTokenStore {
+    fn save(&self, device_id: &str, token: &str) -> Result<(), String> {
+        self.secure.save(device_id, token)?;
+        self.legacy.delete(device_id)
+    }
+
+    fn load(&self, device_id: &str) -> Result<Option<String>, String> {
+        let secure = self.secure.load(device_id);
+        let legacy = self.legacy.load(device_id);
+        match (secure, legacy) {
+            (Ok(Some(secure_token)), Ok(Some(_))) => {
+                let _ = self.legacy.delete(device_id);
+                Ok(Some(secure_token))
+            }
+            (Ok(None), Ok(Some(legacy_token))) => {
+                let verified = self.secure.save(device_id, &legacy_token).is_ok()
+                    && matches!(self.secure.load(device_id), Ok(Some(ref stored)) if stored == &legacy_token);
+                if verified {
+                    let _ = self.legacy.delete(device_id);
+                } else {
+                    let _ = self.secure.delete(device_id);
+                }
+                Ok(Some(legacy_token))
+            }
+            (Err(_), Ok(Some(legacy_token))) => Ok(Some(legacy_token)),
+            (Ok(Some(secure_token)), Ok(None)) | (Ok(Some(secure_token)), Err(_)) => {
+                Ok(Some(secure_token))
+            }
+            (Ok(None), Ok(None)) => Ok(None),
+            (Err(secure_error), Ok(None)) | (Err(secure_error), Err(_)) => Err(secure_error),
+            (Ok(None), Err(legacy_error)) => Err(legacy_error),
+        }
+    }
+
+    fn delete(&self, device_id: &str) -> Result<(), String> {
+        let secure_result = self.secure.delete(device_id);
+        let legacy_result = self.legacy.delete(device_id);
+        secure_result.and(legacy_result)
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn platform_pairing_token_store(state_path: &Path) -> Box<dyn PairingTokenStore> {
-    Box::new(PlatformPairingTokenStore::new(state_path))
+    Box::new(MigratingPairingTokenStore::new(
+        Box::<KeyringPairingTokenStore>::default(),
+        Box::new(LegacyFilePairingTokenStore::new(state_path)),
+    ))
 }
 
 #[cfg(not(target_os = "macos"))]
 fn platform_pairing_token_store(_state_path: &Path) -> Box<dyn PairingTokenStore> {
-    Box::new(PlatformPairingTokenStore)
+    Box::<KeyringPairingTokenStore>::default()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -332,6 +391,71 @@ mod tests {
         tokens: Mutex<HashMap<String, String>>,
     }
 
+    #[derive(Debug, Default)]
+    struct SharedStoreState {
+        tokens: HashMap<String, String>,
+        fail_load: bool,
+        fail_save: bool,
+        fail_delete: bool,
+        corrupt_save: bool,
+    }
+
+    #[derive(Debug, Clone, Default)]
+    struct SharedPairingTokenStore(std::sync::Arc<Mutex<SharedStoreState>>);
+
+    impl SharedPairingTokenStore {
+        fn set_failure(&self, operation: &str, fails: bool) {
+            let mut state = self.0.lock().unwrap();
+            match operation {
+                "load" => state.fail_load = fails,
+                "save" => state.fail_save = fails,
+                "delete" => state.fail_delete = fails,
+                _ => panic!("unknown operation"),
+            }
+        }
+
+        fn token(&self, device_id: &str) -> Option<String> {
+            self.0.lock().unwrap().tokens.get(device_id).cloned()
+        }
+
+        fn set_corrupt_save(&self, corrupt: bool) {
+            self.0.lock().unwrap().corrupt_save = corrupt;
+        }
+    }
+
+    impl PairingTokenStore for SharedPairingTokenStore {
+        fn save(&self, device_id: &str, token: &str) -> Result<(), String> {
+            let mut state = self.0.lock().unwrap();
+            if state.fail_save {
+                return Err("save unavailable".into());
+            }
+            let stored = if state.corrupt_save {
+                "wrong-token"
+            } else {
+                token
+            };
+            state.tokens.insert(device_id.into(), stored.into());
+            Ok(())
+        }
+
+        fn load(&self, device_id: &str) -> Result<Option<String>, String> {
+            let state = self.0.lock().unwrap();
+            if state.fail_load {
+                return Err("load unavailable".into());
+            }
+            Ok(state.tokens.get(device_id).cloned())
+        }
+
+        fn delete(&self, device_id: &str) -> Result<(), String> {
+            let mut state = self.0.lock().unwrap();
+            if state.fail_delete {
+                return Err("delete unavailable".into());
+            }
+            state.tokens.remove(device_id);
+            Ok(())
+        }
+    }
+
     impl PairingTokenStore for MemoryPairingTokenStore {
         fn save(&self, device_id: &str, token: &str) -> Result<(), String> {
             self.tokens
@@ -433,58 +557,125 @@ mod tests {
         assert_eq!(store.load_pairing_token("android-1").unwrap(), None);
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn macos_pairing_tokens_persist_with_user_only_permissions() {
-        use std::os::unix::fs::PermissionsExt;
+    fn legacy_pairing_token_migrates_after_verified_secure_write() {
+        let secure = SharedPairingTokenStore::default();
+        let legacy = SharedPairingTokenStore::default();
+        legacy.save("android-1", "legacy-token").unwrap();
+        let store =
+            MigratingPairingTokenStore::new(Box::new(secure.clone()), Box::new(legacy.clone()));
 
-        let root =
-            std::env::temp_dir().join(format!("switchify-pairing-tokens-{}", uuid::Uuid::new_v4()));
-        let state_path = root.join(STATE_FILE);
-        let first = AppStorage::at(state_path.clone());
-        first
-            .save_pairing_token("android-1", "persistent-token")
-            .unwrap();
+        assert_eq!(
+            store.load("android-1").unwrap().as_deref(),
+            Some("legacy-token")
+        );
+        assert_eq!(secure.token("android-1").as_deref(), Some("legacy-token"));
+        assert_eq!(legacy.token("android-1"), None);
+    }
 
-        let token_path = root.join("pairing-tokens.json");
-        assert_eq!(
-            fs::metadata(&token_path).unwrap().permissions().mode() & 0o777,
-            0o600
-        );
-        assert_eq!(
-            fs::metadata(&root).unwrap().permissions().mode() & 0o777,
-            0o700
-        );
+    #[test]
+    fn failed_migration_uses_legacy_token_and_retries_later() {
+        let secure = SharedPairingTokenStore::default();
+        let legacy = SharedPairingTokenStore::default();
+        secure.set_failure("save", true);
+        legacy.save("android-1", "legacy-token").unwrap();
+        let store =
+            MigratingPairingTokenStore::new(Box::new(secure.clone()), Box::new(legacy.clone()));
 
-        let rebuilt = AppStorage::at(state_path);
         assert_eq!(
-            rebuilt.load_pairing_token("android-1").unwrap().as_deref(),
-            Some("persistent-token")
+            store.load("android-1").unwrap().as_deref(),
+            Some("legacy-token")
         );
-        rebuilt.delete_pairing_token("android-1").unwrap();
-        assert_eq!(rebuilt.load_pairing_token("android-1").unwrap(), None);
-        let _ = fs::remove_dir_all(root);
+        assert_eq!(legacy.token("android-1").as_deref(), Some("legacy-token"));
+        secure.set_failure("save", false);
+        assert_eq!(
+            store.load("android-1").unwrap().as_deref(),
+            Some("legacy-token")
+        );
+        assert_eq!(secure.token("android-1").as_deref(), Some("legacy-token"));
+        assert_eq!(legacy.token("android-1"), None);
+    }
+
+    #[test]
+    fn unverified_secure_value_never_replaces_legacy_fallback() {
+        let secure = SharedPairingTokenStore::default();
+        let legacy = SharedPairingTokenStore::default();
+        secure.set_corrupt_save(true);
+        legacy.save("android-1", "legacy-token").unwrap();
+        let store =
+            MigratingPairingTokenStore::new(Box::new(secure.clone()), Box::new(legacy.clone()));
+
+        for _ in 0..2 {
+            assert_eq!(
+                store.load("android-1").unwrap().as_deref(),
+                Some("legacy-token")
+            );
+            assert_eq!(legacy.token("android-1").as_deref(), Some("legacy-token"));
+        }
+
+        secure.set_corrupt_save(false);
+        assert_eq!(
+            store.load("android-1").unwrap().as_deref(),
+            Some("legacy-token")
+        );
+        assert_eq!(secure.token("android-1").as_deref(), Some("legacy-token"));
+        assert_eq!(legacy.token("android-1"), None);
+    }
+
+    #[test]
+    fn existing_secure_value_wins_over_stale_legacy_value() {
+        let secure = SharedPairingTokenStore::default();
+        let legacy = SharedPairingTokenStore::default();
+        secure.save("android-1", "secure-token").unwrap();
+        legacy.save("android-1", "stale-token").unwrap();
+        let store =
+            MigratingPairingTokenStore::new(Box::new(secure.clone()), Box::new(legacy.clone()));
+
+        assert_eq!(
+            store.load("android-1").unwrap().as_deref(),
+            Some("secure-token")
+        );
+        assert_eq!(secure.token("android-1").as_deref(), Some("secure-token"));
+        assert_eq!(legacy.token("android-1"), None);
+    }
+
+    #[test]
+    fn new_pairings_use_only_secure_storage_and_forget_clears_both_stores() {
+        let secure = SharedPairingTokenStore::default();
+        let legacy = SharedPairingTokenStore::default();
+        legacy.save("android-1", "old-token").unwrap();
+        let store =
+            MigratingPairingTokenStore::new(Box::new(secure.clone()), Box::new(legacy.clone()));
+
+        store.save("android-1", "new-token").unwrap();
+        assert_eq!(secure.token("android-1").as_deref(), Some("new-token"));
+        assert_eq!(legacy.token("android-1"), None);
+        legacy.save("android-1", "stale-token").unwrap();
+        store.delete("android-1").unwrap();
+        assert_eq!(secure.token("android-1"), None);
+        assert_eq!(legacy.token("android-1"), None);
     }
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_pairing_token_errors_are_reported_and_repairable_by_pairing() {
-        let root = std::env::temp_dir().join(format!(
-            "switchify-corrupt-pairing-tokens-{}",
-            uuid::Uuid::new_v4()
-        ));
-        fs::create_dir_all(&root).unwrap();
-        fs::write(root.join("pairing-tokens.json"), "not json").unwrap();
-        let store = AppStorage::at(root.join(STATE_FILE));
+    fn legacy_token_file_is_removed_after_its_last_entry() {
+        use std::os::unix::fs::PermissionsExt;
 
-        assert!(store.load_pairing_token("android-1").is_err());
-        store
-            .save_pairing_token("android-1", "replacement-token")
-            .unwrap();
+        let root =
+            std::env::temp_dir().join(format!("switchify-pairing-tokens-{}", uuid::Uuid::new_v4()));
+        let token_path = root.join("pairing-tokens.json");
+        let legacy = LegacyFilePairingTokenStore::new(&root.join(STATE_FILE));
+        legacy.save("android-1", "token-1").unwrap();
+        legacy.save("android-2", "token-2").unwrap();
         assert_eq!(
-            store.load_pairing_token("android-1").unwrap().as_deref(),
-            Some("replacement-token")
+            fs::metadata(&token_path).unwrap().permissions().mode() & 0o777,
+            0o600
         );
+
+        legacy.delete("android-1").unwrap();
+        assert!(token_path.exists());
+        legacy.delete("android-2").unwrap();
+        assert!(!token_path.exists());
         let _ = fs::remove_dir_all(root);
     }
 
