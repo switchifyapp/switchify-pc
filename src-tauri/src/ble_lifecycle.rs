@@ -168,11 +168,9 @@ mod tests {
 
     #[test]
     fn retry_schedule_is_bounded_to_thirty_seconds() {
-        assert_eq!(RECOVERY_DELAYS[0], Duration::ZERO);
-        assert_eq!(RECOVERY_DELAYS.last(), Some(&Duration::from_secs(15)));
         assert_eq!(
-            RECOVERY_DELAYS.iter().sum::<Duration>(),
-            Duration::from_secs(30)
+            RECOVERY_DELAYS,
+            [0, 1, 2, 4, 8, 15].map(Duration::from_secs)
         );
     }
 }

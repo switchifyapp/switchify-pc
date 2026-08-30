@@ -581,9 +581,10 @@ impl MacRuntime {
     fn schedule_recovery(&self, generation: u64) {
         let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
+            let started_at = tokio::time::Instant::now();
             for delay in RECOVERY_DELAYS {
                 if !delay.is_zero() {
-                    tokio::time::sleep(delay).await;
+                    tokio::time::sleep_until(started_at + delay).await;
                 }
                 let callback_app = app.clone();
                 let (sender, receiver) = tokio::sync::oneshot::channel();

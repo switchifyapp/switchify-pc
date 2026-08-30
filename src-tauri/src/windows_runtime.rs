@@ -560,12 +560,13 @@ fn spawn_recovery(
     tauri::async_runtime::spawn(async move {
         let recovery = async {
             let mut last_error = "Bluetooth did not become ready.".to_string();
+            let started_at = tokio::time::Instant::now();
             for delay in RECOVERY_DELAYS {
                 if !generation_is_current(&lifecycle, generation) {
                     return None;
                 }
                 if !delay.is_zero() {
-                    tokio::time::sleep(delay).await;
+                    tokio::time::sleep_until(started_at + delay).await;
                 }
                 if !generation_is_current(&lifecycle, generation) {
                     return None;
