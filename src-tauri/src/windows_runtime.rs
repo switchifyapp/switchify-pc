@@ -15,10 +15,12 @@ use windows::Devices::Bluetooth::GenericAttributeProfile::{
     GattServiceProviderAdvertisementStatusChangedEventArgs,
     GattServiceProviderAdvertisingParameters, GattWriteOption, GattWriteRequestedEventArgs,
 };
+use windows::Devices::Radios::{Radio, RadioKind, RadioState};
 use windows::Foundation::{Deferral, TypedEventHandler};
 use windows::Security::Cryptography::CryptographicBuffer;
 use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 
+use crate::ble_lifecycle::{RecoveryCoordinator, RECOVERY_DELAYS};
 use crate::display_navigation::{self, NavigationError};
 use crate::dwell::DwellController;
 use crate::input::{
@@ -37,6 +39,7 @@ use crate::state::{
     emit_state, set_activity, AccessibilityState, ActivityKind, AppModel, BluetoothState,
     SharedModel,
 };
+use crate::windows_power::{PowerMonitor, PowerSignal};
 
 const SERVICE_UUID: GUID = GUID::from_u128(0x7a78f7e8_1d6d_4d92_9ef0_1f89d3db21f4);
 const RX_UUID: GUID = GUID::from_u128(0x7a78f7e9_1d6d_4d92_9ef0_1f89d3db21f4);
@@ -60,6 +63,7 @@ struct NotificationQueueState {
     maximum_encoded_bytes: usize,
     queued_frames: usize,
     messages: VecDeque<QueuedNotificationMessage>,
+    shutdown: bool,
 }
 
 #[derive(Debug, Default)]
@@ -119,6 +123,18 @@ impl NotificationDispatcher {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         Self::invalidate_locked(&mut state);
+    }
+
+    fn shutdown(&self) {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Self::invalidate_locked(&mut state);
+        state.shutdown = true;
+        drop(state);
+        self.inner.ready.notify_waiters();
     }
 
     fn invalidate_locked(state: &mut NotificationQueueState) {
@@ -186,10 +202,10 @@ impl NotificationDispatcher {
         Ok(())
     }
 
-    async fn next_message(&self) -> QueuedNotificationMessage {
+    async fn next_message(&self) -> Option<QueuedNotificationMessage> {
         loop {
             let notified = self.inner.ready.notified();
-            if let Some(message) = {
+            let (message, shutdown) = {
                 let mut state = self
                     .inner
                     .state
@@ -199,9 +215,13 @@ impl NotificationDispatcher {
                 if let Some(message) = message.as_ref() {
                     state.queued_frames -= message.frames.len();
                 }
-                message
-            } {
-                return message;
+                (message, state.shutdown)
+            };
+            if let Some(message) = message {
+                return Some(message);
+            }
+            if shutdown {
+                return None;
             }
             notified.await;
         }
@@ -271,8 +291,7 @@ async fn run_notification_worker<SendFrame, SendFuture, ReportError>(
     SendFuture: Future<Output = Result<(), String>>,
     ReportError: FnMut(&str),
 {
-    loop {
-        let message = dispatcher.next_message().await;
+    while let Some(message) = dispatcher.next_message().await {
         if !dispatcher.is_current(message.generation) {
             continue;
         }
@@ -331,7 +350,8 @@ async fn send_notification_frame(
 }
 
 struct WindowsRuntime {
-    _provider: GattServiceProvider,
+    generation: u64,
+    provider: GattServiceProvider,
     _rx: GattLocalCharacteristic,
     _tx: GattLocalCharacteristic,
     notifications: NotificationDispatcher,
@@ -340,9 +360,84 @@ struct WindowsRuntime {
     repeats: MouseRepeatController,
 }
 
+struct NotificationWorkerGuard(Option<NotificationDispatcher>);
+
+impl NotificationWorkerGuard {
+    fn new(dispatcher: NotificationDispatcher) -> Self {
+        Self(Some(dispatcher))
+    }
+
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for NotificationWorkerGuard {
+    fn drop(&mut self) {
+        if let Some(dispatcher) = self.0.take() {
+            dispatcher.shutdown();
+        }
+    }
+}
+
+impl Drop for WindowsRuntime {
+    fn drop(&mut self) {
+        self.notifications.shutdown();
+        let _ = self.provider.StopAdvertising();
+        let _ = self.input.release_all();
+        self.input.end_control_session();
+    }
+}
+
 static RUNTIME: OnceLock<Mutex<Option<WindowsRuntime>>> = OnceLock::new();
 fn runtime() -> &'static Mutex<Option<WindowsRuntime>> {
     RUNTIME.get_or_init(|| Mutex::new(None))
+}
+
+struct RadioSubscription {
+    radio: Radio,
+    token: i64,
+}
+
+impl Drop for RadioSubscription {
+    fn drop(&mut self) {
+        let _ = self.radio.RemoveStateChanged(self.token);
+    }
+}
+
+struct WindowsPlatform {
+    lifecycle: Arc<Mutex<RecoveryCoordinator>>,
+    _power_monitor: PowerMonitor,
+    radio: Option<RadioSubscription>,
+}
+
+static PLATFORM: OnceLock<Mutex<Option<WindowsPlatform>>> = OnceLock::new();
+
+fn platform() -> &'static Mutex<Option<WindowsPlatform>> {
+    PLATFORM.get_or_init(|| Mutex::new(None))
+}
+
+fn generation_is_current(lifecycle: &Arc<Mutex<RecoveryCoordinator>>, generation: u64) -> bool {
+    lifecycle
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .is_current(generation)
+}
+
+fn runtime_generation_is_current(generation: u64) -> bool {
+    runtime()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_ref()
+        .is_some_and(|runtime| runtime.generation == generation)
+}
+
+fn take_runtime() {
+    let old = runtime()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take();
+    drop(old);
 }
 
 fn tasklist_has_other_switchify_process(output: &str, current_pid: u32) -> bool {
@@ -386,22 +481,252 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         emit_state(&app, &shared);
         return Ok(());
     }
+    let lifecycle = Arc::new(Mutex::new(RecoveryCoordinator::default()));
+    let generation = lifecycle
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .begin_initial();
+    let (power_sender, mut power_receiver) = tokio::sync::mpsc::unbounded_channel();
+    let power_monitor = PowerMonitor::spawn(power_sender)?;
+    *platform()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(WindowsPlatform {
+        lifecycle: lifecycle.clone(),
+        _power_monitor: power_monitor,
+        radio: None,
+    });
+
+    let power_app = app.clone();
+    let power_shared = shared.clone();
+    let power_lifecycle = lifecycle.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = start_gatt(app.clone(), shared.clone()).await {
-            shared
+        while let Some(signal) = power_receiver.recv().await {
+            handle_power_signal(
+                power_app.clone(),
+                power_shared.clone(),
+                power_lifecycle.clone(),
+                signal,
+            );
+        }
+    });
+    tauri::async_runtime::spawn(register_radio_monitor(
+        app.clone(),
+        shared.clone(),
+        lifecycle.clone(),
+    ));
+    spawn_recovery(app, shared, lifecycle, generation);
+    Ok(())
+}
+
+fn handle_power_signal(
+    app: AppHandle,
+    shared: SharedModel,
+    lifecycle: Arc<Mutex<RecoveryCoordinator>>,
+    signal: PowerSignal,
+) {
+    match signal {
+        PowerSignal::Suspend => {
+            lifecycle
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .state
-                .bluetooth = BluetoothState::Error;
+                .suspend();
+            reset_transport(&app, &shared, BluetoothState::Initializing);
             set_activity(
                 &shared,
-                ActivityKind::Error,
-                format!("Bluetooth could not start: {error}"),
+                ActivityKind::Info,
+                "Bluetooth paused while the PC sleeps.",
             );
             emit_state(&app, &shared);
         }
+        PowerSignal::Resume => {
+            let generation = lifecycle
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .resume(Instant::now());
+            if let Some(generation) = generation {
+                reset_transport(&app, &shared, BluetoothState::Initializing);
+                spawn_recovery(app, shared, lifecycle, generation);
+            }
+        }
+    }
+}
+
+fn spawn_recovery(
+    app: AppHandle,
+    shared: SharedModel,
+    lifecycle: Arc<Mutex<RecoveryCoordinator>>,
+    generation: u64,
+) {
+    tauri::async_runtime::spawn(async move {
+        let recovery = async {
+            let mut last_error = "Bluetooth did not become ready.".to_string();
+            let started_at = tokio::time::Instant::now();
+            for delay in RECOVERY_DELAYS {
+                if !generation_is_current(&lifecycle, generation) {
+                    return None;
+                }
+                if !delay.is_zero() {
+                    tokio::time::sleep_until(started_at + delay).await;
+                }
+                if !generation_is_current(&lifecycle, generation) {
+                    return None;
+                }
+                if let Some(RadioState::Off) = current_bluetooth_radio_state() {
+                    lifecycle
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .mark_terminal(generation);
+                    set_bluetooth_state(
+                        &app,
+                        &shared,
+                        BluetoothState::PoweredOff,
+                        ActivityKind::Info,
+                        "Bluetooth is off. Switch it on to resume advertising.",
+                    );
+                    return None;
+                }
+                match start_gatt(app.clone(), shared.clone(), lifecycle.clone(), generation).await {
+                    Ok(()) => return None,
+                    Err(error) => {
+                        last_error = error;
+                        take_runtime();
+                    }
+                }
+            }
+            Some(last_error)
+        };
+        let last_error = match tokio::time::timeout(Duration::from_secs(30), recovery).await {
+            Ok(Some(error)) => error,
+            Ok(None) => return,
+            Err(_) => {
+                if generation_is_current(&lifecycle, generation) {
+                    take_runtime();
+                }
+                "Bluetooth recovery exceeded the 30-second deadline.".to_string()
+            }
+        };
+        if lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .mark_terminal(generation)
+        {
+            set_bluetooth_state(
+                &app,
+                &shared,
+                BluetoothState::Error,
+                ActivityKind::Error,
+                format!("Bluetooth could not recover after resume: {last_error}"),
+            );
+        }
     });
-    Ok(())
+}
+
+async fn register_radio_monitor(
+    app: AppHandle,
+    shared: SharedModel,
+    lifecycle: Arc<Mutex<RecoveryCoordinator>>,
+) {
+    let Ok(operation) = Radio::GetRadiosAsync() else {
+        return;
+    };
+    let Ok(radios) = operation.await else {
+        return;
+    };
+    let Ok(count) = radios.Size() else {
+        return;
+    };
+    for index in 0..count {
+        let Ok(radio) = radios.GetAt(index) else {
+            continue;
+        };
+        if radio.Kind().ok() != Some(RadioKind::Bluetooth) {
+            continue;
+        }
+        let callback_app = app.clone();
+        let callback_shared = shared.clone();
+        let callback_lifecycle = lifecycle.clone();
+        let token = match radio.StateChanged(&TypedEventHandler::<Radio, IInspectable>::new(
+            move |radio, _| {
+                if let Some(radio) = radio.as_ref() {
+                    handle_radio_state(
+                        callback_app.clone(),
+                        callback_shared.clone(),
+                        callback_lifecycle.clone(),
+                        radio.State()?,
+                    );
+                }
+                Ok(())
+            },
+        )) {
+            Ok(token) => token,
+            Err(_) => return,
+        };
+        let state = radio.State().unwrap_or(RadioState::Unknown);
+        if let Some(platform) = platform()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_mut()
+        {
+            platform.radio = Some(RadioSubscription { radio, token });
+        }
+        handle_radio_state(app, shared, lifecycle, state);
+        return;
+    }
+}
+
+fn handle_radio_state(
+    app: AppHandle,
+    shared: SharedModel,
+    lifecycle: Arc<Mutex<RecoveryCoordinator>>,
+    state: RadioState,
+) {
+    if state == RadioState::Off {
+        lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .interrupt_terminal();
+        reset_transport(&app, &shared, BluetoothState::PoweredOff);
+        set_activity(
+            &shared,
+            ActivityKind::Info,
+            "Bluetooth is off. Switch it on to resume advertising.",
+        );
+        emit_state(&app, &shared);
+    } else if state == RadioState::On {
+        let generation = lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .recover_from_terminal();
+        if let Some(generation) = generation {
+            reset_transport(&app, &shared, BluetoothState::Initializing);
+            spawn_recovery(app, shared, lifecycle, generation);
+        }
+    }
+}
+
+fn current_bluetooth_radio_state() -> Option<RadioState> {
+    platform()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_ref()
+        .and_then(|platform| platform.radio.as_ref())
+        .and_then(|subscription| subscription.radio.State().ok())
+}
+
+fn set_bluetooth_state(
+    app: &AppHandle,
+    shared: &SharedModel,
+    bluetooth: BluetoothState,
+    kind: ActivityKind,
+    message: impl Into<String>,
+) {
+    shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .state
+        .bluetooth = bluetooth;
+    set_activity(shared, kind, message);
+    emit_state(app, shared);
 }
 
 async fn create_characteristic(
@@ -438,7 +763,12 @@ async fn create_characteristic(
     result.Characteristic().map_err(|error| error.to_string())
 }
 
-async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
+async fn start_gatt(
+    app: AppHandle,
+    shared: SharedModel,
+    lifecycle: Arc<Mutex<RecoveryCoordinator>>,
+    generation: u64,
+) -> Result<(), String> {
     let result = GattServiceProvider::CreateAsync(SERVICE_UUID)
         .map_err(|error| error.to_string())?
         .await
@@ -478,10 +808,12 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     .await?;
 
     let notifications = NotificationDispatcher::default();
+    let mut worker_guard = NotificationWorkerGuard::new(notifications.clone());
     let worker_notifications = notifications.clone();
     let worker_tx = tx.clone();
     let worker_app = app.clone();
     let worker_shared = shared.clone();
+    let worker_lifecycle = lifecycle.clone();
     std::thread::Builder::new()
         .name("switchify-ble-notifications".into())
         .spawn(move || {
@@ -497,8 +829,12 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
                         async move { send_notification_frame(&tx, frame).await }
                     },
                     move |message| {
-                        set_activity(&worker_shared, ActivityKind::Error, message);
-                        emit_state(&worker_app, &worker_shared);
+                        if generation_is_current(&worker_lifecycle, generation)
+                            && runtime_generation_is_current(generation)
+                        {
+                            set_activity(&worker_shared, ActivityKind::Error, message);
+                            emit_state(&worker_app, &worker_shared);
+                        }
                     },
                 )),
                 _ => {
@@ -515,16 +851,25 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
 
     let write_app = app.clone();
     let write_shared = shared.clone();
+    let write_lifecycle = lifecycle.clone();
     rx.WriteRequested(&TypedEventHandler::new(
         move |_: Ref<'_, GattLocalCharacteristic>, args: Ref<'_, GattWriteRequestedEventArgs>| {
+            if !generation_is_current(&write_lifecycle, generation)
+                || !runtime_generation_is_current(generation)
+            {
+                return Ok(());
+            }
             if let Some(args) = args.cloned() {
                 let deferral = args.GetDeferral()?;
                 let callback_app = write_app.clone();
                 let callback_shared = write_shared.clone();
+                let callback_lifecycle = write_lifecycle.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(error) = handle_write(
                         callback_app.clone(),
                         callback_shared.clone(),
+                        callback_lifecycle,
+                        generation,
                         args,
                         deferral,
                     )
@@ -547,8 +892,14 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     let subscribe_app = app.clone();
     let subscribe_shared = shared.clone();
     let subscribe_notifications = notifications.clone();
+    let subscribe_lifecycle = lifecycle.clone();
     tx.SubscribedClientsChanged(
         &TypedEventHandler::<GattLocalCharacteristic, IInspectable>::new(move |sender, _| {
+            if !generation_is_current(&subscribe_lifecycle, generation)
+                || !runtime_generation_is_current(generation)
+            {
+                return Ok(());
+            }
             let subscriber_count = sender.as_ref().and_then(|value| {
                 refresh_notification_subscription(value, &subscribe_notifications, true).ok()
             });
@@ -606,10 +957,16 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     .map_err(|error| error.to_string())?;
 
     let read_shared = shared.clone();
+    let read_lifecycle = lifecycle.clone();
     status
         .ReadRequested(&TypedEventHandler::new(
             move |_: Ref<'_, GattLocalCharacteristic>,
                   args: Ref<'_, GattReadRequestedEventArgs>| {
+                if !generation_is_current(&read_lifecycle, generation)
+                    || !runtime_generation_is_current(generation)
+                {
+                    return Ok(());
+                }
                 if let Some(args) = args.cloned() {
                     let deferral = args.GetDeferral()?;
                     let status_shared = read_shared.clone();
@@ -627,15 +984,67 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
 
     let status_app = app.clone();
     let status_shared = shared.clone();
+    let status_lifecycle = lifecycle.clone();
+    let (advertising_sender, advertising_receiver) = tokio::sync::oneshot::channel();
+    let advertising_sender = Arc::new(Mutex::new(Some(advertising_sender)));
+    let callback_advertising_sender = advertising_sender.clone();
     provider
         .AdvertisementStatusChanged(&TypedEventHandler::<
             GattServiceProvider,
             GattServiceProviderAdvertisementStatusChangedEventArgs,
         >::new(move |_, args| {
+            if !generation_is_current(&status_lifecycle, generation)
+                || !runtime_generation_is_current(generation)
+            {
+                return Ok(());
+            }
             if let Some(args) = args.cloned() {
                 let status = args.Status()?;
                 let error = args.Error()?;
                 update_advertisement_status(&status_app, &status_shared, status, error);
+                let (recovering, active) = {
+                    let lifecycle = status_lifecycle
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    (
+                        lifecycle.should_retry(generation),
+                        lifecycle.is_active(generation),
+                    )
+                };
+                if recovering {
+                    let startup_result =
+                        if status == GattServiceProviderAdvertisementStatus::Started {
+                            Some(Ok(()))
+                        } else if advertisement_status_is_terminal_failure(status) {
+                            Some(Err(format!(
+                                "Bluetooth advertising failed to start ({status:?}, {error:?})."
+                            )))
+                        } else {
+                            None
+                        };
+                    if let Some(startup_result) = startup_result {
+                        if let Some(sender) = callback_advertising_sender
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .take()
+                        {
+                            let _ = sender.send(startup_result);
+                        }
+                    }
+                } else if advertisement_status_needs_recovery(status) && active {
+                    let recovery_app = status_app.clone();
+                    let recovery_shared = status_shared.clone();
+                    let recovery_lifecycle = status_lifecycle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::task::yield_now().await;
+                        recover_after_advertising_stopped(
+                            recovery_app,
+                            recovery_shared,
+                            recovery_lifecycle,
+                            generation,
+                        );
+                    });
+                }
             }
             Ok(())
         }))
@@ -643,10 +1052,15 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
 
     let input = Enigo::new(&Settings::default())
         .map_err(|_| "Windows input injection could not initialize.".to_string())?;
+    if !generation_is_current(&lifecycle, generation) {
+        notifications.shutdown();
+        return Err("Bluetooth recovery was superseded.".into());
+    }
     *runtime()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(WindowsRuntime {
-        _provider: provider.clone(),
+        generation,
+        provider: provider.clone(),
         _rx: rx,
         _tx: tx,
         notifications,
@@ -657,6 +1071,7 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         ),
         repeats: MouseRepeatController::default(),
     });
+    worker_guard.disarm();
     let advertising =
         GattServiceProviderAdvertisingParameters::new().map_err(|error| error.to_string())?;
     advertising
@@ -672,7 +1087,76 @@ async fn start_gatt(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         .AdvertisementStatus()
         .map_err(|error| error.to_string())?;
     update_advertisement_status(&app, &shared, status, BluetoothError::Success);
+    if status == GattServiceProviderAdvertisementStatus::Started {
+        advertising_sender
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+    } else if advertisement_status_is_terminal_failure(status) {
+        advertising_sender
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        return Err(format!(
+            "Bluetooth advertising did not start completely ({status:?})."
+        ));
+    } else {
+        tokio::time::timeout(Duration::from_secs(2), advertising_receiver)
+            .await
+            .map_err(|_| "Bluetooth advertising did not report readiness in time.".to_string())?
+            .map_err(|_| "Bluetooth advertising readiness was cancelled.".to_string())??;
+    }
+    let mut lifecycle = lifecycle
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let current_status = provider
+        .AdvertisementStatus()
+        .map_err(|error| error.to_string())?;
+    if current_status != GattServiceProviderAdvertisementStatus::Started {
+        return Err(format!(
+            "Bluetooth advertising did not remain active ({current_status:?})."
+        ));
+    }
+    if !lifecycle.mark_active(generation) {
+        return Err("Bluetooth recovery was superseded before advertising became active.".into());
+    }
     Ok(())
+}
+
+fn advertisement_status_needs_recovery(status: GattServiceProviderAdvertisementStatus) -> bool {
+    status != GattServiceProviderAdvertisementStatus::Started
+}
+
+fn advertisement_status_is_terminal_failure(
+    status: GattServiceProviderAdvertisementStatus,
+) -> bool {
+    matches!(
+        status,
+        GattServiceProviderAdvertisementStatus::Aborted
+            | GattServiceProviderAdvertisementStatus::StartedWithoutAllAdvertisementData
+    )
+}
+
+fn recover_after_advertising_stopped(
+    app: AppHandle,
+    shared: SharedModel,
+    lifecycle: Arc<Mutex<RecoveryCoordinator>>,
+    generation: u64,
+) {
+    let next_generation = {
+        let mut lifecycle = lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !lifecycle.is_active(generation) {
+            return;
+        }
+        lifecycle.interrupt_terminal();
+        lifecycle.recover_from_terminal()
+    };
+    if let Some(next_generation) = next_generation {
+        reset_transport(&app, &shared, BluetoothState::Initializing);
+        spawn_recovery(app, shared, lifecycle, next_generation);
+    }
 }
 
 fn should_cancel_pending_pairings(subscriber_count: Option<u32>) -> bool {
@@ -724,6 +1208,8 @@ fn update_advertisement_status(
 async fn handle_write(
     app: AppHandle,
     shared: SharedModel,
+    lifecycle: Arc<Mutex<RecoveryCoordinator>>,
+    generation: u64,
     args: GattWriteRequestedEventArgs,
     deferral: Deferral,
 ) -> Result<(), String> {
@@ -733,6 +1219,19 @@ async fn handle_write(
             .map_err(|error| error.to_string())?
             .await
             .map_err(|error| error.to_string())?;
+        let lifecycle_guard = lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !lifecycle_guard.is_current(generation) || !runtime_generation_is_current(generation) {
+            if request.Option().map_err(|error| error.to_string())?
+                == GattWriteOption::WriteWithResponse
+            {
+                request
+                    .RespondWithProtocolError(0x0e)
+                    .map_err(|error| error.to_string())?;
+            }
+            return Ok(());
+        }
         let mut bytes = windows::core::Array::<u8>::new();
         CryptographicBuffer::CopyToByteArray(
             &request.Value().map_err(|error| error.to_string())?,
@@ -747,6 +1246,7 @@ async fn handle_write(
         if let Some(response) = process_frame(&app, &shared, &bytes)? {
             notify(response)?;
         }
+        drop(lifecycle_guard);
         Ok(())
     }
     .await;
@@ -1528,6 +2028,37 @@ pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), Strin
     Ok(())
 }
 
+fn reset_transport(app: &AppHandle, shared: &SharedModel, bluetooth: BluetoothState) {
+    app.state::<DwellController>().cancel(app);
+    stop_all_repeats(app);
+    take_runtime();
+    app.state::<CursorOverlay>().end_session();
+    app.state::<ModifierOverlay>().end_session();
+    let mut model = shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    model.engine.reset_transport_session();
+    model.state.pending_pairings.clear();
+    model.state.connected_device_name = None;
+    model.state.bluetooth = bluetooth;
+}
+
+pub fn shutdown(app: &AppHandle, shared: &SharedModel) {
+    if let Some(mut platform) = platform()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take()
+    {
+        platform
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .suspend();
+        platform.radio.take();
+    }
+    reset_transport(app, shared, BluetoothState::Initializing);
+}
+
 fn release_input_session() {
     if let Some(runtime) = runtime()
         .lock()
@@ -1542,10 +2073,11 @@ fn release_input_session() {
 #[cfg(test)]
 mod tests {
     use super::{
-        pointer_profile_for_display, run_notification_worker, select_notification_bytes,
-        should_cancel_pending_pairings, tasklist_has_other_switchify_process,
-        validate_notification_statuses, NotificationDispatcher, MAX_QUEUED_NOTIFICATION_FRAMES,
-        NOTIFICATION_BYTES, NOTIFICATION_DELIVERY_ERROR,
+        advertisement_status_needs_recovery, pointer_profile_for_display, run_notification_worker,
+        select_notification_bytes, should_cancel_pending_pairings,
+        tasklist_has_other_switchify_process, validate_notification_statuses,
+        NotificationDispatcher, MAX_QUEUED_NOTIFICATION_FRAMES, NOTIFICATION_BYTES,
+        NOTIFICATION_DELIVERY_ERROR,
     };
     use crate::display_navigation::Display;
     use crate::input::AndroidTypingRoute;
@@ -1559,7 +2091,9 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tokio::sync::oneshot;
-    use windows::Devices::Bluetooth::GenericAttributeProfile::GattCommunicationStatus;
+    use windows::Devices::Bluetooth::GenericAttributeProfile::{
+        GattCommunicationStatus, GattServiceProviderAdvertisementStatus,
+    };
 
     async fn wait_for_frame_count(frames: &Arc<Mutex<Vec<Vec<u8>>>>, expected: usize) {
         tokio::time::timeout(Duration::from_secs(2), async {
@@ -1641,6 +2175,22 @@ mod tests {
     }
 
     #[test]
+    fn only_fully_started_advertising_is_terminally_successful() {
+        assert!(!advertisement_status_needs_recovery(
+            GattServiceProviderAdvertisementStatus::Started
+        ));
+        assert!(advertisement_status_needs_recovery(
+            GattServiceProviderAdvertisementStatus::Aborted
+        ));
+        assert!(advertisement_status_needs_recovery(
+            GattServiceProviderAdvertisementStatus::StartedWithoutAllAdvertisementData
+        ));
+        assert!(advertisement_status_needs_recovery(
+            GattServiceProviderAdvertisementStatus::Stopped
+        ));
+    }
+
+    #[test]
     fn notification_size_uses_the_smallest_current_subscriber_limit() {
         assert_eq!(select_notification_bytes([Some(514)]), Some(514));
         assert_eq!(
@@ -1668,12 +2218,12 @@ mod tests {
 
         dispatcher.subscribers_changed(1, 514);
         dispatcher.enqueue(&message).unwrap();
-        let wide = dispatcher.next_message().await.frames;
+        let wide = dispatcher.next_message().await.unwrap().frames;
         assert!(wide.iter().all(|frame| frame.len() <= 514));
 
         dispatcher.subscribers_changed(1, 247);
         dispatcher.enqueue(&message).unwrap();
-        let narrow = dispatcher.next_message().await.frames;
+        let narrow = dispatcher.next_message().await.unwrap().frames;
         assert!(narrow.iter().all(|frame| frame.len() <= 247));
         assert!(narrow.len() > wide.len());
     }
@@ -2252,5 +2802,21 @@ mod tests {
             ),
             (24, 65, 140)
         );
+    }
+
+    #[tokio::test]
+    async fn notification_worker_exits_when_dispatcher_shuts_down() {
+        let dispatcher = NotificationDispatcher::default();
+        let worker_dispatcher = dispatcher.clone();
+        let worker = tokio::spawn(run_notification_worker(
+            worker_dispatcher,
+            |_| async { Ok(()) },
+            |_| {},
+        ));
+        dispatcher.shutdown();
+        tokio::time::timeout(Duration::from_secs(1), worker)
+            .await
+            .expect("worker should stop")
+            .expect("worker should not panic");
     }
 }

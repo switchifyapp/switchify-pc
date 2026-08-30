@@ -50,6 +50,11 @@ impl MutableService {
         self.as_service().uuid_object()
     }
 
+    /// Returns whether both handles refer to the same CoreBluetooth service object.
+    pub fn is_same_service(&self, other: &Service) -> bool {
+        self.raw == other.raw
+    }
+
     /// Returns whether `CBMutableService.isPrimary` is set.
     pub fn is_primary(&self) -> bool {
         self.as_service().is_primary()

@@ -1,3 +1,4 @@
+mod ble_lifecycle;
 mod diagnostics;
 mod display_navigation;
 mod dwell;
@@ -18,6 +19,8 @@ mod state;
 mod storage;
 mod telemetry;
 mod updater;
+#[cfg(target_os = "windows")]
+mod windows_power;
 #[cfg(target_os = "windows")]
 mod windows_runtime;
 #[cfg(target_os = "windows")]
@@ -202,6 +205,7 @@ fn finish_app_exit(app: &AppHandle) {
     app.state::<overlay::CursorOverlay>().end_session();
     app.state::<modifier_overlay::ModifierOverlay>()
         .end_session();
+    platform_shutdown(app, &model.shared);
     app.exit(0);
 }
 
@@ -1356,6 +1360,10 @@ fn platform_install(app: AppHandle, shared: state::SharedModel) -> Result<(), St
     macos::install(app, shared)
 }
 #[cfg(target_os = "macos")]
+fn platform_shutdown(app: &AppHandle, shared: &state::SharedModel) {
+    macos::shutdown(app, shared);
+}
+#[cfg(target_os = "macos")]
 fn platform_check_accessibility(
     app: &AppHandle,
     shared: &state::SharedModel,
@@ -1387,6 +1395,10 @@ fn platform_disconnect_all(app: &AppHandle, shared: &state::SharedModel) -> Resu
 #[cfg(target_os = "windows")]
 fn platform_install(app: AppHandle, shared: state::SharedModel) -> Result<(), String> {
     windows_runtime::install(app, shared)
+}
+#[cfg(target_os = "windows")]
+fn platform_shutdown(app: &AppHandle, shared: &state::SharedModel) {
+    windows_runtime::shutdown(app, shared);
 }
 #[cfg(target_os = "windows")]
 fn platform_check_accessibility(
