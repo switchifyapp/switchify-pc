@@ -558,39 +558,52 @@ fn spawn_recovery(
     generation: u64,
 ) {
     tauri::async_runtime::spawn(async move {
-        let mut last_error = "Bluetooth did not become ready.".to_string();
-        for delay in RECOVERY_DELAYS {
-            if !generation_is_current(&lifecycle, generation) {
-                return;
-            }
-            if !delay.is_zero() {
-                tokio::time::sleep(delay).await;
-            }
-            if !generation_is_current(&lifecycle, generation) {
-                return;
-            }
-            if let Some(RadioState::Off) = current_bluetooth_radio_state() {
-                lifecycle
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .mark_terminal(generation);
-                set_bluetooth_state(
-                    &app,
-                    &shared,
-                    BluetoothState::PoweredOff,
-                    ActivityKind::Info,
-                    "Bluetooth is off. Switch it on to resume advertising.",
-                );
-                return;
-            }
-            match start_gatt(app.clone(), shared.clone(), lifecycle.clone(), generation).await {
-                Ok(()) => return,
-                Err(error) => {
-                    last_error = error;
-                    take_runtime();
+        let recovery = async {
+            let mut last_error = "Bluetooth did not become ready.".to_string();
+            for delay in RECOVERY_DELAYS {
+                if !generation_is_current(&lifecycle, generation) {
+                    return None;
+                }
+                if !delay.is_zero() {
+                    tokio::time::sleep(delay).await;
+                }
+                if !generation_is_current(&lifecycle, generation) {
+                    return None;
+                }
+                if let Some(RadioState::Off) = current_bluetooth_radio_state() {
+                    lifecycle
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .mark_terminal(generation);
+                    set_bluetooth_state(
+                        &app,
+                        &shared,
+                        BluetoothState::PoweredOff,
+                        ActivityKind::Info,
+                        "Bluetooth is off. Switch it on to resume advertising.",
+                    );
+                    return None;
+                }
+                match start_gatt(app.clone(), shared.clone(), lifecycle.clone(), generation).await {
+                    Ok(()) => return None,
+                    Err(error) => {
+                        last_error = error;
+                        take_runtime();
+                    }
                 }
             }
-        }
+            Some(last_error)
+        };
+        let last_error = match tokio::time::timeout(Duration::from_secs(30), recovery).await {
+            Ok(Some(error)) => error,
+            Ok(None) => return,
+            Err(_) => {
+                if generation_is_current(&lifecycle, generation) {
+                    take_runtime();
+                }
+                "Bluetooth recovery exceeded the 30-second deadline.".to_string()
+            }
+        };
         if lifecycle
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -1073,34 +1086,40 @@ async fn start_gatt(
         .AdvertisementStatus()
         .map_err(|error| error.to_string())?;
     update_advertisement_status(&app, &shared, status, BluetoothError::Success);
-    if status != GattServiceProviderAdvertisementStatus::Started {
-        if advertisement_status_is_terminal_failure(status) {
-            return Err(format!(
-                "Bluetooth advertising did not start completely ({status:?})."
-            ));
-        }
+    if status == GattServiceProviderAdvertisementStatus::Started {
+        advertising_sender
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+    } else if advertisement_status_is_terminal_failure(status) {
+        advertising_sender
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        return Err(format!(
+            "Bluetooth advertising did not start completely ({status:?})."
+        ));
+    } else {
         tokio::time::timeout(Duration::from_secs(2), advertising_receiver)
             .await
             .map_err(|_| "Bluetooth advertising did not report readiness in time.".to_string())?
             .map_err(|_| "Bluetooth advertising readiness was cancelled.".to_string())??;
-        let current_status = provider
-            .AdvertisementStatus()
-            .map_err(|error| error.to_string())?;
-        if current_status != GattServiceProviderAdvertisementStatus::Started {
-            return Err(format!(
-                "Bluetooth advertising did not remain active ({current_status:?})."
-            ));
-        }
     }
-    if lifecycle
+    let mut lifecycle = lifecycle
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .mark_active(generation)
-    {
-        Ok(())
-    } else {
-        Err("Bluetooth recovery was superseded before advertising became active.".into())
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let current_status = provider
+        .AdvertisementStatus()
+        .map_err(|error| error.to_string())?;
+    if current_status != GattServiceProviderAdvertisementStatus::Started {
+        return Err(format!(
+            "Bluetooth advertising did not remain active ({current_status:?})."
+        ));
     }
+    if !lifecycle.mark_active(generation) {
+        return Err("Bluetooth recovery was superseded before advertising became active.".into());
+    }
+    Ok(())
 }
 
 fn advertisement_status_needs_recovery(status: GattServiceProviderAdvertisementStatus) -> bool {

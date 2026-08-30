@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -133,68 +133,8 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .begin_initial();
     let display_name = system_display_name();
-    let state_app = app.clone();
-    let service_app = app.clone();
-    let advertising_app = app.clone();
-    let subscribe_app = app.clone();
-    let unsubscribe_app = app.clone();
-    let ready_app = app.clone();
-    let read_app = app.clone();
-    let write_app = app.clone();
-    let write_lifecycle = lifecycle.clone();
-    let callbacks = PeripheralManagerCallbacks::new()
-        .on_state(move |state, _authorization| {
-            dispatch_to_main(&state_app, move |runtime| {
-                runtime.handle_manager_state(state)
-            });
-        })
-        .on_add_service(move |service, error| {
-            let service = MainThreadBluetoothValue(service);
-            dispatch_to_main(&service_app, move |runtime| {
-                let service = service.into_inner();
-                runtime.service_was_added(&service, error.is_none())
-            });
-        })
-        .on_start_advertising(move |error| {
-            dispatch_to_main(&advertising_app, move |runtime| {
-                runtime.advertising_did_start(error.is_none())
-            });
-        })
-        .on_subscribe(move |central, characteristic| {
-            let values = MainThreadBluetoothValue((central, characteristic));
-            dispatch_to_main(&subscribe_app, move |runtime| {
-                let (central, characteristic) = values.into_inner();
-                runtime.central_subscribed(central, characteristic)
-            });
-        })
-        .on_unsubscribe(move |central, characteristic| {
-            let values = MainThreadBluetoothValue((central, characteristic));
-            dispatch_to_main(&unsubscribe_app, move |runtime| {
-                let (central, characteristic) = values.into_inner();
-                runtime.central_unsubscribed(central, characteristic)
-            });
-        })
-        .on_ready_to_update(move || {
-            dispatch_to_main(&ready_app, MacRuntime::flush_outbound);
-        })
-        .on_read_request(move |request| {
-            let request = MainThreadBluetoothValue(request);
-            dispatch_to_main(&read_app, move |runtime| {
-                runtime.handle_read(request.into_inner())
-            });
-        })
-        .on_write_requests(move |requests| {
-            let generation = write_lifecycle
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .current_generation();
-            let requests = MainThreadBluetoothValue(requests);
-            dispatch_to_main(&write_app, move |runtime| {
-                runtime.handle_writes(requests.into_inner(), generation)
-            });
-        });
-    let manager =
-        PeripheralManager::with_callbacks(callbacks).map_err(|error| error.to_string())?;
+    let manager_generation = 1;
+    let manager = create_peripheral_manager(&app, lifecycle.clone(), manager_generation)?;
     let state = manager.state();
     RUNTIME.with(|slot| {
         *slot.borrow_mut() = Some(MacRuntime {
@@ -202,6 +142,7 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
             shared,
             display_name,
             manager,
+            manager_generation,
             service: None,
             rx_characteristic: None,
             tx_characteristic: None,
@@ -214,9 +155,6 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
             pending_repeat_moves: HashMap::new(),
             lifecycle,
             service_generation: None,
-            next_gatt_attempt: 0,
-            service_attempt: None,
-            pending_advertising_attempts: VecDeque::new(),
             notification_center: None,
             power_observers: Vec::new(),
         });
@@ -240,6 +178,108 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         }
         Ok(())
     })
+}
+
+fn create_peripheral_manager(
+    app: &AppHandle,
+    lifecycle: Arc<Mutex<RecoveryCoordinator>>,
+    manager_generation: u64,
+) -> Result<PeripheralManager, String> {
+    let state_app = app.clone();
+    let service_app = app.clone();
+    let advertising_app = app.clone();
+    let subscribe_app = app.clone();
+    let unsubscribe_app = app.clone();
+    let ready_app = app.clone();
+    let read_app = app.clone();
+    let write_app = app.clone();
+    let write_lifecycle = lifecycle;
+    let callbacks = PeripheralManagerCallbacks::new()
+        .on_state(move |state, _authorization| {
+            dispatch_to_main(&state_app, move |runtime| {
+                if runtime.manager_generation == manager_generation {
+                    runtime.handle_manager_state(state)
+                } else {
+                    Ok(())
+                }
+            });
+        })
+        .on_add_service(move |service, error| {
+            let service = MainThreadBluetoothValue(service);
+            dispatch_to_main(&service_app, move |runtime| {
+                let service = service.into_inner();
+                if runtime.manager_generation == manager_generation {
+                    runtime.service_was_added(&service, error.is_none())
+                } else {
+                    Ok(())
+                }
+            });
+        })
+        .on_start_advertising(move |error| {
+            dispatch_to_main(&advertising_app, move |runtime| {
+                if runtime.manager_generation == manager_generation {
+                    runtime.advertising_did_start(error.is_none())
+                } else {
+                    Ok(())
+                }
+            });
+        })
+        .on_subscribe(move |central, characteristic| {
+            let values = MainThreadBluetoothValue((central, characteristic));
+            dispatch_to_main(&subscribe_app, move |runtime| {
+                let (central, characteristic) = values.into_inner();
+                if runtime.manager_generation == manager_generation {
+                    runtime.central_subscribed(central, characteristic)
+                } else {
+                    Ok(())
+                }
+            });
+        })
+        .on_unsubscribe(move |central, characteristic| {
+            let values = MainThreadBluetoothValue((central, characteristic));
+            dispatch_to_main(&unsubscribe_app, move |runtime| {
+                let (central, characteristic) = values.into_inner();
+                if runtime.manager_generation == manager_generation {
+                    runtime.central_unsubscribed(central, characteristic)
+                } else {
+                    Ok(())
+                }
+            });
+        })
+        .on_ready_to_update(move || {
+            dispatch_to_main(&ready_app, move |runtime| {
+                if runtime.manager_generation == manager_generation {
+                    runtime.flush_outbound()
+                } else {
+                    Ok(())
+                }
+            });
+        })
+        .on_read_request(move |request| {
+            let request = MainThreadBluetoothValue(request);
+            dispatch_to_main(&read_app, move |runtime| {
+                if runtime.manager_generation == manager_generation {
+                    runtime.handle_read(request.into_inner())
+                } else {
+                    Ok(())
+                }
+            });
+        })
+        .on_write_requests(move |requests| {
+            let generation = write_lifecycle
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .current_generation();
+            let requests = MainThreadBluetoothValue(requests);
+            dispatch_to_main(&write_app, move |runtime| {
+                if runtime.manager_generation == manager_generation {
+                    runtime.handle_writes(requests.into_inner(), generation)
+                } else {
+                    Ok(())
+                }
+            });
+        });
+    PeripheralManager::with_callbacks(callbacks).map_err(|error| error.to_string())
 }
 
 fn dispatch_to_main(
@@ -411,6 +451,7 @@ struct MacRuntime {
     shared: SharedModel,
     display_name: String,
     manager: PeripheralManager,
+    manager_generation: u64,
     service: Option<MutableService>,
     rx_characteristic: Option<MutableCharacteristic>,
     tx_characteristic: Option<MutableCharacteristic>,
@@ -423,9 +464,6 @@ struct MacRuntime {
     pending_repeat_moves: HashMap<u64, PendingRepeatMove>,
     lifecycle: Arc<Mutex<RecoveryCoordinator>>,
     service_generation: Option<u64>,
-    next_gatt_attempt: u64,
-    service_attempt: Option<u64>,
-    pending_advertising_attempts: VecDeque<u64>,
     notification_center: Option<Retained<NSNotificationCenter>>,
     power_observers: Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>,
 }
@@ -595,11 +633,9 @@ impl MacRuntime {
         {
             return Ok(false);
         }
-        match self.manager.state() {
+        let state = self.rebuild_peripheral_manager()?;
+        match state {
             PeripheralManagerState::PoweredOn => {
-                // Rebuild on every scheduled attempt. This also recovers if CoreBluetooth
-                // drops an add-service or advertising completion callback.
-                self.reset_gatt();
                 self.configure_service()?;
                 Ok(true)
             }
@@ -617,6 +653,16 @@ impl MacRuntime {
             }
             PeripheralManagerState::Unknown | PeripheralManagerState::Resetting => Ok(true),
         }
+    }
+
+    fn rebuild_peripheral_manager(&mut self) -> Result<PeripheralManagerState, String> {
+        self.reset_gatt();
+        let generation = self.manager_generation.wrapping_add(1).max(1);
+        let manager = create_peripheral_manager(&self.app, self.lifecycle.clone(), generation)?;
+        let state = manager.state();
+        self.manager = manager;
+        self.manager_generation = generation;
+        Ok(state)
     }
 
     fn recovery_timed_out(&mut self, generation: u64) -> Result<bool, String> {
@@ -672,14 +718,20 @@ impl MacRuntime {
         }
         match state {
             PeripheralManagerState::PoweredOn => {
-                let generation = self
-                    .lifecycle
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .recover_from_terminal();
+                let (generation, recovering) = {
+                    let mut lifecycle = self
+                        .lifecycle
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    let generation = lifecycle.recover_from_terminal();
+                    let current = lifecycle.current_generation();
+                    (generation, lifecycle.should_retry(current))
+                };
                 if let Some(generation) = generation {
                     self.reset_gatt();
                     self.schedule_recovery(generation);
+                } else if recovering && self.service.is_none() {
+                    self.configure_service()?;
                 }
             }
             PeripheralManagerState::PoweredOff => {
@@ -730,8 +782,6 @@ impl MacRuntime {
             return Ok(());
         }
         self.set_bluetooth(BluetoothState::Initializing);
-        self.next_gatt_attempt = self.next_gatt_attempt.wrapping_add(1).max(1);
-        self.service_attempt = Some(self.next_gatt_attempt);
         self.service_generation = Some(
             self.lifecycle
                 .lock()
@@ -822,23 +872,13 @@ impl MacRuntime {
         let advertisement = AdvertisementData::new()
             .with_local_name(FALLBACK_DISPLAY_NAME)
             .with_service_uuid(service_uuid);
-        let Some(attempt) = self.service_attempt else {
-            return Ok(());
-        };
         self.manager
             .start_advertising(&advertisement)
             .map_err(|error| error.to_string())?;
-        self.pending_advertising_attempts.push_back(attempt);
         Ok(())
     }
 
     fn advertising_did_start(&mut self, succeeded: bool) -> Result<(), String> {
-        let Some(attempt) = self.pending_advertising_attempts.pop_front() else {
-            return Ok(());
-        };
-        if self.service_attempt != Some(attempt) {
-            return Ok(());
-        }
         let Some(generation) = self.service_generation else {
             return Ok(());
         };
@@ -1867,7 +1907,6 @@ impl MacRuntime {
         self.manager.remove_all_services();
         self.service = None;
         self.service_generation = None;
-        self.service_attempt = None;
         self.rx_characteristic = None;
         self.tx_characteristic = None;
         self.subscribers.clear();
