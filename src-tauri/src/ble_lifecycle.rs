@@ -48,8 +48,11 @@ impl RecoveryCoordinator {
     }
 
     pub fn resume(&mut self, now: Instant) -> Option<u64> {
-        if self.phase == Phase::Recovering
-            || self
+        if self.phase == Phase::Recovering {
+            return None;
+        }
+        if self.phase != Phase::Suspended
+            && self
                 .last_resume
                 .is_some_and(|last| now.saturating_duration_since(last) < DUPLICATE_RESUME_WINDOW)
         {
@@ -89,6 +92,11 @@ impl RecoveryCoordinator {
         self.generation == generation && matches!(self.phase, Phase::Recovering | Phase::Active)
     }
 
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub fn is_active(&self, generation: u64) -> bool {
+        self.generation == generation && self.phase == Phase::Active
+    }
+
     #[cfg_attr(target_os = "windows", allow(dead_code))]
     pub fn should_retry(&self, generation: u64) -> bool {
         self.generation == generation && self.phase == Phase::Recovering
@@ -119,6 +127,11 @@ mod tests {
         assert_eq!(coordinator.resume(now + Duration::from_millis(100)), None);
         assert!(coordinator.mark_active(generation));
         assert_eq!(coordinator.resume(now + Duration::from_secs(1)), None);
+
+        coordinator.suspend();
+        assert!(coordinator
+            .resume(now + Duration::from_millis(1_100))
+            .is_some());
     }
 
     #[test]
@@ -139,6 +152,18 @@ mod tests {
         let second = coordinator.recover_from_terminal().unwrap();
         assert_ne!(first, second);
         assert!(coordinator.is_current(second));
+    }
+
+    #[test]
+    fn only_the_current_active_generation_is_active() {
+        let mut coordinator = RecoveryCoordinator::default();
+        let first = coordinator.begin_initial();
+        assert!(!coordinator.is_active(first));
+        assert!(coordinator.mark_active(first));
+        assert!(coordinator.is_active(first));
+        let second = coordinator.interrupt_terminal();
+        assert!(!coordinator.is_active(first));
+        assert!(!coordinator.is_active(second));
     }
 
     #[test]

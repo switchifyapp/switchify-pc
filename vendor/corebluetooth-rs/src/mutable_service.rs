@@ -51,7 +51,7 @@ impl MutableService {
     }
 
     /// Returns whether both handles refer to the same CoreBluetooth service object.
-    pub fn ptr_eq(&self, other: &Self) -> bool {
+    pub fn is_same_service(&self, other: &Service) -> bool {
         self.raw == other.raw
     }
 

@@ -849,10 +849,13 @@ async fn start_gatt(
                 let deferral = args.GetDeferral()?;
                 let callback_app = write_app.clone();
                 let callback_shared = write_shared.clone();
+                let callback_lifecycle = write_lifecycle.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(error) = handle_write(
                         callback_app.clone(),
                         callback_shared.clone(),
+                        callback_lifecycle,
+                        generation,
                         args,
                         deferral,
                     )
@@ -982,6 +985,25 @@ async fn start_gatt(
                 let status = args.Status()?;
                 let error = args.Error()?;
                 update_advertisement_status(&status_app, &status_shared, status, error);
+                if advertisement_status_needs_recovery(status)
+                    && status_lifecycle
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .is_active(generation)
+                {
+                    let recovery_app = status_app.clone();
+                    let recovery_shared = status_shared.clone();
+                    let recovery_lifecycle = status_lifecycle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::task::yield_now().await;
+                        recover_after_advertising_stopped(
+                            recovery_app,
+                            recovery_shared,
+                            recovery_lifecycle,
+                            generation,
+                        );
+                    });
+                }
             }
             Ok(())
         }))
@@ -1024,11 +1046,43 @@ async fn start_gatt(
         .AdvertisementStatus()
         .map_err(|error| error.to_string())?;
     update_advertisement_status(&app, &shared, status, BluetoothError::Success);
-    lifecycle
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .mark_active(generation);
-    Ok(())
+    if status == GattServiceProviderAdvertisementStatus::Started {
+        lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .mark_active(generation);
+        Ok(())
+    } else {
+        Err(format!(
+            "Bluetooth advertising did not start completely ({status:?})."
+        ))
+    }
+}
+
+fn advertisement_status_needs_recovery(status: GattServiceProviderAdvertisementStatus) -> bool {
+    status != GattServiceProviderAdvertisementStatus::Started
+}
+
+fn recover_after_advertising_stopped(
+    app: AppHandle,
+    shared: SharedModel,
+    lifecycle: Arc<Mutex<RecoveryCoordinator>>,
+    generation: u64,
+) {
+    let next_generation = {
+        let mut lifecycle = lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !lifecycle.is_active(generation) {
+            return;
+        }
+        lifecycle.interrupt_terminal();
+        lifecycle.recover_from_terminal()
+    };
+    if let Some(next_generation) = next_generation {
+        reset_transport(&app, &shared, BluetoothState::Initializing);
+        spawn_recovery(app, shared, lifecycle, next_generation);
+    }
 }
 
 fn should_cancel_pending_pairings(subscriber_count: Option<u32>) -> bool {
@@ -1080,6 +1134,8 @@ fn update_advertisement_status(
 async fn handle_write(
     app: AppHandle,
     shared: SharedModel,
+    lifecycle: Arc<Mutex<RecoveryCoordinator>>,
+    generation: u64,
     args: GattWriteRequestedEventArgs,
     deferral: Deferral,
 ) -> Result<(), String> {
@@ -1089,6 +1145,18 @@ async fn handle_write(
             .map_err(|error| error.to_string())?
             .await
             .map_err(|error| error.to_string())?;
+        if !generation_is_current(&lifecycle, generation)
+            || !runtime_generation_is_current(generation)
+        {
+            if request.Option().map_err(|error| error.to_string())?
+                == GattWriteOption::WriteWithResponse
+            {
+                request
+                    .RespondWithProtocolError(0x0e)
+                    .map_err(|error| error.to_string())?;
+            }
+            return Ok(());
+        }
         let mut bytes = windows::core::Array::<u8>::new();
         CryptographicBuffer::CopyToByteArray(
             &request.Value().map_err(|error| error.to_string())?,
@@ -1929,10 +1997,11 @@ fn release_input_session() {
 #[cfg(test)]
 mod tests {
     use super::{
-        pointer_profile_for_display, run_notification_worker, select_notification_bytes,
-        should_cancel_pending_pairings, tasklist_has_other_switchify_process,
-        validate_notification_statuses, NotificationDispatcher, MAX_QUEUED_NOTIFICATION_FRAMES,
-        NOTIFICATION_BYTES, NOTIFICATION_DELIVERY_ERROR,
+        advertisement_status_needs_recovery, pointer_profile_for_display, run_notification_worker,
+        select_notification_bytes, should_cancel_pending_pairings,
+        tasklist_has_other_switchify_process, validate_notification_statuses,
+        NotificationDispatcher, MAX_QUEUED_NOTIFICATION_FRAMES, NOTIFICATION_BYTES,
+        NOTIFICATION_DELIVERY_ERROR,
     };
     use crate::display_navigation::Display;
     use crate::input::AndroidTypingRoute;
@@ -1946,7 +2015,9 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tokio::sync::oneshot;
-    use windows::Devices::Bluetooth::GenericAttributeProfile::GattCommunicationStatus;
+    use windows::Devices::Bluetooth::GenericAttributeProfile::{
+        GattCommunicationStatus, GattServiceProviderAdvertisementStatus,
+    };
 
     async fn wait_for_frame_count(frames: &Arc<Mutex<Vec<Vec<u8>>>>, expected: usize) {
         tokio::time::timeout(Duration::from_secs(2), async {
@@ -2025,6 +2096,22 @@ mod tests {
         assert!(!should_cancel_pending_pairings(Some(1)));
         assert!(!should_cancel_pending_pairings(Some(2)));
         assert!(!should_cancel_pending_pairings(None));
+    }
+
+    #[test]
+    fn only_fully_started_advertising_is_terminally_successful() {
+        assert!(!advertisement_status_needs_recovery(
+            GattServiceProviderAdvertisementStatus::Started
+        ));
+        assert!(advertisement_status_needs_recovery(
+            GattServiceProviderAdvertisementStatus::Aborted
+        ));
+        assert!(advertisement_status_needs_recovery(
+            GattServiceProviderAdvertisementStatus::StartedWithoutAllAdvertisementData
+        ));
+        assert!(advertisement_status_needs_recovery(
+            GattServiceProviderAdvertisementStatus::Stopped
+        ));
     }
 
     #[test]

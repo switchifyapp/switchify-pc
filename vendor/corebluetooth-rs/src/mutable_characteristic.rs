@@ -60,6 +60,11 @@ impl MutableCharacteristic {
         self.as_characteristic().uuid_object()
     }
 
+    /// Returns whether both handles refer to the same CoreBluetooth characteristic object.
+    pub fn is_same_characteristic(&self, other: &Characteristic) -> bool {
+        self.raw == other.raw
+    }
+
     /// Returns the `CBCharacteristicProperties` exposed by `CBMutableCharacteristic`.
     pub fn properties(&self) -> CharacteristicProperties {
         self.as_characteristic().properties()
