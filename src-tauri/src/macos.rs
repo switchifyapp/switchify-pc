@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -214,6 +214,9 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
             pending_repeat_moves: HashMap::new(),
             lifecycle,
             service_generation: None,
+            next_gatt_attempt: 0,
+            service_attempt: None,
+            pending_advertising_attempts: VecDeque::new(),
             notification_center: None,
             power_observers: Vec::new(),
         });
@@ -420,6 +423,9 @@ struct MacRuntime {
     pending_repeat_moves: HashMap<u64, PendingRepeatMove>,
     lifecycle: Arc<Mutex<RecoveryCoordinator>>,
     service_generation: Option<u64>,
+    next_gatt_attempt: u64,
+    service_attempt: Option<u64>,
+    pending_advertising_attempts: VecDeque<u64>,
     notification_center: Option<Retained<NSNotificationCenter>>,
     power_observers: Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>,
 }
@@ -724,6 +730,8 @@ impl MacRuntime {
             return Ok(());
         }
         self.set_bluetooth(BluetoothState::Initializing);
+        self.next_gatt_attempt = self.next_gatt_attempt.wrapping_add(1).max(1);
+        self.service_attempt = Some(self.next_gatt_attempt);
         self.service_generation = Some(
             self.lifecycle
                 .lock()
@@ -814,12 +822,23 @@ impl MacRuntime {
         let advertisement = AdvertisementData::new()
             .with_local_name(FALLBACK_DISPLAY_NAME)
             .with_service_uuid(service_uuid);
+        let Some(attempt) = self.service_attempt else {
+            return Ok(());
+        };
         self.manager
             .start_advertising(&advertisement)
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        self.pending_advertising_attempts.push_back(attempt);
+        Ok(())
     }
 
     fn advertising_did_start(&mut self, succeeded: bool) -> Result<(), String> {
+        let Some(attempt) = self.pending_advertising_attempts.pop_front() else {
+            return Ok(());
+        };
+        if self.service_attempt != Some(attempt) {
+            return Ok(());
+        }
         let Some(generation) = self.service_generation else {
             return Ok(());
         };
@@ -1848,6 +1867,7 @@ impl MacRuntime {
         self.manager.remove_all_services();
         self.service = None;
         self.service_generation = None;
+        self.service_attempt = None;
         self.rx_characteristic = None;
         self.tx_characteristic = None;
         self.subscribers.clear();

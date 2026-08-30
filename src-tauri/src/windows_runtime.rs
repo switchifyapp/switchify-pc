@@ -971,6 +971,9 @@ async fn start_gatt(
     let status_app = app.clone();
     let status_shared = shared.clone();
     let status_lifecycle = lifecycle.clone();
+    let (advertising_sender, advertising_receiver) = tokio::sync::oneshot::channel();
+    let advertising_sender = Arc::new(Mutex::new(Some(advertising_sender)));
+    let callback_advertising_sender = advertising_sender.clone();
     provider
         .AdvertisementStatusChanged(&TypedEventHandler::<
             GattServiceProvider,
@@ -985,12 +988,36 @@ async fn start_gatt(
                 let status = args.Status()?;
                 let error = args.Error()?;
                 update_advertisement_status(&status_app, &status_shared, status, error);
-                if advertisement_status_needs_recovery(status)
-                    && status_lifecycle
+                let (recovering, active) = {
+                    let lifecycle = status_lifecycle
                         .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .is_active(generation)
-                {
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    (
+                        lifecycle.should_retry(generation),
+                        lifecycle.is_active(generation),
+                    )
+                };
+                if recovering {
+                    let startup_result =
+                        if status == GattServiceProviderAdvertisementStatus::Started {
+                            Some(Ok(()))
+                        } else if advertisement_status_is_terminal_failure(status) {
+                            Some(Err(format!(
+                                "Bluetooth advertising failed to start ({status:?}, {error:?})."
+                            )))
+                        } else {
+                            None
+                        };
+                    if let Some(startup_result) = startup_result {
+                        if let Some(sender) = callback_advertising_sender
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .take()
+                        {
+                            let _ = sender.send(startup_result);
+                        }
+                    }
+                } else if advertisement_status_needs_recovery(status) && active {
                     let recovery_app = status_app.clone();
                     let recovery_shared = status_shared.clone();
                     let recovery_lifecycle = status_lifecycle.clone();
@@ -1046,21 +1073,48 @@ async fn start_gatt(
         .AdvertisementStatus()
         .map_err(|error| error.to_string())?;
     update_advertisement_status(&app, &shared, status, BluetoothError::Success);
-    if status == GattServiceProviderAdvertisementStatus::Started {
-        lifecycle
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .mark_active(generation);
+    if status != GattServiceProviderAdvertisementStatus::Started {
+        if advertisement_status_is_terminal_failure(status) {
+            return Err(format!(
+                "Bluetooth advertising did not start completely ({status:?})."
+            ));
+        }
+        tokio::time::timeout(Duration::from_secs(2), advertising_receiver)
+            .await
+            .map_err(|_| "Bluetooth advertising did not report readiness in time.".to_string())?
+            .map_err(|_| "Bluetooth advertising readiness was cancelled.".to_string())??;
+        let current_status = provider
+            .AdvertisementStatus()
+            .map_err(|error| error.to_string())?;
+        if current_status != GattServiceProviderAdvertisementStatus::Started {
+            return Err(format!(
+                "Bluetooth advertising did not remain active ({current_status:?})."
+            ));
+        }
+    }
+    if lifecycle
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .mark_active(generation)
+    {
         Ok(())
     } else {
-        Err(format!(
-            "Bluetooth advertising did not start completely ({status:?})."
-        ))
+        Err("Bluetooth recovery was superseded before advertising became active.".into())
     }
 }
 
 fn advertisement_status_needs_recovery(status: GattServiceProviderAdvertisementStatus) -> bool {
     status != GattServiceProviderAdvertisementStatus::Started
+}
+
+fn advertisement_status_is_terminal_failure(
+    status: GattServiceProviderAdvertisementStatus,
+) -> bool {
+    matches!(
+        status,
+        GattServiceProviderAdvertisementStatus::Aborted
+            | GattServiceProviderAdvertisementStatus::StartedWithoutAllAdvertisementData
+    )
 }
 
 fn recover_after_advertising_stopped(
@@ -1145,9 +1199,10 @@ async fn handle_write(
             .map_err(|error| error.to_string())?
             .await
             .map_err(|error| error.to_string())?;
-        if !generation_is_current(&lifecycle, generation)
-            || !runtime_generation_is_current(generation)
-        {
+        let lifecycle_guard = lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !lifecycle_guard.is_current(generation) || !runtime_generation_is_current(generation) {
             if request.Option().map_err(|error| error.to_string())?
                 == GattWriteOption::WriteWithResponse
             {
@@ -1171,6 +1226,7 @@ async fn handle_write(
         if let Some(response) = process_frame(&app, &shared, &bytes)? {
             notify(response)?;
         }
+        drop(lifecycle_guard);
         Ok(())
     }
     .await;
