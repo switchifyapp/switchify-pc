@@ -1140,10 +1140,10 @@ async fn start_gatt(
             "Bluetooth advertising did not remain active ({current_status:?})."
         ));
     }
-    update_advertisement_status(&app, &shared, current_status, BluetoothError::Success);
     if !lifecycle.mark_active(generation) {
         return Err("Bluetooth recovery was superseded before advertising became active.".into());
     }
+    update_advertisement_status(&app, &shared, current_status, BluetoothError::Success);
     Ok(())
 }
 
