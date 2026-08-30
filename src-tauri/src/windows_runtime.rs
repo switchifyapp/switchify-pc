@@ -48,6 +48,7 @@ const STATUS_UUID: GUID = GUID::from_u128(0x7a78f7eb_1d6d_4d92_9ef0_1f89d3db21f4
 const NOTIFICATION_BYTES: usize = 160;
 const MAX_QUEUED_NOTIFICATION_FRAMES: usize = 512;
 const NOTIFICATION_DELIVERY_ERROR: &str = "Bluetooth notification could not be delivered.";
+const ADVERTISEMENT_STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug)]
 struct QueuedNotificationMessage {
@@ -1001,7 +1002,6 @@ async fn start_gatt(
             if let Some(args) = args.cloned() {
                 let status = args.Status()?;
                 let error = args.Error()?;
-                update_advertisement_status(&status_app, &status_shared, status, error);
                 let (recovering, active) = {
                     let lifecycle = status_lifecycle
                         .lock()
@@ -1012,16 +1012,21 @@ async fn start_gatt(
                     )
                 };
                 if recovering {
-                    let startup_result =
-                        if status == GattServiceProviderAdvertisementStatus::Started {
-                            Some(Ok(()))
-                        } else if advertisement_status_is_terminal_failure(status) {
-                            Some(Err(format!(
-                                "Bluetooth advertising failed to start ({status:?}, {error:?})."
-                            )))
-                        } else {
-                            None
-                        };
+                    let decision = advertisement_startup_decision(status, error);
+                    update_startup_advertisement_status(
+                        &status_app,
+                        &status_shared,
+                        status,
+                        error,
+                        decision,
+                    );
+                    let startup_result = match decision {
+                        AdvertisementStartupDecision::Ready => Some(Ok(())),
+                        AdvertisementStartupDecision::Pending => None,
+                        AdvertisementStartupDecision::Failed => Some(Err(format!(
+                            "Bluetooth advertising failed to start ({status:?}, {error:?})."
+                        ))),
+                    };
                     if let Some(startup_result) = startup_result {
                         if let Some(sender) = callback_advertising_sender
                             .lock()
@@ -1031,19 +1036,22 @@ async fn start_gatt(
                             let _ = sender.send(startup_result);
                         }
                     }
-                } else if advertisement_status_needs_recovery(status) && active {
-                    let recovery_app = status_app.clone();
-                    let recovery_shared = status_shared.clone();
-                    let recovery_lifecycle = status_lifecycle.clone();
-                    tauri::async_runtime::spawn(async move {
-                        tokio::task::yield_now().await;
-                        recover_after_advertising_stopped(
-                            recovery_app,
-                            recovery_shared,
-                            recovery_lifecycle,
-                            generation,
-                        );
-                    });
+                } else {
+                    update_advertisement_status(&status_app, &status_shared, status, error);
+                    if advertisement_status_needs_recovery(status) && active {
+                        let recovery_app = status_app.clone();
+                        let recovery_shared = status_shared.clone();
+                        let recovery_lifecycle = status_lifecycle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            tokio::task::yield_now().await;
+                            recover_after_advertising_stopped(
+                                recovery_app,
+                                recovery_shared,
+                                recovery_lifecycle,
+                                generation,
+                            );
+                        });
+                    }
                 }
             }
             Ok(())
@@ -1086,25 +1094,40 @@ async fn start_gatt(
     let status = provider
         .AdvertisementStatus()
         .map_err(|error| error.to_string())?;
-    update_advertisement_status(&app, &shared, status, BluetoothError::Success);
-    if status == GattServiceProviderAdvertisementStatus::Started {
-        advertising_sender
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take();
-    } else if advertisement_status_is_terminal_failure(status) {
-        advertising_sender
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take();
-        return Err(format!(
-            "Bluetooth advertising did not start completely ({status:?})."
-        ));
-    } else {
-        tokio::time::timeout(Duration::from_secs(2), advertising_receiver)
-            .await
-            .map_err(|_| "Bluetooth advertising did not report readiness in time.".to_string())?
-            .map_err(|_| "Bluetooth advertising readiness was cancelled.".to_string())??;
+    let decision = advertisement_startup_decision(status, BluetoothError::Success);
+    update_startup_advertisement_status(&app, &shared, status, BluetoothError::Success, decision);
+    match decision {
+        AdvertisementStartupDecision::Ready => {
+            advertising_sender
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .take();
+        }
+        AdvertisementStartupDecision::Failed => {
+            advertising_sender
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .take();
+            return Err(format!(
+                "Bluetooth advertising did not start completely ({status:?})."
+            ));
+        }
+        AdvertisementStartupDecision::Pending => {
+            wait_for_advertising_readiness(
+                advertising_receiver,
+                ADVERTISEMENT_STARTUP_TIMEOUT,
+                || {
+                    provider
+                        .AdvertisementStatus()
+                        .map_err(|error| error.to_string())
+                },
+            )
+            .await?;
+            advertising_sender
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .take();
+        }
     }
     let mut lifecycle = lifecycle
         .lock()
@@ -1120,6 +1143,7 @@ async fn start_gatt(
     if !lifecycle.mark_active(generation) {
         return Err("Bluetooth recovery was superseded before advertising became active.".into());
     }
+    update_advertisement_status(&app, &shared, current_status, BluetoothError::Success);
     Ok(())
 }
 
@@ -1127,14 +1151,78 @@ fn advertisement_status_needs_recovery(status: GattServiceProviderAdvertisementS
     status != GattServiceProviderAdvertisementStatus::Started
 }
 
-fn advertisement_status_is_terminal_failure(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AdvertisementStartupDecision {
+    Ready,
+    Pending,
+    Failed,
+}
+
+fn advertisement_startup_decision(
     status: GattServiceProviderAdvertisementStatus,
-) -> bool {
-    matches!(
-        status,
-        GattServiceProviderAdvertisementStatus::Aborted
-            | GattServiceProviderAdvertisementStatus::StartedWithoutAllAdvertisementData
-    )
+    error: BluetoothError,
+) -> AdvertisementStartupDecision {
+    if status == GattServiceProviderAdvertisementStatus::Started {
+        AdvertisementStartupDecision::Ready
+    } else if status == GattServiceProviderAdvertisementStatus::StartedWithoutAllAdvertisementData
+        || (status == GattServiceProviderAdvertisementStatus::Aborted
+            && error != BluetoothError::Success)
+    {
+        AdvertisementStartupDecision::Failed
+    } else {
+        AdvertisementStartupDecision::Pending
+    }
+}
+
+async fn wait_for_advertising_readiness<F>(
+    receiver: tokio::sync::oneshot::Receiver<Result<(), String>>,
+    timeout: Duration,
+    final_status: F,
+) -> Result<(), String>
+where
+    F: FnOnce() -> Result<GattServiceProviderAdvertisementStatus, String>,
+{
+    match tokio::time::timeout(timeout, receiver).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_cancelled)) => Err("Bluetooth advertising readiness was cancelled.".into()),
+        Err(_elapsed) => {
+            let status = final_status()?;
+            if status == GattServiceProviderAdvertisementStatus::Started {
+                Ok(())
+            } else {
+                Err(format!(
+                    "Bluetooth advertising did not report readiness in time ({status:?})."
+                ))
+            }
+        }
+    }
+}
+
+fn update_startup_advertisement_status(
+    app: &AppHandle,
+    shared: &SharedModel,
+    status: GattServiceProviderAdvertisementStatus,
+    error: BluetoothError,
+    decision: AdvertisementStartupDecision,
+) {
+    match decision {
+        AdvertisementStartupDecision::Ready | AdvertisementStartupDecision::Failed => {
+            update_advertisement_status(app, shared, status, error);
+        }
+        AdvertisementStartupDecision::Pending => {
+            shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .state
+                .bluetooth = BluetoothState::Initializing;
+            set_activity(
+                shared,
+                ActivityKind::Info,
+                "Waiting for Bluetooth advertising to become ready.",
+            );
+            emit_state(app, shared);
+        }
+    }
 }
 
 fn recover_after_advertising_stopped(
@@ -2073,11 +2161,12 @@ fn release_input_session() {
 #[cfg(test)]
 mod tests {
     use super::{
-        advertisement_status_needs_recovery, pointer_profile_for_display, run_notification_worker,
-        select_notification_bytes, should_cancel_pending_pairings,
-        tasklist_has_other_switchify_process, validate_notification_statuses,
-        NotificationDispatcher, MAX_QUEUED_NOTIFICATION_FRAMES, NOTIFICATION_BYTES,
-        NOTIFICATION_DELIVERY_ERROR,
+        advertisement_startup_decision, advertisement_status_needs_recovery,
+        pointer_profile_for_display, run_notification_worker, select_notification_bytes,
+        should_cancel_pending_pairings, tasklist_has_other_switchify_process,
+        validate_notification_statuses, wait_for_advertising_readiness,
+        AdvertisementStartupDecision, NotificationDispatcher, MAX_QUEUED_NOTIFICATION_FRAMES,
+        NOTIFICATION_BYTES, NOTIFICATION_DELIVERY_ERROR,
     };
     use crate::display_navigation::Display;
     use crate::input::AndroidTypingRoute;
@@ -2091,6 +2180,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tokio::sync::oneshot;
+    use windows::Devices::Bluetooth::BluetoothError;
     use windows::Devices::Bluetooth::GenericAttributeProfile::{
         GattCommunicationStatus, GattServiceProviderAdvertisementStatus,
     };
@@ -2188,6 +2278,84 @@ mod tests {
         assert!(advertisement_status_needs_recovery(
             GattServiceProviderAdvertisementStatus::Stopped
         ));
+    }
+
+    #[test]
+    fn transient_startup_statuses_wait_for_windows_to_settle() {
+        for status in [
+            GattServiceProviderAdvertisementStatus::Created,
+            GattServiceProviderAdvertisementStatus::Stopped,
+            GattServiceProviderAdvertisementStatus::Aborted,
+        ] {
+            assert_eq!(
+                advertisement_startup_decision(status, BluetoothError::Success),
+                AdvertisementStartupDecision::Pending
+            );
+        }
+        assert_eq!(
+            advertisement_startup_decision(
+                GattServiceProviderAdvertisementStatus::Started,
+                BluetoothError::Success,
+            ),
+            AdvertisementStartupDecision::Ready
+        );
+    }
+
+    #[test]
+    fn real_abort_errors_and_incomplete_advertising_fail_startup() {
+        assert_eq!(
+            advertisement_startup_decision(
+                GattServiceProviderAdvertisementStatus::Aborted,
+                BluetoothError::OtherError,
+            ),
+            AdvertisementStartupDecision::Failed
+        );
+        assert_eq!(
+            advertisement_startup_decision(
+                GattServiceProviderAdvertisementStatus::StartedWithoutAllAdvertisementData,
+                BluetoothError::Success,
+            ),
+            AdvertisementStartupDecision::Failed
+        );
+    }
+
+    #[tokio::test]
+    async fn transient_abort_can_be_followed_by_started() {
+        let (sender, receiver) = oneshot::channel();
+        sender.send(Ok(())).unwrap();
+        wait_for_advertising_readiness(receiver, Duration::from_secs(1), || {
+            panic!("a ready callback must avoid the timeout status check")
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn persistent_abort_fails_after_the_settling_window() {
+        let (_sender, receiver) = oneshot::channel();
+        assert_eq!(
+            wait_for_advertising_readiness(receiver, Duration::ZERO, || {
+                Ok(GattServiceProviderAdvertisementStatus::Aborted)
+            })
+            .await,
+            Err(format!(
+                "Bluetooth advertising did not report readiness in time ({:?}).",
+                GattServiceProviderAdvertisementStatus::Aborted
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelled_startup_stops_waiting_for_readiness() {
+        let (sender, receiver) = oneshot::channel();
+        drop(sender);
+        assert_eq!(
+            wait_for_advertising_readiness(receiver, Duration::from_secs(1), || {
+                panic!("a cancelled callback must avoid the timeout status check")
+            })
+            .await,
+            Err("Bluetooth advertising readiness was cancelled.".into())
+        );
     }
 
     #[test]
