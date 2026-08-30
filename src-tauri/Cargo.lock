@@ -3988,6 +3988,7 @@ name = "switchify-pc"
 version = "1.0.0-rc.1"
 dependencies = [
  "base64 0.22.1",
+ "block2",
  "core-graphics",
  "corebluetooth-rs",
  "directories",

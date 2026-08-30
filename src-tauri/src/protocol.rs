@@ -460,6 +460,11 @@ impl ProtocolEngine {
             .count()
     }
 
+    pub fn reset_transport_session(&mut self) -> usize {
+        self.reassembler = FrameReassembler::default();
+        self.cancel_all_pairings()
+    }
+
     pub fn set_paired_token(&mut self, device_id: String, token: String) {
         self.tokens.insert(device_id, token);
     }
@@ -1989,6 +1994,39 @@ mod tests {
         assert_eq!(engine.cancel_all_pairings(), 1);
         assert_eq!(engine.cancel_all_pairings(), 0);
         assert!(engine.pending_pairings().is_empty());
+    }
+
+    #[test]
+    fn transport_reset_clears_partial_frames_and_pairings_but_preserves_security_state() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine.set_paired_token("android-1".into(), "token-1".into());
+        let partial = BluetoothFrame {
+            version: PROTOCOL_VERSION,
+            message_id: "partial".into(),
+            sequence: 0,
+            is_final: false,
+            total_bytes: 2,
+            payload_base64: general_purpose::STANDARD.encode(b"a"),
+        };
+        assert_eq!(
+            engine.receive_frame(&serde_json::to_vec(&partial).unwrap(), NOW),
+            Ok(None)
+        );
+        engine
+            .process_message(
+                &pairing_request("pair-1", "android-2", "Phone", "nonce-1").to_string(),
+                NOW,
+            )
+            .unwrap();
+        engine
+            .replay_cache
+            .insert("android-1:request-1".into(), NOW);
+
+        assert_eq!(engine.reset_transport_session(), 1);
+        assert!(engine.pending_pairings().is_empty());
+        assert_eq!(engine.token_for("android-1"), Some("token-1"));
+        assert_eq!(engine.replay_cache.get("android-1:request-1"), Some(&NOW));
+        assert!(engine.reassembler.partials.is_empty());
     }
 
     #[test]

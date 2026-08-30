@@ -1,14 +1,22 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::ptr::NonNull;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use block2::RcBlock;
 use corebluetooth::prelude::*;
 use enigo::{Enigo, Settings};
-use objc2_app_kit::NSWorkspace;
+use objc2::rc::Retained;
+use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
+use objc2_app_kit::{
+    NSWorkspace, NSWorkspaceDidWakeNotification, NSWorkspaceWillSleepNotification,
+};
 #[allow(deprecated)]
-use objc2_foundation::{NSHost, NSString, NSURL};
+use objc2_foundation::{NSHost, NSNotification, NSNotificationCenter, NSString, NSURL};
 use tauri::{AppHandle, Manager};
 
+use crate::ble_lifecycle::{RecoveryCoordinator, RECOVERY_DELAYS};
 use crate::display_navigation::{self, NavigationError};
 use crate::dwell::DwellController;
 use crate::input::{
@@ -119,6 +127,11 @@ thread_local! {
 }
 
 pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
+    let lifecycle = Arc::new(Mutex::new(RecoveryCoordinator::default()));
+    lifecycle
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .begin_initial();
     let display_name = system_display_name();
     let state_app = app.clone();
     let service_app = app.clone();
@@ -134,9 +147,11 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
                 runtime.handle_manager_state(state)
             });
         })
-        .on_add_service(move |_service, error| {
+        .on_add_service(move |service, error| {
+            let service = MainThreadBluetoothValue(service);
             dispatch_to_main(&service_app, move |runtime| {
-                runtime.service_was_added(error.is_none())
+                let service = service.into_inner();
+                runtime.service_was_added(&service, error.is_none())
             });
         })
         .on_start_advertising(move |error| {
@@ -191,11 +206,24 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
             input: None,
             repeats: MouseRepeatController::default(),
             pending_repeat_moves: HashMap::new(),
+            lifecycle,
+            service_generation: None,
+            service_final_attempt: false,
+            notification_center: None,
+            power_observers: Vec::new(),
         });
     });
     with_runtime(|runtime| {
+        runtime.install_power_observers();
         runtime.refresh_accessibility(false)?;
-        runtime.handle_manager_state(state)
+        runtime.handle_manager_state(state)?;
+        let generation = runtime
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .current_generation();
+        runtime.schedule_recovery(generation);
+        Ok(())
     })
 }
 
@@ -377,6 +405,17 @@ struct MacRuntime {
     input: Option<DesktopInput<Enigo>>,
     repeats: MouseRepeatController,
     pending_repeat_moves: HashMap<u64, PendingRepeatMove>,
+    lifecycle: Arc<Mutex<RecoveryCoordinator>>,
+    service_generation: Option<u64>,
+    service_final_attempt: bool,
+    notification_center: Option<Retained<NSNotificationCenter>>,
+    power_observers: Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>,
+}
+
+pub fn shutdown(_app: &AppHandle, _shared: &SharedModel) {
+    RUNTIME.with(|slot| {
+        slot.borrow_mut().take();
+    });
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -421,19 +460,177 @@ impl PairingCentralRegistry {
 }
 
 impl MacRuntime {
+    fn install_power_observers(&mut self) {
+        let center = NSWorkspace::sharedWorkspace().notificationCenter();
+        let sleep_app = self.app.clone();
+        let sleep_block = RcBlock::new(move |_notification: NonNull<NSNotification>| {
+            dispatch_to_main(&sleep_app, |runtime| runtime.handle_system_suspend());
+        });
+        let wake_app = self.app.clone();
+        let wake_block = RcBlock::new(move |_notification: NonNull<NSNotification>| {
+            dispatch_to_main(&wake_app, |runtime| runtime.handle_system_resume());
+        });
+        let sleep_observer = unsafe {
+            center.addObserverForName_object_queue_usingBlock(
+                Some(NSWorkspaceWillSleepNotification),
+                None,
+                None,
+                &sleep_block,
+            )
+        };
+        let wake_observer = unsafe {
+            center.addObserverForName_object_queue_usingBlock(
+                Some(NSWorkspaceDidWakeNotification),
+                None,
+                None,
+                &wake_block,
+            )
+        };
+        self.notification_center = Some(center);
+        self.power_observers = vec![sleep_observer, wake_observer];
+    }
+
+    fn handle_system_suspend(&mut self) -> Result<(), String> {
+        self.lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .suspend();
+        self.reset_gatt();
+        self.set_bluetooth(BluetoothState::Initializing);
+        set_activity(
+            &self.shared,
+            ActivityKind::Info,
+            "Bluetooth paused while the Mac sleeps.",
+        );
+        emit_state(&self.app, &self.shared);
+        Ok(())
+    }
+
+    fn handle_system_resume(&mut self) -> Result<(), String> {
+        let generation = self
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .resume(Instant::now());
+        let Some(generation) = generation else {
+            return Ok(());
+        };
+        self.reset_gatt();
+        self.set_bluetooth(BluetoothState::Initializing);
+        emit_state(&self.app, &self.shared);
+        self.schedule_recovery(generation);
+        Ok(())
+    }
+
+    fn schedule_recovery(&self, generation: u64) {
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            for (index, delay) in RECOVERY_DELAYS.into_iter().enumerate() {
+                if !delay.is_zero() {
+                    tokio::time::sleep(delay).await;
+                }
+                let is_final = index + 1 == RECOVERY_DELAYS.len();
+                let callback_app = app.clone();
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                if app
+                    .run_on_main_thread(move || {
+                        let result =
+                            with_runtime(|runtime| runtime.recovery_attempt(generation, is_final));
+                        let _ = sender.send(result);
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+                match receiver.await {
+                    Ok(Ok(true)) => {}
+                    Ok(Ok(false)) | Err(_) => return,
+                    Ok(Err(error)) => {
+                        let _ = callback_app.run_on_main_thread(move || {
+                            let _ =
+                                with_runtime(|runtime| runtime.recovery_failed(generation, error));
+                        });
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    fn recovery_attempt(&mut self, generation: u64, is_final: bool) -> Result<bool, String> {
+        if !self
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .should_retry(generation)
+        {
+            return Ok(false);
+        }
+        match self.manager.state() {
+            PeripheralManagerState::PoweredOn => {
+                self.service_final_attempt = is_final;
+                self.configure_service()?;
+                Ok(true)
+            }
+            PeripheralManagerState::PoweredOff => {
+                self.recovery_terminal(generation, BluetoothState::PoweredOff);
+                Ok(false)
+            }
+            PeripheralManagerState::Unauthorized => {
+                self.recovery_terminal(generation, BluetoothState::Unauthorized);
+                Ok(false)
+            }
+            PeripheralManagerState::Unsupported => {
+                self.recovery_terminal(generation, BluetoothState::Unsupported);
+                Ok(false)
+            }
+            PeripheralManagerState::Unknown | PeripheralManagerState::Resetting => Ok(true),
+        }
+    }
+
+    fn recovery_failed(&mut self, generation: u64, error: String) -> Result<(), String> {
+        if self
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .mark_terminal(generation)
+        {
+            self.set_bluetooth(BluetoothState::Error);
+            set_activity(
+                &self.shared,
+                ActivityKind::Error,
+                format!("Bluetooth could not recover after resume: {error}"),
+            );
+            emit_state(&self.app, &self.shared);
+        }
+        Ok(())
+    }
+
+    fn recovery_terminal(&self, generation: u64, state: BluetoothState) {
+        if self
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .mark_terminal(generation)
+        {
+            self.set_bluetooth(state);
+            emit_state(&self.app, &self.shared);
+        }
+    }
+
     fn handle_manager_state(&mut self, state: PeripheralManagerState) -> Result<(), String> {
+        if manager_state_invalidates_gatt(state) {
+            self.reset_gatt();
+        }
         match state {
             PeripheralManagerState::PoweredOn => self.configure_service()?,
             PeripheralManagerState::PoweredOff => {
-                self.reset_gatt();
                 self.set_bluetooth(BluetoothState::PoweredOff);
             }
             PeripheralManagerState::Unauthorized => {
-                self.reset_gatt();
                 self.set_bluetooth(BluetoothState::Unauthorized);
             }
             PeripheralManagerState::Unsupported => {
-                self.reset_gatt();
                 self.set_bluetooth(BluetoothState::Unsupported);
                 self.shared
                     .lock()
@@ -459,6 +656,12 @@ impl MacRuntime {
             return Ok(());
         }
         self.set_bluetooth(BluetoothState::Initializing);
+        self.service_generation = Some(
+            self.lifecycle
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .current_generation(),
+        );
         let service_uuid =
             BluetoothUuid::from_string(SERVICE_UUID).map_err(|error| error.to_string())?;
         let rx_uuid = BluetoothUuid::from_string(RX_UUID).map_err(|error| error.to_string())?;
@@ -518,8 +721,22 @@ impl MacRuntime {
         Ok(())
     }
 
-    fn service_was_added(&mut self, succeeded: bool) -> Result<(), String> {
+    fn service_was_added(
+        &mut self,
+        service: &MutableService,
+        succeeded: bool,
+    ) -> Result<(), String> {
+        if !self
+            .service
+            .as_ref()
+            .is_some_and(|current| current.ptr_eq(service))
+        {
+            return Ok(());
+        }
         if !succeeded {
+            let generation = self.service_generation;
+            let final_attempt = self.service_final_attempt;
+            self.reset_gatt();
             self.set_bluetooth(BluetoothState::Error);
             set_activity(
                 &self.shared,
@@ -527,6 +744,14 @@ impl MacRuntime {
                 "The Bluetooth service could not be published.",
             );
             emit_state(&self.app, &self.shared);
+            if final_attempt {
+                if let Some(generation) = generation {
+                    self.lifecycle
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .mark_terminal(generation);
+                }
+            }
             return Ok(());
         }
         let service_uuid =
@@ -540,7 +765,22 @@ impl MacRuntime {
     }
 
     fn advertising_did_start(&mut self, succeeded: bool) -> Result<(), String> {
+        let Some(generation) = self.service_generation else {
+            return Ok(());
+        };
+        if !self
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_current(generation)
+        {
+            return Ok(());
+        }
         if succeeded {
+            self.lifecycle
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .mark_active(generation);
             self.set_bluetooth(BluetoothState::Advertising);
             set_activity(
                 &self.shared,
@@ -548,12 +788,23 @@ impl MacRuntime {
                 "Advertising to nearby Switchify Android devices.",
             );
         } else {
+            let generation = self.service_generation;
+            let final_attempt = self.service_final_attempt;
+            self.reset_gatt();
             self.set_bluetooth(BluetoothState::Error);
             set_activity(
                 &self.shared,
                 ActivityKind::Error,
                 "Bluetooth advertising failed.",
             );
+            if final_attempt {
+                if let Some(generation) = generation {
+                    self.lifecycle
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .mark_terminal(generation);
+                }
+            }
         }
         emit_state(&self.app, &self.shared);
         Ok(())
@@ -1537,7 +1788,10 @@ impl MacRuntime {
         self.app.state::<DwellController>().cancel(&self.app);
         self.stop_all_repeats();
         self.manager.stop_advertising();
+        self.manager.remove_all_services();
         self.service = None;
+        self.service_generation = None;
+        self.service_final_attempt = false;
         self.tx_characteristic = None;
         self.subscribers.clear();
         self.pairing_centrals.clear();
@@ -1547,7 +1801,7 @@ impl MacRuntime {
                 .shared
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            model.engine.cancel_all_pairings();
+            model.engine.reset_transport_session();
             model.state.pending_pairings.clear();
         }
         if let Some(input) = self.input.as_mut() {
@@ -1557,6 +1811,17 @@ impl MacRuntime {
         self.app.state::<CursorOverlay>().end_session();
         self.app.state::<ModifierOverlay>().end_session();
     }
+}
+
+fn manager_state_invalidates_gatt(state: PeripheralManagerState) -> bool {
+    matches!(
+        state,
+        PeripheralManagerState::PoweredOff
+            | PeripheralManagerState::Unauthorized
+            | PeripheralManagerState::Unsupported
+            | PeripheralManagerState::Unknown
+            | PeripheralManagerState::Resetting
+    )
 }
 
 fn pointer_profile_for_display(
@@ -1654,6 +1919,12 @@ fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Re
 
 impl Drop for MacRuntime {
     fn drop(&mut self) {
+        if let Some(center) = self.notification_center.as_ref() {
+            for observer in self.power_observers.drain(..) {
+                let observer: &AnyObject = observer.as_ref().as_ref();
+                unsafe { center.removeObserver(observer) };
+            }
+        }
         self.app.state::<DwellController>().cancel(&self.app);
         if let Some(input) = self.input.as_mut() {
             let _ = input.release_all();
@@ -1668,6 +1939,19 @@ impl Drop for MacRuntime {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    #[test]
+    fn resetting_and_unknown_manager_states_invalidate_cached_gatt_objects() {
+        assert!(manager_state_invalidates_gatt(
+            PeripheralManagerState::Resetting
+        ));
+        assert!(manager_state_invalidates_gatt(
+            PeripheralManagerState::Unknown
+        ));
+        assert!(!manager_state_invalidates_gatt(
+            PeripheralManagerState::PoweredOn
+        ));
+    }
 
     #[test]
     fn mac_typing_route_orders_cleanup_before_successful_overlay_hiding() {
