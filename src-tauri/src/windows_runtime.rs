@@ -1771,6 +1771,8 @@ fn complete_repeat_start(
                     runtime
                         .repeats
                         .stop_if_current(&command.device_id, active.generation);
+                    // A failed initial key tap can still have left the key down.
+                    let _ = runtime.input.release_repeat_keys();
                     return Err(error);
                 }
             }

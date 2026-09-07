@@ -432,6 +432,8 @@ fn save_settings(
         previous_consent,
         previous_dwell_enabled,
         previous_dwell_delay,
+        previous_mouse_repeat_enabled,
+        previous_key_repeat_enabled,
     ) = {
         let state = &model
             .shared
@@ -444,6 +446,8 @@ fn save_settings(
             state.telemetry.consent,
             state.settings.dwell_click_enabled,
             state.settings.dwell_click_delay_ms,
+            state.settings.mouse_repeat_enabled,
+            state.settings.key_repeat_enabled,
         )
     };
     if settings.start_with_system != previous_start_with_system {
@@ -465,8 +469,12 @@ fn save_settings(
         app.state::<dwell::DwellController>().cancel(&app);
     }
     // Turning either repeat off stops whatever is in flight, so the runtime
-    // loops end deliberately instead of erroring out on their next tick.
-    if !settings.mouse_repeat_enabled || !settings.key_repeat_enabled {
+    // loops end deliberately instead of erroring out on their next tick. Only a
+    // change stops repeats: testing the current value would cancel an active
+    // mouse repeat on every unrelated save while key repeat is switched off.
+    if (previous_mouse_repeat_enabled && !settings.mouse_repeat_enabled)
+        || (previous_key_repeat_enabled && !settings.key_repeat_enabled)
+    {
         platform_stop_mouse_repeat(&app);
     }
     overlay.apply_settings(settings);

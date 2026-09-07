@@ -1509,6 +1509,8 @@ impl MacRuntime {
                 Err(error) => {
                     self.repeats
                         .stop_if_current(&command.device_id, active.generation);
+                    // A failed initial key tap can still have left the key down.
+                    self.release_repeat_keys();
                     return Err(error);
                 }
             };
