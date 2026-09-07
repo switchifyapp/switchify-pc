@@ -1435,9 +1435,18 @@ impl MacRuntime {
                 self.stop_repeat_for_device(&command.device_id);
                 return Ok(());
             }
-            if !settings.mouse_repeat_enabled {
+            let enabled = if repeat_command.repeat_key().is_some() {
+                settings.key_repeat_enabled
+            } else {
+                settings.mouse_repeat_enabled
+            };
+            if !enabled {
                 self.stop_repeat_for_device(&command.device_id);
-                return Err("Mouse repeat is disabled in settings.".into());
+                return Err(if repeat_command.repeat_key().is_some() {
+                    "Key repeat is disabled in settings.".to_string()
+                } else {
+                    "Mouse repeat is disabled in settings.".to_string()
+                });
             }
             self.stop_repeat_for_device(&command.device_id);
             if self.input.is_none() && !self.refresh_accessibility(false)? {
@@ -1457,15 +1466,30 @@ impl MacRuntime {
                         .repeats
                         .initial_move(&command.device_id, active.generation)
                         .unwrap_or((0, 0));
-                    self.execute_repeat_move(active.generation, dx, dy)
+                    self.execute_repeat_move(active.generation, dx, dy).map(Some)
                 }
                 RepeatCommand::Scroll { dx, dy } => match self.input.as_mut() {
-                    Some(input) => input.execute_repeat_scroll(dx, dy),
+                    Some(input) => input.execute_repeat_scroll(dx, dy).map(Some),
                     None => Err(
                         "Accessibility permission is required before input can be controlled."
                             .to_string(),
                     ),
                 },
+                // The first tap fires immediately; the tick then waits the
+                // initial delay before repeating. Key repeats produce no pointer
+                // feedback, so the cursor overlay is hidden rather than driven.
+                RepeatCommand::Key { .. } => {
+                    match self.repeats.initial_key(&command.device_id, active.generation) {
+                        Some(key) => match self.input.as_mut() {
+                            Some(input) => input.execute_repeat_key(key).map(|()| None),
+                            None => Err(
+                                "Accessibility permission is required before input can be controlled."
+                                    .to_string(),
+                            ),
+                        },
+                        None => Ok(None),
+                    }
+                }
             };
             let initial_feedback = match initial {
                 Ok(feedback) => feedback,
@@ -1475,23 +1499,26 @@ impl MacRuntime {
                     return Err(error);
                 }
             };
-            self.app.state::<CursorOverlay>().begin_repeat(
-                active.generation,
-                repeat_command,
-                settings.mouse_repeat_acceleration_duration_ms > 0,
-                matches!(initial_feedback, PointerFeedback::Drag),
-                settings.clone(),
-            );
-            self.schedule_repeat_tick(
-                command.device_id.clone(),
-                active.generation,
-                match repeat_command {
-                    RepeatCommand::Move { .. } => MOVE_TICK_INTERVAL_MS,
-                    RepeatCommand::Scroll { .. } => {
-                        u64::from(repeat_command.interval_ms(&settings))
-                    }
-                },
-            );
+            match initial_feedback {
+                Some(feedback) => self.app.state::<CursorOverlay>().begin_repeat(
+                    active.generation,
+                    repeat_command,
+                    settings.mouse_repeat_acceleration_duration_ms > 0,
+                    matches!(feedback, PointerFeedback::Drag),
+                    settings.clone(),
+                ),
+                None => self.app.state::<CursorOverlay>().hide_for_typing(),
+            }
+            let delay_ms = match repeat_command {
+                RepeatCommand::Move { .. } => MOVE_TICK_INTERVAL_MS,
+                RepeatCommand::Scroll { .. } => u64::from(repeat_command.interval_ms(&settings)),
+                RepeatCommand::Key { .. } => u64::from(
+                    self.repeats
+                        .key_delay_ms(&command.device_id, active.generation, &settings)
+                        .unwrap_or_else(|| settings.key_repeat_initial_delay_ms.max(1)),
+                ),
+            };
+            self.schedule_repeat_tick(command.device_id.clone(), active.generation, delay_ms);
             Ok(())
         });
         self.complete_repeat_command(command, injection);
@@ -1548,7 +1575,13 @@ impl MacRuntime {
         let Some(active) = self.repeats.current(&device_id, generation) else {
             return Ok(());
         };
-        if !settings.mouse_repeat_enabled {
+        let is_key_repeat = active.command.repeat_key().is_some();
+        let enabled = if is_key_repeat {
+            settings.key_repeat_enabled
+        } else {
+            settings.mouse_repeat_enabled
+        };
+        if !enabled {
             self.stop_repeat_if_current(&device_id, generation, false);
             return Ok(());
         }
@@ -1575,7 +1608,7 @@ impl MacRuntime {
                 settings.move_repeat_interval_ms,
                 settings.pointer_scale_percent,
             ),
-            RepeatCommand::Scroll { .. } => None,
+            RepeatCommand::Scroll { .. } | RepeatCommand::Key { .. } => None,
         };
         let result = match active.command {
             RepeatCommand::Move { .. } => match movement {
@@ -1589,16 +1622,36 @@ impl MacRuntime {
                         .to_string(),
                 ),
             },
+            RepeatCommand::Key { .. } => match self.repeats.advance_key(&device_id, generation) {
+                Some(key) => match self.input.as_mut() {
+                    Some(input) => input.execute_repeat_key(key),
+                    None => Err(
+                        "Accessibility permission is required before input can be controlled."
+                            .to_string(),
+                    ),
+                },
+                None => Ok(()),
+            },
         };
         if let Err(error) = result {
             if self.stop_repeat_if_current(&device_id, generation, false) {
-                self.report_error(format!("Mouse repeat stopped: {error}"));
+                self.report_error(format!(
+                    "{} repeat stopped: {error}",
+                    if is_key_repeat { "Key" } else { "Mouse" }
+                ));
             }
             return Ok(());
         }
         let delay_ms = match active.command {
             RepeatCommand::Move { .. } => MOVE_TICK_INTERVAL_MS,
             RepeatCommand::Scroll { .. } => u64::from(active.command.interval_ms(&settings)),
+            RepeatCommand::Key { .. } => {
+                let Some(delay) = self.repeats.key_delay_ms(&device_id, generation, &settings)
+                else {
+                    return Ok(());
+                };
+                u64::from(delay)
+            }
         };
         self.schedule_repeat_tick(device_id, generation, delay_ms);
         Ok(())

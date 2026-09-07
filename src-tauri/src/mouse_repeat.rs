@@ -10,10 +10,65 @@ pub const MOVE_TICK_INTERVAL_MS: u64 = 8;
 const MAX_MOVE_ELAPSED_MS: f64 = 16.0;
 const PIXEL_EPSILON: f64 = 1e-9;
 
+/// Keys that may be driven by a repeat.
+///
+/// Deliberately excludes printable characters and Space (a runaway repeat fills
+/// documents), modifiers (latching already belongs to `keyboard.modifierDown`),
+/// and Enter (repeat-submitting a form is destructive in a way arrow keys are
+/// not). The desktop advertises this list so it can widen without a client
+/// release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RepeatKey {
+    ArrowUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    Tab,
+    Backspace,
+    Delete,
+    PageUp,
+    PageDown,
+}
+
+impl RepeatKey {
+    pub const ALL: [Self; 9] = [
+        Self::ArrowUp,
+        Self::ArrowDown,
+        Self::ArrowLeft,
+        Self::ArrowRight,
+        Self::Tab,
+        Self::Backspace,
+        Self::Delete,
+        Self::PageUp,
+        Self::PageDown,
+    ];
+
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|key| key.protocol_name() == name)
+    }
+
+    pub fn protocol_name(self) -> &'static str {
+        match self {
+            Self::ArrowUp => "ArrowUp",
+            Self::ArrowDown => "ArrowDown",
+            Self::ArrowLeft => "ArrowLeft",
+            Self::ArrowRight => "ArrowRight",
+            Self::Tab => "Tab",
+            Self::Backspace => "Backspace",
+            Self::Delete => "Delete",
+            Self::PageUp => "PageUp",
+            Self::PageDown => "PageDown",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RepeatCommand {
     Move { dx: i32, dy: i32 },
     Scroll { dx: i32, dy: i32 },
+    Key { key: RepeatKey },
 }
 
 impl RepeatCommand {
@@ -46,6 +101,14 @@ impl RepeatCommand {
                 dx: value("dx", 50)?,
                 dy: value("dy", 50)?,
             }),
+            "keyboard.key" => {
+                let key = nested
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .and_then(RepeatKey::parse)
+                    .ok_or_else(|| "Key repeat command is invalid.".to_string())?;
+                Ok(Self::Key { key })
+            }
             _ => Err("Mouse repeat command is invalid.".into()),
         }
     }
@@ -54,6 +117,14 @@ impl RepeatCommand {
         match self {
             Self::Move { .. } => settings.move_repeat_interval_ms,
             Self::Scroll { .. } => settings.scroll_repeat_interval_ms,
+            Self::Key { .. } => settings.key_repeat_interval_ms,
+        }
+    }
+
+    pub fn repeat_key(self) -> Option<RepeatKey> {
+        match self {
+            Self::Key { key } => Some(key),
+            _ => None,
         }
     }
 }
@@ -64,6 +135,7 @@ pub struct ActiveRepeat {
     pub command: RepeatCommand,
     pub acceleration_duration_ms: u32,
     movement: Option<MoveRepeatState>,
+    key: Option<KeyRepeatState>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -150,6 +222,45 @@ impl MoveRepeatState {
     }
 }
 
+/// Cadence for a repeating key.
+///
+/// The first tap fires immediately when the repeat starts, the second after
+/// `key_repeat_initial_delay_ms`, and every later tap after
+/// `key_repeat_interval_ms`. This mirrors how a keyboard's own auto-repeat
+/// behaves and is the discrete analogue of the pointer acceleration ramp, which
+/// has no meaning for whole key presses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct KeyRepeatState {
+    taps: u32,
+}
+
+impl KeyRepeatState {
+    fn new() -> Self {
+        Self { taps: 0 }
+    }
+
+    fn initial_tap(&mut self) -> bool {
+        if self.taps > 0 {
+            return false;
+        }
+        self.taps = 1;
+        true
+    }
+
+    fn repeat_tap(&mut self) {
+        self.taps = self.taps.saturating_add(1);
+    }
+
+    fn next_delay_ms(self, settings: &AppSettings) -> u32 {
+        let delay = if self.taps <= 1 {
+            settings.key_repeat_initial_delay_ms
+        } else {
+            settings.key_repeat_interval_ms
+        };
+        delay.max(1)
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct MouseRepeatController {
     next_generation: u64,
@@ -171,6 +282,7 @@ impl MouseRepeatController {
             acceleration_duration_ms,
             movement: matches!(command, RepeatCommand::Move { .. })
                 .then(|| MoveRepeatState::new(now)),
+            key: matches!(command, RepeatCommand::Key { .. }).then(KeyRepeatState::new),
         };
         self.active.insert(device_id, active);
         active
@@ -224,6 +336,51 @@ impl MouseRepeatController {
         })
     }
 
+    /// Emits the first key tap, which fires immediately when the repeat starts.
+    pub fn initial_key(&mut self, device_id: &str, generation: u64) -> Option<RepeatKey> {
+        let active = self.active.get_mut(device_id)?;
+        if active.generation != generation {
+            return None;
+        }
+        let RepeatCommand::Key { key } = active.command else {
+            return None;
+        };
+        active
+            .key
+            .as_mut()
+            .and_then(|state| state.initial_tap().then_some(key))
+    }
+
+    /// Emits a subsequent key tap once the current delay has elapsed.
+    pub fn advance_key(&mut self, device_id: &str, generation: u64) -> Option<RepeatKey> {
+        let active = self.active.get_mut(device_id)?;
+        if active.generation != generation {
+            return None;
+        }
+        let RepeatCommand::Key { key } = active.command else {
+            return None;
+        };
+        active.key.as_mut().map(|state| {
+            state.repeat_tap();
+            key
+        })
+    }
+
+    /// How long to wait before the next key tap. Settings are read fresh on
+    /// every tick so a cadence change applies to a repeat already in flight.
+    pub fn key_delay_ms(
+        &self,
+        device_id: &str,
+        generation: u64,
+        settings: &AppSettings,
+    ) -> Option<u32> {
+        let active = self.active.get(device_id)?;
+        if active.generation != generation {
+            return None;
+        }
+        active.key.map(|state| state.next_delay_ms(settings))
+    }
+
     pub fn stop(&mut self, device_id: &str) -> Option<ActiveRepeat> {
         self.active.remove(device_id)
     }
@@ -275,6 +432,176 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::time::Duration;
+
+    #[test]
+    fn parses_repeatable_keys_and_rejects_everything_else() {
+        for key in RepeatKey::ALL {
+            assert_eq!(
+                RepeatCommand::parse(
+                    &json!({"command":{"type":"keyboard.key","payload":{"key":key.protocol_name()}}})
+                ),
+                Ok(RepeatCommand::Key { key })
+            );
+        }
+        for key in [
+            "a", "A", "Space", "Enter", "Escape", "Ctrl", "Home", "F1", "",
+        ] {
+            assert_eq!(
+                RepeatCommand::parse(
+                    &json!({"command":{"type":"keyboard.key","payload":{"key":key}}})
+                ),
+                Err("Key repeat command is invalid.".to_string())
+            );
+        }
+        assert_eq!(
+            RepeatCommand::parse(&json!({"command":{"type":"keyboard.key","payload":{}}})),
+            Err("Key repeat command is invalid.".to_string())
+        );
+    }
+
+    #[test]
+    fn key_repeat_fires_immediately_then_waits_the_initial_delay_then_the_interval() {
+        let settings = AppSettings {
+            key_repeat_interval_ms: 250,
+            key_repeat_initial_delay_ms: 500,
+            ..AppSettings::default()
+        };
+        let mut controller = MouseRepeatController::default();
+        let active = controller.start(
+            "device".into(),
+            RepeatCommand::Key {
+                key: RepeatKey::ArrowDown,
+            },
+            0,
+            Instant::now(),
+        );
+
+        // The first tap is immediate, and only ever emitted once.
+        assert_eq!(
+            controller.initial_key("device", active.generation),
+            Some(RepeatKey::ArrowDown)
+        );
+        assert_eq!(controller.initial_key("device", active.generation), None);
+        assert_eq!(
+            controller.key_delay_ms("device", active.generation, &settings),
+            Some(500)
+        );
+
+        // Every tap after the second one uses the steady-state interval.
+        assert_eq!(
+            controller.advance_key("device", active.generation),
+            Some(RepeatKey::ArrowDown)
+        );
+        assert_eq!(
+            controller.key_delay_ms("device", active.generation, &settings),
+            Some(250)
+        );
+        assert_eq!(
+            controller.advance_key("device", active.generation),
+            Some(RepeatKey::ArrowDown)
+        );
+        assert_eq!(
+            controller.key_delay_ms("device", active.generation, &settings),
+            Some(250)
+        );
+    }
+
+    #[test]
+    fn key_repeat_delay_never_reaches_zero_and_follows_live_settings_changes() {
+        let mut controller = MouseRepeatController::default();
+        let active = controller.start(
+            "device".into(),
+            RepeatCommand::Key {
+                key: RepeatKey::Tab,
+            },
+            0,
+            Instant::now(),
+        );
+        controller.initial_key("device", active.generation);
+
+        // A zero initial delay must not spin the tick loop.
+        let immediate = AppSettings {
+            key_repeat_initial_delay_ms: 0,
+            ..AppSettings::default()
+        };
+        assert_eq!(
+            controller.key_delay_ms("device", active.generation, &immediate),
+            Some(1)
+        );
+
+        // Settings are read per tick, so a cadence change applies mid-repeat.
+        controller.advance_key("device", active.generation);
+        let faster = AppSettings {
+            key_repeat_interval_ms: 100,
+            ..AppSettings::default()
+        };
+        assert_eq!(
+            controller.key_delay_ms("device", active.generation, &faster),
+            Some(100)
+        );
+    }
+
+    #[test]
+    fn stale_generations_never_emit_key_taps() {
+        let mut controller = MouseRepeatController::default();
+        let first = controller.start(
+            "device".into(),
+            RepeatCommand::Key {
+                key: RepeatKey::PageDown,
+            },
+            0,
+            Instant::now(),
+        );
+        let second = controller.start(
+            "device".into(),
+            RepeatCommand::Key {
+                key: RepeatKey::PageUp,
+            },
+            0,
+            Instant::now(),
+        );
+        assert_ne!(first.generation, second.generation);
+        assert_eq!(controller.initial_key("device", first.generation), None);
+        assert_eq!(controller.advance_key("device", first.generation), None);
+        assert_eq!(
+            controller.key_delay_ms("device", first.generation, &AppSettings::default()),
+            None
+        );
+        assert_eq!(
+            controller.initial_key("device", second.generation),
+            Some(RepeatKey::PageUp)
+        );
+
+        controller.stop("device");
+        assert_eq!(controller.advance_key("device", second.generation), None);
+    }
+
+    #[test]
+    fn pointer_repeats_never_emit_key_taps_and_key_repeats_never_move_the_pointer() {
+        let mut controller = MouseRepeatController::default();
+        let pointer = controller.start(
+            "device".into(),
+            RepeatCommand::Move { dx: 10, dy: 0 },
+            0,
+            Instant::now(),
+        );
+        assert_eq!(controller.initial_key("device", pointer.generation), None);
+        assert_eq!(controller.advance_key("device", pointer.generation), None);
+
+        let key = controller.start(
+            "device".into(),
+            RepeatCommand::Key {
+                key: RepeatKey::Backspace,
+            },
+            0,
+            Instant::now(),
+        );
+        assert_eq!(controller.initial_move("device", key.generation), None);
+        assert_eq!(
+            controller.advance_move("device", key.generation, Instant::now(), 250, 100),
+            None
+        );
+    }
 
     #[test]
     fn parses_only_bounded_move_and_scroll_commands() {

@@ -299,6 +299,10 @@ impl OverlayEngine {
                         dragging,
                     },
                     RepeatCommand::Scroll { dx, dy } => PointerFeedback::RepeatScroll { dx, dy },
+                    // Key repeats carry no pointer feedback: the runtime hides
+                    // the overlay instead of beginning one. Handled defensively
+                    // so the overlay thread cannot panic if that ever changes.
+                    RepeatCommand::Key { .. } => return self.hide(),
                 };
                 self.feedback = Some(feedback);
                 self.deadline = None;

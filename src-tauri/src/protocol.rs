@@ -10,6 +10,7 @@ use serde_json::{json, Map, Value};
 use sha2::Sha256;
 use uuid::Uuid;
 
+use crate::mouse_repeat::RepeatKey;
 use crate::state::AppSettings;
 
 pub const PROTOCOL_VERSION: i64 = 1;
@@ -1104,18 +1105,29 @@ fn valid_repeat_start(object: &Map<String, Value>) -> bool {
     let Some(payload_object) = payload.as_object() else {
         return false;
     };
-    payload_object.len() == 2
-        && match command_type {
-            "mouse.move" => {
-                bounded_number(payload, "dx", MAX_POINTER_DELTA).is_some()
-                    && bounded_number(payload, "dy", MAX_POINTER_DELTA).is_some()
-            }
-            "mouse.scroll" => {
-                bounded_number(payload, "dx", 50.0).is_some()
-                    && bounded_number(payload, "dy", 50.0).is_some()
-            }
-            _ => false,
+    match command_type {
+        "mouse.move" => {
+            payload_object.len() == 2
+                && bounded_number(payload, "dx", MAX_POINTER_DELTA).is_some()
+                && bounded_number(payload, "dy", MAX_POINTER_DELTA).is_some()
         }
+        "mouse.scroll" => {
+            payload_object.len() == 2
+                && bounded_number(payload, "dx", 50.0).is_some()
+                && bounded_number(payload, "dy", 50.0).is_some()
+        }
+        // The repeatable-key allowlist is owned by `RepeatKey` so the validator
+        // and the runtime can never disagree about what may repeat.
+        "keyboard.key" => {
+            payload_object.len() == 1
+                && payload_object
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .and_then(RepeatKey::parse)
+                    .is_some()
+        }
+        _ => false,
+    }
 }
 
 fn valid_stream_id(value: Option<&Value>) -> bool {
@@ -1422,6 +1434,18 @@ pub fn pointer_profile_response(
                     "accelerationDurationMs": settings.mouse_repeat_acceleration_duration_ms,
                     "accelerationDurationOptionsMs": [0, 500, 1000, 2000],
                     "accelerationInitialScalePercent": 25
+                },
+                "keyRepeat": {
+                    "supported": true,
+                    "enabled": settings.key_repeat_enabled,
+                    "intervalMs": settings.key_repeat_interval_ms,
+                    "initialDelayMs": settings.key_repeat_initial_delay_ms,
+                    "minIntervalMs": 100,
+                    "maxIntervalMs": 1000,
+                    "repeatableKeys": RepeatKey::ALL
+                        .iter()
+                        .map(|key| key.protocol_name())
+                        .collect::<Vec<_>>()
                 },
                 "pointerSpeed": {
                     "supported": true,
@@ -2373,6 +2397,182 @@ mod tests {
             "mouse.repeat.stop",
             &json!({"deviceId":"extra"})
         ));
+    }
+
+    #[test]
+    fn repeat_start_accepts_every_repeatable_key_and_rejects_the_rest() {
+        for key in RepeatKey::ALL {
+            assert!(
+                valid_desktop_payload(
+                    "mouse.repeat.start",
+                    &json!({"command":{"type":"keyboard.key","payload":{"key":key.protocol_name()}}})
+                ),
+                "{} should be repeatable",
+                key.protocol_name()
+            );
+        }
+        for payload in [
+            // Printable characters and Space would flood text, modifiers belong
+            // to keyboard.modifierDown, and Enter would re-submit on every tick.
+            json!({"command":{"type":"keyboard.key","payload":{"key":"a"}}}),
+            json!({"command":{"type":"keyboard.key","payload":{"key":"A"}}}),
+            json!({"command":{"type":"keyboard.key","payload":{"key":"Space"}}}),
+            json!({"command":{"type":"keyboard.key","payload":{"key":"Enter"}}}),
+            json!({"command":{"type":"keyboard.key","payload":{"key":"Escape"}}}),
+            json!({"command":{"type":"keyboard.key","payload":{"key":"Ctrl"}}}),
+            json!({"command":{"type":"keyboard.key","payload":{"key":"Shift"}}}),
+            json!({"command":{"type":"keyboard.key","payload":{"key":"Home"}}}),
+            json!({"command":{"type":"keyboard.key","payload":{"key":"F1"}}}),
+            json!({"command":{"type":"keyboard.key","payload":{"key":""}}}),
+            // Shape violations.
+            json!({"command":{"type":"keyboard.key","payload":{"key":"Tab","extra":true}}}),
+            json!({"command":{"type":"keyboard.key","payload":{}}}),
+            json!({"command":{"type":"keyboard.key","payload":{"key":1}}}),
+            json!({"command":{"type":"keyboard.shortcut","payload":{"keys":["Tab"]}}}),
+        ] {
+            assert!(
+                !valid_desktop_payload("mouse.repeat.start", &payload),
+                "{payload} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn repeat_start_still_accepts_the_v1_pointer_payloads_byte_for_byte() {
+        // Pins the exact shapes shipped clients send today. Widening the nested
+        // envelope for keyboard.key must not move these acceptance boundaries.
+        for payload in [
+            json!({"command":{"type":"mouse.move","payload":{"dx":0,"dy":0}}}),
+            json!({"command":{"type":"mouse.move","payload":{"dx":-64,"dy":128}}}),
+            json!({"command":{"type":"mouse.move","payload":{"dx":500,"dy":-500}}}),
+            json!({"command":{"type":"mouse.scroll","payload":{"dx":0,"dy":5}}}),
+            json!({"command":{"type":"mouse.scroll","payload":{"dx":-50,"dy":50}}}),
+        ] {
+            assert!(
+                valid_desktop_payload("mouse.repeat.start", &payload),
+                "{payload} is a shipped v1 payload"
+            );
+        }
+        for payload in [
+            json!({"command":{"type":"mouse.move","payload":{"dx":501,"dy":0}}}),
+            json!({"command":{"type":"mouse.scroll","payload":{"dx":0,"dy":51}}}),
+            json!({"command":{"type":"mouse.move","payload":{"dx":1}}}),
+            json!({"command":{"type":"mouse.scroll","payload":{"dx":1,"dy":1,"extra":0}}}),
+        ] {
+            assert!(
+                !valid_desktop_payload("mouse.repeat.start", &payload),
+                "{payload} was rejected before this change"
+            );
+        }
+    }
+
+    #[test]
+    fn pointer_profile_advertises_key_repeat_without_disturbing_mouse_repeat() {
+        let profile = PointerProfile {
+            display_id: "display:0:0:1920:1080:1".into(),
+            scale_factor: 1.0,
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            small_delta: 49,
+            medium_delta: 130,
+            large_delta: 281,
+            display_navigation_supported: true,
+            display_count: 2,
+        };
+        let settings = AppSettings::default();
+        let response: Value =
+            serde_json::from_str(&pointer_profile_response("profile-1", &profile, &settings))
+                .unwrap();
+        let capabilities = &response["payload"]["capabilities"];
+
+        let key_repeat = &capabilities["keyRepeat"];
+        assert_eq!(key_repeat["supported"], true);
+        assert_eq!(key_repeat["enabled"], settings.key_repeat_enabled);
+        assert_eq!(key_repeat["intervalMs"], settings.key_repeat_interval_ms);
+        assert_eq!(
+            key_repeat["initialDelayMs"],
+            settings.key_repeat_initial_delay_ms
+        );
+        assert_eq!(key_repeat["minIntervalMs"], 100);
+        assert_eq!(key_repeat["maxIntervalMs"], 1000);
+        assert_eq!(
+            key_repeat["repeatableKeys"],
+            json!([
+                "ArrowUp",
+                "ArrowDown",
+                "ArrowLeft",
+                "ArrowRight",
+                "Tab",
+                "Backspace",
+                "Delete",
+                "PageUp",
+                "PageDown"
+            ])
+        );
+
+        // An old client reads only these; adding keyRepeat must not move them.
+        assert_eq!(
+            capabilities["mouseRepeat"],
+            json!({
+                "supported": true,
+                "enabled": settings.mouse_repeat_enabled,
+                "intervalMs": settings.move_repeat_interval_ms,
+                "moveIntervalMs": settings.move_repeat_interval_ms,
+                "scrollIntervalMs": settings.scroll_repeat_interval_ms,
+                "minIntervalMs": 100,
+                "maxIntervalMs": 2000,
+                "accelerationDurationMs": settings.mouse_repeat_acceleration_duration_ms,
+                "accelerationDurationOptionsMs": [0, 500, 1000, 2000],
+                "accelerationInitialScalePercent": 25
+            })
+        );
+    }
+
+    #[test]
+    fn repeat_command_names_stay_out_of_the_parallel_command_lists() {
+        // Key repeat rides the existing repeat envelope precisely so these
+        // hand-maintained lists need no new entries. Pinning them here makes an
+        // accidental future divergence fail loudly.
+        let profile = PointerProfile {
+            display_id: "display:0:0:1920:1080:1".into(),
+            scale_factor: 1.0,
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            small_delta: 49,
+            medium_delta: 130,
+            large_delta: 281,
+            display_navigation_supported: true,
+            display_count: 2,
+        };
+        let response: Value = serde_json::from_str(&pointer_profile_response(
+            "profile-1",
+            &profile,
+            &AppSettings::default(),
+        ))
+        .unwrap();
+        let capabilities = &response["payload"]["capabilities"];
+        for list in ["supportedCommands", "noAckCommands"] {
+            let commands = capabilities[list].as_array().unwrap();
+            assert!(commands.contains(&json!("mouse.repeat.start")), "{list}");
+            assert!(commands.contains(&json!("mouse.repeat.stop")), "{list}");
+            for absent in [
+                "keyboard.repeat.start",
+                "keyboard.repeat.stop",
+                "input.repeat.start",
+                "input.repeat.stop",
+            ] {
+                assert!(!commands.contains(&json!(absent)), "{list} gained {absent}");
+            }
+        }
+        for absent in ["keyboard.repeat.start", "input.repeat.start"] {
+            assert!(!is_desktop_command(absent), "{absent}");
+        }
+        assert!(is_desktop_command("mouse.repeat.start"));
+        assert!(is_desktop_command("mouse.repeat.stop"));
     }
 
     #[test]

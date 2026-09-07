@@ -393,6 +393,35 @@ describe("Switchify PC shell", () => {
     expect(screen.getByRole("heading", { name: "Waiting for an Android device" })).toBeInTheDocument();
   });
 
+  it("exposes key repeat settings and disables them with the toggle", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    const toggle = screen.getByRole("checkbox", { name: "Repeat held keys" });
+    expect(toggle).toBeChecked();
+
+    const delay = screen.getByRole("group", { name: "Delay before repeating" });
+    expect(delay).not.toBeDisabled();
+    for (const label of ["None", "Short", "Medium", "Long"]) {
+      expect(within(delay).getByRole("button", { name: label })).toBeInTheDocument();
+    }
+    expect(within(delay).getByRole("button", { name: "Medium" })).toHaveAttribute("aria-pressed", "true");
+
+    const interval = screen.getByRole("group", { name: "Key interval" });
+    expect(within(interval).getByRole("button", { name: "0.25s" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(interval).getByRole("button", { name: "0.5s" }));
+    expect(within(interval).getByRole("button", { name: "0.5s" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(within(delay).getByRole("button", { name: "None" }));
+    expect(within(delay).getByRole("button", { name: "None" })).toHaveAttribute("aria-pressed", "true");
+
+    // Turning the feature off must disable its cadence controls, matching the
+    // mouse repeat and dwell blocks.
+    fireEvent.click(toggle);
+    expect(screen.getByRole("group", { name: "Delay before repeating" })).toBeDisabled();
+    expect(screen.getByRole("group", { name: "Key interval" })).toBeDisabled();
+  });
+
   it("opens settings with accessible native controls", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));

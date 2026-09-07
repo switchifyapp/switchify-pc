@@ -7,6 +7,7 @@ use enigo::{Axis, Button, Direction, Enigo, Key, Keyboard, Mouse};
 use serde_json::Value;
 
 use crate::modifier_overlay::ModifierKeyOverlayNotifier;
+use crate::mouse_repeat::RepeatKey;
 use crate::protocol::MouseButton;
 use crate::state::{normalize_pointer_scale_percent, AppModel, SwitchBinding, SwitchProfile};
 
@@ -434,6 +435,7 @@ pub struct DesktopInput<I: InputInjector> {
     pub(crate) injector: I,
     held_modifiers: HashSet<ModifierKey>,
     pending_modifier_releases: HashSet<ModifierKey>,
+    pending_key_releases: HashSet<RepeatKey>,
     modifier_overlay: Option<Arc<dyn ModifierKeyOverlayNotifier>>,
     held_button: Option<MouseButton>,
     pointer_scale_percent: u32,
@@ -462,6 +464,7 @@ impl<I: InputInjector> DesktopInput<I> {
             injector,
             held_modifiers: HashSet::new(),
             pending_modifier_releases: HashSet::new(),
+            pending_key_releases: HashSet::new(),
             modifier_overlay: None,
             held_button: None,
             pointer_scale_percent: 100,
@@ -1195,6 +1198,27 @@ impl<I: InputInjector> DesktopInput<I> {
         Ok(())
     }
 
+    /// Injects one discrete key tap for a repeat tick.
+    ///
+    /// A repeat never holds a key down between ticks, so a loop that dies for
+    /// any reason cannot leave a key stuck. The one remaining gap is a press
+    /// that succeeds followed by a release that fails; that key is recorded and
+    /// retried by `release_all`.
+    pub fn execute_repeat_key(&mut self, key: RepeatKey) -> Result<(), String> {
+        let name = key.protocol_name();
+        self.injector.set_key(name, true)?;
+        match self.injector.set_key(name, false) {
+            Ok(()) => {
+                self.pending_key_releases.remove(&key);
+                Ok(())
+            }
+            Err(error) => {
+                self.pending_key_releases.insert(key);
+                Err(error)
+            }
+        }
+    }
+
     pub fn release_all(&mut self) -> Result<(), String> {
         let mut first_error = self.stop_switch_session().err();
         self.text_streams.clear();
@@ -1204,10 +1228,33 @@ impl<I: InputInjector> DesktopInput<I> {
         if let Err(error) = self.release_held_modifiers() {
             first_error.get_or_insert(error);
         }
+        if let Err(error) = self.release_pending_keys() {
+            first_error.get_or_insert(error);
+        }
         if let Some(error) = first_error {
             return Err(error);
         }
         Ok(())
+    }
+
+    /// Retries key releases that failed during a repeat tick. Every key is
+    /// attempted even when one fails, so a single bad release cannot strand the
+    /// others.
+    fn release_pending_keys(&mut self) -> Result<(), String> {
+        let mut first_error = None;
+        for key in RepeatKey::ALL {
+            if !self.pending_key_releases.remove(&key) {
+                continue;
+            }
+            if let Err(error) = self.injector.set_key(key.protocol_name(), false) {
+                self.pending_key_releases.insert(key);
+                first_error.get_or_insert(error);
+            }
+        }
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     fn release_held_modifiers(&mut self) -> Result<(), String> {
@@ -2240,6 +2287,116 @@ mod tests {
                 ("Shift".into(), false),
                 ("Meta".into(), false),
             ]
+        );
+    }
+
+    #[test]
+    fn repeat_key_taps_press_and_release_without_holding_the_key() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        for _ in 0..3 {
+            assert!(input.execute_repeat_key(RepeatKey::ArrowDown).is_ok());
+        }
+        assert_eq!(
+            input.injector.keys,
+            vec![
+                ("ArrowDown".into(), true),
+                ("ArrowDown".into(), false),
+                ("ArrowDown".into(), true),
+                ("ArrowDown".into(), false),
+                ("ArrowDown".into(), true),
+                ("ArrowDown".into(), false),
+            ]
+        );
+        // Nothing is held between ticks, so cleanup has nothing to release.
+        assert!(input.pending_key_releases.is_empty());
+        assert!(input.release_all().is_ok());
+        assert_eq!(input.injector.keys.len(), 6);
+    }
+
+    #[test]
+    fn a_failed_repeat_key_release_is_retried_by_release_all() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        input.injector.fail_key_up = Some("Tab".into());
+        assert!(input.execute_repeat_key(RepeatKey::Tab).is_err());
+        assert_eq!(
+            input.pending_key_releases,
+            HashSet::from([RepeatKey::Tab]),
+            "a key whose release failed must be remembered"
+        );
+
+        // The retry succeeds once injection recovers, and the key is cleared.
+        input.injector.fail_key_up = None;
+        assert!(input.release_all().is_ok());
+        assert!(input.pending_key_releases.is_empty());
+        assert_eq!(
+            input.injector.keys,
+            vec![
+                ("Tab".into(), true),
+                ("Tab".into(), false),
+                ("Tab".into(), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_still_failing_repeat_key_release_stays_pending_for_the_next_cleanup() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        input.injector.fail_key_up = Some("Delete".into());
+        assert!(input.execute_repeat_key(RepeatKey::Delete).is_err());
+        assert!(input.release_all().is_err());
+        assert_eq!(
+            input.pending_key_releases,
+            HashSet::from([RepeatKey::Delete]),
+            "an unrecovered key must not be forgotten"
+        );
+
+        input.injector.fail_key_up = None;
+        assert!(input.release_all().is_ok());
+        assert!(input.pending_key_releases.is_empty());
+    }
+
+    #[test]
+    fn a_later_successful_tap_clears_an_earlier_pending_release() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        input.injector.fail_key_up = Some("PageUp".into());
+        assert!(input.execute_repeat_key(RepeatKey::PageUp).is_err());
+        assert!(!input.pending_key_releases.is_empty());
+
+        input.injector.fail_key_up = None;
+        assert!(input.execute_repeat_key(RepeatKey::PageUp).is_ok());
+        assert!(input.pending_key_releases.is_empty());
+    }
+
+    #[test]
+    fn repeat_key_taps_leave_latched_modifiers_held() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        assert!(input
+            .execute(
+                "device",
+                "keyboard.modifierDown",
+                &serde_json::json!({"key": "Shift"}),
+                &[],
+            )
+            .is_ok());
+        for _ in 0..2 {
+            assert!(input.execute_repeat_key(RepeatKey::ArrowRight).is_ok());
+        }
+        // Shift stays down across every tick so a repeating arrow extends a
+        // selection rather than moving the caret.
+        assert_eq!(
+            input.injector.keys,
+            vec![
+                ("Shift".into(), true),
+                ("ArrowRight".into(), true),
+                ("ArrowRight".into(), false),
+                ("ArrowRight".into(), true),
+                ("ArrowRight".into(), false),
+            ]
+        );
+        assert!(input.release_all().is_ok());
+        assert_eq!(
+            input.injector.keys.last().unwrap(),
+            &("Shift".into(), false)
         );
     }
 

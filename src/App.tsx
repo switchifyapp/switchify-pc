@@ -292,6 +292,12 @@ function SettingGroup({ title, description, children, id, sectionRef, focusable 
 const pointerSpeedOptions = [5, 25, 50, 75, 100] as const;
 const pointerSpeedValues = Array.from({ length: 45 }, (_, index) => (index + 1) * 5);
 const repeatIntervalOptions = [100, 250, 500, 1000] as const;
+const keyRepeatDelayOptions = [
+  { value: 0, label: "None" },
+  { value: 250, label: "Short" },
+  { value: 500, label: "Medium" },
+  { value: 1000, label: "Long" },
+] as const;
 const accelerationOptions = [
   { value: 0, label: "Off" },
   { value: 500, label: "Short" },
@@ -401,6 +407,18 @@ function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction
           <fieldset disabled={!settings.mouseRepeatEnabled}><legend>Scroll interval</legend><div className="segmented compact four">
             {repeatIntervalOptions.map((value) => <button type="button" key={value} aria-pressed={settings.scrollRepeatIntervalMs === value} onClick={() => update("scrollRepeatIntervalMs", value)}>{value / 1000}s</button>)}
           </div></fieldset>
+        </div>
+      </div>
+      <div className="repeat-settings">
+        <Toggle label="Repeat held keys" checked={settings.keyRepeatEnabled} onChange={(value) => update("keyRepeatEnabled", value)} />
+        <div className="repeat-options" data-disabled={!settings.keyRepeatEnabled}>
+          <fieldset disabled={!settings.keyRepeatEnabled}><legend>Delay before repeating</legend><div className="segmented compact four">
+            {keyRepeatDelayOptions.map(({ value, label }) => <button type="button" key={value} aria-pressed={settings.keyRepeatInitialDelayMs === value} onClick={() => update("keyRepeatInitialDelayMs", value)}>{label}</button>)}
+          </div></fieldset>
+          <fieldset disabled={!settings.keyRepeatEnabled}><legend>Key interval</legend><div className="segmented compact four">
+            {repeatIntervalOptions.map((value) => <button type="button" key={value} aria-pressed={settings.keyRepeatIntervalMs === value} onClick={() => update("keyRepeatIntervalMs", value)}>{value / 1000}s</button>)}
+          </div></fieldset>
+          <p className="setting-note">Holding a navigation key on the remote repeats it, like holding a key on a keyboard. Applies to the arrow keys, Tab, Backspace, Delete, Page Up, and Page Down.</p>
         </div>
       </div>
       <div className="repeat-settings dwell-settings">
