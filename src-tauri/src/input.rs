@@ -1237,6 +1237,18 @@ impl<I: InputInjector> DesktopInput<I> {
         Ok(())
     }
 
+    /// Releases any key left down by a failed repeat-tick release.
+    ///
+    /// Called when a repeat ends rather than only on the terminal cleanup
+    /// paths: a key stuck down keeps the OS's own auto-repeat firing into the
+    /// focused application, so waiting for a disconnect is far too late.
+    pub fn release_repeat_keys(&mut self) -> Result<(), String> {
+        if self.pending_key_releases.is_empty() {
+            return Ok(());
+        }
+        self.release_pending_keys()
+    }
+
     /// Retries key releases that failed during a repeat tick. Every key is
     /// attempted even when one fails, so a single bad release cannot strand the
     /// others.
@@ -2353,6 +2365,77 @@ mod tests {
         input.injector.fail_key_up = None;
         assert!(input.release_all().is_ok());
         assert!(input.pending_key_releases.is_empty());
+    }
+
+    #[test]
+    fn release_repeat_keys_frees_a_stuck_key_without_waiting_for_a_disconnect() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        input.injector.fail_key_up = Some("Backspace".into());
+        assert!(input.execute_repeat_key(RepeatKey::Backspace).is_err());
+
+        // Stopping the repeat must free the key: while it is held the OS keeps
+        // auto-repeating it into the focused application.
+        input.injector.fail_key_up = None;
+        assert!(input.release_repeat_keys().is_ok());
+        assert!(input.pending_key_releases.is_empty());
+        assert_eq!(
+            input.injector.keys,
+            vec![
+                ("Backspace".into(), true),
+                ("Backspace".into(), false),
+                ("Backspace".into(), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn release_repeat_keys_injects_nothing_when_no_key_is_stuck() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        assert!(input.execute_repeat_key(RepeatKey::ArrowUp).is_ok());
+        let injected = input.injector.keys.len();
+
+        // The common case runs on every repeat stop, so it must not inject.
+        assert!(input.release_repeat_keys().is_ok());
+        assert_eq!(input.injector.keys.len(), injected);
+    }
+
+    #[test]
+    fn repeat_keys_are_refused_during_a_switch_session() {
+        // The repeat path bypasses execute(), so the runtimes enforce this guard
+        // themselves; this pins the message and the underlying predicate.
+        let mut input = DesktopInput::new(FakeInjector::default());
+        assert!(!input.has_active_switch_session());
+        let profile = SwitchProfile {
+            id: "profile".into(),
+            version: 1,
+            name: "Profile".into(),
+            provider: "mapped".into(),
+            built_in: false,
+            bindings: Vec::new(),
+        };
+        input
+            .execute(
+                "device",
+                "switch.session.start",
+                &serde_json::json!({
+                    "sessionId": uuid::Uuid::new_v4().to_string(),
+                    "profileId": "profile",
+                    "profileVersion": 1,
+                    "switchCount": 1
+                }),
+                std::slice::from_ref(&profile),
+            )
+            .unwrap();
+        assert!(input.has_active_switch_session());
+        assert_eq!(
+            input.execute(
+                "device",
+                "keyboard.key",
+                &serde_json::json!({"key": "ArrowDown"}),
+                &[],
+            ),
+            Err("Stop Switch Forwarding before using other PC control commands.".into())
+        );
     }
 
     #[test]

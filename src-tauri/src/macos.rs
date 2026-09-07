@@ -1454,6 +1454,19 @@ impl MacRuntime {
                     "Accessibility permission is required before the pointer can move.".into(),
                 );
             }
+            // A key repeat injects keystrokes, which `DesktopInput::execute`
+            // refuses during Switch Forwarding; the repeat path bypasses that
+            // guard, so it has to enforce the same rule itself.
+            if repeat_command.repeat_key().is_some()
+                && self
+                    .input
+                    .as_ref()
+                    .is_some_and(|input| input.has_active_switch_session())
+            {
+                return Err(
+                    "Stop Switch Forwarding before using other PC control commands.".to_string(),
+                );
+            }
             let active = self.repeats.start(
                 command.device_id.clone(),
                 repeat_command,
@@ -1713,6 +1726,7 @@ impl MacRuntime {
             .is_some_and(|active| matches!(active.command, RepeatCommand::Move { .. }));
         let stopped = self.repeats.stop_if_current(device_id, generation);
         if stopped {
+            self.release_repeat_keys();
             self.pending_repeat_moves.remove(&generation);
             self.app.state::<CursorOverlay>().end_repeat(generation);
             if arm_dwell && was_move {
@@ -1722,12 +1736,22 @@ impl MacRuntime {
         stopped
     }
 
+    /// Releases a key left down by a failed repeat-tick release. Runs whenever a
+    /// repeat ends, not only on terminal cleanup, because a stuck key keeps the
+    /// OS auto-repeating into the focused application.
+    fn release_repeat_keys(&mut self) {
+        if let Some(input) = self.input.as_mut() {
+            let _ = input.release_repeat_keys();
+        }
+    }
+
     fn stop_repeat_for_device(
         &mut self,
         device_id: &str,
     ) -> Option<crate::mouse_repeat::ActiveRepeat> {
         let active = self.repeats.stop(device_id);
         if let Some(active) = active {
+            self.release_repeat_keys();
             self.pending_repeat_moves.remove(&active.generation);
             self.app
                 .state::<CursorOverlay>()
@@ -1737,7 +1761,11 @@ impl MacRuntime {
     }
 
     fn stop_all_repeats(&mut self) {
-        for active in self.repeats.stop_all() {
+        let stopped = self.repeats.stop_all();
+        if !stopped.is_empty() {
+            self.release_repeat_keys();
+        }
+        for active in stopped {
             self.pending_repeat_moves.remove(&active.generation);
             self.app
                 .state::<CursorOverlay>()

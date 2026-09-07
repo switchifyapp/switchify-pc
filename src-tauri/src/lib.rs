@@ -464,7 +464,9 @@ fn save_settings(
     {
         app.state::<dwell::DwellController>().cancel(&app);
     }
-    if !settings.mouse_repeat_enabled {
+    // Turning either repeat off stops whatever is in flight, so the runtime
+    // loops end deliberately instead of erroring out on their next tick.
+    if !settings.mouse_repeat_enabled || !settings.key_repeat_enabled {
         platform_stop_mouse_repeat(&app);
     }
     overlay.apply_settings(settings);

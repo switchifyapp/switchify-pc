@@ -1722,6 +1722,14 @@ fn complete_repeat_start(
             let runtime = guard
                 .as_mut()
                 .ok_or_else(|| "Bluetooth runtime is not ready.".to_string())?;
+            // A key repeat injects keystrokes, which `DesktopInput::execute`
+            // refuses during Switch Forwarding; the repeat path bypasses that
+            // guard, so it has to enforce the same rule itself.
+            if repeat_command.repeat_key().is_some() && runtime.input.has_active_switch_session() {
+                return Err(
+                    "Stop Switch Forwarding before using other PC control commands.".to_string(),
+                );
+            }
             let active = runtime.repeats.start(
                 command.device_id.clone(),
                 repeat_command,
@@ -1920,11 +1928,21 @@ fn spawn_repeat_loop(app: AppHandle, shared: SharedModel, device_id: String, gen
 }
 
 fn stop_repeat_if_current(app: &AppHandle, device_id: &str, generation: u64) -> bool {
-    let stopped = runtime()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .as_mut()
-        .is_some_and(|runtime| runtime.repeats.stop_if_current(device_id, generation));
+    let stopped = {
+        let mut guard = runtime()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match guard.as_mut() {
+            Some(runtime) => {
+                let stopped = runtime.repeats.stop_if_current(device_id, generation);
+                if stopped {
+                    let _ = runtime.input.release_repeat_keys();
+                }
+                stopped
+            }
+            None => false,
+        }
+    };
     if stopped {
         app.state::<CursorOverlay>().end_repeat(generation);
     }
@@ -1935,11 +1953,21 @@ fn stop_repeat_for_device(
     app: &AppHandle,
     device_id: &str,
 ) -> Option<crate::mouse_repeat::ActiveRepeat> {
-    let active = runtime()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .as_mut()
-        .and_then(|runtime| runtime.repeats.stop(device_id));
+    let active = {
+        let mut guard = runtime()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match guard.as_mut() {
+            Some(runtime) => {
+                let active = runtime.repeats.stop(device_id);
+                if active.is_some() {
+                    let _ = runtime.input.release_repeat_keys();
+                }
+                active
+            }
+            None => None,
+        }
+    };
     if let Some(active) = active {
         app.state::<CursorOverlay>().end_repeat(active.generation);
     }
@@ -1947,11 +1975,21 @@ fn stop_repeat_for_device(
 }
 
 fn stop_all_repeats(app: &AppHandle) {
-    let active = runtime()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .as_mut()
-        .map_or_else(Vec::new, |runtime| runtime.repeats.stop_all());
+    let active = {
+        let mut guard = runtime()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match guard.as_mut() {
+            Some(runtime) => {
+                let active = runtime.repeats.stop_all();
+                if !active.is_empty() {
+                    let _ = runtime.input.release_repeat_keys();
+                }
+                active
+            }
+            None => Vec::new(),
+        }
+    };
     for repeat in active {
         app.state::<CursorOverlay>().end_repeat(repeat.generation);
     }
