@@ -1459,7 +1459,9 @@ impl MacRuntime {
             }
             // A key repeat injects keystrokes, which `DesktopInput::execute`
             // refuses during Switch Forwarding; the repeat path bypasses that
-            // guard, so it has to enforce the same rule itself.
+            // guard, so it enforces the same rule itself. Scoped to keys
+            // deliberately: pointer repeats have always been allowed here, and
+            // changing that is a separate behaviour decision.
             if repeat_command.repeat_key().is_some()
                 && self
                     .input
