@@ -2389,6 +2389,30 @@ mod tests {
     }
 
     #[test]
+    fn a_key_stuck_after_a_failed_retry_is_freed_by_a_later_stop() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        input.injector.fail_key_up = Some("ArrowLeft".into());
+        assert!(input.execute_repeat_key(RepeatKey::ArrowLeft).is_err());
+        // The retry at stop time fails too, so the key is still down with no
+        // repeat left to hang the recovery off.
+        assert!(input.release_repeat_keys().is_err());
+        assert_eq!(
+            input.pending_key_releases,
+            HashSet::from([RepeatKey::ArrowLeft])
+        );
+
+        // Stop paths run this unconditionally, so recovery arrives without
+        // needing another repeat to be active.
+        input.injector.fail_key_up = None;
+        assert!(input.release_repeat_keys().is_ok());
+        assert!(input.pending_key_releases.is_empty());
+        assert_eq!(
+            input.injector.keys.last().unwrap(),
+            &("ArrowLeft".to_string(), false)
+        );
+    }
+
+    #[test]
     fn release_repeat_keys_injects_nothing_when_no_key_is_stuck() {
         let mut input = DesktopInput::new(FakeInjector::default());
         assert!(input.execute_repeat_key(RepeatKey::ArrowUp).is_ok());

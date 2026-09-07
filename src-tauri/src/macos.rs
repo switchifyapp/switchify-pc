@@ -1727,8 +1727,10 @@ impl MacRuntime {
             .current(device_id, generation)
             .is_some_and(|active| matches!(active.command, RepeatCommand::Move { .. }));
         let stopped = self.repeats.stop_if_current(device_id, generation);
+        // Unconditional: a key whose retry also failed is still pending with no
+        // active repeat, and nothing else would ever free it.
+        self.release_repeat_keys();
         if stopped {
-            self.release_repeat_keys();
             self.pending_repeat_moves.remove(&generation);
             self.app.state::<CursorOverlay>().end_repeat(generation);
             if arm_dwell && was_move {
@@ -1752,8 +1754,8 @@ impl MacRuntime {
         device_id: &str,
     ) -> Option<crate::mouse_repeat::ActiveRepeat> {
         let active = self.repeats.stop(device_id);
+        self.release_repeat_keys();
         if let Some(active) = active {
-            self.release_repeat_keys();
             self.pending_repeat_moves.remove(&active.generation);
             self.app
                 .state::<CursorOverlay>()
@@ -1764,9 +1766,7 @@ impl MacRuntime {
 
     fn stop_all_repeats(&mut self) {
         let stopped = self.repeats.stop_all();
-        if !stopped.is_empty() {
-            self.release_repeat_keys();
-        }
+        self.release_repeat_keys();
         for active in stopped {
             self.pending_repeat_moves.remove(&active.generation);
             self.app

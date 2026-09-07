@@ -1937,9 +1937,9 @@ fn stop_repeat_if_current(app: &AppHandle, device_id: &str, generation: u64) -> 
         match guard.as_mut() {
             Some(runtime) => {
                 let stopped = runtime.repeats.stop_if_current(device_id, generation);
-                if stopped {
-                    let _ = runtime.input.release_repeat_keys();
-                }
+                // Unconditional: a key whose retry also failed is still pending
+                // with no active repeat, and nothing else would ever free it.
+                let _ = runtime.input.release_repeat_keys();
                 stopped
             }
             None => false,
@@ -1962,9 +1962,7 @@ fn stop_repeat_for_device(
         match guard.as_mut() {
             Some(runtime) => {
                 let active = runtime.repeats.stop(device_id);
-                if active.is_some() {
-                    let _ = runtime.input.release_repeat_keys();
-                }
+                let _ = runtime.input.release_repeat_keys();
                 active
             }
             None => None,
@@ -1984,9 +1982,7 @@ fn stop_all_repeats(app: &AppHandle) {
         match guard.as_mut() {
             Some(runtime) => {
                 let active = runtime.repeats.stop_all();
-                if !active.is_empty() {
-                    let _ = runtime.input.release_repeat_keys();
-                }
+                let _ = runtime.input.release_repeat_keys();
                 active
             }
             None => Vec::new(),
