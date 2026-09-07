@@ -1450,9 +1450,12 @@ impl MacRuntime {
             }
             self.stop_repeat_for_device(&command.device_id);
             if self.input.is_none() && !self.refresh_accessibility(false)? {
-                return Err(
-                    "Accessibility permission is required before the pointer can move.".into(),
-                );
+                return Err(if repeat_command.repeat_key().is_some() {
+                    "Accessibility permission is required before input can be controlled."
+                        .to_string()
+                } else {
+                    "Accessibility permission is required before the pointer can move.".to_string()
+                });
             }
             // A key repeat injects keystrokes, which `DesktopInput::execute`
             // refuses during Switch Forwarding; the repeat path bypasses that
