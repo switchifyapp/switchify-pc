@@ -181,6 +181,9 @@ describe("Switchify PC settings", () => {
     expect(within(dwellDelay).getByRole("button", { name: "1s" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(within(dwellDelay).getByRole("button", { name: "1.5s" }));
     expect(within(dwellDelay).getByRole("button", { name: "1.5s" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("A countdown appears when movement stops, then clicks once.")).toBeInTheDocument();
+    expect(screen.queryByText(/After Android pointer movement stops/)).not.toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("group", { name: "Dwell delay" }).parentElement!).getByRole("button", { name: "More about this" }));
     expect(screen.getByText(/After Android pointer movement stops/)).toBeInTheDocument();
   });
 
@@ -191,6 +194,9 @@ describe("Switchify PC settings", () => {
 
     expect(screen.getByRole("checkbox", { name: "Show cursor overlay" })).toBeChecked();
     expect(screen.getByRole("button", { name: "While controlling" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Choose when the overlay stays on screen.")).toBeInTheDocument();
+    expect(screen.queryByText(/On input hides shortly/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More about this" }));
     expect(screen.getByText(/On input hides shortly/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "On input" }));
     expect(screen.getByRole("button", { name: "On input" })).toHaveAttribute("aria-pressed", "true");
@@ -611,6 +617,38 @@ describe("Switchify PC settings", () => {
 
     expect(screen.getByRole("button", { name: "Hide exact speed" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("175");
+  });
+
+
+  it("keeps the key repeat explanation behind a disclosure", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    selectTab("Pointer");
+
+    expect(screen.getByText("Held navigation keys repeat, like on a keyboard.")).toBeInTheDocument();
+    expect(screen.queryByText(/Applies to the arrow keys/)).not.toBeInTheDocument();
+
+    const note = screen.getByRole("group", { name: "Key interval" }).parentElement!;
+    const more = within(note).getByRole("button", { name: "More about this" });
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(more);
+
+    expect(screen.getByText(/Applies to the arrow keys, Tab, Backspace, Delete, Page Up, and Page Down/)).toBeInTheDocument();
+    const less = within(note).getByRole("button", { name: "Show less" });
+    expect(less).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(less);
+    expect(screen.queryByText(/Applies to the arrow keys/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the privacy consent text visible rather than behind a disclosure", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    selectTab("Privacy");
+
+    // Consent legibility, not clutter: this must never move behind a disclosure.
+    expect(screen.getByText(/Nothing is sent unless you choose Share diagnostics/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Privacy policy" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More about this" })).not.toBeInTheDocument();
   });
 
 });

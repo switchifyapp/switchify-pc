@@ -1,5 +1,5 @@
 import type { AppSettings } from "../types";
-import type { ReactNode, Ref } from "react";
+import { useState, type ReactNode, type Ref } from "react";
 
 export function Toggle({ checked, disabled = false, label, onChange }: { checked: boolean; disabled?: boolean; label: string; onChange: (next: boolean) => void }) {
   return <label className="toggle-row" data-disabled={disabled}><span>{label}</span><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span className="toggle" aria-hidden="true" /></label>;
@@ -65,4 +65,14 @@ export function Disclosure({ label, expanded, onToggle, children }: { label: str
     <button type="button" className="disclosure" aria-expanded={expanded} onClick={onToggle}>{label}</button>
     {expanded && children}
   </>;
+}
+
+export function SettingNote({ summary, children }: { summary: string; children: ReactNode }) {
+  const [expanded, setExpanded] = useState(false);
+  return <div className="setting-note-block">
+    <p className="setting-note">{summary}</p>
+    <Disclosure label={expanded ? "Show less" : "More about this"} expanded={expanded} onToggle={() => setExpanded(!expanded)}>
+      <p className="setting-note">{children}</p>
+    </Disclosure>
+  </div>;
 }
