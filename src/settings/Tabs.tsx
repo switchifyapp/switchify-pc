@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
-export type TabDefinition = { id: string; label: string };
+// `attention` adds a visual marker without changing the tab's accessible name;
+// `describedBy` points at the element that says why, so assistive tech gets the
+// reason without tests and speech input losing the stable name.
+export type TabDefinition = { id: string; label: string; attention?: boolean; describedBy?: string };
 
 export function tabId(id: string) { return `settings-tab-${id}`; }
 export function panelId(id: string) { return `settings-panel-${id}`; }
@@ -42,11 +45,12 @@ export function Tabs({ tabs, active, onSelect, label }: { tabs: readonly TabDefi
       // Only the selected panel is rendered, so pointing inactive tabs at absent
       // ids would leave dangling IDREFs.
       aria-controls={active === tab.id ? panelId(tab.id) : undefined}
+      aria-describedby={tab.describedBy}
       tabIndex={tabStop === tab.id ? 0 : -1}
       onFocus={() => setFocused(tab.id)}
       onKeyDown={(event) => onKeyDown(event, index)}
       onClick={() => onSelect(tab.id)}
-    >{tab.label}</button>)}
+    >{tab.label}{tab.attention && <span className="tab-attention" aria-hidden="true" />}</button>)}
   </div>;
 }
 
