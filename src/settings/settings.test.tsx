@@ -686,13 +686,17 @@ describe("Switchify PC settings", () => {
     selectTab("Pointer");
 
     const more = screen.getByRole("button", { name: "More about dwell" });
-    expect(more).not.toHaveAttribute("aria-controls");
+    const textId = more.getAttribute("aria-controls");
+    expect(textId).toBe("dwell-note-text");
+    const text = document.getElementById(textId!)!;
+    expect(text).toHaveTextContent("A countdown appears when movement stops, then clicks once.");
     fireEvent.click(more);
 
-    const less = screen.getByRole("button", { name: "Show less about dwell" });
-    const detailId = less.getAttribute("aria-controls");
-    expect(detailId).toBe("dwell-note-detail");
-    expect(document.getElementById(detailId!)).toHaveTextContent(/After Android pointer movement stops/);
+    // The summary swaps for the full text in place rather than stacking above
+    // it, so nothing is read twice, and the control keeps pointing at it.
+    expect(screen.getByRole("button", { name: "Show less about dwell" })).toHaveAttribute("aria-controls", textId!);
+    expect(text).toHaveTextContent(/After Android pointer movement stops/);
+    expect(text).not.toHaveTextContent("then clicks once");
   });
 
 });

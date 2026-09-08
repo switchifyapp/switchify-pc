@@ -59,30 +59,34 @@ export const overlaySizeOptions = (["small", "medium", "large"] as const)
 
 export type SettingsUpdate = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
 
+export function DisclosureButton({ label, expanded, onToggle, controls }: { label: string; expanded: boolean; onToggle: () => void; controls?: string }) {
+  return <button type="button" className="disclosure" aria-expanded={expanded} aria-controls={controls} onClick={onToggle}>{label}</button>;
+}
+
+// Reveals content that is unmounted while collapsed, so the button only claims
+// aria-controls while the target exists.
 export function Disclosure({ label, expanded, onToggle, controls, children }: { label: string; expanded: boolean; onToggle: () => void; controls?: string; children: ReactNode }) {
   return <>
-    {/* aria-controls only while open: the content is unmounted when collapsed,
-        so referencing it would leave a dangling IDREF. */}
-    <button type="button" className="disclosure" aria-expanded={expanded} aria-controls={expanded ? controls : undefined} onClick={onToggle}>{label}</button>
+    <DisclosureButton label={label} expanded={expanded} onToggle={onToggle} controls={expanded ? controls : undefined} />
     {expanded && children}
   </>;
 }
 
-// `about` names the setting in the button label. Several notes can be on screen
-// at once, so an unqualified "More about this" would leave a screen-reader or
-// switch-access user with identically named controls in their list.
+// A one-line summary that swaps to the full explanation in place, so a reader
+// never hears the same point twice. `about` names the setting in the button
+// label: several notes can share a panel, and an unqualified "More about this"
+// would leave a screen-reader or switch-access user with identically named
+// controls in their list.
 export function SettingNote({ id, about, summary, children }: { id: string; about: string; summary: string; children: ReactNode }) {
   const [expanded, setExpanded] = useState(false);
-  const detailId = `${id}-detail`;
+  const textId = `${id}-text`;
   return <div className="setting-note-block">
-    <p className="setting-note">{summary}</p>
-    <Disclosure
+    <p className="setting-note" id={textId}>{expanded ? children : summary}</p>
+    <DisclosureButton
       label={expanded ? `Show less about ${about}` : `More about ${about}`}
       expanded={expanded}
       onToggle={() => setExpanded(!expanded)}
-      controls={detailId}
-    >
-      <p className="setting-note" id={detailId}>{children}</p>
-    </Disclosure>
+      controls={textId}
+    />
   </div>;
 }
