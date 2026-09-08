@@ -709,4 +709,236 @@ describe("Switchify PC settings", () => {
     expect(summary).toBeInTheDocument();
   });
 
+
+  const failedUpdater = (error: string) => ({ status: "failed" as const, version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error, retryAction: "download" as const });
+  const checkingUpdater = { status: "checking" as const, version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
+  const currentUpdater = { status: "current" as const, version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
+  const updatesNotice = () => document.getElementById("settings-updates-notice")!;
+  const updatesMarker = () => screen.getByRole("tab", { name: "Updates" }).querySelector(".tab-attention");
+
+  it("announces a standing update failure once from another tab and marks the Updates tab", async () => {
+    browserState.updater = failedUpdater("Download failed");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    // On General the Updates panel is unmounted, so the failure needs its own voice.
+    expect(updatesNotice()).toHaveTextContent("Download failed. Open the Updates tab to retry.");
+    expect(updatesNotice()).toHaveAttribute("aria-live", "assertive");
+    const updates = screen.getByRole("tab", { name: "Updates" });
+    expect(updates).toHaveTextContent("Updates");
+    expect(updatesMarker()).toBeInTheDocument();
+    // The tab's description carries the reason but not the hint, which would
+    // be self-referential read from the tab it points at.
+    const description = document.getElementById(updates.getAttribute("aria-describedby")!)!;
+    expect(description).toHaveTextContent("Download failed.");
+    expect(description).not.toHaveTextContent("Open the Updates tab");
+
+    // On Updates the panel's own region is the only live text, and the marker
+    // and description stand down because the reason is on screen.
+    selectTab("Updates");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("Download failed.");
+    expect(updatesNotice()).toBeEmptyDOMElement();
+    expect(updatesMarker()).toBeNull();
+    expect(screen.getByRole("tab", { name: "Updates" })).not.toHaveAttribute("aria-describedby");
+
+    // Having been shown, the failure is not spoken again on leaving.
+    selectTab("Pointer");
+    expect(updatesNotice()).toBeEmptyDOMElement();
+    expect(updatesMarker()).toBeInTheDocument();
+  });
+
+  it("stays silent for a failure that lands on the Updates tab, and speaks a different one later", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    selectTab("Updates");
+
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: failedUpdater("Download failed") }));
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(updatesNotice()).toBeEmptyDOMElement();
+
+    selectTab("Pointer");
+    expect(updatesNotice()).toBeEmptyDOMElement();
+
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: failedUpdater("Signature check failed") }));
+    expect(updatesNotice()).toHaveTextContent("Signature check failed. Open the Updates tab to retry.");
+  });
+
+  it("opens straight to Updates without a notice when the failure is what brought the user there", async () => {
+    browserState.updater = failedUpdater("Download failed");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Support" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Troubleshooting" }));
+    fireEvent.click(screen.getByRole("button", { name: "View updates" }));
+
+    await waitFor(() => expect(screen.getByRole("region", { name: "Updates" })).toHaveFocus());
+    expect(screen.getByRole("tab", { name: "Updates" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(updatesNotice()).toBeEmptyDOMElement();
+  });
+
+  it("neither re-announces nor unmarks a standing failure while the scheduled check cycles", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    browserState.updater = failedUpdater("Update check failed: offline");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    const spoken = "Update check failed: offline. Open the Updates tab to retry.";
+    expect(updatesNotice()).toHaveTextContent(spoken);
+
+    // The backend re-checks every few hours: failed -> checking -> failed with
+    // the same text. Nothing may change while that happens.
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: checkingUpdater }));
+    expect(updatesNotice()).toHaveTextContent(spoken);
+    expect(updatesMarker()).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Updates" })).toHaveAttribute("aria-describedby");
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: failedUpdater("Update check failed: offline") }));
+    expect(updatesNotice()).toHaveTextContent(spoken);
+    expect(updatesMarker()).toBeInTheDocument();
+
+    // A settled recovery clears everything, and a later failure is new again.
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: currentUpdater }));
+    expect(updatesNotice()).toBeEmptyDOMElement();
+    expect(updatesMarker()).toBeNull();
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: failedUpdater("Update check failed: offline") }));
+    expect(updatesNotice()).toHaveTextContent(spoken);
+  });
+
+  it("ends the backend failure text as a sentence everywhere it is shown", async () => {
+    browserState.updater = failedUpdater("Update download could not start: check for an update first");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(updatesNotice()).toHaveTextContent("Update download could not start: check for an update first. Open the Updates tab to retry.");
+    selectTab("Updates");
+    expect(screen.getByRole("alert")).toHaveTextContent("Update download could not start: check for an update first.");
+  });
+
+  it("reports a cancelled download politely without repeating the retry hint", async () => {
+    browserState.updater = { status: "cancelled", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: "download" };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(updatesNotice()).toHaveTextContent("Download cancelled. You can retry when ready.");
+    expect(updatesNotice()).not.toHaveTextContent("Open the Updates tab");
+    expect(updatesNotice()).toHaveAttribute("aria-live", "polite");
+    expect(updatesMarker()).toBeInTheDocument();
+  });
+
+  it("does not mark the Updates tab for states the banner already covers", async () => {
+    browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(screen.getByRole("status", { name: "Application update" })).toBeInTheDocument();
+    expect(updatesMarker()).toBeNull();
+    expect(document.getElementById("settings-tab-updates-description")).toBeNull();
+    expect(updatesNotice()).toBeEmptyDOMElement();
+  });
+
+
+  it("does not repeat a failure the user has already read when they leave and re-enter Settings", async () => {
+    browserState.updater = failedUpdater("Download failed");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(updatesNotice()).toHaveTextContent("Download failed.");
+    selectTab("Updates");
+
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    // Still standing, so still marked, but it has been read: nothing is spoken.
+    expect(updatesMarker()).toBeInTheDocument();
+    expect(updatesNotice()).toBeEmptyDOMElement();
+  });
+
+  it("treats a scheduled check that fails with different transport wording as the same failure", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    browserState.updater = failedUpdater("Update check failed: dns error");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(updatesNotice()).toHaveTextContent("Update check failed: dns error. Open the Updates tab to retry.");
+
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: checkingUpdater }));
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: failedUpdater("Update check failed: connection timed out") }));
+    // The marker and description carry the new wording. The live region does
+    // not interrupt for it, and does not keep the old words either.
+    expect(updatesNotice()).toBeEmptyDOMElement();
+    const updates = screen.getByRole("tab", { name: "Updates" });
+    expect(document.getElementById(updates.getAttribute("aria-describedby")!)).toHaveTextContent("connection timed out");
+  });
+
+  it("speaks the result of a check the user asked for, even when it is the same failure", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    browserState.updater = { ...failedUpdater("Update check failed: offline"), retryAction: "check" };
+    let finishCheck: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "checkForUpdates").mockImplementation(() => new Promise((resolve) => { finishCheck = resolve; }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(updatesNotice()).toHaveTextContent("Update check failed: offline.");
+    selectTab("Updates");
+    expect(updatesNotice()).toBeEmptyDOMElement();
+
+    // A check the user started is not the scheduled one: the "checking" the
+    // backend publishes first is not held for it, so the marker drops, and
+    // whatever comes back is news, even from another tab.
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: checkingUpdater }));
+    selectTab("Pointer");
+    expect(updatesMarker()).toBeNull();
+    await act(async () => { finishCheck?.({ ...structuredClone(browserState), updater: { ...failedUpdater("Update check failed: offline"), retryAction: "check" } }); });
+    expect(updatesNotice()).toHaveTextContent("Update check failed: offline. Open the Updates tab to retry.");
+    expect(updatesMarker()).toBeInTheDocument();
+  });
+
+  it("keeps a standing failure marked when Settings opens during the scheduled check", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    browserState.updater = failedUpdater("Update check failed: offline");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+
+    // The failure is standing on Home; the scheduler starts a check; the user
+    // opens Settings while it runs.
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: checkingUpdater }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(updatesMarker()).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Updates" })).toHaveAttribute("aria-describedby");
+    expect(updatesNotice()).toHaveTextContent("Update check failed: offline. Open the Updates tab to retry.");
+  });
+
+  it("drops the marker while an install the user started is in progress", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    browserState.updater = { ...failedUpdater("Update installation failed: installer exited with code 1"), retryAction: "install" };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(updatesMarker()).toBeInTheDocument();
+
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: { status: "applying", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null } }));
+    expect(updatesMarker()).toBeNull();
+    expect(updatesNotice()).toBeEmptyDOMElement();
+  });
+
 });

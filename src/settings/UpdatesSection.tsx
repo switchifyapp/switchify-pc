@@ -1,6 +1,6 @@
 import { Download, RefreshCw, X } from "lucide-react";
 import type { Ref } from "react";
-import type { AppState, UpdateState } from "../types";
+import type { AppState, UpdateState, UpdateStatus } from "../types";
 import { SettingGroup } from "./controls";
 
 export type UpdateAction = "check" | "download" | "install";
@@ -12,6 +12,9 @@ export function updateProgress(update: UpdateState) {
   return `${update.downloadedBytes.toLocaleString()} bytes`;
 }
 
+// Backend failure text is `context: error` with no terminal punctuation.
+const sentence = (text: string) => /[.!?]$/.test(text) ? text : `${text}.`;
+
 export function updateDescription(update: UpdateState) {
   switch (update.status) {
     case "unconfigured": return "Updates are unavailable in this build because its signed feed is not configured.";
@@ -22,9 +25,29 @@ export function updateDescription(update: UpdateState) {
     case "readyToInstall": return `Switchify PC ${update.version} is ready to install.`;
     case "applying": return `Installing Switchify PC ${update.version}…`;
     case "current": return "Switchify PC is up to date.";
-    case "failed": return update.error ?? "The update operation failed.";
+    case "failed": return sentence(update.error ?? "The update operation failed.");
     case "cancelled": return "Download cancelled. You can retry when ready.";
   }
+}
+
+// Failures interrupt; everything else waits its turn. One rule for the panel's
+// live region and the off-tab notice in SettingsView, so the two can never
+// announce at different levels.
+export function updateLiveness(status: UpdateStatus) {
+  return status === "failed" ? "assertive" : "polite";
+}
+export function updateStatusRole(update: UpdateState) {
+  return updateLiveness(update.status) === "assertive" ? "alert" : "status";
+}
+
+// The states with something left to act on, and the one the scheduled check
+// passes through on its way back to them. An install in progress is neither:
+// it is the user acting.
+export function updateStanding(status: UpdateStatus) {
+  return status === "failed" || status === "cancelled";
+}
+export function updateInFlight(status: UpdateStatus) {
+  return status === "checking";
 }
 
 export function UpdateControls({ update, run, cancel }: { update: UpdateState; run: (action: UpdateAction) => void; cancel: () => void }) {
@@ -36,7 +59,7 @@ export function UpdateControls({ update, run, cancel }: { update: UpdateState; r
     : action === "download" ? (update.status === "cancelled" ? "Retry download" : "Download")
       : action === "install" ? "Install and restart" : "Check for updates";
   return <div className="update-controls">
-    <p role={update.status === "failed" ? "alert" : "status"}>{updateDescription(update)}</p>
+    <p role={updateStatusRole(update)}>{updateDescription(update)}</p>
     {update.status === "downloading" && <>
       <progress aria-label="Update download progress" value={update.downloadedBytes} max={update.totalBytes ?? undefined} />
       <span>{updateProgress(update)}</span>

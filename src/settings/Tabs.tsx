@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
-export type TabDefinition = { id: string; label: string };
+// `attention` is the reason a tab needs it. It adds a visual marker without
+// changing the tab's accessible name, and is attached as the tab's description,
+// so assistive tech hears why while tests and speech input keep the stable name.
+export type TabDefinition = { id: string; label: string; attention?: string };
 
 export function tabId(id: string) { return `settings-tab-${id}`; }
 export function panelId(id: string) { return `settings-panel-${id}`; }
+function descriptionId(id: string) { return `${tabId(id)}-description`; }
 
 const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -32,22 +36,27 @@ export function Tabs({ tabs, active, onSelect, label }: { tabs: readonly TabDefi
     event.preventDefault();
   };
 
-  return <div className="segmented settings-tabs" role="tablist" aria-label={label} ref={listRef} style={{ ["--tab-count" as string]: tabs.length }}>
-    {tabs.map((tab, index) => <button
-      key={tab.id}
-      type="button"
-      role="tab"
-      id={tabId(tab.id)}
-      aria-selected={active === tab.id}
-      // Only the selected panel is rendered, so pointing inactive tabs at absent
-      // ids would leave dangling IDREFs.
-      aria-controls={active === tab.id ? panelId(tab.id) : undefined}
-      tabIndex={tabStop === tab.id ? 0 : -1}
-      onFocus={() => setFocused(tab.id)}
-      onKeyDown={(event) => onKeyDown(event, index)}
-      onClick={() => onSelect(tab.id)}
-    >{tab.label}</button>)}
-  </div>;
+  return <>
+    <div className="segmented settings-tabs" role="tablist" aria-label={label} ref={listRef} style={{ ["--tab-count" as string]: tabs.length }}>
+      {tabs.map((tab, index) => <button
+        key={tab.id}
+        type="button"
+        role="tab"
+        id={tabId(tab.id)}
+        aria-selected={active === tab.id}
+        // Only the selected panel is rendered, so pointing inactive tabs at absent
+        // ids would leave dangling IDREFs.
+        aria-controls={active === tab.id ? panelId(tab.id) : undefined}
+        aria-describedby={tab.attention ? descriptionId(tab.id) : undefined}
+        tabIndex={tabStop === tab.id ? 0 : -1}
+        onFocus={() => setFocused(tab.id)}
+        onKeyDown={(event) => onKeyDown(event, index)}
+        onClick={() => onSelect(tab.id)}
+      >{tab.label}{tab.attention && <span className="tab-attention" aria-hidden="true" />}</button>)}
+    </div>
+    {/* Outside the tablist so the reason never becomes part of a tab's name. */}
+    {tabs.filter((tab) => tab.attention).map((tab) => <span key={tab.id} id={descriptionId(tab.id)} className="sr-only">{tab.attention}</span>)}
+  </>;
 }
 
 export function TabPanel({ id, children }: { id: string; children: ReactNode }) {

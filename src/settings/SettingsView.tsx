@@ -8,17 +8,28 @@ import { CursorSection } from "./CursorSection";
 import { PrivacySection } from "./PrivacySection";
 import { UpdatesSection, type UpdateAction } from "./UpdatesSection";
 
-export function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void }) {
+export function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, updateAttention, onUpdatesShown }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; updateAttention: string | null; onUpdatesShown: (shown: boolean) => void }) {
   const updatesRef = useRef<HTMLElement>(null);
-  const [active, setActive] = useState("general");
+  // Opening straight to Updates starts there, rather than committing General
+  // for one frame and letting App announce a failure for a tab already being
+  // opened.
+  const [active, setActive] = useState(focusUpdates ? "updates" : "general");
+
+  // App owns the standing update failure and what has been said about it; this
+  // view only reports whether the Updates panel, which shows it, is on screen.
+  useEffect(() => {
+    onUpdatesShown(active === "updates");
+    return () => onUpdatesShown(false);
+  }, [active, onUpdatesShown]);
 
   const tabs = useMemo(() => [
     { id: "general", label: "General" },
     { id: "pointer", label: "Pointer" },
     ...(state.capabilities.cursorOverlay ? [{ id: "cursor", label: "Cursor" }] : []),
     { id: "privacy", label: "Privacy" },
-    { id: "updates", label: "Updates" },
-  ], [state.capabilities.cursorOverlay]);
+    // On the Updates tab the panel itself shows the reason, so no marker there.
+    { id: "updates", label: "Updates", attention: updateAttention && active !== "updates" ? updateAttention : undefined },
+  ], [state.capabilities.cursorOverlay, updateAttention, active]);
 
   useEffect(() => {
     if (!tabs.some((tab) => tab.id === active)) setActive("general");

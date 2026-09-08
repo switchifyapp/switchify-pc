@@ -8,7 +8,7 @@ import { api, type ProfileExitAction } from "./api";
 import type { AppSettings, AppState, PendingPairing, SwitchProfile, UpdateState } from "./types";
 import { applyLocalSettings, changedSettingKeys } from "./settings/diff";
 import { SettingsView } from "./settings/SettingsView";
-import { updateProgress, type UpdateAction } from "./settings/UpdatesSection";
+import { updateDescription, updateInFlight, updateLiveness, updateProgress, updateStanding, type UpdateAction } from "./settings/UpdatesSection";
 
 type View = "home" | "devices" | "profiles" | "settings" | "support";
 
@@ -439,6 +439,51 @@ export function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [focusUpdates, setFocusUpdates] = useState(false);
+  // --- Update failures away from the Updates tab ------------------------------
+  // Failed and cancelled are the updater states with something to act on that
+  // the global banner deliberately leaves out: the scheduled check fails for
+  // every offline user, so showing these app-wide would nag. They are surfaced
+  // within Settings instead, whose Updates panel is where their status lives:
+  // a marker on that tab, and a live region spoken from the other tabs. All of
+  // it is owned here so it survives SettingsView unmounting between views, and
+  // so the live region exists long before any text arrives in it.
+  //
+  // "The same failure" is the state plus the context before the backend's
+  // `context: error` colon (update_failure in src-tauri/src/lib.rs): the error
+  // half is transport text that can change wording from one scheduled check to
+  // the next without anything the user could act on having changed.
+  const settledFailure = useMemo(() => {
+    if (!state || !updateStanding(state.updater.status)) return null;
+    const text = updateDescription(state.updater);
+    return { text, status: state.updater.status as "failed" | "cancelled", key: `${state.updater.status}:${text.split(": ")[0]}` };
+  }, [state?.updater.status, state?.updater.error]);
+  // The scheduled check flips a standing failure through "checking" and back.
+  // Hold the last settled one through it so nothing blinks or repeats. A check
+  // the user asked for is not held: whatever it returns is news.
+  const [userCheck, setUserCheck] = useState(false);
+  const inFlight = state ? updateInFlight(state.updater.status) && !userCheck : false;
+  const [heldFailure, setHeldFailure] = useState(settledFailure);
+  if (!inFlight && heldFailure !== settledFailure) setHeldFailure(settledFailure);
+  const updateFailure = inFlight ? heldFailure : settledFailure;
+  // Whether SettingsView currently has the Updates tab selected.
+  const [updatesShown, setUpdatesShown] = useState(false);
+  const announcedUpdateFailure = useRef<{ key: string; text: string } | null>(null);
+  const [updateNotice, setUpdateNotice] = useState("");
+  useEffect(() => {
+    if (!updateFailure) { announcedUpdateFailure.current = null; setUpdateNotice(""); return; }
+    if (updatesShown) { announcedUpdateFailure.current = { key: updateFailure.key, text: updateFailure.text }; setUpdateNotice(""); return; }
+    if (view !== "settings") return;
+    const announced = announcedUpdateFailure.current;
+    if (updateFailure.key !== announced?.key) {
+      announcedUpdateFailure.current = { key: updateFailure.key, text: updateFailure.text };
+      setUpdateNotice(updateFailure.status === "failed" ? `${updateFailure.text} Open the Updates tab to retry.` : updateFailure.text);
+    } else if (announced && updateFailure.text !== announced.text) {
+      // The same failure in different words is not worth an interruption, but
+      // stale text must not sit there contradicting the tab's description.
+      announcedUpdateFailure.current = { key: updateFailure.key, text: updateFailure.text };
+      setUpdateNotice("");
+    }
+  }, [updateFailure, updatesShown, view]);
   const [setupOpen, setSetupOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [profileExitRequest, setProfileExitRequest] = useState<ProfileExitAction | null>(null);
@@ -537,10 +582,12 @@ export function App() {
 
   const runUpdate = async (action: UpdateAction) => {
     setError(null);
+    if (action === "check") setUserCheck(true);
     try {
       const operation = action === "check" ? api.checkForUpdates : action === "download" ? api.downloadUpdate : api.installUpdate;
       syncState(await operation());
     } catch (reason) { setError(String(reason)); }
+    finally { if (action === "check") setUserCheck(false); }
   };
 
   const cancelUpdate = async () => {
@@ -672,10 +719,11 @@ export function App() {
     <main>
       {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
       <UpdateBanner update={state.updater} openUpdates={openUpdates} />
+      <p id="settings-updates-notice" className="sr-only" aria-live={updateFailure ? updateLiveness(updateFailure.status) : "polite"} aria-atomic="true">{updateNotice}</p>
       {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onSetup={openSetup} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}
       {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} nativeExitRequest={profileExitRequest} onConfirmNativeExit={confirmProfileExit} onCancelNativeExit={cancelProfileExit} />}
-      {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} focusUpdates={focusUpdates} onUpdatesFocused={() => setFocusUpdates(false)} />}
+      {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} focusUpdates={focusUpdates} onUpdatesFocused={() => setFocusUpdates(false)} updateAttention={updateFailure?.text ?? null} onUpdatesShown={setUpdatesShown} />}
       {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} openUpdates={openUpdates} />}
     </main>
     {setupOpen && <SetupGuide state={state} busy={busy} error={error} skip={skipSetup} finish={finishSetup} accessibility={() => perform(() => api.checkAccessibility(true))} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}
