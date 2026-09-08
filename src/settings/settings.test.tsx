@@ -183,7 +183,7 @@ describe("Switchify PC settings", () => {
     expect(within(dwellDelay).getByRole("button", { name: "1.5s" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("A countdown appears when movement stops, then clicks once.")).toBeInTheDocument();
     expect(screen.queryByText(/After Android pointer movement stops/)).not.toBeInTheDocument();
-    fireEvent.click(within(screen.getByRole("group", { name: "Dwell delay" }).parentElement!).getByRole("button", { name: "More about dwell" }));
+    fireEvent.click(screen.getByRole("button", { name: "More about dwell" }));
     expect(screen.getByText(/After Android pointer movement stops/)).toBeInTheDocument();
   });
 
@@ -586,9 +586,12 @@ describe("Switchify PC settings", () => {
     // The active value stays legible in the legend even while collapsed.
     expect(screen.getByRole("group", { name: /Pointer speed/ })).toHaveTextContent("100%");
 
+    // Collapsed, the target is unmounted, so the button must not point at it.
+    expect(toggle).not.toHaveAttribute("aria-controls");
     fireEvent.click(toggle);
-    expect(screen.getByRole("button", { name: "Hide exact speed" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toBeInTheDocument();
+    const hide = screen.getByRole("button", { name: "Hide exact speed" });
+    expect(hide).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById(hide.getAttribute("aria-controls")!)).toContainElement(screen.getByRole("combobox", { name: "Exact pointer speed" }));
     expect(screen.getByLabelText("Pointer movement values")).toBeInTheDocument();
   });
 
@@ -628,13 +631,12 @@ describe("Switchify PC settings", () => {
     expect(screen.getByText("Held navigation keys repeat, like on a keyboard.")).toBeInTheDocument();
     expect(screen.queryByText(/Applies to the arrow keys/)).not.toBeInTheDocument();
 
-    const note = screen.getByRole("group", { name: "Key interval" }).parentElement!;
-    const more = within(note).getByRole("button", { name: "More about key repeat" });
+    const more = screen.getByRole("button", { name: "More about key repeat" });
     expect(more).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(more);
 
     expect(screen.getByText(/Applies to the arrow keys, Tab, Backspace, Delete, Page Up, and Page Down/)).toBeInTheDocument();
-    const less = within(note).getByRole("button", { name: "Show less about key repeat" });
+    const less = screen.getByRole("button", { name: "Show less about key repeat" });
     expect(less).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(less);
     expect(screen.queryByText(/Applies to the arrow keys/)).not.toBeInTheDocument();
@@ -687,7 +689,7 @@ describe("Switchify PC settings", () => {
 
     const more = screen.getByRole("button", { name: "More about dwell" });
     const textId = more.getAttribute("aria-controls");
-    expect(textId).toBe("dwell-note-text");
+    expect(textId).toBeTruthy();
     const text = document.getElementById(textId!)!;
     expect(text).toHaveTextContent("A countdown appears when movement stops, then clicks once.");
     fireEvent.click(more);

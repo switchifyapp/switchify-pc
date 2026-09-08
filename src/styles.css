@@ -128,13 +128,14 @@ button:disabled { cursor: default; opacity: 0.55; }
 .movement-values strong { font-size: 14px; font-weight: 650; }
 .repeat-settings { display: grid; gap: 17px; border-top: 1px solid var(--border); padding-top: 17px; }
 .repeat-options { display: grid; gap: 17px; }
-/* Dim the disabled controls and prose, never the container: the help
-   disclosure inside stays operable and must read that way, and a child cannot
-   escape a parent opacity. Buttons inside a disabled fieldset already match
-   button:disabled, so reset them to stop the two rules compounding to ~0.30. */
-.repeat-options[data-disabled="true"] fieldset, .overlay-options[data-disabled="true"] fieldset,
-.repeat-options[data-disabled="true"] .setting-note, .overlay-options[data-disabled="true"] .setting-note { opacity: 0.55; }
-.repeat-options[data-disabled="true"] fieldset button:disabled, .overlay-options[data-disabled="true"] fieldset button:disabled { opacity: 1; }
+/* A disabled group dims itself and the prose of the note beside it, never a
+   container: the note's disclosure stays operable and must read that way, and
+   a child cannot escape a parent opacity. Buttons inside a disabled fieldset
+   already match button:disabled, so reset them to stop the two rules
+   compounding to ~0.30. */
+fieldset:disabled { opacity: 0.55; }
+fieldset:disabled button:disabled { opacity: 1; }
+fieldset:disabled + .setting-note-block .setting-note { opacity: 0.55; }
 .overlay-options { display: grid; gap: 17px; border-top: 1px solid var(--border); padding-top: 17px; }
 .overlay-options fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
 .overlay-options legend { margin-bottom: 8px; color: var(--muted); font-size: 12px; }
