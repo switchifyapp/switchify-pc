@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Accessibility, Bluetooth, CheckCircle2, ChevronRight, CircleHelp, Download,
   Copy, Home, Keyboard, Plus, Power, Radio, RefreshCw, Save, Settings,
@@ -6,6 +6,9 @@ import {
 } from "lucide-react";
 import { api, type ProfileExitAction } from "./api";
 import type { AppSettings, AppState, PendingPairing, SwitchProfile, UpdateState } from "./types";
+import { applyLocalSettings, changedSettingKeys } from "./settings/diff";
+import { SettingsView } from "./settings/SettingsView";
+import { updateProgress, type UpdateAction } from "./settings/UpdatesSection";
 
 type View = "home" | "devices" | "profiles" | "settings" | "support";
 
@@ -36,10 +39,6 @@ function NavButton({ active, icon, children, onClick }: { active: boolean; icon:
 
 function StatusIcon({ ok, children }: { ok: boolean; children: ReactNode }) {
   return <span className="status-icon" data-ok={ok}>{children}</span>;
-}
-
-function Toggle({ checked, disabled = false, label, onChange }: { checked: boolean; disabled?: boolean; label: string; onChange: (next: boolean) => void }) {
-  return <label className="toggle-row" data-disabled={disabled}><span>{label}</span><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span className="toggle" aria-hidden="true" /></label>;
 }
 
 function AccessibilityCopy({ state, detailed = false }: { state: AppState; detailed?: boolean }) {
@@ -284,84 +283,6 @@ function ProfilesView({ profiles, platform, saveProfile, deleteProfile, onDirtyC
   </div>;
 }
 
-function SettingGroup({ title, description, children, id, sectionRef, focusable = false }: { title: string; description: string; children: ReactNode; id?: string; sectionRef?: Ref<HTMLElement>; focusable?: boolean }) {
-  const headingId = id ? `${id}-heading` : undefined;
-  return <section className="setting-group" id={id} ref={sectionRef} tabIndex={focusable ? -1 : undefined} aria-labelledby={headingId}><header><h2 id={headingId}>{title}</h2><p>{description}</p></header><div className="setting-controls">{children}</div></section>;
-}
-
-const pointerSpeedOptions = [5, 25, 50, 75, 100] as const;
-const pointerSpeedValues = Array.from({ length: 45 }, (_, index) => (index + 1) * 5);
-const repeatIntervalOptions = [100, 250, 500, 1000] as const;
-const keyRepeatDelayOptions = [
-  { value: 0, label: "None" },
-  { value: 250, label: "Short" },
-  { value: 500, label: "Medium" },
-  { value: 1000, label: "Long" },
-] as const;
-const accelerationOptions = [
-  { value: 0, label: "Off" },
-  { value: 500, label: "Short" },
-  { value: 1000, label: "Medium" },
-  { value: 2000, label: "Long" },
-] as const;
-const dwellDelayOptions = [500, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000] as const;
-
-function movementValue(base: number, scale: number) {
-  const value = Math.min(50, Math.max(1, Math.round((base * scale / 100) * 2) / 2));
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-const changedSettingKeys = (previous: AppSettings, next: AppSettings) =>
-  (Object.keys(next) as Array<keyof AppSettings>).filter((key) => previous[key] !== next[key]);
-
-function applyLocalSettings(base: AppSettings, local: AppSettings, keys: Set<keyof AppSettings>) {
-  const merged = { ...base };
-  for (const key of keys) Object.assign(merged, { [key]: local[key] });
-  return merged;
-}
-
-type UpdateAction = "check" | "download" | "install";
-
-function updateProgress(update: UpdateState) {
-  if (update.totalBytes && update.totalBytes > 0) {
-    return `${Math.min(100, Math.round(update.downloadedBytes * 100 / update.totalBytes))}%`;
-  }
-  return `${update.downloadedBytes.toLocaleString()} bytes`;
-}
-
-function updateDescription(update: UpdateState) {
-  switch (update.status) {
-    case "unconfigured": return "Updates are unavailable in this build because its signed feed is not configured.";
-    case "idle": return "Automatic update checks are enabled.";
-    case "checking": return "Checking for updates…";
-    case "available": return `Switchify PC ${update.version} is available.`;
-    case "downloading": return `Downloading Switchify PC ${update.version}…`;
-    case "readyToInstall": return `Switchify PC ${update.version} is ready to install.`;
-    case "applying": return `Installing Switchify PC ${update.version}…`;
-    case "current": return "Switchify PC is up to date.";
-    case "failed": return update.error ?? "The update operation failed.";
-    case "cancelled": return "Download cancelled. You can retry when ready.";
-  }
-}
-
-function UpdateControls({ update, run, cancel }: { update: UpdateState; run: (action: UpdateAction) => void; cancel: () => void }) {
-  const action = update.status === "available" || update.status === "cancelled" ? "download"
-    : update.status === "readyToInstall" ? "install"
-      : update.status === "failed" ? update.retryAction
-        : update.status === "idle" || update.status === "current" || update.status === "unconfigured" ? "check" : null;
-  const label = update.status === "failed" ? "Retry"
-    : action === "download" ? (update.status === "cancelled" ? "Retry download" : "Download")
-      : action === "install" ? "Install and restart" : "Check for updates";
-  return <div className="update-controls">
-    <p role={update.status === "failed" ? "alert" : "status"}>{updateDescription(update)}</p>
-    {update.status === "downloading" && <>
-      <progress aria-label="Update download progress" value={update.downloadedBytes} max={update.totalBytes ?? undefined} />
-      <span>{updateProgress(update)}</span>
-    </>}
-    <div>{action && <button className="secondary" type="button" onClick={() => run(action)}>{action === "download" && <Download size={16} />}{action === "check" && <RefreshCw size={16} />}{label}</button>}{update.status === "downloading" && <button className="secondary" type="button" onClick={cancel}><X size={16} />Cancel</button>}{(update.status === "checking" || update.status === "applying") && <button className="secondary" type="button" disabled><RefreshCw className="spin" size={16} />{update.status === "checking" ? "Checking" : "Installing"}</button>}</div>
-  </div>;
-}
-
 function UpdateBanner({ update, openUpdates }: { update: UpdateState; openUpdates: () => void }) {
   if (update.status !== "available" && update.status !== "downloading" && update.status !== "readyToInstall") return null;
   const message = update.status === "available"
@@ -374,81 +295,6 @@ function UpdateBanner({ update, openUpdates }: { update: UpdateState; openUpdate
     <p>{message}</p>
     <button className="text-button" type="button" onClick={openUpdates}>{update.status === "downloading" ? "View progress" : "View update"}</button>
   </section>;
-}
-
-function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void }) {
-  const updatesRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    if (!focusUpdates) return;
-    updatesRef.current?.scrollIntoView?.({ block: "start" });
-    updatesRef.current?.focus({ preventScroll: true });
-    onUpdatesFocused();
-  }, [focusUpdates, onUpdatesFocused]);
-  const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => onChange({ ...settings, [key]: value });
-  return <div className="view"><header className="page-header"><div><h1>Settings</h1><p>Startup, pointer, privacy, and updates</p></div><Settings size={24} /></header>
-    <SettingGroup title="General" description="System startup and background behavior."><Toggle label="Start with system" checked={settings.startWithSystem} onChange={(value) => update("startWithSystem", value)} /></SettingGroup>
-    <SettingGroup title="Pointer" description="Movement and visual feedback.">
-      <fieldset className="pointer-speed"><legend>Pointer speed <strong>{settings.pointerScalePercent}%</strong></legend><div className="segmented compact five">
-        {pointerSpeedOptions.map((value) => <button type="button" key={value} aria-label={`${value}% pointer speed`} aria-pressed={settings.pointerScalePercent === value} onClick={() => update("pointerScalePercent", value)}>{value}%</button>)}
-      </div><label className="exact-speed"><span>Exact speed</span><select aria-label="Exact pointer speed" value={settings.pointerScalePercent} onChange={(event) => update("pointerScalePercent", Number(event.target.value))}>
-        {pointerSpeedValues.map((value) => <option key={value} value={value}>{value}%</option>)}
-      </select></label><div className="movement-values" aria-label="Pointer movement values">
-        {([{"label":"Small","base":4.5},{"label":"Medium","base":12},{"label":"Large","base":26}] as const).map(({ label, base }) => <div key={label}><span>{label}</span><strong>{movementValue(base, settings.pointerScalePercent)}</strong></div>)}
-      </div></fieldset>
-      <div className="repeat-settings">
-        <Toggle label="Repeat mouse movement" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
-        <div className="repeat-options" data-disabled={!settings.mouseRepeatEnabled}>
-          <fieldset disabled={!settings.mouseRepeatEnabled}><legend>Movement interval</legend><div className="segmented compact four">
-            {repeatIntervalOptions.map((value) => <button type="button" key={value} aria-pressed={settings.moveRepeatIntervalMs === value} onClick={() => update("moveRepeatIntervalMs", value)}>{value / 1000}s</button>)}
-          </div></fieldset>
-          <fieldset disabled={!settings.mouseRepeatEnabled}><legend>Movement acceleration</legend><div className="segmented compact four">
-            {accelerationOptions.map(({ value, label }) => <button type="button" key={value} aria-pressed={settings.mouseRepeatAccelerationDurationMs === value} onClick={() => update("mouseRepeatAccelerationDurationMs", value)}>{label}</button>)}
-          </div></fieldset>
-          <fieldset disabled={!settings.mouseRepeatEnabled}><legend>Scroll interval</legend><div className="segmented compact four">
-            {repeatIntervalOptions.map((value) => <button type="button" key={value} aria-pressed={settings.scrollRepeatIntervalMs === value} onClick={() => update("scrollRepeatIntervalMs", value)}>{value / 1000}s</button>)}
-          </div></fieldset>
-        </div>
-      </div>
-      <div className="repeat-settings">
-        <Toggle label="Repeat held keys" checked={settings.keyRepeatEnabled} onChange={(value) => update("keyRepeatEnabled", value)} />
-        <div className="repeat-options" data-disabled={!settings.keyRepeatEnabled}>
-          <fieldset disabled={!settings.keyRepeatEnabled}><legend>Delay before repeating</legend><div className="segmented compact four">
-            {keyRepeatDelayOptions.map(({ value, label }) => <button type="button" key={value} aria-pressed={settings.keyRepeatInitialDelayMs === value} onClick={() => update("keyRepeatInitialDelayMs", value)}>{label}</button>)}
-          </div></fieldset>
-          <fieldset disabled={!settings.keyRepeatEnabled}><legend>Key interval</legend><div className="segmented compact four">
-            {repeatIntervalOptions.map((value) => <button type="button" key={value} aria-pressed={settings.keyRepeatIntervalMs === value} onClick={() => update("keyRepeatIntervalMs", value)}>{value / 1000}s</button>)}
-          </div></fieldset>
-          <p className="setting-note">Holding a navigation key on the remote repeats it, like holding a key on a keyboard. Applies to the arrow keys, Tab, Backspace, Delete, Page Up, and Page Down.</p>
-        </div>
-      </div>
-      <div className="repeat-settings dwell-settings">
-        <Toggle label="Dwell to click" checked={settings.dwellClickEnabled} onChange={(value) => update("dwellClickEnabled", value)} />
-        <div className="repeat-options" data-disabled={!settings.dwellClickEnabled}>
-          <fieldset disabled={!settings.dwellClickEnabled}><legend>Dwell delay</legend><div className="segmented compact five">
-            {dwellDelayOptions.map((value) => <button type="button" key={value} aria-pressed={settings.dwellClickDelayMs === value} onClick={() => update("dwellClickDelayMs", value)}>{value / 1000}s</button>)}
-          </div></fieldset>
-          <p className="setting-note">After Android pointer movement stops, a countdown appears and performs one left click. Move again to rearm it.</p>
-        </div>
-      </div>
-      {state.capabilities.cursorOverlay && <>
-        <Toggle label="Show cursor overlay" checked={settings.cursorOverlayEnabled} onChange={(value) => update("cursorOverlayEnabled", value)} />
-        <div className="overlay-options" data-disabled={!settings.cursorOverlayEnabled}>
-          <fieldset disabled={!settings.cursorOverlayEnabled}><legend>Overlay visibility</legend><div className="segmented compact">
-            {(["onInput", "whileControlling"] as const).map((value) => <button type="button" key={value} aria-pressed={settings.cursorOverlayVisibility === value} onClick={() => update("cursorOverlayVisibility", value)}>{value === "onInput" ? "On input" : "While controlling"}</button>)}
-          </div><p className="setting-note">On input hides shortly after pointer activity stops. While controlling stays visible until the session ends.</p></fieldset>
-          <fieldset disabled={!settings.cursorOverlayEnabled}><legend>Overlay size</legend><div className="segmented compact three">
-            {(["small", "medium", "large"] as const).map((value) => <button type="button" key={value} aria-pressed={settings.cursorOverlaySize === value} onClick={() => update("cursorOverlaySize", value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}
-          </div></fieldset>
-          <fieldset disabled={!settings.cursorOverlayEnabled}><legend>Overlay color</legend><div className="color-options">
-            {(["red", "green", "blue", "yellow", "white"] as const).map((value) => <label key={value} title={value[0].toUpperCase() + value.slice(1)}><input type="radio" name="overlay-color" value={value} checked={settings.cursorOverlayColor === value} onChange={() => update("cursorOverlayColor", value)} /><span className={`color-swatch ${value}`} /><span className="sr-only">{value[0].toUpperCase() + value.slice(1)}</span></label>)}
-          </div></fieldset>
-          <Toggle label="Show crosshairs" disabled={!settings.cursorOverlayEnabled} checked={settings.cursorCrosshairs} onChange={(value) => update("cursorCrosshairs", value)} />
-        </div>
-      </>}
-    </SettingGroup>
-    <SettingGroup title="Privacy" description="Optional anonymous app health and sanitized error reports. Never includes typed text, commands, pairing secrets, device names, or full paths."><Toggle label="Share anonymous diagnostic data" disabled={!state.telemetry.available && !settings.shareDiagnostics} checked={settings.shareDiagnostics} onChange={(value) => update("shareDiagnostics", value)} />{state.telemetry.consent === "undecided" && <div className="privacy-choice" role="group" aria-label="Anonymous diagnostics choice"><button className="secondary" type="button" disabled={busy || !state.telemetry.available} onClick={() => chooseTelemetry(true)}>Share diagnostics</button><button className="secondary" type="button" disabled={busy} onClick={() => chooseTelemetry(false)}>Don't share</button></div>}<p className="setting-note">{state.telemetry.available ? state.telemetry.consent === "undecided" ? "No choice recorded yet. Nothing is sent unless you choose Share diagnostics." : state.telemetry.consent === "enabled" ? "Consent recorded. You can turn this off at any time to delete queued reports." : "Opted out. No diagnostic reports are stored or sent." : "Diagnostic reporting is unavailable in this build."} <a href="https://switchifyapp.com/privacy" target="_blank" rel="noreferrer">Privacy policy</a></p></SettingGroup>
-    <SettingGroup id="settings-updates" sectionRef={updatesRef} focusable title="Updates" description={`Switchify PC ${state.version}`}><UpdateControls update={state.updater} run={updateAction} cancel={cancelUpdate} /></SettingGroup>
-  </div>;
 }
 
 function SupportView({ state, busy, perform, openSetup, openUpdates }: { state: AppState; busy: boolean; perform: (operation: () => Promise<AppState>) => void; openSetup: () => void; openUpdates: () => void }) {
