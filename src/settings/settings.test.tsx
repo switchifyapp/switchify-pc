@@ -872,11 +872,65 @@ describe("Switchify PC settings", () => {
 
     act(() => stateHandler?.({ ...structuredClone(browserState), updater: checkingUpdater }));
     act(() => stateHandler?.({ ...structuredClone(browserState), updater: failedUpdater("Update check failed: connection timed out") }));
-    // The marker and description carry the new wording; the live region does
-    // not interrupt for it.
-    expect(updatesNotice()).toHaveTextContent("Update check failed: dns error. Open the Updates tab to retry.");
+    // The marker and description carry the new wording. The live region does
+    // not interrupt for it, and does not keep the old words either.
+    expect(updatesNotice()).toBeEmptyDOMElement();
     const updates = screen.getByRole("tab", { name: "Updates" });
     expect(document.getElementById(updates.getAttribute("aria-describedby")!)).toHaveTextContent("connection timed out");
+  });
+
+  it("speaks the result of a check the user asked for, even when it is the same failure", async () => {
+    browserState.updater = { ...failedUpdater("Update check failed: offline"), retryAction: "check" };
+    let finishCheck: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "checkForUpdates").mockImplementation(() => new Promise((resolve) => { finishCheck = resolve; }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(updatesNotice()).toHaveTextContent("Update check failed: offline.");
+    selectTab("Updates");
+    expect(updatesNotice()).toBeEmptyDOMElement();
+
+    // A check the user started is not the scheduled one: nothing is held for
+    // it, and whatever it returns is news, even from another tab.
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    selectTab("Pointer");
+    await act(async () => { finishCheck?.({ ...structuredClone(browserState), updater: { ...failedUpdater("Update check failed: offline"), retryAction: "check" } }); });
+    expect(updatesNotice()).toHaveTextContent("Update check failed: offline. Open the Updates tab to retry.");
+    expect(updatesMarker()).toBeInTheDocument();
+  });
+
+  it("keeps a standing failure marked when Settings opens during the scheduled check", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    browserState.updater = failedUpdater("Update check failed: offline");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+
+    // The failure is standing on Home; the scheduler starts a check; the user
+    // opens Settings while it runs.
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: checkingUpdater }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(updatesMarker()).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Updates" })).toHaveAttribute("aria-describedby");
+    expect(updatesNotice()).toHaveTextContent("Update check failed: offline. Open the Updates tab to retry.");
+  });
+
+  it("drops the marker while an install the user started is in progress", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    browserState.updater = { ...failedUpdater("Update installation failed: installer exited with code 1"), retryAction: "install" };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(updatesMarker()).toBeInTheDocument();
+
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: { status: "applying", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null } }));
+    expect(updatesMarker()).toBeNull();
+    expect(updatesNotice()).toBeEmptyDOMElement();
   });
 
 });

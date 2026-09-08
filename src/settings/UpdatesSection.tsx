@@ -40,6 +40,16 @@ export function updateStatusRole(update: UpdateState) {
   return updateLiveness(update.status) === "assertive" ? "alert" : "status";
 }
 
+// The states with something left to act on, and the one the scheduled check
+// passes through on its way back to them. An install in progress is neither:
+// it is the user acting.
+export function updateStanding(status: UpdateStatus) {
+  return status === "failed" || status === "cancelled";
+}
+export function updateInFlight(status: UpdateStatus) {
+  return status === "checking";
+}
+
 export function UpdateControls({ update, run, cancel }: { update: UpdateState; run: (action: UpdateAction) => void; cancel: () => void }) {
   const action = update.status === "available" || update.status === "cancelled" ? "download"
     : update.status === "readyToInstall" ? "install"

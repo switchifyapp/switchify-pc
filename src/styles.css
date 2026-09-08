@@ -299,6 +299,9 @@ button:disabled { cursor: default; opacity: 0.55; }
 
 .settings-tabs { display: grid; grid-template-columns: repeat(var(--tab-count), 1fr); width: 100%; min-width: 0; }
 .settings-tabs button { position: relative; min-width: 0; padding: 0 8px; }
+/* Positioned siblings paint in order, so lift a focused tab or the selected
+   neighbour overpaints one edge of its focus ring. */
+.settings-tabs button:focus-visible { z-index: 1; }
 
 .settings-panel:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
 
@@ -309,4 +312,6 @@ button:disabled { cursor: default; opacity: 0.55; }
 .setting-note-block .disclosure { margin-top: 4px; }
 
 /* Out of flow so a marker never wraps the label and grows the tab row. */
-.tab-attention { position: absolute; top: 5px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--status-error); }
+/* The transparent outline is invisible normally and becomes a visible ring
+   under forced colours, where the background alone would be flattened away. */
+.tab-attention { position: absolute; top: 5px; right: 6px; width: 8px; height: 8px; border-radius: 50%; outline: 1px solid transparent; background: var(--status-error); }
