@@ -1,5 +1,7 @@
 import { Download, RefreshCw, X } from "lucide-react";
-import type { UpdateState } from "../types";
+import type { Ref } from "react";
+import type { AppState, UpdateState } from "../types";
+import { SettingGroup } from "./controls";
 
 export type UpdateAction = "check" | "download" | "install";
 
@@ -41,4 +43,8 @@ export function UpdateControls({ update, run, cancel }: { update: UpdateState; r
     </>}
     <div>{action && <button className="secondary" type="button" onClick={() => run(action)}>{action === "download" && <Download size={16} />}{action === "check" && <RefreshCw size={16} />}{label}</button>}{update.status === "downloading" && <button className="secondary" type="button" onClick={cancel}><X size={16} />Cancel</button>}{(update.status === "checking" || update.status === "applying") && <button className="secondary" type="button" disabled><RefreshCw className="spin" size={16} />{update.status === "checking" ? "Checking" : "Installing"}</button>}</div>
   </div>;
+}
+
+export function UpdatesSection({ state, run, cancel, sectionRef }: { state: AppState; run: (action: UpdateAction) => void; cancel: () => void; sectionRef: Ref<HTMLElement> }) {
+  return <SettingGroup id="settings-updates" sectionRef={sectionRef} focusable title="Updates" description={`Switchify PC ${state.version}`}><UpdateControls update={state.updater} run={run} cancel={cancel} /></SettingGroup>;
 }

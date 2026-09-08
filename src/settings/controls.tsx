@@ -1,3 +1,4 @@
+import type { AppSettings } from "../types";
 import type { ReactNode, Ref } from "react";
 
 export function Toggle({ checked, disabled = false, label, onChange }: { checked: boolean; disabled?: boolean; label: string; onChange: (next: boolean) => void }) {
@@ -56,3 +57,5 @@ export const overlayVisibilityOptions = [
 
 export const overlaySizeOptions = (["small", "medium", "large"] as const)
   .map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }));
+
+export type SettingsUpdate = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
