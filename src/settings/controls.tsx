@@ -59,9 +59,11 @@ export const overlaySizeOptions = (["small", "medium", "large"] as const)
 
 export type SettingsUpdate = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
 
-export function Disclosure({ label, expanded, onToggle, children }: { label: string; expanded: boolean; onToggle: () => void; children: ReactNode }) {
+export function Disclosure({ label, expanded, onToggle, controls, children }: { label: string; expanded: boolean; onToggle: () => void; controls?: string; children: ReactNode }) {
   return <>
-    <button type="button" className="disclosure" aria-expanded={expanded} onClick={onToggle}>{label}</button>
+    {/* aria-controls only while open: the content is unmounted when collapsed,
+        so referencing it would leave a dangling IDREF. */}
+    <button type="button" className="disclosure" aria-expanded={expanded} aria-controls={expanded ? controls : undefined} onClick={onToggle}>{label}</button>
     {expanded && children}
   </>;
 }
@@ -74,9 +76,13 @@ export function SettingNote({ id, about, summary, children }: { id: string; abou
   const detailId = `${id}-detail`;
   return <div className="setting-note-block">
     <p className="setting-note">{summary}</p>
-    <button type="button" className="disclosure" aria-expanded={expanded} aria-controls={expanded ? detailId : undefined} onClick={() => setExpanded(!expanded)}>
-      {expanded ? `Show less about ${about}` : `More about ${about}`}
-    </button>
-    {expanded && <p className="setting-note" id={detailId}>{children}</p>}
+    <Disclosure
+      label={expanded ? `Show less about ${about}` : `More about ${about}`}
+      expanded={expanded}
+      onToggle={() => setExpanded(!expanded)}
+      controls={detailId}
+    >
+      <p className="setting-note" id={detailId}>{children}</p>
+    </Disclosure>
   </div>;
 }

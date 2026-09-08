@@ -679,4 +679,20 @@ describe("Switchify PC settings", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
+
+  it("links each expanded help disclosure to the text it reveals", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    selectTab("Pointer");
+
+    const more = screen.getByRole("button", { name: "More about dwell" });
+    expect(more).not.toHaveAttribute("aria-controls");
+    fireEvent.click(more);
+
+    const less = screen.getByRole("button", { name: "Show less about dwell" });
+    const detailId = less.getAttribute("aria-controls");
+    expect(detailId).toBe("dwell-note-detail");
+    expect(document.getElementById(detailId!)).toHaveTextContent(/After Android pointer movement stops/);
+  });
+
 });
