@@ -517,4 +517,51 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("tabpanel")).not.toHaveAttribute("tabindex");
   });
 
+
+  it("moves the tab stop onto the selection when the banner selects Updates", async () => {
+    browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    const pointer = screen.getByRole("tab", { name: "Pointer" });
+    fireEvent.click(pointer);
+    pointer.focus();
+    expect(pointer).toHaveAttribute("tabindex", "0");
+
+    fireEvent.click(within(screen.getByRole("status", { name: "Application update" })).getByRole("button", { name: "View update" }));
+    await screen.findByRole("region", { name: "Updates" });
+
+    // The tab stop must not strand on Pointer once Updates becomes the selection.
+    const updates = screen.getByRole("tab", { name: "Updates" });
+    expect(updates).toHaveAttribute("aria-selected", "true");
+    expect(updates).toHaveAttribute("tabindex", "0");
+    expect(pointer).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("keeps the panel tab stop while the panel itself holds focus", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    browserState.updater = { status: "checking", version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    selectTab("Updates");
+
+    const panel = screen.getByRole("tabpanel");
+    await waitFor(() => expect(panel).toHaveAttribute("tabindex", "0"));
+    panel.focus();
+    expect(panel).toHaveFocus();
+
+    // Finishing the check swaps the disabled button for an enabled one. Dropping
+    // tabIndex from the focused panel would send focus to the document body.
+    act(() => stateHandler?.({
+      ...structuredClone(browserState),
+      updater: { status: "current", version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null },
+    }));
+    expect(screen.getByRole("button", { name: "Check for updates" })).toBeInTheDocument();
+    expect(panel).toHaveAttribute("tabindex", "0");
+    expect(panel).toHaveFocus();
+  });
 });

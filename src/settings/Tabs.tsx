@@ -13,6 +13,10 @@ export function Tabs({ tabs, active, onSelect, label }: { tabs: readonly TabDefi
   // then tabbing away and back returns to it rather than to the selected tab.
   const [focused, setFocused] = useState<string | null>(null);
   const tabStop = tabs.some((tab) => tab.id === focused) ? focused : active;
+  // Selecting a tab — by click or programmatically, as the update banner does —
+  // moves the stop back onto the selection, so it can never strand the tab stop
+  // on a tab that is no longer selected.
+  useEffect(() => { setFocused(null); }, [active]);
 
   const focusTab = (index: number) => {
     const buttons = listRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
@@ -41,7 +45,7 @@ export function Tabs({ tabs, active, onSelect, label }: { tabs: readonly TabDefi
       tabIndex={tabStop === tab.id ? 0 : -1}
       onFocus={() => setFocused(tab.id)}
       onKeyDown={(event) => onKeyDown(event, index)}
-      onClick={() => { setFocused(tab.id); onSelect(tab.id); }}
+      onClick={() => onSelect(tab.id)}
     >{tab.label}</button>)}
   </div>;
 }
@@ -52,7 +56,9 @@ export function TabPanel({ id, children }: { id: string; children: ReactNode }) 
   // which the Updates panel hits while a check or install is in flight.
   const [tabbable, setTabbable] = useState(false);
   useEffect(() => {
-    setTabbable(!ref.current?.querySelector(TABBABLE));
+    // Keep the stop while the panel itself holds focus: removing tabIndex from
+    // the focused element would drop focus to the document body.
+    setTabbable((current) => !ref.current?.querySelector(TABBABLE) || (current && ref.current === document.activeElement));
   });
   return <div ref={ref} className="settings-panel" role="tabpanel" id={panelId(id)} aria-labelledby={tabId(id)} tabIndex={tabbable ? 0 : undefined}>{children}</div>;
 }
