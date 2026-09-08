@@ -1,17 +1,18 @@
-import { useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 export type TabDefinition = { id: string; label: string };
 
 export function tabId(id: string) { return `settings-tab-${id}`; }
 export function panelId(id: string) { return `settings-panel-${id}`; }
 
+const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function Tabs({ tabs, active, onSelect, label }: { tabs: readonly TabDefinition[]; active: string; onSelect: (id: string) => void; label: string }) {
   const listRef = useRef<HTMLDivElement>(null);
-  // The tab stop follows focus while the tablist has it, and falls back to the
-  // selected tab once focus leaves, so arrowing to a tab and tabbing away and
-  // back does not discard the user's position.
+  // The tab stop stays on the last tab that held focus, so arrowing to a tab and
+  // then tabbing away and back returns to it rather than to the selected tab.
   const [focused, setFocused] = useState<string | null>(null);
-  const tabStop = focused ?? active;
+  const tabStop = tabs.some((tab) => tab.id === focused) ? focused : active;
 
   const focusTab = (index: number) => {
     const buttons = listRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
@@ -27,11 +28,7 @@ export function Tabs({ tabs, active, onSelect, label }: { tabs: readonly TabDefi
     event.preventDefault();
   };
 
-  const onBlur = (event: FocusEvent<HTMLDivElement>) => {
-    if (!event.currentTarget.contains(event.relatedTarget)) setFocused(null);
-  };
-
-  return <div className="segmented settings-tabs" role="tablist" aria-label={label} ref={listRef} onBlur={onBlur} style={{ ["--tab-count" as string]: tabs.length }}>
+  return <div className="segmented settings-tabs" role="tablist" aria-label={label} ref={listRef} style={{ ["--tab-count" as string]: tabs.length }}>
     {tabs.map((tab, index) => <button
       key={tab.id}
       type="button"
@@ -50,7 +47,12 @@ export function Tabs({ tabs, active, onSelect, label }: { tabs: readonly TabDefi
 }
 
 export function TabPanel({ id, children }: { id: string; children: ReactNode }) {
-  // No tabIndex: every panel contains focusable controls, so making the panel
-  // itself tabbable would add a redundant stop before the first real control.
-  return <div className="settings-panel" role="tabpanel" id={panelId(id)} aria-labelledby={tabId(id)}>{children}</div>;
+  const ref = useRef<HTMLDivElement>(null);
+  // A panel is only its own tab stop when nothing inside it can take focus,
+  // which the Updates panel hits while a check or install is in flight.
+  const [tabbable, setTabbable] = useState(false);
+  useEffect(() => {
+    setTabbable(!ref.current?.querySelector(TABBABLE));
+  });
+  return <div ref={ref} className="settings-panel" role="tabpanel" id={panelId(id)} aria-labelledby={tabId(id)} tabIndex={tabbable ? 0 : undefined}>{children}</div>;
 }

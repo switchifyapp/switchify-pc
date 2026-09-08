@@ -475,7 +475,7 @@ describe("Switchify PC settings", () => {
   });
 
 
-  it("returns the tab stop to the selected tab when focus leaves the tablist", async () => {
+  it("keeps the tab stop on the last focused tab after focus leaves the tablist", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
@@ -487,9 +487,20 @@ describe("Switchify PC settings", () => {
 
     const startup = screen.getByRole("checkbox", { name: "Start with system" });
     startup.focus();
-    fireEvent.blur(pointer, { relatedTarget: startup });
-    expect(general).toHaveAttribute("tabindex", "0");
-    expect(pointer).toHaveAttribute("tabindex", "-1");
+    expect(pointer).toHaveAttribute("tabindex", "0");
+    expect(general).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("makes the panel a tab stop only when nothing inside it can take focus", async () => {
+    browserState.updater = { status: "checking", version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    // General holds a focusable toggle, so the panel must not add its own stop.
+    expect(screen.getByRole("tabpanel")).not.toHaveAttribute("tabindex");
+
+    selectTab("Updates");
+    // While checking, the only button is disabled, so the panel becomes reachable.
+    await waitFor(() => expect(screen.getByRole("tabpanel")).toHaveAttribute("tabindex", "0"));
   });
 
   it("points aria-controls only at the panel that is rendered", async () => {
