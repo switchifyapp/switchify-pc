@@ -6,8 +6,8 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 export type TabDefinition<T extends string = string> = { id: T; label: string; attention?: string };
 
 // `name` scopes the element ids, so two tablists can share a page.
-export function tabId(name: string, id: string) { return `${name}-tab-${id}`; }
-export function panelId(name: string, id: string) { return `${name}-panel-${id}`; }
+function tabId(name: string, id: string) { return `${name}-tab-${id}`; }
+function panelId(name: string, id: string) { return `${name}-panel-${id}`; }
 function descriptionId(name: string, id: string) { return `${tabId(name, id)}-description`; }
 
 const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -60,7 +60,7 @@ export function Tabs<T extends string>({ name, tabs, active, onSelect, label }: 
   </>;
 }
 
-export function TabPanel({ name, id, children }: { name: string; id: string; children: ReactNode }) {
+export function TabPanel<T extends string>({ name, id, children }: { name: string; id: T; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   // A panel is only its own tab stop when nothing inside it can take focus,
   // which the Updates panel hits while a check or install is in flight.
