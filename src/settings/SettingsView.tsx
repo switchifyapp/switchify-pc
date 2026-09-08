@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Settings } from "lucide-react";
 import type { AppSettings, AppState } from "../types";
-import { Tabs, TabPanel } from "./Tabs";
+import { Tabs, TabPanel } from "../Tabs";
 import { GeneralSection } from "./GeneralSection";
 import { PointerSection } from "./PointerSection";
 import { CursorSection } from "./CursorSection";
@@ -49,8 +49,8 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => onChange({ ...settings, [key]: value });
 
   return <div className="view"><header className="page-header"><div><h1>Settings</h1><p>How Switchify PC behaves on this computer</p></div><Settings size={24} /></header>
-    <Tabs tabs={tabs} active={active} onSelect={setActive} label="Settings sections" />
-    <TabPanel id={active}>
+    <Tabs name="settings" tabs={tabs} active={active} onSelect={setActive} label="Settings sections" />
+    <TabPanel name="settings" id={active}>
       {active === "general" && <GeneralSection settings={settings} update={update} />}
       {active === "pointer" && <PointerSection settings={settings} update={update} />}
       {active === "cursor" && <CursorSection settings={settings} update={update} />}

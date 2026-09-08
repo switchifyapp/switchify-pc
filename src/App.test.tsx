@@ -516,4 +516,30 @@ describe("Switchify PC shell", () => {
     expect(screen.queryByRole("button", { name: "Open Accessibility Settings" })).not.toBeInTheDocument();
     listener.mockRestore();
   });
+
+  it("gives the Support tabs a single tab stop, arrow-key movement and linked panels", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Support" }));
+
+    const setup = screen.getByRole("tab", { name: "Setup" });
+    const troubleshooting = screen.getByRole("tab", { name: "Troubleshooting" });
+    expect(setup).toHaveAttribute("aria-selected", "true");
+    expect(setup).toHaveAttribute("tabindex", "0");
+    expect(troubleshooting).toHaveAttribute("tabindex", "-1");
+    expect(setup).toHaveAttribute("aria-controls", "support-panel-setup");
+    expect(screen.getByRole("tabpanel")).toHaveAccessibleName("Setup");
+
+    // Manual activation: arrows move focus, and only a click selects.
+    setup.focus();
+    fireEvent.keyDown(setup, { key: "ArrowRight" });
+    expect(troubleshooting).toHaveFocus();
+    expect(setup).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { name: "Android device" })).toBeInTheDocument();
+
+    fireEvent.click(troubleshooting);
+    expect(troubleshooting).toHaveAttribute("aria-selected", "true");
+    expect(troubleshooting).toHaveAttribute("aria-controls", "support-panel-troubleshooting");
+    expect(screen.getByRole("tabpanel")).toHaveAccessibleName("Troubleshooting");
+    expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
+  });
 });
