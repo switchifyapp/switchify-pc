@@ -32,18 +32,17 @@ export function movementValue(base: number, scale: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-export function OptionGroup<T extends string | number>({ legend, options, value, onChange, disabled, columns, children }: {
+export function OptionGroup<T extends string | number>({ legend, options, value, onChange, disabled, columns }: {
   legend: string;
   options: ReadonlyArray<{ value: T; label: ReactNode }>;
   value: T;
   onChange: (next: T) => void;
   disabled: boolean;
   columns?: "three" | "four" | "five";
-  children?: ReactNode;
 }) {
   return <fieldset disabled={disabled}><legend>{legend}</legend><div className={columns ? `segmented compact ${columns}` : "segmented compact"}>
     {options.map((option) => <button type="button" key={option.value} aria-pressed={value === option.value} onClick={() => onChange(option.value)}>{option.label}</button>)}
-  </div>{children}</fieldset>;
+  </div></fieldset>;
 }
 
 export function secondsOptions<T extends number>(values: readonly T[]) {
@@ -67,12 +66,17 @@ export function Disclosure({ label, expanded, onToggle, children }: { label: str
   </>;
 }
 
-export function SettingNote({ summary, children }: { summary: string; children: ReactNode }) {
+// `about` names the setting in the button label. Several notes can be on screen
+// at once, so an unqualified "More about this" would leave a screen-reader or
+// switch-access user with identically named controls in their list.
+export function SettingNote({ id, about, summary, children }: { id: string; about: string; summary: string; children: ReactNode }) {
   const [expanded, setExpanded] = useState(false);
+  const detailId = `${id}-detail`;
   return <div className="setting-note-block">
     <p className="setting-note">{summary}</p>
-    <Disclosure label={expanded ? "Show less" : "More about this"} expanded={expanded} onToggle={() => setExpanded(!expanded)}>
-      <p className="setting-note">{children}</p>
-    </Disclosure>
+    <button type="button" className="disclosure" aria-expanded={expanded} aria-controls={expanded ? detailId : undefined} onClick={() => setExpanded(!expanded)}>
+      {expanded ? `Show less about ${about}` : `More about ${about}`}
+    </button>
+    {expanded && <p className="setting-note" id={detailId}>{children}</p>}
   </div>;
 }

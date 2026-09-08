@@ -183,7 +183,7 @@ describe("Switchify PC settings", () => {
     expect(within(dwellDelay).getByRole("button", { name: "1.5s" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("A countdown appears when movement stops, then clicks once.")).toBeInTheDocument();
     expect(screen.queryByText(/After Android pointer movement stops/)).not.toBeInTheDocument();
-    fireEvent.click(within(screen.getByRole("group", { name: "Dwell delay" }).parentElement!).getByRole("button", { name: "More about this" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Dwell delay" }).parentElement!).getByRole("button", { name: "More about dwell" }));
     expect(screen.getByText(/After Android pointer movement stops/)).toBeInTheDocument();
   });
 
@@ -196,7 +196,7 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("button", { name: "While controlling" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Choose when the overlay stays on screen.")).toBeInTheDocument();
     expect(screen.queryByText(/On input hides shortly/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "More about this" }));
+    fireEvent.click(screen.getByRole("button", { name: "More about overlay visibility" }));
     expect(screen.getByText(/On input hides shortly/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "On input" }));
     expect(screen.getByRole("button", { name: "On input" })).toHaveAttribute("aria-pressed", "true");
@@ -629,12 +629,12 @@ describe("Switchify PC settings", () => {
     expect(screen.queryByText(/Applies to the arrow keys/)).not.toBeInTheDocument();
 
     const note = screen.getByRole("group", { name: "Key interval" }).parentElement!;
-    const more = within(note).getByRole("button", { name: "More about this" });
+    const more = within(note).getByRole("button", { name: "More about key repeat" });
     expect(more).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(more);
 
     expect(screen.getByText(/Applies to the arrow keys, Tab, Backspace, Delete, Page Up, and Page Down/)).toBeInTheDocument();
-    const less = within(note).getByRole("button", { name: "Show less" });
+    const less = within(note).getByRole("button", { name: "Show less about key repeat" });
     expect(less).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(less);
     expect(screen.queryByText(/Applies to the arrow keys/)).not.toBeInTheDocument();
@@ -648,7 +648,35 @@ describe("Switchify PC settings", () => {
     // Consent legibility, not clutter: this must never move behind a disclosure.
     expect(screen.getByText(/Nothing is sent unless you choose Share diagnostics/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Privacy policy" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "More about this" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /More about/ })).not.toBeInTheDocument();
+  });
+
+
+  it("keeps the overlay explanation reachable while the overlay is off", async () => {
+    browserState.settings = { ...structuredClone(defaultBrowserSettings), cursorOverlayEnabled: false };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    selectTab("Cursor");
+
+    // The disclosure must sit outside the disabled fieldset. Asserted on the
+    // disabled property rather than by clicking, because jsdom dispatches clicks
+    // on disabled buttons and a browser does not.
+    const more = screen.getByRole("button", { name: "More about overlay visibility" });
+    expect(more).not.toBeDisabled();
+    expect(screen.getByRole("group", { name: "Overlay visibility" })).toBeDisabled();
+
+    fireEvent.click(more);
+    expect(screen.getByText(/On input hides shortly/)).toBeInTheDocument();
+  });
+
+  it("gives each help disclosure a distinct accessible name", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    selectTab("Pointer");
+
+    const names = screen.getAllByRole("button", { name: /More about/ }).map((button) => button.textContent);
+    expect(names).toEqual(["More about key repeat", "More about dwell"]);
+    expect(new Set(names).size).toBe(names.length);
   });
 
 });

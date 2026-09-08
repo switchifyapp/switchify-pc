@@ -37,14 +37,14 @@ export function PointerSection({ settings, update }: { settings: AppSettings; up
         <div className="repeat-options" data-disabled={!settings.keyRepeatEnabled}>
           <OptionGroup<number> legend="Delay before repeating" columns="four" disabled={!settings.keyRepeatEnabled} options={keyRepeatDelayOptions} value={settings.keyRepeatInitialDelayMs} onChange={(next) => update("keyRepeatInitialDelayMs", next)} />
           <OptionGroup<number> legend="Key interval" columns="four" disabled={!settings.keyRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.keyRepeatIntervalMs} onChange={(next) => update("keyRepeatIntervalMs", next)} />
-          <SettingNote summary="Held navigation keys repeat, like on a keyboard.">Holding a navigation key on the remote repeats it, like holding a key on a keyboard. Applies to the arrow keys, Tab, Backspace, Delete, Page Up, and Page Down.</SettingNote>
+          <SettingNote id="key-repeat-note" about="key repeat" summary="Held navigation keys repeat, like on a keyboard.">Holding a navigation key on the remote repeats it, like holding a key on a keyboard. Applies to the arrow keys, Tab, Backspace, Delete, Page Up, and Page Down.</SettingNote>
         </div>
       </div>
       <div className="repeat-settings dwell-settings">
         <Toggle label="Dwell to click" checked={settings.dwellClickEnabled} onChange={(value) => update("dwellClickEnabled", value)} />
         <div className="repeat-options" data-disabled={!settings.dwellClickEnabled}>
           <OptionGroup<number> legend="Dwell delay" columns="five" disabled={!settings.dwellClickEnabled} options={secondsOptions(dwellDelayOptions)} value={settings.dwellClickDelayMs} onChange={(next) => update("dwellClickDelayMs", next)} />
-          <SettingNote summary="A countdown appears when movement stops, then clicks once.">After Android pointer movement stops, a countdown appears and performs one left click. Move again to rearm it.</SettingNote>
+          <SettingNote id="dwell-note" about="dwell" summary="A countdown appears when movement stops, then clicks once.">After Android pointer movement stops, a countdown appears and performs one left click. Move again to rearm it.</SettingNote>
         </div>
       </div>
   </SettingGroup>;
