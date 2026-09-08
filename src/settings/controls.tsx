@@ -30,3 +30,29 @@ export function movementValue(base: number, scale: number) {
   const value = Math.min(50, Math.max(1, Math.round((base * scale / 100) * 2) / 2));
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
+
+export function OptionGroup<T extends string | number>({ legend, options, value, onChange, disabled, columns, children }: {
+  legend: string;
+  options: ReadonlyArray<{ value: T; label: ReactNode }>;
+  value: T;
+  onChange: (next: T) => void;
+  disabled: boolean;
+  columns?: "three" | "four" | "five";
+  children?: ReactNode;
+}) {
+  return <fieldset disabled={disabled}><legend>{legend}</legend><div className={columns ? `segmented compact ${columns}` : "segmented compact"}>
+    {options.map((option) => <button type="button" key={option.value} aria-pressed={value === option.value} onClick={() => onChange(option.value)}>{option.label}</button>)}
+  </div>{children}</fieldset>;
+}
+
+export function secondsOptions<T extends number>(values: readonly T[]) {
+  return values.map((value) => ({ value, label: <>{value / 1000}s</> }));
+}
+
+export const overlayVisibilityOptions = [
+  { value: "onInput", label: "On input" },
+  { value: "whileControlling", label: "While controlling" },
+] as const;
+
+export const overlaySizeOptions = (["small", "medium", "large"] as const)
+  .map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }));

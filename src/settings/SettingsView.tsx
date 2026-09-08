@@ -2,8 +2,9 @@ import { useEffect, useRef } from "react";
 import { Settings } from "lucide-react";
 import type { AppSettings, AppState } from "../types";
 import {
-  SettingGroup, Toggle, accelerationOptions, dwellDelayOptions, keyRepeatDelayOptions,
-  movementValue, pointerSpeedOptions, pointerSpeedValues, repeatIntervalOptions,
+  OptionGroup, SettingGroup, Toggle, accelerationOptions, dwellDelayOptions, keyRepeatDelayOptions,
+  movementValue, overlaySizeOptions, overlayVisibilityOptions, pointerSpeedOptions,
+  pointerSpeedValues, repeatIntervalOptions, secondsOptions,
 } from "./controls";
 import { UpdateControls, type UpdateAction } from "./UpdatesSection";
 
@@ -29,47 +30,33 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
       <div className="repeat-settings">
         <Toggle label="Repeat mouse movement" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
         <div className="repeat-options" data-disabled={!settings.mouseRepeatEnabled}>
-          <fieldset disabled={!settings.mouseRepeatEnabled}><legend>Movement interval</legend><div className="segmented compact four">
-            {repeatIntervalOptions.map((value) => <button type="button" key={value} aria-pressed={settings.moveRepeatIntervalMs === value} onClick={() => update("moveRepeatIntervalMs", value)}>{value / 1000}s</button>)}
-          </div></fieldset>
-          <fieldset disabled={!settings.mouseRepeatEnabled}><legend>Movement acceleration</legend><div className="segmented compact four">
-            {accelerationOptions.map(({ value, label }) => <button type="button" key={value} aria-pressed={settings.mouseRepeatAccelerationDurationMs === value} onClick={() => update("mouseRepeatAccelerationDurationMs", value)}>{label}</button>)}
-          </div></fieldset>
-          <fieldset disabled={!settings.mouseRepeatEnabled}><legend>Scroll interval</legend><div className="segmented compact four">
-            {repeatIntervalOptions.map((value) => <button type="button" key={value} aria-pressed={settings.scrollRepeatIntervalMs === value} onClick={() => update("scrollRepeatIntervalMs", value)}>{value / 1000}s</button>)}
-          </div></fieldset>
+          <OptionGroup<number> legend="Movement interval" columns="four" disabled={!settings.mouseRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.moveRepeatIntervalMs} onChange={(next) => update("moveRepeatIntervalMs", next)} />
+          <OptionGroup<number> legend="Movement acceleration" columns="four" disabled={!settings.mouseRepeatEnabled} options={accelerationOptions} value={settings.mouseRepeatAccelerationDurationMs} onChange={(next) => update("mouseRepeatAccelerationDurationMs", next)} />
+          <OptionGroup<number> legend="Scroll interval" columns="four" disabled={!settings.mouseRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.scrollRepeatIntervalMs} onChange={(next) => update("scrollRepeatIntervalMs", next)} />
         </div>
       </div>
       <div className="repeat-settings">
         <Toggle label="Repeat held keys" checked={settings.keyRepeatEnabled} onChange={(value) => update("keyRepeatEnabled", value)} />
         <div className="repeat-options" data-disabled={!settings.keyRepeatEnabled}>
-          <fieldset disabled={!settings.keyRepeatEnabled}><legend>Delay before repeating</legend><div className="segmented compact four">
-            {keyRepeatDelayOptions.map(({ value, label }) => <button type="button" key={value} aria-pressed={settings.keyRepeatInitialDelayMs === value} onClick={() => update("keyRepeatInitialDelayMs", value)}>{label}</button>)}
-          </div></fieldset>
-          <fieldset disabled={!settings.keyRepeatEnabled}><legend>Key interval</legend><div className="segmented compact four">
-            {repeatIntervalOptions.map((value) => <button type="button" key={value} aria-pressed={settings.keyRepeatIntervalMs === value} onClick={() => update("keyRepeatIntervalMs", value)}>{value / 1000}s</button>)}
-          </div></fieldset>
+          <OptionGroup<number> legend="Delay before repeating" columns="four" disabled={!settings.keyRepeatEnabled} options={keyRepeatDelayOptions} value={settings.keyRepeatInitialDelayMs} onChange={(next) => update("keyRepeatInitialDelayMs", next)} />
+          <OptionGroup<number> legend="Key interval" columns="four" disabled={!settings.keyRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.keyRepeatIntervalMs} onChange={(next) => update("keyRepeatIntervalMs", next)} />
           <p className="setting-note">Holding a navigation key on the remote repeats it, like holding a key on a keyboard. Applies to the arrow keys, Tab, Backspace, Delete, Page Up, and Page Down.</p>
         </div>
       </div>
       <div className="repeat-settings dwell-settings">
         <Toggle label="Dwell to click" checked={settings.dwellClickEnabled} onChange={(value) => update("dwellClickEnabled", value)} />
         <div className="repeat-options" data-disabled={!settings.dwellClickEnabled}>
-          <fieldset disabled={!settings.dwellClickEnabled}><legend>Dwell delay</legend><div className="segmented compact five">
-            {dwellDelayOptions.map((value) => <button type="button" key={value} aria-pressed={settings.dwellClickDelayMs === value} onClick={() => update("dwellClickDelayMs", value)}>{value / 1000}s</button>)}
-          </div></fieldset>
+          <OptionGroup<number> legend="Dwell delay" columns="five" disabled={!settings.dwellClickEnabled} options={secondsOptions(dwellDelayOptions)} value={settings.dwellClickDelayMs} onChange={(next) => update("dwellClickDelayMs", next)} />
           <p className="setting-note">After Android pointer movement stops, a countdown appears and performs one left click. Move again to rearm it.</p>
         </div>
       </div>
       {state.capabilities.cursorOverlay && <>
         <Toggle label="Show cursor overlay" checked={settings.cursorOverlayEnabled} onChange={(value) => update("cursorOverlayEnabled", value)} />
         <div className="overlay-options" data-disabled={!settings.cursorOverlayEnabled}>
-          <fieldset disabled={!settings.cursorOverlayEnabled}><legend>Overlay visibility</legend><div className="segmented compact">
-            {(["onInput", "whileControlling"] as const).map((value) => <button type="button" key={value} aria-pressed={settings.cursorOverlayVisibility === value} onClick={() => update("cursorOverlayVisibility", value)}>{value === "onInput" ? "On input" : "While controlling"}</button>)}
-          </div><p className="setting-note">On input hides shortly after pointer activity stops. While controlling stays visible until the session ends.</p></fieldset>
-          <fieldset disabled={!settings.cursorOverlayEnabled}><legend>Overlay size</legend><div className="segmented compact three">
-            {(["small", "medium", "large"] as const).map((value) => <button type="button" key={value} aria-pressed={settings.cursorOverlaySize === value} onClick={() => update("cursorOverlaySize", value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}
-          </div></fieldset>
+          <OptionGroup<AppSettings["cursorOverlayVisibility"]> legend="Overlay visibility" disabled={!settings.cursorOverlayEnabled} options={overlayVisibilityOptions} value={settings.cursorOverlayVisibility} onChange={(next) => update("cursorOverlayVisibility", next)}>
+            <p className="setting-note">On input hides shortly after pointer activity stops. While controlling stays visible until the session ends.</p>
+          </OptionGroup>
+          <OptionGroup<AppSettings["cursorOverlaySize"]> legend="Overlay size" columns="three" disabled={!settings.cursorOverlayEnabled} options={overlaySizeOptions} value={settings.cursorOverlaySize} onChange={(next) => update("cursorOverlaySize", next)} />
           <fieldset disabled={!settings.cursorOverlayEnabled}><legend>Overlay color</legend><div className="color-options">
             {(["red", "green", "blue", "yellow", "white"] as const).map((value) => <label key={value} title={value[0].toUpperCase() + value.slice(1)}><input type="radio" name="overlay-color" value={value} checked={settings.cursorOverlayColor === value} onChange={() => update("cursorOverlayColor", value)} /><span className={`color-swatch ${value}`} /><span className="sr-only">{value[0].toUpperCase() + value.slice(1)}</span></label>)}
           </div></fieldset>
