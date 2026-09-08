@@ -128,9 +128,15 @@ button:disabled { cursor: default; opacity: 0.55; }
 .movement-values strong { font-size: 14px; font-weight: 650; }
 .repeat-settings { display: grid; gap: 17px; border-top: 1px solid var(--border); padding-top: 17px; }
 .repeat-options { display: grid; gap: 17px; }
-.repeat-options[data-disabled="true"] { opacity: 0.55; }
+/* A disabled group dims itself and the prose of the note beside it, never a
+   container: the note's disclosure stays operable and must read that way, and
+   a child cannot escape a parent opacity. Buttons inside a disabled fieldset
+   already match button:disabled, so reset them to stop the two rules
+   compounding to ~0.30. */
+.setting-controls fieldset:disabled { opacity: 0.55; }
+.setting-controls fieldset:disabled button:disabled { opacity: 1; }
+.option-with-note > fieldset:disabled + .setting-note-block .setting-note { opacity: 0.55; }
 .overlay-options { display: grid; gap: 17px; border-top: 1px solid var(--border); padding-top: 17px; }
-.overlay-options[data-disabled="true"] { opacity: 0.55; }
 .overlay-options fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
 .overlay-options legend { margin-bottom: 8px; color: var(--muted); font-size: 12px; }
 .setting-note { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.5; }
@@ -298,3 +304,6 @@ button:disabled { cursor: default; opacity: 0.55; }
 
 .disclosure { display: inline-flex; align-items: center; align-self: start; min-height: 28px; margin-top: 8px; border: 0; padding: 0; color: var(--brand); background: transparent; font-size: 12px; font-weight: 650; cursor: pointer; }
 .disclosure:hover { text-decoration: underline; }
+
+.setting-note-block { display: grid; justify-items: start; }
+.setting-note-block .disclosure { margin-top: 4px; }
