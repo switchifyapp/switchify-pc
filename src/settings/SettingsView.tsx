@@ -26,8 +26,8 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
 
   const tabs = useMemo<TabDefinition<SettingsTabId>[]>(() => [
     { id: "general" as const, label: "General" },
-    { id: "pointer" as const, label: "Pointer" },
-    ...(state.capabilities.cursorOverlay ? [{ id: "cursor" as const, label: "Cursor" }] : []),
+    { id: "pointer" as const, label: "Controls" },
+    ...(state.capabilities.cursorOverlay ? [{ id: "cursor" as const, label: "Cursor appearance" }] : []),
     { id: "privacy" as const, label: "Privacy" },
     // On the Updates tab the panel itself shows the reason, so no marker there.
     { id: "updates" as const, label: "Updates", attention: updateAttention && active !== "updates" ? updateAttention : undefined },
@@ -50,7 +50,7 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
 
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => onChange({ ...settings, [key]: value });
 
-  return <div className="view"><header className="page-header"><div><h1>Settings</h1><p>How Switchify PC behaves on this computer</p></div><Settings size={24} /></header>
+  return <div className="view settings-view"><header className="page-header"><div><h1>Settings</h1><p>How Switchify PC behaves on this computer</p></div><Settings size={24} /></header>
     <Tabs name="settings" tabs={tabs} active={active} onSelect={setActive} label="Settings sections" />
     <TabPanel name="settings" id={active}>
       {active === "general" && <GeneralSection settings={settings} update={update} />}

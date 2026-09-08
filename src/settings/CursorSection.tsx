@@ -5,7 +5,7 @@ import {
 } from "./controls";
 
 export function CursorSection({ settings, update }: { settings: AppSettings; update: SettingsUpdate }) {
-  return <SettingGroup title="Cursor" description="On-screen cursor overlay shown while an Android device is controlling this computer.">
+  return <SettingGroup title="Cursor appearance" description="On-screen cursor overlay shown while an Android device is controlling this computer.">
         <Toggle label="Show cursor overlay" checked={settings.cursorOverlayEnabled} onChange={(value) => update("cursorOverlayEnabled", value)} />
         <div className="overlay-options">
           <OptionGroup<AppSettings["cursorOverlayVisibility"]> legend="Overlay visibility" disabled={!settings.cursorOverlayEnabled} options={overlayVisibilityOptions} value={settings.cursorOverlayVisibility} onChange={(next) => update("cursorOverlayVisibility", next)}
