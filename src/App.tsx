@@ -301,7 +301,7 @@ function UpdateBanner({ update, openUpdates }: { update: UpdateState; openUpdate
 const supportTabs = [{ id: "setup", label: "Setup" }, { id: "troubleshooting", label: "Troubleshooting" }] as const;
 
 function SupportView({ state, busy, perform, openSetup, openUpdates }: { state: AppState; busy: boolean; perform: (operation: () => Promise<AppState>) => void; openSetup: () => void; openUpdates: () => void }) {
-  const [tab, setTab] = useState<"setup" | "troubleshooting">("setup");
+  const [tab, setTab] = useState<(typeof supportTabs)[number]["id"]>("setup");
   const bluetoothReady = state.bluetooth === "advertising" || state.bluetooth === "connected";
   return <div className="view"><header className="page-header"><div><h1>Support</h1><p>Connection setup and system diagnostics</p></div><CircleHelp size={24} /></header>
     <Tabs name="support" tabs={supportTabs} active={tab} onSelect={setTab} label="Support view" />
