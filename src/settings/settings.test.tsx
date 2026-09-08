@@ -150,6 +150,11 @@ describe("Switchify PC settings", () => {
     expect(screen.getAllByRole("button", { name: "Medium" })[0]).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
     expect(screen.getByRole("button", { name: "50% pointer speed" })).toHaveAttribute("aria-pressed", "true");
+
+    // Exact speed and the movement readout sit behind a disclosure by default.
+    expect(screen.queryByRole("combobox", { name: "Exact pointer speed" })).not.toBeInTheDocument();
+    expect(screen.queryByText("2.5")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Set an exact speed" }));
     expect(screen.getByText("2.5")).toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: "Exact pointer speed" }), { target: { value: "125" } });
     expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("125");
@@ -564,4 +569,48 @@ describe("Switchify PC settings", () => {
     expect(panel).toHaveAttribute("tabindex", "0");
     expect(panel).toHaveFocus();
   });
+
+  it("keeps the exact speed disclosure collapsed for a preset value", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    selectTab("Pointer");
+
+    const toggle = screen.getByRole("button", { name: "Set an exact speed" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // The active value stays legible in the legend even while collapsed.
+    expect(screen.getByRole("group", { name: /Pointer speed/ })).toHaveTextContent("100%");
+
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "Hide exact speed" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Pointer movement values")).toBeInTheDocument();
+  });
+
+  it("expands the exact speed disclosure for a value the presets cannot reach", async () => {
+    browserState.settings = { ...structuredClone(defaultBrowserSettings), pointerScalePercent: 150 };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    selectTab("Pointer");
+
+    expect(screen.getByRole("button", { name: "Hide exact speed" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("150");
+  });
+
+  it("expands the exact speed disclosure when the backend pushes a non-preset value", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    selectTab("Pointer");
+    expect(screen.getByRole("button", { name: "Set an exact speed" })).toBeInTheDocument();
+
+    act(() => stateHandler?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 175 })));
+
+    expect(screen.getByRole("button", { name: "Hide exact speed" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("175");
+  });
+
 });

@@ -59,3 +59,10 @@ export const overlaySizeOptions = (["small", "medium", "large"] as const)
   .map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }));
 
 export type SettingsUpdate = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+
+export function Disclosure({ label, expanded, onToggle, children }: { label: string; expanded: boolean; onToggle: () => void; children: ReactNode }) {
+  return <>
+    <button type="button" className="disclosure" aria-expanded={expanded} onClick={onToggle}>{label}</button>
+    {expanded && children}
+  </>;
+}
