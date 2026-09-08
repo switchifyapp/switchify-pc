@@ -844,4 +844,39 @@ describe("Switchify PC settings", () => {
     expect(updatesNotice()).toBeEmptyDOMElement();
   });
 
+
+  it("does not repeat a failure the user has already read when they leave and re-enter Settings", async () => {
+    browserState.updater = failedUpdater("Download failed");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(updatesNotice()).toHaveTextContent("Download failed.");
+    selectTab("Updates");
+
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    // Still standing, so still marked, but it has been read: nothing is spoken.
+    expect(updatesMarker()).toBeInTheDocument();
+    expect(updatesNotice()).toBeEmptyDOMElement();
+  });
+
+  it("treats a scheduled check that fails with different transport wording as the same failure", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    browserState.updater = failedUpdater("Update check failed: dns error");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(updatesNotice()).toHaveTextContent("Update check failed: dns error. Open the Updates tab to retry.");
+
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: checkingUpdater }));
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: failedUpdater("Update check failed: connection timed out") }));
+    // The marker and description carry the new wording; the live region does
+    // not interrupt for it.
+    expect(updatesNotice()).toHaveTextContent("Update check failed: dns error. Open the Updates tab to retry.");
+    const updates = screen.getByRole("tab", { name: "Updates" });
+    expect(document.getElementById(updates.getAttribute("aria-describedby")!)).toHaveTextContent("connection timed out");
+  });
+
 });
