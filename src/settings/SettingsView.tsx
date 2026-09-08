@@ -6,50 +6,58 @@ import { GeneralSection } from "./GeneralSection";
 import { PointerSection } from "./PointerSection";
 import { CursorSection } from "./CursorSection";
 import { PrivacySection } from "./PrivacySection";
-import { UpdatesSection, updateDescription, updateStatusRole, type UpdateAction } from "./UpdatesSection";
+import { UpdatesSection, updateDescription, updateLiveness, type UpdateAction } from "./UpdatesSection";
 
-const updatesDescriptionId = "settings-updates-description";
 const updatesNoticeId = "settings-updates-notice";
 
-// Backend failure text is `context: error` with no terminal punctuation, so
-// give it one before anything is appended.
-const sentence = (text: string) => /[.!?]$/.test(text) ? text : `${text}.`;
+// Failed and cancelled are the updater states with something to act on that
+// the global banner deliberately leaves out: the scheduled check fails for
+// every offline user, so showing these app-wide would nag. They are surfaced
+// within Settings instead, whose Updates panel is where their status lives.
+type Standing = { text: string; status: "failed" | "cancelled" };
+function standingOf(state: AppState): Standing | null {
+  const { status } = state.updater;
+  return status === "failed" || status === "cancelled" ? { text: updateDescription(state.updater), status } : null;
+}
 
 export function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void }) {
   const updatesRef = useRef<HTMLElement>(null);
   // Opening straight to Updates starts there, rather than committing General
-  // for one frame and letting the off-tab notice fire for a tab that is
-  // already being opened.
+  // for one frame and announcing a failure for a tab already being opened.
   const [active, setActive] = useState(focusUpdates ? "updates" : "general");
-  const activeRef = useRef(active);
-  useEffect(() => { activeRef.current = active; }, [active]);
 
-  // Failed and cancelled are the only updater states with something to act on
-  // that the global banner deliberately does not show. Their status line lives
-  // in the Updates panel, which is unmounted on other tabs, so surface them
-  // here: a marker on the tab with the reason as its description, and a live
-  // region so the change is announced.
-  const updaterNeedsAttention = state.updater.status === "failed" || state.updater.status === "cancelled";
-  const updatesDescription = updaterNeedsAttention ? sentence(updateDescription(state.updater)) : "";
+  // The scheduled check flips a standing failure through "checking" and back
+  // with the same text. Hold the last settled state through transient ones so
+  // the marker does not blink and nothing is announced twice.
+  const transient = state.updater.status === "checking" || state.updater.status === "applying";
+  const settled = standingOf(state);
+  const [standing, setStanding] = useState(settled);
+  useEffect(() => { if (!transient) setStanding(settled); }, [transient, settled?.text, settled?.status]);
 
-  // The live region only changes when the updater does, never on tab
-  // movement, so an unchanged failure is spoken once. It stays silent when the
-  // change lands on the Updates tab, where UpdateControls has its own region.
-  const [updatesNotice, setUpdatesNotice] = useState("");
+  // The off-tab notice speaks a failure the user has not been shown: once per
+  // distinct failure, only while another tab is selected, never on tab
+  // movement, and never for text already seen on the Updates panel, where
+  // UpdateControls announces on entry as it always has. The region is always
+  // mounted so it exists before any text arrives.
+  const [notice, setNotice] = useState("");
+  const seen = useRef(active === "updates" && standing ? standing.text : "");
   useEffect(() => {
-    setUpdatesNotice(updaterNeedsAttention && activeRef.current !== "updates" ? `${updatesDescription} Open the Updates tab to retry.` : "");
-  }, [updaterNeedsAttention, updatesDescription]);
-  // Arriving at Updates retires the notice: the panel now shows the same text,
-  // and an emptied region has nothing to say if the user leaves again.
-  useEffect(() => { if (active === "updates") setUpdatesNotice(""); }, [active]);
+    const text = standing?.text ?? "";
+    if (active === "updates" || !text) { seen.current = text; setNotice(""); return; }
+    if (text !== seen.current) {
+      seen.current = text;
+      setNotice(standing?.status === "failed" ? `${text} Open the Updates tab to retry.` : text);
+    }
+  }, [active, standing]);
 
   const tabs = useMemo(() => [
     { id: "general", label: "General" },
     { id: "pointer", label: "Pointer" },
     ...(state.capabilities.cursorOverlay ? [{ id: "cursor", label: "Cursor" }] : []),
     { id: "privacy", label: "Privacy" },
-    { id: "updates", label: "Updates", attention: updaterNeedsAttention, describedBy: updaterNeedsAttention ? updatesDescriptionId : undefined },
-  ], [state.capabilities.cursorOverlay, updaterNeedsAttention]);
+    // On the Updates tab the panel itself shows the reason, so no marker there.
+    { id: "updates", label: "Updates", attention: standing && active !== "updates" ? standing.text : undefined },
+  ], [state.capabilities.cursorOverlay, standing, active]);
 
   useEffect(() => {
     if (!tabs.some((tab) => tab.id === active)) setActive("general");
@@ -70,9 +78,7 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
 
   return <div className="view"><header className="page-header"><div><h1>Settings</h1><p>How Switchify PC behaves on this computer</p></div><Settings size={24} /></header>
     <Tabs tabs={tabs} active={active} onSelect={setActive} label="Settings sections" />
-    {updaterNeedsAttention && <span id={updatesDescriptionId} className="sr-only">{updatesDescription}</span>}
-    {/* Not rendered on Updates, so the panel's region is the only one there. */}
-    {updaterNeedsAttention && active !== "updates" && <p id={updatesNoticeId} className="sr-only" role={updateStatusRole(state.updater)} aria-atomic="true">{updatesNotice}</p>}
+    <p id={updatesNoticeId} className="sr-only" aria-live={standing ? updateLiveness(standing.status) : "polite"} aria-atomic="true">{notice}</p>
     <TabPanel id={active}>
       {active === "general" && <GeneralSection settings={settings} update={update} />}
       {active === "pointer" && <PointerSection settings={settings} update={update} />}
