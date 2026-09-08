@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import type { AppSettings } from "../types";
 import {
-  Disclosure, OptionGroup, SettingGroup, SettingNote, Toggle, accelerationOptions, dwellDelayOptions, keyRepeatDelayOptions,
+  Disclosure, OptionGroup, SettingGroup, Toggle, accelerationOptions, dwellDelayOptions, keyRepeatDelayOptions,
   movementValue, pointerSpeedOptions, pointerSpeedValues, repeatIntervalOptions, secondsOptions,
   type SettingsUpdate,
 } from "./controls";
@@ -40,14 +40,14 @@ export function PointerSection({ settings, update }: { settings: AppSettings; up
         <div className="repeat-options">
           <OptionGroup<number> legend="Delay before repeating" columns="four" disabled={!settings.keyRepeatEnabled} options={keyRepeatDelayOptions} value={settings.keyRepeatInitialDelayMs} onChange={(next) => update("keyRepeatInitialDelayMs", next)} />
           <OptionGroup<number> legend="Key interval" columns="four" disabled={!settings.keyRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.keyRepeatIntervalMs} onChange={(next) => update("keyRepeatIntervalMs", next)}
-            note={<SettingNote about="key repeat" summary="Held navigation keys repeat, like on a keyboard.">Holding a navigation key on the remote repeats it, like holding a key on a keyboard. Applies to the arrow keys, Tab, Backspace, Delete, Page Up, and Page Down.</SettingNote>} />
+            note={{ about: "key repeat", summary: "Held navigation keys repeat, like on a keyboard.", detail: "Applies to the arrow keys, Tab, Backspace, Delete, Page Up, and Page Down." }} />
         </div>
       </div>
       <div className="repeat-settings dwell-settings">
         <Toggle label="Dwell to click" checked={settings.dwellClickEnabled} onChange={(value) => update("dwellClickEnabled", value)} />
         <div className="repeat-options">
           <OptionGroup<number> legend="Dwell delay" columns="five" disabled={!settings.dwellClickEnabled} options={secondsOptions(dwellDelayOptions)} value={settings.dwellClickDelayMs} onChange={(next) => update("dwellClickDelayMs", next)}
-            note={<SettingNote about="dwell" summary="A countdown appears when movement stops, then clicks once.">After Android pointer movement stops, a countdown appears and performs one left click. Move again to rearm it.</SettingNote>} />
+            note={{ summary: "After Android pointer movement stops, a countdown appears and performs one left click. Move again to rearm it." }} />
         </div>
       </div>
   </SettingGroup>;

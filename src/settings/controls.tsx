@@ -34,8 +34,9 @@ export function movementValue(base: number, scale: number) {
 
 // `note` renders beside the fieldset rather than inside it, by construction: a
 // disclosure inside a disabled fieldset would inherit `disabled` and become
-// unreachable. The wrapper keeps the note attached to its own group instead of
-// floating a grid gap away from it.
+// unreachable. The fieldset keeps its programmatic link to the note through
+// aria-describedby, and the wrapper keeps the note visually attached to its
+// own group instead of floating a grid gap away from it.
 export function OptionGroup<T extends string | number>({ legend, options, value, onChange, disabled, columns, note }: {
   legend: string;
   options: ReadonlyArray<{ value: T; label: ReactNode }>;
@@ -43,12 +44,13 @@ export function OptionGroup<T extends string | number>({ legend, options, value,
   onChange: (next: T) => void;
   disabled: boolean;
   columns?: "three" | "four" | "five";
-  note?: ReactNode;
+  note?: NoteProps;
 }) {
-  const group = <fieldset disabled={disabled}><legend>{legend}</legend><div className={columns ? `segmented compact ${columns}` : "segmented compact"}>
+  const noteId = useId();
+  const group = <fieldset disabled={disabled} aria-describedby={note ? noteId : undefined}><legend>{legend}</legend><div className={columns ? `segmented compact ${columns}` : "segmented compact"}>
     {options.map((option) => <button type="button" key={option.value} aria-pressed={value === option.value} onClick={() => onChange(option.value)}>{option.label}</button>)}
   </div></fieldset>;
-  return note ? <div className="option-with-note">{group}{note}</div> : group;
+  return note ? <div className="option-with-note">{group}<SettingNote id={noteId} {...note} /></div> : group;
 }
 
 export function secondsOptions<T extends number>(values: readonly T[]) {
@@ -78,21 +80,28 @@ export function Disclosure({ label, expanded, onToggle, controls, children }: { 
   </>;
 }
 
-// A one-line summary that swaps to the full explanation in place, so a reader
-// never hears the same point twice. `about` names the setting in the button
-// label: several notes can share a panel, and an unqualified "More about this"
-// would leave a screen-reader or switch-access user with identically named
-// controls in their list.
-export function SettingNote({ about, summary, children }: { about: string; summary: string; children: ReactNode }) {
+// A one-line summary, optionally with further detail behind a disclosure. The
+// detail must only add to the summary, never restate it, so nothing is read
+// twice when it is open. `about` names the setting in the button label:
+// several notes can share a panel, and an unqualified "More about this" would
+// leave a screen-reader or switch-access user with identically named controls
+// in their list.
+export type NoteProps = { summary: string; about?: string; detail?: ReactNode };
+
+export function SettingNote({ id, summary, about, detail }: NoteProps & { id?: string }) {
   const [expanded, setExpanded] = useState(false);
-  const textId = useId();
+  const generatedId = useId();
+  const summaryId = id ?? generatedId;
+  const detailId = `${summaryId}-detail`;
   return <div className="setting-note-block">
-    <p className="setting-note" id={textId}>{expanded ? children : summary}</p>
-    <DisclosureButton
+    <p className="setting-note" id={summaryId}>{summary}</p>
+    {about && detail && <Disclosure
       label={expanded ? `Show less about ${about}` : `More about ${about}`}
       expanded={expanded}
       onToggle={() => setExpanded(!expanded)}
-      controls={textId}
-    />
+      controls={detailId}
+    >
+      <p className="setting-note" id={detailId}>{detail}</p>
+    </Disclosure>}
   </div>;
 }

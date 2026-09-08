@@ -1,6 +1,6 @@
 import type { AppSettings } from "../types";
 import {
-  OptionGroup, SettingGroup, SettingNote, Toggle, overlaySizeOptions, overlayVisibilityOptions,
+  OptionGroup, SettingGroup, Toggle, overlaySizeOptions, overlayVisibilityOptions,
   type SettingsUpdate,
 } from "./controls";
 
@@ -9,7 +9,7 @@ export function CursorSection({ settings, update }: { settings: AppSettings; upd
         <Toggle label="Show cursor overlay" checked={settings.cursorOverlayEnabled} onChange={(value) => update("cursorOverlayEnabled", value)} />
         <div className="overlay-options">
           <OptionGroup<AppSettings["cursorOverlayVisibility"]> legend="Overlay visibility" disabled={!settings.cursorOverlayEnabled} options={overlayVisibilityOptions} value={settings.cursorOverlayVisibility} onChange={(next) => update("cursorOverlayVisibility", next)}
-            note={<SettingNote about="overlay visibility" summary="Choose when the overlay stays on screen.">On input hides shortly after pointer activity stops. While controlling stays visible until the session ends.</SettingNote>} />
+            note={{ about: "overlay visibility", summary: "Choose when the overlay stays on screen.", detail: "On input hides shortly after pointer activity stops. While controlling stays visible until the session ends." }} />
           <OptionGroup<AppSettings["cursorOverlaySize"]> legend="Overlay size" columns="three" disabled={!settings.cursorOverlayEnabled} options={overlaySizeOptions} value={settings.cursorOverlaySize} onChange={(next) => update("cursorOverlaySize", next)} />
           <fieldset disabled={!settings.cursorOverlayEnabled}><legend>Overlay color</legend><div className="color-options">
             {(["red", "green", "blue", "yellow", "white"] as const).map((value) => <label key={value} title={value[0].toUpperCase() + value.slice(1)}><input type="radio" name="overlay-color" value={value} checked={settings.cursorOverlayColor === value} onChange={() => update("cursorOverlayColor", value)} /><span className={`color-swatch ${value}`} /><span className="sr-only">{value[0].toUpperCase() + value.slice(1)}</span></label>)}

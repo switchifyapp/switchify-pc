@@ -181,10 +181,11 @@ describe("Switchify PC settings", () => {
     expect(within(dwellDelay).getByRole("button", { name: "1s" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(within(dwellDelay).getByRole("button", { name: "1.5s" }));
     expect(within(dwellDelay).getByRole("button", { name: "1.5s" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("A countdown appears when movement stops, then clicks once.")).toBeInTheDocument();
-    expect(screen.queryByText(/After Android pointer movement stops/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "More about dwell" }));
-    expect(screen.getByText(/After Android pointer movement stops/)).toBeInTheDocument();
+    // Dwell's whole explanation fits one note, so it gets no disclosure, and
+    // the group is described by it.
+    const dwellNote = screen.getByText(/After Android pointer movement stops/);
+    expect(screen.queryByRole("button", { name: /about dwell/ })).not.toBeInTheDocument();
+    expect(dwellDelay).toHaveAttribute("aria-describedby", dwellNote.id);
   });
 
   it("exposes the cursor overlay controls on their own tab", async () => {
@@ -675,30 +676,37 @@ describe("Switchify PC settings", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     selectTab("Pointer");
-
-    const names = screen.getAllByRole("button", { name: /More about/ }).map((button) => button.textContent);
-    expect(names).toEqual(["More about key repeat", "More about dwell"]);
-    expect(new Set(names).size).toBe(names.length);
+    const pointerNames = screen.getAllByRole("button", { name: /More about/ }).map((button) => button.textContent);
+    expect(pointerNames).toEqual(["More about key repeat"]);
+    selectTab("Cursor");
+    const cursorNames = screen.getAllByRole("button", { name: /More about/ }).map((button) => button.textContent);
+    expect(cursorNames).toEqual(["More about overlay visibility"]);
+    expect(new Set([...pointerNames, ...cursorNames]).size).toBe(2);
   });
 
 
-  it("links each expanded help disclosure to the text it reveals", async () => {
+  it("links each help disclosure to the detail it reveals and the group to its summary", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     selectTab("Pointer");
 
-    const more = screen.getByRole("button", { name: "More about dwell" });
-    const textId = more.getAttribute("aria-controls");
-    expect(textId).toBeTruthy();
-    const text = document.getElementById(textId!)!;
-    expect(text).toHaveTextContent("A countdown appears when movement stops, then clicks once.");
+    // The group is described by the always-visible summary.
+    const summary = screen.getByText("Held navigation keys repeat, like on a keyboard.");
+    expect(screen.getByRole("group", { name: "Key interval" })).toHaveAttribute("aria-describedby", summary.id);
+
+    // Collapsed, the detail is unmounted, so the button must not point at it.
+    const more = screen.getByRole("button", { name: "More about key repeat" });
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(more).not.toHaveAttribute("aria-controls");
     fireEvent.click(more);
 
-    // The summary swaps for the full text in place rather than stacking above
-    // it, so nothing is read twice, and the control keeps pointing at it.
-    expect(screen.getByRole("button", { name: "Show less about dwell" })).toHaveAttribute("aria-controls", textId!);
-    expect(text).toHaveTextContent(/After Android pointer movement stops/);
-    expect(text).not.toHaveTextContent("then clicks once");
+    // Open, it points at the detail, which adds to the summary rather than
+    // repeating it, so the summary stays put and nothing is read twice.
+    const less = screen.getByRole("button", { name: "Show less about key repeat" });
+    const detail = document.getElementById(less.getAttribute("aria-controls")!)!;
+    expect(detail).toHaveTextContent("Applies to the arrow keys, Tab, Backspace, Delete, Page Up, and Page Down.");
+    expect(detail).not.toHaveTextContent("like on a keyboard");
+    expect(summary).toBeInTheDocument();
   });
 
 });

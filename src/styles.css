@@ -133,9 +133,9 @@ button:disabled { cursor: default; opacity: 0.55; }
    a child cannot escape a parent opacity. Buttons inside a disabled fieldset
    already match button:disabled, so reset them to stop the two rules
    compounding to ~0.30. */
-fieldset:disabled { opacity: 0.55; }
-fieldset:disabled button:disabled { opacity: 1; }
-fieldset:disabled + .setting-note-block .setting-note { opacity: 0.55; }
+.setting-controls fieldset:disabled { opacity: 0.55; }
+.setting-controls fieldset:disabled button:disabled { opacity: 1; }
+.option-with-note > fieldset:disabled + .setting-note-block .setting-note { opacity: 0.55; }
 .overlay-options { display: grid; gap: 17px; border-top: 1px solid var(--border); padding-top: 17px; }
 .overlay-options fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
 .overlay-options legend { margin-bottom: 8px; color: var(--muted); font-size: 12px; }
