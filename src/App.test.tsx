@@ -291,7 +291,7 @@ describe("Switchify PC shell", () => {
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Galaxy" })).not.toBeInTheDocument());
     expect(approve).toHaveBeenCalledWith("pair-2");
     expect(screen.getByRole("heading", { name: "Pixel" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reject pairing request from Pixel, code 111111" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reject pairing request from Pixel, code 111111" })).toHaveFocus());
   });
 
   it("clears a cancelled pairing request from the setup guide runtime event", async () => {
