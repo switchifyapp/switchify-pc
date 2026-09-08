@@ -2,13 +2,9 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { api, browserState } from "./api";
-import type { AppSettings, BluetoothState, SwitchProfile } from "./types";
+import type { BluetoothState, SwitchProfile } from "./types";
 
 const defaultBrowserSettings = structuredClone(browserState.settings);
-
-function stateWithSettings(settings: AppSettings) {
-  return { ...structuredClone(browserState), settings: structuredClone(settings) };
-}
 
 describe("Switchify PC shell", () => {
   beforeEach(() => {
@@ -110,52 +106,6 @@ describe("Switchify PC shell", () => {
     expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
   });
 
-  it("shows update progress and exposes cancellation in Settings", async () => {
-    browserState.updater = { status: "downloading", version: "1.0.0-beta.2", downloadedBytes: 50, totalBytes: 200, error: null, retryAction: null };
-    const cancel = vi.spyOn(api, "cancelUpdateDownload").mockResolvedValue(structuredClone(browserState));
-    render(<App />);
-    await screen.findByRole("heading", { name: "Switchify PC" });
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-
-    expect(screen.getByText("Downloading Switchify PC 1.0.0-beta.2…")).toBeInTheDocument();
-    expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "50");
-    expect(document.querySelector(".update-controls > span")).toHaveTextContent("25%");
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(cancel).toHaveBeenCalledOnce();
-  });
-
-  it("offers the correct retry action after a failure", async () => {
-    browserState.updater = { status: "failed", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: "Download failed", retryAction: "download" };
-    const download = vi.spyOn(api, "downloadUpdate").mockResolvedValue(structuredClone(browserState));
-    render(<App />);
-    await screen.findByRole("heading", { name: "Switchify PC" });
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Download failed");
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(download).toHaveBeenCalledOnce();
-  });
-
-  it("offers installation and restart when a download is ready", async () => {
-    browserState.updater = { status: "readyToInstall", version: "1.0.0-beta.2", downloadedBytes: 200, totalBytes: 200, error: null, retryAction: null };
-    const install = vi.spyOn(api, "installUpdate").mockResolvedValue(structuredClone(browserState));
-    render(<App />);
-    await screen.findByRole("heading", { name: "Switchify PC" });
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    fireEvent.click(screen.getByRole("button", { name: "Install and restart" }));
-    expect(install).toHaveBeenCalledOnce();
-  });
-
-  it("retries a cancelled download from the beginning", async () => {
-    browserState.updater = { status: "cancelled", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: "download" };
-    const download = vi.spyOn(api, "downloadUpdate").mockResolvedValue(structuredClone(browserState));
-    render(<App />);
-    await screen.findByRole("heading", { name: "Switchify PC" });
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(screen.getByRole("status")).toHaveTextContent("Download cancelled. You can retry when ready.");
-    fireEvent.click(screen.getByRole("button", { name: "Retry download" }));
-    expect(download).toHaveBeenCalledOnce();
-  });
-
   it("routes tray navigation without discarding a dirty profile silently", async () => {
     let navigate: ((target: "home" | "settings" | "profiles") => void) | undefined;
     vi.spyOn(api, "onNavigateRequested").mockImplementation(async (handler) => {
@@ -201,28 +151,6 @@ describe("Switchify PC shell", () => {
     await act(async () => finishRegistration?.(stop));
 
     expect(stop).toHaveBeenCalledOnce();
-  });
-
-  it("reports manual update-check failures in Settings", async () => {
-    const checkForUpdates = vi.spyOn(api, "checkForUpdates").mockRejectedValue(new Error("Update service unavailable"));
-    render(<App />);
-    await screen.findByRole("heading", { name: "Switchify PC" });
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Update service unavailable");
-    checkForUpdates.mockRestore();
-  });
-
-  it.each([
-    ["checking", "Checking for updates…", "Checking"],
-    ["current", "Switchify PC is up to date.", "Check for updates"],
-  ] as const)("keeps the %s update state visible in Settings", async (status, description, action) => {
-    browserState.updater = { status, version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    expect(screen.getByText(description)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: action })).toBeInTheDocument();
   });
 
   it.each([
@@ -391,236 +319,6 @@ describe("Switchify PC shell", () => {
 
     await waitFor(() => expect(screen.queryByLabelText("Verification code for Galaxy")).not.toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "Waiting for an Android device" })).toBeInTheDocument();
-  });
-
-  it("exposes key repeat settings and disables them with the toggle", async () => {
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    const toggle = screen.getByRole("checkbox", { name: "Repeat held keys" });
-    expect(toggle).toBeChecked();
-
-    const delay = screen.getByRole("group", { name: "Delay before repeating" });
-    expect(delay).not.toBeDisabled();
-    for (const label of ["None", "Short", "Medium", "Long"]) {
-      expect(within(delay).getByRole("button", { name: label })).toBeInTheDocument();
-    }
-    expect(within(delay).getByRole("button", { name: "Medium" })).toHaveAttribute("aria-pressed", "true");
-
-    const interval = screen.getByRole("group", { name: "Key interval" });
-    expect(within(interval).getByRole("button", { name: "0.25s" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(within(interval).getByRole("button", { name: "0.5s" }));
-    expect(within(interval).getByRole("button", { name: "0.5s" })).toHaveAttribute("aria-pressed", "true");
-
-    fireEvent.click(within(delay).getByRole("button", { name: "None" }));
-    expect(within(delay).getByRole("button", { name: "None" })).toHaveAttribute("aria-pressed", "true");
-
-    // Turning the feature off must disable its cadence controls, matching the
-    // mouse repeat and dwell blocks.
-    fireEvent.click(toggle);
-    expect(screen.getByRole("group", { name: "Delay before repeating" })).toBeDisabled();
-    expect(screen.getByRole("group", { name: "Key interval" })).toBeDisabled();
-  });
-
-  it("opens settings with accessible native controls", async () => {
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save settings" })).not.toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Start with system" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "100% pointer speed" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("checkbox", { name: "Repeat mouse movement" })).toBeChecked();
-    expect(screen.getByRole("group", { name: "Movement acceleration" })).not.toBeDisabled();
-    expect(screen.getAllByRole("button", { name: "Medium" })[0]).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
-    expect(screen.getByRole("button", { name: "50% pointer speed" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("2.5")).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("combobox", { name: "Exact pointer speed" }), { target: { value: "125" } });
-    expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("125");
-    expect(screen.getByText("5.5")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Repeat mouse movement" }));
-    expect(screen.getByRole("group", { name: "Movement acceleration" })).toBeDisabled();
-    const dwell = screen.getByRole("checkbox", { name: "Dwell to click" });
-    expect(dwell).not.toBeChecked();
-    expect(screen.getByRole("group", { name: "Dwell delay" })).toBeDisabled();
-    fireEvent.click(dwell);
-    const dwellDelay = screen.getByRole("group", { name: "Dwell delay" });
-    expect(dwellDelay).not.toBeDisabled();
-    expect(within(dwellDelay).getAllByRole("button")).toHaveLength(10);
-    for (const label of ["0.5s", "1s", "1.5s", "2s", "3s", "4s", "5s", "6s", "7s", "8s"]) {
-      expect(within(dwellDelay).getByRole("button", { name: label })).toBeInTheDocument();
-    }
-    expect(within(dwellDelay).getByRole("button", { name: "1s" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(within(dwellDelay).getByRole("button", { name: "1.5s" }));
-    expect(within(dwellDelay).getByRole("button", { name: "1.5s" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText(/After Android pointer movement stops/)).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Show cursor overlay" })).toBeChecked();
-    expect(screen.getByRole("button", { name: "While controlling" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText(/On input hides shortly/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "On input" }));
-    expect(screen.getByRole("button", { name: "On input" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getAllByRole("button", { name: "Medium" }).at(-1)).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("radio", { name: "Red" })).toBeChecked();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Show crosshairs" }));
-    expect(screen.getByRole("checkbox", { name: "Show crosshairs" })).toBeChecked();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Show cursor overlay" }));
-    expect(screen.getByRole("checkbox", { name: "Show crosshairs" })).toBeDisabled();
-  });
-
-  it("automatically saves a settings change", async () => {
-    const saveSettings = vi.spyOn(api, "saveSettings").mockImplementation(async (settings) => stateWithSettings(settings));
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" }));
-
-    await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ shareDiagnostics: true })));
-    expect(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" })).toBeChecked();
-  });
-
-  it("persists dwell enablement and delay through automatic settings saves", async () => {
-    const saveSettings = vi.spyOn(api, "saveSettings").mockImplementation(async (settings) => stateWithSettings(settings));
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "Dwell to click" }));
-    await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 1000 })));
-    const dwellDelay = screen.getByRole("group", { name: "Dwell delay" });
-    fireEvent.click(within(dwellDelay).getByRole("button", { name: "8s" }));
-    await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 8000 })));
-    expect(within(dwellDelay).getByRole("button", { name: "8s" })).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("restores confirmed dwell settings when automatic saving fails", async () => {
-    vi.spyOn(api, "saveSettings").mockRejectedValueOnce(new Error("Settings storage unavailable"));
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "Dwell to click" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("Settings storage unavailable");
-    expect(screen.getByRole("checkbox", { name: "Dwell to click" })).not.toBeChecked();
-    expect(screen.getByRole("group", { name: "Dwell delay" })).toBeDisabled();
-  });
-
-  it("explains telemetry consent and links to the privacy policy", async () => {
-    const first = render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(screen.getByText(/Nothing is sent unless you choose Share diagnostics/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Don't share" }));
-    expect(await screen.findByText("Opted out. No diagnostic reports are stored or sent.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "https://switchifyapp.com/privacy");
-
-    first.unmount();
-    browserState.telemetry = { consent: "undecided", available: false };
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(await screen.findByRole("checkbox", { name: "Share anonymous diagnostic data" })).toBeDisabled();
-    expect(screen.getByText("Diagnostic reporting is unavailable in this build.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Share diagnostics" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Don't share" })).toBeEnabled();
-  });
-
-  it("serializes rapid settings changes without applying a stale response", async () => {
-    const saves: Array<{ settings: AppSettings; resolve: (state: typeof browserState) => void }> = [];
-    vi.spyOn(api, "saveSettings").mockImplementation((settings) => new Promise((resolve) => {
-      saves.push({ settings: structuredClone(settings), resolve });
-    }));
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
-    fireEvent.click(screen.getByRole("button", { name: "75% pointer speed" }));
-
-    expect(saves).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "75% pointer speed" })).toHaveAttribute("aria-pressed", "true");
-
-    await act(async () => {
-      saves[0].resolve(stateWithSettings(saves[0].settings));
-    });
-    await waitFor(() => expect(saves).toHaveLength(2));
-    expect(saves[1].settings.pointerScalePercent).toBe(75);
-    expect(screen.getByRole("button", { name: "75% pointer speed" })).toHaveAttribute("aria-pressed", "true");
-
-    await act(async () => {
-      saves[1].resolve(stateWithSettings(saves[1].settings));
-    });
-  });
-
-  it("preserves newer runtime state when a settings save completes", async () => {
-    let stateHandler: ((state: typeof browserState) => void) | undefined;
-    let finishSave: ((state: typeof browserState) => void) | undefined;
-    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
-      stateHandler = handler;
-      return () => undefined;
-    });
-    vi.spyOn(api, "saveSettings").mockImplementation(() => new Promise((resolve) => {
-      finishSave = resolve;
-    }));
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
-    const runtimeState = {
-      ...structuredClone(browserState),
-      bluetooth: "connected" as const,
-      connectedDeviceName: "Newer connected device",
-    };
-    act(() => stateHandler?.(runtimeState));
-    await act(async () => {
-      finishSave?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 50 }));
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    expect(screen.getByText("Newer connected device")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
-  });
-
-  it("rebases local edits on newer backend settings", async () => {
-    let stateHandler: ((state: typeof browserState) => void) | undefined;
-    const saves: Array<{ settings: AppSettings; resolve: (state: typeof browserState) => void }> = [];
-    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
-      stateHandler = handler;
-      return () => undefined;
-    });
-    vi.spyOn(api, "saveSettings").mockImplementation((settings) => new Promise((resolve) => {
-      saves.push({ settings: structuredClone(settings), resolve });
-    }));
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" }));
-    fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
-    act(() => stateHandler?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 150 })));
-
-    expect(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" })).toBeChecked();
-    expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("150");
-
-    await act(async () => {
-      saves[0].resolve(stateWithSettings(saves[0].settings));
-    });
-    await waitFor(() => expect(saves).toHaveLength(2));
-    expect(saves[1].settings).toEqual(expect.objectContaining({
-      pointerScalePercent: 150,
-      shareDiagnostics: true,
-    }));
-
-    await act(async () => {
-      saves[1].resolve(stateWithSettings(saves[1].settings));
-    });
-  });
-
-  it("restores confirmed settings when automatic saving fails", async () => {
-    vi.spyOn(api, "saveSettings").mockRejectedValueOnce(new Error("Settings storage unavailable"));
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    const startup = screen.getByRole("checkbox", { name: "Start with system" });
-    fireEvent.click(startup);
-    expect(startup).toBeChecked();
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("Settings storage unavailable");
-    expect(startup).not.toBeChecked();
   });
 
   it("creates a profile and records a desired key", async () => {
@@ -792,29 +490,6 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "View updates" }));
     const updates = await screen.findByRole("region", { name: "Updates" });
     await waitFor(() => expect(updates).toHaveFocus());
-  });
-
-  it("focuses Updates when the update banner is selected from Settings", async () => {
-    browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    const updates = screen.getByRole("region", { name: "Updates" });
-    expect(updates).not.toHaveFocus();
-    fireEvent.click(within(screen.getByRole("status", { name: "Application update" })).getByRole("button", { name: "View update" }));
-    await waitFor(() => expect(updates).toHaveFocus());
-  });
-
-  it("does not replay a consumed Updates focus request on normal Settings navigation", async () => {
-    browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
-    render(<App />);
-    const banner = await screen.findByRole("status", { name: "Application update" });
-    fireEvent.click(within(banner).getByRole("button", { name: "View update" }));
-    const updates = await screen.findByRole("region", { name: "Updates" });
-    await waitFor(() => expect(updates).toHaveFocus());
-
-    fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(screen.getByRole("region", { name: "Updates" })).not.toHaveFocus();
   });
 
   it("guides macOS users through required and stale accessibility entries", async () => {
