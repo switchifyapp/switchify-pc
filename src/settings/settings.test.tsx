@@ -414,6 +414,9 @@ describe("Switchify PC settings", () => {
     // Manual activation: moving focus must not change the selected panel.
     expect(general).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("checkbox", { name: "Start with system" })).toBeInTheDocument();
+    // The tab stop follows focus, so tabbing out and back does not discard it.
+    expect(pointer).toHaveAttribute("tabindex", "0");
+    expect(general).toHaveAttribute("tabindex", "-1");
 
     fireEvent.keyDown(pointer, { key: "ArrowLeft" });
     expect(general).toHaveFocus();
@@ -469,6 +472,38 @@ describe("Switchify PC settings", () => {
 
     expect(screen.getByRole("button", { name: "50% pointer speed" })).toHaveAttribute("aria-pressed", "true");
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ pointerScalePercent: 50 })));
+  });
+
+
+  it("returns the tab stop to the selected tab when focus leaves the tablist", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    const general = screen.getByRole("tab", { name: "General" });
+    const pointer = screen.getByRole("tab", { name: "Pointer" });
+    general.focus();
+    fireEvent.keyDown(general, { key: "ArrowRight" });
+    expect(pointer).toHaveAttribute("tabindex", "0");
+
+    const startup = screen.getByRole("checkbox", { name: "Start with system" });
+    startup.focus();
+    fireEvent.blur(pointer, { relatedTarget: startup });
+    expect(general).toHaveAttribute("tabindex", "0");
+    expect(pointer).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("points aria-controls only at the panel that is rendered", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    const general = screen.getByRole("tab", { name: "General" });
+    expect(general).toHaveAttribute("aria-controls", "settings-panel-general");
+    expect(document.getElementById("settings-panel-general")).toBeInTheDocument();
+    for (const name of ["Pointer", "Cursor", "Privacy", "Updates"]) {
+      expect(screen.getByRole("tab", { name })).not.toHaveAttribute("aria-controls");
+    }
+    // The panel is not a tab stop of its own; its controls are.
+    expect(screen.getByRole("tabpanel")).not.toHaveAttribute("tabindex");
   });
 
 });
