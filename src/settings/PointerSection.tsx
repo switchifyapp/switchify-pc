@@ -14,7 +14,7 @@ export function PointerSection({ settings, update }: { settings: AppSettings; up
   const [showExact, setShowExact] = useState(!isPreset);
   useEffect(() => { if (!isPreset) setShowExact(true); }, [isPreset]);
   const exactSpeedId = useId();
-  return <SettingGroup title="Pointer" description="Movement and visual feedback.">
+  return <SettingGroup title="Controls" description="Pointer movement, scrolling, key repeat, and dwell clicking.">
       <fieldset className="pointer-speed"><legend>Pointer speed <strong>{settings.pointerScalePercent}%</strong></legend><div className="segmented compact five">
         {pointerSpeedOptions.map((value) => <button type="button" key={value} aria-label={`${value}% pointer speed`} aria-pressed={settings.pointerScalePercent === value} onClick={() => update("pointerScalePercent", value)}>{value}%</button>)}
       </div><Disclosure label={showExact ? "Hide exact speed" : "Set an exact speed"} expanded={showExact} onToggle={() => setShowExact(!showExact)} controls={exactSpeedId}>

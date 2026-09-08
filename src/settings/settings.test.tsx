@@ -109,7 +109,7 @@ describe("Switchify PC settings", () => {
   it("exposes key repeat settings and disables them with the toggle", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Pointer");
+    selectTab("Controls");
 
     const toggle = screen.getByRole("checkbox", { name: "Repeat held keys" });
     expect(toggle).toBeChecked();
@@ -136,14 +136,14 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("group", { name: "Key interval" })).toBeDisabled();
   });
 
-  it("opens settings with accessible General and Pointer controls", async () => {
+  it("opens settings with accessible General and Controls settings", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save settings" })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Start with system" })).toBeInTheDocument();
 
-    selectTab("Pointer");
+    selectTab("Controls");
     expect(screen.getByRole("button", { name: "100% pointer speed" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("checkbox", { name: "Repeat mouse movement" })).toBeChecked();
     expect(screen.getByRole("group", { name: "Movement acceleration" })).not.toBeDisabled();
@@ -166,7 +166,7 @@ describe("Switchify PC settings", () => {
   it("exposes the dwell controls and their explanatory note", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Pointer");
+    selectTab("Controls");
 
     const dwell = screen.getByRole("checkbox", { name: "Dwell to click" });
     expect(dwell).not.toBeChecked();
@@ -191,7 +191,7 @@ describe("Switchify PC settings", () => {
   it("exposes the cursor overlay controls on their own tab", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Cursor");
+    selectTab("Cursor appearance");
 
     expect(screen.getByRole("checkbox", { name: "Show cursor overlay" })).toBeChecked();
     expect(screen.getByRole("button", { name: "While controlling" })).toHaveAttribute("aria-pressed", "true");
@@ -224,7 +224,7 @@ describe("Switchify PC settings", () => {
     const saveSettings = vi.spyOn(api, "saveSettings").mockImplementation(async (settings) => stateWithSettings(settings));
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Pointer");
+    selectTab("Controls");
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Dwell to click" }));
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 1000 })));
@@ -238,7 +238,7 @@ describe("Switchify PC settings", () => {
     vi.spyOn(api, "saveSettings").mockRejectedValueOnce(new Error("Settings storage unavailable"));
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Pointer");
+    selectTab("Controls");
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Dwell to click" }));
 
@@ -274,7 +274,7 @@ describe("Switchify PC settings", () => {
     }));
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Pointer");
+    selectTab("Controls");
 
     fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
     fireEvent.click(screen.getByRole("button", { name: "75% pointer speed" }));
@@ -306,7 +306,7 @@ describe("Switchify PC settings", () => {
     }));
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Pointer");
+    selectTab("Controls");
 
     fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
     const runtimeState = {
@@ -339,7 +339,7 @@ describe("Switchify PC settings", () => {
 
     selectTab("Privacy");
     fireEvent.click(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" }));
-    selectTab("Pointer");
+    selectTab("Controls");
     fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
     act(() => stateHandler?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 150 })));
 
@@ -405,7 +405,7 @@ describe("Switchify PC settings", () => {
 
     const tablist = screen.getByRole("tablist", { name: "Settings sections" });
     expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["General", "Pointer", "Cursor", "Privacy", "Updates"]);
+      .toEqual(["General", "Controls", "Cursor appearance", "Privacy", "Updates"]);
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel")).toHaveAccessibleName("General");
   });
@@ -415,7 +415,7 @@ describe("Switchify PC settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
     const general = screen.getByRole("tab", { name: "General" });
-    const pointer = screen.getByRole("tab", { name: "Pointer" });
+    const pointer = screen.getByRole("tab", { name: "Controls" });
     const updates = screen.getByRole("tab", { name: "Updates" });
     expect(general).toHaveAttribute("tabindex", "0");
     expect(pointer).toHaveAttribute("tabindex", "-1");
@@ -447,15 +447,15 @@ describe("Switchify PC settings", () => {
     expect(general).toHaveAttribute("tabindex", "-1");
   });
 
-  it("omits the Cursor tab when the platform cannot show a cursor overlay", async () => {
+  it("omits the Cursor appearance tab when the platform cannot show a cursor overlay", async () => {
     browserState.capabilities = { ...structuredClone(defaultCapabilities), cursorOverlay: false };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
-    expect(screen.queryByRole("tab", { name: "Cursor" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Cursor appearance" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["General", "Pointer", "Privacy", "Updates"]);
-    selectTab("Pointer");
+      .toEqual(["General", "Controls", "Privacy", "Updates"]);
+    selectTab("Controls");
     expect(screen.queryByRole("checkbox", { name: "Show cursor overlay" })).not.toBeInTheDocument();
   });
 
@@ -463,8 +463,8 @@ describe("Switchify PC settings", () => {
     browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Pointer");
-    expect(screen.getByRole("tab", { name: "Pointer" })).toHaveAttribute("aria-selected", "true");
+    selectTab("Controls");
+    expect(screen.getByRole("tab", { name: "Controls" })).toHaveAttribute("aria-selected", "true");
 
     fireEvent.click(within(screen.getByRole("status", { name: "Application update" })).getByRole("button", { name: "View update" }));
 
@@ -477,10 +477,10 @@ describe("Switchify PC settings", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
-    selectTab("Pointer");
+    selectTab("Controls");
     fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
     selectTab("Privacy");
-    selectTab("Pointer");
+    selectTab("Controls");
 
     expect(screen.getByRole("button", { name: "50% pointer speed" })).toHaveAttribute("aria-pressed", "true");
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ pointerScalePercent: 50 })));
@@ -492,7 +492,7 @@ describe("Switchify PC settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
     const general = screen.getByRole("tab", { name: "General" });
-    const pointer = screen.getByRole("tab", { name: "Pointer" });
+    const pointer = screen.getByRole("tab", { name: "Controls" });
     general.focus();
     fireEvent.keyDown(general, { key: "ArrowRight" });
     expect(pointer).toHaveAttribute("tabindex", "0");
@@ -522,7 +522,7 @@ describe("Switchify PC settings", () => {
     const general = screen.getByRole("tab", { name: "General" });
     expect(general).toHaveAttribute("aria-controls", "settings-panel-general");
     expect(document.getElementById("settings-panel-general")).toBeInTheDocument();
-    for (const name of ["Pointer", "Cursor", "Privacy", "Updates"]) {
+    for (const name of ["Controls", "Cursor appearance", "Privacy", "Updates"]) {
       expect(screen.getByRole("tab", { name })).not.toHaveAttribute("aria-controls");
     }
     // The panel is not a tab stop of its own; its controls are.
@@ -535,7 +535,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
-    const pointer = screen.getByRole("tab", { name: "Pointer" });
+    const pointer = screen.getByRole("tab", { name: "Controls" });
     fireEvent.click(pointer);
     pointer.focus();
     expect(pointer).toHaveAttribute("tabindex", "0");
@@ -580,7 +580,7 @@ describe("Switchify PC settings", () => {
   it("keeps the exact speed disclosure collapsed for a preset value", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Pointer");
+    selectTab("Controls");
 
     const toggle = screen.getByRole("button", { name: "Set an exact speed" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -600,7 +600,7 @@ describe("Switchify PC settings", () => {
     browserState.settings = { ...structuredClone(defaultBrowserSettings), pointerScalePercent: 150 };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Pointer");
+    selectTab("Controls");
 
     expect(screen.getByRole("button", { name: "Hide exact speed" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("150");
@@ -614,7 +614,7 @@ describe("Switchify PC settings", () => {
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Pointer");
+    selectTab("Controls");
     expect(screen.getByRole("button", { name: "Set an exact speed" })).toBeInTheDocument();
 
     act(() => stateHandler?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 175 })));
@@ -627,7 +627,7 @@ describe("Switchify PC settings", () => {
   it("keeps the key repeat explanation behind a disclosure", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Pointer");
+    selectTab("Controls");
 
     expect(screen.getByText("Held navigation keys repeat, like on a keyboard.")).toBeInTheDocument();
     expect(screen.queryByText(/Applies to the arrow keys/)).not.toBeInTheDocument();
@@ -659,7 +659,7 @@ describe("Switchify PC settings", () => {
     browserState.settings = { ...structuredClone(defaultBrowserSettings), cursorOverlayEnabled: false };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Cursor");
+    selectTab("Cursor appearance");
 
     // The disclosure must sit outside the disabled fieldset. Asserted on the
     // disabled property rather than by clicking, because jsdom dispatches clicks
@@ -675,10 +675,10 @@ describe("Switchify PC settings", () => {
   it("gives each help disclosure a distinct accessible name", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Pointer");
+    selectTab("Controls");
     const pointerNames = screen.getAllByRole("button", { name: /More about/ }).map((button) => button.textContent);
     expect(pointerNames).toEqual(["More about key repeat"]);
-    selectTab("Cursor");
+    selectTab("Cursor appearance");
     const cursorNames = screen.getAllByRole("button", { name: /More about/ }).map((button) => button.textContent);
     expect(cursorNames).toEqual(["More about overlay visibility"]);
     expect(new Set([...pointerNames, ...cursorNames]).size).toBe(2);
@@ -688,7 +688,7 @@ describe("Switchify PC settings", () => {
   it("links each help disclosure to the detail it reveals and the group to its summary", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Pointer");
+    selectTab("Controls");
 
     // The group is described by the always-visible summary.
     const summary = screen.getByText("Held navigation keys repeat, like on a keyboard.");
@@ -743,7 +743,7 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("tab", { name: "Updates" })).not.toHaveAttribute("aria-describedby");
 
     // Having been shown, the failure is not spoken again on leaving.
-    selectTab("Pointer");
+    selectTab("Controls");
     expect(updatesNotice()).toBeEmptyDOMElement();
     expect(updatesMarker()).toBeInTheDocument();
   });
@@ -762,7 +762,7 @@ describe("Switchify PC settings", () => {
     expect(screen.getAllByRole("alert")).toHaveLength(1);
     expect(updatesNotice()).toBeEmptyDOMElement();
 
-    selectTab("Pointer");
+    selectTab("Controls");
     expect(updatesNotice()).toBeEmptyDOMElement();
 
     act(() => stateHandler?.({ ...structuredClone(browserState), updater: failedUpdater("Signature check failed") }));
@@ -899,7 +899,7 @@ describe("Switchify PC settings", () => {
     // whatever comes back is news, even from another tab.
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     act(() => stateHandler?.({ ...structuredClone(browserState), updater: checkingUpdater }));
-    selectTab("Pointer");
+    selectTab("Controls");
     expect(updatesMarker()).toBeNull();
     await act(async () => { finishCheck?.({ ...structuredClone(browserState), updater: { ...failedUpdater("Update check failed: offline"), retryAction: "check" } }); });
     expect(updatesNotice()).toHaveTextContent("Update check failed: offline. Open the Updates tab to retry.");

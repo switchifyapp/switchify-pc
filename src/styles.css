@@ -314,3 +314,6 @@ button:disabled { cursor: default; opacity: 0.55; }
 /* The transparent outline is invisible normally and becomes a visible ring
    under forced colours, where the background alone would be flattened away. */
 .tab-attention { position: absolute; top: 5px; right: 6px; width: 8px; height: 8px; border-radius: 50%; outline: 1px solid transparent; background: var(--status-error); }
+
+.settings-view > .tab-bar { grid-template-columns: repeat(var(--tab-count), auto); }
+.settings-view > .tab-bar button { padding: 0 4px; }
