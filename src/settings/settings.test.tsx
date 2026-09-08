@@ -880,6 +880,11 @@ describe("Switchify PC settings", () => {
   });
 
   it("speaks the result of a check the user asked for, even when it is the same failure", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
     browserState.updater = { ...failedUpdater("Update check failed: offline"), retryAction: "check" };
     let finishCheck: ((state: typeof browserState) => void) | undefined;
     vi.spyOn(api, "checkForUpdates").mockImplementation(() => new Promise((resolve) => { finishCheck = resolve; }));
@@ -889,10 +894,13 @@ describe("Switchify PC settings", () => {
     selectTab("Updates");
     expect(updatesNotice()).toBeEmptyDOMElement();
 
-    // A check the user started is not the scheduled one: nothing is held for
-    // it, and whatever it returns is news, even from another tab.
+    // A check the user started is not the scheduled one: the "checking" the
+    // backend publishes first is not held for it, so the marker drops, and
+    // whatever comes back is news, even from another tab.
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: checkingUpdater }));
     selectTab("Pointer");
+    expect(updatesMarker()).toBeNull();
     await act(async () => { finishCheck?.({ ...structuredClone(browserState), updater: { ...failedUpdater("Update check failed: offline"), retryAction: "check" } }); });
     expect(updatesNotice()).toHaveTextContent("Update check failed: offline. Open the Updates tab to retry.");
     expect(updatesMarker()).toBeInTheDocument();
