@@ -157,7 +157,7 @@ button:disabled { cursor: default; opacity: 0.55; }
 .color-swatch.white { background: #ffffff; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 
-.segmented { display: inline-grid; grid-template-columns: 1fr 1fr; min-width: 280px; margin-bottom: 22px; border: 1px solid var(--border); border-radius: 6px; padding: 3px; background: var(--surface-muted); }
+.segmented { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 22px; border: 1px solid var(--border); border-radius: 6px; padding: 3px; background: var(--surface-muted); }
 .segmented button { min-height: 32px; border: 0; border-radius: 4px; padding: 0 14px; color: var(--muted); background: transparent; cursor: pointer; }
 .segmented button[aria-selected="true"] { color: var(--on-brand-container); background: var(--segment-selected); box-shadow: inset 0 0 0 1px var(--brand-border); font-weight: 650; }
 .task-list { border-top: 1px solid var(--border); }
@@ -258,7 +258,6 @@ button:disabled { cursor: default; opacity: 0.55; }
   .binding-error { grid-column: 1 / -1; margin-top: 0; }
   .profile-dialog > footer { flex-wrap: wrap; }
   .profile-dialog > footer > span { flex-basis: 100%; height: 0; }
-  .segmented { width: 100%; min-width: 0; }
   .task-list article { grid-template-columns: auto minmax(0, 1fr); }
   .task-list article > button { grid-column: 1 / -1; }
   .setup-dialog { min-height: 0; padding: 20px; }
@@ -297,13 +296,13 @@ button:disabled { cursor: default; opacity: 0.55; }
   .color-swatch.white { border-color: var(--inactive); }
 }
 
-.settings-tabs { display: grid; grid-template-columns: repeat(var(--tab-count), 1fr); width: 100%; min-width: 0; }
-.settings-tabs button { position: relative; min-width: 0; padding: 0 8px; }
+.tab-bar { display: grid; grid-template-columns: repeat(var(--tab-count), 1fr); width: 100%; min-width: 0; }
+.tab-bar button { position: relative; min-width: 0; padding: 0 8px; }
 /* Positioned siblings paint in order, so lift a focused tab or the selected
    neighbour overpaints one edge of its focus ring. */
-.settings-tabs button:focus-visible { z-index: 1; }
+.tab-bar button:focus-visible { z-index: 1; }
 
-.settings-panel:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+.tab-panel:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
 
 .disclosure { display: inline-flex; align-items: center; align-self: start; min-height: 28px; margin-top: 8px; border: 0; padding: 0; color: var(--brand); background: transparent; font-size: 12px; font-weight: 650; cursor: pointer; }
 .disclosure:hover { text-decoration: underline; }
