@@ -710,29 +710,78 @@ describe("Switchify PC settings", () => {
   });
 
 
-  it("announces an update failure from another tab and marks the Updates tab", async () => {
+  it("announces an update failure once from another tab and marks the Updates tab", async () => {
     browserState.updater = { status: "failed", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: "Download failed", retryAction: "download" };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
     // On General the Updates panel is unmounted, so the failure needs its own voice.
     const notice = screen.getByRole("alert");
-    expect(notice).toHaveTextContent("Download failed");
-    expect(notice).toHaveTextContent("Open the Updates tab to retry.");
+    expect(notice).toHaveTextContent("Download failed. Open the Updates tab to retry.");
     const updates = screen.getByRole("tab", { name: "Updates" });
-    expect(updates).toHaveAttribute("aria-describedby", notice.id);
-    expect(updates.querySelector(".tab-attention")).toBeInTheDocument();
     expect(updates).toHaveTextContent("Updates");
+    expect(updates.querySelector(".tab-attention")).toBeInTheDocument();
+    // The tab's own description carries the reason but not the hint, which
+    // would be self-referential read from the tab it points at.
+    const description = document.getElementById(updates.getAttribute("aria-describedby")!)!;
+    expect(description).toHaveTextContent("Download failed.");
+    expect(description).not.toHaveTextContent("Open the Updates tab");
 
-    // On Updates the panel's own alert takes over, so it is not said twice.
+    // On Updates the panel's region is the only one, and arriving there
+    // retires the notice, so moving away again re-mounts it empty rather than
+    // re-announcing an unchanged failure.
     selectTab("Updates");
     expect(screen.getAllByRole("alert")).toHaveLength(1);
     expect(screen.getByRole("alert")).toHaveTextContent("Download failed");
     expect(screen.getByRole("alert")).not.toHaveTextContent("Open the Updates tab");
-    expect(screen.getByRole("tab", { name: "Updates" })).not.toHaveAttribute("aria-describedby");
-
+    expect(document.getElementById("settings-updates-notice")).toBeNull();
     selectTab("Pointer");
-    expect(screen.getByRole("alert")).toHaveTextContent("Open the Updates tab to retry.");
+    expect(document.getElementById("settings-updates-notice")).toBeEmptyDOMElement();
+  });
+
+  it("leaves the off-tab notice silent for a failure that lands on the Updates tab", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
+      stateHandler = handler;
+      return () => undefined;
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    selectTab("Updates");
+
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: { status: "failed", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: "Download failed", retryAction: "download" } }));
+    // The panel's own region speaks; the off-tab one is not even mounted here.
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(document.getElementById("settings-updates-notice")).toBeNull();
+
+    // Leaving the tab afterwards is not a new failure, so still nothing.
+    selectTab("Pointer");
+    expect(document.getElementById("settings-updates-notice")).toBeEmptyDOMElement();
+
+    // A different failure while away is new, and is spoken.
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: { status: "failed", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: "Signature check failed", retryAction: "download" } }));
+    expect(document.getElementById("settings-updates-notice")).toHaveTextContent("Signature check failed. Open the Updates tab to retry.");
+  });
+
+  it("opens straight to Updates without an off-tab notice when the failure is what brought the user there", async () => {
+    browserState.updater = { status: "failed", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: "Download failed", retryAction: "download" };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Support" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Troubleshooting" }));
+    fireEvent.click(screen.getByRole("button", { name: "View updates" }));
+
+    await waitFor(() => expect(screen.getByRole("region", { name: "Updates" })).toHaveFocus());
+    expect(screen.getByRole("tab", { name: "Updates" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(document.getElementById("settings-updates-notice")).toBeNull();
+  });
+
+  it("ends the backend failure text as a sentence before the hint", async () => {
+    browserState.updater = { status: "failed", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: "Update download could not start: check for an update first", retryAction: "download" };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Update download could not start: check for an update first. Open the Updates tab to retry.");
   });
 
   it("reports a cancelled download politely from another tab", async () => {

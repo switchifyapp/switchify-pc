@@ -27,6 +27,12 @@ export function updateDescription(update: UpdateState) {
   }
 }
 
+// Failures interrupt; everything else waits its turn. Shared with the off-tab
+// notice in SettingsView so the two can never announce at different levels.
+export function updateStatusRole(update: UpdateState) {
+  return update.status === "failed" ? "alert" : "status";
+}
+
 export function UpdateControls({ update, run, cancel }: { update: UpdateState; run: (action: UpdateAction) => void; cancel: () => void }) {
   const action = update.status === "available" || update.status === "cancelled" ? "download"
     : update.status === "readyToInstall" ? "install"
@@ -36,7 +42,7 @@ export function UpdateControls({ update, run, cancel }: { update: UpdateState; r
     : action === "download" ? (update.status === "cancelled" ? "Retry download" : "Download")
       : action === "install" ? "Install and restart" : "Check for updates";
   return <div className="update-controls">
-    <p role={update.status === "failed" ? "alert" : "status"}>{updateDescription(update)}</p>
+    <p role={updateStatusRole(update)}>{updateDescription(update)}</p>
     {update.status === "downloading" && <>
       <progress aria-label="Update download progress" value={update.downloadedBytes} max={update.totalBytes ?? undefined} />
       <span>{updateProgress(update)}</span>
