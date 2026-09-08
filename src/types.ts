@@ -26,6 +26,9 @@ export type AppSettings = {
   moveRepeatIntervalMs: number;
   scrollRepeatIntervalMs: number;
   mouseRepeatAccelerationDurationMs: number;
+  keyRepeatEnabled: boolean;
+  keyRepeatIntervalMs: number;
+  keyRepeatInitialDelayMs: number;
   dwellClickEnabled: boolean;
   dwellClickDelayMs: number;
   cursorOverlayEnabled: boolean;

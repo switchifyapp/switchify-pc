@@ -63,6 +63,12 @@ pub struct AppSettings {
     pub scroll_repeat_interval_ms: u32,
     #[serde(default = "default_mouse_repeat_acceleration")]
     pub mouse_repeat_acceleration_duration_ms: u32,
+    #[serde(default = "default_key_repeat_enabled")]
+    pub key_repeat_enabled: bool,
+    #[serde(default = "default_key_repeat_interval")]
+    pub key_repeat_interval_ms: u32,
+    #[serde(default = "default_key_repeat_initial_delay")]
+    pub key_repeat_initial_delay_ms: u32,
     #[serde(default)]
     pub dwell_click_enabled: bool,
     #[serde(default = "default_dwell_click_delay")]
@@ -85,6 +91,9 @@ impl Default for AppSettings {
             move_repeat_interval_ms: 250,
             scroll_repeat_interval_ms: 250,
             mouse_repeat_acceleration_duration_ms: default_mouse_repeat_acceleration(),
+            key_repeat_enabled: default_key_repeat_enabled(),
+            key_repeat_interval_ms: default_key_repeat_interval(),
+            key_repeat_initial_delay_ms: default_key_repeat_initial_delay(),
             dwell_click_enabled: false,
             dwell_click_delay_ms: default_dwell_click_delay(),
             cursor_overlay_enabled: true,
@@ -111,6 +120,12 @@ impl AppSettings {
         }
         if ![0, 500, 1000, 2000].contains(&self.mouse_repeat_acceleration_duration_ms) {
             return Err("Mouse repeat acceleration is invalid.".into());
+        }
+        if ![100, 250, 500, 1000].contains(&self.key_repeat_interval_ms) {
+            return Err("Key repeat interval is invalid.".into());
+        }
+        if ![0, 250, 500, 1000].contains(&self.key_repeat_initial_delay_ms) {
+            return Err("Key repeat initial delay is invalid.".into());
         }
         if ![500, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000]
             .contains(&self.dwell_click_delay_ms)
@@ -143,6 +158,18 @@ fn default_cursor_overlay_visibility() -> String {
 
 fn default_mouse_repeat_acceleration() -> u32 {
     1000
+}
+
+fn default_key_repeat_enabled() -> bool {
+    true
+}
+
+fn default_key_repeat_interval() -> u32 {
+    250
+}
+
+fn default_key_repeat_initial_delay() -> u32 {
+    500
 }
 
 fn default_dwell_click_delay() -> u32 {
@@ -1289,6 +1316,74 @@ mod tests {
         );
         let _ = fs::remove_dir_all(root);
     }
+    #[test]
+    fn settings_written_before_key_repeat_still_load_with_defaults() {
+        // A settings blob exactly as shipped before key repeat existed. It must
+        // keep deserializing, and the new fields must take their defaults rather
+        // than failing the load and resetting every other preference.
+        let stored = serde_json::json!({
+            "startWithSystem": true,
+            "pointerScalePercent": 150,
+            "mouseRepeatEnabled": true,
+            "moveRepeatIntervalMs": 500,
+            "scrollRepeatIntervalMs": 100,
+            "mouseRepeatAccelerationDurationMs": 2000,
+            "dwellClickEnabled": true,
+            "dwellClickDelayMs": 1500,
+            "cursorOverlayEnabled": true,
+            "cursorOverlaySize": "large",
+            "cursorOverlayColor": "blue",
+            "cursorOverlayVisibility": "whileControlling",
+            "cursorCrosshairs": true,
+            "shareDiagnostics": true
+        });
+        let settings: AppSettings = serde_json::from_value(stored).unwrap();
+
+        assert!(settings.key_repeat_enabled);
+        assert_eq!(settings.key_repeat_interval_ms, 250);
+        assert_eq!(settings.key_repeat_initial_delay_ms, 500);
+
+        // Everything that was stored survives untouched.
+        assert_eq!(settings.pointer_scale_percent, 150);
+        assert_eq!(settings.move_repeat_interval_ms, 500);
+        assert_eq!(settings.scroll_repeat_interval_ms, 100);
+        assert_eq!(settings.cursor_overlay_size, "large");
+        assert!(settings.clone().normalized().is_ok());
+    }
+
+    #[test]
+    fn settings_reject_invalid_key_repeat_cadence() {
+        for interval in [0, 50, 200, 2000] {
+            let value = AppSettings {
+                key_repeat_interval_ms: interval,
+                ..AppSettings::default()
+            };
+            assert!(value.normalized().is_err(), "interval {interval}");
+        }
+        for delay in [100, 400, 2000] {
+            let value = AppSettings {
+                key_repeat_initial_delay_ms: delay,
+                ..AppSettings::default()
+            };
+            assert!(value.normalized().is_err(), "delay {delay}");
+        }
+        for interval in [100, 250, 500, 1000] {
+            let value = AppSettings {
+                key_repeat_interval_ms: interval,
+                ..AppSettings::default()
+            };
+            assert!(value.normalized().is_ok(), "interval {interval}");
+        }
+        // Zero is a valid initial delay: it means repeat straight away.
+        for delay in [0, 250, 500, 1000] {
+            let value = AppSettings {
+                key_repeat_initial_delay_ms: delay,
+                ..AppSettings::default()
+            };
+            assert!(value.normalized().is_ok(), "delay {delay}");
+        }
+    }
+
     #[test]
     fn settings_reject_unknown_overlay_visibility() {
         let value = AppSettings {

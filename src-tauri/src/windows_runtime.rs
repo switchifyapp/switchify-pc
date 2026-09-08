@@ -1701,9 +1701,18 @@ fn complete_repeat_start(
     let settings = overlay_settings(shared);
     let repeat_command = RepeatCommand::parse(&command.payload);
     let result = repeat_command.and_then(|repeat_command| {
-        if !settings.mouse_repeat_enabled {
+        let enabled = if repeat_command.repeat_key().is_some() {
+            settings.key_repeat_enabled
+        } else {
+            settings.mouse_repeat_enabled
+        };
+        if !enabled {
             stop_repeat_for_device(app, &command.device_id);
-            return Err("Mouse repeat is disabled in settings.".into());
+            return Err(if repeat_command.repeat_key().is_some() {
+                "Key repeat is disabled in settings.".to_string()
+            } else {
+                "Mouse repeat is disabled in settings.".to_string()
+            });
         }
         stop_repeat_for_device(app, &command.device_id);
         let (active, initial_feedback) = {
@@ -1713,6 +1722,16 @@ fn complete_repeat_start(
             let runtime = guard
                 .as_mut()
                 .ok_or_else(|| "Bluetooth runtime is not ready.".to_string())?;
+            // A key repeat injects keystrokes, which `DesktopInput::execute`
+            // refuses during Switch Forwarding; the repeat path bypasses that
+            // guard, so it enforces the same rule itself. Scoped to keys
+            // deliberately: pointer repeats have always been allowed here, and
+            // changing that is a separate behaviour decision.
+            if repeat_command.repeat_key().is_some() && runtime.input.has_active_switch_session() {
+                return Err(
+                    "Stop Switch Forwarding before using other PC control commands.".to_string(),
+                );
+            }
             let active = runtime.repeats.start(
                 command.device_id.clone(),
                 repeat_command,
@@ -1730,8 +1749,23 @@ fn complete_repeat_start(
                     } else {
                         runtime.input.move_pointer_pixels(dx, dy)
                     }
+                    .map(Some)
                 }
-                RepeatCommand::Scroll { dx, dy } => runtime.input.execute_repeat_scroll(dx, dy),
+                RepeatCommand::Scroll { dx, dy } => {
+                    runtime.input.execute_repeat_scroll(dx, dy).map(Some)
+                }
+                // The first tap fires immediately; the loop then waits the
+                // initial delay before repeating. Key repeats produce no pointer
+                // feedback, so the cursor overlay is hidden rather than driven.
+                RepeatCommand::Key { .. } => {
+                    match runtime
+                        .repeats
+                        .initial_key(&command.device_id, active.generation)
+                    {
+                        Some(key) => runtime.input.execute_repeat_key(key).map(|()| None),
+                        None => Ok(None),
+                    }
+                }
             };
             match initial {
                 Ok(feedback) => (active, feedback),
@@ -1739,17 +1773,22 @@ fn complete_repeat_start(
                     runtime
                         .repeats
                         .stop_if_current(&command.device_id, active.generation);
+                    // A failed initial key tap can still have left the key down.
+                    let _ = runtime.input.release_repeat_keys();
                     return Err(error);
                 }
             }
         };
-        app.state::<CursorOverlay>().begin_repeat(
-            active.generation,
-            repeat_command,
-            settings.mouse_repeat_acceleration_duration_ms > 0,
-            matches!(initial_feedback, PointerFeedback::Drag),
-            settings,
-        );
+        match initial_feedback {
+            Some(feedback) => app.state::<CursorOverlay>().begin_repeat(
+                active.generation,
+                repeat_command,
+                settings.mouse_repeat_acceleration_duration_ms > 0,
+                matches!(feedback, PointerFeedback::Drag),
+                settings,
+            ),
+            None => app.state::<CursorOverlay>().hide_for_typing(),
+        }
         spawn_repeat_loop(
             app.clone(),
             shared.clone(),
@@ -1797,13 +1836,32 @@ fn spawn_repeat_loop(app: AppHandle, shared: SharedModel, device_id: String, gen
                     .and_then(|runtime| runtime.repeats.current(&device_id, generation))
             };
             let Some(active) = active else { return };
-            if !settings.mouse_repeat_enabled {
+            let is_key_repeat = active.command.repeat_key().is_some();
+            let enabled = if is_key_repeat {
+                settings.key_repeat_enabled
+            } else {
+                settings.mouse_repeat_enabled
+            };
+            if !enabled {
                 stop_repeat_if_current(&app, &device_id, generation);
                 return;
             }
             let delay_ms = match active.command {
                 RepeatCommand::Move { .. } => MOVE_TICK_INTERVAL_MS,
                 RepeatCommand::Scroll { .. } => u64::from(active.command.interval_ms(&settings)),
+                RepeatCommand::Key { .. } => {
+                    let delay = runtime()
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .as_ref()
+                        .and_then(|runtime| {
+                            runtime
+                                .repeats
+                                .key_delay_ms(&device_id, generation, &settings)
+                        });
+                    let Some(delay) = delay else { return };
+                    u64::from(delay)
+                }
             };
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             let settings = overlay_settings(&shared);
@@ -1817,8 +1875,13 @@ fn spawn_repeat_loop(app: AppHandle, shared: SharedModel, device_id: String, gen
                 let Some(active) = runtime.repeats.current(&device_id, generation) else {
                     return;
                 };
-                if !settings.mouse_repeat_enabled {
-                    Err("Mouse repeat was disabled.".to_string())
+                let enabled = if active.command.repeat_key().is_some() {
+                    settings.key_repeat_enabled
+                } else {
+                    settings.mouse_repeat_enabled
+                };
+                if !enabled {
+                    Err("Repeat was disabled.".to_string())
                 } else {
                     match active.command {
                         RepeatCommand::Move { .. } => {
@@ -1840,6 +1903,13 @@ fn spawn_repeat_loop(app: AppHandle, shared: SharedModel, device_id: String, gen
                         RepeatCommand::Scroll { dx, dy } => {
                             runtime.input.execute_repeat_scroll(dx, dy).map(|_| ())
                         }
+                        RepeatCommand::Key { .. } => {
+                            let Some(key) = runtime.repeats.advance_key(&device_id, generation)
+                            else {
+                                return;
+                            };
+                            runtime.input.execute_repeat_key(key)
+                        }
                     }
                 }
             };
@@ -1848,7 +1918,10 @@ fn spawn_repeat_loop(app: AppHandle, shared: SharedModel, device_id: String, gen
                     set_activity(
                         &shared,
                         ActivityKind::Error,
-                        format!("Mouse repeat stopped: {error}"),
+                        format!(
+                            "{} repeat stopped: {error}",
+                            if is_key_repeat { "Key" } else { "Mouse" }
+                        ),
                     );
                     emit_state(&app, &shared);
                 }
@@ -1859,11 +1932,21 @@ fn spawn_repeat_loop(app: AppHandle, shared: SharedModel, device_id: String, gen
 }
 
 fn stop_repeat_if_current(app: &AppHandle, device_id: &str, generation: u64) -> bool {
-    let stopped = runtime()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .as_mut()
-        .is_some_and(|runtime| runtime.repeats.stop_if_current(device_id, generation));
+    let stopped = {
+        let mut guard = runtime()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match guard.as_mut() {
+            Some(runtime) => {
+                let stopped = runtime.repeats.stop_if_current(device_id, generation);
+                // Unconditional: a key whose retry also failed is still pending
+                // with no active repeat, and nothing else would ever free it.
+                let _ = runtime.input.release_repeat_keys();
+                stopped
+            }
+            None => false,
+        }
+    };
     if stopped {
         app.state::<CursorOverlay>().end_repeat(generation);
     }
@@ -1874,11 +1957,19 @@ fn stop_repeat_for_device(
     app: &AppHandle,
     device_id: &str,
 ) -> Option<crate::mouse_repeat::ActiveRepeat> {
-    let active = runtime()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .as_mut()
-        .and_then(|runtime| runtime.repeats.stop(device_id));
+    let active = {
+        let mut guard = runtime()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match guard.as_mut() {
+            Some(runtime) => {
+                let active = runtime.repeats.stop(device_id);
+                let _ = runtime.input.release_repeat_keys();
+                active
+            }
+            None => None,
+        }
+    };
     if let Some(active) = active {
         app.state::<CursorOverlay>().end_repeat(active.generation);
     }
@@ -1886,11 +1977,19 @@ fn stop_repeat_for_device(
 }
 
 fn stop_all_repeats(app: &AppHandle) {
-    let active = runtime()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .as_mut()
-        .map_or_else(Vec::new, |runtime| runtime.repeats.stop_all());
+    let active = {
+        let mut guard = runtime()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match guard.as_mut() {
+            Some(runtime) => {
+                let active = runtime.repeats.stop_all();
+                let _ = runtime.input.release_repeat_keys();
+                active
+            }
+            None => Vec::new(),
+        }
+    };
     for repeat in active {
         app.state::<CursorOverlay>().end_repeat(repeat.generation);
     }

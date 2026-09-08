@@ -287,7 +287,12 @@ impl OverlayEngine {
             Command::BeginRepeat(generation, command, accelerated, dragging, settings) => {
                 self.typing_suppressed = false;
                 self.settings = settings;
-                if !self.settings.cursor_overlay_enabled {
+                // Key repeats carry no pointer feedback: the runtimes hide the
+                // overlay rather than beginning one. Checked before any state is
+                // touched so this safety net cannot leave stale feedback behind
+                // for a later re-render.
+                if !self.settings.cursor_overlay_enabled || command.repeat_key().is_some() {
+                    self.feedback = None;
                     return self.hide();
                 }
                 self.control_active = true;
@@ -299,6 +304,7 @@ impl OverlayEngine {
                         dragging,
                     },
                     RepeatCommand::Scroll { dx, dy } => PointerFeedback::RepeatScroll { dx, dy },
+                    RepeatCommand::Key { .. } => return self.hide(),
                 };
                 self.feedback = Some(feedback);
                 self.deadline = None;
