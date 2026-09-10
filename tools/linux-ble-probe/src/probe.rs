@@ -128,6 +128,15 @@ impl Receiver {
         self.notifications = true;
         true
     }
+
+    fn replace_notifications(&mut self, peer: Address, now: i64, previous_closed: bool) -> bool {
+        // Notify and writer closure may become ready in the same select iteration.
+        // Do not require the close branch to have won before accepting a reconnect.
+        if previous_closed {
+            self.clear_session();
+        }
+        self.begin_notifications(peer, now)
+    }
 }
 
 fn read_status(value: &[u8], offset: u16, mtu: u16) -> Result<Vec<u8>, ReqError> {
@@ -267,7 +276,8 @@ pub async fn run(adapter_name: &str) -> Result<(), &'static str> {
             event = control.next() => {
                 let Some(CharacteristicControlEvent::Notify(candidate)) = event else { break; };
                 let mut receiver = received.lock().map_err(|_| "Receiver lock failed.")?;
-                if !receiver.begin_notifications(candidate.device_address(), start.elapsed().as_millis() as i64) {
+                let previous_closed = writer.as_ref().is_some_and(|channel| channel.is_closed().unwrap_or(true));
+                if !receiver.replace_notifications(candidate.device_address(), start.elapsed().as_millis() as i64, previous_closed) {
                     println!("Competing notification session refused (not a security qualification).");
                     drop(candidate);
                     continue;
@@ -319,6 +329,23 @@ mod tests {
 
     fn peer(last: u8) -> Address {
         Address::new([0, 0, 0, 0, 0, last])
+    }
+
+    #[test]
+    fn replacement_notification_clears_closed_owner_before_admission() {
+        let mut receiver = Receiver::default();
+        assert!(receiver.begin_notifications(peer(1), 0));
+        let frames = create_frames(&"x".repeat(200)).unwrap();
+        receiver.write(peer(1), &frames[0], 0, false, 1).unwrap();
+        // A live writer still excludes competitors.
+        assert!(!receiver.replace_notifications(peer(2), 2, false));
+        // Simulate Notify winning selection while the previous writer is closed.
+        assert!(receiver.replace_notifications(peer(2), 2, true));
+        receiver.write(peer(2), &frames[1], 0, false, 3).unwrap();
+        assert_eq!(receiver.completed, 0);
+        assert_eq!(receiver.peer, Some(peer(2)));
+        // Same-peer reconnects also succeed without a second subscription.
+        assert!(receiver.replace_notifications(peer(2), 4, true));
     }
 
     #[test]
