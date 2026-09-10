@@ -7,6 +7,8 @@ import { PointerSection } from "./PointerSection";
 import { CursorSection } from "./CursorSection";
 import { PrivacySection } from "./PrivacySection";
 import { UpdatesSection, type UpdateAction } from "./UpdatesSection";
+import { linuxInputDescription, linuxInputUnavailable } from "../platform";
+import { SettingGroup } from "./controls";
 
 type SettingsTabId = "general" | "pointer" | "cursor" | "privacy" | "updates";
 
@@ -54,7 +56,9 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
     <Tabs name="settings" tabs={tabs} active={active} onSelect={setActive} label="Settings sections" />
     <TabPanel name="settings" id={active}>
       {active === "general" && <GeneralSection settings={settings} update={update} />}
-      {active === "pointer" && <PointerSection settings={settings} update={update} />}
+      {active === "pointer" && (linuxInputUnavailable(state)
+        ? <SettingGroup title="Controls" description={linuxInputDescription}><p>Settings will become available when Linux input support is enabled.</p></SettingGroup>
+        : <PointerSection settings={settings} update={update} />)}
       {active === "cursor" && <CursorSection settings={settings} update={update} />}
       {active === "privacy" && <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />}
       {active === "updates" && <UpdatesSection state={state} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />}

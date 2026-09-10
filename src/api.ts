@@ -1,13 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppSettings, AppState, SwitchProfile } from "./types";
+import { browserPlatform } from "./platform";
 
 export type ProfileExitAction = "hide" | "quit";
 export type NavigationTarget = "home" | "settings" | "profiles";
 
+const samplePlatform = browserPlatform(navigator.userAgent);
+
 export const browserState: AppState = {
-  bluetooth: "initializing",
-  accessibility: "required",
+  bluetooth: samplePlatform === "linux" ? "unsupported" : "initializing",
+  accessibility: samplePlatform === "linux" ? "unavailable" : "required",
   desktopId: "browser",
   pendingPairings: [],
   pairedDevices: [],
@@ -24,8 +27,8 @@ export const browserState: AppState = {
     cursorCrosshairs: false, shareDiagnostics: false,
   },
   capabilities: {
-    platform: navigator.userAgent.includes("Mac") ? "macos" : "windows",
-    grid3: false, uiAccess: false, displayNavigation: false, cursorOverlay: true,
+    platform: samplePlatform,
+    grid3: false, uiAccess: false, displayNavigation: false, cursorOverlay: samplePlatform !== "linux",
   },
   version: "1.0.0-rc.6",
   diagnostics: { recentBluetooth: [], lastDisconnect: null, recentErrors: [] },

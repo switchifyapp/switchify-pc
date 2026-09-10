@@ -8,6 +8,8 @@ const defaultBrowserSettings = structuredClone(browserState.settings);
 
 describe("Switchify PC shell", () => {
   beforeEach(() => {
+    browserState.capabilities = { platform: "windows", grid3: false, uiAccess: false, displayNavigation: false, cursorOverlay: true };
+    browserState.accessibility = "required";
     browserState.settings = structuredClone(defaultBrowserSettings);
     browserState.bluetooth = "initializing";
     browserState.pendingPairings = [];
@@ -22,6 +24,24 @@ describe("Switchify PC shell", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("explains the unavailable Linux build without blaming hardware or offering macOS permissions", async () => {
+    browserState.capabilities.platform = "linux";
+    browserState.capabilities.cursorOverlay = false;
+    browserState.bluetooth = "unsupported";
+    browserState.accessibility = "unavailable";
+    render(<App />);
+    expect(await screen.findByText("Bluetooth pairing is not yet available in this Linux development build.")).toBeInTheDocument();
+    expect(screen.queryByText("This computer does not support the required Bluetooth features.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Accessibility Settings" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Set up" }));
+    const setup = await screen.findByRole("dialog");
+    expect(within(setup).getByText("Input controls are not yet available in this Linux development build.")).toBeInTheDocument();
+    expect(within(setup).getByRole("button", { name: "Next" })).toBeDisabled();
+    fireEvent.click(within(setup).getByRole("button", { name: "Skip for now" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(browserState.setup.completed).toBe(false);
   });
 
   it("uses the Switchify application icon in the sidebar", async () => {
