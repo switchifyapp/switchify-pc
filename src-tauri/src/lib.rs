@@ -1,4 +1,6 @@
-#[cfg_attr(target_os = "linux", allow(dead_code))] // Used when the Linux transport is wired.
+// These shared engines remain compiled/tested on Linux before its transport is
+// connected. Remove the Linux dead-code allowances as their adapters are wired.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 mod ble_lifecycle;
 mod diagnostics;
 #[cfg_attr(target_os = "linux", allow(dead_code))]
@@ -25,6 +27,7 @@ mod mouse_repeat;
 mod overlay;
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 mod protocol;
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 mod state;
 mod storage;
 mod telemetry;
@@ -125,6 +128,7 @@ fn request_profile_exit(app: &AppHandle, action: ProfileExitAction) {
     }
 }
 
+#[cfg(any(not(target_os = "linux"), test))]
 const NAVIGATE_REQUESTED_EVENT: &str = "navigate-requested";
 
 #[cfg(not(target_os = "linux"))]
@@ -136,6 +140,7 @@ fn show_tray_menu_on_left_click() -> bool {
 struct PendingNavigation(Mutex<Option<String>>);
 
 impl PendingNavigation {
+    #[cfg(any(not(target_os = "linux"), test))]
     fn set(&self, destination: &str) {
         *self
             .0
@@ -371,6 +376,7 @@ async fn disconnect_all_on_main_thread(app: AppHandle) -> Result<AppState, Strin
     Ok(finish_disconnect(&app, &model, &overlay, &modifier_overlay))
 }
 
+#[cfg(not(target_os = "linux"))]
 fn disconnect_all_inner(
     app: &AppHandle,
     model: &AppModel,
