@@ -999,7 +999,9 @@ mod tests {
             .storage
             .save_pairing_token(&device_id, "test-token")
             .unwrap();
-        let restored = AppModel::with_storage_for_test(AppStorage::at(state_path));
+        // Recreate the model from persisted state while retaining the injected
+        // credential store; no native keychain or D-Bus service is used in tests.
+        let restored = AppModel::with_storage_for_test(model.storage);
         let restored_device = &restored.snapshot().paired_devices[0];
         assert_eq!(restored_device.device_name, "Kitchen Remote");
         assert_eq!(restored_device.last_seen_at, Some(99));

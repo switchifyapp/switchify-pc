@@ -279,10 +279,10 @@ impl AppStorage {
 
     #[cfg(test)]
     pub fn at(path: PathBuf) -> Self {
-        let pairing_tokens = platform_pairing_token_store(&path);
         Self {
             path,
-            pairing_tokens,
+            // Unit tests must not require or modify the developer's keychain.
+            pairing_tokens: Box::<tests::MemoryPairingTokenStore>::default(),
         }
     }
 
@@ -387,7 +387,7 @@ mod tests {
     use std::sync::Mutex;
 
     #[derive(Debug, Default)]
-    struct MemoryPairingTokenStore {
+    pub(super) struct MemoryPairingTokenStore {
         tokens: Mutex<HashMap<String, String>>,
     }
 
