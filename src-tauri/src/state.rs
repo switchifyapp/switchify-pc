@@ -960,7 +960,7 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("switchify-last-connection-{}", Uuid::new_v4()));
         let state_path = root.join("state.json");
-        let model = AppModel::with_storage_for_test(AppStorage::at(state_path.clone()));
+        let model = AppModel::with_storage_for_test(AppStorage::at_with_memory_tokens(state_path));
         let device_id = format!("remote-{}", Uuid::new_v4());
         {
             let mut data = model.shared.lock().unwrap();

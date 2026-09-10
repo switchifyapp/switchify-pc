@@ -279,9 +279,19 @@ impl AppStorage {
 
     #[cfg(test)]
     pub fn at(path: PathBuf) -> Self {
+        let pairing_tokens = platform_pairing_token_store(&path);
         Self {
             path,
-            // Unit tests must not require or modify the developer's keychain.
+            pairing_tokens,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn at_with_memory_tokens(path: PathBuf) -> Self {
+        Self {
+            path,
+            // Model persistence tests do not require a native credential store.
+            // Platform storage tests still use `at` to exercise their adapters.
             pairing_tokens: Box::<tests::MemoryPairingTokenStore>::default(),
         }
     }
