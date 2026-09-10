@@ -30,10 +30,13 @@ const STATUS: Uuid = Uuid::from_u128(0x7a78f7eb_1d6d_4d92_9ef0_1f89d3db21f4);
 // Never derived from an incoming message. Safe even if BlueZ broadcasts it.
 const PUBLIC_RESPONSE: &str = r#"{"version":1,"id":"linux-transport-probe","type":"error","ok":false,"error":"linux_transport_probe_only"}"#;
 const MAX_WRITE_BYTES: usize = 512;
+const RX_IDLE_MS: i64 = 10_000;
 
 #[derive(Default)]
 struct Receiver {
     peer: Option<Address>,
+    notifications: bool,
+    last_write_ms: Option<i64>,
     frames: FrameReassembler,
     accepted: u64,
     completed: u64,
@@ -64,6 +67,7 @@ impl Receiver {
         prepared: bool,
         now: i64,
     ) -> Result<(), ReqError> {
+        self.expire_rx_owner(now);
         if offset != 0 {
             return Err(ReqError::InvalidOffset);
         }
@@ -77,12 +81,18 @@ impl Receiver {
             return Err(ReqError::NotAuthorized);
         }
         let frame: BluetoothFrame = serde_json::from_slice(bytes).map_err(|_| ReqError::Failed)?;
-        // Own the reassembler before accepting even a partial frame. Never mix peers.
+        // Validation and ownership changes happen under the same receiver lock.
+        let message = match self.frames.accept(frame, now) {
+            Ok(message) => message,
+            Err(_) => {
+                if self.peer.is_none() {
+                    self.frames = FrameReassembler::default();
+                }
+                return Err(ReqError::Failed);
+            }
+        };
         self.peer = Some(peer);
-        let message = self
-            .frames
-            .accept(frame, now)
-            .map_err(|_| ReqError::Failed)?;
+        self.last_write_ms = Some(now);
         self.accepted = self.accepted.saturating_add(1);
         if message.is_some() {
             self.completed = self.completed.saturating_add(1);
@@ -93,7 +103,30 @@ impl Receiver {
 
     fn clear_session(&mut self) {
         self.peer = None;
+        self.notifications = false;
+        self.last_write_ms = None;
         self.frames = FrameReassembler::default();
+    }
+
+    fn expire_rx_owner(&mut self, now: i64) {
+        if !self.notifications
+            && self
+                .last_write_ms
+                .is_some_and(|last| now - last >= RX_IDLE_MS)
+        {
+            self.clear_session();
+        }
+    }
+
+    fn begin_notifications(&mut self, peer: Address, now: i64) -> bool {
+        self.expire_rx_owner(now);
+        if self.notifications || self.peer.is_some_and(|owner| owner != peer) {
+            return false;
+        }
+        self.clear_session();
+        self.peer = Some(peer);
+        self.notifications = true;
+        true
     }
 }
 
@@ -234,13 +267,11 @@ pub async fn run(adapter_name: &str) -> Result<(), &'static str> {
             event = control.next() => {
                 let Some(CharacteristicControlEvent::Notify(candidate)) = event else { break; };
                 let mut receiver = received.lock().map_err(|_| "Receiver lock failed.")?;
-                if writer.is_some() || receiver.peer.is_some_and(|peer| peer != candidate.device_address()) {
+                if !receiver.begin_notifications(candidate.device_address(), start.elapsed().as_millis() as i64) {
                     println!("Competing notification session refused (not a security qualification).");
                     drop(candidate);
                     continue;
                 }
-                receiver.clear_session();
-                receiver.peer = Some(candidate.device_address());
                 println!("Notification channel opened; payload limit {} bytes.", candidate.mtu());
                 writer = Some(candidate);
             },
@@ -262,6 +293,7 @@ pub async fn run(adapter_name: &str) -> Result<(), &'static str> {
                 }
                 let mut receiver = received.lock().map_err(|_| "Receiver lock failed.")?;
                 if failed { writer = None; receiver.clear_session(); }
+                receiver.expire_rx_owner(start.elapsed().as_millis() as i64);
                 receiver.frames.clear_expired(start.elapsed().as_millis() as i64);
                 println!("RX totals: accepted={} complete={} rejected={}", receiver.accepted, receiver.completed, receiver.rejected);
             }
@@ -287,6 +319,50 @@ mod tests {
 
     fn peer(last: u8) -> Address {
         Address::new([0, 0, 0, 0, 0, last])
+    }
+
+    #[test]
+    fn rejected_first_frame_does_not_reserve_rx_or_notifications() {
+        let frame = create_frames("test").unwrap().remove(0);
+        let mut invalid: BluetoothFrame = serde_json::from_slice(&frame).unwrap();
+        invalid.version = 2;
+        let mut receiver = Receiver::default();
+        assert!(receiver
+            .write(peer(1), &serde_json::to_vec(&invalid).unwrap(), 0, false, 0)
+            .is_err());
+        assert_eq!(receiver.peer, None);
+        receiver.write(peer(2), &frame, 0, false, 1).unwrap();
+        assert!(receiver.begin_notifications(peer(2), 1));
+    }
+
+    #[test]
+    fn rx_only_ownership_expires_without_combining_stale_fragments() {
+        let frames = create_frames(&"x".repeat(200)).unwrap();
+        let mut receiver = Receiver::default();
+        receiver.write(peer(1), &frames[0], 0, false, 0).unwrap();
+        assert!(!receiver.begin_notifications(peer(2), RX_IDLE_MS - 1));
+        receiver
+            .write(peer(2), &frames[1], 0, false, RX_IDLE_MS)
+            .unwrap();
+        assert_eq!(receiver.completed, 0);
+        assert_eq!(receiver.peer, Some(peer(2)));
+        assert!(receiver.begin_notifications(peer(3), RX_IDLE_MS * 2));
+    }
+
+    #[test]
+    fn active_notification_owner_is_not_expired_by_rx_inactivity() {
+        let mut receiver = Receiver::default();
+        assert!(receiver.begin_notifications(peer(1), 0));
+        let frame = create_frames("test").unwrap().remove(0);
+        receiver.write(peer(1), &frame, 0, false, 1).unwrap();
+        receiver.expire_rx_owner(RX_IDLE_MS * 2);
+        assert!(!receiver.begin_notifications(peer(2), RX_IDLE_MS * 2));
+        assert_eq!(
+            receiver.write(peer(2), &frame, 0, false, RX_IDLE_MS * 2),
+            Err(ReqError::NotAuthorized)
+        );
+        receiver.clear_session();
+        assert!(receiver.begin_notifications(peer(2), RX_IDLE_MS * 2));
     }
 
     #[test]
