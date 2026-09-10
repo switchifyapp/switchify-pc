@@ -15,6 +15,17 @@ mod platform;
 #[path = "overlay_windows.rs"]
 mod platform;
 
+#[cfg(target_os = "linux")]
+mod platform {
+    use super::*;
+
+    pub(super) fn spawn(_app: AppHandle, _shared: SharedModel, receiver: Receiver<Command>) {
+        // A closed receiver makes all feedback sends cheap no-ops. No thread or
+        // window is created while Linux cursor feedback is unavailable.
+        drop(receiver);
+    }
+}
+
 const FOLLOW_INTERVAL: Duration = Duration::from_millis(75);
 const DEFAULT_DURATION: Duration = Duration::from_millis(900);
 const LANDING_DURATION: Duration = Duration::from_millis(300);
