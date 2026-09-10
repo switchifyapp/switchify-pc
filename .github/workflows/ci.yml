@@ -41,7 +41,7 @@ jobs:
       - name: Reject retired product identity
         run: |
           retired_identity="pre""view"
-          if git grep -n -i "$retired_identity" -- ':!src-tauri/Cargo.lock'; then
+          if git grep -n -i "$retired_identity" -- ':!src-tauri/Cargo.lock' ':!tools/linux-ble-probe/Cargo.lock'; then
             exit 1
           fi
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
