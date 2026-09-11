@@ -47,6 +47,32 @@ npm run tauri dev
 
 ## Checks
 
+### Linux development foundation
+
+Linux currently builds a development UI only. Bluetooth pairing, keyboard/mouse input,
+and native feedback overlays are not implemented. X11 and Wayland control are both
+unavailable at this stage; this is not a supported Linux release. See the
+[Linux implementation plan](docs/linux-support-plan.md) for the remaining milestones.
+
+On Ubuntu 24.04 x86_64, install Node.js 24, Rust 1.97.1 and the native dependencies:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libxkbcommon-dev libdbus-1-dev
+npm ci
+npm run tauri dev
+```
+
+Use `npm run tauri build -- --debug --no-bundle` to build the development executable.
+Linux reports Bluetooth and input unavailable and does not open feedback windows.
+It always opens the main window, including at startup, and closing that window quits
+after any profile-edit confirmation. Tray/background behavior and Linux installers
+are deferred until qualified. CI builds and tests on Ubuntu without injecting input;
+physical Bluetooth and graphical session testing are still required before support
+can be enabled. The next implementation milestone is BlueZ peripheral interoperability.
+
+### Repository validation
+
 ```bash
 npm run lint
 npm test
@@ -56,7 +82,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-Rust tests use fake input adapters and never control the local pointer or keyboard. Native checks and unsigned bundles run on Windows and macOS in `.github/workflows/ci.yml`.
+Rust tests use fake input adapters and never control the local pointer or keyboard. Native checks and unsigned bundles run on Windows and macOS in `.github/workflows/ci.yml`; Ubuntu also runs native checks and an unbundled development build.
 
 ## Production releases and signed updates
 

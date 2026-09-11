@@ -5,7 +5,7 @@ import { api, browserState } from "../api";
 import type { AppSettings } from "../types";
 
 const defaultBrowserSettings = structuredClone(browserState.settings);
-const defaultCapabilities = structuredClone(browserState.capabilities);
+const defaultCapabilities = { platform: "windows" as const, grid3: false, uiAccess: false, displayNavigation: false, cursorOverlay: true };
 
 function stateWithSettings(settings: AppSettings) {
   return { ...structuredClone(browserState), settings: structuredClone(settings) };
@@ -15,6 +15,7 @@ const selectTab = (name: string) => fireEvent.click(screen.getByRole("tab", { na
 
 describe("Switchify PC settings", () => {
   beforeEach(() => {
+    browserState.accessibility = "required";
     browserState.settings = structuredClone(defaultBrowserSettings);
     browserState.capabilities = structuredClone(defaultCapabilities);
     browserState.bluetooth = "initializing";
@@ -30,6 +31,22 @@ describe("Switchify PC settings", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("does not offer ineffective input settings in the Linux development build", async () => {
+    browserState.capabilities = { ...defaultCapabilities, platform: "linux", cursorOverlay: false };
+    browserState.bluetooth = "unsupported";
+    browserState.accessibility = "unavailable";
+    const save = vi.spyOn(api, "saveSettings");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    selectTab("Controls");
+    expect(screen.getByText("Settings will become available when Linux input support is enabled.")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Dwell to click" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "50% pointer speed" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Cursor appearance" })).not.toBeInTheDocument();
+    expect(save).not.toHaveBeenCalled();
   });
 
   it("shows update progress and exposes cancellation in Settings", async () => {

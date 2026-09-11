@@ -10,6 +10,7 @@ import { applyLocalSettings, changedSettingKeys } from "./settings/diff";
 import { SettingsView } from "./settings/SettingsView";
 import { updateDescription, updateInFlight, updateLiveness, updateProgress, updateStanding, type UpdateAction } from "./settings/UpdatesSection";
 import { TabPanel, Tabs } from "./Tabs";
+import { inputAccessAction, linuxBluetoothDescription, linuxInputDescription, linuxInputUnavailable } from "./platform";
 
 type View = "home" | "devices" | "profiles" | "settings" | "support";
 
@@ -43,6 +44,7 @@ function StatusIcon({ ok, children }: { ok: boolean; children: ReactNode }) {
 }
 
 function AccessibilityCopy({ state, detailed = false }: { state: AppState; detailed?: boolean }) {
+  if (linuxInputUnavailable(state)) return <p>{linuxInputDescription}</p>;
   if (state.accessibility === "granted") return <p>Ready</p>;
   if (state.accessibility === "unavailable") return <p>Unavailable on this system</p>;
   if (!detailed || state.capabilities.platform !== "macos") return <p>Permission required</p>;
@@ -58,12 +60,12 @@ function HomeView({ state, onDisconnect, onAccessibility, onSetup }: { state: Ap
     <header className="page-header"><div><h1>Switchify PC</h1><p>Android control for this computer</p></div></header>
     <section className="connection-band" data-connected={state.bluetooth === "connected"}>
       <StatusIcon ok={bluetoothOk}>{bluetoothOk ? <Radio size={20} /> : <WifiOff size={20} />}</StatusIcon>
-      <div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothDescriptions.connected : bluetoothDescriptions[state.bluetooth]}</p></div>
+      <div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.capabilities.platform === "linux" && state.bluetooth === "unsupported" ? linuxBluetoothDescription : state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothDescriptions.connected : bluetoothDescriptions[state.bluetooth]}</p></div>
       {state.bluetooth === "connected" ? <button className="secondary" onClick={onDisconnect}><Power size={16} />Disconnect</button> : <button className="secondary" onClick={onSetup}><Wrench size={16} />Set up</button>}
     </section>
     <section className="status-list" aria-label="System status">
       <article><StatusIcon ok={bluetoothOk}><Bluetooth size={19} /></StatusIcon><div><h3>Bluetooth</h3><p>{bluetoothLabels[state.bluetooth]}</p></div></article>
-      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} /></div>{state.accessibility === "required" && <button className="text-button" onClick={onAccessibility}>Open Accessibility Settings</button>}</article>
+      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} /></div>{state.accessibility === "required" && <button className="text-button" onClick={onAccessibility}>{inputAccessAction(state)}</button>}</article>
       <article><StatusIcon ok><ShieldCheck size={19} /></StatusIcon><div><h3>Secure pairing</h3><p>{state.pairedDevices.length === 0 ? "No saved devices" : `${state.pairedDevices.length} saved device${state.pairedDevices.length === 1 ? "" : "s"}`}</p></div></article>
     </section>
   </div>;
@@ -307,12 +309,12 @@ function SupportView({ state, busy, perform, openSetup, openUpdates }: { state: 
     <Tabs name="support" tabs={supportTabs} active={tab} onSelect={setTab} label="Support view" />
     <TabPanel name="support" id={tab}>{tab === "setup" ? <><button className="primary setup-launch" onClick={openSetup}><Wrench size={16} />Open setup guide</button><section className="task-list" aria-label="Setup status">
       <article><StatusIcon ok={bluetoothReady}>{bluetoothReady ? <CheckCircle2 size={19} /> : <Bluetooth size={19} />}</StatusIcon><div><h2>Bluetooth</h2><p>{bluetoothLabels[state.bluetooth]}</p></div></article>
-      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" && <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</button>}</article>
+      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" && <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>{inputAccessAction(state)}</button>}</article>
       <article><StatusIcon ok={state.pairedDevices.length > 0}><Smartphone size={19} /></StatusIcon><div><h2>Android device</h2><p>{state.pairedDevices.length > 0 ? `${state.pairedDevices.length} paired` : "Open Switchify on Android and select this computer"}</p></div></article>
       <article><StatusIcon ok={state.bluetooth === "connected"}><Radio size={19} /></StatusIcon><div><h2>Connection</h2><p>{state.connectedDeviceName ?? "Waiting for a paired device"}</p></div></article>
     </section></> : <section className="task-list" aria-label="Troubleshooting actions">
       <article><Bluetooth size={20} /><div><h2>Bluetooth connection</h2><p>{bluetoothLabels[state.bluetooth]}</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.disconnectAll)}><Power size={16} />Disconnect</button></article>
-      <article><Accessibility size={20} /><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" ? <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</button> : <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(false))}><RefreshCw size={16} />Check input access</button>}</article>
+      <article><Accessibility size={20} /><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" ? <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>{inputAccessAction(state)}</button> : <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(false))}><RefreshCw size={16} />Check input access</button>}</article>
       <article><RefreshCw size={20} /><div><h2>Application update</h2><p>Switchify PC {state.version}</p></div><button className="secondary" onClick={openUpdates}>View updates</button></article>
       <article><Download size={20} /><div><h2>Diagnostics</h2><p>Export sanitized health, capability, and recent event data</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.exportDiagnostics)}><Download size={16} />Export</button></article>
       <article className="diagnostic-detail"><Bluetooth size={20} /><div><h2>Recent Bluetooth changes</h2><p>{state.diagnostics.recentBluetooth.length > 0 ? state.diagnostics.recentBluetooth.map((event) => event.status).join(" → ") : "No Bluetooth changes recorded yet"}</p></div></article>
@@ -338,7 +340,7 @@ function SetupGuide({ state, busy, error, skip, finish, accessibility, approve, 
   const dialogRef = useRef<HTMLElement>(null);
   const titles = ["Bluetooth and input access", "Get Switchify for Android", "Pair securely", "Start with system", "Anonymous diagnostics"];
   const bluetoothReady = state.bluetooth === "advertising" || state.bluetooth === "connected";
-  const canContinue = step === 2 ? state.pairedDevices.length > 0 : step === 3 ? startupChoice !== null : step === 4 ? diagnosticsChoice !== null : true;
+  const canContinue = !linuxInputUnavailable(state) && (step === 2 ? state.pairedDevices.length > 0 : step === 3 ? startupChoice !== null : step === 4 ? diagnosticsChoice !== null : true);
 
   useEffect(() => { dialogRef.current?.focus(); }, [step]);
 
@@ -357,8 +359,8 @@ function SetupGuide({ state, busy, error, skip, finish, accessibility, approve, 
     {error && <div className="dialog-error" role="alert">{error}</div>}
     <div className="setup-content">
       {step === 0 && <div className="setup-statuses">
-        <article><StatusIcon ok={bluetoothReady}><Bluetooth size={19} /></StatusIcon><div><h3>Bluetooth</h3><p>{bluetoothLabels[state.bluetooth]}</p></div></article>
-        <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" && <button className="secondary" disabled={busy} onClick={() => void accessibility()}>Open Accessibility Settings</button>}</article>
+        <article><StatusIcon ok={bluetoothReady}><Bluetooth size={19} /></StatusIcon><div><h3>Bluetooth</h3><p>{state.capabilities.platform === "linux" && state.bluetooth === "unsupported" ? linuxBluetoothDescription : bluetoothLabels[state.bluetooth]}</p></div></article>
+        <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" && <button className="secondary" disabled={busy} onClick={() => void accessibility()}>{inputAccessAction(state)}</button>}</article>
       </div>}
       {step === 1 && <div className="android-download"><div><h3>Install the Android app</h3><p>Install Switchify from Google Play, then open it near this computer.</p><a className="secondary" href={androidDownloadUrl} target="_blank" rel="noreferrer">Open Google Play</a></div><img src={androidQrUrl} alt="QR code for Switchify on Google Play" /></div>}
       {step === 2 && <div><h3>{state.pairedDevices.length > 0 ? "Android device paired" : "Waiting for an Android device"}</h3><p>{state.pairedDevices.length > 0 ? "Secure pairing is complete. You can continue setup." : "In Switchify for Android, select this computer and confirm the matching code."}</p>
