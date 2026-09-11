@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
 
+#[cfg(not(target_os = "linux"))]
 use crate::display_navigation;
 use crate::input::PointerFeedback;
 use crate::overlay::CursorOverlay;
@@ -228,6 +229,12 @@ fn schedule_tick(app: AppHandle, generation: u64) {
     });
 }
 
+#[cfg(target_os = "linux")]
+fn sample_pointer(_app: &AppHandle) -> Result<PointerSample, String> {
+    Err("Dwell pointer tracking is unavailable on Linux.".into())
+}
+
+#[cfg(not(target_os = "linux"))]
 fn sample_pointer(app: &AppHandle) -> Result<PointerSample, String> {
     let (position, displays) = display_navigation::displays(app)
         .map_err(|_| "The dwell pointer position could not be read.".to_string())?;

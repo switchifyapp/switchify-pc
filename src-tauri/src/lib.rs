@@ -1,20 +1,33 @@
+// These shared engines remain compiled/tested on Linux before its transport is
+// connected. Remove the Linux dead-code allowances as their adapters are wired.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 mod ble_lifecycle;
 mod diagnostics;
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 mod display_navigation;
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 mod dwell;
 #[cfg(target_os = "windows")]
 mod grid3;
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 mod input;
+#[cfg(target_os = "linux")]
+mod linux_runtime;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
 mod macos_overlay_window;
 #[cfg(target_os = "macos")]
 mod macos_relaunch;
+#[cfg_attr(target_os = "linux", path = "modifier_overlay_unavailable.rs")]
 mod modifier_overlay;
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 mod mouse_repeat;
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 mod overlay;
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 mod protocol;
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 mod state;
 mod storage;
 mod telemetry;
@@ -28,11 +41,21 @@ mod windows_security;
 #[cfg(target_os = "windows")]
 mod windows_startup;
 
+#[cfg(target_os = "linux")]
+use linux_runtime::{
+    approve_pairing as platform_approve_pairing,
+    check_accessibility as platform_check_accessibility, disconnect_all as platform_disconnect_all,
+    install as platform_install, reject_pairing as platform_reject_pairing,
+    shutdown as platform_shutdown,
+};
 use state::{
     snapshot, ActivityKind, AppModel, AppSettings, AppState, PairedDeviceView, SwitchProfile,
 };
 use std::sync::Mutex;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::MenuItem;
+#[cfg(not(target_os = "linux"))]
+use tauri::menu::{Menu, PredefinedMenuItem};
+#[cfg(not(target_os = "linux"))]
 use tauri::tray::TrayIconBuilder;
 #[cfg(target_os = "windows")]
 use tauri::tray::{MouseButton, TrayIconEvent};
@@ -105,8 +128,10 @@ fn request_profile_exit(app: &AppHandle, action: ProfileExitAction) {
     }
 }
 
+#[cfg(any(not(target_os = "linux"), test))]
 const NAVIGATE_REQUESTED_EVENT: &str = "navigate-requested";
 
+#[cfg(not(target_os = "linux"))]
 fn show_tray_menu_on_left_click() -> bool {
     cfg!(target_os = "macos")
 }
@@ -115,6 +140,7 @@ fn show_tray_menu_on_left_click() -> bool {
 struct PendingNavigation(Mutex<Option<String>>);
 
 impl PendingNavigation {
+    #[cfg(any(not(target_os = "linux"), test))]
     fn set(&self, destination: &str) {
         *self
             .0
@@ -130,6 +156,7 @@ impl PendingNavigation {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 fn show_main_window(app: &AppHandle, destination: Option<&str>) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -349,6 +376,7 @@ async fn disconnect_all_on_main_thread(app: AppHandle) -> Result<AppState, Strin
     Ok(finish_disconnect(&app, &model, &overlay, &modifier_overlay))
 }
 
+#[cfg(not(target_os = "linux"))]
 fn disconnect_all_inner(
     app: &AppHandle,
     model: &AppModel,
@@ -1126,6 +1154,7 @@ fn export_diagnostics(model: State<'_, AppModel>) -> Result<AppState, String> {
     Ok(model.snapshot())
 }
 
+#[cfg(not(target_os = "linux"))]
 fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show Switchify PC", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Open settings", true, None::<&str>)?;
@@ -1231,7 +1260,7 @@ pub fn run() {
     let modifier_overlay_shared = shared.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
-            if has_start_hidden_argument(&args) {
+            if should_start_hidden(&args) {
                 return;
             }
             if let Some(window) = app.get_webview_window("main") {
@@ -1250,6 +1279,7 @@ pub fn run() {
         .manage(PendingProfileExit::default())
         .manage(PendingNavigation::default())
         .setup(move |app| {
+            #[cfg(not(target_os = "linux"))]
             install_tray(app)?;
             if updater_is_configured(app.config().plugins.0.get("updater")) {
                 let model = app.state::<AppModel>();
@@ -1310,7 +1340,7 @@ pub fn run() {
                     _ => {}
                 }
             }
-            if has_start_hidden_argument(&std::env::args().collect::<Vec<_>>()) {
+            if should_start_hidden(&std::env::args().collect::<Vec<_>>()) {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
                 }
@@ -1329,7 +1359,7 @@ pub fn run() {
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                request_profile_exit(window.app_handle(), ProfileExitAction::Hide);
+                request_profile_exit(window.app_handle(), close_window_action());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -1363,6 +1393,19 @@ pub fn run() {
 
 fn has_start_hidden_argument(args: &[String]) -> bool {
     args.iter().any(|argument| argument == "--start-hidden")
+}
+
+fn should_start_hidden(args: &[String]) -> bool {
+    // Linux has no qualified tray integration yet; always keep a recovery window.
+    !cfg!(target_os = "linux") && has_start_hidden_argument(args)
+}
+
+fn close_window_action() -> ProfileExitAction {
+    if cfg!(target_os = "linux") {
+        ProfileExitAction::Quit
+    } else {
+        ProfileExitAction::Hide
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -1441,14 +1484,23 @@ fn platform_disconnect_all(app: &AppHandle, shared: &state::SharedModel) -> Resu
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_os = "linux"))]
+    use super::show_tray_menu_on_left_click;
     use super::{
-        has_start_hidden_argument, record_update_failure, show_tray_menu_on_left_click,
-        updater_is_configured, validate_profile, PendingNavigation, PendingProfileExit,
-        ProfileExitAction, TraySnapshot, NAVIGATE_REQUESTED_EVENT,
+        has_start_hidden_argument, record_update_failure, updater_is_configured, validate_profile,
+        PendingNavigation, PendingProfileExit, ProfileExitAction, TraySnapshot,
+        NAVIGATE_REQUESTED_EVENT,
     };
     use crate::state::{AppModel, BluetoothState, SwitchBinding, SwitchProfile};
     use crate::storage::AppStorage;
     use serde_json::json;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_without_tray_cannot_be_stranded_in_background() {
+        assert!(!super::should_start_hidden(&["--start-hidden".into()]));
+        assert_eq!(super::close_window_action(), ProfileExitAction::Quit);
+    }
 
     fn custom_profile() -> SwitchProfile {
         SwitchProfile {

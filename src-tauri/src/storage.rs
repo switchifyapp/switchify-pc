@@ -286,6 +286,16 @@ impl AppStorage {
         }
     }
 
+    #[cfg(test)]
+    pub fn at_with_memory_tokens(path: PathBuf) -> Self {
+        Self {
+            path,
+            // Model persistence tests do not require a native credential store.
+            // Platform storage tests still use `at` to exercise their adapters.
+            pairing_tokens: Box::<tests::MemoryPairingTokenStore>::default(),
+        }
+    }
+
     pub fn load(&self) -> Result<PersistedState, String> {
         if !self.path.exists() {
             return Ok(PersistedState::default());
@@ -387,7 +397,7 @@ mod tests {
     use std::sync::Mutex;
 
     #[derive(Debug, Default)]
-    struct MemoryPairingTokenStore {
+    pub(super) struct MemoryPairingTokenStore {
         tokens: Mutex<HashMap<String, String>>,
     }
 
