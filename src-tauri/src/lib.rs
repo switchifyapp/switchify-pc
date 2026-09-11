@@ -16,6 +16,9 @@ mod input;
 #[allow(dead_code)]
 mod linux_credential_worker;
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
+mod linux_read_responses;
+#[cfg(target_os = "linux")]
 mod linux_runtime;
 #[cfg(target_os = "macos")]
 mod macos;
