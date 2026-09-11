@@ -12,6 +12,10 @@ mod grid3;
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 mod input;
 #[cfg(target_os = "linux")]
+// Prepared for runtime integration; not started by the unavailable Linux runtime.
+#[allow(dead_code)]
+mod linux_credential_worker;
+#[cfg(target_os = "linux")]
 mod linux_runtime;
 #[cfg(target_os = "macos")]
 mod macos;

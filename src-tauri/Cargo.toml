@@ -66,5 +66,8 @@ windows = { version = "0.62.2", features = [
 ] }
 winreg = "0.55"
 
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
 [patch.crates-io]
 corebluetooth-rs = { path = "../vendor/corebluetooth-rs" }
