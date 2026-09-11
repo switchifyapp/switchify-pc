@@ -23,12 +23,13 @@ use crate::ble_wire::{
     bluetooth_status_payload, create_notification_frames, BluetoothFrame, FrameReassembler,
 };
 
-const SERVICE: Uuid = Uuid::from_u128(0x7a78f7e8_1d6d_4d92_9ef0_1f89d3db21f4);
-const RX: Uuid = Uuid::from_u128(0x7a78f7e9_1d6d_4d92_9ef0_1f89d3db21f4);
-const TX: Uuid = Uuid::from_u128(0x7a78f7ea_1d6d_4d92_9ef0_1f89d3db21f4);
-const STATUS: Uuid = Uuid::from_u128(0x7a78f7eb_1d6d_4d92_9ef0_1f89d3db21f4);
+pub(crate) const SERVICE: Uuid = Uuid::from_u128(0x7a78f7e8_1d6d_4d92_9ef0_1f89d3db21f4);
+pub(crate) const RX: Uuid = Uuid::from_u128(0x7a78f7e9_1d6d_4d92_9ef0_1f89d3db21f4);
+pub(crate) const TX: Uuid = Uuid::from_u128(0x7a78f7ea_1d6d_4d92_9ef0_1f89d3db21f4);
+pub(crate) const STATUS: Uuid = Uuid::from_u128(0x7a78f7eb_1d6d_4d92_9ef0_1f89d3db21f4);
 // Never derived from an incoming message. Safe even if BlueZ broadcasts it.
-const PUBLIC_RESPONSE: &str = r#"{"version":1,"id":"linux-transport-probe","type":"error","ok":false,"error":"linux_transport_probe_only"}"#;
+pub(crate) const PUBLIC_RESPONSE: &str = r#"{"version":1,"id":"linux-transport-probe","type":"error","ok":false,"error":"linux_transport_probe_only"}"#;
+pub(crate) const PUBLIC_RECEIPT: &str = r#"{"type":"linux_transport_probe_receipt","version":1}"#;
 const MAX_WRITE_BYTES: usize = 512;
 const RX_IDLE_MS: i64 = 10_000;
 
@@ -41,6 +42,7 @@ struct Receiver {
     accepted: u64,
     completed: u64,
     rejected: u64,
+    receipts: u64,
 }
 
 impl Receiver {
@@ -96,6 +98,9 @@ impl Receiver {
         self.accepted = self.accepted.saturating_add(1);
         if message.is_some() {
             self.completed = self.completed.saturating_add(1);
+        }
+        if self.notifications && message.as_deref() == Some(PUBLIC_RECEIPT) {
+            self.receipts = self.receipts.saturating_add(1);
         }
         // Drop message contents: do not execute, echo, log or persist them.
         Ok(())
@@ -305,7 +310,7 @@ pub async fn run(adapter_name: &str) -> Result<(), &'static str> {
                 if failed { writer = None; receiver.clear_session(); }
                 receiver.expire_rx_owner(start.elapsed().as_millis() as i64);
                 receiver.frames.clear_expired(start.elapsed().as_millis() as i64);
-                println!("RX totals: accepted={} complete={} rejected={}", receiver.accepted, receiver.completed, receiver.rejected);
+                println!("RX totals: accepted={} complete={} rejected={} public_receipts={}", receiver.accepted, receiver.completed, receiver.rejected, receiver.receipts);
             }
         }
     }
@@ -329,6 +334,30 @@ mod tests {
 
     fn peer(last: u8) -> Address {
         Address::new([0, 0, 0, 0, 0, last])
+    }
+
+    #[test]
+    fn public_receipts_require_complete_fixed_content_and_active_owner() {
+        let mut receiver = Receiver::default();
+        for frame in create_frames(PUBLIC_RECEIPT).unwrap() {
+            receiver.write(peer(1), &frame, 0, false, 0).unwrap();
+        }
+        assert_eq!(receiver.receipts, 0);
+        assert!(receiver.begin_notifications(peer(1), 1));
+        for frame in create_frames("private unrelated content").unwrap() {
+            receiver.write(peer(1), &frame, 0, false, 2).unwrap();
+        }
+        assert_eq!(receiver.receipts, 0);
+        let frames = create_frames(PUBLIC_RECEIPT).unwrap();
+        assert!(receiver.write(peer(2), &frames[0], 0, false, 3).is_err());
+        assert_eq!(receiver.receipts, 0);
+        for frame in frames {
+            receiver.write(peer(1), &frame, 0, false, 4).unwrap();
+        }
+        assert_eq!(receiver.receipts, 1);
+        receiver.clear_session();
+        assert_eq!(receiver.receipts, 1); // Run totals, not retained message contents.
+        assert_eq!(receiver.peer, None);
     }
 
     #[test]

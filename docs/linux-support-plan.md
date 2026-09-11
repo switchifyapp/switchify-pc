@@ -2,7 +2,7 @@
 
 Tracking issue: [#710](https://github.com/switchifyapp/switchify-pc/issues/710) (planning only).
 Source baseline: `d222639`, version `1.0.0-rc.6`.
-Status: proposed implementation sequence; no Linux runtime support is delivered by this document.
+Status: build foundation, setup messaging and opt-in transport probe merged into `linux-support` through #711, #714, #715 and #717. Secure pairing and input remain unavailable. The baseline above describes the original plan, not completion of the implementation.
 
 ## Goal and support boundaries
 
@@ -30,7 +30,9 @@ Static inspection identifies missing runtime and overlay symbols on Linux. The i
 
 ## Ordered implementation milestones
 
-Each milestone becomes a separate implementation issue and focused branch from current `main`, with a draft PR, validation evidence, and independent review under [AGENTS.md](../AGENTS.md). Closing #710 accepts the plan only. Do not treat it as completion of Linux support. Keep Linux disabled for public releases until the release gates pass.
+Remaining milestones use focused issue branches from `linux-support` and PRs targeting `linux-support`, as requested by the user. Each requires validation evidence and independent latest-head review under [AGENTS.md](../AGENTS.md). Keep explicit dependency order between PRs, and do not merge without user approval. Closing #710 accepts the plan only. Do not treat it as completion of Linux support. Keep Linux disabled for public releases until the release gates pass.
+
+Next sequence: qualify bidirectional transport and subscriber isolation (#718 begins with a public-data verifier and recorded evidence), implement the production transport owner, verify persistent credentials, integrate secure pairing, deliver X11 input, complete recovery and desktop integration, then qualify packages and updates. Never connect pairing tokens to the transport before subscriber isolation passes. The first end-to-end checkpoint is discovery → approval → persistence → authentication → supervised input → safe disconnect → restart/reconnect. Wayland qualification remains separate.
 
 ### 1. Establish a Linux build and test baseline
 
