@@ -72,6 +72,11 @@ struct Gate {
     touched: Option<Instant>,
 }
 impl Gate {
+    fn owns_active(&self, active: Option<(Address, u64)>, generation: u64) -> bool {
+        active.is_some_and(|(peer, origin)| {
+            origin == generation && self.generation == origin && self.peer == Some(peer)
+        })
+    }
     fn close(&mut self) {
         self.responses.close();
         self.peer = None;
@@ -558,14 +563,14 @@ async fn run(
                         Command::Approve { id, generation, done } => {
                             // No held input may remain while a native credential call is pending.
                             input.release_all().map_err(|_| ())?;
-                            let outcome = if gate.lock().unwrap().generation != generation || done.is_closed() { Err(ERROR.into()) } else {
-                                approve_inner(app, shared, &gate, &credentials, &id, || done.is_closed()).await
+                            let outcome = if !gate.lock().unwrap().owns_active(active, generation) || done.is_closed() { Err(ERROR.into()) } else {
+                                approve_inner(app, shared, &gate, &credentials, &id, generation, || done.is_closed()).await
                             };
                             if outcome.is_err() { gate.lock().unwrap().close(); }
                             let _ = done.send(outcome);
                         },
                         Command::Reject { id, generation } => {
-                            if gate.lock().unwrap().generation != generation { continue; }
+                            if !gate.lock().unwrap().owns_active(active, generation) { continue; }
                             let response = shared.lock().unwrap().engine.reject_pairing(&id);
                             if let Ok(response) = response {
                                 let generation = gate.lock().unwrap().generation;
@@ -618,13 +623,16 @@ async fn approve_inner(
     gate: &Arc<Mutex<Gate>>,
     credentials: &CredentialWorker,
     id: &str,
+    generation: u64,
     cancelled: impl Fn() -> bool,
 ) -> Result<(), String> {
-    let generation = {
+    {
         let gate = gate.lock().unwrap();
         gate.peer.ok_or(ERROR)?;
-        gate.generation
-    };
+        if gate.generation != generation {
+            return Err(ERROR.into());
+        }
+    }
     let (pending, approval) = {
         let mut data = shared.lock().unwrap();
         let pending = data
@@ -1043,5 +1051,24 @@ mod tests {
         assert_ne!(old, new);
         assert!(gate.enqueue(old, "public stale response").is_err());
         assert!(gate.responses.read(b.0, 0, 517).unwrap().is_empty());
+    }
+
+    #[test]
+    fn approval_after_disconnect_cannot_relabel_old_pending_request_for_replacement_peer() {
+        let mut gate = Gate::default();
+        let a = Address([1; 6]);
+        let b = Address([2; 6]);
+        let original = gate.claim(a).unwrap();
+        let active = Some((a, original)); // Engine pending request belongs to A.
+        assert!(gate.owns_active(active, original));
+        gate.close(); // Engine cleanup has not run yet.
+        let clicked_generation = gate.generation; // UI queues approval of A's old request.
+        gate.claim(b).unwrap(); // B claims before the actor consumes that approval.
+        assert!(!gate.owns_active(active, clicked_generation));
+        assert!(!gate.owns_active(active, original));
+        assert!(!gate.owns_active(None, clicked_generation));
+        assert!(gate.responses.read(b.0, 0, 517).unwrap().is_empty());
+        // Only after actor cleanup and processing B's own first frame may B approve.
+        assert!(gate.owns_active(Some((b, clicked_generation)), clicked_generation));
     }
 }
