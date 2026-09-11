@@ -49,6 +49,19 @@ describe("Switchify PC settings", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
+  it("shows only implemented controls when experimental X11 input is ready", async () => {
+    browserState.capabilities = { ...defaultCapabilities, platform: "linux", cursorOverlay: false };
+    browserState.bluetooth = "advertising";
+    browserState.accessibility = "granted";
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    selectTab("Controls");
+    expect(screen.getByRole("button", { name: "50% pointer speed" })).toBeInTheDocument();
+    for (const name of ["Repeat mouse movement", "Repeat held keys", "Dwell to click"]) expect(screen.queryByRole("checkbox", { name })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Cursor appearance" })).not.toBeInTheDocument();
+  });
+
   it("shows update progress and exposes cancellation in Settings", async () => {
     browserState.updater = { status: "downloading", version: "1.0.0-beta.2", downloadedBytes: 50, totalBytes: 200, error: null, retryAction: null };
     const cancel = vi.spyOn(api, "cancelUpdateDownload").mockResolvedValue(structuredClone(browserState));

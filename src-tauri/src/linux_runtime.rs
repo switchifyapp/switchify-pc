@@ -19,11 +19,15 @@ fn reset_session(shared: &SharedModel) {
 
 pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     reset_session(&shared);
+    if crate::linux_live::requested() {
+        return crate::linux_live::install(app, shared);
+    }
     emit_state(&app, &shared);
     Ok(())
 }
 
 pub fn shutdown(_app: &AppHandle, shared: &SharedModel) {
+    crate::linux_live::shutdown();
     reset_session(shared);
 }
 
@@ -32,17 +36,13 @@ pub fn check_accessibility(
     shared: &SharedModel,
     _prompt: bool,
 ) -> Result<(), String> {
+    if crate::linux_live::requested() {
+        emit_state(app, shared);
+        return Ok(());
+    }
     reset_session(shared);
     emit_state(app, shared);
     Ok(())
-}
-
-pub fn approve_pairing(
-    _app: &AppHandle,
-    _shared: &SharedModel,
-    _request_id: &str,
-) -> Result<(), String> {
-    Err(UNAVAILABLE.into())
 }
 
 pub fn reject_pairing(
@@ -50,10 +50,18 @@ pub fn reject_pairing(
     _shared: &SharedModel,
     _request_id: &str,
 ) -> Result<(), String> {
+    if crate::linux_live::requested() {
+        return crate::linux_live::reject(_request_id);
+    }
     Err(UNAVAILABLE.into())
 }
 
 pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), String> {
+    crate::linux_live::disconnect();
+    if crate::linux_live::requested() {
+        emit_state(app, shared);
+        return Ok(());
+    }
     reset_session(shared);
     emit_state(app, shared);
     Ok(())

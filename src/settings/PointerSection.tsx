@@ -6,7 +6,7 @@ import {
   type SettingsUpdate,
 } from "./controls";
 
-export function PointerSection({ settings, update }: { settings: AppSettings; update: SettingsUpdate }) {
+export function PointerSection({ settings, update, basicOnly = false }: { settings: AppSettings; update: SettingsUpdate; basicOnly?: boolean }) {
   // The presets stop at 100%, so any value above that or off the 5/25/50/75
   // steps is only reachable through the exact-speed select. Reveal it whenever
   // such a value is active, so the control that produced it is never hidden.
@@ -14,7 +14,7 @@ export function PointerSection({ settings, update }: { settings: AppSettings; up
   const [showExact, setShowExact] = useState(!isPreset);
   useEffect(() => { if (!isPreset) setShowExact(true); }, [isPreset]);
   const exactSpeedId = useId();
-  return <SettingGroup title="Controls" description="Pointer movement, scrolling, key repeat, and dwell clicking.">
+  return <SettingGroup title="Controls" description={basicOnly ? "Pointer speed for experimental X11 input." : "Pointer movement, scrolling, key repeat, and dwell clicking."}>
       <fieldset className="pointer-speed"><legend>Pointer speed <strong>{settings.pointerScalePercent}%</strong></legend><div className="segmented compact five">
         {pointerSpeedOptions.map((value) => <button type="button" key={value} aria-label={`${value}% pointer speed`} aria-pressed={settings.pointerScalePercent === value} onClick={() => update("pointerScalePercent", value)}>{value}%</button>)}
       </div><Disclosure label={showExact ? "Hide exact speed" : "Set an exact speed"} expanded={showExact} onToggle={() => setShowExact(!showExact)} controls={exactSpeedId}>
@@ -27,7 +27,8 @@ export function PointerSection({ settings, update }: { settings: AppSettings; up
           </div>
         </div>
       </Disclosure></fieldset>
-      <div className="repeat-settings">
+      {basicOnly && <p>Experimental X11 control supports basic input. Repeat, dwell and cursor overlays are not enabled.</p>}
+      {!basicOnly && <><div className="repeat-settings">
         <Toggle label="Repeat mouse movement" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
         <div className="repeat-options">
           <OptionGroup<number> legend="Movement interval" columns="four" disabled={!settings.mouseRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.moveRepeatIntervalMs} onChange={(next) => update("moveRepeatIntervalMs", next)} />
@@ -50,5 +51,6 @@ export function PointerSection({ settings, update }: { settings: AppSettings; up
             note={{ summary: "After Android pointer movement stops, a countdown appears and performs one left click. Move again to rearm it." }} />
         </div>
       </div>
+      </>}
   </SettingGroup>;
 }
