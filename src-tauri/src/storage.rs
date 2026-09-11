@@ -225,7 +225,75 @@ fn platform_pairing_token_store(state_path: &Path) -> Box<dyn PairingTokenStore>
     ))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(target_os = "linux", test))]
+const LINUX_CREDENTIAL_ERROR: &str = "Linux credential storage is unavailable. Unlock the desktop Secret Service keyring and restart Switchify PC. Saved pairing records have been preserved.";
+
+#[cfg(any(target_os = "linux", test))]
+#[derive(Debug)]
+struct LinuxPairingTokenStore {
+    secure: std::sync::Mutex<Box<dyn PairingTokenStore>>,
+}
+
+#[cfg(any(target_os = "linux", test))]
+impl LinuxPairingTokenStore {
+    fn new(secure: Box<dyn PairingTokenStore>) -> Self {
+        Self {
+            secure: std::sync::Mutex::new(secure),
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+impl PairingTokenStore for LinuxPairingTokenStore {
+    fn save(&self, device_id: &str, token: &str) -> Result<(), String> {
+        if token.is_empty() {
+            return Err(LINUX_CREDENTIAL_ERROR.into());
+        }
+        let secure = self
+            .secure
+            .lock()
+            .map_err(|_| LINUX_CREDENTIAL_ERROR.to_string())?;
+        secure
+            .save(device_id, token)
+            .map_err(|_| LINUX_CREDENTIAL_ERROR.to_string())?;
+        // A successful backend write alone must not acknowledge durable access.
+        // Do not delete on read-back failure: the write may have succeeded and an
+        // existing credential must not be erased by an attempted rollback.
+        match secure.load(device_id) {
+            Ok(Some(stored)) if stored == token => Ok(()),
+            _ => Err(LINUX_CREDENTIAL_ERROR.into()),
+        }
+    }
+
+    fn load(&self, device_id: &str) -> Result<Option<String>, String> {
+        let secure = self
+            .secure
+            .lock()
+            .map_err(|_| LINUX_CREDENTIAL_ERROR.to_string())?;
+        match secure.load(device_id) {
+            Ok(Some(token)) if token.is_empty() => Err(LINUX_CREDENTIAL_ERROR.into()),
+            Ok(token) => Ok(token),
+            Err(_) => Err(LINUX_CREDENTIAL_ERROR.into()),
+        }
+    }
+
+    fn delete(&self, device_id: &str) -> Result<(), String> {
+        self.secure
+            .lock()
+            .map_err(|_| LINUX_CREDENTIAL_ERROR.to_string())?
+            .delete(device_id)
+            .map_err(|_| LINUX_CREDENTIAL_ERROR.to_string())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn platform_pairing_token_store(_state_path: &Path) -> Box<dyn PairingTokenStore> {
+    Box::new(LinuxPairingTokenStore::new(
+        Box::<KeyringPairingTokenStore>::default(),
+    ))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn platform_pairing_token_store(_state_path: &Path) -> Box<dyn PairingTokenStore> {
     Box::<KeyringPairingTokenStore>::default()
 }
@@ -490,6 +558,107 @@ mod tests {
             path: std::env::temp_dir().join(format!("switchify-{}.json", uuid::Uuid::new_v4())),
             pairing_tokens,
         }
+    }
+
+    #[test]
+    fn linux_credentials_verify_writes_and_allow_recreated_adapter_reads() {
+        let secure = SharedPairingTokenStore::default();
+        let store = LinuxPairingTokenStore::new(Box::new(secure.clone()));
+        store.save("device", "test-token").unwrap();
+        drop(store);
+        let restored = LinuxPairingTokenStore::new(Box::new(secure));
+        assert_eq!(
+            restored.load("device").unwrap().as_deref(),
+            Some("test-token")
+        );
+        restored.delete("device").unwrap();
+        restored.delete("device").unwrap();
+        assert_eq!(restored.load("device").unwrap(), None);
+    }
+
+    #[test]
+    fn linux_credentials_fail_closed_without_raw_errors_or_destructive_rollback() {
+        let secure = SharedPairingTokenStore::default();
+        let store = LinuxPairingTokenStore::new(Box::new(secure.clone()));
+        store.save("device", "test-token").unwrap();
+        secure.set_failure("save", true);
+        assert_eq!(
+            store.save("device", "replacement").unwrap_err(),
+            LINUX_CREDENTIAL_ERROR
+        );
+        assert_eq!(secure.token("device").as_deref(), Some("test-token"));
+        secure.set_failure("save", false);
+        secure.set_failure("load", true);
+        assert_eq!(store.load("device").unwrap_err(), LINUX_CREDENTIAL_ERROR);
+        assert_eq!(
+            store.save("device", "replacement").unwrap_err(),
+            LINUX_CREDENTIAL_ERROR
+        );
+        assert_eq!(secure.token("device").as_deref(), Some("replacement"));
+        secure.set_failure("load", false);
+        assert_eq!(
+            store.load("device").unwrap().as_deref(),
+            Some("replacement")
+        );
+        secure.set_failure("delete", true);
+        assert_eq!(store.delete("device").unwrap_err(), LINUX_CREDENTIAL_ERROR);
+        assert_eq!(secure.token("device").as_deref(), Some("replacement"));
+    }
+
+    #[test]
+    fn linux_credentials_reject_corrupt_readback_and_empty_tokens() {
+        let secure = SharedPairingTokenStore::default();
+        let store = LinuxPairingTokenStore::new(Box::new(secure.clone()));
+        assert!(store.save("device", "").is_err());
+        assert_eq!(secure.token("device"), None);
+        secure.set_corrupt_save(true);
+        assert_eq!(
+            store.save("device", "test-token").unwrap_err(),
+            LINUX_CREDENTIAL_ERROR
+        );
+        secure.set_corrupt_save(false);
+        secure.save("device", "").unwrap();
+        assert_eq!(store.load("device").unwrap_err(), LINUX_CREDENTIAL_ERROR);
+    }
+
+    #[test]
+    fn linux_storage_failure_preserves_metadata_and_restores_after_recovery() {
+        let secure = SharedPairingTokenStore::default();
+        secure.save("device", "test-token").unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "switchify-linux-credentials-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let storage = AppStorage {
+            path: root.join(STATE_FILE),
+            pairing_tokens: Box::new(LinuxPairingTokenStore::new(Box::new(secure.clone()))),
+        };
+        storage
+            .save(&PersistedState {
+                paired_devices: vec![PairedDeviceView {
+                    device_id: "device".into(),
+                    device_name: "Test phone".into(),
+                    paired_at: 1,
+                    last_seen_at: None,
+                }],
+                ..PersistedState::default()
+            })
+            .unwrap();
+        secure.set_failure("load", true);
+        let model = crate::state::AppModel::with_storage_for_test(storage);
+        assert!(model.snapshot().paired_devices.is_empty());
+        model
+            .persist_settings(&crate::state::AppSettings::default())
+            .unwrap();
+        assert_eq!(model.storage.load().unwrap().paired_devices.len(), 1);
+        secure.set_failure("load", false);
+        let restored = crate::state::AppModel::with_storage_for_test(model.storage);
+        assert_eq!(restored.snapshot().paired_devices.len(), 1);
+        assert_eq!(
+            restored.shared.lock().unwrap().engine.token_for("device"),
+            Some("test-token")
+        );
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
