@@ -4,6 +4,7 @@ src-tauri/target/
 src-tauri/binaries/
 src-tauri/startup-launcher/target/
 tools/updater-signature-verifier/target/
+tools/linux-ble-probe/target/
 src-tauri/gen/
 .certs/
 .env

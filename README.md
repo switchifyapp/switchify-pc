@@ -70,6 +70,8 @@ after any profile-edit confirmation. Tray/background behavior and Linux installe
 are deferred until qualified. CI builds and tests on Ubuntu without injecting input;
 physical Bluetooth and graphical session testing are still required before support
 can be enabled. The next implementation milestone is BlueZ peripheral interoperability.
+An opt-in [BlueZ transport probe](docs/linux-bluez-probe.md) is available for that
+hardware investigation; it does not enable pairing or input in the desktop app.
 
 ### Repository validation
 
