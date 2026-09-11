@@ -12,6 +12,15 @@ mod grid3;
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 mod input;
 #[cfg(target_os = "linux")]
+// Prepared for runtime integration; not started by the unavailable Linux runtime.
+#[allow(dead_code)]
+mod linux_credential_worker;
+#[cfg(target_os = "linux")]
+mod linux_live;
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+mod linux_read_responses;
+#[cfg(target_os = "linux")]
 mod linux_runtime;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -43,14 +52,13 @@ mod windows_startup;
 
 #[cfg(target_os = "linux")]
 use linux_runtime::{
-    approve_pairing as platform_approve_pairing,
     check_accessibility as platform_check_accessibility, disconnect_all as platform_disconnect_all,
     install as platform_install, reject_pairing as platform_reject_pairing,
     shutdown as platform_shutdown,
 };
-use state::{
-    snapshot, ActivityKind, AppModel, AppSettings, AppState, PairedDeviceView, SwitchProfile,
-};
+#[cfg(not(target_os = "linux"))]
+use state::PairedDeviceView;
+use state::{snapshot, ActivityKind, AppModel, AppSettings, AppState, SwitchProfile};
 use std::sync::Mutex;
 use tauri::menu::MenuItem;
 #[cfg(not(target_os = "linux"))]
@@ -298,48 +306,56 @@ async fn approve_pairing(
     model: State<'_, AppModel>,
     request_id: String,
 ) -> Result<AppState, String> {
-    let pending = model
-        .snapshot()
-        .pending_pairings
-        .into_iter()
-        .find(|pending| pending.request_id == request_id)
-        .ok_or_else(|| "Pairing request is no longer pending.".to_string())?;
-    let shared = model.shared.clone();
-    let operation_app = app.clone();
-    on_main_thread(app, move || {
-        platform_approve_pairing(&operation_app, &shared, &request_id)
-    })
-    .await?;
-    let token = {
-        let data = model
-            .shared
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        data.engine
-            .token_for(&pending.device_id)
-            .ok_or_else(|| "Pairing token was not created.".to_string())?
-            .to_owned()
-    };
-    model
-        .storage
-        .save_pairing_token(&pending.device_id, &token)?;
+    #[cfg(target_os = "linux")]
     {
-        let mut data = model
-            .shared
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        data.state
-            .paired_devices
-            .retain(|device| device.device_id != pending.device_id);
-        data.state.paired_devices.push(PairedDeviceView {
-            device_id: pending.device_id,
-            device_name: pending.device_name,
-            paired_at: state::now_ms(),
-            last_seen_at: None,
-        });
+        let _ = model;
+        linux_live::approve(&app, request_id).await
     }
-    model.persist()?;
-    Ok(model.snapshot())
+    #[cfg(not(target_os = "linux"))]
+    {
+        let pending = model
+            .snapshot()
+            .pending_pairings
+            .into_iter()
+            .find(|pending| pending.request_id == request_id)
+            .ok_or_else(|| "Pairing request is no longer pending.".to_string())?;
+        let shared = model.shared.clone();
+        let operation_app = app.clone();
+        on_main_thread(app, move || {
+            platform_approve_pairing(&operation_app, &shared, &request_id)
+        })
+        .await?;
+        let token = {
+            let data = model
+                .shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            data.engine
+                .token_for(&pending.device_id)
+                .ok_or_else(|| "Pairing token was not created.".to_string())?
+                .to_owned()
+        };
+        model
+            .storage
+            .save_pairing_token(&pending.device_id, &token)?;
+        {
+            let mut data = model
+                .shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            data.state
+                .paired_devices
+                .retain(|device| device.device_id != pending.device_id);
+            data.state.paired_devices.push(PairedDeviceView {
+                device_id: pending.device_id,
+                device_name: pending.device_name,
+                paired_at: state::now_ms(),
+                last_seen_at: None,
+            });
+        }
+        model.persist()?;
+        Ok(model.snapshot())
+    }
 }
 
 #[tauri::command]
@@ -430,7 +446,16 @@ fn modifier_overlay_present(
 }
 
 #[tauri::command]
-fn forget_device(model: State<'_, AppModel>, device_id: String) -> Result<AppState, String> {
+async fn forget_device(
+    app: AppHandle,
+    model: State<'_, AppModel>,
+    device_id: String,
+) -> Result<AppState, String> {
+    #[cfg(target_os = "linux")]
+    if linux_live::requested() {
+        return linux_live::forget(&app, device_id).await;
+    }
+    let _ = app;
     {
         let mut data = model
             .shared

@@ -205,6 +205,14 @@ pub struct ProtocolEngine {
     connection_order: u64,
 }
 
+// Intentionally not Debug: approval contains credential material. Linux saves
+// this before activating it or publishing its response.
+pub struct PreparedPairing {
+    pub device_id: String,
+    pub token: String,
+    pub response: String,
+}
+
 impl ProtocolEngine {
     pub fn new(desktop_id: String) -> Self {
         Self {
@@ -283,6 +291,16 @@ impl ProtocolEngine {
     }
 
     pub fn approve_pairing(&mut self, request_id: &str, now_ms: i64) -> Result<String, String> {
+        let approval = self.prepare_pairing(request_id, now_ms)?;
+        self.tokens.insert(approval.device_id, approval.token);
+        Ok(approval.response)
+    }
+
+    pub fn prepare_pairing(
+        &mut self,
+        request_id: &str,
+        now_ms: i64,
+    ) -> Result<PreparedPairing, String> {
         let pending = self
             .pending_pairings
             .remove(request_id)
@@ -294,8 +312,7 @@ impl ProtocolEngine {
         let mut token_bytes = [0_u8; 32];
         OsRng.fill_bytes(&mut token_bytes);
         let token = general_purpose::URL_SAFE_NO_PAD.encode(token_bytes);
-        self.tokens.insert(pending.device_id.clone(), token.clone());
-        Ok(json!({
+        let response = json!({
             "version": PROTOCOL_VERSION,
             "id": pending.request_id,
             "type": "pairing.complete",
@@ -307,7 +324,12 @@ impl ProtocolEngine {
             },
             "error": Value::Null
         })
-        .to_string())
+        .to_string();
+        Ok(PreparedPairing {
+            device_id: pending.device_id,
+            token,
+            response,
+        })
     }
 
     pub fn reject_pairing(&mut self, request_id: &str) -> Result<String, String> {
@@ -1679,6 +1701,25 @@ mod tests {
             .approve_pairing("pair-1", NOW + PAIRING_TIMEOUT_MS)
             .is_err());
         assert!(expired.pending_pairings().is_empty());
+    }
+
+    #[test]
+    fn prepared_pairing_does_not_activate_credentials_before_persistence() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine
+            .process_message(
+                &pairing_request("pair-1", "android-1", "Phone", "nonce-1").to_string(),
+                NOW,
+            )
+            .unwrap();
+        let approval = engine.prepare_pairing("pair-1", NOW + 1).unwrap();
+        assert!(engine.token_for("android-1").is_none());
+        assert!(engine.pending_pairings().is_empty());
+        let response: Value = serde_json::from_str(&approval.response).unwrap();
+        assert_eq!(response["payload"]["token"], approval.token);
+        assert_eq!(approval.token.len(), 43);
+        engine.set_paired_token(approval.device_id, approval.token);
+        assert!(engine.token_for("android-1").is_some());
     }
 
     #[test]

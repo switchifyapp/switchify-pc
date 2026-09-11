@@ -58,7 +58,7 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
       {active === "general" && <GeneralSection settings={settings} update={update} />}
       {active === "pointer" && (linuxInputUnavailable(state)
         ? <SettingGroup title="Controls" description={linuxInputDescription}><p>Settings will become available when Linux input support is enabled.</p></SettingGroup>
-        : <PointerSection settings={settings} update={update} />)}
+        : <PointerSection settings={settings} update={update} basicOnly={state.capabilities.platform === "linux"} />)}
       {active === "cursor" && <CursorSection settings={settings} update={update} />}
       {active === "privacy" && <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />}
       {active === "updates" && <UpdatesSection state={state} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />}
