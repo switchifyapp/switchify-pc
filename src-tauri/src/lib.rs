@@ -1224,6 +1224,24 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+// tao tracks focus with a flag flipped by WM_SETFOCUS and WM_KILLFOCUS on the
+// top-level window, but keyboard focus lives in the WebView2 child, so after the
+// first click inside the page `is_focused` stays false while the app is plainly
+// in front. Ask the shell which window is in the foreground instead.
+fn main_window_focused(window: &tauri::WebviewWindow) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+        // SAFETY: GetForegroundWindow takes no arguments and only reads shell state.
+        let foreground = unsafe { GetForegroundWindow() };
+        Ok(foreground as isize == hwnd.0 as isize)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        window.is_focused().map_err(|e| e.to_string())
+    }
+}
 fn require_main(window: &tauri::WebviewWindow) -> Result<(), String> {
     if window.label() != "main" {
         return Err("Switch settings are available only in the main window.".into());
@@ -1260,7 +1278,7 @@ fn begin_switch_capture(
     if app.state::<point_scan_runtime::Controller>().view().enabled {
         return Err("Disable scanning before learning a switch.".into());
     }
-    if !window.is_focused().map_err(|e| e.to_string())? {
+    if !main_window_focused(&window)? {
         return Err("Focus Switchify PC before learning a switch.".into());
     }
     point_scan_prepare(&app)?;
