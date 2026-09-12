@@ -7,7 +7,7 @@ use serde::Serialize;
 use std::{
     cell::RefCell,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Mutex,
     },
     time::Instant,
@@ -18,6 +18,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 thread_local! {static HOST:RefCell<Option<Host>>=const{RefCell::new(None)};}
 pub struct Controller {
     enabled: AtomicBool,
+    generation: AtomicU64,
     data: Mutex<Data>,
 }
 struct Data {
@@ -49,6 +50,7 @@ impl Controller {
             .unwrap_or_default();
         Self {
             enabled: AtomicBool::new(false),
+            generation: AtomicU64::new(0),
             data: Mutex::new(Data {
                 config,
                 engine: None,
@@ -92,6 +94,7 @@ pub fn cancel(app: &AppHandle) {
 fn disable(app: &AppHandle, message: &str) {
     let c = app.state::<Controller>();
     c.enabled.store(false, Ordering::SeqCst);
+    c.generation.fetch_add(1, Ordering::SeqCst);
     let keys = {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
         d.engine = None;
@@ -112,6 +115,7 @@ fn disable(app: &AppHandle, message: &str) {
 }
 pub fn configure(app: &AppHandle, config: Config, enabled: bool) -> Result<View, String> {
     config.validate()?;
+    let path = config_path(app)?;
     disable(app, "Point scan is off.");
     if enabled {
         crate::point_scan_prepare(app)?;
@@ -121,13 +125,21 @@ pub fn configure(app: &AppHandle, config: Config, enabled: bool) -> Result<View,
             }
             Ok::<_, String>(())
         })?;
+        let generation = app.state::<Controller>().generation.load(Ordering::SeqCst);
         for (index, key) in config.keys().iter().enumerate() {
             if let Err(error) = app
                 .global_shortcut()
                 .on_shortcut(*key, move |app, _, event| {
                     let handle = app.clone();
                     let _ = app.run_on_main_thread(move || {
-                        switch(&handle, index, event.state == ShortcutState::Pressed)
+                        if handle
+                            .state::<Controller>()
+                            .generation
+                            .load(Ordering::SeqCst)
+                            == generation
+                        {
+                            switch(&handle, index, event.state == ShortcutState::Pressed);
+                        }
                     });
                 })
             {
@@ -142,7 +154,6 @@ pub fn configure(app: &AppHandle, config: Config, enabled: bool) -> Result<View,
                 .push((*key).into());
         }
     }
-    let path = config_path(app)?;
     let save = || -> Result<(), String> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;

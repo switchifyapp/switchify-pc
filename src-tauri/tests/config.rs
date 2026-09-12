@@ -81,6 +81,8 @@ fn main_window_has_application_commands_and_core_defaults() {
     assert!(permissions.contains(&"core:default"));
     for permission in [
         "allow-get-app-state",
+        "allow-get-point-scan",
+        "allow-configure-point-scan",
         "allow-approve-pairing",
         "allow-save-settings",
         "allow-list-switch-profiles",
@@ -111,6 +113,8 @@ fn modifier_overlay_cannot_invoke_sensitive_application_commands() {
     let overlay = capability(include_str!("../capabilities/modifier-overlay.json"));
     let permissions = permission_names(&overlay);
     for denied in [
+        "allow-get-point-scan",
+        "allow-configure-point-scan",
         "allow-save-settings",
         "allow-approve-pairing",
         "allow-reject-pairing",

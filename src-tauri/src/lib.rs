@@ -1257,7 +1257,11 @@ fn point_scan_click(app: &AppHandle, point: (i32, i32)) -> Result<(), String> {
     // Reuse the production input adapter, independent of Bluetooth availability.
     let injector = enigo::Enigo::new(&enigo::Settings::default())
         .map_err(|_| "Point scan input could not be initialized.".to_string())?;
-    point_scan::click(&mut input::DesktopInput::new(injector), point)
+    point_scan::click(
+        &mut input::DesktopInput::new(injector),
+        point,
+        point_scan_host::modifiers_released(),
+    )
 }
 
 pub fn run() {

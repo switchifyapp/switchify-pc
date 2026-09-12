@@ -159,3 +159,22 @@ mod platform {
     }
 }
 pub use platform::Host;
+
+pub fn modifiers_released() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        [0x10, 0x11, 0x12, 0x5B, 0x5C].iter().all(|key| unsafe {
+            windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(*key) >= 0
+        })
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::{NSEvent, NSEventModifierFlags as Flags};
+        !NSEvent::modifierFlags_class()
+            .intersects(Flags::Shift | Flags::Control | Flags::Option | Flags::Command)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        false
+    }
+}
