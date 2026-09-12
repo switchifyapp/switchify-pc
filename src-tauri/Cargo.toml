@@ -26,7 +26,8 @@ serde_json = "1"
 sha2 = "0.10"
 tauri = { version = "2.11.5", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-autostart = "2.5.1"
-tauri-plugin-global-shortcut = "2"
+usahp-daemon = { git = "https://github.com/usahp/usahp-core", rev = "af823e1ca58eaceafe0dcfa2908d6c90b526ee13" }
+usahp-core = { git = "https://github.com/usahp/usahp-core", rev = "af823e1ca58eaceafe0dcfa2908d6c90b526ee13" }
 tauri-plugin-single-instance = "2.4.3"
 tauri-plugin-updater = "2.10.1"
 tiny-skia = "0.11.4"
@@ -39,7 +40,7 @@ corebluetooth-rs = "=0.3.6"
 core-graphics = { version = "0.25", features = ["highsierra"] }
 libc = "0.2"
 objc2 = "0.6.4"
-objc2-app-kit = { version = "0.3.2", features = ["NSBitmapImageRep", "NSColor", "NSControl", "NSEvent", "NSGraphics", "NSImage", "NSImageRep", "NSImageView", "NSPanel", "NSResponder", "NSScreen", "NSView", "NSWindow", "NSWorkspace", "objc2-core-foundation"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSBitmapImageRep", "NSColor", "NSControl", "NSEvent", "NSGraphics", "NSImage", "NSImageRep", "NSImageView", "NSPanel", "NSTextField", "NSFont", "NSResponder", "NSScreen", "NSView", "NSWindow", "NSWorkspace", "objc2-core-foundation"] }
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["CGEventSource", "CGEventTypes"] }
 objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSGeometry", "NSHost", "NSNotification", "NSObject", "NSOperation", "NSString", "NSThread", "NSURL", "block2"] }
 

@@ -23,6 +23,9 @@ mod scanning;
 mod scanning_runtime;
 mod state;
 mod storage;
+mod switch_gestures;
+mod switch_runtime;
+mod switches;
 mod telemetry;
 mod updater;
 #[cfg(target_os = "windows")]
@@ -205,6 +208,7 @@ pub(crate) fn sync_tray_state(app: &AppHandle, state: &AppState) {
 }
 
 fn finish_app_exit(app: &AppHandle) {
+    app.state::<switch_runtime::Controller>().shutdown();
     scanning_runtime::cancel(app);
     app.state::<dwell::DwellController>().cancel(app);
     let model = app.state::<AppModel>();
@@ -1219,6 +1223,60 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+fn require_main(window: &tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Switch settings are available only in the main window.".into());
+    }
+    Ok(())
+}
+#[tauri::command]
+fn get_switches(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+) -> Result<switch_runtime::View, String> {
+    require_main(&window)?;
+    Ok(app.state::<switch_runtime::Controller>().view())
+}
+#[tauri::command]
+fn save_switches(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    settings: switches::Settings,
+) -> Result<switch_runtime::View, String> {
+    require_main(&window)?;
+    if app.state::<point_scan_runtime::Controller>().view().enabled {
+        return Err("Disable scanning before editing switches.".into());
+    }
+    app.state::<switch_runtime::Controller>()
+        .save(&app, settings)
+}
+#[tauri::command]
+fn begin_switch_capture(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+) -> Result<switch_runtime::View, String> {
+    require_main(&window)?;
+    if app.state::<point_scan_runtime::Controller>().view().enabled {
+        return Err("Disable scanning before learning a switch.".into());
+    }
+    if !window.is_focused().map_err(|e| e.to_string())? {
+        return Err("Focus Switchify PC before learning a switch.".into());
+    }
+    point_scan_prepare(&app)?;
+    app.state::<switch_runtime::Controller>()
+        .begin_capture(&app)
+}
+#[tauri::command]
+fn cancel_switch_capture(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+) -> Result<switch_runtime::View, String> {
+    require_main(&window)?;
+    let controller = app.state::<switch_runtime::Controller>();
+    controller.cancel_capture(&app);
+    Ok(controller.view())
+}
+
 #[tauri::command]
 fn get_point_scan(
     controller: State<'_, point_scan_runtime::Controller>,
@@ -1286,7 +1344,6 @@ pub fn run() {
     let overlay_shared = shared.clone();
     let modifier_overlay_shared = shared.clone();
     tauri::Builder::default()
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
             if has_start_hidden_argument(&args) {
                 return;
@@ -1307,6 +1364,7 @@ pub fn run() {
         .manage(PendingProfileExit::default())
         .manage(PendingNavigation::default())
         .setup(move |app| {
+            switch_runtime::install(app.handle());
             point_scan_runtime::install(app.handle());
             install_tray(app)?;
             if updater_is_configured(app.config().plugins.0.get("updater")) {
@@ -1376,6 +1434,12 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Focused(false)) {
+                window
+                    .app_handle()
+                    .state::<switch_runtime::Controller>()
+                    .cancel_capture(window.app_handle());
+            }
             #[cfg(target_os = "macos")]
             if window.label() == "main" && matches!(event, tauri::WindowEvent::Focused(true)) {
                 let model = window.app_handle().state::<AppModel>();
@@ -1391,6 +1455,10 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            get_switches,
+            save_switches,
+            begin_switch_capture,
+            cancel_switch_capture,
             get_point_scan,
             configure_point_scan,
             get_app_state,

@@ -1,7 +1,7 @@
 //! Shared desktop scan controller. Adapters supply configuration, environment and activation.
 use crate::{
     scan_host::Host,
-    scanning::{Action, Session, SwitchInput, SwitchSettings, Technique, TICK_MS},
+    scanning::{Action, Session, SwitchSettings, Technique, TICK_MS},
 };
 use serde::{de::DeserializeOwned, Serialize};
 pub trait Adapter: Send + Sync + 'static {
@@ -27,6 +27,7 @@ pub trait Adapter: Send + Sync + 'static {
     ) -> Result<(), String>;
 }
 
+use crate::{switch_gestures::Gestures, switch_runtime, switches::Settings};
 use std::{
     cell::RefCell,
     sync::{
@@ -36,9 +37,9 @@ use std::{
     time::Instant,
 };
 use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use usahp_daemon::embedded::Event;
 
-thread_local! {static HOST:RefCell<Option<Host>>=const{RefCell::new(None)};}
+thread_local! {static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)};}
 pub struct Controller<A: Adapter> {
     enabled: AtomicBool,
     generation: AtomicU64,
@@ -48,8 +49,9 @@ struct Data<A: Adapter> {
     config: A::Config,
     engine: Option<Session<A::Technique>>,
     display: Option<A::Environment>,
-    registered: Vec<String>,
-    pressed: SwitchInput,
+    pressed: Gestures,
+    switches: Settings,
+    input_generation: u64,
     last_tick: Instant,
     message: String,
 }
@@ -78,8 +80,9 @@ impl<A: Adapter> Controller<A> {
                 config,
                 engine: None,
                 display: None,
-                registered: vec![],
-                pressed: SwitchInput::default(),
+                pressed: Gestures::default(),
+                switches: Settings::default(),
+                input_generation: 0,
                 last_tick: Instant::now(),
                 message: "Scanning is off.".into(),
             }),
@@ -140,22 +143,20 @@ fn disable<A: Adapter>(app: &AppHandle, message: &str) {
     let c = app.state::<Controller<A>>();
     c.enabled.store(false, Ordering::SeqCst);
     c.generation.fetch_add(1, Ordering::SeqCst);
-    let keys = {
+    {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
         d.engine = None;
         d.display = None;
-        d.pressed.reset();
+        d.pressed.cancel();
         d.message = message.into();
-        std::mem::take(&mut d.registered)
-    };
-    for key in keys {
-        let _ = app.global_shortcut().unregister(key.as_str());
     }
+    app.state::<switch_runtime::Controller>().stop();
     HOST.with(|host| {
         if let Some(host) = host.borrow_mut().as_mut() {
             host.hide();
         }
     });
+    hide_prompt();
     publish::<A>(app);
 }
 pub fn configure<A: Adapter>(
@@ -178,38 +179,8 @@ pub fn configure<A: Adapter>(
             }
             Ok::<_, String>(())
         })?;
-        for (index, key) in A::switches(&config).keys().iter().enumerate() {
-            if let Err(error) = app
-                .global_shortcut()
-                .on_shortcut(*key, move |app, _, event| {
-                    let handle = app.clone();
-                    let _ = app.run_on_main_thread(move || {
-                        if handle
-                            .state::<Controller<A>>()
-                            .generation
-                            .load(Ordering::SeqCst)
-                            == generation
-                        {
-                            switch::<A>(
-                                &handle,
-                                generation,
-                                index,
-                                event.state == ShortcutState::Pressed,
-                            );
-                        }
-                    });
-                })
-            {
-                disable::<A>(app, "A switch key is already in use. Choose another key.");
-                return Err(format!("Could not reserve {key}: {error}"));
-            }
-            app.state::<Controller<A>>()
-                .data
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .registered
-                .push((*key).into());
-        }
+        app.state::<switch_runtime::Controller>()
+            .enable(A::switches(&config).automatic)?;
     }
     let save = || -> Result<(), String> {
         if let Some(parent) = path.parent() {
@@ -229,6 +200,9 @@ pub fn configure<A: Adapter>(
     {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
         d.config = config;
+        d.switches = app.state::<switch_runtime::Controller>().settings();
+        d.pressed = Gestures::default();
+        d.input_generation = app.state::<switch_runtime::Controller>().generation();
         d.message = if enabled {
             "Ready. Press the select switch to begin."
         } else {
@@ -244,27 +218,16 @@ pub fn configure<A: Adapter>(
     publish::<A>(app);
     Ok(c.view())
 }
-fn switch<A: Adapter>(app: &AppHandle, generation: u64, index: usize, pressed: bool) {
+fn switch<A: Adapter>(app: &AppHandle, action: Action) {
     let c = app.state::<Controller<A>>();
     if !c.enabled.load(Ordering::SeqCst) {
         return;
     }
-    let action = {
-        let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
-        d.pressed.event(
-            c.generation.load(Ordering::SeqCst),
-            generation,
-            index,
-            pressed,
-        )
-    };
-    let Some(action) = action else {
-        return;
-    };
     if action == Action::Cancel {
         disable::<A>(app, "Scanning cancelled. Switch keys released.");
         return;
     }
+    hide_prompt();
     let result = (|| -> Result<(), String> {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
         if d.engine.as_ref().is_none_or(|e| !e.active()) && action == Action::Select {
@@ -313,6 +276,42 @@ fn render<A: Adapter>(app: &AppHandle) -> Result<(), String> {
 }
 fn tick<A: Adapter>(app: &AppHandle) {
     let c = app.state::<Controller<A>>();
+    let (events, now_ms, _) = app.state::<switch_runtime::Controller>().poll(app);
+    for event in events {
+        if !c.enabled.load(Ordering::SeqCst) {
+            break;
+        }
+        match event {
+            Event::Stopped { reason, .. } => {
+                disable::<A>(app, switch_runtime::stop_message(reason));
+                return;
+            }
+            Event::Switch {
+                generation,
+                switch_id,
+                action,
+                monotonic_ms,
+            } => {
+                let selected = {
+                    let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+                    if generation != d.input_generation {
+                        continue;
+                    }
+                    if action == usahp_core::Action::Pressed {
+                        let settings = d.switches.clone();
+                        d.pressed.pressed(&switch_id, monotonic_ms, &settings);
+                        None
+                    } else {
+                        d.pressed.released(&switch_id, monotonic_ms)
+                    }
+                };
+                if let Some(action) = selected {
+                    switch::<A>(app, action);
+                }
+            }
+            _ => {}
+        }
+    }
     if !c.enabled.load(Ordering::SeqCst) {
         return;
     }
@@ -328,11 +327,13 @@ fn tick<A: Adapter>(app: &AppHandle) {
         let now = Instant::now();
         let elapsed = now.duration_since(d.last_tick).as_millis() as u64;
         d.last_tick = now;
-        let held = d.pressed.selecting();
+        let held = d.pressed.held();
+        let prompt = d.pressed.prompt(now_ms);
         if let Some(engine) = d.engine.as_mut() {
             engine.tick(elapsed, held);
         }
         drop(d);
+        show_prompt(app, prompt.as_ref())?;
         render::<A>(app)
     })();
     if let Err(error) = result {
@@ -362,4 +363,53 @@ pub fn install<A: Adapter>(app: &AppHandle) {
             }
         }
     });
+}
+
+fn hide_prompt() {
+    PROMPT.with(|p| {
+        if let Some(host) = p.borrow_mut().as_mut() {
+            host.hide();
+        }
+    });
+}
+fn show_prompt(
+    app: &AppHandle,
+    prompt: Option<&crate::switch_gestures::Prompt>,
+) -> Result<(), String> {
+    let Some(prompt) = prompt else {
+        hide_prompt();
+        return Ok(());
+    };
+    let (cursor, displays) = crate::display_navigation::displays(app).map_err(|e| e.message)?;
+    let display = crate::display_navigation::current_display(cursor, &displays)
+        .ok_or("No display for the switch prompt.")?;
+    let scale = if cfg!(target_os = "windows") {
+        display.scale_factor
+    } else {
+        1.0
+    };
+    let width = (720.0 * scale)
+        .min(f64::from(display.width) - 32.0 * scale)
+        .max(1.0);
+    let rect = crate::scanning::Rect {
+        x: f64::from(display.x) + (f64::from(display.width) - width) / 2.0,
+        y: f64::from(display.y) + 20.0 * scale,
+        width,
+        height: 64.0 * scale,
+    };
+    PROMPT.with(|p| {
+        let mut p = p.borrow_mut();
+        if p.is_none() {
+            *p = Some(Host::new()?);
+        }
+        p.as_mut().unwrap().prompt(
+            &format!(
+                "Release {} for {}",
+                prompt.switch_name,
+                prompt.action.label()
+            ),
+            rect,
+            scale,
+        )
+    })
 }

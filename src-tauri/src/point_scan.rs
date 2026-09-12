@@ -176,7 +176,8 @@ impl Engine {
                 self.direction = if action == Action::Next { 1.0 } else { -1.0 };
                 self.step(TICK_MS);
             }
-            Action::Pause | Action::Cancel => {}
+            Action::Reverse => self.direction = -self.direction,
+            Action::Pause | Action::Stop | Action::Cancel => {}
         }
         None
     }

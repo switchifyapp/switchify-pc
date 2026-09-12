@@ -277,6 +277,20 @@ impl AppStorage {
         }
     }
 
+    /// Atomically replace switch assignments using the same platform semantics as app state.
+    pub(crate) fn write_switch_settings(
+        path: &std::path::Path,
+        settings: &crate::switches::Settings,
+    ) -> Result<(), String> {
+        let temp = path.with_extension("json.tmp");
+        std::fs::write(
+            &temp,
+            serde_json::to_vec_pretty(settings).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        replace_file(&temp, path).map_err(|e| e.to_string())
+    }
+
     #[cfg(test)]
     pub fn at(path: PathBuf) -> Self {
         let pairing_tokens = platform_pairing_token_store(&path);

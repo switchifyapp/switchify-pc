@@ -6,6 +6,10 @@
   "permissions": [
     "core:default",
     "allow-get-app-state",
+    "allow-get-switches",
+    "allow-save-switches",
+    "allow-begin-switch-capture",
+    "allow-cancel-switch-capture",
     "allow-get-point-scan",
     "allow-configure-point-scan",
     "allow-check-accessibility",

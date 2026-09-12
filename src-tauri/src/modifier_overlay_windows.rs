@@ -579,6 +579,32 @@ fn copy_rgba_to_bgra(source: &[u8], target: &mut [u8]) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn present_scan_prompt(
+    window: HWND,
+    text: &str,
+    x: i32,
+    y: i32,
+    width: i32,
+    scale: f64,
+) -> Result<(), String> {
+    let padding = (12.0 * scale).round() as i32;
+    let height = (64.0 * scale).round() as i32;
+    let layout = Layout {
+        x,
+        y,
+        width,
+        height,
+        scale,
+        chips: vec![RECT {
+            left: padding,
+            top: padding,
+            right: width - padding,
+            bottom: height - padding,
+        }],
+    };
+    present(window, &[text.to_string()], &layout)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

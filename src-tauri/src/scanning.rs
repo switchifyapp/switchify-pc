@@ -4,21 +4,30 @@ use serde::{Deserialize, Serialize};
 pub const TICK_MS: u64 = 33;
 pub const MAX_ELAPSED_MS: u64 = 250;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Action {
     Select,
     Next,
     Back,
     Pause,
+    Reverse,
+    Stop,
     Cancel,
 }
-pub const ACTIONS: [Action; 5] = [
-    Action::Select,
-    Action::Next,
-    Action::Back,
-    Action::Pause,
-    Action::Cancel,
-];
+impl Action {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Select => "Select",
+            Self::Next => "Next",
+            Self::Back => "Previous",
+            Self::Pause => "Pause / resume",
+            Self::Reverse => "Reverse direction",
+            Self::Stop => "Stop scanning",
+            Self::Cancel => "Disable scanning",
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -116,37 +125,6 @@ pub trait Technique {
     fn phase(&self) -> Self::Phase;
 }
 
-/// Releases produce one semantic action; Select freezes the clock while held.
-#[derive(Default)]
-pub struct SwitchInput {
-    pressed: [bool; 5],
-}
-impl SwitchInput {
-    pub fn event(
-        &mut self,
-        current_generation: u64,
-        event_generation: u64,
-        index: usize,
-        pressed: bool,
-    ) -> Option<Action> {
-        if current_generation != event_generation {
-            return None;
-        }
-        let action = *ACTIONS.get(index)?;
-        let was_pressed = std::mem::replace(&mut self.pressed[index], pressed);
-        if action == Action::Cancel {
-            return (pressed && !was_pressed).then_some(action);
-        }
-        (!pressed && was_pressed).then_some(action)
-    }
-    pub fn selecting(&self) -> bool {
-        self.pressed[0]
-    }
-    pub fn reset(&mut self) {
-        self.pressed = [false; 5];
-    }
-}
-
 pub struct Session<T: Technique> {
     pub technique: T,
     automatic: bool,
@@ -169,7 +147,7 @@ impl<T: Technique> Session<T> {
         self.paused
     }
     pub fn action(&mut self, action: Action) -> Option<T::Selection> {
-        if action == Action::Cancel {
+        if matches!(action, Action::Cancel | Action::Stop) {
             self.reset();
             return None;
         }
@@ -336,21 +314,6 @@ mod tests {
         s.tick(0, false);
         s.tick(10000, false);
         assert_eq!(s.technique.elapsed, MAX_ELAPSED_MS);
-    }
-    #[test]
-    fn switch_latch_ignores_repeat_release_and_stale_generations() {
-        let mut input = SwitchInput::default();
-        assert_eq!(input.event(2, 1, 0, true), None);
-        assert!(!input.selecting());
-        assert_eq!(input.event(2, 2, 0, true), None);
-        assert!(input.selecting());
-        assert_eq!(input.event(2, 2, 0, true), None);
-        assert_eq!(input.event(2, 2, 0, false), Some(Action::Select));
-        assert_eq!(input.event(2, 2, 0, false), None);
-        assert_eq!(input.event(2, 2, 4, true), Some(Action::Cancel));
-        input.reset();
-        assert_eq!(input.event(3, 2, 0, false), None);
-        assert!(!input.selecting());
     }
     #[test]
     fn cyclic_traversal_handles_empty_and_interval_reset() {

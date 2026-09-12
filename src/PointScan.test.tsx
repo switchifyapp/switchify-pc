@@ -51,17 +51,13 @@ it("enables native point scan and locks its configuration until disabled", async
   });
   expect(screen.getByRole("button", { name: "Line only" })).toBeDisabled();
 });
-it("rejects duplicate switch keys and exposes grid settings", async () => {
+it("exposes grid settings and directs switch assignments to their own tab", async () => {
   render(<PointScan />);
   await screen.findByText("Point scan is off.");
   fireEvent.click(screen.getByRole("button", { name: "Grid then line" }));
   expect(screen.getByLabelText("Grid size")).toHaveValue("4");
-  fireEvent.change(screen.getByLabelText("Forward switch"), {
-    target: { value: "Space" },
-  });
-  expect(
-    screen.getByRole("button", { name: "Enable point scan" }),
-  ).toBeDisabled();
+  expect(screen.queryByLabelText("Forward switch")).not.toBeInTheDocument();
+  expect(screen.getByText(/Assign switch actions in the Switches tab/)).toBeInTheDocument();
 });
 it("reports native registration failure without claiming scanning started", async () => {
   render(<PointScan />);
