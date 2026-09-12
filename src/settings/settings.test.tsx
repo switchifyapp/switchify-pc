@@ -32,6 +32,17 @@ describe("Switchify PC settings", () => {
     vi.restoreAllMocks();
   });
 
+  it("opens scanning inside Settings without a sidebar destination", async()=> {
+    render(<App/>);
+    await screen.findByRole("heading",{name:"Switchify PC"});
+    expect(screen.queryByRole("button",{name:"Point scan"})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button",{name:"Settings"}));
+    fireEvent.click(screen.getByRole("tab",{name:"Scanning"}));
+    expect(screen.getByRole("tabpanel")).toHaveAccessibleName("Scanning");
+    expect(screen.getByRole("heading",{name:"Switch controls"})).toBeInTheDocument();
+    expect(screen.getByRole("heading",{name:"Point scan"})).toBeInTheDocument();
+  });
+
   it("shows update progress and exposes cancellation in Settings", async () => {
     browserState.updater = { status: "downloading", version: "1.0.0-beta.2", downloadedBytes: 50, totalBytes: 200, error: null, retryAction: null };
     const cancel = vi.spyOn(api, "cancelUpdateDownload").mockResolvedValue(structuredClone(browserState));
@@ -405,7 +416,7 @@ describe("Switchify PC settings", () => {
 
     const tablist = screen.getByRole("tablist", { name: "Settings sections" });
     expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["General", "Controls", "Cursor appearance", "Privacy", "Updates"]);
+      .toEqual(["General", "Controls", "Scanning", "Cursor appearance", "Privacy", "Updates"]);
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel")).toHaveAccessibleName("General");
   });
@@ -454,7 +465,7 @@ describe("Switchify PC settings", () => {
 
     expect(screen.queryByRole("tab", { name: "Cursor appearance" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["General", "Controls", "Privacy", "Updates"]);
+      .toEqual(["General", "Controls", "Scanning", "Privacy", "Updates"]);
     selectTab("Controls");
     expect(screen.queryByRole("checkbox", { name: "Show cursor overlay" })).not.toBeInTheDocument();
   });

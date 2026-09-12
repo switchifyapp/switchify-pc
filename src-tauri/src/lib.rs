@@ -15,9 +15,12 @@ mod modifier_overlay;
 mod mouse_repeat;
 mod overlay;
 mod point_scan;
-mod point_scan_host;
+mod point_scan_activation;
 mod point_scan_runtime;
 mod protocol;
+mod scan_host;
+mod scanning;
+mod scanning_runtime;
 mod state;
 mod storage;
 mod telemetry;
@@ -202,7 +205,7 @@ pub(crate) fn sync_tray_state(app: &AppHandle, state: &AppState) {
 }
 
 fn finish_app_exit(app: &AppHandle) {
-    point_scan_runtime::cancel(app);
+    scanning_runtime::cancel(app);
     app.state::<dwell::DwellController>().cancel(app);
     let model = app.state::<AppModel>();
     let _ = platform_disconnect_all(app, &model.shared);
@@ -369,7 +372,7 @@ fn finish_disconnect(
     overlay: &overlay::CursorOverlay,
     modifier_overlay: &modifier_overlay::ModifierOverlay,
 ) -> AppState {
-    point_scan_runtime::cancel(app);
+    scanning_runtime::cancel(app);
     app.state::<dwell::DwellController>().cancel(app);
     overlay.end_session();
     modifier_overlay.end_session();
@@ -1257,10 +1260,10 @@ fn point_scan_click(app: &AppHandle, point: (i32, i32)) -> Result<(), String> {
     // Reuse the production input adapter, independent of Bluetooth availability.
     let injector = enigo::Enigo::new(&enigo::Settings::default())
         .map_err(|_| "Point scan input could not be initialized.".to_string())?;
-    point_scan::click(
+    point_scan_activation::click(
         &mut input::DesktopInput::new(injector),
         point,
-        point_scan_host::modifiers_released(),
+        scan_host::modifiers_released(),
     )
 }
 

@@ -1532,7 +1532,7 @@ mod tests {
     #[test]
     fn point_scan_clicks_once_at_absolute_point_with_fake_input() {
         let mut input = DesktopInput::new(FakeInjector::default());
-        crate::point_scan::click(&mut input, (-640, 512), true).unwrap();
+        crate::point_scan_activation::click(&mut input, (-640, 512), true).unwrap();
         assert_eq!(input.injector.absolute_moves, vec![(-640, 512)]);
         assert_eq!(input.injector.clicks, vec![(MouseButton::Left, 1)]);
         assert!(input.injector.keys.is_empty());
@@ -1542,7 +1542,7 @@ mod tests {
     fn point_scan_refuses_to_move_during_drag() {
         let mut input = DesktopInput::new(FakeInjector::default());
         input.held_button = Some(MouseButton::Left);
-        assert!(crate::point_scan::click(&mut input, (30, 40), true).is_err());
+        assert!(crate::point_scan_activation::click(&mut input, (30, 40), true).is_err());
         assert!(input.injector.absolute_moves.is_empty());
         assert!(input.injector.clicks.is_empty());
     }
@@ -1550,7 +1550,7 @@ mod tests {
     #[test]
     fn point_scan_does_not_inject_a_modified_click() {
         let mut input = DesktopInput::new(FakeInjector::default());
-        assert!(crate::point_scan::click(&mut input, (30, 40), false).is_err());
+        assert!(crate::point_scan_activation::click(&mut input, (30, 40), false).is_err());
         assert!(input.injector.absolute_moves.is_empty());
         assert!(input.injector.clicks.is_empty());
     }

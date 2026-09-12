@@ -317,7 +317,3 @@ button:disabled { cursor: default; opacity: 0.55; }
 
 .settings-view > .tab-bar { grid-template-columns: repeat(var(--tab-count), auto); }
 .settings-view > .tab-bar button { padding: 0 4px; }
-
-.point-scan-options { border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; }
-.point-scan-options label { display: flex; flex-direction: column; gap: 8px; }
-.point-scan-view .button-row { display: flex; gap: 12px; margin: 18px 0; }

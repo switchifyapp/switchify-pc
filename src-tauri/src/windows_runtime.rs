@@ -948,7 +948,7 @@ async fn start_gatt(
                     .cancel(&subscribe_app);
                 stop_all_repeats(&subscribe_app);
                 release_input_session();
-                crate::point_scan_runtime::cancel(&subscribe_app);
+                crate::scanning_runtime::cancel(&subscribe_app);
                 subscribe_app.state::<CursorOverlay>().end_session();
                 subscribe_app.state::<ModifierOverlay>().end_session();
             }
@@ -1640,7 +1640,7 @@ fn complete_desktop(
                 }
             }
             if command.command_type == "connection.disconnecting" {
-                crate::point_scan_runtime::cancel(app);
+                crate::scanning_runtime::cancel(app);
                 overlay.end_session();
             }
         }
@@ -2218,7 +2218,7 @@ pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), Strin
 }
 
 fn reset_transport(app: &AppHandle, shared: &SharedModel, bluetooth: BluetoothState) {
-    crate::point_scan_runtime::cancel(app);
+    crate::scanning_runtime::cancel(app);
     app.state::<DwellController>().cancel(app);
     stop_all_repeats(app);
     take_runtime();

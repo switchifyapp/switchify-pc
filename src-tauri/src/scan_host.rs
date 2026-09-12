@@ -1,5 +1,5 @@
 //! Native, nonactivating strips, using the same display units as input injection.
-use crate::point_scan::Rect;
+use crate::scanning::Rect;
 
 #[cfg(target_os = "windows")]
 mod platform {
