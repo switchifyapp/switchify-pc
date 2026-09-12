@@ -274,3 +274,64 @@ it("holds focus in a modal and swallows keys while learning", async () => {
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   await waitFor(() => expect(current.settings.bindings[0].key).toBe("F3"));
 });
+it("keeps a refused capture's error on its own row and releases the target", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Head switch" });
+  open("Head switch");
+  mocks.invoke.mockImplementationOnce(async () => {
+    throw "Focus Switchify PC before learning a switch.";
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Learn another key for Head switch" }),
+  );
+  await screen.findByText("Focus Switchify PC before learning a switch.");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  // A later view carrying a remembered key must not land on the refused row.
+  event({ ...current, capture: { active: false, key: "F9", error: null } });
+  await waitFor(() => expect(mocks.invoke.mock.calls.filter(([c]) => c === "save_switches")).toHaveLength(0));
+  expect(current.settings.bindings[0].key).toBe("Space");
+  fireEvent.click(screen.getByRole("button", { name: "Close Head switch" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
+  await screen.findByRole("dialog");
+  expect(screen.queryByText("Focus Switchify PC before learning a switch.")).toBeNull();
+});
+it("returns focus to the row after Done and to Add switch after saving a new one", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Head switch" });
+  open("Head switch");
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit Head switch" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
+  await screen.findByRole("dialog");
+  event({ ...current, capture: { active: false, key: "Enter", error: null } });
+  await screen.findByText("Enter");
+  fireEvent.change(screen.getByLabelText("New switch name"), { target: { value: "Foot" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save switch" }));
+  await waitFor(() => expect(current.settings.bindings).toHaveLength(2));
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add switch" }));
+});
+it("rejects a duplicate learned onto an existing switch and says so on that row", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Head switch" });
+  fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
+  await screen.findByRole("dialog");
+  current = { ...current, capture: { active: false, key: "Enter", error: null } };
+  event(current);
+  await screen.findByText("Enter");
+  fireEvent.change(screen.getByLabelText("New switch name"), { target: { value: "Foot" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save switch" }));
+  await waitFor(() => expect(current.settings.bindings).toHaveLength(2));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Foot" }));
+  fireEvent.click(screen.getByRole("button", { name: "Learn another key for Foot" }));
+  await screen.findByRole("dialog");
+  event({ ...current, capture: { active: false, key: "Space", error: null } });
+  await screen.findByText("That key already belongs to another switch.");
+  expect(current.settings.bindings[1].key).toBe("Enter");
+  expect(screen.getByLabelText("Learn another key for Foot").getAttribute("aria-describedby")).toBeTruthy();
+});
+it("announces an unavailable key in the collapsed row", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Head switch" });
+  event({ ...current, unavailableKeys: ["Space"] });
+  await screen.findByText(/unavailable on this computer/);
+});

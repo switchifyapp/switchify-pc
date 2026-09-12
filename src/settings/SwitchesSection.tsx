@@ -65,6 +65,7 @@ function KeyBadge({ value, unavailable }: { value: string; unavailable: boolean 
   return value ? (
     <kbd className="key-badge" data-unavailable={unavailable || undefined}>
       {value}
+      {unavailable && <span className="sr-only"> (unavailable on this computer)</span>}
     </kbd>
   ) : (
     <span className="key-badge key-badge-empty">No key yet</span>
@@ -72,6 +73,7 @@ function KeyBadge({ value, unavailable }: { value: string; unavailable: boolean 
 }
 
 function SwitchEditor({
+  id,
   binding,
   isNew,
   disabled,
@@ -84,6 +86,7 @@ function SwitchEditor({
   onRemove,
   nameRef,
 }: {
+  id?: string;
   binding: Binding;
   isNew: boolean;
   disabled: boolean;
@@ -108,7 +111,7 @@ function SwitchEditor({
     onChange({ ...binding, holdActions });
   };
   return (
-    <fieldset className="switch-editor" disabled={disabled}>
+    <fieldset id={id} className="switch-editor" disabled={disabled}>
       <label className="field">
         <span>Name</span>
         <input
@@ -257,6 +260,7 @@ function SwitchEditor({
 function CaptureDialog({ name, onCancel }: { name: string; onCancel: () => void }) {
   const ref = useRef<HTMLElement>(null);
   const titleId = useId();
+  const bodyId = useId();
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     ref.current?.focus();
@@ -285,13 +289,15 @@ function CaptureDialog({ name, onCancel }: { name: string; onCancel: () => void 
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-describedby={bodyId}
         tabIndex={-1}
       >
         <Keyboard size={40} aria-hidden="true" />
         <h2 id={titleId}>Press and release your switch</h2>
-        <p>
+        <p id={bodyId}>
           Learning the key for {name}. Nothing else responds until a key is
-          learned. Escape cancels.
+          learned. Press Escape to cancel, or click Cancel capture with the
+          mouse.
         </p>
         <button type="button" className="secondary" tabIndex={-1} onClick={onCancel}>
           Cancel capture
@@ -318,9 +324,23 @@ export function SwitchesSection({
   const [draft, setDraft] = useState<Binding | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [target, setTarget] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
+  // A key error belongs to the row that was learning when it happened, not to
+  // whichever row is open later; the backend keeps its last capture error
+  // until the next capture begins, so it is consumed once here.
+  const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const focusName = useRef(false);
+  // Collapsing unmounts the button that was clicked, which would drop focus to
+  // the page. Remember where focus should land and move it after the render.
+  const editRefs = useRef(new Map<string, HTMLButtonElement>());
+  const addRef = useRef<HTMLButtonElement>(null);
+  const focusAfter = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusAfter.current) return;
+    const id = focusAfter.current;
+    focusAfter.current = null;
+    (id === newId ? addRef.current : (editRefs.current.get(id) ?? addRef.current))?.focus();
+  });
   const cancel = useRef(controller.cancelCapture);
   cancel.current = controller.cancelCapture;
   useEffect(
@@ -339,7 +359,7 @@ export function SwitchesSection({
       return;
     const key = state.capture.key;
     if (settings.bindings.some((b) => b.key === key && b.id !== target)) {
-      setFormError("That key already belongs to another switch.");
+      setRowError({ id: target, message: "That key already belongs to another switch." });
       setTarget(null);
       return;
     }
@@ -356,6 +376,14 @@ export function SwitchesSection({
     setTarget(null);
   }, [state?.capture.key, state?.capture.active, target, settings, controller]);
   const capturing = controller.capturing || !!state?.capture.active;
+  // A capture that ends without a key, whether refused or cancelled by focus
+  // loss, must release its target; otherwise the backend's remembered key from
+  // an earlier capture could be assigned to this row by a later view.
+  useEffect(() => {
+    if (capturing || !target || !state || state.capture.key) return;
+    if (state.capture.error) setRowError({ id: target, message: state.capture.error });
+    setTarget(null);
+  }, [capturing, target, state]);
   const disabled = locked || !state?.supported || !!state.error || capturing;
   // A learned key arrives while the editor is disabled; focus the name once the
   // fieldset is enabled again so a new switch can be named straight away.
@@ -372,13 +400,15 @@ export function SwitchesSection({
         b.id === binding.id ? binding : b,
       ),
     });
-  const remove = (id: string) =>
+  const remove = (id: string) => {
+    focusAfter.current = newId;
     controller.update({
       ...settings,
       bindings: settings.bindings.filter((b) => b.id !== id),
     });
+  };
   const learn = (id: string) => {
-    setFormError(null);
+    setRowError(null);
     setTarget(id);
     void controller.capture();
   };
@@ -390,7 +420,8 @@ export function SwitchesSection({
   const cancelAdd = () => {
     setDraft(null);
     setExpanded(null);
-    setFormError(null);
+    setRowError(null);
+    focusAfter.current = newId;
     if (target === newId) {
       setTarget(null);
       void controller.cancelCapture();
@@ -407,6 +438,7 @@ export function SwitchesSection({
     });
     setDraft(null);
     setExpanded(null);
+    focusAfter.current = newId;
   };
   const escapeMs = escapeHoldMs(settings.bindings, settings.holdIntervalMs);
   const isPreset = (holdIntervalPresets as readonly number[]).includes(
@@ -422,8 +454,7 @@ export function SwitchesSection({
     target === newId
       ? "the new switch"
       : (settings.bindings.find((b) => b.id === target)?.name ?? "this switch");
-  const rowError = (id: string) =>
-    expanded === id ? (formError ?? state?.capture.error ?? null) : null;
+  const errorFor = (id: string) => (rowError?.id === id ? rowError.message : null);
   return (
     <>
       {capturing && target && (
@@ -479,6 +510,7 @@ export function SwitchesSection({
             <button
               type="button"
               className="primary"
+              ref={addRef}
               disabled={disabled}
               onClick={startAdd}
             >
@@ -507,11 +539,16 @@ export function SwitchesSection({
                     <button
                       type="button"
                       className="secondary"
+                      ref={(el) => {
+                        if (el) editRefs.current.set(binding.id, el);
+                        else editRefs.current.delete(binding.id);
+                      }}
                       aria-expanded={open}
+                      aria-controls={open ? `${listId}-${binding.id}` : undefined}
                       aria-label={`${open ? "Close" : "Edit"} ${name}`}
                       disabled={disabled || !!draft}
                       onClick={() => {
-                        setFormError(null);
+                        setRowError(null);
                         setExpanded(open ? null : binding.id);
                       }}
                     >
@@ -529,15 +566,19 @@ export function SwitchesSection({
                   </div>
                   {open && (
                     <SwitchEditor
+                      id={`${listId}-${binding.id}`}
                       binding={binding}
                       isNew={false}
                       disabled={disabled}
                       holdIntervalMs={settings.holdIntervalMs}
                       unavailable={unavailable}
-                      keyError={rowError(binding.id)}
+                      keyError={errorFor(binding.id)}
                       onChange={edit}
                       onLearn={() => learn(binding.id)}
-                      onDone={() => setExpanded(null)}
+                      onDone={() => {
+                        focusAfter.current = binding.id;
+                        setExpanded(null);
+                      }}
                       onRemove={() => remove(binding.id)}
                       nameRef={nameRef}
                     />
@@ -564,7 +605,7 @@ export function SwitchesSection({
                   disabled={disabled}
                   holdIntervalMs={settings.holdIntervalMs}
                   unavailable={false}
-                  keyError={rowError(newId)}
+                  keyError={errorFor(newId)}
                   onChange={setDraft}
                   onLearn={() => learn(newId)}
                   onDone={add}
@@ -578,6 +619,7 @@ export function SwitchesSection({
                 <button
                   type="button"
                   className="secondary"
+                  ref={addRef}
                   disabled={disabled || settings.bindings.length >= 128}
                   onClick={startAdd}
                 >
