@@ -60,6 +60,7 @@ export function useScanning() {
     supported: false,
   });
   const queue = useRef(Promise.resolve());
+  const runtimeRevision = useRef(0);
   useEffect(() => {
     let alive = true;
     let stop: (() => void) | undefined;
@@ -87,15 +88,18 @@ export function useScanning() {
       });
       return;
     }
-    void listen<PointScanState>("point-scan-changed", (event) =>
-      receive(event.payload),
-    )
+    void listen<PointScanState>("point-scan-changed", (event) => {
+      runtimeRevision.current++;
+      receive(event.payload);
+    })
       .then((unlisten) => {
         if (alive) stop = unlisten;
         else unlisten();
-        return invoke<PointScanState>("get_point_scan");
+        const revision = runtimeRevision.current;
+        return invoke<PointScanState>("get_point_scan").then((next) => {
+          if (revision === runtimeRevision.current) receive(next);
+        });
       })
-      .then(receive)
       .catch((reason) => {
         if (alive) setError(String(reason));
       });
@@ -119,13 +123,16 @@ export function useScanning() {
     enqueue(async () => {
       if (revision !== model.current.revision) return;
       setError(null);
+      const runtime = runtimeRevision.current;
       const result = await invoke<PointScanState>("configure_point_scan", {
         config: next,
         enabled: false,
       });
       model.current.saved = revision;
-      model.current.enabled = result.enabled;
-      setState(result);
+      if (runtime === runtimeRevision.current) {
+        model.current.enabled = result.enabled;
+        setState(result);
+      }
     });
   const update = <K extends keyof PointScanConfig>(
     key: K,
@@ -158,12 +165,15 @@ export function useScanning() {
             "Save the scanning settings before enabling point scan. Use Retry save.",
           );
         setError(null);
+        const runtime = runtimeRevision.current;
         const result = await invoke<PointScanState>("configure_point_scan", {
           config: m.config,
           enabled,
         });
-        m.enabled = result.enabled;
-        setState(result);
+        if (runtime === runtimeRevision.current) {
+          m.enabled = result.enabled;
+          setState(result);
+        }
       } finally {
         m.toggling = false;
         setToggling(false);

@@ -172,3 +172,32 @@ it("keeps pending saves and an enabled scan when its settings panel unmounts", a
   ).toBeEnabled();
   expect(mocks.invoke).toHaveBeenCalledTimes(calls);
 });
+
+it("keeps a newer cancellation event when an older enable response arrives", async () => {
+  render(<PointScan />);
+  await screen.findByText("Point scan is off.");
+  let resolveEnable!: (value: PointScanState) => void;
+  mocks.invoke.mockImplementationOnce(
+    () =>
+      new Promise<PointScanState>((resolve) => {
+        resolveEnable = resolve;
+      }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Enable point scan" }));
+  await waitFor(() => expect(resolveEnable).toBeTypeOf("function"));
+  act(() =>
+    mocks.listen.mock.calls[0][1]({
+      payload: {
+        ...initial,
+        message: "Android connected. Local scanning stopped.",
+      },
+    }),
+  );
+  await act(async () => resolveEnable({ ...initial, enabled: true }));
+  expect(
+    screen.getByRole("button", { name: "Enable point scan" }),
+  ).toBeEnabled();
+  expect(
+    screen.getByText("Android connected. Local scanning stopped."),
+  ).toBeInTheDocument();
+});
