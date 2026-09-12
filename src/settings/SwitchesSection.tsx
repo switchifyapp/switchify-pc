@@ -145,7 +145,7 @@ export function SwitchesSection({
         </p>
         {(error || state?.error) && <p role="alert">{error || state?.error}</p>}
         {error && unsaved && (
-          <button disabled={disabled || !!pending} onClick={controller.retry}>
+          <button className="secondary" disabled={disabled || !!pending} onClick={controller.retry}>
             Retry save
           </button>
         )}
@@ -156,7 +156,7 @@ export function SwitchesSection({
             <p>
               Press and release the switch you want to learn. Escape cancels.
             </p>
-            <button
+            <button className="secondary"
               onClick={() => {
                 setTarget(null);
                 void controller.cancelCapture();
@@ -194,7 +194,7 @@ export function SwitchesSection({
                 This key is unavailable on this computer. Learn another key.
               </p>
             )}
-            <button onClick={() => learn(binding.id)}>
+            <button className="secondary" onClick={() => learn(binding.id)}>
               Learn another key for {binding.name}
             </button>
             <ActionPicker
@@ -223,7 +223,7 @@ export function SwitchesSection({
                       })
                     }
                   />
-                  <button
+                  <button className="secondary"
                     disabled={disabled || index === 0}
                     aria-label={`Move hold action ${index + 1} up`}
                     onClick={() => {
@@ -237,7 +237,7 @@ export function SwitchesSection({
                   >
                     Move up
                   </button>
-                  <button
+                  <button className="secondary"
                     disabled={
                       disabled || index === binding.holdActions.length - 1
                     }
@@ -253,7 +253,7 @@ export function SwitchesSection({
                   >
                     Move down
                   </button>
-                  <button
+                  <button className="secondary"
                     aria-label={`Remove hold action ${index + 1}`}
                     onClick={() =>
                       edit({
@@ -269,7 +269,7 @@ export function SwitchesSection({
                 </li>
               ))}
             </ol>
-            <button
+            <button className="secondary"
               disabled={disabled || binding.holdActions.length >= 32}
               onClick={() =>
                 edit({
@@ -280,7 +280,7 @@ export function SwitchesSection({
             >
               Add hold action for {binding.name}
             </button>
-            <button
+            <button className="secondary"
               onClick={() =>
                 controller.update({
                   ...settings,
@@ -295,7 +295,7 @@ export function SwitchesSection({
           </fieldset>
         ))}
         {draft ? (
-          <fieldset disabled={disabled}>
+          <fieldset className="switch-assignment" disabled={disabled}>
             <legend>Add switch</legend>
             <label className="exact-speed">
               <span>New switch name</span>
@@ -306,15 +306,15 @@ export function SwitchesSection({
               />
             </label>
             <p>{draft.key ? `Key: ${draft.key}` : "No key learned yet."}</p>
-            <button onClick={() => learn("new")}>Learn switch key</button>
+            <button className="secondary" onClick={() => learn("new")}>Learn switch key</button>
             <ActionPicker
               label="New switch action"
               value={draft.pressAction}
               disabled={disabled}
               onChange={(pressAction) => setDraft({ ...draft, pressAction })}
             />
-            <button onClick={add}>Save new switch</button>
-            <button
+            <button className="secondary" onClick={add}>Save new switch</button>
+            <button className="secondary"
               onClick={() => {
                 setDraft(null);
                 setTarget(null);
@@ -324,7 +324,7 @@ export function SwitchesSection({
             </button>
           </fieldset>
         ) : (
-          <button
+          <button className="secondary"
             disabled={disabled || settings.bindings.length >= 128}
             onClick={() =>
               setDraft({

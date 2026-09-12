@@ -317,3 +317,12 @@ button:disabled { cursor: default; opacity: 0.55; }
 
 .settings-view > .tab-bar { grid-template-columns: repeat(var(--tab-count), auto); }
 .settings-view > .tab-bar button { padding: 0 4px; }
+
+.switch-assignment { min-width: 0; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.switch-assignment legend { padding: 0 6px; font-weight: 650; }
+.switch-assignment > p { margin: 12px 0; }
+.switch-assignment .exact-speed { margin: 12px 0; }
+.switch-assignment input { min-width: 0; width: 55%; min-height: 36px; padding: 6px 8px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; }
+.switch-assignment ol { padding-left: 24px; }
+.switch-assignment li { padding: 4px 0 12px; }
+.switch-assignment button { margin: 0 6px 6px 0; }
