@@ -48,7 +48,7 @@ impl Settings {
                     "Each switch needs a name, a unique ID, and at most 32 hold actions.".into(),
                 );
             }
-            let key = usahp_daemon::embedded::normalize_key(&b.key)
+            let key = crate::switch_input::normalize_key(&b.key)
                 .ok_or("Choose a supported switch key.")?;
             if key == "Escape" || !keys.insert(key) {
                 return Err(

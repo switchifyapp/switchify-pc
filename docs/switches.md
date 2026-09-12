@@ -14,7 +14,11 @@ The separate switch-settings.json uses schema version 1. Existing point-scan key
 
 Existing point-scan commands and event fields remain compatible for geometry and automatic mode. Legacy key fields remain readable; changing them is rejected with a direction to Settings → Switches. New settings and learning commands are restricted to the main window capability and check its label.
 
-USAHP owns native Windows and macOS capture, suppression, learning, physical key state, release draining and emergency cancellation. Switchify embeds its typed API and drains generation-tagged physical edges. It opens no USAHP socket. Output still uses Switchify's existing input adapters. The pinned upstream extension is [usahp-core PR17](https://github.com/usahp/usahp-core/pull/17).
+Switchify owns local input through `switch_input`, a platform adapter that supplies generation-tagged press/release events. There is no USAHP runtime or dependency. Output still uses Switchify's existing input adapters. The capture state and macOS event tap were adapted from MIT-licensed code; attribution is retained beside the source.
+
+Windows reserves unmodified assigned keys and Escape with `RegisterHotKey`, uses `MOD_NOREPEAT` for press deduplication, and receives releases through Raw Input on a dedicated message thread. Startup fails and rolls back all registrations if an assigned key cannot be reserved. F12 is unavailable because Windows reserves it for the debugger. During learning, only keys successfully reserved for that capture can be learned; a key reserved by another app will not be learned. Disable, emergency cancellation and heartbeat loss release unused reservations on the input thread. Keys already consumed stay reserved until release, so holding a cancelled switch cannot leak autorepeat. App exit removes all reservations.
+
+Windows does not provide complete suppression through this adapter: key releases can reach other applications, and combinations with Shift, Ctrl, Alt or Windows are not reserved. Use plain switch keys. Raw Input alone does not start scan actions. macOS retains its event-tap capture and suppression behavior. Physical Windows activation, hold behavior, background operation and cleanup need manual verification on each supported setup.
 
 The reusable gesture engine handles normal and ordered hold actions. The shared scan controller dispatches them to Session<T>. Native prompts are click-through and nonactivating.
 

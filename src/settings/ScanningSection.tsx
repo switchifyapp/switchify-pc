@@ -49,6 +49,10 @@ export function ScanningSection({
           Switch keys are reserved while enabled. Escape stops scanning and
           releases them. Disconnect Android before enabling local point scan.
         </p>
+        <p className="setting-note">
+          On Windows, use switch keys without Shift, Ctrl, Alt or Windows held.
+          Key releases can still reach other applications.
+        </p>
 
         <p role="status">
           {state?.enabled

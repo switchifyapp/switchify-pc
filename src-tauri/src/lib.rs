@@ -24,6 +24,7 @@ mod scanning_runtime;
 mod state;
 mod storage;
 mod switch_gestures;
+mod switch_input;
 mod switch_runtime;
 mod switches;
 mod telemetry;

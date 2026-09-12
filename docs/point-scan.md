@@ -12,7 +12,7 @@ This first port uses switches attached to the computer. Android must be disconne
 
 Changes save automatically, including when you leave Settings. Enabling waits for pending saves; a failed save keeps your edits and offers Retry save. Configuration is locked while scanning is enabled. Navigating away does not stop scanning.
 
-The engine is independent of OS input. Activation uses the existing `InputInjector` adapter. Automated tests use a fake adapter and never move the real pointer. Embedded USAHP supplies physical press/release events and owns native capture on both platforms. Only the main window can configure scanning through IPC.
+The engine is independent of OS input. Activation uses the existing `InputInjector` adapter. Automated tests use a fake adapter and never move the real pointer. Switchify's local `switch_input` adapter supplies press/release events on both platforms. See `switches.md` for Windows capture limitations. Only the main window can configure scanning through IPC.
 
 Manual validation should cover both modes, every speed, manual movement, holding and releasing switches, Escape, focus retention, display changes, mixed scaling, a Bluetooth connection during scanning, and application exit. Run macOS input checks through `npm run macos:run` to retain the stable Accessibility identity. No physical switch or real desktop input is exercised by automated tests.
 

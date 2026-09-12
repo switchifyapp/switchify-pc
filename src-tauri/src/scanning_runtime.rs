@@ -27,6 +27,7 @@ pub trait Adapter: Send + Sync + 'static {
     ) -> Result<(), String>;
 }
 
+use crate::switch_input::Event;
 use crate::{switch_gestures::Gestures, switch_runtime, switches::Settings};
 use std::{
     cell::RefCell,
@@ -37,7 +38,6 @@ use std::{
     time::Instant,
 };
 use tauri::{AppHandle, Emitter, Manager};
-use usahp_daemon::embedded::Event;
 
 thread_local! {static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)};}
 pub struct Controller<A: Adapter> {
@@ -312,7 +312,7 @@ fn tick<A: Adapter>(app: &AppHandle) {
                     {
                         continue;
                     }
-                    if action == usahp_core::Action::Pressed {
+                    if action == crate::switch_input::Action::Pressed {
                         let settings = d.switches.clone();
                         d.pressed.pressed(&switch_id, monotonic_ms, &settings);
                         None

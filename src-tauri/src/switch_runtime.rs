@@ -1,9 +1,9 @@
-//! App-owned switch settings and the embedded USAHP capture lease.
+//! App-owned switch settings and local keyboard capture.
+use crate::switch_input::{Capture, Event, Mode, StopReason};
 use crate::switches::Settings;
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
-use usahp_daemon::embedded::{EmbeddedBroker, Event, Mode, StopReason};
 #[derive(Debug, Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureState {
@@ -29,7 +29,7 @@ struct Data {
 }
 pub struct Controller {
     data: Mutex<Data>,
-    broker: Mutex<EmbeddedBroker>,
+    broker: Mutex<Capture>,
 }
 fn path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     app.path()
@@ -93,7 +93,7 @@ impl Controller {
                 capture_generation: 0,
                 error,
             }),
-            broker: Mutex::new(EmbeddedBroker::new()),
+            broker: Mutex::new(Capture::new()),
         }
     }
     pub fn view(&self) -> View {
@@ -108,7 +108,7 @@ impl Controller {
                 .settings
                 .bindings
                 .iter()
-                .filter(|b| !usahp_daemon::embedded::supported_key(&b.key))
+                .filter(|b| !crate::switch_input::supported_key(&b.key))
                 .map(|b| b.key.clone())
                 .collect(),
         }
@@ -164,12 +164,9 @@ impl Controller {
             .settings
             .bindings
             .iter()
-            .map(|b| usahp_core::Mapping {
+            .map(|b| crate::switch_input::Mapping {
                 id: b.id.clone(),
-                switch_id: b.id.clone(),
-                input: usahp_core::InputKind::Keyboard,
                 code: b.key.clone(),
-                device: None,
             })
             .collect::<Vec<_>>();
         let mut broker = self.broker.lock().unwrap_or_else(|p| p.into_inner());
@@ -279,7 +276,7 @@ pub fn install(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(
-                usahp_daemon::embedded::HEARTBEAT_INTERVAL_MS,
+                crate::switch_input::HEARTBEAT_INTERVAL_MS,
             ))
             .await;
             app.state::<Controller>()
