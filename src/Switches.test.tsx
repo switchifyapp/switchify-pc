@@ -99,33 +99,61 @@ beforeEach(() => {
   });
 });
 afterEach(() => Reflect.deleteProperty(window, "__TAURI_INTERNALS__"));
-it("commits a new switch only after name and physical capture are complete", async () => {
+const open = (name: string) =>
+  fireEvent.click(screen.getByRole("button", { name: `Edit ${name}` }));
+it("shows each switch as a summary row and expands one to edit", async () => {
   render(<Shell />);
-  await screen.findByText("Key: Space");
+  await screen.findByRole("heading", { name: "Head switch" });
+  expect(screen.getByText("Select · Hold: Next, Stop scanning")).toBeTruthy();
+  expect(screen.queryByLabelText("Name for Space")).toBeNull();
+  open("Head switch");
+  expect(screen.getByLabelText("Name for Space")).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Close Head switch" }).getAttribute("aria-expanded"),
+  ).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  expect(screen.queryByLabelText("Name for Space")).toBeNull();
+});
+it("starts learning when a switch is added and commits only after name and key", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Head switch" });
   fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
+  await screen.findByRole("button", { name: "Cancel capture" });
+  expect(mocks.invoke).toHaveBeenCalledWith("begin_switch_capture");
+  expect(screen.getByRole("button", { name: "Save switch" })).toBeDisabled();
+  event({ ...current, capture: { active: false, key: "Enter", error: null } });
+  await screen.findByText("Enter");
+  expect(screen.getByRole("button", { name: "Save switch" })).toBeDisabled();
   fireEvent.change(screen.getByLabelText("New switch name"), {
     target: { value: "Foot switch" },
   });
   expect(mocks.invoke.mock.calls.some(([c]) => c === "save_switches")).toBe(
     false,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Learn switch key" }));
-  await screen.findByRole("button", { name: "Cancel capture" });
-  event({ ...current, capture: { active: false, key: "Enter", error: null } });
-  await screen.findByText("Key: Enter");
-  fireEvent.click(screen.getByRole("button", { name: "Save new switch" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save switch" }));
   await waitFor(() => expect(current.settings.bindings).toHaveLength(2));
   expect(current.settings.bindings[1]).toMatchObject({
     name: "Foot switch",
     key: "Enter",
     pressAction: "select",
   });
+  expect(screen.queryByLabelText("New switch name")).toBeNull();
+});
+it("cancelling a new switch also cancels its capture", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Head switch" });
+  fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
+  await screen.findByRole("button", { name: "Cancel capture" });
+  event({ ...current, capture: { active: false, key: "Enter", error: null } });
+  await screen.findByText("Enter");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
+  expect(screen.queryByLabelText("New switch name")).toBeNull();
+  expect(current.settings.bindings).toHaveLength(1);
 });
 it("rejects a learned duplicate without changing the existing switch", async () => {
   render(<Shell />);
-  await screen.findByText("Key: Space");
+  await screen.findByRole("heading", { name: "Head switch" });
   fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
-  fireEvent.click(screen.getByRole("button", { name: "Learn switch key" }));
   await screen.findByRole("button", { name: "Cancel capture" });
   event({ ...current, capture: { active: false, key: "Space", error: null } });
   await screen.findByText("That key already belongs to another switch.");
@@ -133,7 +161,8 @@ it("rejects a learned duplicate without changing the existing switch", async () 
 });
 it("reorders hold actions and waits for pending switch saves before enabling", async () => {
   render(<Shell />);
-  await screen.findByText("Key: Space");
+  await screen.findByRole("heading", { name: "Head switch" });
+  open("Head switch");
   let finish!: (v: SwitchState) => void;
   mocks.invoke.mockImplementationOnce(
     () =>
@@ -164,10 +193,23 @@ it("reorders hold actions and waits for pending switch saves before enabling", a
   );
   await screen.findByRole("button", { name: "Disable point scan" });
   expect(screen.getByLabelText("Normal action for Head switch")).toBeDisabled();
+  expect(screen.getByText("Select · Hold: Stop scanning, Next")).toBeTruthy();
+});
+it("previews hold timing from the interval", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Head switch" });
+  open("Head switch");
+  expect(
+    screen.getByText("Hold 1s for Next, 2s for Stop scanning. Release to run the action shown."),
+  ).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "2s" }));
+  await screen.findByText("Hold 2s for Next, 4s for Stop scanning. Release to run the action shown.");
+  await screen.findByText(/Holding any switch for 8s disables switch control/);
 });
 it("preserves failed switch edits and prevents enable until retry succeeds", async () => {
   render(<Shell />);
-  await screen.findByText("Key: Space");
+  await screen.findByRole("heading", { name: "Head switch" });
+  open("Head switch");
   mocks.invoke.mockRejectedValueOnce("Disk full");
   fireEvent.change(screen.getByLabelText("Name for Space"), {
     target: { value: "New name" },
@@ -188,7 +230,8 @@ it("preserves failed switch edits and prevents enable until retry succeeds", asy
 it("does not reuse an old learned key when starting another capture", async () => {
   current = { ...current, capture: { active: false, key: "F2", error: null } };
   render(<Shell />);
-  await screen.findByText("Key: Space");
+  await screen.findByRole("heading", { name: "Head switch" });
+  open("Head switch");
   fireEvent.click(
     screen.getByRole("button", { name: "Learn another key for Head switch" }),
   );
@@ -199,7 +242,8 @@ it("does not reuse an old learned key when starting another capture", async () =
 });
 it("cancels learning when the panel unmounts and retains pending edits", async () => {
   const view = render(<Shell />);
-  await screen.findByText("Key: Space");
+  await screen.findByRole("heading", { name: "Head switch" });
+  open("Head switch");
   fireEvent.click(
     screen.getByRole("button", { name: "Learn another key for Head switch" }),
   );
