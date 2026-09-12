@@ -391,6 +391,7 @@ pub fn reject_pairing(
 }
 
 pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), String> {
+    crate::scanning_runtime::cancel(app);
     app.state::<DwellController>().cancel(app);
     with_runtime(|runtime| {
         runtime.stop_all_repeats();
@@ -969,6 +970,7 @@ impl MacRuntime {
                     let _ = input.release_all();
                     input.end_control_session();
                 }
+                crate::scanning_runtime::cancel(&self.app);
                 self.app.state::<CursorOverlay>().end_session();
                 self.app.state::<ModifierOverlay>().end_session();
                 self.set_bluetooth(BluetoothState::Advertising);
@@ -1403,6 +1405,7 @@ impl MacRuntime {
                     }
                 }
                 if command.command_type == "connection.disconnecting" {
+                    crate::scanning_runtime::cancel(&self.app);
                     overlay.end_session();
                 }
             }
@@ -2013,6 +2016,7 @@ impl MacRuntime {
             let _ = input.release_all();
             input.end_control_session();
         }
+        crate::scanning_runtime::cancel(&self.app);
         self.app.state::<CursorOverlay>().end_session();
         self.app.state::<ModifierOverlay>().end_session();
     }

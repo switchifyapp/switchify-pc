@@ -206,7 +206,7 @@ unsafe fn create_overlay_window(
     }
 }
 
-fn present_solid(
+pub(crate) fn present_solid(
     window: HWND,
     x: i32,
     y: i32,

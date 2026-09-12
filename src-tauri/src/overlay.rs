@@ -10,10 +10,10 @@ use crate::state::{AppSettings, SharedModel};
 
 #[cfg(target_os = "macos")]
 #[path = "overlay_macos.rs"]
-mod platform;
+pub(crate) mod platform;
 #[cfg(target_os = "windows")]
 #[path = "overlay_windows.rs"]
-mod platform;
+pub(crate) mod platform;
 
 const FOLLOW_INTERVAL: Duration = Duration::from_millis(75);
 const DEFAULT_DURATION: Duration = Duration::from_millis(900);

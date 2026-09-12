@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-configure-point-scan"
+description = "Enables the configure_point_scan command without any pre-configured scope."
+commands.allow = ["configure_point_scan"]
+
+[[permission]]
+identifier = "deny-configure-point-scan"
+description = "Denies the configure_point_scan command without any pre-configured scope."
+commands.deny = ["configure_point_scan"]

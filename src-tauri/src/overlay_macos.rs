@@ -190,7 +190,7 @@ impl MacOverlayHost {
     }
 }
 
-fn make_panel(mtm: MainThreadMarker) -> Retained<NSPanel> {
+pub(crate) fn make_panel(mtm: MainThreadMarker) -> Retained<NSPanel> {
     let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
         NSPanel::alloc(mtm),
         rect(0.0, 0.0, 1.0, 1.0),
