@@ -10,8 +10,9 @@ import { applyLocalSettings, changedSettingKeys } from "./settings/diff";
 import { SettingsView } from "./settings/SettingsView";
 import { updateDescription, updateInFlight, updateLiveness, updateProgress, updateStanding, type UpdateAction } from "./settings/UpdatesSection";
 import { TabPanel, Tabs } from "./Tabs";
+import { PointScan } from "./PointScan";
 
-type View = "home" | "devices" | "profiles" | "settings" | "support";
+type View = "home" | "devices" | "profiles" | "pointScan" | "settings" | "support";
 
 const brandIconUrl = new URL("../src-tauri/icons/icon.png", import.meta.url).href;
 const androidQrUrl = new URL("./assets/android-download-qr.png", import.meta.url).href;
@@ -671,6 +672,7 @@ export function App() {
     ["home", "Home", <Home size={19} />], ["devices", "Devices", <Smartphone size={19} />],
     ["profiles", "Switch Forwarding", <Keyboard size={19} />], ["settings", "Settings", <Settings size={19} />],
     ["support", "Support", <CircleHelp size={19} />],
+    ["pointScan", "Point scan", <Accessibility size={19} />],
   ] as const, []);
 
   const selectView = (next: View) => {
@@ -725,6 +727,7 @@ export function App() {
       <p id="settings-updates-notice" className="sr-only" aria-live={updateFailure ? updateLiveness(updateFailure.status) : "polite"} aria-atomic="true">{updateNotice}</p>
       {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onSetup={openSetup} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}
+      {view === "pointScan" && <PointScan />}
       {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} nativeExitRequest={profileExitRequest} onConfirmNativeExit={confirmProfileExit} onCancelNativeExit={cancelProfileExit} />}
       {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} focusUpdates={focusUpdates} onUpdatesFocused={() => setFocusUpdates(false)} updateAttention={updateFailure?.text ?? null} onUpdatesShown={setUpdatesShown} />}
       {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} openUpdates={openUpdates} />}

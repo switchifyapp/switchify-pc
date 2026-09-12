@@ -6,6 +6,8 @@
   "permissions": [
     "core:default",
     "allow-get-app-state",
+    "allow-get-point-scan",
+    "allow-configure-point-scan",
     "allow-check-accessibility",
     "allow-approve-pairing",
     "allow-reject-pairing",

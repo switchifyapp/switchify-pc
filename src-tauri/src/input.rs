@@ -1529,6 +1529,24 @@ mod tests {
         assert_eq!(input.injector.text, vec!["Hello"]);
     }
 
+    #[test]
+    fn point_scan_clicks_once_at_absolute_point_with_fake_input() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        crate::point_scan::click(&mut input, (-640, 512)).unwrap();
+        assert_eq!(input.injector.absolute_moves, vec![(-640, 512)]);
+        assert_eq!(input.injector.clicks, vec![(MouseButton::Left, 1)]);
+        assert!(input.injector.keys.is_empty());
+    }
+
+    #[test]
+    fn point_scan_refuses_to_move_during_drag() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        input.held_button = Some(MouseButton::Left);
+        assert!(crate::point_scan::click(&mut input, (30, 40)).is_err());
+        assert!(input.injector.absolute_moves.is_empty());
+        assert!(input.injector.clicks.is_empty());
+    }
+
     #[cfg(target_os = "windows")]
     #[test]
     fn canonical_windows_alphanumeric_keys_use_physical_keys() {

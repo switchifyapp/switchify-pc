@@ -14,6 +14,9 @@ mod macos_relaunch;
 mod modifier_overlay;
 mod mouse_repeat;
 mod overlay;
+mod point_scan;
+mod point_scan_host;
+mod point_scan_runtime;
 mod protocol;
 mod state;
 mod storage;
@@ -199,6 +202,7 @@ pub(crate) fn sync_tray_state(app: &AppHandle, state: &AppState) {
 }
 
 fn finish_app_exit(app: &AppHandle) {
+    point_scan_runtime::cancel(app);
     app.state::<dwell::DwellController>().cancel(app);
     let model = app.state::<AppModel>();
     let _ = platform_disconnect_all(app, &model.shared);
@@ -365,6 +369,7 @@ fn finish_disconnect(
     overlay: &overlay::CursorOverlay,
     modifier_overlay: &modifier_overlay::ModifierOverlay,
 ) -> AppState {
+    point_scan_runtime::cancel(app);
     app.state::<dwell::DwellController>().cancel(app);
     overlay.end_session();
     modifier_overlay.end_session();
@@ -1211,6 +1216,50 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+#[tauri::command]
+fn get_point_scan(
+    controller: State<'_, point_scan_runtime::Controller>,
+) -> point_scan_runtime::View {
+    controller.view()
+}
+
+#[tauri::command]
+async fn configure_point_scan(
+    app: AppHandle,
+    config: point_scan::Config,
+    enabled: bool,
+) -> Result<point_scan_runtime::View, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(point_scan_runtime::configure(&handle, config, enabled));
+    })
+    .map_err(|e| e.to_string())?;
+    rx.await
+        .map_err(|_| "Point scan configuration was cancelled.".to_string())?
+}
+
+fn point_scan_prepare(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<AppModel>().snapshot();
+    if state.bluetooth == state::BluetoothState::Connected {
+        return Err("Disconnect Android before using local point scan.".into());
+    }
+    if state.accessibility != state::AccessibilityState::Granted {
+        return Err("Grant input access before using point scan.".into());
+    }
+    app.state::<dwell::DwellController>().cancel(app);
+    platform_stop_mouse_repeat(app);
+    Ok(())
+}
+
+fn point_scan_click(app: &AppHandle, point: (i32, i32)) -> Result<(), String> {
+    point_scan_prepare(app)?;
+    // Reuse the production input adapter, independent of Bluetooth availability.
+    let injector = enigo::Enigo::new(&enigo::Settings::default())
+        .map_err(|_| "Point scan input could not be initialized.".to_string())?;
+    point_scan::click(&mut input::DesktopInput::new(injector), point)
+}
+
 pub fn run() {
     #[cfg(target_os = "macos")]
     if macos_relaunch::run_from_args() {
@@ -1230,6 +1279,7 @@ pub fn run() {
     let overlay_shared = shared.clone();
     let modifier_overlay_shared = shared.clone();
     tauri::Builder::default()
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
             if has_start_hidden_argument(&args) {
                 return;
@@ -1250,6 +1300,7 @@ pub fn run() {
         .manage(PendingProfileExit::default())
         .manage(PendingNavigation::default())
         .setup(move |app| {
+            point_scan_runtime::install(app.handle());
             install_tray(app)?;
             if updater_is_configured(app.config().plugins.0.get("updater")) {
                 let model = app.state::<AppModel>();
@@ -1333,6 +1384,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            get_point_scan,
+            configure_point_scan,
             get_app_state,
             check_accessibility,
             approve_pairing,
