@@ -255,7 +255,13 @@ export function SwitchesSection({
   controller: SwitchController;
   locked: boolean;
 }) {
-  const { settings, state, pending, error, unsaved } = controller;
+  const { settings, state, pending, unsaved } = controller;
+  // A refused capture sets both the general error and the capture error; the
+  // key field already shows the latter, so the band only carries save errors.
+  const error =
+    controller.error && controller.error !== state?.capture.error
+      ? controller.error
+      : null;
   const [draft, setDraft] = useState<Binding | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [target, setTarget] = useState<string | null>(null);
