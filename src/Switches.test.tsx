@@ -195,7 +195,7 @@ it("reorders hold actions and waits for pending switch saves before enabling", a
   expect(screen.getByLabelText("Normal action for Head switch")).toBeDisabled();
   expect(screen.getByText("Select · Hold: Stop scanning, Next")).toBeTruthy();
 });
-it("previews hold timing from the interval", async () => {
+it("shows hold timing computed from the interval", async () => {
   render(<Shell />);
   await screen.findByRole("heading", { name: "Head switch" });
   open("Head switch");
