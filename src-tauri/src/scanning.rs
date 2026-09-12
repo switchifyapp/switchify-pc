@@ -114,6 +114,10 @@ pub struct Frame {
     pub strips: Vec<Rect>,
 }
 
+/// Automatic movement gives up after this many full passes of the current
+/// phase without a selection, so an unattended scan does not sweep forever.
+pub const MAX_SCAN_CYCLES: usize = 3;
+
 pub trait Technique {
     type Selection;
     type Phase: Clone + Default + Serialize;
@@ -123,6 +127,11 @@ pub trait Technique {
     fn reset(&mut self);
     fn frame(&self) -> Frame;
     fn phase(&self) -> Self::Phase;
+    /// True once automatic movement has completed `MAX_SCAN_CYCLES` passes
+    /// without a selection; the session then resets and waits for Select.
+    fn exhausted(&self) -> bool {
+        false
+    }
 }
 
 pub struct Session<T: Technique> {
@@ -171,6 +180,9 @@ impl<T: Technique> Session<T> {
     pub fn tick(&mut self, elapsed_ms: u64, select_held: bool) {
         if self.active && self.automatic && !self.paused && !select_held && elapsed_ms > 0 {
             self.technique.advance(elapsed_ms.min(MAX_ELAPSED_MS));
+            if self.technique.exhausted() {
+                self.reset();
+            }
         }
     }
     pub fn reset(&mut self) {

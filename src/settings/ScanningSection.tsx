@@ -112,7 +112,7 @@ export function ScanningSection({
           onChange={(value) => update("automatic", value)}
         />
 
-        <p>Assign switch actions in the Switches tab. All actions run on release. Holding a switch freezes movement. After clicking, use Select to start again.</p>
+        <p>Assign switch actions in the Switches tab. All actions run on release. Holding a switch freezes movement. After clicking, or after three passes without a selection, use Select to start again.</p>
 
       </SettingGroup>
 
