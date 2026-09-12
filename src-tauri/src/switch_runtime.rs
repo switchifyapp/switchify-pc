@@ -39,46 +39,49 @@ fn path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 }
 fn persist(app: &AppHandle, settings: &Settings) -> Result<(), String> {
     let path = path(app)?;
+    persist_path(&path, settings)
+}
+fn persist_path(path: &std::path::Path, settings: &Settings) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or("Switch settings directory is unavailable.")?;
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     // Existing storage helper uses atomic replacement for desktop state.
-    crate::storage::AppStorage::write_switch_settings(&path, settings)
+    crate::storage::AppStorage::write_switch_settings(path, settings)
 }
-impl Controller {
-    fn new(app: &AppHandle) -> Self {
-        let load = || -> Result<Settings, String> {
-            let path = path(app)?;
-            match std::fs::read(&path) {
+fn load_settings(path: &std::path::Path) -> Result<Settings, String> {
+    match std::fs::read(path) {
+        Ok(bytes) => {
+            let s: Settings = serde_json::from_slice(&bytes)
+                .map_err(|e| format!("Switch settings could not be read: {e}"))?;
+            s.validate()?;
+            Ok(s)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let legacy = path.with_file_name("point-scan.json");
+            match std::fs::read(legacy) {
                 Ok(bytes) => {
-                    let s: Settings = serde_json::from_slice(&bytes)
-                        .map_err(|e| format!("Switch settings could not be read: {e}"))?;
-                    s.validate()?;
-                    Ok(s)
+                    let config: crate::point_scan::Config =
+                        serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+                    config.validate()?;
+                    let settings = Settings::migrate(&config);
+                    persist_path(path, &settings)?;
+                    Ok(settings)
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    let legacy = path.with_file_name("point-scan.json");
-                    match std::fs::read(legacy) {
-                        Ok(bytes) => {
-                            let config: crate::point_scan::Config =
-                                serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-                            config.validate()?;
-                            let settings = Settings::migrate(&config);
-                            persist(app, &settings)?;
-                            Ok(settings)
-                        }
-                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                            let settings = Settings::default();
-                            persist(app, &settings)?;
-                            Ok(settings)
-                        }
-                        Err(e) => Err(e.to_string()),
-                    }
+                    let settings = Settings::default();
+                    persist_path(path, &settings)?;
+                    Ok(settings)
                 }
                 Err(e) => Err(e.to_string()),
             }
-        };
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+impl Controller {
+    fn new(app: &AppHandle) -> Self {
+        let load = || load_settings(&path(app)?);
         let (settings, error) = match load() {
             Ok(s) => (s, None),
             Err(e) => (Settings::default(), Some(e)),
@@ -109,6 +112,14 @@ impl Controller {
                 .map(|b| b.key.clone())
                 .collect(),
         }
+    }
+    pub fn active_generation(&self, generation: u64) -> bool {
+        let status = self
+            .broker
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .status();
+        status.mode == Mode::Active && status.generation == generation
     }
     pub fn generation(&self) -> u64 {
         self.broker
@@ -278,4 +289,71 @@ pub fn install(app: &AppHandle) {
                 .heartbeat();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct Files(std::path::PathBuf);
+    impl Files {
+        fn new() -> Self {
+            let p =
+                std::env::temp_dir().join(format!("switchify-migration-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir(&p).unwrap();
+            Self(p)
+        }
+        fn path(&self) -> std::path::PathBuf {
+            self.0.join("switch-settings.json")
+        }
+    }
+    impl Drop for Files {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    #[test]
+    fn fresh_install_stays_empty_after_point_settings_are_saved() {
+        let f = Files::new();
+        assert!(load_settings(&f.path()).unwrap().bindings.is_empty());
+        std::fs::write(
+            f.0.join("point-scan.json"),
+            serde_json::to_vec(&crate::point_scan::Config::default()).unwrap(),
+        )
+        .unwrap();
+        assert!(load_settings(&f.path()).unwrap().bindings.is_empty());
+    }
+    #[test]
+    fn legacy_migration_happens_once_and_preserves_new_assignments() {
+        let f = Files::new();
+        let config = crate::point_scan::Config {
+            select_key: "F4".into(),
+            ..Default::default()
+        };
+        std::fs::write(
+            f.0.join("point-scan.json"),
+            serde_json::to_vec(&config).unwrap(),
+        )
+        .unwrap();
+        let mut settings = load_settings(&f.path()).unwrap();
+        assert_eq!(settings.bindings[0].key, "F4");
+        settings.bindings.clear();
+        persist_path(&f.path(), &settings).unwrap();
+        assert!(load_settings(&f.path()).unwrap().bindings.is_empty());
+    }
+    #[test]
+    fn corrupt_and_future_files_are_never_overwritten() {
+        let f = Files::new();
+        for bytes in [
+            b"not json".to_vec(),
+            serde_json::to_vec(&Settings {
+                schema_version: 2,
+                ..Default::default()
+            })
+            .unwrap(),
+        ] {
+            std::fs::write(f.path(), &bytes).unwrap();
+            assert!(load_settings(&f.path()).is_err());
+            assert_eq!(std::fs::read(f.path()).unwrap(), bytes);
+        }
+    }
 }

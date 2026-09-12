@@ -218,9 +218,16 @@ pub fn configure<A: Adapter>(
     publish::<A>(app);
     Ok(c.view())
 }
-fn switch<A: Adapter>(app: &AppHandle, action: Action) {
+fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64) {
     let c = app.state::<Controller<A>>();
     if !c.enabled.load(Ordering::SeqCst) {
+        return;
+    }
+    if !app
+        .state::<switch_runtime::Controller>()
+        .active_generation(input_generation)
+    {
+        disable::<A>(app, "Switch capture stopped.");
         return;
     }
     if action == Action::Cancel {
@@ -247,7 +254,11 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action) {
                     h.hide();
                 }
             });
-            if c.enabled.load(Ordering::SeqCst) {
+            if c.enabled.load(Ordering::SeqCst)
+                && app
+                    .state::<switch_runtime::Controller>()
+                    .active_generation(input_generation)
+            {
                 A::activate(app, point)?;
             }
         }
@@ -294,7 +305,11 @@ fn tick<A: Adapter>(app: &AppHandle) {
             } => {
                 let selected = {
                     let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
-                    if generation != d.input_generation {
+                    if generation != d.input_generation
+                        || !app
+                            .state::<switch_runtime::Controller>()
+                            .active_generation(generation)
+                    {
                         continue;
                     }
                     if action == usahp_core::Action::Pressed {
@@ -306,7 +321,7 @@ fn tick<A: Adapter>(app: &AppHandle) {
                     }
                 };
                 if let Some(action) = selected {
-                    switch::<A>(app, action);
+                    switch::<A>(app, action, generation);
                 }
             }
             _ => {}
