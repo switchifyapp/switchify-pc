@@ -106,9 +106,8 @@ unsafe extern "system" fn window(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -
         INPUT.with(|slot| {
             if let Some(input) = slot.borrow().as_ref() {
                 input.driver.lost();
-                let mut core = input.driver.core.lock().unwrap_or_else(|p| p.into_inner());
-                core.physical.clear();
-                core.down.clear();
+                // The removed device may not own a held switch. Off-mode cleanup
+                // reconciles actual key state before releasing its reservation.
             }
         });
     }
@@ -457,5 +456,23 @@ mod tests {
     fn f12_is_not_reservable() {
         assert!(!super::super::supported_key("F12"));
         assert!(!known_keys().iter().any(|(_, name)| name == "F12"));
+    }
+    #[test]
+    fn device_loss_preserves_other_held_keys_until_their_release() {
+        let i = input();
+        i.hotkey(32);
+        i.driver.lost();
+        assert!(i.driver.core.lock().unwrap().physical.contains("Space"));
+        i.raw(32, true);
+        let c = i.driver.core.lock().unwrap();
+        assert!(c.physical.is_empty());
+        assert_eq!(c.events.len(), 1);
+        assert!(matches!(
+            c.events[0],
+            Event::Stopped {
+                reason: StopReason::CaptureLost,
+                ..
+            }
+        ));
     }
 }
