@@ -210,43 +210,40 @@ impl Engine {
             / 1000.0)
             .max(1.0);
         let forward = self.direction > 0.0;
-        let wrapped = |before: f64, after: f64| {
-            if forward {
-                after < before
-            } else {
-                after > before
-            }
-        };
+        // A cyclic index wraps when it leaves its last (or first) slot; comparing
+        // positions would miss a pass whose step lands exactly where it began.
+        let last = self.config.grid_size.saturating_sub(1);
+        let cycle_wraps = |before: usize| if forward { before == last } else { before == 0 };
         match self.phase {
             Phase::Row => {
                 let before = self.row.index();
                 self.row.step(self.config.grid_size, forward);
-                wrapped(before as f64, self.row.index() as f64)
+                cycle_wraps(before)
             }
             Phase::Cell => {
                 let before = self.cell.index();
                 self.cell.step(self.config.grid_size, forward);
-                wrapped(before as f64, self.cell.index() as f64)
+                cycle_wraps(before)
             }
             Phase::X => {
-                let before = self.x;
-                self.x = advance(
+                let (x, wrapped) = advance(
                     self.x,
                     self.region.x,
                     self.region.width,
                     self.direction * amount,
                 );
-                wrapped(before, self.x)
+                self.x = x;
+                wrapped
             }
             Phase::Y => {
-                let before = self.y;
-                self.y = advance(
+                let (y, wrapped) = advance(
                     self.y,
                     self.region.y,
                     self.region.height,
                     self.direction * amount,
                 );
-                wrapped(before, self.y)
+                self.y = y;
+                wrapped
             }
             Phase::Idle => false,
         }
@@ -339,14 +336,17 @@ fn outline(r: Rect, t: f64) -> [Rect; 4] {
         },
     ]
 }
-fn advance(value: f64, start: f64, length: f64, delta: f64) -> f64 {
+/// Moves along one axis and reports whether the move wrapped past an edge. The
+/// flag comes from the overflow itself, so a step of exactly the region's
+/// length still counts as a completed pass even though it lands where it began.
+fn advance(value: f64, start: f64, length: f64, delta: f64) -> (f64, bool) {
     let next = value + delta;
     if next > start + length - 1.0 {
-        start
+        (start, true)
     } else if next < start {
-        start + length - 1.0
+        (start + length - 1.0, true)
     } else {
-        next
+        (next, false)
     }
 }
 
@@ -492,6 +492,35 @@ mod tests {
         assert!(g.active(), "five row steps are two and a half passes");
         run(&mut g, 500);
         assert!(!g.active());
+    }
+    #[test]
+    fn a_step_of_exactly_the_region_length_counts_as_a_pass() {
+        // At speed 4 a 250 ms tick moves 67.5 units, so a 67.5-wide grid cell
+        // lands back on its own left edge every tick and must still be counted.
+        let mut e = Session::new(
+            Engine::new(
+                Config {
+                    speed: 4,
+                    ..Config::default()
+                }
+                .point(),
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 67.5,
+                    height: 67.5,
+                },
+                1.0,
+            )
+            .unwrap(),
+            true,
+        );
+        e.action(Action::Select);
+        e.tick(250, false);
+        e.tick(250, false);
+        assert!(e.active());
+        e.tick(250, false);
+        assert!(!e.active(), "three exact-length passes exhaust the scan");
     }
     #[test]
     fn manual_steps_never_exhaust_the_scan() {

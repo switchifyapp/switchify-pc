@@ -335,3 +335,15 @@ it("announces an unavailable key in the collapsed row", async () => {
   event({ ...current, unavailableKeys: ["Space"] });
   await screen.findByText(/unavailable on this computer/);
 });
+it("keeps focus in the draft when another switch is removed while adding", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Head switch" });
+  fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
+  await screen.findByRole("dialog");
+  current = { ...current, capture: { active: false, key: "Enter", error: null } };
+  event(current);
+  await screen.findByText("Enter");
+  fireEvent.click(screen.getByRole("button", { name: "Remove Head switch" }));
+  await waitFor(() => expect(current.settings.bindings).toHaveLength(0));
+  expect(document.activeElement).toBe(screen.getByLabelText("New switch name"));
+});

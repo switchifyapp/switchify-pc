@@ -339,7 +339,10 @@ export function SwitchesSection({
     if (!focusAfter.current) return;
     const id = focusAfter.current;
     focusAfter.current = null;
-    (id === newId ? addRef.current : (editRefs.current.get(id) ?? addRef.current))?.focus();
+    // While a new switch is being drafted the Add switch button is not rendered,
+    // so a removal elsewhere hands focus to the draft's name field instead.
+    const target = id === newId ? null : editRefs.current.get(id);
+    (target ?? addRef.current ?? nameRef.current)?.focus();
   });
   const cancel = useRef(controller.cancelCapture);
   cancel.current = controller.cancelCapture;
