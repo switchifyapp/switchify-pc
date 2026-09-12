@@ -76,7 +76,7 @@ main { min-width: 0; }
 .primary.danger { border-color: var(--status-error); background: var(--status-error); }
 .text-button { border: 0; color: var(--brand); background: transparent; font-weight: 650; }
 button:disabled { cursor: default; opacity: 0.55; }
-.icon-button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; }
+.icon-button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 6px; color: inherit; background: transparent; cursor: pointer; }
 .danger-icon { color: var(--status-error); }
 .danger-icon:hover { background: var(--status-error-soft); }
 
@@ -317,3 +317,51 @@ button:disabled { cursor: default; opacity: 0.55; }
 
 .settings-view > .tab-bar { grid-template-columns: repeat(var(--tab-count), auto); }
 .settings-view > .tab-bar button { padding: 0 4px; }
+
+/* Switches: a summary row per switch, expanding to an editor. Switch-access
+   users step through every control, so the collapsed row exposes only Edit
+   and Remove. */
+.switch-status { margin-top: 0; }
+.switch-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 0; }
+.switch-empty { padding: 36px 24px; }
+.switch-empty h3 { margin-top: 12px; color: var(--text); font-size: 15px; }
+.switch-empty .primary { margin-top: 16px; }
+.switch-list { display: grid; gap: 8px; }
+.switch-row { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.switch-row[data-open] { border-color: var(--brand-border); }
+.switch-row-summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 12px; min-height: 60px; padding: 8px 8px 8px 14px; }
+.switch-row-summary > svg { color: var(--muted); }
+.switch-row-summary h3 { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.switch-row-summary p { margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.key-badge { display: inline-flex; align-items: center; min-height: 26px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; padding: 0 9px; background: var(--surface-muted); font: 600 12px/1 ui-monospace, Consolas, monospace; white-space: nowrap; }
+.key-badge[data-unavailable] { border-color: var(--status-error); color: var(--status-error); background: var(--status-error-soft); }
+.key-badge-empty { border-style: dashed; color: var(--muted); font-family: inherit; font-weight: 500; }
+.capture-dialog { display: grid; justify-items: center; width: min(100%, 420px); border: 1px solid var(--brand-border); border-radius: 10px; padding: 32px 28px 24px; color: var(--text); background: var(--surface); box-shadow: 0 20px 60px rgba(28, 27, 31, 0.2); text-align: center; animation: capture-pulse 1.4s ease-in-out infinite; }
+.capture-dialog:focus { outline: none; }
+.capture-dialog > svg { color: var(--brand); }
+.capture-dialog h2 { margin-top: 14px; font-size: 18px; }
+.capture-dialog p { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.capture-dialog button { margin-top: 20px; }
+@keyframes capture-pulse { 50% { border-color: var(--brand); box-shadow: 0 20px 60px rgba(28, 27, 31, 0.2), 0 0 0 4px var(--brand-container); } }
+@media (prefers-reduced-motion: reduce) { .capture-dialog { animation: none; } }
+.switch-editor { display: grid; gap: 16px; min-width: 0; margin: 0; border: 0; border-top: 1px solid var(--border); padding: 4px 14px 14px; }
+.switch-editor .field { margin-top: 0; }
+.switch-editor .field > span:first-child { font-weight: 600; }
+.switch-editor select { min-width: 0; min-height: 36px; border: 1px solid var(--border); border-radius: 5px; padding: 6px 9px; color: var(--text); background: var(--surface); }
+.key-row { display: flex; align-items: center; gap: 10px; }
+.hold-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.hold-list li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto auto auto; align-items: center; gap: 4px; }
+.hold-step { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: var(--on-brand-container); background: var(--brand-container); font-size: 11px; font-weight: 700; }
+.hold-list select { margin-right: 6px; }
+.hold-actions .setting-note { margin-top: 2px; }
+.hold-actions .disclosure { margin-top: 0; }
+.switch-editor-footer { display: flex; gap: 8px; padding-top: 4px; }
+.switch-editor-footer .danger { margin-left: auto; }
+.switch-list-actions { display: flex; }
+
+@media (max-width: 680px) {
+  .switch-row-summary { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .switch-row-summary .key-badge { grid-column: 2; justify-self: start; }
+  .switch-row-summary > .secondary { grid-column: 3; grid-row: 1; }
+  .switch-row-summary > .icon-button { grid-column: 3; grid-row: 2; justify-self: end; }
+}

@@ -76,6 +76,17 @@ mod platform {
             }
             Ok(())
         }
+        pub fn prompt(&mut self, text: &str, rect: Rect, scale: f64) -> Result<(), String> {
+            self.render(&[rect])?;
+            crate::modifier_overlay::windows_backend::present_scan_prompt(
+                self.windows[0],
+                text,
+                rect.x as i32,
+                rect.y as i32,
+                rect.width as i32,
+                scale,
+            )
+        }
         pub fn hide(&mut self) {
             for window in &self.windows {
                 unsafe {
@@ -137,6 +148,22 @@ mod platform {
             }
             Ok(())
         }
+        pub fn prompt(&mut self, text: &str, rect: Rect, _scale: f64) -> Result<(), String> {
+            use objc2_app_kit::{NSFont, NSTextField};
+            use objc2_foundation::NSString;
+            let mtm = MainThreadMarker::new().ok_or("Prompt requires the main thread.")?;
+            self.render(&[rect])?;
+            let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
+            label.setFont(Some(&NSFont::systemFontOfSize(20.0)));
+            label.setTextColor(Some(&NSColor::whiteColor()));
+            label.setFrame(NSRect::new(
+                NSPoint::new(12.0, 12.0),
+                NSSize::new(rect.width - 24.0, rect.height - 24.0),
+            ));
+            self.panels[0].setBackgroundColor(Some(&NSColor::blackColor()));
+            self.panels[0].setContentView(Some(&label));
+            Ok(())
+        }
         pub fn hide(&mut self) {
             for panel in &self.panels {
                 panel.orderOut(None);
@@ -154,6 +181,9 @@ mod platform {
         }
         pub fn render(&mut self, _: &[Rect]) -> Result<(), String> {
             Err("Point scan is unavailable.".into())
+        }
+        pub fn prompt(&mut self, _: &str, _: Rect, _: f64) -> Result<(), String> {
+            Err("Scanning is unavailable.".into())
         }
         pub fn hide(&mut self) {}
     }

@@ -44,7 +44,7 @@ export function validSwitches(config: PointScanConfig) {
   );
 }
 // App owns this hook so changing tabs or views never drops edits or stops a scan.
-export function useScanning() {
+export function useScanning(beforeEnable?: () => Promise<void>) {
   const [state, setState] = useState<PointScanState | null>(null);
   const [config, setConfig] = useState(defaultPointScanConfig);
   const [pending, setPending] = useState(0);
@@ -160,6 +160,7 @@ export function useScanning() {
     setToggling(true);
     enqueue(async () => {
       try {
+        if (enabled) await beforeEnable?.();
         if (enabled && m.saved !== m.revision)
           throw new Error(
             "Save the scanning settings before enabling point scan. Use Retry save.",

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-switches"
+description = "Enables the get_switches command without any pre-configured scope."
+commands.allow = ["get_switches"]
+
+[[permission]]
+identifier = "deny-get-switches"
+description = "Denies the get_switches command without any pre-configured scope."
+commands.deny = ["get_switches"]

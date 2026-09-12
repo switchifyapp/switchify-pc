@@ -6,17 +6,6 @@ import {
 
 import { SettingGroup, Toggle, OptionGroup, secondsOptions } from "./controls";
 
-const keys = [
-  "Space",
-  "Enter",
-  "Backspace",
-  "ArrowUp",
-  "ArrowDown",
-  "ArrowLeft",
-  "ArrowRight",
-  ...Array.from({ length: 24 }, (_, i) => `F${i + 1}`),
-];
-
 const phases = {
   idle: "Ready to begin",
   row: "Choose a row",
@@ -59,6 +48,10 @@ export function ScanningSection({
         <p>
           Switch keys are reserved while enabled. Escape stops scanning and
           releases them. Disconnect Android before enabling local point scan.
+        </p>
+        <p className="setting-note">
+          On Windows, use switch keys without Shift, Ctrl, Alt or Windows held.
+          Key releases can still reach other applications.
         </p>
 
         <p role="status">
@@ -109,7 +102,7 @@ export function ScanningSection({
       </SettingGroup>
 
       <SettingGroup
-        title="Switch controls"
+        title="Scan movement"
         description="Movement and switch actions shared by scanning techniques."
       >
         <Toggle
@@ -119,33 +112,8 @@ export function ScanningSection({
           onChange={(value) => update("automatic", value)}
         />
 
-        {(
-          [
-            ["selectKey", "Select switch"],
-            ["nextKey", "Forward switch"],
-            ["backKey", "Backward switch"],
-            ["pauseKey", "Pause / resume switch"],
-          ] as const
-        ).map(([key, label]) => (
-          <label className="exact-speed" key={key}>
-            <span>{label}</span>
-            <select
-              disabled={disabled}
-              value={config[key]}
-              onChange={(event) => update(key, event.target.value)}
-            >
-              {keys.map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </label>
-        ))}
+        <p>Assign switch actions in the Switches tab. All actions run on release. Holding a switch freezes movement. After clicking, or after three passes without a selection, use Select to start again.</p>
 
-        <p>
-          Select takes effect on release. Holding Select freezes scanning.
-          Forward and Backward step once and set direction. After clicking,
-          press Select to start again.
-        </p>
       </SettingGroup>
 
       <SettingGroup

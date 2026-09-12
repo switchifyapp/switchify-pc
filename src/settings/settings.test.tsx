@@ -39,7 +39,7 @@ describe("Switchify PC settings", () => {
     fireEvent.click(screen.getByRole("button",{name:"Settings"}));
     fireEvent.click(screen.getByRole("tab",{name:"Scanning"}));
     expect(screen.getByRole("tabpanel")).toHaveAccessibleName("Scanning");
-    expect(screen.getByRole("heading",{name:"Switch controls"})).toBeInTheDocument();
+    expect(screen.getByRole("heading",{name:"Scan movement"})).toBeInTheDocument();
     expect(screen.getByRole("heading",{name:"Point scan"})).toBeInTheDocument();
   });
 
@@ -416,7 +416,7 @@ describe("Switchify PC settings", () => {
 
     const tablist = screen.getByRole("tablist", { name: "Settings sections" });
     expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["General", "Controls", "Scanning", "Cursor appearance", "Privacy", "Updates"]);
+      .toEqual(["General", "Controls", "Switches", "Scanning", "Cursor appearance", "Privacy", "Updates"]);
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel")).toHaveAccessibleName("General");
   });
@@ -465,7 +465,7 @@ describe("Switchify PC settings", () => {
 
     expect(screen.queryByRole("tab", { name: "Cursor appearance" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["General", "Controls", "Scanning", "Privacy", "Updates"]);
+      .toEqual(["General", "Controls", "Switches", "Scanning", "Privacy", "Updates"]);
     selectTab("Controls");
     expect(screen.queryByRole("checkbox", { name: "Show cursor overlay" })).not.toBeInTheDocument();
   });

@@ -17,7 +17,7 @@ use crate::macos_overlay_window;
 use crate::state::{emit_state, set_activity, ActivityKind, SharedModel};
 #[cfg(target_os = "windows")]
 #[path = "modifier_overlay_windows.rs"]
-mod windows_backend;
+pub(crate) mod windows_backend;
 
 const OVERLAY_WINDOW_LABEL: &str = "modifier-overlay";
 #[cfg_attr(target_os = "windows", allow(dead_code))]

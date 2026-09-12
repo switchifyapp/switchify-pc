@@ -1,5 +1,7 @@
 //! Android point scanning, with desktop coordinates and no OS input in the engine.
-use crate::scanning::{Action, Cycle, Frame, Interval, Rect, SwitchSettings, Technique, TICK_MS};
+use crate::scanning::{
+    Action, Cycle, Frame, Interval, Rect, SwitchSettings, Technique, MAX_SCAN_CYCLES, TICK_MS,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -100,6 +102,8 @@ pub struct Engine {
     pub units_per_logical_pixel: f64,
     direction: f64,
     block_elapsed: Interval,
+    /// Full automatic passes of the current phase since it began.
+    cycles: usize,
 }
 impl Engine {
     pub fn new(
@@ -123,6 +127,7 @@ impl Engine {
             cell: Cycle::default(),
             direction: 1.0,
             block_elapsed: Interval::default(),
+            cycles: 0,
             units_per_logical_pixel,
         })
     }
@@ -135,11 +140,13 @@ impl Engine {
         self.cell.reset();
         self.direction = 1.0;
         self.block_elapsed.reset();
+        self.cycles = 0;
     }
     fn select_action(&mut self, action: Action) -> Option<(i32, i32)> {
         match action {
             Action::Select => {
                 self.block_elapsed.reset();
+                self.cycles = 0;
                 match self.phase {
                     Phase::Row => {
                         self.phase = Phase::Cell;
@@ -176,7 +183,8 @@ impl Engine {
                 self.direction = if action == Action::Next { 1.0 } else { -1.0 };
                 self.step(TICK_MS);
             }
-            Action::Pause | Action::Cancel => {}
+            Action::Reverse => self.direction = -self.direction,
+            Action::Pause | Action::Stop | Action::Cancel => {}
         }
         None
     }
@@ -188,34 +196,56 @@ impl Engine {
         {
             return;
         }
-        self.step(elapsed_ms);
+        if self.step(elapsed_ms) {
+            self.cycles += 1;
+        }
     }
-    fn step(&mut self, elapsed_ms: u64) {
+    /// Moves the current phase and reports whether it wrapped past an edge.
+    /// Manual Next and Back call this too, but only automatic passes count
+    /// towards the cycle limit: a user who is stepping is not unattended.
+    fn step(&mut self, elapsed_ms: u64) -> bool {
         let amount = ([45.0, 75.0, 120.0, 180.0, 270.0][self.config.speed]
             * self.units_per_logical_pixel
             * elapsed_ms as f64
             / 1000.0)
             .max(1.0);
+        let forward = self.direction > 0.0;
+        // A cyclic index wraps when it leaves its last (or first) slot; comparing
+        // positions would miss a pass whose step lands exactly where it began.
+        let last = self.config.grid_size.saturating_sub(1);
+        let cycle_wraps = |before: usize| if forward { before == last } else { before == 0 };
         match self.phase {
-            Phase::Row => self.row.step(self.config.grid_size, self.direction > 0.0),
-            Phase::Cell => self.cell.step(self.config.grid_size, self.direction > 0.0),
+            Phase::Row => {
+                let before = self.row.index();
+                self.row.step(self.config.grid_size, forward);
+                cycle_wraps(before)
+            }
+            Phase::Cell => {
+                let before = self.cell.index();
+                self.cell.step(self.config.grid_size, forward);
+                cycle_wraps(before)
+            }
             Phase::X => {
-                self.x = advance(
+                let (x, wrapped) = advance(
                     self.x,
                     self.region.x,
                     self.region.width,
                     self.direction * amount,
-                )
+                );
+                self.x = x;
+                wrapped
             }
             Phase::Y => {
-                self.y = advance(
+                let (y, wrapped) = advance(
                     self.y,
                     self.region.y,
                     self.region.height,
                     self.direction * amount,
-                )
+                );
+                self.y = y;
+                wrapped
             }
-            Phase::Idle => {}
+            Phase::Idle => false,
         }
     }
     pub fn row_rect(&self) -> Rect {
@@ -306,14 +336,17 @@ fn outline(r: Rect, t: f64) -> [Rect; 4] {
         },
     ]
 }
-fn advance(value: f64, start: f64, length: f64, delta: f64) -> f64 {
+/// Moves along one axis and reports whether the move wrapped past an edge. The
+/// flag comes from the overflow itself, so a step of exactly the region's
+/// length still counts as a completed pass even though it lands where it began.
+fn advance(value: f64, start: f64, length: f64, delta: f64) -> (f64, bool) {
     let next = value + delta;
     if next > start + length - 1.0 {
-        start
+        (start, true)
     } else if next < start {
-        start + length - 1.0
+        (start + length - 1.0, true)
     } else {
-        next
+        (next, false)
     }
 }
 
@@ -344,6 +377,9 @@ impl Technique for Engine {
     }
     fn phase(&self) -> Phase {
         self.phase
+    }
+    fn exhausted(&self) -> bool {
+        self.cycles >= MAX_SCAN_CYCLES
     }
 }
 
@@ -412,6 +448,92 @@ mod tests {
         assert_eq!(e.technique.x, -2.0);
         e.action(Action::Cancel);
         assert_eq!(e.technique.phase, Phase::Idle);
+    }
+    // The 999 px line at speed 2 (120 px/s) wraps roughly every 8.3 s.
+    fn run(e: &mut Session<Engine>, ms: u64) {
+        for _ in 0..ms / 250 {
+            e.tick(250, false);
+        }
+    }
+    #[test]
+    fn automatic_scan_stops_after_max_cycles_without_selection() {
+        let mut e = engine(Config::default());
+        e.action(Action::Select);
+        run(&mut e, 20_000);
+        assert!(e.active(), "two passes keep scanning");
+        run(&mut e, 6_000);
+        assert!(!e.active());
+        assert_eq!(e.technique.phase, Phase::Idle);
+        assert!(e.frame().strips.is_empty());
+        e.action(Action::Select);
+        assert_eq!(e.technique.phase, Phase::X);
+    }
+    #[test]
+    fn each_selected_phase_starts_a_fresh_cycle_count() {
+        let mut e = engine(Config::default());
+        e.action(Action::Select);
+        run(&mut e, 20_000);
+        e.action(Action::Select);
+        assert_eq!(e.technique.phase, Phase::Y);
+        // The 701 px column wraps every 5.8 s, so 14 s is two passes; had the
+        // X passes carried over, this would already have stopped.
+        run(&mut e, 14_000);
+        assert!(e.active(), "the Y phase counts its own passes");
+        run(&mut e, 4_000);
+        assert!(!e.active());
+        let mut g = engine(Config {
+            mode: Mode::Grid,
+            grid_size: 2,
+            block_interval_ms: 250,
+            ..Config::default()
+        });
+        g.action(Action::Select);
+        run(&mut g, 1_250);
+        assert!(g.active(), "five row steps are two and a half passes");
+        run(&mut g, 500);
+        assert!(!g.active());
+    }
+    #[test]
+    fn a_step_of_exactly_the_region_length_counts_as_a_pass() {
+        // At speed 4 a 250 ms tick moves 67.5 units, so a 67.5-wide grid cell
+        // lands back on its own left edge every tick and must still be counted.
+        let mut e = Session::new(
+            Engine::new(
+                Config {
+                    speed: 4,
+                    ..Config::default()
+                }
+                .point(),
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 67.5,
+                    height: 67.5,
+                },
+                1.0,
+            )
+            .unwrap(),
+            true,
+        );
+        e.action(Action::Select);
+        e.tick(250, false);
+        e.tick(250, false);
+        assert!(e.active());
+        e.tick(250, false);
+        assert!(!e.active(), "three exact-length passes exhaust the scan");
+    }
+    #[test]
+    fn manual_steps_never_exhaust_the_scan() {
+        let mut e = engine(Config {
+            automatic: false,
+            ..Config::default()
+        });
+        e.action(Action::Select);
+        for _ in 0..2000 {
+            e.action(Action::Next);
+        }
+        assert!(e.active());
+        assert_eq!(e.technique.phase, Phase::X);
     }
     #[test]
     fn manual_mode_only_moves_on_steps() {

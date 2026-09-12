@@ -5,11 +5,15 @@ use crate::{
     scanning::Rect,
     scanning_runtime::{self, Adapter},
 };
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 pub struct PointScan;
 pub type Controller = scanning_runtime::Controller<PointScan>;
 pub type View = scanning_runtime::View<Config, Phase>;
 pub fn configure(app: &AppHandle, config: Config, enabled: bool) -> Result<View, String> {
+    let previous = app.state::<Controller>().view().config;
+    if config.switches().keys() != previous.switches().keys() {
+        return Err("Edit key assignments in Settings → Switches.".into());
+    }
     scanning_runtime::configure::<PointScan>(app, config, enabled)
 }
 pub fn install(app: &AppHandle) {
