@@ -307,13 +307,7 @@ function CaptureDialog({ name, onCancel }: { name: string; onCancel: () => void 
   );
 }
 
-export function SwitchesSection({
-  controller,
-  locked,
-}: {
-  controller: SwitchController;
-  locked: boolean;
-}) {
+export function SwitchesSection({ controller }: { controller: SwitchController }) {
   const { settings, state, pending, unsaved } = controller;
   // A refused capture sets both the general error and the capture error; the
   // key field already shows the latter, so the band only carries save errors.
@@ -387,7 +381,7 @@ export function SwitchesSection({
     if (state.capture.error) setRowError({ id: target, message: state.capture.error });
     setTarget(null);
   }, [capturing, target, state]);
-  const disabled = locked || !state?.supported || !!state.error || capturing;
+  const disabled = !state?.supported || !!state.error || capturing;
   // A learned key arrives while the editor is disabled; focus the name once the
   // fieldset is enabled again so a new switch can be named straight away.
   useEffect(() => {
@@ -483,9 +477,7 @@ export function SwitchesSection({
             ? "Saving switches..."
             : unsaved
               ? "Switch assignments have unsaved changes."
-              : locked
-                ? "Disable scanning to change switches."
-                : "Changes save automatically."}
+              : "Changes save automatically and apply straight away."}
         </p>
         {(error || state?.error) && (
           <div className="dialog-error switch-error" role="alert">

@@ -44,16 +44,10 @@ const scan = {
 };
 function Shell({ visible = true }: { visible?: boolean }) {
   const switches = useSwitches();
-  const scanning = useScanning(switches.flush);
-  switches.setLocked(!!scanning.state?.enabled || scanning.toggling);
+  const scanning = useScanning();
   return (
     <>
-      {visible && (
-        <SwitchesSection
-          controller={switches}
-          locked={!!scanning.state?.enabled || scanning.toggling}
-        />
-      )}
+      {visible && <SwitchesSection controller={switches} />}
       <ScanningSection controller={scanning} />
     </>
   );
@@ -159,7 +153,7 @@ it("rejects a learned duplicate without changing the existing switch", async () 
   await screen.findByText("That key already belongs to another switch.");
   expect(current.settings.bindings).toHaveLength(1);
 });
-it("reorders hold actions and waits for pending switch saves before enabling", async () => {
+it("reorders hold actions and reflects the saved order in the summary", async () => {
   render(<Shell />);
   await screen.findByRole("heading", { name: "Head switch" });
   open("Head switch");
@@ -174,12 +168,7 @@ it("reorders hold actions and waits for pending switch saves before enabling", a
     screen.getByRole("button", { name: "Move hold action 2 up" }),
   );
   await waitFor(() => expect(finish).toBeTypeOf("function"));
-  fireEvent.click(screen.getByRole("button", { name: "Enable point scan" }));
-  expect(
-    mocks.invoke.mock.calls.some(
-      ([c, a]) => c === "configure_point_scan" && a.enabled,
-    ),
-  ).toBe(false);
+  expect(screen.getByText("Saving switches...")).toBeTruthy();
   await act(async () =>
     finish({
       ...current,
@@ -191,9 +180,8 @@ it("reorders hold actions and waits for pending switch saves before enabling", a
       },
     }),
   );
-  await screen.findByRole("button", { name: "Disable point scan" });
-  expect(screen.getByLabelText("Normal action for Head switch")).toBeDisabled();
   expect(screen.getByText("Select · Hold: Stop scanning, Next")).toBeTruthy();
+  expect(screen.getByLabelText("Normal action for Head switch")).toBeEnabled();
 });
 it("shows hold timing computed from the interval", async () => {
   render(<Shell />);
@@ -206,7 +194,7 @@ it("shows hold timing computed from the interval", async () => {
   await screen.findByText("Hold 2s for Next, 4s for Stop scanning. Release to run the action shown.");
   await screen.findByText(/Holding any switch for 8s disables switch control/);
 });
-it("preserves failed switch edits and prevents enable until retry succeeds", async () => {
+it("preserves failed switch edits until a retry succeeds", async () => {
   render(<Shell />);
   await screen.findByRole("heading", { name: "Head switch" });
   open("Head switch");
@@ -215,13 +203,8 @@ it("preserves failed switch edits and prevents enable until retry succeeds", asy
     target: { value: "New name" },
   });
   await screen.findByText("Disk full");
-  fireEvent.click(screen.getByRole("button", { name: "Enable point scan" }));
-  await screen.findByText(/Save switch assignments before enabling/);
-  expect(
-    mocks.invoke.mock.calls.some(
-      ([c, a]) => c === "configure_point_scan" && a.enabled,
-    ),
-  ).toBe(false);
+  expect(screen.getByLabelText("Name for Space")).toHaveValue("New name");
+  expect(screen.getByText("Switch assignments have unsaved changes.")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
   await waitFor(() =>
     expect(current.settings.bindings[0].name).toBe("New name"),

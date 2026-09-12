@@ -62,7 +62,7 @@ export function SettingsView({ switches, scanning, state, settings, onChange, ch
     <TabPanel name="settings" id={active}>
       {active === "general" && <GeneralSection settings={settings} update={update} />}
       {active === "pointer" && <PointerSection settings={settings} update={update} />}
-      {active === "switches" && <SwitchesSection controller={switches} locked={!!scanning.state?.enabled||scanning.toggling} />}
+      {active === "switches" && <SwitchesSection controller={switches} />}
       {active === "scanning" && <ScanningSection controller={scanning} />}
       {active === "cursor" && <CursorSection settings={settings} update={update} />}
       {active === "privacy" && <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />}

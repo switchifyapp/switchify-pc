@@ -19,19 +19,9 @@ export function ScanningSection({
 }: {
   controller: ScanningController;
 }) {
-  const {
-    state,
-    config,
-    pending,
-    error,
-    toggling,
-    update,
-    retry,
-    toggle,
-    unsaved,
-  } = controller;
+  const { state, config, pending, error, update, retry, unsaved } = controller;
 
-  const disabled = !state?.supported || !!state.enabled || toggling;
+  const disabled = !state?.supported;
 
   return (
     <>
@@ -46,8 +36,9 @@ export function ScanningSection({
         </p>
 
         <p>
-          Switch keys are reserved while enabled. Escape stops scanning and
-          releases them. Disconnect Android before enabling local point scan.
+          Scanning is on whenever a switch has the Select action, and its keys
+          stay reserved while Switchify runs. Escape resets the scan. Android
+          connections pause local scanning until they end.
         </p>
         <p className="setting-note">
           On Windows, use switch keys without Shift, Ctrl, Alt or Windows held.
@@ -59,18 +50,6 @@ export function ScanningSection({
             ? `${state.paused ? "Paused. " : ""}${phases[state.phase]}.`
             : (state?.message ?? "Loading point scan...")}
         </p>
-
-        <button
-          type="button"
-          disabled={
-            toggling ||
-            !state?.supported ||
-            (!state.enabled && !validSwitches(config))
-          }
-          onClick={toggle}
-        >
-          {state?.enabled ? "Disable point scan" : "Enable point scan"}
-        </button>
 
         <p role="status">
           {pending
@@ -118,7 +97,7 @@ export function ScanningSection({
 
       <SettingGroup
         title="Point scan"
-        description="Choose how the scanning lines find a point. Disable scanning to change these settings."
+        description="Choose how the scanning lines find a point. Changes apply straight away."
       >
         <OptionGroup<PointScanConfig["mode"]>
           legend="Mode"
@@ -173,7 +152,7 @@ export function ScanningSection({
           </>
         )}
 
-        <p>Settings are saved, but scanning stays off when the app restarts.</p>
+        <p>Settings are saved and scanning resumes when the app restarts.</p>
       </SettingGroup>
     </>
   );

@@ -141,7 +141,7 @@ impl Controller {
             .mode
             != Mode::Off
         {
-            return Err("Disable scanning and finish capture before changing switches.".into());
+            return Err("Finish learning the switch before changing switches.".into());
         }
         {
             let d = self.data.lock().unwrap_or_else(|p| p.into_inner());
@@ -266,7 +266,7 @@ pub fn stop_message(reason: StopReason) -> &'static str {
         StopReason::HeartbeatTimeout => "Switch capture stopped because its heartbeat was missed.",
         StopReason::QueueOverflow => "Switch capture stopped because input could not be processed.",
         StopReason::CaptureLost => {
-            "Switch capture was lost. Check input permission and enable scanning again."
+            "Switch capture was lost. Check input permission; scanning retries."
         }
     }
 }

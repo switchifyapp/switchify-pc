@@ -44,19 +44,18 @@ export function validSwitches(config: PointScanConfig) {
   );
 }
 // App owns this hook so changing tabs or views never drops edits or stops a scan.
-export function useScanning(beforeEnable?: () => Promise<void>) {
+// Scanning has no toggle: the backend arms it whenever the saved switches allow
+// and reports why not through the view's message.
+export function useScanning() {
   const [state, setState] = useState<PointScanState | null>(null);
   const [config, setConfig] = useState(defaultPointScanConfig);
   const [pending, setPending] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [toggling, setToggling] = useState(false);
   const model = useRef({
     config: defaultPointScanConfig,
     revision: 0,
     saved: 0,
     pending: 0,
-    enabled: false,
-    toggling: false,
     supported: false,
   });
   const queue = useRef(Promise.resolve());
@@ -66,7 +65,6 @@ export function useScanning(beforeEnable?: () => Promise<void>) {
     let stop: (() => void) | undefined;
     const receive = (next: PointScanState) => {
       if (!alive) return;
-      model.current.enabled = next.enabled;
       model.current.supported = next.supported;
       setState(next);
       if (
@@ -126,20 +124,16 @@ export function useScanning(beforeEnable?: () => Promise<void>) {
       const runtime = runtimeRevision.current;
       const result = await invoke<PointScanState>("configure_point_scan", {
         config: next,
-        enabled: false,
       });
       model.current.saved = revision;
-      if (runtime === runtimeRevision.current) {
-        model.current.enabled = result.enabled;
-        setState(result);
-      }
+      if (runtime === runtimeRevision.current) setState(result);
     });
   const update = <K extends keyof PointScanConfig>(
     key: K,
     value: PointScanConfig[K],
   ) => {
     const m = model.current;
-    if (m.enabled || m.toggling || !m.supported) return;
+    if (!m.supported) return;
     const next = { ...m.config, [key]: value };
     m.config = next;
     m.revision++;
@@ -151,45 +145,13 @@ export function useScanning(beforeEnable?: () => Promise<void>) {
     if (validSwitches(model.current.config))
       save(model.current.revision, model.current.config);
   };
-  const toggle = () => {
-    const m = model.current;
-    if (m.toggling || !m.supported || (!m.enabled && !validSwitches(m.config)))
-      return;
-    const enabled = !m.enabled;
-    m.toggling = true;
-    setToggling(true);
-    enqueue(async () => {
-      try {
-        if (enabled) await beforeEnable?.();
-        if (enabled && m.saved !== m.revision)
-          throw new Error(
-            "Save the scanning settings before enabling point scan. Use Retry save.",
-          );
-        setError(null);
-        const runtime = runtimeRevision.current;
-        const result = await invoke<PointScanState>("configure_point_scan", {
-          config: m.config,
-          enabled,
-        });
-        if (runtime === runtimeRevision.current) {
-          m.enabled = result.enabled;
-          setState(result);
-        }
-      } finally {
-        m.toggling = false;
-        setToggling(false);
-      }
-    });
-  };
   return {
     state,
     config,
     pending,
     error,
-    toggling,
     update,
     retry,
-    toggle,
     unsaved: model.current.revision !== model.current.saved,
   };
 }
