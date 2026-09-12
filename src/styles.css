@@ -336,12 +336,14 @@ button:disabled { cursor: default; opacity: 0.55; }
 .key-badge { display: inline-flex; align-items: center; min-height: 26px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; padding: 0 9px; background: var(--surface-muted); font: 600 12px/1 ui-monospace, Consolas, monospace; white-space: nowrap; }
 .key-badge[data-unavailable] { border-color: var(--status-error); color: var(--status-error); background: var(--status-error-soft); }
 .key-badge-empty { border-style: dashed; color: var(--muted); font-family: inherit; font-weight: 500; }
-.capture-panel { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; margin: 0 8px 8px; border: 1px dashed var(--brand); border-radius: 6px; padding: 12px 14px; color: var(--on-brand-container); background: var(--brand-container); animation: capture-pulse 1.4s ease-in-out infinite; }
-.capture-panel > svg { color: var(--brand); }
-.capture-panel strong { display: block; font-size: 13px; }
-.capture-panel p { margin-top: 2px; font-size: 12px; }
-@keyframes capture-pulse { 50% { border-color: var(--brand-border); } }
-@media (prefers-reduced-motion: reduce) { .capture-panel { animation: none; } }
+.capture-dialog { display: grid; justify-items: center; width: min(100%, 420px); border: 1px solid var(--brand-border); border-radius: 10px; padding: 32px 28px 24px; color: var(--text); background: var(--surface); box-shadow: 0 20px 60px rgba(28, 27, 31, 0.2); text-align: center; animation: capture-pulse 1.4s ease-in-out infinite; }
+.capture-dialog:focus { outline: none; }
+.capture-dialog > svg { color: var(--brand); }
+.capture-dialog h2 { margin-top: 14px; font-size: 18px; }
+.capture-dialog p { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.capture-dialog button { margin-top: 20px; }
+@keyframes capture-pulse { 50% { border-color: var(--brand); box-shadow: 0 20px 60px rgba(28, 27, 31, 0.2), 0 0 0 4px var(--brand-container); } }
+@media (prefers-reduced-motion: reduce) { .capture-dialog { animation: none; } }
 .switch-editor { display: grid; gap: 16px; min-width: 0; margin: 0; border: 0; border-top: 1px solid var(--border); padding: 4px 14px 14px; }
 .switch-editor .field { margin-top: 0; }
 .switch-editor .field > span:first-child { font-weight: 600; }
@@ -362,6 +364,4 @@ button:disabled { cursor: default; opacity: 0.55; }
   .switch-row-summary .key-badge { grid-column: 2; justify-self: start; }
   .switch-row-summary > .secondary { grid-column: 3; grid-row: 1; }
   .switch-row-summary > .icon-button { grid-column: 3; grid-row: 2; justify-self: end; }
-  .capture-panel { grid-template-columns: auto 1fr; }
-  .capture-panel > button { grid-column: 1 / -1; }
 }

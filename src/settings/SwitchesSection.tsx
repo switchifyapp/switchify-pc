@@ -248,6 +248,59 @@ function SwitchEditor({
   );
 }
 
+// Learning must own the keyboard: on Windows the reserved press never reaches
+// the page but its release does, and a Space release on a focused button
+// clicks it, while an unreserved key would scroll Settings. A separate window
+// is not an option because losing main-window focus cancels the capture. So a
+// modal holds focus on itself, not on a control, and swallows every key event
+// until learning ends. Escape still reaches the backend through its hotkey.
+function CaptureDialog({ name, onCancel }: { name: string; onCancel: () => void }) {
+  const ref = useRef<HTMLElement>(null);
+  const titleId = useId();
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    ref.current?.focus();
+    const swallow = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const focusBack = () => {
+      if (!ref.current?.contains(document.activeElement)) ref.current?.focus();
+    };
+    for (const type of ["keydown", "keyup", "keypress"] as const)
+      document.addEventListener(type, swallow, true);
+    document.addEventListener("focusin", focusBack);
+    return () => {
+      for (const type of ["keydown", "keyup", "keypress"] as const)
+        document.removeEventListener(type, swallow, true);
+      document.removeEventListener("focusin", focusBack);
+      previous?.focus();
+    };
+  }, []);
+  return (
+    <div className="modal-backdrop">
+      <section
+        ref={ref}
+        className="capture-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
+        <Keyboard size={40} aria-hidden="true" />
+        <h2 id={titleId}>Press and release your switch</h2>
+        <p>
+          Learning the key for {name}. Nothing else responds until a key is
+          learned. Escape cancels.
+        </p>
+        <button type="button" className="secondary" tabIndex={-1} onClick={onCancel}>
+          Cancel capture
+        </button>
+      </section>
+    </div>
+  );
+}
+
 export function SwitchesSection({
   controller,
   locked,
@@ -365,31 +418,23 @@ export function SwitchesSection({
   }, [isPreset]);
   const exactId = useId();
   const listId = useId();
-  const capturePanel = (id: string) =>
-    capturing &&
-    target === id && (
-      <div className="capture-panel" role="status">
-        <Keyboard size={22} aria-hidden="true" />
-        <div>
-          <strong>Press and release your switch</strong>
-          <p>Switchify learns the key it sends. Escape cancels.</p>
-        </div>
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => {
-            setTarget(null);
-            void controller.cancelCapture();
-          }}
-        >
-          Cancel capture
-        </button>
-      </div>
-    );
+  const captureName =
+    target === newId
+      ? "the new switch"
+      : (settings.bindings.find((b) => b.id === target)?.name ?? "this switch");
   const rowError = (id: string) =>
     expanded === id ? (formError ?? state?.capture.error ?? null) : null;
   return (
     <>
+      {capturing && target && (
+        <CaptureDialog
+          name={captureName}
+          onCancel={() => {
+            setTarget(null);
+            void controller.cancelCapture();
+          }}
+        />
+      )}
       <SettingGroup
         title="Switches"
         description="Add keyboard switches and choose what each one does."
@@ -482,7 +527,6 @@ export function SwitchesSection({
                       <Trash2 size={18} />
                     </button>
                   </div>
-                  {open && capturePanel(binding.id)}
                   {open && (
                     <SwitchEditor
                       binding={binding}
@@ -514,7 +558,6 @@ export function SwitchesSection({
                     </p>
                   </div>
                 </div>
-                {capturePanel(newId)}
                 <SwitchEditor
                   binding={draft}
                   isNew

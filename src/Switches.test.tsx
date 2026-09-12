@@ -254,3 +254,23 @@ it("cancels learning when the panel unmounts and retains pending edits", async (
   );
   expect(current.capture.active).toBe(false);
 });
+it("holds focus in a modal and swallows keys while learning", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Head switch" });
+  open("Head switch");
+  fireEvent.click(
+    screen.getByRole("button", { name: "Learn another key for Head switch" }),
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "Press and release your switch",
+  });
+  expect(document.activeElement).toBe(dialog);
+  expect(screen.getByText(/Learning the key for Head switch/)).toBeTruthy();
+  const up = new KeyboardEvent("keyup", { key: " ", bubbles: true, cancelable: true });
+  screen.getByRole("button", { name: "Cancel capture" }).dispatchEvent(up);
+  expect(up.defaultPrevented).toBe(true);
+  expect(mocks.invoke).not.toHaveBeenCalledWith("cancel_switch_capture");
+  event({ ...current, capture: { active: false, key: "F3", error: null } });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await waitFor(() => expect(current.settings.bindings[0].key).toBe("F3"));
+});
