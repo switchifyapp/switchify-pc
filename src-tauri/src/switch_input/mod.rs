@@ -120,6 +120,30 @@ impl Core {
         self.status.reason = None;
         self.last_heartbeat = now;
     }
+    fn reconcile_pressed_keys(&mut self, down: HashSet<String>) {
+        self.physical.retain(|key| down.contains(key));
+        self.down = down;
+    }
+    #[cfg(any(not(target_os = "windows"), test))]
+    fn begin_with_pressed_keys(
+        &mut self,
+        mode: Mode,
+        now: u64,
+        down: HashSet<String>,
+    ) -> Result<u64> {
+        if self.status.mode != Mode::Off {
+            bail!("Capture is already active.");
+        }
+        if self.native_lost {
+            bail!("Native switch capture was lost during startup.");
+        }
+        self.reconcile_pressed_keys(down);
+        if !self.physical.is_empty() || !self.down.is_empty() {
+            bail!("Release the held switch before starting capture.");
+        }
+        self.begin(mode, now);
+        Ok(self.status.generation)
+    }
     fn emit(&mut self, event: Event) {
         if self.events.len() >= QUEUE_LIMIT {
             self.stop(StopReason::QueueOverflow);
@@ -254,8 +278,7 @@ impl Driver {
     }
     fn ready(&self, down: HashSet<String>) {
         let mut core = self.core.lock().unwrap_or_else(|p| p.into_inner());
-        core.physical.retain(|key| down.contains(key));
-        core.down = down;
+        core.reconcile_pressed_keys(down);
         core.native_lost = false;
     }
 }
@@ -377,14 +400,11 @@ impl Capture {
         {
             self.ensure_native()?;
             let mut core = self.driver.core.lock().unwrap_or_else(|p| p.into_inner());
-            if core.native_lost {
-                bail!("Native switch capture was lost during startup.");
-            }
-            if !core.physical.is_empty() || !core.down.is_empty() {
-                bail!("Release the held switch before starting capture.");
-            }
-            core.begin(mode, self.driver.now());
-            Ok(core.status.generation)
+            #[cfg(target_os = "macos")]
+            let down = macos::pressed_keys();
+            #[cfg(not(target_os = "macos"))]
+            let down = core.down.clone();
+            core.begin_with_pressed_keys(mode, self.driver.now(), down)
         }
     }
     pub fn enable(&mut self) -> Result<u64> {
@@ -550,6 +570,51 @@ mod tests {
         assert!(!driver.core.lock().unwrap().native_lost);
         assert!(driver.core.lock().unwrap().down.is_empty());
         assert!(driver.core.lock().unwrap().physical.is_empty());
+    }
+    #[test]
+    fn retry_after_missed_release_accepts_a_fresh_learning_gesture() {
+        let mut c = Core::default();
+        c.begin(Mode::Learning, 0);
+        c.key("Space", true, 1);
+        c.stop(StopReason::Disabled);
+        let generation = c
+            .begin_with_pressed_keys(Mode::Learning, 2, HashSet::new())
+            .unwrap();
+        assert!(c.events.is_empty());
+        assert!(!c.key("Space", false, 3));
+        assert!(c.events.is_empty());
+        assert!(c.key("Space", true, 4));
+        assert!(c.key("Space", false, 5));
+        assert!(
+            matches!(c.events.front(), Some(Event::Learned { generation: g, code }) if *g == generation && code == "Space")
+        );
+    }
+    #[test]
+    fn refreshed_state_still_blocks_held_keys_until_release() {
+        for mode in [Mode::Learning, Mode::Active] {
+            let mut c = Core::default();
+            let down = HashSet::from(["Space".to_string()]);
+            assert!(c.begin_with_pressed_keys(mode, 0, down).is_err());
+            assert_eq!(c.status.mode, Mode::Off);
+            assert!(c.events.is_empty());
+            assert!(c.begin_with_pressed_keys(mode, 1, HashSet::new()).is_ok());
+            assert_eq!(c.status.mode, mode);
+        }
+    }
+    #[test]
+    fn active_capture_and_native_loss_cannot_be_reset_by_key_refresh() {
+        let mut c = core();
+        c.key("Space", true, 1);
+        assert!(c
+            .begin_with_pressed_keys(Mode::Learning, 2, HashSet::new())
+            .is_err());
+        assert!(c.physical.contains("Space"));
+        c.stop(StopReason::CaptureLost);
+        c.native_lost = true;
+        assert!(c
+            .begin_with_pressed_keys(Mode::Learning, 3, HashSet::new())
+            .is_err());
+        assert_eq!(c.status.reason, Some(StopReason::CaptureLost));
     }
     #[test]
     fn generations_change_and_names_are_stable() {
