@@ -114,6 +114,11 @@ pub struct Frame {
     pub strips: Vec<Rect>,
     pub label: Option<FrameLabel>,
 }
+impl Frame {
+    pub fn label_for_prompt(&self, prompt_visible: bool) -> Option<&FrameLabel> {
+        self.label.as_ref().filter(|_| !prompt_visible)
+    }
+}
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameLabel {
     pub text: String,

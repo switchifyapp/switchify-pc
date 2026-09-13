@@ -350,7 +350,7 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64) {
                 A::activate(app, point)?;
             }
         }
-        render::<A>(app)
+        render::<A>(app, None)
     })();
     if let Err(error) = result {
         disable::<A>(app, &error);
@@ -358,14 +358,17 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64) {
         publish::<A>(app);
     }
 }
-fn render<A: Adapter>(app: &AppHandle) -> Result<(), String> {
+fn render<A: Adapter>(
+    app: &AppHandle,
+    prompt: Option<&crate::switch_gestures::Prompt>,
+) -> Result<(), String> {
     let c = app.state::<Controller<A>>();
     let d = c.data.lock().unwrap_or_else(|p| p.into_inner());
     let frame = d
         .engine
         .as_ref()
         .map_or_else(Default::default, Session::frame);
-    render_label(frame.label.as_ref().filter(|_| !d.pressed.held()))?;
+    render_label(frame.label_for_prompt(prompt.is_some()))?;
     HOST.with(|host| {
         if let Some(host) = host.borrow_mut().as_mut() {
             host.render(&frame.strips)
@@ -446,7 +449,7 @@ fn tick<A: Adapter>(app: &AppHandle) {
             publish::<A>(app);
         }
         show_prompt(app, prompt.as_ref())?;
-        render::<A>(app)
+        render::<A>(app, prompt.as_ref())
     })();
     if let Err(error) = result {
         disable::<A>(app, &error);

@@ -192,6 +192,7 @@ impl Engine {
                 }
             }
             Action::Next | Action::Back => {
+                self.block_elapsed.reset();
                 self.direction = if action == Action::Next { 1.0 } else { -1.0 };
                 self.step(TICK_MS);
             }
@@ -445,6 +446,65 @@ mod tests {
             block_interval_ms: 250,
             ..Config::default()
         })
+    }
+    #[test]
+    fn manual_entry_into_escape_discards_partial_interval() {
+        for action in [Action::Next, Action::Back] {
+            let mut e = grid();
+            e.action(Action::Select);
+            e.action(Action::Select);
+            if action == Action::Next {
+                e.action(Action::Next);
+            }
+            e.tick(249, false);
+            e.action(action);
+            assert_eq!(e.technique.phase, Phase::RowEscape);
+            e.tick(1, false);
+            assert_eq!(e.technique.phase, Phase::RowEscape);
+            e.tick(248, false);
+            assert_eq!(e.technique.phase, Phase::RowEscape);
+            e.tick(1, false);
+            assert_eq!(e.technique.phase, Phase::Cell);
+        }
+    }
+    #[test]
+    fn label_yields_only_to_an_actual_hold_prompt_and_returns_after_release() {
+        let mut e = grid();
+        e.action(Action::Select);
+        e.action(Action::Select);
+        e.action(Action::Back);
+        let frame = e.frame();
+        for hold_actions in [vec![], vec![Action::Pause]] {
+            let settings = crate::switches::Settings {
+                bindings: vec![crate::switches::Binding {
+                    id: "test".into(),
+                    name: "Switch".into(),
+                    key: "Space".into(),
+                    press_action: Action::Select,
+                    hold_actions: hold_actions.clone(),
+                }],
+                hold_interval_ms: 1000,
+                ..crate::switches::Settings::default()
+            };
+            let mut gestures = crate::switch_gestures::Gestures::default();
+            gestures.pressed("test", 0, &settings);
+            assert!(frame
+                .label_for_prompt(gestures.prompt(999).is_some())
+                .is_some());
+            assert_eq!(
+                frame
+                    .label_for_prompt(gestures.prompt(1000).is_some())
+                    .is_some(),
+                hold_actions.is_empty()
+            );
+            gestures.released("test", 1001);
+            assert!(frame
+                .label_for_prompt(gestures.prompt(1001).is_some())
+                .is_some());
+            gestures.cancel();
+            e.action(Action::Cancel);
+            assert!(e.frame().label_for_prompt(false).is_none());
+        }
     }
     #[test]
     fn row_escape_returns_to_the_same_row_without_clicking() {
