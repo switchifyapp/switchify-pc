@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { beforeEach, afterEach, it, expect, vi } from "vitest";
 import { useSwitches, type SwitchState } from "./scanning/useSwitches";
@@ -190,7 +191,7 @@ it("shows hold timing computed from the interval", async () => {
   expect(
     screen.getByText("Hold 1s for Next, 2s for Stop scanning. Release to run the action shown."),
   ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "2s" }));
+  fireEvent.click(within(screen.getByRole("group", { name: "Hold action interval" })).getByRole("button", { name: "2s" }));
   await screen.findByText("Hold 2s for Next, 4s for Stop scanning. Release to run the action shown.");
   await screen.findByText(/Holding any switch for 8s disables switch control/);
 });

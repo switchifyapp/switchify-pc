@@ -97,6 +97,19 @@ export function ScanningSection({
           onChange={(value) => update("automatic", value)}
         />
 
+        <OptionGroup<number>
+          legend="Auto scan rate"
+          disabled={disabled}
+          value={config.blockIntervalMs}
+          onChange={(value) => update("blockIntervalMs", value)}
+          options={secondsOptions([
+            250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000,
+          ])}
+          note={{
+            summary: "How long each grid row, grid cell, or action-menu item stays highlighted before scanning moves on automatically. Shorter times scan faster; longer times give you more time to select. Line speed controls how fast the scanning lines move.",
+          }}
+        />
+
         <p>Assign switch actions in the Switches tab. All actions run on release. Holding a switch freezes movement. After clicking, or after three passes without a selection, use Select to start again.</p>
 
       </SettingGroup>
@@ -145,16 +158,6 @@ export function ScanningSection({
                 ))}
               </select>
             </label>
-
-            <OptionGroup<number>
-              legend="Grid interval"
-              disabled={disabled}
-              value={config.blockIntervalMs}
-              onChange={(value) => update("blockIntervalMs", value)}
-              options={secondsOptions([
-                250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000,
-              ])}
-            />
           </>
         )}
 
