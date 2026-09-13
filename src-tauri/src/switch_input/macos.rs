@@ -92,6 +92,13 @@ const CODES: &[(&str, u16)] = &[
 pub fn code_for_name(name: &str) -> Option<u16> {
     CODES.iter().find_map(|(n, c)| (*n == name).then_some(*c))
 }
+pub fn pressed_keys() -> std::collections::HashSet<String> {
+    CODES
+        .iter()
+        .filter(|(_, code)| unsafe { CGEventSourceKeyState(1, *code) })
+        .map(|(name, _)| (*name).to_string())
+        .collect()
+}
 pub struct Capture {
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -124,11 +131,7 @@ impl Capture {
                         CallbackResult::Keep
                     },
                     || {
-                        let mut down = std::collections::HashSet::new();
-                        for (name, code) in CODES {
-                            if unsafe { CGEventSourceKeyState(1, *code) } { down.insert((*name).to_string()); }
-                        }
-                        driver.ready(down);
+                        driver.ready(pressed_keys());
                         if tx.send(Ok(())).is_err() {
                             return;
                         }
