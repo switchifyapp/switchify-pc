@@ -307,7 +307,7 @@ function CaptureDialog({ name, onCancel }: { name: string; onCancel: () => void 
   );
 }
 
-export function SwitchesSection({ controller }: { controller: SwitchController }) {
+export function SwitchesSection({ controller, onDraftChange, suspended = false }: { controller: SwitchController; onDraftChange?: (draft: boolean) => void; suspended?: boolean }) {
   const { settings, state, pending, unsaved } = controller;
   // A refused capture sets both the general error and the capture error; the
   // key field already shows the latter, so the band only carries save errors.
@@ -316,6 +316,7 @@ export function SwitchesSection({ controller }: { controller: SwitchController }
       ? controller.error
       : null;
   const [draft, setDraft] = useState<Binding | null>(null);
+  useEffect(() => { onDraftChange?.(draft !== null); }, [draft, onDraftChange]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   // A key error belongs to the row that was learning when it happened, not to
@@ -454,7 +455,7 @@ export function SwitchesSection({ controller }: { controller: SwitchController }
   const errorFor = (id: string) => (rowError?.id === id ? rowError.message : null);
   return (
     <>
-      {capturing && target && (
+      {capturing && target && !suspended && (
         <CaptureDialog
           name={captureName}
           onCancel={() => {

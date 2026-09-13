@@ -67,7 +67,7 @@ it("saves settings without an enabled flag and keeps them editable while scannin
     }),
   );
   expect(screen.getByLabelText("Grid size")).toHaveValue("4");
-  expect(screen.getByText(/Assign switch actions in the Switches tab/)).toBeInTheDocument();
+  expect(screen.getByText(/Assign switch actions in the Switches page/)).toBeInTheDocument();
 });
 
 it("reports the scan phase while enabled", async () => {

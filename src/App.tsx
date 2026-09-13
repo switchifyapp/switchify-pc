@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  Accessibility, Bluetooth, CheckCircle2, ChevronRight, CircleHelp, Download,
-  Copy, Home, Keyboard, Plus, Power, Radio, RefreshCw, Save, Settings,
-  ShieldCheck, SlidersHorizontal, Smartphone, Trash2, WifiOff, Wrench, X,
+  Accessibility, Bluetooth, ChevronRight, CircleHelp, Download,
+  Copy, Home, Keyboard, Plus, Power, RefreshCw, Save, Settings,
+  SlidersHorizontal, Smartphone, Trash2, Wrench, X,
 } from "lucide-react";
 import { api, type ProfileExitAction } from "./api";
 import type { AppSettings, AppState, PendingPairing, SwitchProfile, UpdateState } from "./types";
@@ -10,10 +10,13 @@ import { applyLocalSettings, changedSettingKeys } from "./settings/diff";
 import { SettingsView } from "./settings/SettingsView";
 import { updateDescription, updateInFlight, updateLiveness, updateProgress, updateStanding, type UpdateAction } from "./settings/UpdatesSection";
 import { TabPanel, Tabs } from "./Tabs";
-import { useSwitches } from "./scanning/useSwitches";
-import { useScanning } from "./scanning/useScanning";
+import { useSwitches, type SwitchController } from "./scanning/useSwitches";
+import { useScanning, type ScanningController } from "./scanning/useScanning";
 
-type View = "home" | "devices" | "profiles" | "settings" | "support";
+import { SwitchesSection } from "./settings/SwitchesSection";
+import { ScanningSection } from "./settings/ScanningSection";
+
+type View = "switches" | "scanning" | "android" | "home" | "devices" | "profiles" | "settings" | "support";
 
 const brandIconUrl = new URL("../src-tauri/icons/icon.png", import.meta.url).href;
 const androidQrUrl = new URL("./assets/android-download-qr.png", import.meta.url).href;
@@ -54,21 +57,37 @@ function AccessibilityCopy({ state, detailed = false }: { state: AppState; detai
   </>;
 }
 
-function HomeView({ state, onDisconnect, onAccessibility, onSetup }: { state: AppState; onDisconnect: () => void; onAccessibility: () => void; onSetup: () => void }) {
-  const bluetoothOk = state.bluetooth === "advertising" || state.bluetooth === "connected";
+function HomeView({ state, switches, scanning, navigate, onDisconnect, onAccessibility }: { state: AppState; switches: SwitchController; scanning: ScanningController; navigate: (view: View) => void; onDisconnect: () => void; onAccessibility: () => void }) {
+  const saved = switches.state?.settings.bindings ?? [];
+  const hasSelect = saved.some((binding) => binding.pressAction === "select" || binding.holdActions.includes("select"));
+  const ready = state.accessibility === "granted" && hasSelect && !switches.error && !scanning.error && state.bluetooth !== "connected" && scanning.state?.supported && scanning.state.enabled && !scanning.state.paused;
+  const message = switches.error ?? scanning.error ?? (state.accessibility !== "granted" ? "Allow input access to control this computer." : !scanning.state ? "Loading switch control..." : !scanning.state.supported ? scanning.state.message : state.bluetooth === "connected" ? "Local scanning is paused while an Android device is connected." : !hasSelect ? "Add a switch with the Select action to begin scanning." : scanning.state.paused ? "Scanning is paused. Use your Pause / resume switch to continue." : scanning.state.enabled ? "Focus the application you want to use, then press and release your Select switch." : scanning.state.message);
   return <div className="view">
-    <header className="page-header"><div><h1>Switchify PC</h1><p>Android control for this computer</p></div></header>
-    <section className="connection-band" data-connected={state.bluetooth === "connected"}>
-      <StatusIcon ok={bluetoothOk}>{bluetoothOk ? <Radio size={20} /> : <WifiOff size={20} />}</StatusIcon>
-      <div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothDescriptions.connected : bluetoothDescriptions[state.bluetooth]}</p></div>
-      {state.bluetooth === "connected" ? <button className="secondary" onClick={onDisconnect}><Power size={16} />Disconnect</button> : <button className="secondary" onClick={onSetup}><Wrench size={16} />Set up</button>}
+    <header className="page-header"><div><h1>Switchify PC</h1><p>Control your computer with switches.</p></div></header>
+    <section className="connection-band" data-connected={!!ready}>
+      <StatusIcon ok={!!ready}><Keyboard size={20} /></StatusIcon>
+      <div><h2>{ready ? "Ready for switch control" : "Switch control"}</h2><p role="status">{message}</p></div>
+      <button className="primary" onClick={() => navigate("switches")}>{hasSelect ? "Configure switches" : "Set up switches"}</button>
     </section>
-    <section className="status-list" aria-label="System status">
-      <article><StatusIcon ok={bluetoothOk}><Bluetooth size={19} /></StatusIcon><div><h3>Bluetooth</h3><p>{bluetoothLabels[state.bluetooth]}</p></div></article>
+    <section className="status-list" aria-label="Switch control status">
       <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} /></div>{state.accessibility === "required" && <button className="text-button" onClick={onAccessibility}>Open Accessibility Settings</button>}</article>
-      <article><StatusIcon ok><ShieldCheck size={19} /></StatusIcon><div><h3>Secure pairing</h3><p>{state.pairedDevices.length === 0 ? "No saved devices" : `${state.pairedDevices.length} saved device${state.pairedDevices.length === 1 ? "" : "s"}`}</p></div></article>
+      <article><StatusIcon ok={hasSelect}><Keyboard size={19} /></StatusIcon><div><h3>Configured switches</h3><p>{saved.length} saved · {hasSelect ? "Select assigned" : "Select action needed"}</p></div></article>
+      <article><SlidersHorizontal size={19} /><div><h3>Scanning</h3><p>{scanning.config.automatic ? "Automatic scanning" : "Manual scanning"} · {scanning.config.mode === "line" ? "Line only" : "Grid then line"}</p></div><button className="text-button" onClick={() => navigate("scanning")}>Configure scanning</button></article>
     </section>
+    <section className="status-list" aria-label="Optional Android connection"><article><Smartphone size={19} /><div><h3>Android connection</h3><p>{state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothLabels.connected : bluetoothLabels[state.bluetooth]}</p></div><button className="text-button" onClick={() => navigate("android")}>Manage Android connection</button>{state.bluetooth === "connected" && <button className="secondary" onClick={onDisconnect}>Disconnect</button>}</article></section>
   </div>;
+}
+
+function AndroidConnection({ state, onDisconnect }: { state: AppState; onDisconnect: () => void }) {
+  const bluetoothOk = state.bluetooth === "advertising" || state.bluetooth === "connected";
+  return <section>
+    <section className="connection-band" data-connected={state.bluetooth === "connected"}>
+      <StatusIcon ok={bluetoothOk}><Bluetooth size={20} /></StatusIcon><div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothDescriptions.connected : bluetoothDescriptions[state.bluetooth]}</p></div>
+      {state.bluetooth === "connected" && <button className="secondary" onClick={onDisconnect}>Disconnect</button>}
+    </section>
+    <p>Android connection is optional. Bluetooth advertises automatically; local switches do not need an Android device. Connecting an Android device pauses local scanning until it disconnects.</p>
+    <div className="android-download"><div><h2>Connect Switchify for Android</h2><p>Install Switchify, select this computer, then approve the pairing request only if the codes match in both apps.</p><a className="secondary" href={androidDownloadUrl} target="_blank" rel="noreferrer">Open Google Play</a></div><img src={androidQrUrl} alt="QR code for Switchify on Google Play" /></div>
+  </section>;
 }
 
 function DevicesView({ state, forget }: { state: AppState; forget: (id: string) => void }) {
@@ -302,16 +321,14 @@ function UpdateBanner({ update, openUpdates }: { update: UpdateState; openUpdate
 
 const supportTabs = [{ id: "setup", label: "Setup" }, { id: "troubleshooting", label: "Troubleshooting" }] as const;
 
-function SupportView({ state, busy, perform, openSetup, openUpdates }: { state: AppState; busy: boolean; perform: (operation: () => Promise<AppState>) => void; openSetup: () => void; openUpdates: () => void }) {
+function SupportView({ state, switches, busy, perform, openSetup, openUpdates }: { state: AppState; switches: SwitchController; busy: boolean; perform: (operation: () => Promise<AppState>) => void; openSetup: () => void; openUpdates: () => void }) {
   const [tab, setTab] = useState<(typeof supportTabs)[number]["id"]>("setup");
-  const bluetoothReady = state.bluetooth === "advertising" || state.bluetooth === "connected";
-  return <div className="view"><header className="page-header"><div><h1>Support</h1><p>Connection setup and system diagnostics</p></div><CircleHelp size={24} /></header>
+  return <div className="view"><header className="page-header"><div><h1>Support</h1><p>Switch setup and system diagnostics</p></div><CircleHelp size={24} /></header>
     <Tabs name="support" tabs={supportTabs} active={tab} onSelect={setTab} label="Support view" />
     <TabPanel name="support" id={tab}>{tab === "setup" ? <><button className="primary setup-launch" onClick={openSetup}><Wrench size={16} />Open setup guide</button><section className="task-list" aria-label="Setup status">
-      <article><StatusIcon ok={bluetoothReady}>{bluetoothReady ? <CheckCircle2 size={19} /> : <Bluetooth size={19} />}</StatusIcon><div><h2>Bluetooth</h2><p>{bluetoothLabels[state.bluetooth]}</p></div></article>
       <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" && <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</button>}</article>
-      <article><StatusIcon ok={state.pairedDevices.length > 0}><Smartphone size={19} /></StatusIcon><div><h2>Android device</h2><p>{state.pairedDevices.length > 0 ? `${state.pairedDevices.length} paired` : "Open Switchify on Android and select this computer"}</p></div></article>
-      <article><StatusIcon ok={state.bluetooth === "connected"}><Radio size={19} /></StatusIcon><div><h2>Connection</h2><p>{state.connectedDeviceName ?? "Waiting for a paired device"}</p></div></article>
+      <article><Keyboard size={19} /><div><h2>Local switches</h2><p>{switches.state?.settings.bindings.length ?? 0} configured. Open Switches to assign Select, then open Scanning to adjust movement.</p></div></article>
+      <article><Bluetooth size={19} /><div><h2>Optional Android connection</h2><p>{bluetoothLabels[state.bluetooth]}. Open Android connection for pairing and forwarding profiles.</p></div></article>
     </section></> : <section className="task-list" aria-label="Troubleshooting actions">
       <article><Bluetooth size={20} /><div><h2>Bluetooth connection</h2><p>{bluetoothLabels[state.bluetooth]}</p></div><button className="secondary" disabled={busy} onClick={() => perform(api.disconnectAll)}><Power size={16} />Disconnect</button></article>
       <article><Accessibility size={20} /><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" ? <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</button> : <button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(false))}><RefreshCw size={16} />Check input access</button>}</article>
@@ -324,52 +341,54 @@ function SupportView({ state, busy, perform, openSetup, openUpdates }: { state: 
   </div>;
 }
 
-function SetupGuide({ state, busy, error, skip, finish, accessibility, approve, reject }: {
+function SetupGuide({ state, switches, suspended, busy, error, skip, finish, accessibility }: {
   state: AppState;
   busy: boolean;
   error: string | null;
   skip: () => Promise<void>;
   finish: (startWithSystem: boolean, shareDiagnostics: boolean) => Promise<void>;
   accessibility: () => Promise<void>;
-  approve: (requestId: string) => Promise<void>;
-  reject: (requestId: string) => Promise<void>;
+  switches: SwitchController;
+  suspended: boolean;
 }) {
   const [step, setStep] = useState(0);
   const [startupChoice, setStartupChoice] = useState<boolean | null>(state.setup.completed ? state.settings.startWithSystem : null);
   const [diagnosticsChoice, setDiagnosticsChoice] = useState<boolean | null>(state.setup.completed && state.telemetry.consent !== "undecided" ? state.telemetry.consent === "enabled" : null);
   const dialogRef = useRef<HTMLElement>(null);
-  const titles = ["Bluetooth and input access", "Get Switchify for Android", "Pair securely", "Start with system", "Anonymous diagnostics"];
-  const bluetoothReady = state.bluetooth === "advertising" || state.bluetooth === "connected";
-  const canContinue = step === 2 ? state.pairedDevices.length > 0 : step === 3 ? startupChoice !== null : step === 4 ? diagnosticsChoice !== null : true;
+  const [switchDraft, setSwitchDraft] = useState(false);
+  const capturing = switches.capturing || !!switches.state?.capture.active;
+  const switchBusy = capturing || !!switches.pending || switches.unsaved || switchDraft;
+  const titles = ["Input access", "Add your switch", "Scanning basics", "Start with system", "Anonymous diagnostics"];
+  const canContinue = step === 1 ? !switchBusy && !!switches.state?.settings.bindings.length : step === 3 ? startupChoice !== null : step === 4 ? diagnosticsChoice !== null : true;
 
-  useEffect(() => { dialogRef.current?.focus(); }, [step]);
+  useEffect(() => { if (!suspended && !capturing) dialogRef.current?.focus(); }, [step, suspended]);
+  const cancelCapture = useRef(switches.cancelCapture);
+  cancelCapture.current = switches.cancelCapture;
+  useEffect(() => { if (suspended && capturing) void cancelCapture.current(); }, [suspended, capturing]);
 
   const trapFocus = (event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Tab") return;
-    const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]') ?? [])];
+    if (event.key !== "Tab" || capturing || suspended) return;
+    const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled):not([tabindex="-1"]), a[href], input:not(:disabled), select:not(:disabled)') ?? [])];
     if (controls.length === 0) return;
     const first = controls[0]; const last = controls.at(-1)!;
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   };
 
-  return <div className="modal-backdrop setup-backdrop"><section ref={dialogRef} className="setup-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-title" tabIndex={-1} onKeyDown={trapFocus}>
+  return <div className="modal-backdrop setup-backdrop" hidden={suspended} inert={suspended}><section ref={dialogRef} className="setup-dialog" data-switch-step={step === 1} role={capturing ? undefined : "dialog"} aria-modal={capturing ? undefined : true} aria-labelledby="setup-title" tabIndex={-1} onKeyDown={trapFocus}>
     <header><div><span>Setup guide</span><h2 id="setup-title">{titles[step]}</h2></div><strong aria-label={`Step ${step + 1} of 5`}>{step + 1} / 5</strong></header>
     <div className="setup-progress" aria-hidden="true">{titles.map((title, index) => <span key={title} data-active={index <= step} />)}</div>
     {error && <div className="dialog-error" role="alert">{error}</div>}
     <div className="setup-content">
       {step === 0 && <div className="setup-statuses">
-        <article><StatusIcon ok={bluetoothReady}><Bluetooth size={19} /></StatusIcon><div><h3>Bluetooth</h3><p>{bluetoothLabels[state.bluetooth]}</p></div></article>
         <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" && <button className="secondary" disabled={busy} onClick={() => void accessibility()}>Open Accessibility Settings</button>}</article>
       </div>}
-      {step === 1 && <div className="android-download"><div><h3>Install the Android app</h3><p>Install Switchify from Google Play, then open it near this computer.</p><a className="secondary" href={androidDownloadUrl} target="_blank" rel="noreferrer">Open Google Play</a></div><img src={androidQrUrl} alt="QR code for Switchify on Google Play" /></div>}
-      {step === 2 && <div><h3>{state.pairedDevices.length > 0 ? "Android device paired" : "Waiting for an Android device"}</h3><p>{state.pairedDevices.length > 0 ? "Secure pairing is complete. You can continue setup." : "In Switchify for Android, select this computer and confirm the matching code."}</p>
-        {state.pendingPairings.length > 0 && <div className="setup-pairings" aria-label="Pending pairing requests">{state.pendingPairings.map((request) => <article key={request.requestId}><div><strong>{request.deviceName}</strong><span>Verification code</span></div><output aria-label={`Verification code for ${request.deviceName}`}>{request.verificationCode}</output><div><button className="secondary danger" disabled={busy} aria-label={`Reject pairing request from ${request.deviceName}, code ${request.verificationCode}`} onClick={() => void reject(request.requestId)}>Reject</button><button className="primary" disabled={busy} aria-label={`Accept pairing request from ${request.deviceName}, code ${request.verificationCode}`} onClick={() => void approve(request.requestId)}>Accept</button></div></article>)}</div>}
-      </div>}
-      {step === 3 && <div><h3>Choose startup behavior</h3><p>Switchify can start quietly when you sign in, ready for your Android device.</p><div className="setup-choices" role="group" aria-label="Start with system choice"><button className="secondary" aria-pressed={startupChoice === true} onClick={() => setStartupChoice(true)}>Start with system</button><button className="secondary" aria-pressed={startupChoice === false} onClick={() => setStartupChoice(false)}>Start manually</button></div></div>}
+      {step === 1 && <SwitchesSection controller={switches} onDraftChange={setSwitchDraft} suspended={suspended} />}
+      {step === 2 && <div><h3>Use your switches</h3><p>Focus the application you want to use, then press and release Select to start scanning. Select chooses a point and opens the action menu.</p><p>Automatic scanning moves the highlight for you. Use Auto scan rate for grid and menu timing, and Line speed for scanning lines. Holding a switch freezes movement; release runs the action shown.</p><p>Escape disables switch control. Assign Stop scanning or Pause / resume in Switches. Holding any switch for {switches.state ? switches.state.escapeHoldMs / 1000 : 4}s disables switch control.</p><p>Open Scanning after setup to adjust movement. Android connection is optional.</p></div>}
+      {step === 3 && <div><h3>Choose startup behavior</h3><p>Switchify can start quietly when you sign in, ready for your switches.</p><div className="setup-choices" role="group" aria-label="Start with system choice"><button className="secondary" aria-pressed={startupChoice === true} onClick={() => setStartupChoice(true)}>Start with system</button><button className="secondary" aria-pressed={startupChoice === false} onClick={() => setStartupChoice(false)}>Start manually</button></div></div>}
       {step === 4 && <div><h3>Choose whether to share diagnostics</h3><p>Optional anonymous app health and sanitized errors help improve Switchify. Typed text, commands, pairing secrets, device names, and full paths are never included.</p><div className="setup-choices" role="group" aria-label="Anonymous diagnostics choice"><button className="secondary" disabled={!state.telemetry.available} aria-pressed={diagnosticsChoice === true} onClick={() => setDiagnosticsChoice(true)}>Share diagnostics</button><button className="secondary" aria-pressed={diagnosticsChoice === false} onClick={() => setDiagnosticsChoice(false)}>Don’t share</button></div><a className="setup-privacy" href="https://switchifyapp.com/privacy" target="_blank" rel="noreferrer">Privacy policy</a></div>}
     </div>
-    <footer><button className="text-button" disabled={busy} onClick={() => void skip()}>Skip for now</button><span /><button className="secondary" disabled={busy || step === 0} onClick={() => setStep((current) => current - 1)}>Back</button><button className="primary" disabled={busy || !canContinue} onClick={() => step === 4 ? void finish(startupChoice!, diagnosticsChoice!) : setStep((current) => current + 1)}>{step === 4 ? "Finish" : "Next"}</button></footer>
+    <footer>{step === 1 && <button className="secondary" disabled={busy || switchBusy} onClick={() => setStep(2)}>Skip switch configuration</button>}<button className="text-button" disabled={busy || switchBusy} onClick={() => void skip()}>Skip for now</button><span /><button className="secondary" disabled={busy || switchBusy || step === 0} onClick={() => setStep((current) => current - 1)}>Back</button><button className="primary" disabled={busy || switchBusy || !canContinue} onClick={() => step === 4 ? void finish(startupChoice!, diagnosticsChoice!) : setStep((current) => current + 1)}>{step === 4 ? "Finish" : "Next"}</button></footer>
   </section></div>;
 }
 
@@ -672,8 +691,7 @@ export function App() {
 
   useEffect(() => { if (view === "profiles") void api.listProfiles().then(setProfiles).catch((reason) => setError(String(reason))); }, [view]);
   const nav = useMemo(() => [
-    ["home", "Home", <Home size={19} />], ["devices", "Devices", <Smartphone size={19} />],
-    ["profiles", "Switch Forwarding", <Keyboard size={19} />], ["settings", "Settings", <Settings size={19} />],
+    ["home", "Home", <Home size={19} />], ["switches", "Switches", <Keyboard size={19} />], ["scanning", "Scanning", <SlidersHorizontal size={19} />], ["android", "Android connection", <Smartphone size={19} />], ["settings", "Settings", <Settings size={19} />],
     ["support", "Support", <CircleHelp size={19} />],
   ] as const, []);
 
@@ -722,18 +740,23 @@ export function App() {
 
   if (!state || !settings) return <div className="loading"><RefreshCw className="spin" size={24} /><span>Starting Switchify PC...</span></div>;
   return <div className="app-shell">
-    <aside><div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id} icon={icon} onClick={() => selectView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><span>v{state.version}</span></div></aside>
-    <main>
+    <aside inert={setupOpen || state.pendingPairings.length > 0}><div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id || (id === "android" && (view === "devices" || view === "profiles"))} icon={icon} onClick={() => selectView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><span>v{state.version}</span></div></aside>
+    <main inert={setupOpen || state.pendingPairings.length > 0}>
       {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
       <UpdateBanner update={state.updater} openUpdates={openUpdates} />
       <p id="settings-updates-notice" className="sr-only" aria-live={updateFailure ? updateLiveness(updateFailure.status) : "polite"} aria-atomic="true">{updateNotice}</p>
-      {view === "home" && <HomeView state={state} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onSetup={openSetup} />}
+      {view === "home" && <HomeView state={state} switches={switches} scanning={scanning} navigate={selectView} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} />}
+      {view === "switches" && <div className="view"><header className="page-header"><h1>Switches</h1></header><SwitchesSection controller={switches} /></div>}
+      {view === "scanning" && <div className="view"><header className="page-header"><h1>Scanning</h1></header><ScanningSection controller={scanning} /></div>}
+      {(view === "android" || view === "devices" || view === "profiles") && <div className="view"><header className="page-header"><div><h1>Android connection</h1><p>Optional Android control and switch forwarding</p></div></header><Tabs name="android" label="Android connection sections" active={view} onSelect={selectView} tabs={[{id: "android", label: "Connection"}, {id: "devices", label: "Paired devices"}, {id: "profiles", label: "Switch Forwarding"}]} /><TabPanel name="android" id={view}>
+      {view === "android" && <AndroidConnection state={state} onDisconnect={() => void perform(api.disconnectAll)} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}
       {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} nativeExitRequest={profileExitRequest} onConfirmNativeExit={confirmProfileExit} onCancelNativeExit={cancelProfileExit} />}
-      {view === "settings" && <SettingsView switches={switches} scanning={scanning} state={state} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} focusUpdates={focusUpdates} onUpdatesFocused={() => setFocusUpdates(false)} updateAttention={updateFailure?.text ?? null} onUpdatesShown={setUpdatesShown} />}
-      {view === "support" && <SupportView state={state} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} openUpdates={openUpdates} />}
+      </TabPanel></div>}
+      {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} focusUpdates={focusUpdates} onUpdatesFocused={() => setFocusUpdates(false)} updateAttention={updateFailure?.text ?? null} onUpdatesShown={setUpdatesShown} />}
+      {view === "support" && <SupportView state={state} switches={switches} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} openUpdates={openUpdates} />}
     </main>
-    {setupOpen && <SetupGuide state={state} busy={busy} error={error} skip={skipSetup} finish={finishSetup} accessibility={() => perform(() => api.checkAccessibility(true))} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}
-    {!setupOpen && state.pendingPairings.length > 0 && <PairingDialog requests={state.pendingPairings} connectedDeviceName={state.connectedDeviceName} busy={busy} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}
+    {setupOpen && <SetupGuide state={state} switches={switches} suspended={state.pendingPairings.length > 0} busy={busy} error={error} skip={skipSetup} finish={finishSetup} accessibility={() => perform(() => api.checkAccessibility(true))} />}
+    {state.pendingPairings.length > 0 && <PairingDialog requests={state.pendingPairings} connectedDeviceName={state.connectedDeviceName} busy={busy} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}
   </div>;
 }

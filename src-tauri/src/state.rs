@@ -709,9 +709,6 @@ impl AppModel {
             .persistence_lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if self.snapshot().paired_devices.is_empty() {
-            return Err("Pair an Android device before finishing setup.".into());
-        }
         let completed = SetupState {
             shown: true,
             completed: true,
@@ -883,23 +880,6 @@ mod tests {
         let dismissed = AppModel::with_storage_for_test(AppStorage::at(path.clone()));
         assert!(dismissed.snapshot().setup.shown);
         assert!(!dismissed.snapshot().setup.completed);
-        assert_eq!(
-            dismissed.apply_setup_completion(AppSettings::default(), TelemetryConsent::Undecided),
-            Err("Pair an Android device before finishing setup.".into())
-        );
-
-        dismissed
-            .shared
-            .lock()
-            .unwrap()
-            .state
-            .paired_devices
-            .push(PairedDeviceView {
-                device_id: "phone-1".into(),
-                device_name: "Pixel".into(),
-                paired_at: 1,
-                last_seen_at: None,
-            });
         let chosen_settings = AppSettings {
             start_with_system: true,
             ..AppSettings::default()

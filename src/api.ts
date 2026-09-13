@@ -78,7 +78,6 @@ export const api = {
   },
   completeSetup: (startWithSystem: boolean, shareDiagnostics: boolean) => {
     if ("__TAURI_INTERNALS__" in window) return call<AppState>("complete_setup", { startWithSystem, shareDiagnostics });
-    if (browserState.pairedDevices.length === 0) return Promise.reject(new Error("Pair an Android device before finishing setup."));
     browserState.settings.startWithSystem = startWithSystem;
     browserState.settings.shareDiagnostics = shareDiagnostics;
     browserState.telemetry.consent = shareDiagnostics ? "enabled" : "disabled";

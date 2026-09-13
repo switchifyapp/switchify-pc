@@ -157,6 +157,7 @@ export function useSwitches() {
   };
   const cancelCapture = async () => {
     captureRequest.current++;
+    if (!("__TAURI_INTERNALS__" in window)) return;
     try {
       const stamp = runtime.current;
       const result = await invoke<SwitchState>("cancel_switch_capture");
