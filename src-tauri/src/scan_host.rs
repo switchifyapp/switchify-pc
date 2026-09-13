@@ -87,6 +87,10 @@ mod platform {
                 scale,
             )
         }
+        pub fn tile(&mut self, tile: &crate::scanning::FrameTile) -> Result<(), String> {
+            self.render(&[tile.rect])?;
+            crate::modifier_overlay::windows_backend::present_scan_tile(self.windows[0], tile)
+        }
         pub fn hide(&mut self) {
             for window in &self.windows {
                 unsafe {
@@ -108,7 +112,7 @@ mod platform {
 #[cfg(target_os = "macos")]
 mod platform {
     use super::*;
-    use objc2::{rc::Retained, MainThreadMarker};
+    use objc2::{rc::Retained, MainThreadMarker, MainThreadOnly};
     use objc2_app_kit::{NSColor, NSPanel, NSScreen};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     pub struct Host {
@@ -167,6 +171,38 @@ mod platform {
             self.panels[0].setContentView(Some(&label));
             Ok(())
         }
+        pub fn tile(&mut self, tile: &crate::scanning::FrameTile) -> Result<(), String> {
+            use objc2_app_kit::{NSFont, NSImageView, NSTextAlignment, NSTextField, NSView};
+            use objc2_foundation::NSString;
+            let mtm = MainThreadMarker::new().ok_or("Action tile requires the main thread")?;
+            let pixels = crate::scan_tile::bitmap(tile)?;
+            let image = crate::overlay::platform::image_from_rgba(
+                pixels.data(),
+                pixels.width() as usize,
+                pixels.height() as usize,
+                tile.rect.width,
+            )?;
+            self.render(&[tile.rect])?;
+            let bounds = NSRect::new(
+                NSPoint::new(0.0, 0.0),
+                NSSize::new(tile.rect.width, tile.rect.height),
+            );
+            let view = NSView::initWithFrame(NSView::alloc(mtm), bounds);
+            let artwork = NSImageView::initWithFrame(NSImageView::alloc(mtm), bounds);
+            artwork.setImage(Some(&image));
+            view.addSubview(&artwork);
+            let label = NSTextField::labelWithString(&NSString::from_str(&tile.text), mtm);
+            label.setFont(Some(&NSFont::boldSystemFontOfSize(15.0 * tile.scale)));
+            label.setTextColor(Some(&NSColor::whiteColor()));
+            label.setAlignment(NSTextAlignment::Center);
+            label.setFrame(NSRect::new(
+                NSPoint::new(6.0 * tile.scale, 12.0 * tile.scale),
+                NSSize::new(tile.rect.width - 12.0 * tile.scale, 40.0 * tile.scale),
+            ));
+            view.addSubview(&label);
+            self.panels[0].setContentView(Some(&view));
+            Ok(())
+        }
         pub fn hide(&mut self) {
             for panel in &self.panels {
                 panel.orderOut(None);
@@ -186,6 +222,9 @@ mod platform {
             Err("Point scan is unavailable.".into())
         }
         pub fn prompt(&mut self, _: &str, _: Rect, _: f64) -> Result<(), String> {
+            Err("Scanning is unavailable.".into())
+        }
+        pub fn tile(&mut self, _: &crate::scanning::FrameTile) -> Result<(), String> {
             Err("Scanning is unavailable.".into())
         }
         pub fn hide(&mut self) {}

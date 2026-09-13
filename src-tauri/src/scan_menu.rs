@@ -1,7 +1,7 @@
 //! Menu rows and navigation are independent of native windows and input.
 use crate::{
     scan_tree::{Navigator, Node, Selection},
-    scanning::{Action, Frame, FrameLabel, Interval, Rect, MAX_SCAN_CYCLES},
+    scanning::{Action, Frame, FrameLabel, FrameTile, Interval, Rect, MAX_SCAN_CYCLES},
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
@@ -29,7 +29,7 @@ impl Item {
             Self::DoubleClick => "Double click",
             Self::Scroll => "Scroll",
             Self::Drag => "Drag",
-            Self::NewPoint => "Choose another point",
+            Self::NewPoint => "New point",
             Self::Cancel => "Cancel",
             Self::Up => "Up",
             Self::Down => "Down",
@@ -37,7 +37,7 @@ impl Item {
             Self::Right => "Right",
             Self::Back => "Back to actions",
             Self::DragHere => "Drag here",
-            Self::DestinationAgain => "Choose destination again",
+            Self::DestinationAgain => "New destination",
             Self::CancelDrag => "Cancel drag",
         }
     }
@@ -128,39 +128,35 @@ impl Menu {
         None
     }
     pub fn frame(&self, point: (i32, i32), screen: Rect, units: f64) -> Frame {
-        let scale = units.min(screen.width / 824.0).min(screen.height / 296.0);
-        let width = 824.0 * scale;
-        let height = (80.0 * self.rows.len() as f64 + 56.0) * scale;
+        let columns = self.rows.iter().map(Vec::len).max().unwrap_or(1) as f64;
+        let logical_width = 16.0 + columns * 180.0;
+        let logical_height = 56.0 + 180.0 * self.rows.len() as f64;
+        let scale = units
+            .min(screen.width / logical_width)
+            .min(screen.height / logical_height);
+        let width = logical_width * scale;
+        let height = logical_height * scale;
         let panel = place(point, screen, width, height, 20.0 * scale);
         let mut frame = Frame::default();
         let active_row = self.nav.path().first().copied().unwrap_or(self.nav.index());
         for (r, row) in self.rows.iter().enumerate() {
-            let tile_width = (panel.width - 16.0 * scale) / row.len() as f64;
+            let tile_width = 180.0 * scale;
             for (c, item) in row.iter().enumerate() {
                 let rect = Rect {
                     x: panel.x + 8.0 * scale + c as f64 * tile_width,
-                    y: panel.y + (56.0 + 80.0 * r as f64) * scale,
-                    width: tile_width - 8.0 * scale,
-                    height: 64.0 * scale,
+                    y: panel.y + (56.0 + 180.0 * r as f64) * scale,
+                    width: 168.0 * scale,
+                    height: 168.0 * scale,
                 };
-                frame.tiles.push(FrameLabel {
+                let selected = r == active_row
+                    && (self.nav.path().is_empty() || self.nav.escaping() || c == self.nav.index());
+                frame.tiles.push(FrameTile {
                     text: item.label().into(),
                     rect,
                     scale,
+                    icon: *item,
+                    selected,
                 });
-                if r == active_row
-                    && (self.nav.path().is_empty() || self.nav.escaping() || c == self.nav.index())
-                {
-                    frame.strips.extend(outline(
-                        Rect {
-                            x: rect.x - 3.0 * scale,
-                            y: rect.y - 3.0 * scale,
-                            width: rect.width + 6.0 * scale,
-                            height: rect.height + 6.0 * scale,
-                        },
-                        2.0 * scale,
-                    ));
-                }
             }
         }
         let text = if self.suspended {
@@ -230,6 +226,27 @@ fn place(point: (i32, i32), screen: Rect, width: f64, height: f64, gap: f64) -> 
 mod tests {
     use super::*;
     #[test]
+    fn grid_keeps_square_columns_and_highlights_the_current_row_or_item() {
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 320.0,
+            height: 240.0,
+        };
+        let mut menu = Menu::new(Kind::Actions, 250);
+        let row = menu.frame((10, 10), screen, 2.0);
+        assert_eq!(row.tiles.iter().filter(|t| t.selected).count(), 3);
+        assert_eq!(row.tiles[0].rect.x, row.tiles[3].rect.x);
+        assert_eq!(row.tiles[1].rect.x, row.tiles[4].rect.x);
+        for tile in &row.tiles {
+            assert_eq!(tile.rect.width, tile.rect.height);
+        }
+        menu.handle(Action::Select);
+        let item = menu.frame((10, 10), screen, 2.0);
+        assert_eq!(item.tiles.iter().filter(|t| t.selected).count(), 1);
+        assert!(item.tiles[0].selected);
+    }
+    #[test]
     fn layouts_fit_edges_negative_coordinates_and_scaling() {
         let screen = Rect {
             x: -1920.0,
@@ -246,10 +263,15 @@ mod tests {
         ] {
             for scale in [1.0, 1.5, 2.0] {
                 let frame = Menu::new(Kind::Actions, 250).frame(point, screen, scale);
-                for tile in frame.tiles.iter().chain(frame.label.iter()) {
-                    assert!(tile.rect.x >= screen.x && tile.rect.y >= screen.y);
-                    assert!(tile.rect.x + tile.rect.width <= screen.x + screen.width + 0.001);
-                    assert!(tile.rect.y + tile.rect.height <= screen.y + screen.height + 0.001);
+                for rect in frame
+                    .tiles
+                    .iter()
+                    .map(|tile| tile.rect)
+                    .chain(frame.label.iter().map(|label| label.rect))
+                {
+                    assert!(rect.x >= screen.x && rect.y >= screen.y);
+                    assert!(rect.x + rect.width <= screen.x + screen.width + 0.001);
+                    assert!(rect.y + rect.height <= screen.y + screen.height + 0.001);
                 }
             }
         }

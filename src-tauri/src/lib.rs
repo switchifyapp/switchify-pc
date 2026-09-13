@@ -22,6 +22,7 @@ mod protocol;
 mod scan_executor;
 mod scan_host;
 mod scan_menu;
+mod scan_tile;
 mod scan_tree;
 mod scanning;
 mod scanning_runtime;

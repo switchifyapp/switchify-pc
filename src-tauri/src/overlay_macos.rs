@@ -206,7 +206,7 @@ pub(crate) fn make_panel(mtm: MainThreadMarker) -> Retained<NSPanel> {
     panel
 }
 
-fn image_from_rgba(
+pub(crate) fn image_from_rgba(
     rgba: &[u8],
     width: usize,
     height: usize,

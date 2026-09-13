@@ -112,13 +112,21 @@ impl Rect {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Frame {
     pub strips: Vec<Rect>,
-    pub tiles: Vec<FrameLabel>,
+    pub tiles: Vec<FrameTile>,
     pub label: Option<FrameLabel>,
 }
 impl Frame {
     pub fn label_for_prompt(&self, prompt_visible: bool) -> Option<&FrameLabel> {
         self.label.as_ref().filter(|_| !prompt_visible)
     }
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrameTile {
+    pub text: String,
+    pub rect: Rect,
+    pub scale: f64,
+    pub icon: crate::scan_menu::Item,
+    pub selected: bool,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameLabel {

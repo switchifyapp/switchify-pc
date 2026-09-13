@@ -43,7 +43,7 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
-thread_local! {static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)}; static LABEL:RefCell<Option<Host>>=const{RefCell::new(None)}; static TILES:RefCell<(Vec<Host>,Vec<crate::scanning::FrameLabel>)>=const{RefCell::new((vec![],vec![]))};}
+thread_local! {static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)}; static LABEL:RefCell<Option<Host>>=const{RefCell::new(None)}; static TILES:RefCell<(Vec<Host>,Vec<crate::scanning::FrameTile>)>=const{RefCell::new((vec![],vec![]))};}
 /// Scanning has no on/off switch. It is armed whenever the saved switches can
 /// drive the current mode and the environment allows it, and the tick loop
 /// re-arms it after anything that stopped it: a save, key learning, Escape, an
@@ -378,7 +378,7 @@ fn dispatch<A: Adapter>(
     });
     A::activate(app, request)
 }
-fn render_tiles(tiles: &[crate::scanning::FrameLabel]) -> Result<(), String> {
+fn render_tiles(tiles: &[crate::scanning::FrameTile]) -> Result<(), String> {
     TILES.with(|slot| {
         let mut slot = slot.borrow_mut();
         if slot.1 == tiles {
@@ -389,7 +389,7 @@ fn render_tiles(tiles: &[crate::scanning::FrameLabel]) -> Result<(), String> {
         }
         for (index, host) in slot.0.iter_mut().enumerate() {
             if let Some(tile) = tiles.get(index) {
-                host.prompt(&tile.text, tile.rect, tile.scale)?;
+                host.tile(tile)?;
             } else {
                 host.hide();
             }
