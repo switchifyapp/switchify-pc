@@ -40,6 +40,9 @@ impl Adapter for PointScan {
     fn validate_environment(app: &AppHandle, display: Option<&Display>) -> Result<(), String> {
         validate_display(app, display)
     }
+    fn ready(app: &AppHandle) -> Result<(), String> {
+        crate::point_scan_ready(app)
+    }
     fn prepare(app: &AppHandle) -> Result<(), String> {
         crate::point_scan_prepare(app)
     }

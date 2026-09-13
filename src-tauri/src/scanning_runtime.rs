@@ -20,6 +20,9 @@ pub trait Adapter: Send + Sync + 'static {
         app: &AppHandle,
         environment: Option<&Self::Environment>,
     ) -> Result<(), String>;
+    /// Pure check that the environment allows scanning, polled while it is off.
+    fn ready(app: &AppHandle) -> Result<(), String>;
+    /// Side effects needed right before scanning uses the desktop.
     fn prepare(app: &AppHandle) -> Result<(), String>;
     fn activate(
         app: &AppHandle,
@@ -236,10 +239,12 @@ fn wanted<A: Adapter>(app: &AppHandle, config: &A::Config) -> Result<(), String>
     }
     switches
         .settings
-        .validate_actions(A::switches(config).automatic)
+        .validate_actions(A::switches(config).automatic)?;
+    A::ready(app)
 }
 /// Reserves the switch keys and readies the overlay. Leaves nothing behind on
-/// failure: the broker only enables after every key registered.
+/// failure: the broker only enables after every key registered. Only failures
+/// here start the retry backoff; environment conditions are re-read each tick.
 fn arm<A: Adapter>(app: &AppHandle, config: &A::Config) -> Result<(), String> {
     A::prepare(app)?;
     HOST.with(|slot| {

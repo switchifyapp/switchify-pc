@@ -1315,14 +1315,20 @@ async fn configure_point_scan(
         .map_err(|_| "Point scan configuration was cancelled.".to_string())?
 }
 
-fn point_scan_prepare(app: &AppHandle) -> Result<(), String> {
+/// Pure environment check, safe to call every tick while scanning is off.
+fn point_scan_ready(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppModel>().snapshot();
     if state.bluetooth == state::BluetoothState::Connected {
-        return Err("Disconnect Android before using local point scan.".into());
+        return Err("Local scanning pauses while Android is connected.".into());
     }
     if state.accessibility != state::AccessibilityState::Granted {
         return Err("Grant input access before using point scan.".into());
     }
+    Ok(())
+}
+
+fn point_scan_prepare(app: &AppHandle) -> Result<(), String> {
+    point_scan_ready(app)?;
     app.state::<dwell::DwellController>().cancel(app);
     platform_stop_mouse_repeat(app);
     Ok(())
