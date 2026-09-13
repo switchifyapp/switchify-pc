@@ -8,13 +8,15 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
     let size = tile.rect.width.round().max(1.0) as u32;
     let mut pixmap = Pixmap::new(size, size).ok_or("Cannot allocate action tile")?;
     pixmap.fill(if tile.selected {
-        Color::from_rgba8(112, 79, 10, 255)
+        let [r, g, b] = tile.color.menu_fill();
+        Color::from_rgba8(r, g, b, 255)
     } else {
         Color::from_rgba8(30, 35, 46, 255)
     });
     let transform = Transform::from_scale(size as f32 / 168.0, size as f32 / 168.0);
     let mut paint = Paint::default();
-    paint.set_color_rgba8(255, 204, 64, 255);
+    let [r, g, b] = tile.color.rgb();
+    paint.set_color_rgba8(r, g, b, 255);
     if tile.selected {
         let mut border = PathBuilder::new();
         border.push_rect(tiny_skia::Rect::from_xywh(2.0, 2.0, 164.0, 164.0).unwrap());
@@ -145,6 +147,32 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
 mod tests {
     use super::*;
     #[test]
+    fn all_scanner_colours_tint_selected_tiles_and_invalidate_frame_equality() {
+        use crate::scanning::{Rect, ScannerColor::*};
+        for color in [Red, Green, Blue, Yellow, White] {
+            let mut tile = FrameTile {
+                color,
+                text: "Click".into(),
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 168.0,
+                    height: 168.0,
+                },
+                scale: 1.0,
+                icon: Item::LeftClick,
+                selected: true,
+            };
+            let image = bitmap(&tile).unwrap();
+            let pixel = (12 * 168 + 12) * 4;
+            assert_eq!(&image.data()[pixel..pixel + 3], &color.menu_fill());
+            let previous = tile.clone();
+            tile.color = if color == Blue { Red } else { Blue };
+            assert_ne!(tile, previous);
+            assert_ne!(bitmap(&tile).unwrap().data(), image.data());
+        }
+    }
+    #[test]
     fn every_action_has_distinct_artwork_and_selection_changes_the_background() {
         use Item::*;
         let mut images = Vec::new();
@@ -163,6 +191,7 @@ mod tests {
             DragHere,
         ] {
             let mut tile = FrameTile {
+                color: Default::default(),
                 text: icon.label().into(),
                 rect: crate::scanning::Rect {
                     x: 0.,

@@ -373,3 +373,13 @@ button:disabled { cursor: default; opacity: 0.55; }
 .setup-dialog[data-switch-step="true"] { height: min(760px, calc(100vh - 40px)); }
 .setup-dialog[data-switch-step="true"] .setup-content { padding-top: 16px; }
 .setup-dialog .setting-group { gap: 16px; }
+
+.scanner-colours { display: flex; flex-wrap: wrap; gap: 12px; }
+.scanner-colours label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.scanner-colours input { accent-color: var(--brand); }
+.scanner-sample { --scanner-colour: #64a6ff; height: 100px; margin-top: 16px; padding: 16px; background: #1e232e; border-radius: 8px; }
+.scanner-sample.red { --scanner-colour: #d32f2f; }
+.scanner-sample.green { --scanner-colour: #84ff91; }
+.scanner-sample.yellow { --scanner-colour: #ffd166; }
+.scanner-sample.white { --scanner-colour: #ffffff; }
+.scanner-sample-selection { display: flex; align-items: center; justify-content: center; height: 100%; border: 3px solid var(--scanner-colour); background: color-mix(in srgb, var(--scanner-colour) 25%, transparent); color: white; }

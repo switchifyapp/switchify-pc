@@ -408,15 +408,15 @@ fn render<A: Adapter>(
         .engine
         .as_ref()
         .map_or_else(Default::default, Session::frame);
-    render_tiles(&frame.tiles)?;
-    render_label(frame.label_for_prompt(prompt.is_some()))?;
     HOST.with(|host| {
         if let Some(host) = host.borrow_mut().as_mut() {
-            host.render(&frame.strips)
+            host.render(&frame.rectangles())
         } else {
             Ok(())
         }
-    })
+    })?;
+    render_tiles(&frame.tiles)?;
+    render_label(frame.label_for_prompt(prompt.is_some()))
 }
 fn tick<A: Adapter>(app: &AppHandle) {
     let c = app.state::<Controller<A>>();

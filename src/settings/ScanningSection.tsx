@@ -114,6 +114,24 @@ export function ScanningSection({
 
       </SettingGroup>
 
+      <SettingGroup title="Scanner colour" description="Choose the colour used by the grid, scanning lines, and action menu.">
+        <fieldset disabled={disabled}>
+          <legend>Scanner colour</legend>
+          <div className="scanner-colours">
+            {(["red", "green", "blue", "yellow", "white"] as const).map((colour) => (
+              <label key={colour}>
+                <input type="radio" name="scanner-colour" value={colour} checked={config.scannerColor === colour} onChange={() => update("scannerColor", colour)} />
+                <span className={`color-swatch ${colour}`} aria-hidden="true" />
+                <span>{colour[0].toUpperCase() + colour.slice(1)}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <div className={`scanner-sample ${config.scannerColor}`} role="img" aria-label={`${config.scannerColor} scanner highlight sample`}>
+          <span className="scanner-sample-selection">Selected area</span>
+        </div>
+      </SettingGroup>
+
       <SettingGroup
         title="Point scan"
         description="Choose how the scanning lines find a point. Changes apply straight away."

@@ -151,6 +151,7 @@ impl Menu {
                 let selected = r == active_row
                     && (self.nav.path().is_empty() || self.nav.escaping() || c == self.nav.index());
                 frame.tiles.push(FrameTile {
+                    color: Default::default(),
                     text: item.label().into(),
                     rect,
                     scale,
