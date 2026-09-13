@@ -7,6 +7,8 @@
     "core:default",
     "allow-get-app-state",
     "allow-get-switches",
+    "allow-get-remote-switches",
+    "allow-save-remote-switches",
     "allow-save-switches",
     "allow-begin-switch-capture",
     "allow-cancel-switch-capture",

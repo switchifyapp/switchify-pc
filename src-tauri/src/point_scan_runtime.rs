@@ -20,6 +20,7 @@ pub fn configure(app: &AppHandle, config: Config) -> Result<View, String> {
     if config.switches().keys() != previous.switches().keys() {
         return Err("Edit key assignments in Settings → Switches.".into());
     }
+    crate::remote_scan::save(app, crate::remote_scan::config(app))?;
     scanning_runtime::configure::<PointScan>(app, config)
 }
 pub fn pause(app: &AppHandle) {

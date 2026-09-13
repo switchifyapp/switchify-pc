@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-remote-switches"
+description = "Enables the get_remote_switches command without any pre-configured scope."
+commands.allow = ["get_remote_switches"]
+
+[[permission]]
+identifier = "deny-get-remote-switches"
+description = "Denies the get_remote_switches command without any pre-configured scope."
+commands.deny = ["get_remote_switches"]

@@ -1303,40 +1303,68 @@ async fn handle_write(
     deferral: Deferral,
 ) -> Result<(), String> {
     let result = async {
+        static DISPATCH_SLOTS: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
+        let _permit = DISPATCH_SLOTS
+            .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(64)))
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "Bluetooth command queue is full.".to_string())?;
+
         let request = args
             .GetRequestAsync()
             .map_err(|error| error.to_string())?
             .await
             .map_err(|error| error.to_string())?;
-        let lifecycle_guard = lifecycle
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if !lifecycle_guard.is_current(generation) || !runtime_generation_is_current(generation) {
+        let bytes = {
+            let lifecycle_guard = lifecycle
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if !lifecycle_guard.is_current(generation) || !runtime_generation_is_current(generation)
+            {
+                if request.Option().map_err(|error| error.to_string())?
+                    == GattWriteOption::WriteWithResponse
+                {
+                    request
+                        .RespondWithProtocolError(0x0e)
+                        .map_err(|error| error.to_string())?;
+                }
+                return Ok(());
+            }
+            let mut bytes = windows::core::Array::<u8>::new();
+            CryptographicBuffer::CopyToByteArray(
+                &request.Value().map_err(|error| error.to_string())?,
+                &mut bytes,
+            )
+            .map_err(|error| error.to_string())?;
             if request.Option().map_err(|error| error.to_string())?
                 == GattWriteOption::WriteWithResponse
             {
-                request
-                    .RespondWithProtocolError(0x0e)
-                    .map_err(|error| error.to_string())?;
+                request.Respond().map_err(|error| error.to_string())?;
             }
-            return Ok(());
-        }
-        let mut bytes = windows::core::Array::<u8>::new();
-        CryptographicBuffer::CopyToByteArray(
-            &request.Value().map_err(|error| error.to_string())?,
-            &mut bytes,
-        )
-        .map_err(|error| error.to_string())?;
-        if request.Option().map_err(|error| error.to_string())?
-            == GattWriteOption::WriteWithResponse
-        {
-            request.Respond().map_err(|error| error.to_string())?;
-        }
-        if let Some(response) = process_frame(&app, &shared, &bytes)? {
-            notify(response)?;
-        }
-        drop(lifecycle_guard);
-        Ok(())
+            bytes.to_vec()
+        };
+        // Scanner input and overlays are thread-local main-thread resources.
+        // Serialize command dispatch with scan ticks and recheck transport ownership.
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let handle = app.clone();
+        app.run_on_main_thread(move || {
+            let guard = lifecycle.lock().unwrap_or_else(|p| p.into_inner());
+            let result =
+                if guard.is_current(generation) && runtime_generation_is_current(generation) {
+                    process_frame(&handle, &shared, &bytes).and_then(|response| {
+                        if let Some(response) = response {
+                            notify(response)?;
+                        }
+                        Ok(())
+                    })
+                } else {
+                    Ok(())
+                };
+            let _ = tx.send(result);
+        })
+        .map_err(|e| e.to_string())?;
+        rx.await
+            .map_err(|_| "Bluetooth command dispatch cancelled.".to_string())?
     }
     .await;
     deferral.Complete().map_err(|error| error.to_string())?;
@@ -1483,6 +1511,7 @@ fn complete_mouse_move(
         .settings
         .pointer_scale_percent;
     let result = with_runtime_input(|input| {
+        crate::remote_scan::allow_direct(app)?;
         input.set_pointer_scale_percent(scale);
         input.move_pointer(command.dx.round() as i32, command.dy.round() as i32)?;
         Ok(input.pointer_feedback_for_move())
@@ -1507,8 +1536,10 @@ fn complete_mouse_click(
 ) -> Option<String> {
     app.state::<DwellController>().cancel(app);
     stop_all_repeats(app);
-    let result =
-        with_runtime_input(|input| input.click_pointer(command.button, command.click_count));
+    let result = with_runtime_input(|input| {
+        crate::remote_scan::allow_direct(app)?;
+        input.click_pointer(command.button, command.click_count)
+    });
     if result.is_ok() {
         show_overlay(
             app,
@@ -1534,7 +1565,10 @@ fn complete_text(app: &AppHandle, shared: &SharedModel, command: TextCommand) ->
         || app.state::<DwellController>().cancel(app),
         || stop_all_repeats(app),
     );
-    let result = with_runtime_input(|input| input.type_text(&command.text));
+    let result = with_runtime_input(|input| {
+        crate::remote_scan::allow_direct(app)?;
+        input.type_text(&command.text)
+    });
     typing_route.finish(result.is_ok(), || {
         app.state::<CursorOverlay>().hide_for_typing()
     });
@@ -1552,6 +1586,37 @@ fn complete_desktop(
     shared: &SharedModel,
     command: DesktopCommand,
 ) -> Option<String> {
+    if command.command_type == "switch.session.start" {
+        stop_all_repeats(app);
+        if let Err(error) = with_runtime_input(|input| input.release_all()) {
+            return shared
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .engine
+                .complete_desktop_command_with_error(
+                    &command,
+                    Err(("input_failed", error.as_str())),
+                );
+        }
+    }
+    if let Some(result) = crate::remote_scan::route(
+        app,
+        &command.device_id,
+        &command.command_type,
+        &command.payload,
+    ) {
+        return shared
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .engine
+            .complete_desktop_command_with_error(
+                &command,
+                result
+                    .as_ref()
+                    .map(|_| ())
+                    .map_err(|e| ("input_failed", e.as_str())),
+            );
+    }
     if command.command_type == "mouse.repeat.start" {
         return complete_repeat_start(app, shared, command);
     }
@@ -1579,7 +1644,11 @@ fn complete_desktop(
         .clone();
     if command.command_type == "switch.profile.list" {
         stop_all_repeats(app);
-        return Some(switch_profile_catalog_response(&command.id, &profiles));
+        return Some(crate::remote_scan::catalog(
+            app,
+            &command.payload,
+            switch_profile_catalog_response(&command.id, &profiles),
+        ));
     }
     let (result, error_code) = if command.command_type == "pointer.display.move" {
         let direction = command.payload["direction"].as_str().unwrap_or_default();
@@ -2187,6 +2256,7 @@ fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Re
 }
 
 pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), String> {
+    crate::scanning_runtime::cancel(app);
     app.state::<DwellController>().cancel(app);
     stop_all_repeats(app);
     let notifications = runtime()
