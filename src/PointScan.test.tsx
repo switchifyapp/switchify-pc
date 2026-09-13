@@ -20,13 +20,14 @@ function PointScan() {
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: mocks.listen }));
+// The backend decides whether scanning runs; the panel only reports its message.
 const initial: PointScanState = {
   config: defaultPointScanConfig,
   enabled: false,
   phase: "idle",
   paused: false,
   supported: true,
-  message: "Point scan is off.",
+  message: "Scanning starts once a switch has the Select action.",
 };
 beforeEach(() => {
   Object.defineProperty(window, "__TAURI_INTERNALS__", {
@@ -40,48 +41,50 @@ beforeEach(() => {
       command === "get_point_scan" ? initial : { ...initial, ...args },
     );
 });
-it("enables native point scan and locks its configuration until disabled", async () => {
-  render(<PointScan />);
-  await screen.findByText("Point scan is off.");
-  fireEvent.click(screen.getByRole("button", { name: "Enable point scan" }));
-  await screen.findByRole("button", { name: "Disable point scan" });
-  expect(mocks.invoke).toHaveBeenCalledWith("configure_point_scan", {
-    config: defaultPointScanConfig,
-    enabled: true,
-  });
-  expect(screen.getByRole("button", { name: "Line only" })).toBeDisabled();
-});
-it("exposes grid settings and directs switch assignments to their own tab", async () => {
-  render(<PointScan />);
-  await screen.findByText("Point scan is off.");
-  fireEvent.click(screen.getByRole("button", { name: "Grid then line" }));
-  expect(screen.getByLabelText("Grid size")).toHaveValue("4");
-  expect(screen.queryByLabelText("Forward switch")).not.toBeInTheDocument();
-  expect(screen.getByText(/Assign switch actions in the Switches tab/)).toBeInTheDocument();
-});
-it("reports native registration failure without claiming scanning started", async () => {
-  render(<PointScan />);
-  await screen.findByText("Point scan is off.");
-  mocks.invoke.mockRejectedValueOnce("Space is already in use.");
-  fireEvent.click(screen.getByRole("button", { name: "Enable point scan" }));
-  await waitFor(() =>
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Space is already in use.",
-    ),
-  );
-  expect(
-    screen.getByRole("button", { name: "Enable point scan" }),
-  ).toBeEnabled();
-});
-
 afterEach(() => {
   Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
 });
 
-it("keeps newer edits across old events and saves before enabling", async () => {
+it("shows the backend's reason while scanning is off and offers no toggle", async () => {
+  render(<PointScan />);
+  await screen.findByText("Scanning starts once a switch has the Select action.");
+  expect(screen.queryByRole("button", { name: /point scan/i })).toBeNull();
+  expect(screen.getByRole("button", { name: "Line only" })).toBeEnabled();
+});
+
+it("saves settings without an enabled flag and keeps them editable while scanning runs", async () => {
+  mocks.invoke.mockImplementation(async (command, args) =>
+    command === "get_point_scan"
+      ? { ...initial, enabled: true, message: "Ready. Press the select switch to begin." }
+      : { ...initial, enabled: true, ...args },
+  );
+  render(<PointScan />);
+  await screen.findByText("Ready to begin.");
+  fireEvent.click(screen.getByRole("button", { name: "Grid then line" }));
+  await waitFor(() =>
+    expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+      config: { ...defaultPointScanConfig, mode: "grid" },
+    }),
+  );
+  expect(screen.getByLabelText("Grid size")).toHaveValue("4");
+  expect(screen.getByText(/Assign switch actions in the Switches tab/)).toBeInTheDocument();
+});
+
+it("reports the scan phase while enabled", async () => {
+  mocks.invoke.mockImplementation(async () => ({
+    ...initial,
+    enabled: true,
+    phase: "x",
+    paused: true,
+  }));
+  render(<PointScan />);
+  await screen.findByText("Paused. Choose the horizontal position.");
+});
+
+it("keeps newer edits across old events", async () => {
   let resolveSave!: (value: PointScanState) => void;
   render(<PointScan />);
-  await screen.findByText("Point scan is off.");
+  await screen.findByText(initial.message);
   mocks.invoke.mockImplementationOnce(
     () =>
       new Promise<PointScanState>((resolve) => {
@@ -96,41 +99,32 @@ it("keeps newer edits across old events and saves before enabling", async () => 
   const event = mocks.listen.mock.calls[0][1];
   act(() => event({ payload: initial }));
   expect(screen.getByLabelText("Grid size")).toHaveValue("7");
-  fireEvent.click(screen.getByRole("button", { name: "Enable point scan" }));
-  expect(
-    mocks.invoke.mock.calls.filter(([, args]) => args?.enabled),
-  ).toHaveLength(0);
   await act(async () =>
     resolveSave({ ...initial, config: { ...initial.config, mode: "grid" } }),
   );
-  await screen.findByRole("button", { name: "Disable point scan" });
-  expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
-    config: { ...initial.config, mode: "grid", gridSize: 7 },
-    enabled: true,
-  });
+  await waitFor(() =>
+    expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+      config: { ...initial.config, mode: "grid", gridSize: 7 },
+    }),
+  );
+  await screen.findByText("Scanning settings save automatically.");
 });
 
-it("retains failed edits and requires a successful retry before enabling", async () => {
+it("retains failed edits and offers a retry", async () => {
   render(<PointScan />);
-  await screen.findByText("Point scan is off.");
+  await screen.findByText(initial.message);
   mocks.invoke.mockRejectedValueOnce("Disk is full.");
   fireEvent.click(screen.getByRole("button", { name: "Grid then line" }));
   await screen.findByText("Disk is full.");
   expect(
     screen.getByRole("button", { name: "Grid then line" }),
   ).toHaveAttribute("aria-pressed", "true");
-  fireEvent.click(screen.getByRole("button", { name: "Enable point scan" }));
-  await screen.findByText(/Save the scanning settings before enabling/);
-  expect(
-    mocks.invoke.mock.calls.filter(([, args]) => args?.enabled),
-  ).toHaveLength(0);
+  expect(screen.getByText("Scanning settings have unsaved changes.")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
   await screen.findByText("Scanning settings save automatically.");
-  fireEvent.click(screen.getByRole("button", { name: "Enable point scan" }));
-  await screen.findByRole("button", { name: "Disable point scan" });
 });
 
-it("keeps pending saves and an enabled scan when its settings panel unmounts", async () => {
+it("keeps pending saves when its settings panel unmounts", async () => {
   function Shell({ visible }: { visible: boolean }) {
     const controller = useScanning();
     return visible ? (
@@ -141,7 +135,7 @@ it("keeps pending saves and an enabled scan when its settings panel unmounts", a
   }
   let resolveSave!: (value: PointScanState) => void;
   const view = render(<Shell visible />);
-  await screen.findByText("Point scan is off.");
+  await screen.findByText(initial.message);
   mocks.invoke.mockImplementationOnce(
     () =>
       new Promise<PointScanState>((resolve) => {
@@ -158,29 +152,20 @@ it("keeps pending saves and an enabled scan when its settings panel unmounts", a
   expect(
     screen.getByRole("button", { name: "Grid then line" }),
   ).toHaveAttribute("aria-pressed", "true");
-  fireEvent.click(screen.getByRole("button", { name: "Enable point scan" }));
-  await screen.findByRole("button", { name: "Disable point scan" });
-  const calls = mocks.invoke.mock.calls.length;
-  view.rerender(<Shell visible={false} />);
-  view.rerender(<Shell visible />);
-  expect(
-    screen.getByRole("button", { name: "Disable point scan" }),
-  ).toBeEnabled();
-  expect(mocks.invoke).toHaveBeenCalledTimes(calls);
 });
 
-it("keeps a newer cancellation event when an older enable response arrives", async () => {
+it("keeps a newer runtime event when an older save response arrives", async () => {
   render(<PointScan />);
-  await screen.findByText("Point scan is off.");
-  let resolveEnable!: (value: PointScanState) => void;
+  await screen.findByText(initial.message);
+  let resolveSave!: (value: PointScanState) => void;
   mocks.invoke.mockImplementationOnce(
     () =>
       new Promise<PointScanState>((resolve) => {
-        resolveEnable = resolve;
+        resolveSave = resolve;
       }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Enable point scan" }));
-  await waitFor(() => expect(resolveEnable).toBeTypeOf("function"));
+  fireEvent.click(screen.getByRole("button", { name: "Grid then line" }));
+  await waitFor(() => expect(resolveSave).toBeTypeOf("function"));
   act(() =>
     mocks.listen.mock.calls[0][1]({
       payload: {
@@ -189,10 +174,9 @@ it("keeps a newer cancellation event when an older enable response arrives", asy
       },
     }),
   );
-  await act(async () => resolveEnable({ ...initial, enabled: true }));
-  expect(
-    screen.getByRole("button", { name: "Enable point scan" }),
-  ).toBeEnabled();
+  await act(async () =>
+    resolveSave({ ...initial, enabled: true, message: "Ready." }),
+  );
   expect(
     screen.getByText("Android connected. Local scanning stopped."),
   ).toBeInTheDocument();

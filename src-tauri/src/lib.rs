@@ -209,8 +209,8 @@ pub(crate) fn sync_tray_state(app: &AppHandle, state: &AppState) {
 }
 
 fn finish_app_exit(app: &AppHandle) {
+    scanning_runtime::halt(app);
     app.state::<switch_runtime::Controller>().shutdown();
-    scanning_runtime::cancel(app);
     app.state::<dwell::DwellController>().cancel(app);
     let model = app.state::<AppModel>();
     let _ = platform_disconnect_all(app, &model.shared);
@@ -1263,9 +1263,8 @@ fn save_switches(
     settings: switches::Settings,
 ) -> Result<switch_runtime::View, String> {
     require_main(&window)?;
-    if app.state::<point_scan_runtime::Controller>().view().enabled {
-        return Err("Disable scanning before editing switches.".into());
-    }
+    // Sync commands run on the main thread, which pausing the overlay needs.
+    point_scan_runtime::pause(&app);
     app.state::<switch_runtime::Controller>()
         .save(&app, settings)
 }
@@ -1275,13 +1274,11 @@ fn begin_switch_capture(
     app: AppHandle,
 ) -> Result<switch_runtime::View, String> {
     require_main(&window)?;
-    if app.state::<point_scan_runtime::Controller>().view().enabled {
-        return Err("Disable scanning before learning a switch.".into());
-    }
     if !main_window_focused(&window)? {
         return Err("Focus Switchify PC before learning a switch.".into());
     }
     point_scan_prepare(&app)?;
+    point_scan_runtime::pause(&app);
     app.state::<switch_runtime::Controller>()
         .begin_capture(&app)
 }
@@ -1307,26 +1304,31 @@ fn get_point_scan(
 async fn configure_point_scan(
     app: AppHandle,
     config: point_scan::Config,
-    enabled: bool,
 ) -> Result<point_scan_runtime::View, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let handle = app.clone();
     app.run_on_main_thread(move || {
-        let _ = tx.send(point_scan_runtime::configure(&handle, config, enabled));
+        let _ = tx.send(point_scan_runtime::configure(&handle, config));
     })
     .map_err(|e| e.to_string())?;
     rx.await
         .map_err(|_| "Point scan configuration was cancelled.".to_string())?
 }
 
-fn point_scan_prepare(app: &AppHandle) -> Result<(), String> {
+/// Pure environment check, safe to call every tick while scanning is off.
+fn point_scan_ready(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppModel>().snapshot();
     if state.bluetooth == state::BluetoothState::Connected {
-        return Err("Disconnect Android before using local point scan.".into());
+        return Err("Local scanning pauses while Android is connected.".into());
     }
     if state.accessibility != state::AccessibilityState::Granted {
         return Err("Grant input access before using point scan.".into());
     }
+    Ok(())
+}
+
+fn point_scan_prepare(app: &AppHandle) -> Result<(), String> {
+    point_scan_ready(app)?;
     app.state::<dwell::DwellController>().cancel(app);
     platform_stop_mouse_repeat(app);
     Ok(())

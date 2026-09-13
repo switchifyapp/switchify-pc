@@ -73,12 +73,13 @@ impl Settings {
         };
         if !has(Action::Select) {
             return Err(
-                "Assign Select to a switch in Settings → Switches before enabling scanning.".into(),
+                "Scanning starts once a switch has the Select action. Add one in Settings → Switches."
+                    .into(),
             );
         }
         if !automatic && (!has(Action::Next) || !has(Action::Back)) {
             return Err(
-                "Manual scanning requires Select, Next and Previous switch actions.".into(),
+                "Manual scanning starts once switches cover Select, Next and Previous.".into(),
             );
         }
         Ok(())

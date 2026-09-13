@@ -9,12 +9,15 @@ use tauri::{AppHandle, Manager};
 pub struct PointScan;
 pub type Controller = scanning_runtime::Controller<PointScan>;
 pub type View = scanning_runtime::View<Config, Phase>;
-pub fn configure(app: &AppHandle, config: Config, enabled: bool) -> Result<View, String> {
+pub fn configure(app: &AppHandle, config: Config) -> Result<View, String> {
     let previous = app.state::<Controller>().view().config;
     if config.switches().keys() != previous.switches().keys() {
         return Err("Edit key assignments in Settings → Switches.".into());
     }
-    scanning_runtime::configure::<PointScan>(app, config, enabled)
+    scanning_runtime::configure::<PointScan>(app, config)
+}
+pub fn pause(app: &AppHandle) {
+    scanning_runtime::pause::<PointScan>(app);
 }
 pub fn install(app: &AppHandle) {
     scanning_runtime::install::<PointScan>(app);
@@ -36,6 +39,9 @@ impl Adapter for PointScan {
     }
     fn validate_environment(app: &AppHandle, display: Option<&Display>) -> Result<(), String> {
         validate_display(app, display)
+    }
+    fn ready(app: &AppHandle) -> Result<(), String> {
+        crate::point_scan_ready(app)
     }
     fn prepare(app: &AppHandle) -> Result<(), String> {
         crate::point_scan_prepare(app)
@@ -70,7 +76,7 @@ fn validate_display(app: &AppHandle, display: Option<&Display>) -> Result<(), St
     if let Some(expected) = display {
         let (_, displays) = display_navigation::displays(app).map_err(|e| e.message)?;
         if !displays.contains(expected) {
-            return Err("Display geometry changed. Enable point scan again.".into());
+            return Err("Display geometry changed. Scanning restarts.".into());
         }
     }
     Ok(())

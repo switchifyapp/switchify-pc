@@ -438,8 +438,7 @@ function PairingDialog({ requests, connectedDeviceName, busy, approve, reject }:
 
 export function App() {
   const switches=useSwitches();
-  const scanning=useScanning(switches.flush);
-  switches.setLocked(!!scanning.state?.enabled||scanning.toggling);
+  const scanning=useScanning();
   const [state, setState] = useState<AppState | null>(null);
   const [view, setView] = useState<View>("home");
   const viewRef = useRef<View>("home");

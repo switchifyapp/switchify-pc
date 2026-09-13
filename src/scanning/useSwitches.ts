@@ -46,7 +46,6 @@ export function useSwitches() {
     revision: 0,
     saved: 0,
     pending: 0,
-    locked: false,
     state: null as SwitchState | null,
   });
   const captureRequest = useRef(0);
@@ -120,27 +119,20 @@ export function useSwitches() {
   };
   const update = (next: SwitchSettings) => {
     const m = model.current;
-    if (m.locked || m.state?.capture.active || !m.state?.supported) return;
+    if (m.state?.capture.active || !m.state?.supported) return;
     m.settings = next;
     m.revision++;
     setSettings(next);
     save(next, m.revision);
   };
-  const flush = async () => {
-    await queue.current;
-    if (model.current.revision !== model.current.saved)
-      throw new Error(
-        "Save switch assignments before enabling scanning. Use Retry save.",
-      );
-    if (model.current.state?.capture.active)
-      throw new Error("Finish learning the switch before enabling scanning.");
-  };
   const capture = async () => {
-    if (model.current.locked) return;
     const request = ++captureRequest.current;
     setCapturing(true);
     try {
-      await flush();
+      // Let queued saves land first so learning starts from the saved state.
+      await queue.current;
+      if (model.current.revision !== model.current.saved)
+        throw new Error("Save switch assignments before learning. Use Retry save.");
       if (request !== captureRequest.current) return;
       setError(null);
       if (model.current.state)
@@ -180,14 +172,10 @@ export function useSwitches() {
     error,
     capturing,
     update,
-    flush,
     capture,
     cancelCapture,
     retry: () => save(model.current.settings, model.current.revision),
     unsaved: model.current.revision !== model.current.saved,
-    setLocked: (value: boolean) => {
-      model.current.locked = value;
-    },
   };
 }
 export type SwitchController = ReturnType<typeof useSwitches>;

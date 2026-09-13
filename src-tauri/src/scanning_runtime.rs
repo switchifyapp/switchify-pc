@@ -20,6 +20,9 @@ pub trait Adapter: Send + Sync + 'static {
         app: &AppHandle,
         environment: Option<&Self::Environment>,
     ) -> Result<(), String>;
+    /// Pure check that the environment allows scanning, polled while it is off.
+    fn ready(app: &AppHandle) -> Result<(), String>;
+    /// Side effects needed right before scanning uses the desktop.
     fn prepare(app: &AppHandle) -> Result<(), String>;
     fn activate(
         app: &AppHandle,
@@ -40,8 +43,15 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager};
 
 thread_local! {static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)};}
+/// Scanning has no on/off switch. It is armed whenever the saved switches can
+/// drive the current mode and the environment allows it, and the tick loop
+/// re-arms it after anything that stopped it: a save, key learning, Escape, an
+/// Android session or a failed key reservation. Failed attempts back off by this
+/// much so a key held by another application is not hammered every tick.
+const RETRY_MS: u64 = 2000;
 pub struct Controller<A: Adapter> {
     enabled: AtomicBool,
+    halted: AtomicBool,
     generation: AtomicU64,
     data: Mutex<Data<A>>,
 }
@@ -54,6 +64,7 @@ struct Data<A: Adapter> {
     input_generation: u64,
     last_tick: Instant,
     message: String,
+    next_attempt: Option<Instant>,
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,6 +86,7 @@ impl<A: Adapter> Controller<A> {
             .unwrap_or_default();
         Self {
             enabled: AtomicBool::new(false),
+            halted: AtomicBool::new(false),
             generation: AtomicU64::new(0),
             data: Mutex::new(Data {
                 config,
@@ -84,7 +96,8 @@ impl<A: Adapter> Controller<A> {
                 switches: Settings::default(),
                 input_generation: 0,
                 last_tick: Instant::now(),
-                message: "Scanning is off.".into(),
+                message: "Starting switch scanning...".into(),
+                next_attempt: None,
             }),
         }
     }
@@ -115,11 +128,25 @@ fn publish<A: Adapter>(app: &AppHandle) {
 // One local technique owns the switch keys and overlay at a time.
 struct ScanService {
     cancel: fn(&AppHandle),
+    halt: fn(&AppHandle),
 }
+/// Stops scanning now; the tick loop re-arms it once conditions allow.
 pub fn cancel(app: &AppHandle) {
     if let Some(service) = app.try_state::<ScanService>() {
         (service.cancel)(app);
     }
+}
+/// Stops scanning for good, for application exit.
+pub fn halt(app: &AppHandle) {
+    if let Some(service) = app.try_state::<ScanService>() {
+        (service.halt)(app);
+    }
+}
+fn halt_for<A: Adapter>(app: &AppHandle) {
+    if let Some(c) = app.try_state::<Controller<A>>() {
+        c.halted.store(true, Ordering::SeqCst);
+    }
+    cancel_for::<A>(app);
 }
 fn cancel_for<A: Adapter>(app: &AppHandle) {
     let Some(c) = app.try_state::<Controller<A>>() else {
@@ -159,29 +186,21 @@ fn disable<A: Adapter>(app: &AppHandle, message: &str) {
     hide_prompt();
     publish::<A>(app);
 }
+/// Pauses scanning so switches can be saved or learned. Must run on the main
+/// thread, as the commands that call it do; the tick loop re-arms afterwards.
+pub fn pause<A: Adapter>(app: &AppHandle) {
+    disable::<A>(app, "Scanning paused while switches change.");
+}
+/// Saves new settings and re-arms scanning with them. A failure to arm is not
+/// an error here: the settings are saved and the view's message says why
+/// scanning is off, and the tick loop keeps trying.
 pub fn configure<A: Adapter>(
     app: &AppHandle,
     config: A::Config,
-    enabled: bool,
 ) -> Result<View<A::Config, <A::Technique as Technique>::Phase>, String> {
     A::validate(&config)?;
     let path = config_path::<A>(app)?;
-    disable::<A>(app, "Scanning is off.");
-    let generation = app
-        .state::<Controller<A>>()
-        .generation
-        .load(Ordering::SeqCst);
-    if enabled {
-        A::prepare(app)?;
-        HOST.with(|slot| {
-            if slot.borrow().is_none() {
-                *slot.borrow_mut() = Some(Host::new()?);
-            }
-            Ok::<_, String>(())
-        })?;
-        app.state::<switch_runtime::Controller>()
-            .enable(A::switches(&config).automatic)?;
-    }
+    disable::<A>(app, "Applying scanning settings...");
     let save = || -> Result<(), String> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -200,23 +219,91 @@ pub fn configure<A: Adapter>(
     {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
         d.config = config;
-        d.switches = app.state::<switch_runtime::Controller>().settings();
-        d.pressed = Gestures::default();
-        d.input_generation = app.state::<switch_runtime::Controller>().generation();
-        d.message = if enabled {
-            "Ready. Press the select switch to begin."
-        } else {
-            "Scanning is off."
-        }
-        .into();
+        d.next_attempt = None;
     }
-    if enabled && c.generation.load(Ordering::SeqCst) != generation {
-        disable::<A>(app, "Scanning stopped while enabling.");
-        return Err("Scanning was cancelled while enabling. Try again.".into());
-    }
-    c.enabled.store(enabled, Ordering::SeqCst);
+    ensure::<A>(app);
     publish::<A>(app);
     Ok(c.view())
+}
+/// Why scanning should stay off, if it should. Pure, so it is safe every tick.
+fn wanted<A: Adapter>(app: &AppHandle, config: &A::Config) -> Result<(), String> {
+    if !cfg!(any(target_os = "windows", target_os = "macos")) {
+        return Err("Switch scanning is not available on this platform.".into());
+    }
+    let switches = app.state::<switch_runtime::Controller>().view();
+    if let Some(error) = switches.error {
+        return Err(error);
+    }
+    if switches.capture.active {
+        return Err("Learning a switch. Scanning resumes afterwards.".into());
+    }
+    switches
+        .settings
+        .validate_actions(A::switches(config).automatic)?;
+    A::ready(app)
+}
+/// Reserves the switch keys and readies the overlay. Leaves nothing behind on
+/// failure: the broker only enables after every key registered. Only failures
+/// here start the retry backoff; environment conditions are re-read each tick.
+fn arm<A: Adapter>(app: &AppHandle, config: &A::Config) -> Result<(), String> {
+    A::prepare(app)?;
+    HOST.with(|slot| {
+        if slot.borrow().is_none() {
+            *slot.borrow_mut() = Some(Host::new()?);
+        }
+        Ok::<_, String>(())
+    })?;
+    let switches = app.state::<switch_runtime::Controller>();
+    switches.enable(A::switches(config).automatic)?;
+    let c = app.state::<Controller<A>>();
+    let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+    d.engine = None;
+    d.display = None;
+    d.switches = switches.settings();
+    d.pressed = Gestures::default();
+    d.input_generation = switches.generation();
+    d.last_tick = Instant::now();
+    Ok(())
+}
+/// Arms scanning if it is wanted and not already running. Main thread only.
+fn ensure<A: Adapter>(app: &AppHandle) {
+    let c = app.state::<Controller<A>>();
+    if c.enabled.load(Ordering::SeqCst) || c.halted.load(Ordering::SeqCst) {
+        return;
+    }
+    let (config, due) = {
+        let d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+        (
+            d.config.clone(),
+            d.next_attempt.is_none_or(|at| Instant::now() >= at),
+        )
+    };
+    let outcome = match wanted::<A>(app, &config) {
+        Err(reason) => Err((reason, false)),
+        Ok(()) if !due => return,
+        Ok(()) => arm::<A>(app, &config).map_err(|e| (e, true)),
+    };
+    let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+    match outcome {
+        Ok(()) => {
+            d.next_attempt = None;
+            d.message = "Ready. Press the select switch to begin.".into();
+            drop(d);
+            c.enabled.store(true, Ordering::SeqCst);
+            publish::<A>(app);
+        }
+        Err((message, failed)) => {
+            if failed {
+                d.next_attempt = Some(Instant::now() + std::time::Duration::from_millis(RETRY_MS));
+            }
+            let changed = d.message != message;
+            d.message = message;
+            drop(d);
+            if changed {
+                publish::<A>(app);
+            }
+        }
+    }
 }
 fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64) {
     let c = app.state::<Controller<A>>();
@@ -231,7 +318,8 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64) {
         return;
     }
     if action == Action::Cancel {
-        disable::<A>(app, "Scanning cancelled. Switch keys released.");
+        // Escape resets the scan; the next tick re-arms the keys.
+        disable::<A>(app, "Escape pressed. Scanning reset.");
         return;
     }
     hide_prompt();
@@ -328,6 +416,7 @@ fn tick<A: Adapter>(app: &AppHandle) {
         }
     }
     if !c.enabled.load(Ordering::SeqCst) {
+        ensure::<A>(app);
         return;
     }
     if app.state::<crate::state::AppModel>().snapshot().bluetooth
@@ -359,6 +448,7 @@ pub fn install<A: Adapter>(app: &AppHandle) {
     app.manage(Controller::<A>::new(app));
     app.manage(ScanService {
         cancel: cancel_for::<A>,
+        halt: halt_for::<A>,
     });
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
