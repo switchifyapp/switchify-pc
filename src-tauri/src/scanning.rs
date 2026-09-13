@@ -112,6 +112,18 @@ impl Rect {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Frame {
     pub strips: Vec<Rect>,
+    pub label: Option<FrameLabel>,
+}
+impl Frame {
+    pub fn label_for_prompt(&self, prompt_visible: bool) -> Option<&FrameLabel> {
+        self.label.as_ref().filter(|_| !prompt_visible)
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrameLabel {
+    pub text: String,
+    pub rect: Rect,
+    pub scale: f64,
 }
 
 /// Automatic movement gives up after this many full passes of the current
@@ -120,7 +132,7 @@ pub const MAX_SCAN_CYCLES: usize = 3;
 
 pub trait Technique {
     type Selection;
-    type Phase: Clone + Default + Serialize;
+    type Phase: Clone + Default + PartialEq + Serialize;
     fn start(&mut self);
     fn advance(&mut self, elapsed_ms: u64);
     fn handle(&mut self, action: Action) -> Option<Self::Selection>;
@@ -217,37 +229,28 @@ impl Interval {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct Cycle {
-    index: usize,
-}
-impl Cycle {
-    pub fn index(&self) -> usize {
-        self.index
-    }
-    pub fn step(&mut self, count: usize, forward: bool) {
-        self.index = if count == 0 {
-            0
-        } else if forward {
-            (self.index % count + 1) % count
-        } else {
-            (self.index % count + count - 1) % count
-        };
-    }
-    pub fn reset(&mut self) {
-        self.index = 0;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     // A second, non-pointer technique proves the session is not tied to point scan.
-    #[derive(Default)]
     struct Items {
-        cursor: Cycle,
+        cursor: crate::scan_tree::Navigator<&'static str>,
         interval: Interval,
         elapsed: u64,
+    }
+    impl Default for Items {
+        fn default() -> Self {
+            Self {
+                cursor: crate::scan_tree::Navigator::new(
+                    ["one", "two", "three"]
+                        .into_iter()
+                        .map(crate::scan_tree::Node::Leaf)
+                        .collect(),
+                ),
+                interval: Interval::default(),
+                elapsed: 0,
+            }
+        }
     }
     impl Technique for Items {
         type Selection = &'static str;
@@ -258,14 +261,22 @@ mod tests {
         fn advance(&mut self, ms: u64) {
             self.elapsed += ms;
             if self.interval.elapsed(ms, 100) {
-                self.cursor.step(3, true);
+                self.cursor.step(true);
             }
         }
         fn handle(&mut self, action: Action) -> Option<Self::Selection> {
             match action {
-                Action::Select => return Some(["one", "two", "three"][self.cursor.index()]),
-                Action::Next => self.cursor.step(3, true),
-                Action::Back => self.cursor.step(3, false),
+                Action::Select => {
+                    if let crate::scan_tree::Selection::Leaf(value) = self.cursor.select() {
+                        return Some(value);
+                    }
+                }
+                Action::Next => {
+                    self.cursor.step(true);
+                }
+                Action::Back => {
+                    self.cursor.step(false);
+                }
                 _ => {}
             }
             None
@@ -276,6 +287,7 @@ mod tests {
         }
         fn frame(&self) -> Frame {
             Frame {
+                label: None,
                 strips: vec![Rect {
                     x: self.cursor.index() as f64 * 10.0,
                     y: 0.0,
@@ -328,10 +340,7 @@ mod tests {
         assert_eq!(s.technique.elapsed, MAX_ELAPSED_MS);
     }
     #[test]
-    fn cyclic_traversal_handles_empty_and_interval_reset() {
-        let mut cycle = Cycle::default();
-        cycle.step(0, false);
-        assert_eq!(cycle.index(), 0);
+    fn interval_reset_discards_previous_progress() {
         let mut timer = Interval::default();
         assert!(!timer.elapsed(70, 100));
         timer.reset();

@@ -10,6 +10,7 @@ const phases = {
   idle: "Ready to begin",
   row: "Choose a row",
   cell: "Choose a cell",
+  rowEscape: "Select to return to rows",
   x: "Choose the horizontal position",
   y: "Choose the vertical position",
 };

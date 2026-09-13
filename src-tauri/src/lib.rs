@@ -19,6 +19,7 @@ mod point_scan_activation;
 mod point_scan_runtime;
 mod protocol;
 mod scan_host;
+mod scan_tree;
 mod scanning;
 mod scanning_runtime;
 mod state;
