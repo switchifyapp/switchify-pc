@@ -18,10 +18,20 @@ Manual validation should cover both modes, every speed, manual movement, holding
 
 ## Reusing scanning in Switchify PC
 
-`scanning.rs` is the pure shared core. `Session<T>` owns start, pause, completion, cancellation and bounded automatic timing. The shared gesture engine turns physical presses and releases into normal and hold actions; the controller rejects stale capture generations. `Cycle` and `Interval` provide traversal and timing. A technique implements `start`, `advance`, `handle`, `reset`, `frame` and `phase`, with its own typed selection result. The test-only item technique exercises this contract without pointer coordinates or desktop input.
+`scanning.rs` is the pure shared core. `Session<T>` owns start, pause, completion, cancellation and bounded automatic timing. The shared gesture engine turns physical presses and releases into normal and hold actions; the controller rejects stale capture generations. `scan_tree::Navigator` and `Interval` provide traversal and timing. A technique implements `start`, `advance`, `handle`, `reset`, `frame` and `phase`, with its own typed selection result. The test-only item technique exercises this contract without pointer coordinates or desktop input.
 
 `point_scan.rs` implements row/cell and X/Y selection. Its engine receives only point settings; the existing flat `Config` maps into shared switch settings and point settings. `scanning_runtime.rs` owns embedded switch dispatch, session ticking, persistence, event publication and shutdown. Its `Adapter` supplies configuration, environment validation and selection activation. `scan_host.rs` renders shared frame strips through nonactivating Windows and macOS windows. `point_scan_runtime.rs` supplies the display and click adapters, and `point_scan_activation.rs` checks input state before clicking through `InputInjector`.
 
 Only one local technique is installed at a time. A future technique can use the shared controller with its own adapter; adding a technique chooser is separate work. Transport cleanup calls the shared scan service, which invalidates callbacks immediately and releases native resources on the main thread. Queued cancellation cannot stop a newer registration.
 
 The existing `point-scan.json`, `get_point_scan`, `configure_point_scan` and `point-scan-changed` retain their field names and payload shapes. No production item scanner, UI Automation scanner or keyboard integration is added here.
+
+## Grid row escape
+
+Grid rows and cells use the shared pure Rust `scan_tree` navigator. After the last cell, or before the first when moving backwards, the scan outlines the row and displays **Back to rows** for one block interval. Select returns to choosing rows with the same row highlighted and forward movement restored. Passing escape without selecting repeats the cells in the current direction and counts one automatic cycle. The escape remains available on the third pass before scanning resets. Manual steps never exhaust the scan.
+
+The navigator supports nested branches and typed leaves for future item scanning. It removes empty branches and collapses single-child branches. Root traversal wraps without an escape slot. Grid leaf selection still begins the existing X/Y precision scan. No desktop accessibility discovery is included.
+
+The shared frame carries optional label metadata, rendered by a separate nonactivating, click-through native host on the scan display. Holding a switch hides the technique label so the hold-action prompt takes priority. Reset, Escape, configuration changes, Android connection and shutdown clear it through session cleanup. The desktop view adds the `rowEscape` phase; saved settings and Bluetooth interfaces are unchanged.
+
+Physical validation should include forward/reverse escape with a real switch, pause/hold behavior, the final automatic cycle, mixed-DPI label placement, focus retention, disconnect and exit on both Windows and macOS. Automated tests use fake input only.

@@ -1,6 +1,7 @@
 //! Android point scanning, with desktop coordinates and no OS input in the engine.
+use crate::scan_tree::{Navigator, Node, Selection};
 use crate::scanning::{
-    Action, Cycle, Frame, Interval, Rect, SwitchSettings, Technique, MAX_SCAN_CYCLES, TICK_MS,
+    Action, Frame, FrameLabel, Interval, Rect, SwitchSettings, Technique, MAX_SCAN_CYCLES, TICK_MS,
 };
 use serde::{Deserialize, Serialize};
 
@@ -87,6 +88,7 @@ pub enum Phase {
     Idle,
     Row,
     Cell,
+    RowEscape,
     X,
     Y,
 }
@@ -97,8 +99,7 @@ pub struct Engine {
     pub phase: Phase,
     pub x: f64,
     pub y: f64,
-    pub row: Cycle,
-    pub cell: Cycle,
+    grid: Navigator<(usize, usize)>,
     pub units_per_logical_pixel: f64,
     direction: f64,
     block_elapsed: Interval,
@@ -116,6 +117,17 @@ impl Engine {
         {
             return Err("The scanning display has invalid geometry.".into());
         }
+        let grid = Navigator::new(
+            (0..config.grid_size)
+                .map(|row| {
+                    Node::Branch(
+                        (0..config.grid_size)
+                            .map(|cell| Node::Leaf((row, cell)))
+                            .collect(),
+                    )
+                })
+                .collect(),
+        );
         Ok(Self {
             config,
             screen,
@@ -123,8 +135,7 @@ impl Engine {
             phase: Phase::Idle,
             x: screen.x,
             y: screen.y,
-            row: Cycle::default(),
-            cell: Cycle::default(),
+            grid,
             direction: 1.0,
             block_elapsed: Interval::default(),
             cycles: 0,
@@ -136,8 +147,7 @@ impl Engine {
         self.region = self.screen;
         self.x = self.screen.x;
         self.y = self.screen.y;
-        self.row.reset();
-        self.cell.reset();
+        self.grid.reset();
         self.direction = 1.0;
         self.block_elapsed.reset();
         self.cycles = 0;
@@ -148,15 +158,17 @@ impl Engine {
                 self.block_elapsed.reset();
                 self.cycles = 0;
                 match self.phase {
-                    Phase::Row => {
-                        self.phase = Phase::Cell;
-                        self.cell.reset();
-                    }
-                    Phase::Cell => {
-                        self.region = self.cell_rect();
-                        self.x = self.region.x;
-                        self.y = self.region.y;
-                        self.phase = Phase::X;
+                    Phase::Row | Phase::Cell | Phase::RowEscape => {
+                        match self.grid.select() {
+                            Selection::Leaf(_) => {
+                                self.region = self.cell_rect();
+                                self.x = self.region.x;
+                                self.y = self.region.y;
+                                self.phase = Phase::X;
+                            }
+                            Selection::Entered | Selection::Escaped => self.sync_grid_phase(),
+                            Selection::None => {}
+                        }
                         self.direction = 1.0;
                     }
                     Phase::X => {
@@ -189,7 +201,7 @@ impl Engine {
         None
     }
     fn advance_time(&mut self, elapsed_ms: u64) {
-        if matches!(self.phase, Phase::Row | Phase::Cell)
+        if matches!(self.phase, Phase::Row | Phase::Cell | Phase::RowEscape)
             && !self
                 .block_elapsed
                 .elapsed(elapsed_ms, self.config.block_interval_ms)
@@ -210,20 +222,11 @@ impl Engine {
             / 1000.0)
             .max(1.0);
         let forward = self.direction > 0.0;
-        // A cyclic index wraps when it leaves its last (or first) slot; comparing
-        // positions would miss a pass whose step lands exactly where it began.
-        let last = self.config.grid_size.saturating_sub(1);
-        let cycle_wraps = |before: usize| if forward { before == last } else { before == 0 };
         match self.phase {
-            Phase::Row => {
-                let before = self.row.index();
-                self.row.step(self.config.grid_size, forward);
-                cycle_wraps(before)
-            }
-            Phase::Cell => {
-                let before = self.cell.index();
-                self.cell.step(self.config.grid_size, forward);
-                cycle_wraps(before)
+            Phase::Row | Phase::Cell | Phase::RowEscape => {
+                let wrapped = self.grid.step(forward);
+                self.sync_grid_phase();
+                wrapped
             }
             Phase::X => {
                 let (x, wrapped) = advance(
@@ -248,11 +251,27 @@ impl Engine {
             Phase::Idle => false,
         }
     }
+    fn sync_grid_phase(&mut self) {
+        self.phase = if self.grid.escaping() {
+            Phase::RowEscape
+        } else if self.grid.path().is_empty() {
+            Phase::Row
+        } else {
+            Phase::Cell
+        };
+    }
     pub fn row_rect(&self) -> Rect {
         Rect {
             x: self.screen.x,
             y: self.screen.y
-                + self.screen.height * self.row.index() as f64 / self.config.grid_size as f64,
+                + self.screen.height
+                    * self
+                        .grid
+                        .path()
+                        .first()
+                        .copied()
+                        .unwrap_or(self.grid.index()) as f64
+                    / self.config.grid_size as f64,
             width: self.screen.width,
             height: self.screen.height / self.config.grid_size as f64,
         }
@@ -260,7 +279,7 @@ impl Engine {
     pub fn cell_rect(&self) -> Rect {
         let row = self.row_rect();
         Rect {
-            x: row.x + row.width * self.cell.index() as f64 / self.config.grid_size as f64,
+            x: row.x + row.width * self.grid.index() as f64 / self.config.grid_size as f64,
             width: row.width / self.config.grid_size as f64,
             ..row
         }
@@ -271,7 +290,7 @@ impl Engine {
         let mut result = vec![];
         match self.phase {
             Phase::Idle => return result,
-            Phase::Row | Phase::Cell => {
+            Phase::Row | Phase::Cell | Phase::RowEscape => {
                 let n = self.config.grid_size as f64;
                 for i in 0..=self.config.grid_size {
                     result.push(Rect {
@@ -289,7 +308,7 @@ impl Engine {
                         height: t,
                     });
                 }
-                let r = if self.phase == Phase::Row {
+                let r = if matches!(self.phase, Phase::Row | Phase::RowEscape) {
                     self.row_rect()
                 } else {
                     self.cell_rect()
@@ -373,6 +392,22 @@ impl Technique for Engine {
     fn frame(&self) -> Frame {
         Frame {
             strips: self.lines(),
+            label: (self.phase == Phase::RowEscape).then(|| {
+                let scale = self.units_per_logical_pixel;
+                let width = (360.0 * scale).min(self.screen.width);
+                let height = (64.0 * scale).min(self.screen.height);
+                FrameLabel {
+                    text: "Back to rows".into(),
+                    rect: Rect {
+                        x: self.screen.x + (self.screen.width - width) / 2.0,
+                        y: (self.row_rect().y + 8.0 * scale)
+                            .min(self.screen.y + self.screen.height - height),
+                        width,
+                        height,
+                    },
+                    scale,
+                }
+            }),
         }
     }
     fn phase(&self) -> Phase {
@@ -403,6 +438,121 @@ mod tests {
             config.automatic,
         )
     }
+    fn grid() -> Session<Engine> {
+        engine(Config {
+            mode: Mode::Grid,
+            grid_size: 2,
+            block_interval_ms: 250,
+            ..Config::default()
+        })
+    }
+    #[test]
+    fn row_escape_returns_to_the_same_row_without_clicking() {
+        let mut e = grid();
+        e.action(Action::Select);
+        e.action(Action::Next);
+        let row = e.technique.row_rect();
+        e.action(Action::Select);
+        e.action(Action::Next);
+        e.action(Action::Next);
+        assert_eq!(e.technique.phase, Phase::RowEscape);
+        let frame = e.frame();
+        assert_eq!(frame.label.as_ref().unwrap().text, "Back to rows");
+        assert!(outline(row, 4.0)
+            .iter()
+            .all(|strip| frame.strips.contains(strip)));
+        assert_eq!(e.action(Action::Select), None);
+        assert_eq!(e.technique.phase, Phase::Row);
+        assert_eq!(e.technique.row_rect(), row);
+        assert!(e.frame().label.is_none());
+        e.action(Action::Select);
+        assert_eq!(e.technique.grid.index(), 0);
+        assert_eq!(e.action(Action::Select), None);
+        assert_eq!(e.technique.phase, Phase::X);
+    }
+    #[test]
+    fn escape_has_a_full_interval_and_remains_selectable_on_the_final_cycle() {
+        let mut e = grid();
+        e.action(Action::Select);
+        e.action(Action::Select);
+        for _ in 0..8 {
+            e.tick(250, false);
+        }
+        assert_eq!(e.technique.phase, Phase::RowEscape);
+        assert_eq!(e.technique.cycles, 2);
+        e.tick(249, false);
+        assert_eq!(e.technique.phase, Phase::RowEscape);
+        assert_eq!(e.action(Action::Select), None);
+        assert_eq!(e.technique.phase, Phase::Row);
+        assert_eq!(e.technique.cycles, 0);
+        e.tick(1, false);
+        assert_eq!(e.technique.grid.index(), 0);
+
+        e.action(Action::Select);
+        for _ in 0..9 {
+            e.tick(250, false);
+        }
+        assert!(!e.active());
+        assert!(e.frame().label.is_none());
+    }
+    #[test]
+    fn reverse_escape_ignored_wraps_and_confirming_restores_forward_scan() {
+        let mut e = grid();
+        e.action(Action::Select);
+        e.action(Action::Select);
+        e.action(Action::Reverse);
+        e.tick(250, false);
+        assert_eq!(e.technique.phase, Phase::RowEscape);
+        e.tick(250, false);
+        assert_eq!(e.technique.phase, Phase::Cell);
+        assert_eq!(e.technique.grid.index(), 1);
+        e.tick(250, false);
+        e.tick(250, false);
+        e.action(Action::Select);
+        e.tick(250, false);
+        assert_eq!(e.technique.grid.index(), 1);
+        assert_eq!(e.technique.phase, Phase::Row);
+    }
+    #[test]
+    fn pause_hold_manual_steps_and_cancel_preserve_escape_safety() {
+        let mut e = grid();
+        e.action(Action::Select);
+        e.action(Action::Select);
+        e.action(Action::Back);
+        e.tick(250, true);
+        assert_eq!(e.technique.phase, Phase::RowEscape);
+        e.action(Action::Pause);
+        e.tick(250, false);
+        assert_eq!(e.technique.phase, Phase::RowEscape);
+        e.action(Action::Pause);
+        for _ in 0..30 {
+            e.action(Action::Next);
+        }
+        assert!(e.active());
+        assert_eq!(e.technique.cycles, 0);
+        e.action(Action::Cancel);
+        assert!(e.frame().strips.is_empty());
+        assert!(e.frame().label.is_none());
+        e.action(Action::Select);
+        assert_eq!(e.technique.phase, Phase::Row);
+        assert_eq!(e.technique.grid.index(), 0);
+    }
+    #[test]
+    fn escape_label_stays_inside_scaled_negative_origin_display() {
+        let mut e = grid();
+        e.technique.units_per_logical_pixel = 2.0;
+        e.action(Action::Select);
+        e.action(Action::Next);
+        e.action(Action::Select);
+        e.action(Action::Back);
+        let label = e.frame().label.unwrap();
+        let screen = e.technique.screen;
+        assert_eq!(label.scale, 2.0);
+        assert!(label.rect.x >= screen.x && label.rect.y >= screen.y);
+        assert!(label.rect.x + label.rect.width <= screen.x + screen.width);
+        assert!(label.rect.y + label.rect.height <= screen.y + screen.height);
+        assert_eq!(serde_json::to_value(Phase::RowEscape).unwrap(), "rowEscape");
+    }
     #[test]
     fn line_selects_x_then_y_and_resets() {
         let mut e = engine(Config::default());
@@ -425,8 +575,9 @@ mod tests {
         });
         e.action(Action::Select);
         e.action(Action::Back);
-        assert_eq!(e.technique.row.index(), 2);
+        assert_eq!(e.technique.grid.index(), 2);
         e.action(Action::Select);
+        e.action(Action::Back);
         e.action(Action::Back);
         e.action(Action::Select);
         assert_eq!(e.technique.region.x + e.technique.region.width, -1.0);

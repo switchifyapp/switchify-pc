@@ -181,3 +181,9 @@ it("keeps a newer runtime event when an older save response arrives", async () =
     screen.getByText("Android connected. Local scanning stopped."),
   ).toBeInTheDocument();
 });
+
+it("explains the selectable row escape phase", async () => {
+  mocks.invoke.mockResolvedValue({ ...initial, enabled: true, phase: "rowEscape" });
+  render(<PointScan />);
+  expect(await screen.findByText("Select to return to rows.")).toBeInTheDocument();
+});

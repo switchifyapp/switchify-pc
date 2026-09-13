@@ -42,7 +42,7 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
-thread_local! {static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)};}
+thread_local! {static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)}; static LABEL:RefCell<Option<Host>>=const{RefCell::new(None)};}
 /// Scanning has no on/off switch. It is armed whenever the saved switches can
 /// drive the current mode and the environment allows it, and the tick loop
 /// re-arms it after anything that stopped it: a save, key learning, Escape, an
@@ -365,6 +365,7 @@ fn render<A: Adapter>(app: &AppHandle) -> Result<(), String> {
         .engine
         .as_ref()
         .map_or_else(Default::default, Session::frame);
+    render_label(frame.label.as_ref().filter(|_| !d.pressed.held()))?;
     HOST.with(|host| {
         if let Some(host) = host.borrow_mut().as_mut() {
             host.render(&frame.strips)
@@ -433,10 +434,17 @@ fn tick<A: Adapter>(app: &AppHandle) {
         d.last_tick = now;
         let held = d.pressed.held();
         let prompt = d.pressed.prompt(now_ms);
-        if let Some(engine) = d.engine.as_mut() {
+        let phase_changed = if let Some(engine) = d.engine.as_mut() {
+            let before = engine.technique.phase();
             engine.tick(elapsed, held);
-        }
+            before != engine.technique.phase()
+        } else {
+            false
+        };
         drop(d);
+        if phase_changed {
+            publish::<A>(app);
+        }
         show_prompt(app, prompt.as_ref())?;
         render::<A>(app)
     })();
@@ -470,7 +478,24 @@ pub fn install<A: Adapter>(app: &AppHandle) {
     });
 }
 
+fn render_label(label: Option<&crate::scanning::FrameLabel>) -> Result<(), String> {
+    LABEL.with(|slot| {
+        let mut host = slot.borrow_mut();
+        if let Some(label) = label {
+            if host.is_none() {
+                *host = Some(Host::new()?);
+            }
+            host.as_mut()
+                .unwrap()
+                .prompt(&label.text, label.rect, label.scale)?;
+        } else if let Some(host) = host.as_mut() {
+            host.hide();
+        }
+        Ok(())
+    })
+}
 fn hide_prompt() {
+    let _ = render_label(None);
     PROMPT.with(|p| {
         if let Some(host) = p.borrow_mut().as_mut() {
             host.hide();
