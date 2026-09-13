@@ -154,6 +154,13 @@ impl Controller {
         self.publish(app);
         Ok(self.view())
     }
+    pub fn enable_escape(&self) -> Result<(), String> {
+        let mut broker = self.broker.lock().unwrap_or_else(|p| p.into_inner());
+        broker.stop();
+        broker.configure(&[], 4000).map_err(|e| e.to_string())?;
+        broker.enable().map_err(|e| e.to_string())?;
+        Ok(())
+    }
     pub fn enable(&self, automatic: bool) -> Result<(), String> {
         let view = self.view();
         if let Some(e) = view.error {

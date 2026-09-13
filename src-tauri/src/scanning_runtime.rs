@@ -63,6 +63,8 @@ struct Data<A: Adapter> {
     pressed: Gestures,
     switches: Settings,
     input_generation: u64,
+    remote: bool,
+    remote_hold_started: Option<u64>,
     last_tick: Instant,
     message: String,
     next_attempt: Option<Instant>,
@@ -76,6 +78,7 @@ pub struct View<C, P> {
     pub paused: bool,
     pub message: String,
     pub supported: bool,
+    pub remote: bool,
 }
 impl<A: Adapter> Controller<A> {
     pub fn new(app: &AppHandle) -> Self {
@@ -96,6 +99,8 @@ impl<A: Adapter> Controller<A> {
                 pressed: Gestures::default(),
                 switches: Settings::default(),
                 input_generation: 0,
+                remote: false,
+                remote_hold_started: None,
                 last_tick: Instant::now(),
                 message: "Starting switch scanning...".into(),
                 next_attempt: None,
@@ -113,6 +118,7 @@ impl<A: Adapter> Controller<A> {
                 .map_or_else(Default::default, |e| e.technique.phase()),
             paused: d.engine.as_ref().is_some_and(|e| e.paused()),
             message: d.message.clone(),
+            remote: d.remote,
             supported: cfg!(any(target_os = "windows", target_os = "macos")),
         }
     }
@@ -150,6 +156,7 @@ fn halt_for<A: Adapter>(app: &AppHandle) {
     cancel_for::<A>(app);
 }
 fn cancel_for<A: Adapter>(app: &AppHandle) {
+    crate::remote_scan::cancel(app);
     let Some(c) = app.try_state::<Controller<A>>() else {
         return;
     };
@@ -168,6 +175,10 @@ fn cancel_for<A: Adapter>(app: &AppHandle) {
     });
 }
 fn disable<A: Adapter>(app: &AppHandle, message: &str) {
+    crate::remote_scan::cancel(app);
+    reset_scanner::<A>(app, message);
+}
+fn reset_scanner<A: Adapter>(app: &AppHandle, message: &str) {
     let c = app.state::<Controller<A>>();
     c.enabled.store(false, Ordering::SeqCst);
     c.generation.fetch_add(1, Ordering::SeqCst);
@@ -176,6 +187,8 @@ fn disable<A: Adapter>(app: &AppHandle, message: &str) {
         d.engine = None;
         d.display = None;
         d.pressed.cancel();
+        d.remote = false;
+        d.remote_hold_started = None;
         d.message = message.into();
     }
     let cleanup = A::cleanup(app);
@@ -312,15 +325,20 @@ fn ensure<A: Adapter>(app: &AppHandle) {
         }
     }
 }
+fn input_active(app: &AppHandle, generation: u64) -> bool {
+    if crate::remote_scan::active(app) {
+        crate::remote_scan::active_generation(app, generation)
+    } else {
+        app.state::<switch_runtime::Controller>()
+            .active_generation(generation)
+    }
+}
 fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64) {
     let c = app.state::<Controller<A>>();
     if !c.enabled.load(Ordering::SeqCst) {
         return;
     }
-    if !app
-        .state::<switch_runtime::Controller>()
-        .active_generation(input_generation)
-    {
+    if !input_active(app, input_generation) {
         disable::<A>(app, "Switch capture stopped.");
         return;
     }
@@ -362,11 +380,7 @@ fn dispatch<A: Adapter>(
 ) -> Result<(), String> {
     A::validate_environment(app, environment)?;
     let c = app.state::<Controller<A>>();
-    if !c.enabled.load(Ordering::SeqCst)
-        || !app
-            .state::<switch_runtime::Controller>()
-            .active_generation(input_generation)
-    {
+    if !c.enabled.load(Ordering::SeqCst) || !input_active(app, input_generation) {
         return Err("Scan action was cancelled.".into());
     }
     render_tiles(&[])?;
@@ -420,7 +434,88 @@ fn render<A: Adapter>(
 }
 fn tick<A: Adapter>(app: &AppHandle) {
     let c = app.state::<Controller<A>>();
-    let (events, now_ms, _) = app.state::<switch_runtime::Controller>().poll(app);
+    let remote = crate::remote_scan::poll(app);
+    let (mut events, local_now, _) = app.state::<switch_runtime::Controller>().poll(app);
+    let now_ms = remote.as_ref().map_or(local_now, |r| r.3);
+    let was_remote = c.data.lock().unwrap_or_else(|p| p.into_inner()).remote;
+    if remote.is_none() && was_remote {
+        disable::<A>(app, "Remote scanning stopped. Start forwarding again.");
+        return;
+    }
+    if let Some((generation, settings, edges, _)) = remote {
+        let needs_start = {
+            let d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+            !d.remote || d.input_generation != generation
+        };
+        if needs_start {
+            events.clear();
+            reset_scanner::<A>(app, "Starting remote scanning...");
+            let start = (|| -> Result<(), String> {
+                A::prepare(app)?;
+                app.state::<switch_runtime::Controller>().enable_escape()?;
+                HOST.with(|slot| {
+                    if slot.borrow().is_none() {
+                        *slot.borrow_mut() = Some(Host::new()?);
+                    }
+                    Ok::<_, String>(())
+                })?;
+                let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+                d.switches = settings.clone();
+                d.input_generation = generation;
+                d.remote = true;
+                d.last_tick = Instant::now();
+                d.message = "Remote scanning ready. Press Select on Remote.".into();
+                c.enabled.store(true, Ordering::SeqCst);
+                Ok(())
+            })();
+            if let Err(error) = start {
+                disable::<A>(app, &error);
+                return;
+            }
+            publish::<A>(app);
+        }
+        for edge in edges {
+            let action = {
+                let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+                match edge {
+                    crate::remote_scan::Edge::Reset => {
+                        d.pressed.cancel();
+                        d.remote_hold_started = None;
+                        None
+                    }
+                    crate::remote_scan::Edge::Down(id) => {
+                        if !d.pressed.held() {
+                            d.remote_hold_started = Some(now_ms);
+                        }
+                        d.pressed.pressed(&id.to_string(), now_ms, &settings);
+                        None
+                    }
+                    crate::remote_scan::Edge::Up(id) => {
+                        let action = d.pressed.released(&id.to_string(), now_ms);
+                        if !d.pressed.held() {
+                            d.remote_hold_started = None;
+                        }
+                        action
+                    }
+                }
+            };
+            if let Some(action) = action {
+                switch::<A>(app, action, generation);
+            }
+            if !c.enabled.load(Ordering::SeqCst) {
+                return;
+            }
+        }
+        let expired = {
+            let d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+            d.remote_hold_started
+                .is_some_and(|start| now_ms.saturating_sub(start) >= settings.escape_ms())
+        };
+        if expired {
+            disable::<A>(app, "Remote switch held. Start forwarding again.");
+            return;
+        }
+    }
     for event in events {
         if !c.enabled.load(Ordering::SeqCst) {
             break;
@@ -438,7 +533,8 @@ fn tick<A: Adapter>(app: &AppHandle) {
             } => {
                 let selected = {
                     let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
-                    if generation != d.input_generation
+                    if d.remote
+                        || generation != d.input_generation
                         || !app
                             .state::<switch_runtime::Controller>()
                             .active_generation(generation)
@@ -467,6 +563,7 @@ fn tick<A: Adapter>(app: &AppHandle) {
     }
     if app.state::<crate::state::AppModel>().snapshot().bluetooth
         == crate::state::BluetoothState::Connected
+        && !crate::remote_scan::active(app)
     {
         disable::<A>(app, "Android connected. Local scanning stopped.");
         return;
@@ -501,7 +598,11 @@ fn tick<A: Adapter>(app: &AppHandle) {
         render::<A>(app, prompt.as_ref())
     })();
     if let Err(error) = result {
-        disable::<A>(app, &error);
+        if crate::remote_scan::active(app) && A::ready(app).is_ok() {
+            reset_scanner::<A>(app, &error);
+        } else {
+            disable::<A>(app, &error);
+        }
     }
 }
 pub fn install<A: Adapter>(app: &AppHandle) {

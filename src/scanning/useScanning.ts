@@ -15,6 +15,7 @@ export type PointScanConfig = {
   pauseKey: string;
 };
 export type PointScanState = {
+  remote?: boolean;
   config: PointScanConfig;
   enabled: boolean;
   phase: "idle" | "row" | "rowEscape" | "cell" | "x" | "y" | "menu" | "menuSuspended" | "dragDestination" | "dragConfirmation" | "executing";

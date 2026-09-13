@@ -49,3 +49,11 @@ Drag retains the source and scans a destination on the same display without hold
 The desktop view adds menu, menuSuspended, dragDestination, dragConfirmation and executing phases. Existing point phases, saved settings and Bluetooth commands retain their shapes. Foreground changes, display changes, Android connections, switch editing/learning and shutdown cancel the workflow. Targets and foreground identity remain in memory and are never logged or emitted. Automated action tests use fake input only; physical Windows/macOS focus, scaling, target, scrolling and drag checks remain required for hardware qualification.
 
 The action menu uses a fixed grid of square icon tiles with labels beneath the artwork. A yellow border and amber background identify the current row or item. The same artwork is drawn on Windows and macOS.
+
+## Remote scanning
+
+Select **Switchify scanning** on Switchify Remote's Android Forwarding screen. Assign up to eight numbered remote slots under PC Settings → Switches → Remote switches. Defaults are Select, Next, Previous, Pause/resume, Reverse and Stop, with two unassigned slots. Remote uses the PC scan mode, colour, movement and hold timing; local keyboard assignments are separate. Manual mode requires connected slots covering Select, Next and Previous.
+
+Start forwarding, then press Select to begin. Local switch keys are inactive during the remote session; PC Escape remains an emergency stop. Forwarding's hold-to-stop and inactivity limits take precedence over hold actions. Saving remote assignments or shared scanner settings stops the session and changes the profile revision. Reload profiles before starting again.
+
+Cancelled edges, missing edges and sync mismatches never select. Held-state mismatches cancel the gesture and require neutral input. Sessions expire after five seconds without an authenticated edge or sync. Disconnects and safety stops discard the point and release drag buttons; start explicitly again. Ordinary forwarding and remote scanning cannot own input simultaneously. Local scanning resumes after Remote disconnects.

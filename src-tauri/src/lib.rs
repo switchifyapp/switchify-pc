@@ -19,6 +19,7 @@ mod point_scan_activation;
 mod point_scan_runtime;
 mod point_workflow;
 mod protocol;
+mod remote_scan;
 mod scan_executor;
 mod scan_host;
 mod scan_menu;
@@ -1251,6 +1252,24 @@ fn require_main(window: &tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 #[tauri::command]
+fn get_remote_switches(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+) -> Result<remote_scan::Config, String> {
+    require_main(&window)?;
+    Ok(remote_scan::config(&app))
+}
+#[tauri::command]
+fn save_remote_switches(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    config: remote_scan::Config,
+) -> Result<remote_scan::Config, String> {
+    require_main(&window)?;
+    point_scan_runtime::pause(&app);
+    remote_scan::save(&app, config)
+}
+#[tauri::command]
 fn get_switches(
     window: tauri::WebviewWindow,
     app: AppHandle,
@@ -1267,6 +1286,7 @@ fn save_switches(
     require_main(&window)?;
     // Sync commands run on the main thread, which pausing the overlay needs.
     point_scan_runtime::pause(&app);
+    remote_scan::save(&app, remote_scan::config(&app))?;
     app.state::<switch_runtime::Controller>()
         .save(&app, settings)
 }
@@ -1320,7 +1340,7 @@ async fn configure_point_scan(
 /// Pure environment check, safe to call every tick while scanning is off.
 fn point_scan_ready(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppModel>().snapshot();
-    if state.bluetooth == state::BluetoothState::Connected {
+    if state.bluetooth == state::BluetoothState::Connected && !remote_scan::active(app) {
         return Err("Local scanning pauses while Android is connected.".into());
     }
     if state.accessibility != state::AccessibilityState::Granted {
@@ -1376,6 +1396,7 @@ pub fn run() {
         .manage(PendingNavigation::default())
         .setup(move |app| {
             switch_runtime::install(app.handle());
+            remote_scan::install(app.handle());
             point_scan_runtime::install(app.handle());
             install_tray(app)?;
             if updater_is_configured(app.config().plugins.0.get("updater")) {
@@ -1467,6 +1488,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_switches,
+            get_remote_switches,
+            save_remote_switches,
             save_switches,
             begin_switch_capture,
             cancel_switch_capture,

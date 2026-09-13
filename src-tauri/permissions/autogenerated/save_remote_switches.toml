@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-remote-switches"
+description = "Enables the save_remote_switches command without any pre-configured scope."
+commands.allow = ["save_remote_switches"]
+
+[[permission]]
+identifier = "deny-save-remote-switches"
+description = "Denies the save_remote_switches command without any pre-configured scope."
+commands.deny = ["save_remote_switches"]

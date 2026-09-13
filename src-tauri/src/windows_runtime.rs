@@ -1483,6 +1483,7 @@ fn complete_mouse_move(
         .settings
         .pointer_scale_percent;
     let result = with_runtime_input(|input| {
+        crate::remote_scan::allow_direct(app)?;
         input.set_pointer_scale_percent(scale);
         input.move_pointer(command.dx.round() as i32, command.dy.round() as i32)?;
         Ok(input.pointer_feedback_for_move())
@@ -1507,8 +1508,10 @@ fn complete_mouse_click(
 ) -> Option<String> {
     app.state::<DwellController>().cancel(app);
     stop_all_repeats(app);
-    let result =
-        with_runtime_input(|input| input.click_pointer(command.button, command.click_count));
+    let result = with_runtime_input(|input| {
+        crate::remote_scan::allow_direct(app)?;
+        input.click_pointer(command.button, command.click_count)
+    });
     if result.is_ok() {
         show_overlay(
             app,
@@ -1534,7 +1537,10 @@ fn complete_text(app: &AppHandle, shared: &SharedModel, command: TextCommand) ->
         || app.state::<DwellController>().cancel(app),
         || stop_all_repeats(app),
     );
-    let result = with_runtime_input(|input| input.type_text(&command.text));
+    let result = with_runtime_input(|input| {
+        crate::remote_scan::allow_direct(app)?;
+        input.type_text(&command.text)
+    });
     typing_route.finish(result.is_ok(), || {
         app.state::<CursorOverlay>().hide_for_typing()
     });
@@ -1552,6 +1558,37 @@ fn complete_desktop(
     shared: &SharedModel,
     command: DesktopCommand,
 ) -> Option<String> {
+    if command.command_type == "switch.session.start" {
+        stop_all_repeats(app);
+        if let Err(error) = with_runtime_input(|input| input.release_all()) {
+            return shared
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .engine
+                .complete_desktop_command_with_error(
+                    &command,
+                    Err(("input_failed", error.as_str())),
+                );
+        }
+    }
+    if let Some(result) = crate::remote_scan::route(
+        app,
+        &command.device_id,
+        &command.command_type,
+        &command.payload,
+    ) {
+        return shared
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .engine
+            .complete_desktop_command_with_error(
+                &command,
+                result
+                    .as_ref()
+                    .map(|_| ())
+                    .map_err(|e| ("input_failed", e.as_str())),
+            );
+    }
     if command.command_type == "mouse.repeat.start" {
         return complete_repeat_start(app, shared, command);
     }
@@ -1579,7 +1616,11 @@ fn complete_desktop(
         .clone();
     if command.command_type == "switch.profile.list" {
         stop_all_repeats(app);
-        return Some(switch_profile_catalog_response(&command.id, &profiles));
+        return Some(crate::remote_scan::catalog(
+            app,
+            &command.payload,
+            switch_profile_catalog_response(&command.id, &profiles),
+        ));
     }
     let (result, error_code) = if command.command_type == "pointer.display.move" {
         let direction = command.payload["direction"].as_str().unwrap_or_default();
@@ -2187,6 +2228,7 @@ fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Re
 }
 
 pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), String> {
+    crate::scanning_runtime::cancel(app);
     app.state::<DwellController>().cancel(app);
     stop_all_repeats(app);
     let notifications = runtime()

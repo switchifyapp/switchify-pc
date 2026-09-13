@@ -1134,7 +1134,8 @@ impl MacRuntime {
         self.stop_all_repeats();
         let dx = command.dx.round() as i32;
         let dy = command.dy.round() as i32;
-        let injection = self.inject_pointer_move(dx, dy);
+        let injection = crate::remote_scan::allow_direct(&self.app)
+            .and_then(|_| self.inject_pointer_move(dx, dy));
         if injection.is_ok() {
             let feedback = self
                 .input
@@ -1176,7 +1177,8 @@ impl MacRuntime {
     fn handle_mouse_click(&mut self, command: MouseClickCommand) {
         self.app.state::<DwellController>().cancel(&self.app);
         self.stop_all_repeats();
-        let injection = self.inject_pointer_click(command.button, command.click_count);
+        let injection = crate::remote_scan::allow_direct(&self.app)
+            .and_then(|_| self.inject_pointer_click(command.button, command.click_count));
         if injection.is_ok() {
             self.show_overlay(PointerFeedback::Click {
                 button: command.button,
@@ -1232,7 +1234,8 @@ impl MacRuntime {
             || self.stop_all_repeats(),
         );
         let character_count = command.text.chars().count();
-        let injection = self.inject_text(&command.text);
+        let injection = crate::remote_scan::allow_direct(&self.app)
+            .and_then(|_| self.inject_text(&command.text));
         typing_route.finish(injection.is_ok(), || {
             self.app.state::<CursorOverlay>().hide_for_typing()
         });
@@ -1266,6 +1269,53 @@ impl MacRuntime {
     }
 
     fn handle_desktop(&mut self, command: DesktopCommand) {
+        if command.command_type == "switch.session.start" {
+            self.stop_all_repeats();
+            if let Some(input) = self.input.as_mut() {
+                if let Err(error) = input.release_all() {
+                    let response = self
+                        .shared
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .engine
+                        .complete_desktop_command_with_error(
+                            &command,
+                            Err(("input_failed", error.as_str())),
+                        );
+                    if let Some(response) = response {
+                        if let Err(error) = self.enqueue_message(&response) {
+                            self.report_error(error);
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+        if let Some(result) = crate::remote_scan::route(
+            &self.app,
+            &command.device_id,
+            &command.command_type,
+            &command.payload,
+        ) {
+            let response = self
+                .shared
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .engine
+                .complete_desktop_command_with_error(
+                    &command,
+                    result
+                        .as_ref()
+                        .map(|_| ())
+                        .map_err(|e| ("input_failed", e.as_str())),
+                );
+            if let Some(response) = response {
+                if let Err(error) = self.enqueue_message(&response) {
+                    self.report_error(error);
+                }
+            }
+            return;
+        }
         if command.command_type == "mouse.repeat.start" {
             self.handle_repeat_start(command);
             return;
@@ -1296,9 +1346,11 @@ impl MacRuntime {
             .clone();
         if command.command_type == "switch.profile.list" {
             self.stop_all_repeats();
-            if let Err(error) =
-                self.enqueue_message(&switch_profile_catalog_response(&command.id, &profiles))
-            {
+            if let Err(error) = self.enqueue_message(&crate::remote_scan::catalog(
+                &self.app,
+                &command.payload,
+                switch_profile_catalog_response(&command.id, &profiles),
+            )) {
                 self.report_error(error);
             }
             return;

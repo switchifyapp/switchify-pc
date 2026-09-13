@@ -1,3 +1,4 @@
+import { RemoteSwitches } from "./RemoteSwitches";
 import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Keyboard, Trash2, X } from "lucide-react";
 import {
@@ -675,6 +676,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
           </p>
         </div>
       </SettingGroup>
+      <RemoteSwitches />
     </>
   );
 }

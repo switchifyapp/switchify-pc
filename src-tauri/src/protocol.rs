@@ -982,9 +982,12 @@ fn valid_desktop_payload(command: &str, payload: &Value) -> bool {
                 .is_some_and(|sequence| sequence > 0)
     };
     match command {
-        "switch.profile.list" | "connection.disconnecting" | "mouse.repeat.stop" => {
+        "switch.profile.list" => {
             object.is_empty()
+                || (object.len() == 1
+                    && object.get("includeScanning").is_some_and(Value::is_boolean))
         }
+        "connection.disconnecting" | "mouse.repeat.stop" => object.is_empty(),
         "mouse.repeat.start" => valid_repeat_start(object),
         "switch.session.start" => {
             object.len() == 4
@@ -1400,6 +1403,7 @@ pub fn pointer_profile_response(
             },
             "capabilities": {
                 "noAckMouseMove": true,
+                "switchScanning": cfg!(any(target_os = "windows", target_os = "macos")),
                 "noAckCommands": [
                     "mouse.move",
                     "mouse.click",
@@ -1580,6 +1584,28 @@ pub fn switch_profile_catalog_response(
 mod tests {
     use super::*;
 
+    #[test]
+    fn scanning_catalog_opt_in_preserves_existing_requests() {
+        assert!(valid_desktop_payload("switch.profile.list", &json!({})));
+        assert!(valid_desktop_payload(
+            "switch.profile.list",
+            &json!({"includeScanning":true})
+        ));
+        assert!(!valid_desktop_payload(
+            "switch.profile.list",
+            &json!({"includeScanning":"yes"})
+        ));
+        let legacy: Value = serde_json::from_str(&switch_profile_catalog_response(
+            "id",
+            &crate::state::built_in_profiles(true),
+        ))
+        .unwrap();
+        assert!(legacy["payload"]["profiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|p| p["kind"] != "scanning"));
+    }
     #[test]
     fn bluetooth_status_advertises_platform_without_a_version_bump() {
         for platform in ["windows", "macos"] {

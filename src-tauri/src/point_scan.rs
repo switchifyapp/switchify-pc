@@ -838,6 +838,7 @@ mod tests {
         assert!(!config.switches().automatic);
         assert_eq!(config.point().grid_size, 7);
         let view = crate::scanning_runtime::View {
+            remote: false,
             config,
             enabled: true,
             phase: Phase::Cell,
@@ -847,7 +848,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_value(view).unwrap(),
-            serde_json::json!({"config":json,"enabled":true,"phase":"cell","paused":true,"message":"Ready","supported":true})
+            serde_json::json!({"config":json,"enabled":true,"phase":"cell","paused":true,"message":"Ready","supported":true,"remote":false})
         );
     }
     #[test]
