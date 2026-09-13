@@ -35,6 +35,7 @@ pub enum BluetoothState {
 pub enum AccessibilityState {
     Granted,
     Required,
+    #[allow(dead_code)]
     Unavailable,
 }
 
