@@ -8,14 +8,10 @@ import { CursorSection } from "./CursorSection";
 import { PrivacySection } from "./PrivacySection";
 import { UpdatesSection, type UpdateAction } from "./UpdatesSection";
 
-import { SwitchesSection } from "./SwitchesSection";
-import type { SwitchController } from "../scanning/useSwitches";
-import { ScanningSection } from "./ScanningSection";
-import type { ScanningController } from "../scanning/useScanning";
 
-type SettingsTabId = "general" | "switches" | "scanning" | "pointer" | "cursor" | "privacy" | "updates";
+type SettingsTabId = "general" | "pointer" | "cursor" | "privacy" | "updates";
 
-export function SettingsView({ switches, scanning, state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, updateAttention, onUpdatesShown }: { switches: SwitchController; scanning: ScanningController; state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; updateAttention: string | null; onUpdatesShown: (shown: boolean) => void }) {
+export function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, updateAttention, onUpdatesShown }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; updateAttention: string | null; onUpdatesShown: (shown: boolean) => void }) {
   const updatesRef = useRef<HTMLElement>(null);
   // Opening straight to Updates starts there, rather than committing General
   // for one frame and letting App announce a failure for a tab already being
@@ -32,8 +28,6 @@ export function SettingsView({ switches, scanning, state, settings, onChange, ch
   const tabs = useMemo<TabDefinition<SettingsTabId>[]>(() => [
     { id: "general" as const, label: "General" },
     { id: "pointer" as const, label: "Controls" },
-    { id: "switches" as const, label: "Switches" },
-    { id: "scanning" as const, label: "Scanning" },
     ...(state.capabilities.cursorOverlay ? [{ id: "cursor" as const, label: "Cursor appearance" }] : []),
     { id: "privacy" as const, label: "Privacy" },
     // On the Updates tab the panel itself shows the reason, so no marker there.
@@ -62,8 +56,6 @@ export function SettingsView({ switches, scanning, state, settings, onChange, ch
     <TabPanel name="settings" id={active}>
       {active === "general" && <GeneralSection settings={settings} update={update} />}
       {active === "pointer" && <PointerSection settings={settings} update={update} />}
-      {active === "switches" && <SwitchesSection controller={switches} />}
-      {active === "scanning" && <ScanningSection controller={scanning} />}
       {active === "cursor" && <CursorSection settings={settings} update={update} />}
       {active === "privacy" && <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />}
       {active === "updates" && <UpdatesSection state={state} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />}

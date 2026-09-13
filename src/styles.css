@@ -365,3 +365,11 @@ button:disabled { cursor: default; opacity: 0.55; }
   .switch-row-summary > .secondary { grid-column: 3; grid-row: 1; }
   .switch-row-summary > .icon-button { grid-column: 3; grid-row: 2; justify-self: end; }
 }
+
+.setup-backdrop[hidden] { display: none; }
+.setup-dialog .setting-group { grid-template-columns: 1fr; }
+.setup-dialog > footer { flex-wrap: wrap; }
+
+.setup-dialog[data-switch-step="true"] { height: min(760px, calc(100vh - 40px)); }
+.setup-dialog[data-switch-step="true"] .setup-content { padding-top: 16px; }
+.setup-dialog .setting-group { gap: 16px; }

@@ -110,7 +110,7 @@ export function ScanningSection({
           }}
         />
 
-        <p>Assign switch actions in the Switches tab. All actions run on release. Holding a switch freezes movement. After clicking, or after three passes without a selection, use Select to start again.</p>
+        <p>Assign switch actions in the Switches page. All actions run on release. Holding a switch freezes movement. After clicking, or after three passes without a selection, use Select to start again.</p>
 
       </SettingGroup>
 

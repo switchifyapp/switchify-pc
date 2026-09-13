@@ -527,9 +527,6 @@ fn complete_setup(
     start_with_system: bool,
     share_diagnostics: bool,
 ) -> Result<AppState, String> {
-    if model.snapshot().paired_devices.is_empty() {
-        return Err("Pair an Android device before finishing setup.".into());
-    }
     let mut settings = model.snapshot().settings;
     let previous_start = settings.start_with_system;
     if previous_start != start_with_system {

@@ -32,13 +32,12 @@ describe("Switchify PC settings", () => {
     vi.restoreAllMocks();
   });
 
-  it("opens scanning inside Settings without a sidebar destination", async()=> {
+  it("opens scanning from its own sidebar destination", async()=> {
     render(<App/>);
     await screen.findByRole("heading",{name:"Switchify PC"});
     expect(screen.queryByRole("button",{name:"Point scan"})).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button",{name:"Settings"}));
-    fireEvent.click(screen.getByRole("tab",{name:"Scanning"}));
-    expect(screen.getByRole("tabpanel")).toHaveAccessibleName("Scanning");
+    fireEvent.click(screen.getByRole("button",{name:"Scanning"}));
+    expect(screen.getByRole("heading", { name: "Scanning", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("heading",{name:"Scan movement"})).toBeInTheDocument();
     expect(screen.getByRole("heading",{name:"Point scan"})).toBeInTheDocument();
   });
@@ -416,7 +415,7 @@ describe("Switchify PC settings", () => {
 
     const tablist = screen.getByRole("tablist", { name: "Settings sections" });
     expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["General", "Controls", "Switches", "Scanning", "Cursor appearance", "Privacy", "Updates"]);
+      .toEqual(["General", "Controls", "Cursor appearance", "Privacy", "Updates"]);
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel")).toHaveAccessibleName("General");
   });
@@ -465,7 +464,7 @@ describe("Switchify PC settings", () => {
 
     expect(screen.queryByRole("tab", { name: "Cursor appearance" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["General", "Controls", "Switches", "Scanning", "Privacy", "Updates"]);
+      .toEqual(["General", "Controls", "Privacy", "Updates"]);
     selectTab("Controls");
     expect(screen.queryByRole("checkbox", { name: "Show cursor overlay" })).not.toBeInTheDocument();
   });
