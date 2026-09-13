@@ -87,6 +87,10 @@ mod platform {
                 scale,
             )
         }
+        pub fn tile(&mut self, tile: &crate::scanning::FrameTile) -> Result<(), String> {
+            self.render(&[tile.rect])?;
+            crate::modifier_overlay::windows_backend::present_scan_tile(self.windows[0], tile)
+        }
         pub fn hide(&mut self) {
             for window in &self.windows {
                 unsafe {
@@ -108,7 +112,7 @@ mod platform {
 #[cfg(target_os = "macos")]
 mod platform {
     use super::*;
-    use objc2::{rc::Retained, MainThreadMarker};
+    use objc2::{rc::Retained, MainThreadMarker, MainThreadOnly};
     use objc2_app_kit::{NSColor, NSPanel, NSScreen};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     pub struct Host {
@@ -148,20 +152,55 @@ mod platform {
             }
             Ok(())
         }
-        pub fn prompt(&mut self, text: &str, rect: Rect, _scale: f64) -> Result<(), String> {
+        pub fn prompt(&mut self, text: &str, rect: Rect, scale: f64) -> Result<(), String> {
             use objc2_app_kit::{NSFont, NSTextField};
             use objc2_foundation::NSString;
             let mtm = MainThreadMarker::new().ok_or("Prompt requires the main thread.")?;
             self.render(&[rect])?;
             let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
-            label.setFont(Some(&NSFont::systemFontOfSize(20.0)));
+            label.setFont(Some(&NSFont::systemFontOfSize(20.0 * scale)));
             label.setTextColor(Some(&NSColor::whiteColor()));
             label.setFrame(NSRect::new(
-                NSPoint::new(12.0, 12.0),
-                NSSize::new(rect.width - 24.0, rect.height - 24.0),
+                NSPoint::new(12.0 * scale, 12.0 * scale),
+                NSSize::new(
+                    (rect.width - 24.0 * scale).max(1.0),
+                    (rect.height - 24.0 * scale).max(1.0),
+                ),
             ));
             self.panels[0].setBackgroundColor(Some(&NSColor::blackColor()));
             self.panels[0].setContentView(Some(&label));
+            Ok(())
+        }
+        pub fn tile(&mut self, tile: &crate::scanning::FrameTile) -> Result<(), String> {
+            use objc2_app_kit::{NSFont, NSImageView, NSTextAlignment, NSTextField, NSView};
+            use objc2_foundation::NSString;
+            let mtm = MainThreadMarker::new().ok_or("Action tile requires the main thread")?;
+            let pixels = crate::scan_tile::bitmap(tile)?;
+            let image = crate::overlay::platform::image_from_rgba(
+                pixels.data(),
+                pixels.width() as usize,
+                pixels.height() as usize,
+                tile.rect.width,
+            )?;
+            self.render(&[tile.rect])?;
+            let bounds = NSRect::new(
+                NSPoint::new(0.0, 0.0),
+                NSSize::new(tile.rect.width, tile.rect.height),
+            );
+            let view = NSView::initWithFrame(NSView::alloc(mtm), bounds);
+            let artwork = NSImageView::initWithFrame(NSImageView::alloc(mtm), bounds);
+            artwork.setImage(Some(&image));
+            view.addSubview(&artwork);
+            let label = NSTextField::labelWithString(&NSString::from_str(&tile.text), mtm);
+            label.setFont(Some(&NSFont::boldSystemFontOfSize(15.0 * tile.scale)));
+            label.setTextColor(Some(&NSColor::whiteColor()));
+            label.setAlignment(NSTextAlignment::Center);
+            label.setFrame(NSRect::new(
+                NSPoint::new(6.0 * tile.scale, 12.0 * tile.scale),
+                NSSize::new(tile.rect.width - 12.0 * tile.scale, 40.0 * tile.scale),
+            ));
+            view.addSubview(&label);
+            self.panels[0].setContentView(Some(&view));
             Ok(())
         }
         pub fn hide(&mut self) {
@@ -185,6 +224,9 @@ mod platform {
         pub fn prompt(&mut self, _: &str, _: Rect, _: f64) -> Result<(), String> {
             Err("Scanning is unavailable.".into())
         }
+        pub fn tile(&mut self, _: &crate::scanning::FrameTile) -> Result<(), String> {
+            Err("Scanning is unavailable.".into())
+        }
         pub fn hide(&mut self) {}
     }
 }
@@ -206,5 +248,29 @@ pub fn modifiers_released() -> bool {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         false
+    }
+}
+
+/// Opaque foreground identity; never emitted or persisted.
+pub fn foreground() -> Result<usize, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let hwnd = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
+        if hwnd.0.is_null() {
+            Err("No foreground window is available.".into())
+        } else {
+            Ok(hwnd.0 as usize)
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        objc2_app_kit::NSWorkspace::sharedWorkspace()
+            .frontmostApplication()
+            .map(|app| app.processIdentifier() as usize)
+            .ok_or("No foreground application is available.".into())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        Err("Local scanning is unavailable.".into())
     }
 }

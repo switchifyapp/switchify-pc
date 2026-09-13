@@ -17,8 +17,12 @@ mod overlay;
 mod point_scan;
 mod point_scan_activation;
 mod point_scan_runtime;
+mod point_workflow;
 mod protocol;
+mod scan_executor;
 mod scan_host;
+mod scan_menu;
+mod scan_tile;
 mod scan_tree;
 mod scanning;
 mod scanning_runtime;
@@ -1333,18 +1337,6 @@ fn point_scan_prepare(app: &AppHandle) -> Result<(), String> {
     app.state::<dwell::DwellController>().cancel(app);
     platform_stop_mouse_repeat(app);
     Ok(())
-}
-
-fn point_scan_click(app: &AppHandle, point: (i32, i32)) -> Result<(), String> {
-    point_scan_prepare(app)?;
-    // Reuse the production input adapter, independent of Bluetooth availability.
-    let injector = enigo::Enigo::new(&enigo::Settings::default())
-        .map_err(|_| "Point scan input could not be initialized.".to_string())?;
-    point_scan_activation::click(
-        &mut input::DesktopInput::new(injector),
-        point,
-        scan_host::modifiers_released(),
-    )
 }
 
 pub fn run() {

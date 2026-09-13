@@ -112,12 +112,21 @@ impl Rect {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Frame {
     pub strips: Vec<Rect>,
+    pub tiles: Vec<FrameTile>,
     pub label: Option<FrameLabel>,
 }
 impl Frame {
     pub fn label_for_prompt(&self, prompt_visible: bool) -> Option<&FrameLabel> {
         self.label.as_ref().filter(|_| !prompt_visible)
     }
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrameTile {
+    pub text: String,
+    pub rect: Rect,
+    pub scale: f64,
+    pub icon: crate::scan_menu::Item,
+    pub selected: bool,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameLabel {
@@ -141,6 +150,23 @@ pub trait Technique {
     fn phase(&self) -> Self::Phase;
     /// True once automatic movement has completed `MAX_SCAN_CYCLES` passes
     /// without a selection; the session then resets and waits for Select.
+    fn pausable(&self) -> bool {
+        true
+    }
+    fn complete_on_selection(&self) -> bool {
+        true
+    }
+    fn finished(&self) -> bool {
+        false
+    }
+    fn update(&mut self, elapsed_ms: u64, advancing: bool) {
+        if advancing {
+            self.advance(elapsed_ms);
+        }
+    }
+    fn take_selection(&mut self) -> Option<Self::Selection> {
+        None
+    }
     fn exhausted(&self) -> bool {
         false
     }
@@ -180,22 +206,39 @@ impl<T: Technique> Session<T> {
             return None;
         }
         if action == Action::Pause {
-            self.paused = !self.paused;
+            if self.technique.pausable() {
+                self.paused = !self.paused;
+            }
             return None;
         }
         let selection = self.technique.handle(action);
-        if selection.is_some() {
+        if !self.technique.pausable() {
+            self.paused = false;
+        }
+        if (selection.is_some() && self.technique.complete_on_selection())
+            || self.technique.finished()
+        {
             self.reset();
         }
         selection
     }
     pub fn tick(&mut self, elapsed_ms: u64, select_held: bool) {
-        if self.active && self.automatic && !self.paused && !select_held && elapsed_ms > 0 {
-            self.technique.advance(elapsed_ms.min(MAX_ELAPSED_MS));
+        if self.active && elapsed_ms > 0 {
+            self.technique.update(
+                elapsed_ms.min(MAX_ELAPSED_MS),
+                self.automatic && !self.paused && !select_held,
+            );
             if self.technique.exhausted() {
                 self.reset();
             }
         }
+    }
+    pub fn take_selection(&mut self) -> Option<T::Selection> {
+        let selection = self.technique.take_selection();
+        if self.technique.finished() {
+            self.reset();
+        }
+        selection
     }
     pub fn reset(&mut self) {
         self.active = false;
@@ -287,6 +330,7 @@ mod tests {
         }
         fn frame(&self) -> Frame {
             Frame {
+                tiles: vec![],
                 label: None,
                 strips: vec![Rect {
                     x: self.cursor.index() as f64 * 10.0,
