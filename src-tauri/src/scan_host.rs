@@ -25,9 +25,9 @@ mod platform {
         pub fn new() -> Result<Self, String> {
             Ok(Self { windows: vec![] })
         }
-        pub fn render(&mut self, rects: &[Rect]) -> Result<(), String> {
+        fn ensure_windows(&mut self, count: usize) -> Result<(), String> {
             unsafe {
-                while self.windows.len() < rects.len() {
+                while self.windows.len() < count {
                     let module = GetModuleHandleW(None).map_err(|e| e.to_string())?;
                     let class = w!("SwitchifyPointScanStrip");
                     RegisterClassW(&WNDCLASSW {
@@ -58,6 +58,12 @@ mod platform {
                         .map_err(|e| e.to_string())?,
                     );
                 }
+            }
+            Ok(())
+        }
+        pub fn render(&mut self, rects: &[Rect]) -> Result<(), String> {
+            self.ensure_windows(rects.len())?;
+            unsafe {
                 for (index, window) in self.windows.iter().enumerate() {
                     if let Some(r) = rects.get(index) {
                         crate::overlay::platform::present_solid(
@@ -77,7 +83,7 @@ mod platform {
             Ok(())
         }
         pub fn prompt(&mut self, text: &str, rect: Rect, scale: f64) -> Result<(), String> {
-            self.render(&[rect])?;
+            self.ensure_windows(1)?;
             crate::modifier_overlay::windows_backend::present_scan_prompt(
                 self.windows[0],
                 text,
@@ -88,7 +94,7 @@ mod platform {
             )
         }
         pub fn tile(&mut self, tile: &crate::scanning::FrameTile) -> Result<(), String> {
-            self.render(&[tile.rect])?;
+            self.ensure_windows(1)?;
             crate::modifier_overlay::windows_backend::present_scan_tile(self.windows[0], tile)
         }
         pub fn hide(&mut self) {

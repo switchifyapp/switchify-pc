@@ -548,6 +548,9 @@ fn render_label(label: Option<&crate::scanning::FrameLabel>) -> Result<(), Strin
 }
 fn hide_prompt() {
     let _ = render_label(None);
+    hide_hold_prompt();
+}
+fn hide_hold_prompt() {
     PROMPT.with(|p| {
         if let Some(host) = p.borrow_mut().as_mut() {
             host.hide();
@@ -559,7 +562,7 @@ fn show_prompt(
     prompt: Option<&crate::switch_gestures::Prompt>,
 ) -> Result<(), String> {
     let Some(prompt) = prompt else {
-        hide_prompt();
+        hide_hold_prompt();
         return Ok(());
     };
     let (cursor, displays) = crate::display_navigation::displays(app).map_err(|e| e.message)?;
