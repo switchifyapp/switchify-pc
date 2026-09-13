@@ -10,6 +10,7 @@ pub trait Adapter: Send + Sync + 'static {
     type Environment: Clone + Send;
     const EVENT: &'static str;
     const FILE: &'static str;
+    fn cleanup(app: &AppHandle) -> Result<(), String>;
     fn validate(config: &Self::Config) -> Result<(), String>;
     fn switches(config: &Self::Config) -> SwitchSettings;
     fn create(
@@ -42,7 +43,7 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
-thread_local! {static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)}; static LABEL:RefCell<Option<Host>>=const{RefCell::new(None)};}
+thread_local! {static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)}; static LABEL:RefCell<Option<Host>>=const{RefCell::new(None)}; static TILES:RefCell<(Vec<Host>,Vec<crate::scanning::FrameLabel>)>=const{RefCell::new((vec![],vec![]))};}
 /// Scanning has no on/off switch. It is armed whenever the saved switches can
 /// drive the current mode and the environment allows it, and the tick loop
 /// re-arms it after anything that stopped it: a save, key learning, Escape, an
@@ -177,6 +178,12 @@ fn disable<A: Adapter>(app: &AppHandle, message: &str) {
         d.pressed.cancel();
         d.message = message.into();
     }
+    let cleanup = A::cleanup(app);
+    if cleanup.is_err() {
+        c.data.lock().unwrap_or_else(|p| p.into_inner()).message =
+            "Input cleanup will be retried before scanning resumes.".into();
+    }
+    let _ = render_tiles(&[]);
     app.state::<switch_runtime::Controller>().stop();
     HOST.with(|host| {
         if let Some(host) = host.borrow_mut().as_mut() {
@@ -317,7 +324,7 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64) {
         disable::<A>(app, "Switch capture stopped.");
         return;
     }
-    if action == Action::Cancel {
+    if matches!(action, Action::Cancel | Action::Stop) {
         // Escape resets the scan; the next tick re-arms the keys.
         disable::<A>(app, "Escape pressed. Scanning reset.");
         return;
@@ -331,24 +338,13 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64) {
             d.display = Some(display);
             A::prepare(app)?;
         }
+        A::validate_environment(app, d.display.as_ref())?;
         let point = d.engine.as_mut().and_then(|e| e.action(action));
         d.last_tick = Instant::now();
         let display = d.display.clone();
         drop(d);
         if let Some(point) = point {
-            A::validate_environment(app, display.as_ref())?;
-            HOST.with(|host| {
-                if let Some(h) = host.borrow_mut().as_mut() {
-                    h.hide();
-                }
-            });
-            if c.enabled.load(Ordering::SeqCst)
-                && app
-                    .state::<switch_runtime::Controller>()
-                    .active_generation(input_generation)
-            {
-                A::activate(app, point)?;
-            }
+            dispatch::<A>(app, point, display.as_ref(), input_generation)?;
         }
         render::<A>(app, None)
     })();
@@ -357,6 +353,50 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64) {
     } else {
         publish::<A>(app);
     }
+}
+fn dispatch<A: Adapter>(
+    app: &AppHandle,
+    request: <A::Technique as Technique>::Selection,
+    environment: Option<&A::Environment>,
+    input_generation: u64,
+) -> Result<(), String> {
+    A::validate_environment(app, environment)?;
+    let c = app.state::<Controller<A>>();
+    if !c.enabled.load(Ordering::SeqCst)
+        || !app
+            .state::<switch_runtime::Controller>()
+            .active_generation(input_generation)
+    {
+        return Err("Scan action was cancelled.".into());
+    }
+    render_tiles(&[])?;
+    hide_prompt();
+    HOST.with(|slot| {
+        if let Some(host) = slot.borrow_mut().as_mut() {
+            host.hide();
+        }
+    });
+    A::activate(app, request)
+}
+fn render_tiles(tiles: &[crate::scanning::FrameLabel]) -> Result<(), String> {
+    TILES.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.1 == tiles {
+            return Ok(());
+        }
+        while slot.0.len() < tiles.len() {
+            slot.0.push(Host::new()?);
+        }
+        for (index, host) in slot.0.iter_mut().enumerate() {
+            if let Some(tile) = tiles.get(index) {
+                host.prompt(&tile.text, tile.rect, tile.scale)?;
+            } else {
+                host.hide();
+            }
+        }
+        slot.1 = tiles.to_vec();
+        Ok(())
+    })
 }
 fn render<A: Adapter>(
     app: &AppHandle,
@@ -368,6 +408,7 @@ fn render<A: Adapter>(
         .engine
         .as_ref()
         .map_or_else(Default::default, Session::frame);
+    render_tiles(&frame.tiles)?;
     render_label(frame.label_for_prompt(prompt.is_some()))?;
     HOST.with(|host| {
         if let Some(host) = host.borrow_mut().as_mut() {
@@ -420,6 +461,7 @@ fn tick<A: Adapter>(app: &AppHandle) {
         }
     }
     if !c.enabled.load(Ordering::SeqCst) {
+        let _ = A::cleanup(app);
         ensure::<A>(app);
         return;
     }
@@ -437,14 +479,21 @@ fn tick<A: Adapter>(app: &AppHandle) {
         d.last_tick = now;
         let held = d.pressed.held();
         let prompt = d.pressed.prompt(now_ms);
+        let mut request = None;
         let phase_changed = if let Some(engine) = d.engine.as_mut() {
             let before = engine.technique.phase();
             engine.tick(elapsed, held);
+            request = engine.take_selection();
             before != engine.technique.phase()
         } else {
             false
         };
+        let environment = d.display.clone();
+        let input_generation = d.input_generation;
         drop(d);
+        if let Some(request) = request {
+            dispatch::<A>(app, request, environment.as_ref(), input_generation)?;
+        }
         if phase_changed {
             publish::<A>(app);
         }

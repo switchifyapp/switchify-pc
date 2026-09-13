@@ -208,3 +208,27 @@ pub fn modifiers_released() -> bool {
         false
     }
 }
+
+/// Opaque foreground identity; never emitted or persisted.
+pub fn foreground() -> Result<usize, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let hwnd = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
+        if hwnd.0.is_null() {
+            Err("No foreground window is available.".into())
+        } else {
+            Ok(hwnd.0 as usize)
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        objc2_app_kit::NSWorkspace::sharedWorkspace()
+            .frontmostApplication()
+            .map(|app| app.processIdentifier() as usize)
+            .ok_or("No foreground application is available.".into())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        Err("Local scanning is unavailable.".into())
+    }
+}
