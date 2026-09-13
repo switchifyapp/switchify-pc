@@ -20,10 +20,14 @@ mod platform {
     }
     pub struct Host {
         windows: Vec<HWND>,
+        last_rects: Vec<crate::scanning::PaintedRect>,
     }
     impl Host {
         pub fn new() -> Result<Self, String> {
-            Ok(Self { windows: vec![] })
+            Ok(Self {
+                windows: vec![],
+                last_rects: vec![],
+            })
         }
         fn ensure_windows(&mut self, count: usize) -> Result<(), String> {
             unsafe {
@@ -61,25 +65,30 @@ mod platform {
             }
             Ok(())
         }
-        pub fn render(&mut self, rects: &[Rect]) -> Result<(), String> {
+        pub fn render(&mut self, rects: &[crate::scanning::PaintedRect]) -> Result<(), String> {
+            if self.last_rects == rects {
+                return Ok(());
+            }
             self.ensure_windows(rects.len())?;
             unsafe {
                 for (index, window) in self.windows.iter().enumerate() {
-                    if let Some(r) = rects.get(index) {
+                    if let Some(paint) = rects.get(index) {
+                        let r = &paint.rect;
                         crate::overlay::platform::present_solid(
                             *window,
                             r.x.round() as i32,
                             r.y.round() as i32,
                             r.width.round().max(1.0) as i32,
                             r.height.round().max(1.0) as i32,
-                            [255, 196, 0],
-                            230,
+                            paint.color,
+                            paint.opacity,
                         )?;
                     } else {
                         let _ = ShowWindow(*window, SW_HIDE);
                     }
                 }
             }
+            self.last_rects = rects.to_vec();
             Ok(())
         }
         pub fn prompt(&mut self, text: &str, rect: Rect, scale: f64) -> Result<(), String> {
@@ -98,6 +107,7 @@ mod platform {
             crate::modifier_overlay::windows_backend::present_scan_tile(self.windows[0], tile)
         }
         pub fn hide(&mut self) {
+            self.last_rects.clear();
             for window in &self.windows {
                 unsafe {
                     let _ = ShowWindow(*window, SW_HIDE);
@@ -123,12 +133,19 @@ mod platform {
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     pub struct Host {
         panels: Vec<Retained<NSPanel>>,
+        last_rects: Vec<crate::scanning::PaintedRect>,
     }
     impl Host {
         pub fn new() -> Result<Self, String> {
-            Ok(Self { panels: vec![] })
+            Ok(Self {
+                panels: vec![],
+                last_rects: vec![],
+            })
         }
-        pub fn render(&mut self, rects: &[Rect]) -> Result<(), String> {
+        pub fn render(&mut self, rects: &[crate::scanning::PaintedRect]) -> Result<(), String> {
+            if self.last_rects == rects {
+                return Ok(());
+            }
             let mtm =
                 MainThreadMarker::new().ok_or("Point scan requires the AppKit main thread.")?;
             let screens = NSScreen::screens(mtm);
@@ -140,9 +157,13 @@ mod platform {
                 self.panels.push(crate::overlay::platform::make_panel(mtm));
             }
             for (index, panel) in self.panels.iter().enumerate() {
-                if let Some(r) = rects.get(index) {
+                if let Some(paint) = rects.get(index) {
+                    let r = &paint.rect;
                     panel.setBackgroundColor(Some(&NSColor::colorWithSRGBRed_green_blue_alpha(
-                        1.0, 0.77, 0.0, 0.90,
+                        paint.color[0] as f64 / 255.0,
+                        paint.color[1] as f64 / 255.0,
+                        paint.color[2] as f64 / 255.0,
+                        paint.opacity as f64 / 255.0,
                     )));
                     panel.setFrame_display(
                         NSRect::new(
@@ -156,13 +177,19 @@ mod platform {
                     panel.orderOut(None);
                 }
             }
+            self.last_rects = rects.to_vec();
             Ok(())
         }
         pub fn prompt(&mut self, text: &str, rect: Rect, scale: f64) -> Result<(), String> {
             use objc2_app_kit::{NSFont, NSTextField};
             use objc2_foundation::NSString;
             let mtm = MainThreadMarker::new().ok_or("Prompt requires the main thread.")?;
-            self.render(&[rect])?;
+            self.render(&[crate::scanning::PaintedRect {
+                rect,
+                color: [30, 35, 46],
+                opacity: 255,
+                role: crate::scanning::VisualRole::Accent,
+            }])?;
             let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
             label.setFont(Some(&NSFont::systemFontOfSize(20.0 * scale)));
             label.setTextColor(Some(&NSColor::whiteColor()));
@@ -188,7 +215,12 @@ mod platform {
                 pixels.height() as usize,
                 tile.rect.width,
             )?;
-            self.render(&[tile.rect])?;
+            self.render(&[crate::scanning::PaintedRect {
+                rect: tile.rect,
+                color: [30, 35, 46],
+                opacity: 255,
+                role: crate::scanning::VisualRole::Accent,
+            }])?;
             let bounds = NSRect::new(
                 NSPoint::new(0.0, 0.0),
                 NSSize::new(tile.rect.width, tile.rect.height),
@@ -210,6 +242,7 @@ mod platform {
             Ok(())
         }
         pub fn hide(&mut self) {
+            self.last_rects.clear();
             for panel in &self.panels {
                 panel.orderOut(None);
             }
@@ -224,7 +257,7 @@ mod platform {
         pub fn new() -> Result<Self, String> {
             Err("Point scan is supported on Windows and macOS.".into())
         }
-        pub fn render(&mut self, _: &[Rect]) -> Result<(), String> {
+        pub fn render(&mut self, _: &[crate::scanning::PaintedRect]) -> Result<(), String> {
             Err("Point scan is unavailable.".into())
         }
         pub fn prompt(&mut self, _: &str, _: Rect, _: f64) -> Result<(), String> {

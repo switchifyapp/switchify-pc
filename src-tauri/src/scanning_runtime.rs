@@ -412,7 +412,7 @@ fn render<A: Adapter>(
     render_label(frame.label_for_prompt(prompt.is_some()))?;
     HOST.with(|host| {
         if let Some(host) = host.borrow_mut().as_mut() {
-            host.render(&frame.strips)
+            host.render(&frame.rectangles())
         } else {
             Ok(())
         }

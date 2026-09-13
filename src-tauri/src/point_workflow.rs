@@ -298,6 +298,10 @@ impl Technique for Workflow {
                 });
             }
         }
+        frame.color = self.point.config.scanner_color;
+        for tile in &mut frame.tiles {
+            tile.color = frame.color;
+        }
         frame
     }
 }
@@ -342,6 +346,22 @@ mod tests {
             s.action(Action::Next);
         }
         s.action(Action::Select)
+    }
+    #[test]
+    fn scanner_colour_follows_action_scroll_and_drag_menus() {
+        use crate::scanning::ScannerColor::*;
+        for color in [Red, Green, Blue, Yellow, White] {
+            let mut s = session(false);
+            s.technique.point.config.scanner_color = color;
+            open(&mut s);
+            for kind in [Kind::Actions, Kind::Scroll, Kind::ConfirmDrag] {
+                s.technique.open(kind);
+                let frame = s.frame();
+                assert_eq!(frame.color, color);
+                assert!(!frame.tiles.is_empty());
+                assert!(frame.tiles.iter().all(|tile| tile.color == color));
+            }
+        }
     }
     #[test]
     fn point_selection_never_clicks_and_menu_clicks_complete_once() {

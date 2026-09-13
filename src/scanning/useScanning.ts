@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+export type ScannerColor = "red" | "green" | "blue" | "yellow" | "white";
 export type PointScanConfig = {
+  scannerColor: ScannerColor;
   mode: "line" | "grid";
   automatic: boolean;
   speed: number;
@@ -21,6 +23,7 @@ export type PointScanState = {
   supported: boolean;
 };
 export const defaultPointScanConfig: PointScanConfig = {
+  scannerColor: "blue",
   mode: "line",
   automatic: true,
   speed: 2,

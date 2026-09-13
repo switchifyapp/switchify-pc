@@ -109,19 +109,103 @@ impl Rect {
     }
 }
 /// Native hosts draw filled strips; techniques can compose lines, outlines and highlights.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScannerColor {
+    Red,
+    Green,
+    #[default]
+    Blue,
+    Yellow,
+    White,
+}
+impl ScannerColor {
+    pub fn rgb(self) -> [u8; 3] {
+        match self {
+            Self::Red => [211, 47, 47],
+            Self::Green => [132, 255, 145],
+            Self::Blue => [100, 166, 255],
+            Self::Yellow => [255, 209, 102],
+            Self::White => [255, 255, 255],
+        }
+    }
+    pub fn menu_fill(self) -> [u8; 3] {
+        let base = [30u16, 35, 46];
+        std::array::from_fn(|i| ((base[i] * 3 + self.rgb()[i] as u16) / 4) as u8)
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VisualRole {
+    Fill,
+    Grid,
+    Accent,
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct PaintedRect {
+    pub rect: Rect,
+    pub color: [u8; 3],
+    pub opacity: u8,
+    pub role: VisualRole,
+}
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Frame {
+    pub color: ScannerColor,
+    pub fills: Vec<Rect>,
+    pub grid: Vec<Rect>,
     pub strips: Vec<Rect>,
     pub tiles: Vec<FrameTile>,
     pub label: Option<FrameLabel>,
 }
 impl Frame {
+    pub fn rectangles(&self) -> Vec<PaintedRect> {
+        let mut result = Vec::new();
+        for rect in &self.fills {
+            result.push(PaintedRect {
+                rect: *rect,
+                color: self.color.rgb(),
+                opacity: 64,
+                role: VisualRole::Fill,
+            });
+        }
+        for rect in &self.grid {
+            result.push(PaintedRect {
+                rect: *rect,
+                color: [20, 24, 32],
+                opacity: 230,
+                role: VisualRole::Grid,
+            });
+            let mut inner = *rect;
+            if rect.width < rect.height {
+                inner.x += rect.width / 4.0;
+                inner.width /= 2.0;
+            } else {
+                inner.y += rect.height / 4.0;
+                inner.height /= 2.0;
+            }
+            result.push(PaintedRect {
+                rect: inner,
+                color: [235, 238, 244],
+                opacity: 230,
+                role: VisualRole::Grid,
+            });
+        }
+        for rect in &self.strips {
+            result.push(PaintedRect {
+                rect: *rect,
+                color: self.color.rgb(),
+                opacity: 255,
+                role: VisualRole::Accent,
+            });
+        }
+        result
+    }
     pub fn label_for_prompt(&self, prompt_visible: bool) -> Option<&FrameLabel> {
         self.label.as_ref().filter(|_| !prompt_visible)
     }
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameTile {
+    pub color: ScannerColor,
     pub text: String,
     pub rect: Rect,
     pub scale: f64,
@@ -338,6 +422,7 @@ mod tests {
                     width: 10.0,
                     height: 10.0,
                 }],
+                ..Frame::default()
             }
         }
         fn phase(&self) -> usize {

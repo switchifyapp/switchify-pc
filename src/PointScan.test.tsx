@@ -199,3 +199,27 @@ it.each([
   render(<PointScan />);
   expect(await screen.findByText(message)).toBeInTheDocument();
 });
+
+it("saves scanner colour and updates the preview", async () => {
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  expect(screen.getByRole("radio", { name: "Blue" })).toBeChecked();
+  fireEvent.click(screen.getByRole("radio", { name: "Green" }));
+  expect(screen.getByRole("img", { name: "green scanner highlight preview" })).toBeInTheDocument();
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: { ...defaultPointScanConfig, scannerColor: "green" },
+  }));
+});
+
+it("retains a failed colour selection for retry", async () => {
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  mocks.invoke.mockRejectedValueOnce(new Error("Cannot save colour"));
+  fireEvent.click(screen.getByRole("radio", { name: "White" }));
+  expect(await screen.findByRole("button", { name: "Retry save" })).toBeEnabled();
+  expect(screen.getByRole("radio", { name: "White" })).toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: { ...defaultPointScanConfig, scannerColor: "white" },
+  }));
+});

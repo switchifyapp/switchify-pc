@@ -15,6 +15,7 @@ pub enum Mode {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
+    pub scanner_color: crate::scanning::ScannerColor,
     pub mode: Mode,
     pub automatic: bool,
     pub speed: usize,
@@ -28,6 +29,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            scanner_color: Default::default(),
             mode: Mode::Line,
             automatic: true,
             speed: 2,
@@ -52,6 +54,7 @@ impl Config {
     }
     pub fn point(&self) -> PointSettings {
         PointSettings {
+            scanner_color: self.scanner_color,
             mode: self.mode,
             speed: self.speed,
             grid_size: self.grid_size,
@@ -65,6 +68,7 @@ impl Config {
 }
 #[derive(Clone)]
 pub struct PointSettings {
+    pub scanner_color: crate::scanning::ScannerColor,
     pub mode: Mode,
     pub speed: usize,
     pub grid_size: usize,
@@ -391,8 +395,22 @@ impl Technique for Engine {
         Engine::reset(self);
     }
     fn frame(&self) -> Frame {
+        let mut strips = self.lines();
+        let mut grid = vec![];
+        let mut fills = vec![];
+        if matches!(self.phase, Phase::Row | Phase::Cell | Phase::RowEscape) {
+            grid.extend(strips.drain(..2 * (self.config.grid_size + 1)));
+            fills.push(if self.phase == Phase::Cell {
+                self.cell_rect()
+            } else {
+                self.row_rect()
+            });
+        }
         Frame {
-            strips: self.lines(),
+            color: self.config.scanner_color,
+            fills,
+            grid,
+            strips,
             tiles: vec![],
             label: (self.phase == Phase::RowEscape).then(|| {
                 let scale = self.units_per_logical_pixel;
@@ -447,6 +465,55 @@ mod tests {
             block_interval_ms: 250,
             ..Config::default()
         })
+    }
+    #[test]
+    fn grid_highlights_fill_only_the_current_target_then_clear_for_lines() {
+        for scale in [1.0, 2.0] {
+            let config = Config {
+                mode: Mode::Grid,
+                scanner_color: crate::scanning::ScannerColor::Green,
+                ..Config::default()
+            };
+            let mut e = Engine::new(
+                config.point(),
+                Rect {
+                    x: -1200.0,
+                    y: -300.0,
+                    width: 1200.0,
+                    height: 900.0,
+                },
+                scale,
+            )
+            .unwrap();
+            e.start();
+            let row = e.frame();
+            assert_eq!(row.fills, vec![e.row_rect()]);
+            assert_eq!(row.color, crate::scanning::ScannerColor::Green);
+            assert_eq!(row.rectangles()[0].opacity, 64);
+            assert_eq!(row.rectangles()[0].role, crate::scanning::VisualRole::Fill);
+            assert!(!row.grid.is_empty());
+            e.handle(Action::Select);
+            assert_eq!(e.frame().fills, vec![e.cell_rect()]);
+            e.handle(Action::Select);
+            assert!(e.frame().fills.is_empty());
+            assert!(e.frame().grid.is_empty());
+            assert!(!e.frame().strips.is_empty());
+            e.reset();
+            assert!(e.frame().rectangles().is_empty());
+        }
+    }
+    #[test]
+    fn scanner_colours_round_trip_and_reject_unknown_values() {
+        use crate::scanning::ScannerColor::*;
+        for color in [Red, Green, Blue, Yellow, White] {
+            let config = Config {
+                scanner_color: color,
+                ..Config::default()
+            };
+            let saved = serde_json::to_string(&config).unwrap();
+            assert_eq!(serde_json::from_str::<Config>(&saved).unwrap(), config);
+        }
+        assert!(serde_json::from_str::<Config>(r#"{"scannerColor":"unknown"}"#).is_err());
     }
     #[test]
     fn manual_entry_into_escape_discards_partial_interval() {
@@ -519,6 +586,7 @@ mod tests {
         assert_eq!(e.technique.phase, Phase::RowEscape);
         let frame = e.frame();
         assert_eq!(frame.label.as_ref().unwrap().text, "Back to rows");
+        assert_eq!(frame.fills, vec![row]);
         assert!(outline(row, 4.0)
             .iter()
             .all(|strip| frame.strips.contains(strip)));
@@ -761,9 +829,11 @@ mod tests {
     }
     #[test]
     fn existing_flat_settings_round_trip_without_schema_changes() {
-        let json = serde_json::json!({"mode":"grid","automatic":false,"speed":4,"gridSize":7,"blockIntervalMs":1500,"selectKey":"F1","nextKey":"F2","backKey":"F3","pauseKey":"F4"});
+        let mut json = serde_json::json!({"mode":"grid","automatic":false,"speed":4,"gridSize":7,"blockIntervalMs":1500,"selectKey":"F1","nextKey":"F2","backKey":"F3","pauseKey":"F4"});
         let config: Config = serde_json::from_value(json.clone()).unwrap();
         config.validate().unwrap();
+        assert_eq!(config.scanner_color, crate::scanning::ScannerColor::Blue);
+        json["scannerColor"] = serde_json::json!("blue");
         assert_eq!(serde_json::to_value(&config).unwrap(), json);
         assert!(!config.switches().automatic);
         assert_eq!(config.point().grid_size, 7);
