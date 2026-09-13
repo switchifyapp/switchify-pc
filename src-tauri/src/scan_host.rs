@@ -202,6 +202,7 @@ mod platform {
             ));
             self.panels[0].setBackgroundColor(Some(&NSColor::blackColor()));
             self.panels[0].setContentView(Some(&label));
+            self.panels[0].orderFrontRegardless();
             Ok(())
         }
         pub fn tile(&mut self, tile: &crate::scanning::FrameTile) -> Result<(), String> {
