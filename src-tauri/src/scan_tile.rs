@@ -180,7 +180,7 @@ mod tests {
             tile.selected = true;
             let selected = bitmap(&tile).unwrap();
             assert_ne!(normal.data(), selected.data());
-            if let Ok(directory) = std::env::var("SWITCHIFY_TILE_PREVIEW_DIR") {
+            if let Ok(directory) = std::env::var("SWITCHIFY_TILE_ARTIFACT_DIR") {
                 normal
                     .save_png(std::path::Path::new(&directory).join(format!("{icon:?}.png")))
                     .unwrap();
