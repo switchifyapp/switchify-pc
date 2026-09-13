@@ -1,3 +1,4 @@
+#![cfg(test)]
 /// Keep injection behind the existing adapter; no tests use the system adapter.
 pub fn click<I: crate::input::InputInjector>(
     input: &mut crate::input::DesktopInput<I>,

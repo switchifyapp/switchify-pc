@@ -15,7 +15,7 @@ export type PointScanConfig = {
 export type PointScanState = {
   config: PointScanConfig;
   enabled: boolean;
-  phase: "idle" | "row" | "rowEscape" | "cell" | "x" | "y";
+  phase: "idle" | "row" | "rowEscape" | "cell" | "x" | "y" | "menu" | "menuSuspended" | "dragDestination" | "dragConfirmation" | "executing";
   paused: boolean;
   message: string;
   supported: boolean;

@@ -541,6 +541,20 @@ impl<I: InputInjector> DesktopInput<I> {
         self.injector.scroll(dx, dy)?;
         Ok(PointerFeedback::Scroll { dx, dy })
     }
+    pub fn start_scan_drag(&mut self, point: (i32, i32)) -> Result<(), String> {
+        if self.has_active_drag() || self.has_active_switch_session() {
+            return Err("Another input session is active.".into());
+        }
+        self.injector.move_pointer_absolute(point.0, point.1)?;
+        self.held_button = Some(MouseButton::Left);
+        self.injector.set_pointer_button(MouseButton::Left, true)
+    }
+    pub fn move_scan_drag(&mut self, point: (i32, i32)) -> Result<(), String> {
+        if self.held_button != Some(MouseButton::Left) {
+            return Err("No local drag is active.".into());
+        }
+        self.injector.move_pointer_absolute(point.0, point.1)
+    }
     pub fn click_pointer(&mut self, button: MouseButton, click_count: u8) -> Result<(), String> {
         self.release_held_button()?;
         self.injector.click_pointer(button, click_count)
@@ -1406,6 +1420,72 @@ mod tests {
     use std::fs;
     use std::sync::Mutex;
 
+    #[test]
+    fn scan_actions_have_exact_fake_input_sequences() {
+        use crate::{point_workflow::Request, scan_executor::execute};
+        for (right, count, button) in [
+            (false, 1, MouseButton::Left),
+            (true, 1, MouseButton::Right),
+            (false, 2, MouseButton::Left),
+        ] {
+            let mut input = DesktopInput::new(FakeInjector::default());
+            execute(
+                &mut input,
+                Request::Click {
+                    point: (10, 20),
+                    right,
+                    count,
+                },
+                true,
+            )
+            .unwrap();
+            assert_eq!(input.injector.events, vec!["move", "click"]);
+            assert_eq!(input.injector.clicks, vec![(button, count)]);
+        }
+        for (dx, dy) in [(0, -3), (0, 3), (-3, 0), (3, 0)] {
+            let mut input = DesktopInput::new(FakeInjector::default());
+            execute(
+                &mut input,
+                Request::Scroll {
+                    point: (10, 20),
+                    dx,
+                    dy,
+                },
+                true,
+            )
+            .unwrap();
+            assert_eq!(input.injector.events, vec!["move", "scroll"]);
+            assert_eq!(input.injector.scrolls, vec![(dx, dy)]);
+        }
+        let mut input = DesktopInput::new(FakeInjector::default());
+        execute(&mut input, Request::DragStart((10, 20)), true).unwrap();
+        execute(&mut input, Request::DragMove((20, 30)), true).unwrap();
+        execute(&mut input, Request::DragEnd((30, 40)), true).unwrap();
+        assert_eq!(
+            input.injector.events,
+            vec!["move", "down", "move", "move", "up"]
+        );
+        assert!(!input.has_active_drag());
+    }
+    #[test]
+    fn scan_drag_failures_remain_owned_until_cleanup_succeeds() {
+        use crate::{point_workflow::Request, scan_executor::execute};
+        let mut input = DesktopInput::new(FakeInjector::default());
+        assert!(execute(&mut input, Request::DragStart((1, 2)), false).is_err());
+        assert!(input.injector.events.is_empty());
+        execute(&mut input, Request::DragStart((1, 2)), true).unwrap();
+        input.injector.fail_absolute = true;
+        input.injector.fail_pointer_release = true;
+        assert!(execute(&mut input, Request::DragEnd((3, 4)), true).is_err());
+        assert!(input.has_active_drag());
+        input.injector.fail_pointer_release = false;
+        input.release_all().unwrap();
+        assert!(!input.has_active_drag());
+        assert_eq!(
+            input.injector.events,
+            vec!["move", "down", "move", "up", "up"]
+        );
+    }
     #[derive(Default)]
     struct FakeInjector {
         text: Vec<String>,
@@ -1414,6 +1494,8 @@ mod tests {
         scrolls: Vec<(i32, i32)>,
         clicks: Vec<(MouseButton, u8)>,
         fail_click: bool,
+        fail_absolute: bool,
+        events: Vec<&'static str>,
         pointer_states: Vec<(MouseButton, bool)>,
         fail_pointer_release: bool,
         keys: Vec<(String, bool)>,
@@ -1431,10 +1513,15 @@ mod tests {
             Ok(())
         }
         fn move_pointer_absolute(&mut self, x: i32, y: i32) -> Result<(), String> {
+            self.events.push("move");
+            if self.fail_absolute {
+                return Err("move failed".into());
+            }
             self.absolute_moves.push((x, y));
             Ok(())
         }
         fn click_pointer(&mut self, button: MouseButton, count: u8) -> Result<(), String> {
+            self.events.push("click");
             if self.fail_click {
                 return Err("click injection failed".into());
             }
@@ -1442,6 +1529,7 @@ mod tests {
             Ok(())
         }
         fn set_pointer_button(&mut self, button: MouseButton, down: bool) -> Result<(), String> {
+            self.events.push(if down { "down" } else { "up" });
             if !down && self.fail_pointer_release {
                 return Err("pointer release failed".into());
             }
@@ -1449,6 +1537,7 @@ mod tests {
             Ok(())
         }
         fn scroll(&mut self, dx: i32, dy: i32) -> Result<(), String> {
+            self.events.push("scroll");
             self.scrolls.push((dx, dy));
             Ok(())
         }

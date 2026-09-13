@@ -1,11 +1,17 @@
 //! Compatibility commands and desktop adapters for the point technique.
 use crate::{
     display_navigation::{self, Display},
-    point_scan::{Config, Engine, Phase},
+    point_scan::Config,
+    point_workflow::{Phase, Request, Workflow},
     scanning::Rect,
     scanning_runtime::{self, Adapter},
 };
 use tauri::{AppHandle, Manager};
+#[derive(Clone)]
+pub struct Environment {
+    display: Display,
+    foreground: usize,
+}
 pub struct PointScan;
 pub type Controller = scanning_runtime::Controller<PointScan>;
 pub type View = scanning_runtime::View<Config, Phase>;
@@ -24,8 +30,8 @@ pub fn install(app: &AppHandle) {
 }
 impl Adapter for PointScan {
     type Config = Config;
-    type Technique = Engine;
-    type Environment = Display;
+    type Technique = Workflow;
+    type Environment = Environment;
     const EVENT: &'static str = "point-scan-changed";
     const FILE: &'static str = "point-scan.json";
     fn validate(config: &Config) -> Result<(), String> {
@@ -34,23 +40,28 @@ impl Adapter for PointScan {
     fn switches(config: &Config) -> crate::scanning::SwitchSettings {
         config.switches()
     }
-    fn create(app: &AppHandle, config: Config) -> Result<(Engine, Display), String> {
+    fn create(app: &AppHandle, config: Config) -> Result<(Workflow, Environment), String> {
         new_engine(app, config)
     }
-    fn validate_environment(app: &AppHandle, display: Option<&Display>) -> Result<(), String> {
+    fn validate_environment(app: &AppHandle, display: Option<&Environment>) -> Result<(), String> {
         validate_display(app, display)
     }
     fn ready(app: &AppHandle) -> Result<(), String> {
         crate::point_scan_ready(app)
     }
     fn prepare(app: &AppHandle) -> Result<(), String> {
+        crate::scan_executor::cleanup()?;
         crate::point_scan_prepare(app)
     }
-    fn activate(app: &AppHandle, point: (i32, i32)) -> Result<(), String> {
-        crate::point_scan_click(app, point)
+    fn activate(app: &AppHandle, request: Request) -> Result<(), String> {
+        crate::point_scan_ready(app)?;
+        crate::scan_executor::activate(request)
+    }
+    fn cleanup(_app: &AppHandle) -> Result<(), String> {
+        crate::scan_executor::cleanup()
     }
 }
-fn new_engine(app: &AppHandle, config: Config) -> Result<(Engine, Display), String> {
+fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment), String> {
     let (cursor, displays) = display_navigation::displays(app).map_err(|e| e.message)?;
     let display = display_navigation::current_display(cursor, &displays)
         .ok_or("No scanning display is available.")?
@@ -60,7 +71,7 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Engine, Display), Stri
     } else {
         1.0
     };
-    let e = Engine::new(
+    let e = Workflow::new(
         config.point(),
         Rect {
             x: display.x.into(),
@@ -70,12 +81,22 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Engine, Display), Stri
         },
         units,
     )?;
-    Ok((e, display))
+    Ok((
+        e,
+        Environment {
+            display,
+            foreground: crate::scan_host::foreground()?,
+        },
+    ))
 }
-fn validate_display(app: &AppHandle, display: Option<&Display>) -> Result<(), String> {
+fn validate_display(app: &AppHandle, display: Option<&Environment>) -> Result<(), String> {
+    crate::point_scan_ready(app)?;
     if let Some(expected) = display {
+        if crate::scan_host::foreground()? != expected.foreground {
+            return Err("Foreground application changed. Select a new point.".into());
+        }
         let (_, displays) = display_navigation::displays(app).map_err(|e| e.message)?;
-        if !displays.contains(expected) {
+        if !displays.contains(&expected.display) {
             return Err("Display geometry changed. Scanning restarts.".into());
         }
     }

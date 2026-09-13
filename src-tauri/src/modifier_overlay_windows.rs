@@ -579,6 +579,33 @@ fn copy_rgba_to_bgra(source: &[u8], target: &mut [u8]) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn present_scan_tile(
+    window: HWND,
+    tile: &crate::scanning::FrameTile,
+) -> Result<(), String> {
+    let pixmap = crate::scan_tile::bitmap(tile)?;
+    let size = pixmap.width() as i32;
+    let layout = Layout {
+        x: tile.rect.x.round() as i32,
+        y: tile.rect.y.round() as i32,
+        width: size,
+        height: size,
+        scale: tile.scale * 15.0 / FONT_SIZE,
+        chips: vec![RECT {
+            left: (6.0 * tile.scale) as i32,
+            top: (116.0 * tile.scale) as i32,
+            right: size - (6.0 * tile.scale) as i32,
+            bottom: size - (12.0 * tile.scale) as i32,
+        }],
+    };
+    present_pixmap_with_text(
+        window,
+        std::slice::from_ref(&tile.text),
+        &layout,
+        pixmap.data(),
+    )
+}
+
 pub(crate) fn present_scan_prompt(
     window: HWND,
     text: &str,

@@ -187,3 +187,15 @@ it("explains the selectable row escape phase", async () => {
   render(<PointScan />);
   expect(await screen.findByText("Select to return to rows.")).toBeInTheDocument();
 });
+
+it.each([
+  ["menu", "Choose an action at the selected point."],
+  ["menuSuspended", "Select to resume the action menu."],
+  ["dragDestination", "Choose drag destination."],
+  ["dragConfirmation", "Confirm drag."],
+  ["executing", "Performing drag."],
+])("explains the %s workflow phase", async (phase, message) => {
+  mocks.invoke.mockResolvedValue({ ...initial, enabled: true, phase });
+  render(<PointScan />);
+  expect(await screen.findByText(message)).toBeInTheDocument();
+});

@@ -40,7 +40,7 @@ core-foundation = "0.10"
 core-graphics = { version = "0.25", features = ["highsierra"] }
 libc = "0.2"
 objc2 = "0.6.4"
-objc2-app-kit = { version = "0.3.2", features = ["NSBitmapImageRep", "NSColor", "NSControl", "NSEvent", "NSGraphics", "NSImage", "NSImageRep", "NSImageView", "NSPanel", "NSTextField", "NSFont", "NSResponder", "NSScreen", "NSView", "NSWindow", "NSWorkspace", "objc2-core-foundation"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSBitmapImageRep", "NSColor", "NSControl", "NSEvent", "NSGraphics", "NSImage", "NSImageRep", "NSImageView", "NSPanel", "NSTextField", "NSFont", "NSResponder", "NSScreen", "NSView", "NSWindow", "NSWorkspace", "NSRunningApplication", "objc2-core-foundation"] }
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["CGEventSource", "CGEventTypes"] }
 objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSGeometry", "NSHost", "NSNotification", "NSObject", "NSOperation", "NSString", "NSThread", "NSURL", "block2"] }
 

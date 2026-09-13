@@ -8,6 +8,11 @@ import { SettingGroup, Toggle, OptionGroup, secondsOptions } from "./controls";
 
 const phases = {
   idle: "Ready to begin",
+  menu: "Choose an action at the selected point",
+  menuSuspended: "Select to resume the action menu",
+  dragDestination: "Choose drag destination",
+  dragConfirmation: "Confirm drag",
+  executing: "Performing drag",
   row: "Choose a row",
   cell: "Choose a cell",
   rowEscape: "Select to return to rows",
@@ -33,7 +38,7 @@ export function ScanningSection({
         <p>
           Focus the application you want to use, then press Select to scan the
           display under the pointer. Choose the X position, then the Y position
-          to click once.
+          to open the action menu. Choose a click, scroll, or drag action using your switches.
         </p>
 
         <p>

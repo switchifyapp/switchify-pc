@@ -393,6 +393,7 @@ impl Technique for Engine {
     fn frame(&self) -> Frame {
         Frame {
             strips: self.lines(),
+            tiles: vec![],
             label: (self.phase == Phase::RowEscape).then(|| {
                 let scale = self.units_per_logical_pixel;
                 let width = (360.0 * scale).min(self.screen.width);
