@@ -325,20 +325,27 @@ fn ensure<A: Adapter>(app: &AppHandle) {
         }
     }
 }
-fn input_active(app: &AppHandle, generation: u64) -> bool {
-    if crate::remote_scan::active(app) {
-        crate::remote_scan::active_generation(app, generation)
+fn source_is_current(remote: bool, remote_current: bool, local_current: bool) -> bool {
+    if remote {
+        remote_current
     } else {
-        app.state::<switch_runtime::Controller>()
-            .active_generation(generation)
+        local_current
     }
 }
-fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64) {
+fn input_active(app: &AppHandle, generation: u64, remote: bool) -> bool {
+    source_is_current(
+        remote,
+        crate::remote_scan::active_generation(app, generation),
+        app.state::<switch_runtime::Controller>()
+            .active_generation(generation),
+    )
+}
+fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, remote: bool) {
     let c = app.state::<Controller<A>>();
     if !c.enabled.load(Ordering::SeqCst) {
         return;
     }
-    if !input_active(app, input_generation) {
+    if !input_active(app, input_generation, remote) {
         disable::<A>(app, "Switch capture stopped.");
         return;
     }
@@ -362,7 +369,7 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64) {
         let display = d.display.clone();
         drop(d);
         if let Some(point) = point {
-            dispatch::<A>(app, point, display.as_ref(), input_generation)?;
+            dispatch::<A>(app, point, display.as_ref(), input_generation, remote)?;
         }
         render::<A>(app, None)
     })();
@@ -377,10 +384,11 @@ fn dispatch<A: Adapter>(
     request: <A::Technique as Technique>::Selection,
     environment: Option<&A::Environment>,
     input_generation: u64,
+    remote: bool,
 ) -> Result<(), String> {
     A::validate_environment(app, environment)?;
     let c = app.state::<Controller<A>>();
-    if !c.enabled.load(Ordering::SeqCst) || !input_active(app, input_generation) {
+    if !c.enabled.load(Ordering::SeqCst) || !input_active(app, input_generation, remote) {
         return Err("Scan action was cancelled.".into());
     }
     render_tiles(&[])?;
@@ -500,7 +508,7 @@ fn tick<A: Adapter>(app: &AppHandle) {
                 }
             };
             if let Some(action) = action {
-                switch::<A>(app, action, generation);
+                switch::<A>(app, action, generation, true);
             }
             if !c.enabled.load(Ordering::SeqCst) {
                 return;
@@ -550,7 +558,7 @@ fn tick<A: Adapter>(app: &AppHandle) {
                     }
                 };
                 if let Some(action) = selected {
-                    switch::<A>(app, action, generation);
+                    switch::<A>(app, action, generation, false);
                 }
             }
             _ => {}
@@ -587,9 +595,10 @@ fn tick<A: Adapter>(app: &AppHandle) {
         };
         let environment = d.display.clone();
         let input_generation = d.input_generation;
+        let remote = d.remote;
         drop(d);
         if let Some(request) = request {
-            dispatch::<A>(app, request, environment.as_ref(), input_generation)?;
+            dispatch::<A>(app, request, environment.as_ref(), input_generation, remote)?;
         }
         if phase_changed {
             publish::<A>(app);
@@ -698,4 +707,14 @@ fn show_prompt(
             scale,
         )
     })
+}
+
+#[cfg(test)]
+mod ownership_tests {
+    #[test]
+    fn stopped_remote_input_cannot_fall_back_to_a_matching_local_generation() {
+        assert!(!super::source_is_current(true, false, true));
+        assert!(super::source_is_current(false, false, true));
+        assert!(super::source_is_current(true, true, false));
+    }
 }

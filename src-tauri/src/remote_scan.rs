@@ -132,6 +132,15 @@ impl Mailbox {
         self.queue.clear();
         self.generation = self.generation.wrapping_add(1);
     }
+    fn expire(&mut self, now: u64) {
+        if self
+            .session
+            .as_ref()
+            .is_some_and(|s| now.saturating_sub(s.last_seen) >= 5000)
+        {
+            self.stop();
+        }
+    }
     fn start(
         &mut self,
         device: &str,
@@ -331,12 +340,7 @@ pub fn poll(app: &AppHandle) -> Option<(u64, Settings, Vec<Edge>, u64)> {
     let c = app.state::<Controller>();
     let now = c.clock.elapsed().as_millis() as u64;
     let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
-    if d.session
-        .as_ref()
-        .is_some_and(|s| now.saturating_sub(s.last_seen) >= 5000)
-    {
-        d.stop();
-    }
+    d.expire(now);
     let settings = d.session.as_ref()?.settings.clone();
     let generation = d.generation;
     let edges = d.queue.drain(..).collect();
@@ -436,6 +440,23 @@ mod tests {
         m.accept("peer", "switch.sync", &sync(1, vec![]), 0)
             .unwrap();
         m
+    }
+    #[test]
+    fn timeout_invalidates_polled_work_and_never_restores_a_session() {
+        let mut m = ready();
+        m.accept("peer", "switch.edge", &edge(2, 1, "down"), 10)
+            .unwrap();
+        let polled_generation = m.generation;
+        let polled: Vec<_> = m.queue.drain(..).collect();
+        assert_eq!(polled, vec![Edge::Down(1)]);
+        m.expire(5009);
+        assert!(m.session.is_some());
+        m.expire(5010);
+        assert!(m.session.is_none());
+        assert_ne!(m.generation, polled_generation);
+        assert!(m
+            .accept("peer", "switch.sync", &sync(3, vec![]), 5011)
+            .is_err());
     }
     #[test]
     fn defaults_validate_connected_slots_and_revision() {

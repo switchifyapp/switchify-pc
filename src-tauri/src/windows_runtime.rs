@@ -1303,40 +1303,68 @@ async fn handle_write(
     deferral: Deferral,
 ) -> Result<(), String> {
     let result = async {
+        static DISPATCH_SLOTS: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
+        let _permit = DISPATCH_SLOTS
+            .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(64)))
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "Bluetooth command queue is full.".to_string())?;
+
         let request = args
             .GetRequestAsync()
             .map_err(|error| error.to_string())?
             .await
             .map_err(|error| error.to_string())?;
-        let lifecycle_guard = lifecycle
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if !lifecycle_guard.is_current(generation) || !runtime_generation_is_current(generation) {
+        let bytes = {
+            let lifecycle_guard = lifecycle
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if !lifecycle_guard.is_current(generation) || !runtime_generation_is_current(generation)
+            {
+                if request.Option().map_err(|error| error.to_string())?
+                    == GattWriteOption::WriteWithResponse
+                {
+                    request
+                        .RespondWithProtocolError(0x0e)
+                        .map_err(|error| error.to_string())?;
+                }
+                return Ok(());
+            }
+            let mut bytes = windows::core::Array::<u8>::new();
+            CryptographicBuffer::CopyToByteArray(
+                &request.Value().map_err(|error| error.to_string())?,
+                &mut bytes,
+            )
+            .map_err(|error| error.to_string())?;
             if request.Option().map_err(|error| error.to_string())?
                 == GattWriteOption::WriteWithResponse
             {
-                request
-                    .RespondWithProtocolError(0x0e)
-                    .map_err(|error| error.to_string())?;
+                request.Respond().map_err(|error| error.to_string())?;
             }
-            return Ok(());
-        }
-        let mut bytes = windows::core::Array::<u8>::new();
-        CryptographicBuffer::CopyToByteArray(
-            &request.Value().map_err(|error| error.to_string())?,
-            &mut bytes,
-        )
-        .map_err(|error| error.to_string())?;
-        if request.Option().map_err(|error| error.to_string())?
-            == GattWriteOption::WriteWithResponse
-        {
-            request.Respond().map_err(|error| error.to_string())?;
-        }
-        if let Some(response) = process_frame(&app, &shared, &bytes)? {
-            notify(response)?;
-        }
-        drop(lifecycle_guard);
-        Ok(())
+            bytes.to_vec()
+        };
+        // Scanner input and overlays are thread-local main-thread resources.
+        // Serialize command dispatch with scan ticks and recheck transport ownership.
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let handle = app.clone();
+        app.run_on_main_thread(move || {
+            let guard = lifecycle.lock().unwrap_or_else(|p| p.into_inner());
+            let result =
+                if guard.is_current(generation) && runtime_generation_is_current(generation) {
+                    process_frame(&handle, &shared, &bytes).and_then(|response| {
+                        if let Some(response) = response {
+                            notify(response)?;
+                        }
+                        Ok(())
+                    })
+                } else {
+                    Ok(())
+                };
+            let _ = tx.send(result);
+        })
+        .map_err(|e| e.to_string())?;
+        rx.await
+            .map_err(|_| "Bluetooth command dispatch cancelled.".to_string())?
     }
     .await;
     deferral.Complete().map_err(|error| error.to_string())?;
