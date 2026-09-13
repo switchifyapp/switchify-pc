@@ -99,6 +99,40 @@ describe("Switchify PC shell", () => {
     await waitFor(() => expect(screen.getByRole("dialog", { name: "Add your switch" })).toHaveFocus());
   });
 
+  it("shows pairing failures inside the active pairing dialog", async () => {
+    browserState.setup.autoOpenEligible = true;
+    browserState.pendingPairings = [{ requestId: "one", deviceId: "phone", deviceName: "Phone", verificationCode: "123456", expiresAt: 100 }];
+    vi.spyOn(api, "approvePairing").mockRejectedValue(new Error("Pairing failed. Try again."));
+    render(<App />);
+    const dialog = await screen.findByRole("dialog", { name: "Pairing requests" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Accept pairing request/ }));
+    await waitFor(() => expect(within(dialog).getByRole("alert")).toHaveTextContent("Pairing failed. Try again."));
+    expect(within(dialog).getByRole("button", { name: /Accept pairing request/ })).toBeEnabled();
+  });
+
+  it("dismisses standalone capture before presenting pairing controls", async () => {
+    const switches = localSwitches();
+    vi.spyOn(switchHooks, "useSwitches").mockReturnValue(switches);
+    let receive: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
+    switches.capture = vi.fn(async () => { switches.state!.capture.active = true; });
+    const { rerender } = render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Switches" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
+    switches.state!.capture.active = true;
+    rerender(<App />);
+    await screen.findByRole("dialog", { name: "Press and release your switch" });
+    act(() => receive?.({ ...structuredClone(browserState), pendingPairings: [{ requestId: "one", deviceId: "phone", deviceName: "Phone", verificationCode: "123456", expiresAt: 100 }] }));
+    const dialog = await screen.findByRole("dialog", { name: "Pairing requests" });
+    expect(screen.queryByRole("dialog", { name: "Press and release your switch" })).not.toBeInTheDocument();
+    expect(switches.cancelCapture).toHaveBeenCalled();
+    const accept = within(dialog).getByRole("button", { name: /Accept pairing request/ });
+    accept.focus();
+    expect(accept).toHaveFocus();
+    fireEvent.keyDown(accept, { key: "Tab" });
+    expect(within(dialog).getByRole("button", { name: /Reject pairing request/ })).toHaveFocus();
+  });
+
   it("uses the Switchify application icon in the sidebar", async () => {
     const { container } = render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
@@ -396,7 +430,7 @@ describe("Switchify PC shell", () => {
     }));
 
     await waitFor(() => expect(screen.queryByLabelText("Verification code for Galaxy")).not.toBeInTheDocument());
-    expect(screen.getByRole("dialog", { name: "Input access" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Input access" })).toBeInTheDocument();
   });
 
   it("creates a profile and records a desired key", async () => {

@@ -362,9 +362,7 @@ function SetupGuide({ state, switches, suspended, busy, error, skip, finish, acc
   const canContinue = step === 1 ? !switchBusy && !!switches.state?.settings.bindings.length : step === 3 ? startupChoice !== null : step === 4 ? diagnosticsChoice !== null : true;
 
   useEffect(() => { if (!suspended && !capturing) dialogRef.current?.focus(); }, [step, suspended]);
-  const cancelCapture = useRef(switches.cancelCapture);
-  cancelCapture.current = switches.cancelCapture;
-  useEffect(() => { if (suspended && capturing) void cancelCapture.current(); }, [suspended, capturing]);
+
 
   const trapFocus = (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key !== "Tab" || capturing || suspended) return;
@@ -392,8 +390,9 @@ function SetupGuide({ state, switches, suspended, busy, error, skip, finish, acc
   </section></div>;
 }
 
-function PairingDialog({ requests, connectedDeviceName, busy, approve, reject }: {
+function PairingDialog({ requests, connectedDeviceName, busy, error, approve, reject }: {
   requests: PendingPairing[];
+  error: string | null;
   connectedDeviceName: string | null;
   busy: boolean;
   approve: (requestId: string) => Promise<void>;
@@ -441,6 +440,7 @@ function PairingDialog({ requests, connectedDeviceName, busy, approve, reject }:
 
   return <div className="modal-backdrop"><section ref={dialogRef} className="pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="pairing-title" tabIndex={-1} onKeyDown={trapFocus}>
     <header><Smartphone size={26} /><div><h2 id="pairing-title">Pairing requests</h2><p>Confirm each code matches Switchify for Android.</p>{connectedDeviceName && <p className="pairing-connection">Connected to {connectedDeviceName}</p>}</div><span>{requests.length}</span></header>
+    {error && <p className="dialog-error" role="alert">{error}</p>}
     <div className="pairing-list" aria-label="Pending pairing requests">
       {requests.map((request, index) => {
         const titleId = `pairing-request-${index}`;
@@ -459,6 +459,11 @@ export function App() {
   const switches=useSwitches();
   const scanning=useScanning();
   const [state, setState] = useState<AppState | null>(null);
+  const pairingOpen = !!state?.pendingPairings.length;
+  const captureActive = switches.capturing || !!switches.state?.capture.active;
+  const cancelCapture = useRef(switches.cancelCapture);
+  cancelCapture.current = switches.cancelCapture;
+  useEffect(() => { if (pairingOpen && captureActive) void cancelCapture.current(); }, [pairingOpen, captureActive]);
   const [view, setView] = useState<View>("home");
   const viewRef = useRef<View>("home");
   const [profiles, setProfiles] = useState<SwitchProfile[]>([]);
@@ -746,7 +751,7 @@ export function App() {
       <UpdateBanner update={state.updater} openUpdates={openUpdates} />
       <p id="settings-updates-notice" className="sr-only" aria-live={updateFailure ? updateLiveness(updateFailure.status) : "polite"} aria-atomic="true">{updateNotice}</p>
       {view === "home" && <HomeView state={state} switches={switches} scanning={scanning} navigate={selectView} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} />}
-      {view === "switches" && <div className="view"><header className="page-header"><h1>Switches</h1></header><SwitchesSection controller={switches} /></div>}
+      {view === "switches" && <div className="view"><header className="page-header"><h1>Switches</h1></header><SwitchesSection controller={switches} suspended={pairingOpen} /></div>}
       {view === "scanning" && <div className="view"><header className="page-header"><h1>Scanning</h1></header><ScanningSection controller={scanning} /></div>}
       {(view === "android" || view === "devices" || view === "profiles") && <div className="view"><header className="page-header"><div><h1>Android connection</h1><p>Optional Android control and switch forwarding</p></div></header><Tabs name="android" label="Android connection sections" active={view} onSelect={selectView} tabs={[{id: "android", label: "Connection"}, {id: "devices", label: "Paired devices"}, {id: "profiles", label: "Switch Forwarding"}]} /><TabPanel name="android" id={view}>
       {view === "android" && <AndroidConnection state={state} onDisconnect={() => void perform(api.disconnectAll)} />}
@@ -757,6 +762,6 @@ export function App() {
       {view === "support" && <SupportView state={state} switches={switches} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} openUpdates={openUpdates} />}
     </main>
     {setupOpen && <SetupGuide state={state} switches={switches} suspended={state.pendingPairings.length > 0} busy={busy} error={error} skip={skipSetup} finish={finishSetup} accessibility={() => perform(() => api.checkAccessibility(true))} />}
-    {state.pendingPairings.length > 0 && <PairingDialog requests={state.pendingPairings} connectedDeviceName={state.connectedDeviceName} busy={busy} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}
+    {state.pendingPairings.length > 0 && <PairingDialog error={error} requests={state.pendingPairings} connectedDeviceName={state.connectedDeviceName} busy={busy} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}
   </div>;
 }
