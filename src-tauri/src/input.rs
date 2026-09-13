@@ -1468,6 +1468,36 @@ mod tests {
         assert!(!input.has_active_drag());
     }
     #[test]
+    fn remote_stop_releases_drag_before_direct_input_and_blocks_failed_release() {
+        use crate::{
+            point_workflow::Request, remote_scan::input_available, scan_executor::execute,
+        };
+        for fail in [false, true] {
+            let mut input = DesktopInput::new(FakeInjector::default());
+            execute(&mut input, Request::DragStart((10, 20)), true).unwrap();
+            input.injector.fail_pointer_release = fail;
+            let mut cleanup_required = input.release_all().is_err();
+            if input_available(false, cleanup_required) {
+                input.click_pointer(MouseButton::Left, 1).unwrap();
+            }
+            if fail {
+                assert!(input.injector.clicks.is_empty());
+                assert!(input.has_active_drag());
+                input.injector.fail_pointer_release = false;
+                cleanup_required = input.release_all().is_err();
+                assert!(input_available(false, cleanup_required));
+                input.click_pointer(MouseButton::Left, 1).unwrap();
+                assert_eq!(
+                    input.injector.events,
+                    vec!["move", "down", "up", "up", "click"]
+                );
+            } else {
+                assert_eq!(input.injector.events, vec!["move", "down", "up", "click"]);
+            }
+            assert!(!input.has_active_drag());
+        }
+    }
+    #[test]
     fn scan_drag_failures_remain_owned_until_cleanup_succeeds() {
         use crate::{point_workflow::Request, scan_executor::execute};
         let mut input = DesktopInput::new(FakeInjector::default());

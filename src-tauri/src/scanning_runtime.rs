@@ -192,6 +192,7 @@ fn reset_scanner<A: Adapter>(app: &AppHandle, message: &str) {
         d.message = message.into();
     }
     let cleanup = A::cleanup(app);
+    crate::remote_scan::record_cleanup(app, cleanup.is_ok());
     if cleanup.is_err() {
         c.data.lock().unwrap_or_else(|p| p.into_inner()).message =
             "Input cleanup will be retried before scanning resumes.".into();
@@ -565,7 +566,8 @@ fn tick<A: Adapter>(app: &AppHandle) {
         }
     }
     if !c.enabled.load(Ordering::SeqCst) {
-        let _ = A::cleanup(app);
+        let cleanup = A::cleanup(app);
+        crate::remote_scan::record_cleanup(app, cleanup.is_ok());
         ensure::<A>(app);
         return;
     }

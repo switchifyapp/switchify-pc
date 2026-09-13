@@ -117,6 +117,7 @@ pub struct Mailbox {
     session: Option<Session>,
     generation: u64,
     queue: VecDeque<Edge>,
+    cleanup_required: bool,
 }
 impl Mailbox {
     fn new(config: Config) -> Self {
@@ -125,9 +126,11 @@ impl Mailbox {
             session: None,
             generation: 0,
             queue: VecDeque::new(),
+            cleanup_required: false,
         }
     }
     fn stop(&mut self) {
+        self.cleanup_required |= self.session.is_some();
         self.session = None;
         self.queue.clear();
         self.generation = self.generation.wrapping_add(1);
@@ -323,11 +326,24 @@ pub fn active(app: &AppHandle) -> bool {
             .is_some()
     })
 }
+pub fn input_available(session_active: bool, cleanup_required: bool) -> bool {
+    !session_active && !cleanup_required
+}
 pub fn allow_direct(app: &AppHandle) -> Result<(), String> {
-    if active(app) {
+    let c = app.state::<Controller>();
+    let d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+    if !input_available(d.session.is_some(), d.cleanup_required) {
         Err("Stop Switchify scanning before using other PC controls.".into())
     } else {
         Ok(())
+    }
+}
+pub fn record_cleanup(app: &AppHandle, success: bool) {
+    if let Some(c) = app.try_state::<Controller>() {
+        c.data
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .cleanup_required = !success;
     }
 }
 pub fn active_generation(app: &AppHandle, generation: u64) -> bool {
@@ -389,7 +405,7 @@ pub fn route(
         cancel(app);
         return None;
     }
-    if command == "switch.profile.list" || !active(app) {
+    if command == "switch.profile.list" || allow_direct(app).is_ok() {
         return None;
     }
     if matches!(
@@ -398,12 +414,18 @@ pub fn route(
     ) {
         let c = app.state::<Controller>();
         let now = c.clock.elapsed().as_millis() as u64;
-        return Some(
-            c.data
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .accept(device, command, payload, now),
-        );
+        let result = c
+            .data
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .accept(device, command, payload, now);
+        if command == "switch.session.stop" && result.is_ok() && !active(app) {
+            crate::point_scan_runtime::pause(app);
+            let cleanup = crate::scan_executor::cleanup();
+            record_cleanup(app, cleanup.is_ok());
+            return Some(cleanup);
+        }
+        return Some(result);
     }
     Some(Err(
         "Stop Switchify scanning before using other PC controls.".into(),
