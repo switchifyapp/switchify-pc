@@ -755,17 +755,7 @@ impl MacRuntime {
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .interrupt_terminal();
-                self.set_bluetooth(BluetoothState::Unsupported);
-                self.shared
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .state
-                    .accessibility = AccessibilityState::Unavailable;
-                set_activity(
-                    &self.shared,
-                    ActivityKind::Error,
-                    "This Mac does not support the Bluetooth peripheral role.",
-                );
+                report_unsupported_bluetooth(&self.shared);
             }
             PeripheralManagerState::Unknown | PeripheralManagerState::Resetting => {
                 self.lifecycle
@@ -2022,6 +2012,19 @@ impl MacRuntime {
     }
 }
 
+fn report_unsupported_bluetooth(shared: &SharedModel) {
+    shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .state
+        .bluetooth = BluetoothState::Unsupported;
+    set_activity(
+        shared,
+        ActivityKind::Error,
+        "This Mac does not support the Bluetooth peripheral role.",
+    );
+}
+
 fn manager_state_invalidates_gatt(state: PeripheralManagerState) -> bool {
     matches!(
         state,
@@ -2149,6 +2152,26 @@ impl Drop for MacRuntime {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    #[test]
+    fn unsupported_bluetooth_preserves_local_accessibility_status() {
+        let root = std::env::temp_dir().join(format!("switchify-access-{}", uuid::Uuid::new_v4()));
+        let model = crate::state::AppModel::with_storage_for_test(crate::storage::AppStorage::at(
+            root.join("state.json"),
+        ));
+        for accessibility in [AccessibilityState::Required, AccessibilityState::Granted] {
+            model.shared.lock().unwrap().state.accessibility = accessibility;
+            report_unsupported_bluetooth(&model.shared);
+            let state = model.snapshot();
+            assert_eq!(state.bluetooth, BluetoothState::Unsupported);
+            assert_eq!(state.accessibility, accessibility);
+            assert_eq!(
+                state.last_activity.unwrap().message,
+                "This Mac does not support the Bluetooth peripheral role."
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn resetting_and_unknown_manager_states_invalidate_cached_gatt_objects() {
