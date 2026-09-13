@@ -458,4 +458,50 @@ mod tests {
             "menuSuspended"
         );
     }
+    #[test]
+    fn confirmed_drag_clears_pause_and_cannot_be_paused_with_button_held() {
+        let mut s = session(true);
+        open(&mut s);
+        choose(&mut s, 1, 1);
+        s.action(Action::Select);
+        s.action(Action::Select);
+        s.action(Action::Pause);
+        assert!(s.paused());
+        assert!(matches!(choose(&mut s, 0, 0), Some(Request::DragStart(_))));
+        assert!(!s.paused());
+        s.action(Action::Pause);
+        assert!(!s.paused());
+        s.tick(250, false);
+        s.take_selection();
+        s.tick(50, false);
+        assert!(matches!(s.take_selection(), Some(Request::DragEnd(_))));
+    }
+    #[test]
+    fn point_reselection_cancel_and_drag_confirmation_back_paths() {
+        let mut s = session(false);
+        open(&mut s);
+        assert_eq!(choose(&mut s, 2, 0), None);
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Point(crate::point_scan::Phase::X)
+        );
+        s.action(Action::Select);
+        s.action(Action::Select);
+        assert_eq!(choose(&mut s, 2, 1), None);
+        assert!(!s.active());
+        open(&mut s);
+        choose(&mut s, 1, 1);
+        s.action(Action::Select);
+        s.action(Action::Select);
+        assert_eq!(choose(&mut s, 0, 1), None);
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::DragDestination)
+        );
+        s.action(Action::Select);
+        s.action(Action::Select);
+        assert_eq!(choose(&mut s, 0, 2), None);
+        assert_eq!(s.technique.menu.kind, Kind::Actions);
+        assert_eq!(s.take_selection(), None);
+    }
 }

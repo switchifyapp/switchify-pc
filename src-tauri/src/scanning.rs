@@ -204,6 +204,9 @@ impl<T: Technique> Session<T> {
             return None;
         }
         let selection = self.technique.handle(action);
+        if !self.technique.pausable() {
+            self.paused = false;
+        }
         if (selection.is_some() && self.technique.complete_on_selection())
             || self.technique.finished()
         {

@@ -148,17 +148,20 @@ mod platform {
             }
             Ok(())
         }
-        pub fn prompt(&mut self, text: &str, rect: Rect, _scale: f64) -> Result<(), String> {
+        pub fn prompt(&mut self, text: &str, rect: Rect, scale: f64) -> Result<(), String> {
             use objc2_app_kit::{NSFont, NSTextField};
             use objc2_foundation::NSString;
             let mtm = MainThreadMarker::new().ok_or("Prompt requires the main thread.")?;
             self.render(&[rect])?;
             let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
-            label.setFont(Some(&NSFont::systemFontOfSize(20.0)));
+            label.setFont(Some(&NSFont::systemFontOfSize(20.0 * scale)));
             label.setTextColor(Some(&NSColor::whiteColor()));
             label.setFrame(NSRect::new(
-                NSPoint::new(12.0, 12.0),
-                NSSize::new(rect.width - 24.0, rect.height - 24.0),
+                NSPoint::new(12.0 * scale, 12.0 * scale),
+                NSSize::new(
+                    (rect.width - 24.0 * scale).max(1.0),
+                    (rect.height - 24.0 * scale).max(1.0),
+                ),
             ));
             self.panels[0].setBackgroundColor(Some(&NSColor::blackColor()));
             self.panels[0].setContentView(Some(&label));
