@@ -127,8 +127,8 @@ export function ScanningSection({
             ))}
           </div>
         </fieldset>
-        <div className={`scanner-preview ${config.scannerColor}`} role="img" aria-label={`${config.scannerColor} scanner highlight preview`}>
-          <span className="scanner-preview-selection">Selected area</span>
+        <div className={`scanner-sample ${config.scannerColor}`} role="img" aria-label={`${config.scannerColor} scanner highlight sample`}>
+          <span className="scanner-sample-selection">Selected area</span>
         </div>
       </SettingGroup>
 

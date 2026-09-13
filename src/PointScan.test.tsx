@@ -200,12 +200,12 @@ it.each([
   expect(await screen.findByText(message)).toBeInTheDocument();
 });
 
-it("saves scanner colour and updates the preview", async () => {
+it("saves scanner colour and updates the sample", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);
   expect(screen.getByRole("radio", { name: "Blue" })).toBeChecked();
   fireEvent.click(screen.getByRole("radio", { name: "Green" }));
-  expect(screen.getByRole("img", { name: "green scanner highlight preview" })).toBeInTheDocument();
+  expect(screen.getByRole("img", { name: "green scanner highlight sample" })).toBeInTheDocument();
   await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
     config: { ...defaultPointScanConfig, scannerColor: "green" },
   }));

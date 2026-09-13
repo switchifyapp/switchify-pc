@@ -377,9 +377,9 @@ button:disabled { cursor: default; opacity: 0.55; }
 .scanner-colours { display: flex; flex-wrap: wrap; gap: 12px; }
 .scanner-colours label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .scanner-colours input { accent-color: var(--brand); }
-.scanner-preview { --scanner-colour: #64a6ff; height: 100px; margin-top: 16px; padding: 16px; background: #1e232e; border-radius: 8px; }
-.scanner-preview.red { --scanner-colour: #d32f2f; }
-.scanner-preview.green { --scanner-colour: #84ff91; }
-.scanner-preview.yellow { --scanner-colour: #ffd166; }
-.scanner-preview.white { --scanner-colour: #ffffff; }
-.scanner-preview-selection { display: flex; align-items: center; justify-content: center; height: 100%; border: 3px solid var(--scanner-colour); background: color-mix(in srgb, var(--scanner-colour) 25%, transparent); color: white; }
+.scanner-sample { --scanner-colour: #64a6ff; height: 100px; margin-top: 16px; padding: 16px; background: #1e232e; border-radius: 8px; }
+.scanner-sample.red { --scanner-colour: #d32f2f; }
+.scanner-sample.green { --scanner-colour: #84ff91; }
+.scanner-sample.yellow { --scanner-colour: #ffd166; }
+.scanner-sample.white { --scanner-colour: #ffffff; }
+.scanner-sample-selection { display: flex; align-items: center; justify-content: center; height: 100%; border: 3px solid var(--scanner-colour); background: color-mix(in srgb, var(--scanner-colour) 25%, transparent); color: white; }
