@@ -190,7 +190,7 @@ mod platform {
                 opacity: 255,
                 role: crate::scanning::VisualRole::Accent,
             }])?;
-            let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
+            let label = NSTextField::wrappingLabelWithString(&NSString::from_str(text), mtm);
             label.setFont(Some(&NSFont::systemFontOfSize(20.0 * scale)));
             label.setTextColor(Some(&NSColor::whiteColor()));
             label.setFrame(NSRect::new(
@@ -230,7 +230,7 @@ mod platform {
             let artwork = NSImageView::initWithFrame(NSImageView::alloc(mtm), bounds);
             artwork.setImage(Some(&image));
             view.addSubview(&artwork);
-            let label = NSTextField::labelWithString(&NSString::from_str(&tile.text), mtm);
+            let label = NSTextField::wrappingLabelWithString(&NSString::from_str(&tile.text), mtm);
             label.setFont(Some(&NSFont::boldSystemFontOfSize(15.0 * tile.scale)));
             label.setTextColor(Some(&NSColor::whiteColor()));
             label.setAlignment(NSTextAlignment::Center);

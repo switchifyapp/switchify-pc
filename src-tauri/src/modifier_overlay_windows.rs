@@ -14,7 +14,7 @@ use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromPoint, ReleaseDC, SelectObject, SetBkMode, SetTextColor,
     AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION,
     CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_QUALITY, DIB_RGB_COLORS, DT_CENTER,
-    DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, FW_BOLD, HDC, HGDIOBJ, MONITORINFO,
+    DT_SINGLELINE, DT_VCENTER, DT_WORDBREAK, FF_DONTCARE, FW_BOLD, HDC, HGDIOBJ, MONITORINFO,
     MONITOR_DEFAULTTONEAREST, OUT_DEFAULT_PRECIS, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -405,7 +405,13 @@ fn present(window: HWND, labels: &[String], layout: &Layout) -> Result<(), Strin
             None,
         );
     }
-    present_pixmap_with_text(window, labels, layout, pixmap.data())
+    present_pixmap_with_text(
+        window,
+        labels,
+        layout,
+        pixmap.data(),
+        labels.iter().any(|label| label.contains('\n')),
+    )
 }
 
 fn rounded_rect(rect: Rect, radius: f32) -> Result<tiny_skia::Path, String> {
@@ -459,6 +465,7 @@ fn present_pixmap_with_text(
     labels: &[String],
     layout: &Layout,
     rgba: &[u8],
+    wrap: bool,
 ) -> Result<(), String> {
     unsafe {
         let screen = ScreenDc(GetDC(None));
@@ -533,7 +540,11 @@ fn present_pixmap_with_text(
                 memory.0,
                 &mut text,
                 &mut text_rect,
-                DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+                if wrap {
+                    DT_CENTER | DT_WORDBREAK
+                } else {
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE
+                },
             );
         }
 
@@ -603,6 +614,7 @@ pub(crate) fn present_scan_tile(
         std::slice::from_ref(&tile.text),
         &layout,
         pixmap.data(),
+        true,
     )
 }
 
@@ -615,7 +627,7 @@ pub(crate) fn present_scan_prompt(
     scale: f64,
 ) -> Result<(), String> {
     let padding = (12.0 * scale).round() as i32;
-    let height = (64.0 * scale).round() as i32;
+    let height = (if text.contains('\n') { 154.0 } else { 64.0 } * scale).round() as i32;
     let layout = Layout {
         x,
         y,
