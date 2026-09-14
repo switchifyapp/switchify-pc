@@ -207,7 +207,7 @@ it("shows hold timing computed from the interval", async () => {
   ).toBeTruthy();
   fireEvent.click(within(screen.getByRole("group", { name: "Hold action interval" })).getByRole("button", { name: "2s" }));
   await screen.findByText("Hold 2s for Next, 4s for Stop scanning. Release to run the action shown.");
-  await screen.findByText(/Holding any switch for 8s disables switch control/);
+  await screen.findByText(/Holding any switch for 8s resets the scan/);
 });
 it("preserves failed switch edits until a retry succeeds", async () => {
   render(<Shell />);
