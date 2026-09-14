@@ -867,7 +867,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
           <p className="setting-note">
             The first action appears after one interval and the next after
             each further interval. The last action stays offered. Holding any
-            switch for {seconds(escapeMs)} disables switch control.
+            switch for {seconds(escapeMs)} resets the scan.
           </p>
         </div>
       </SettingGroup>
