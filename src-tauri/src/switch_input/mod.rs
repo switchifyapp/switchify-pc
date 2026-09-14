@@ -124,7 +124,6 @@ impl Core {
         self.physical.retain(|key| down.contains(key));
         self.down = down;
     }
-    #[cfg(any(not(target_os = "windows"), test))]
     fn begin_with_pressed_keys(
         &mut self,
         mode: Mode,
@@ -138,8 +137,23 @@ impl Core {
             bail!("Native switch capture was lost during startup.");
         }
         self.reconcile_pressed_keys(down);
-        if !self.physical.is_empty() || !self.down.is_empty() {
-            bail!("Release the held switch before starting capture.");
+        let mut blocking = self.physical.iter().cloned().collect::<HashSet<_>>();
+        blocking.extend(
+            self.down
+                .iter()
+                .filter(|key| {
+                    key.as_str() == "Escape"
+                        || (mode == Mode::Active && self.mappings.contains_key(*key))
+                })
+                .cloned(),
+        );
+        if !blocking.is_empty() {
+            let mut keys = blocking.into_iter().collect::<Vec<_>>();
+            keys.sort();
+            bail!(
+                "Release held keys before starting capture: {}.",
+                keys.join(", ")
+            );
         }
         self.begin(mode, now);
         Ok(self.status.generation)
@@ -382,15 +396,21 @@ impl Capture {
         }
         #[cfg(target_os = "windows")]
         {
-            if !self
+            let mut held = self
                 .driver
                 .core
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .physical
-                .is_empty()
-            {
-                bail!("Release the held switch before starting capture.");
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            if !held.is_empty() {
+                held.sort();
+                bail!(
+                    "Release held keys before starting capture: {}.",
+                    held.join(", ")
+                );
             }
             self.native.take();
             self.native = Some(windows::Capture::start(self.driver.clone(), mode)?);
@@ -593,12 +613,100 @@ mod tests {
     fn refreshed_state_still_blocks_held_keys_until_release() {
         for mode in [Mode::Learning, Mode::Active] {
             let mut c = Core::default();
-            let down = HashSet::from(["Space".to_string()]);
+            c.mappings.insert("Space".into(), "select".into());
+            let down = HashSet::from(["Escape".to_string()]);
             assert!(c.begin_with_pressed_keys(mode, 0, down).is_err());
             assert_eq!(c.status.mode, Mode::Off);
             assert!(c.events.is_empty());
             assert!(c.begin_with_pressed_keys(mode, 1, HashSet::new()).is_ok());
             assert_eq!(c.status.mode, mode);
+        }
+    }
+    #[test]
+    fn unrelated_held_key_does_not_block_assigned_switch() {
+        let mut c = Core::default();
+        c.mappings.insert("Space".into(), "select".into());
+        c.begin_with_pressed_keys(Mode::Active, 0, HashSet::from(["A".into()]))
+            .unwrap();
+        assert!(!c.key("A", true, 1));
+        assert!(!c.key("A", false, 2));
+        assert!(c.events.is_empty());
+        assert!(c.key("Space", true, 3));
+        assert!(c.key("Space", false, 4));
+        assert_eq!(c.events.len(), 2);
+        assert!(matches!(
+            c.events.pop_front(),
+            Some(Event::Switch {
+                action: Action::Pressed,
+                ..
+            })
+        ));
+        assert!(matches!(
+            c.events.pop_front(),
+            Some(Event::Switch {
+                action: Action::Released,
+                ..
+            })
+        ));
+    }
+    #[test]
+    fn assigned_held_keys_are_named_and_block_startup() {
+        let mut c = Core::default();
+        c.mappings.insert("Space".into(), "select".into());
+        let error = c
+            .begin_with_pressed_keys(
+                Mode::Active,
+                0,
+                HashSet::from(["Space".into(), "Escape".into(), "A".into()]),
+            )
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Release held keys before starting capture: Escape, Space."
+        );
+        assert_eq!(c.status.mode, Mode::Off);
+        assert!(c.events.is_empty());
+        c.begin_with_pressed_keys(Mode::Active, 1, HashSet::from(["A".into()]))
+            .unwrap();
+        assert!(!c.key("Space", false, 2));
+        assert!(c.events.is_empty());
+    }
+    #[test]
+    fn learning_ignores_preheld_keys_until_a_fresh_gesture() {
+        for fresh in ["Space", "A"] {
+            let mut c = Core::default();
+            c.begin_with_pressed_keys(Mode::Learning, 0, HashSet::from(["A".into()]))
+                .unwrap();
+            assert!(!c.key("A", true, 1));
+            if fresh == "A" {
+                assert!(!c.key("A", false, 2));
+            }
+            assert!(c.events.is_empty());
+            assert!(c.key(fresh, true, 3));
+            assert!(c.key(fresh, false, 4));
+            assert!(
+                matches!(c.events.pop_front(), Some(Event::Learned { code, .. }) if code == fresh)
+            );
+            assert!(c.events.is_empty());
+        }
+    }
+    #[test]
+    fn consumed_keys_must_drain_before_either_mode_restarts() {
+        for mode in [Mode::Active, Mode::Learning] {
+            let mut c = Core::default();
+            c.begin(Mode::Learning, 0);
+            assert!(c.key("A", true, 1));
+            c.stop(StopReason::Disabled);
+            let error = c
+                .begin_with_pressed_keys(mode, 2, HashSet::from(["A".into()]))
+                .unwrap_err();
+            assert!(error.to_string().ends_with("A."));
+            assert!(c.key("A", true, 3));
+            assert!(c.key("A", false, 4));
+            c.begin_with_pressed_keys(mode, 5, HashSet::new()).unwrap();
+            assert!(c.events.is_empty());
+            assert!(!c.key("A", false, 6));
+            assert!(c.events.is_empty());
         }
     }
     #[test]
