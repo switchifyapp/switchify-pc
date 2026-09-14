@@ -81,14 +81,8 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
             lines(&[(62., 46.), (106., 90.)]);
             lines(&[(106., 46.), (62., 90.)]);
         }
-        More | Group(_) => {
-            lines(&[(52., 48.), (116., 48.)]);
-            lines(&[(52., 68.), (116., 68.)]);
-            lines(&[(52., 88.), (116., 88.)]);
-        }
-        Command(_) | Setting(_) | Display(_) | Pause | Reverse => {
-            lines(&[(54., 44.), (114., 44.), (114., 92.), (54., 92.), (54., 44.)]);
-            lines(&[(72., 68.), (96., 68.)]);
+        More | Group(_) | Command(_) | Setting(_) | Display(_) | Pause | Reverse => {
+            artwork(&mut path, tile.icon);
         }
         DragHere => {
             lines(&[(55., 69.), (75., 89.), (113., 47.)]);
@@ -152,6 +146,431 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
     Ok(pixmap)
 }
 
+fn line(path: &mut PathBuilder, points: &[(f32, f32)]) {
+    path.move_to(points[0].0, points[0].1);
+    for &(x, y) in &points[1..] {
+        path.line_to(x, y);
+    }
+}
+fn rect(path: &mut PathBuilder, x: f32, y: f32, w: f32, h: f32) {
+    path.push_rect(tiny_skia::Rect::from_xywh(x, y, w, h).unwrap());
+}
+fn arrow(path: &mut PathBuilder, x: f32, y: f32, direction: f32) {
+    line(path, &[(x - 16. * direction, y), (x + 16. * direction, y)]);
+    line(
+        path,
+        &[
+            (x + 5. * direction, y - 11.),
+            (x + 16. * direction, y),
+            (x + 5. * direction, y + 11.),
+        ],
+    );
+}
+fn plus(path: &mut PathBuilder, x: f32, y: f32, positive: bool) {
+    line(path, &[(x - 9., y), (x + 9., y)]);
+    if positive {
+        line(path, &[(x, y - 9.), (x, y + 9.)]);
+    }
+}
+fn cross(path: &mut PathBuilder, x: f32, y: f32) {
+    line(path, &[(x - 8., y - 8.), (x + 8., y + 8.)]);
+    line(path, &[(x - 8., y + 8.), (x + 8., y - 8.)]);
+}
+fn monitor(path: &mut PathBuilder) {
+    rect(path, 49., 39., 70., 47.);
+    line(path, &[(84., 86.), (84., 98.)]);
+    line(path, &[(67., 99.), (101., 99.)]);
+}
+fn window(path: &mut PathBuilder) {
+    rect(path, 49., 40., 70., 59.);
+    line(path, &[(49., 54.), (119., 54.)]);
+    path.push_circle(57., 47., 1.);
+}
+fn tab(path: &mut PathBuilder) {
+    line(
+        path,
+        &[
+            (48., 98.),
+            (48., 49.),
+            (55., 49.),
+            (61., 39.),
+            (83., 39.),
+            (89., 49.),
+            (120., 49.),
+            (120., 98.),
+            (48., 98.),
+        ],
+    );
+    line(path, &[(49., 59.), (119., 59.)]);
+}
+fn mouse(path: &mut PathBuilder, x: f32) {
+    path.move_to(x, 58.);
+    path.cubic_to(x, 30., x + 38., 30., x + 38., 58.);
+    path.line_to(x + 38., 80.);
+    path.cubic_to(x + 38., 108., x, 108., x, 80.);
+    path.close();
+    line(path, &[(x, 61.), (x + 38., 61.)]);
+    line(path, &[(x + 19., 39.), (x + 19., 59.)]);
+}
+fn return_arrow(path: &mut PathBuilder, forward: bool) {
+    let (start, end, direction) = if forward {
+        (52., 108., 1.)
+    } else {
+        (116., 60., -1.)
+    };
+    path.move_to(start, 94.);
+    path.cubic_to(start, 57., end, 57., end, 63.);
+    line(
+        path,
+        &[
+            (end - 13. * direction, 48.),
+            (end + 3. * direction, 63.),
+            (end - 13. * direction, 77.),
+        ],
+    );
+}
+fn artwork(path: &mut PathBuilder, item: Item) {
+    use crate::scan_menu::{Command as C, Kind as K, Setting as S};
+    match item {
+        Item::More => {
+            for x in [60., 84., 108.] {
+                path.push_circle(x, 68., 5.);
+            }
+        }
+        Item::Group(kind) => match kind {
+            K::Mouse => mouse(path, 65.),
+            K::Editing => {
+                line(
+                    path,
+                    &[
+                        (54., 95.),
+                        (59., 76.),
+                        (102., 33.),
+                        (116., 47.),
+                        (73., 90.),
+                        (54., 95.),
+                    ],
+                );
+                line(path, &[(59., 76.), (73., 90.)]);
+                line(path, &[(95., 40.), (109., 54.)]);
+                line(path, &[(85., 99.), (118., 99.)]);
+            }
+            K::Windows => {
+                rect(path, 46., 36., 57., 43.);
+                rect(path, 65., 58., 57., 43.);
+                line(path, &[(65., 70.), (122., 70.)]);
+            }
+            K::Browser => {
+                path.push_circle(84., 68., 32.);
+                path.move_to(84., 36.);
+                path.cubic_to(59., 50., 59., 86., 84., 100.);
+                path.move_to(84., 36.);
+                path.cubic_to(109., 50., 109., 86., 84., 100.);
+                line(path, &[(52., 68.), (116., 68.)]);
+            }
+            K::Media => {
+                path.push_circle(84., 68., 33.);
+                line(path, &[(76., 51.), (101., 68.), (76., 85.), (76., 51.)]);
+            }
+            K::Displays => {
+                monitor(path);
+                rect(path, 42., 32., 70., 47.);
+            }
+            K::Scanning => {
+                rect(path, 51., 35., 66., 66.);
+                line(path, &[(73., 35.), (73., 101.)]);
+                line(path, &[(95., 35.), (95., 101.)]);
+                line(path, &[(51., 57.), (117., 57.)]);
+                line(path, &[(51., 79.), (117., 79.)]);
+                path.push_circle(84., 68., 5.);
+            }
+            K::Tabs => {
+                tab(path);
+                line(path, &[(96., 39.), (119., 39.), (126., 49.)]);
+            }
+            K::Zoom => {
+                path.push_circle(78., 61., 24.);
+                line(path, &[(95., 79.), (117., 101.)]);
+            }
+            K::More | K::Actions | K::Scroll | K::ConfirmDrag => {
+                unreachable!("Not a grouped menu tile")
+            }
+        },
+        Item::Command(command) => match command {
+            C::MiddleClick => {
+                mouse(path, 65.);
+                rect(path, 80., 44., 8., 12.);
+            }
+            C::TripleClick => {
+                mouse(path, 57.);
+                for y in [43., 58., 73.] {
+                    line(path, &[(108., y), (119., y)]);
+                }
+            }
+            C::ShiftClick | C::CtrlClick | C::AltClick | C::MetaClick => {
+                mouse(path, 44.);
+                match command {
+                    C::ShiftClick => line(
+                        path,
+                        &[
+                            (99., 79.),
+                            (99., 63.),
+                            (91., 63.),
+                            (109., 45.),
+                            (127., 63.),
+                            (119., 63.),
+                            (119., 79.),
+                            (99., 79.),
+                        ],
+                    ),
+                    C::CtrlClick => line(path, &[(94., 70.), (109., 52.), (124., 70.)]),
+                    C::AltClick => {
+                        line(path, &[(91., 51.), (103., 51.), (116., 81.), (129., 81.)]);
+                        line(path, &[(111., 51.), (129., 51.)]);
+                    }
+                    C::MetaClick if cfg!(target_os = "macos") => {
+                        rect(path, 101., 57., 16., 16.);
+                        for (x, y) in [(97., 53.), (121., 53.), (97., 77.), (121., 77.)] {
+                            path.push_circle(x, y, 4.);
+                        }
+                    }
+                    C::MetaClick => {
+                        for (x, y) in [(94., 49.), (113., 49.), (94., 68.), (113., 68.)] {
+                            rect(path, x, y, 14., 14.);
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            C::Copy => {
+                rect(path, 48., 36., 48., 52.);
+                rect(path, 70., 54., 48., 52.);
+            }
+            C::Cut => {
+                path.push_circle(60., 86., 11.);
+                path.push_circle(108., 86., 11.);
+                line(path, &[(68., 78.), (113., 37.)]);
+                line(path, &[(100., 78.), (55., 37.)]);
+            }
+            C::Paste => {
+                rect(path, 55., 42., 58., 60.);
+                rect(path, 71., 34., 26., 16.);
+                line(path, &[(70., 66.), (99., 66.)]);
+                line(path, &[(70., 80.), (94., 80.)]);
+            }
+            C::SelectAll => {
+                for (x, y, dx, dy) in [
+                    (50., 37., 16., 16.),
+                    (118., 37., -16., 16.),
+                    (50., 99., 16., -16.),
+                    (118., 99., -16., -16.),
+                ] {
+                    line(path, &[(x + dx, y), (x, y), (x, y + dy)]);
+                }
+                for y in [53., 68., 83.] {
+                    line(path, &[(68., y), (101., y)]);
+                }
+            }
+            C::Undo | C::Redo => return_arrow(path, command == C::Redo),
+            C::Save => {
+                line(
+                    path,
+                    &[
+                        (54., 36.),
+                        (104., 36.),
+                        (116., 48.),
+                        (116., 101.),
+                        (54., 101.),
+                        (54., 36.),
+                    ],
+                );
+                rect(path, 68., 36., 30., 22.);
+                rect(path, 66., 76., 38., 25.);
+            }
+            C::Find => {
+                path.push_circle(76., 60., 23.);
+                line(path, &[(93., 77.), (117., 101.)]);
+                line(path, &[(67., 56.), (85., 56.)]);
+                line(path, &[(67., 65.), (79., 65.)]);
+            }
+            C::SwitchNext | C::SwitchPrevious => {
+                rect(path, 48., 36., 46., 38.);
+                rect(path, 73., 54., 46., 38.);
+                arrow(
+                    path,
+                    84.,
+                    98.,
+                    if command == C::SwitchNext { 1. } else { -1. },
+                );
+            }
+            C::Overview => {
+                rect(path, 48., 37., 30., 27.);
+                rect(path, 88., 37., 32., 40.);
+                rect(path, 48., 74., 30., 27.);
+                rect(path, 88., 87., 32., 14.);
+            }
+            C::Desktop => {
+                monitor(path);
+                rect(path, 59., 48., 9., 9.);
+                rect(path, 59., 66., 9., 9.);
+                line(path, &[(77., 78.), (108., 78.)]);
+            }
+            C::Minimize => {
+                window(path);
+                line(path, &[(71., 85.), (99., 85.)]);
+            }
+            C::Maximize => {
+                for (x, y, dx, dy) in [
+                    (52., 39., 18., 18.),
+                    (116., 39., -18., 18.),
+                    (52., 99., 18., -18.),
+                    (116., 99., -18., -18.),
+                ] {
+                    line(path, &[(x + dx, y), (x, y), (x, y + dy)]);
+                    line(path, &[(x, y), (x + dx, y + dy)]);
+                }
+            }
+            C::CloseWindow => {
+                window(path);
+                cross(path, 84., 77.);
+            }
+            C::BrowserBack | C::BrowserForward => {
+                window(path);
+                arrow(
+                    path,
+                    84.,
+                    77.,
+                    if command == C::BrowserForward {
+                        1.
+                    } else {
+                        -1.
+                    },
+                );
+            }
+            C::Reload => {
+                path.move_to(111., 52.);
+                path.cubic_to(88., 24., 48., 43., 54., 76.);
+                path.cubic_to(60., 105., 98., 110., 115., 85.);
+                line(path, &[(112., 35.), (112., 54.), (94., 54.)]);
+            }
+            C::NewTab | C::CloseTab | C::ReopenTab | C::NextTab | C::PreviousTab => {
+                tab(path);
+                match command {
+                    C::NewTab => plus(path, 84., 79., true),
+                    C::CloseTab => cross(path, 84., 79.),
+                    C::NextTab | C::PreviousTab => {
+                        arrow(path, 84., 79., if command == C::NextTab { 1. } else { -1. })
+                    }
+                    C::ReopenTab => {
+                        path.move_to(103., 89.);
+                        path.cubic_to(103., 69., 80., 68., 72., 77.);
+                        line(path, &[(72., 66.), (72., 79.), (85., 79.)]);
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            C::Address => {
+                rect(path, 44., 48., 80., 38.);
+                path.push_circle(60., 67., 5.);
+                line(path, &[(79., 57.), (79., 77.)]);
+                line(path, &[(74., 57.), (84., 57.)]);
+                line(path, &[(74., 77.), (84., 77.)]);
+                line(path, &[(96., 67.), (111., 67.)]);
+            }
+            C::ZoomIn | C::ZoomOut | C::ZoomReset => {
+                path.push_circle(76., 60., 25.);
+                line(path, &[(94., 79.), (116., 101.)]);
+                if command == C::ZoomReset {
+                    line(path, &[(67., 52.), (67., 68.)]);
+                    line(path, &[(85., 52.), (85., 68.)]);
+                    path.push_circle(76., 56., 1.);
+                    path.push_circle(76., 64., 1.);
+                } else {
+                    plus(path, 76., 60., command == C::ZoomIn);
+                }
+            }
+            C::PlayPause => {
+                line(path, &[(52., 43.), (84., 68.), (52., 93.), (52., 43.)]);
+                line(path, &[(101., 44.), (101., 92.)]);
+                line(path, &[(117., 44.), (117., 92.)]);
+            }
+            C::NextTrack | C::PreviousTrack => {
+                let d = if command == C::NextTrack { 1. } else { -1. };
+                line(
+                    path,
+                    &[
+                        (84. - 24. * d, 44.),
+                        (84. + 12. * d, 68.),
+                        (84. - 24. * d, 92.),
+                        (84. - 24. * d, 44.),
+                    ],
+                );
+                line(path, &[(84. + 26. * d, 44.), (84. + 26. * d, 92.)]);
+            }
+            C::VolumeUp | C::VolumeDown | C::Mute => {
+                line(
+                    path,
+                    &[
+                        (47., 57.),
+                        (60., 57.),
+                        (81., 40.),
+                        (81., 96.),
+                        (60., 79.),
+                        (47., 79.),
+                        (47., 57.),
+                    ],
+                );
+                if command == C::Mute {
+                    cross(path, 110., 68.);
+                } else {
+                    plus(path, 110., 68., command == C::VolumeUp);
+                }
+            }
+        },
+        Item::Display(next) => {
+            monitor(path);
+            arrow(path, 84., 63., if next { 1. } else { -1. });
+        }
+        Item::Pause => {
+            rect(path, 62., 42., 13., 52.);
+            rect(path, 94., 42., 13., 52.);
+        }
+        Item::Reverse => {
+            arrow(path, 84., 51., -1.);
+            arrow(path, 84., 86., 1.);
+        }
+        Item::Setting(setting) => match setting {
+            S::FasterScan | S::SlowerScan => {
+                path.push_circle(74., 68., 27.);
+                line(path, &[(74., 49.), (74., 68.), (88., 76.)]);
+                line(path, &[(66., 32.), (82., 32.)]);
+                plus(path, 117., 43., setting == S::FasterScan);
+            }
+            S::FasterLine | S::SlowerLine => {
+                line(path, &[(57., 38.), (57., 99.)]);
+                line(path, &[(68., 88.), (97., 88.)]);
+                line(path, &[(84., 77.), (97., 88.), (84., 99.)]);
+                plus(path, 106., 49., setting == S::FasterLine);
+            }
+            S::LineMode => {
+                rect(path, 50., 35., 68., 66.);
+                line(path, &[(79., 36.), (79., 100.)]);
+                line(path, &[(51., 74.), (117., 74.)]);
+                path.push_circle(79., 74., 6.);
+            }
+            S::GridMode => {
+                rect(path, 48., 36., 72., 64.);
+                line(path, &[(72., 36.), (72., 100.)]);
+                line(path, &[(96., 36.), (96., 100.)]);
+                line(path, &[(48., 57.), (120., 57.)]);
+                line(path, &[(48., 79.), (120., 79.)]);
+                rect(path, 75., 60., 18., 16.);
+            }
+        },
+        _ => unreachable!("Legacy tile artwork is drawn separately"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +602,7 @@ mod tests {
     }
     #[test]
     fn every_action_has_distinct_artwork_and_selection_changes_the_background() {
+        use crate::scan_menu::{Command as C, Kind as K, Setting as S};
         use Item::*;
         let mut images = Vec::new();
         for icon in [
@@ -198,6 +618,65 @@ mod tests {
             Left,
             Right,
             DragHere,
+            More,
+            Group(K::Mouse),
+            Group(K::Editing),
+            Group(K::Windows),
+            Group(K::Browser),
+            Group(K::Media),
+            Group(K::Displays),
+            Group(K::Scanning),
+            Group(K::Tabs),
+            Group(K::Zoom),
+            Command(C::MiddleClick),
+            Command(C::TripleClick),
+            Command(C::ShiftClick),
+            Command(C::CtrlClick),
+            Command(C::AltClick),
+            Command(C::MetaClick),
+            Command(C::Copy),
+            Command(C::Cut),
+            Command(C::Paste),
+            Command(C::SelectAll),
+            Command(C::Undo),
+            Command(C::Redo),
+            Command(C::Save),
+            Command(C::Find),
+            Command(C::SwitchNext),
+            Command(C::SwitchPrevious),
+            Command(C::Overview),
+            Command(C::Desktop),
+            Command(C::Minimize),
+            Command(C::Maximize),
+            Command(C::CloseWindow),
+            Command(C::BrowserBack),
+            Command(C::BrowserForward),
+            Command(C::Reload),
+            Command(C::NewTab),
+            Command(C::CloseTab),
+            Command(C::ReopenTab),
+            Command(C::NextTab),
+            Command(C::PreviousTab),
+            Command(C::Address),
+            Command(C::ZoomIn),
+            Command(C::ZoomOut),
+            Command(C::ZoomReset),
+            Command(C::PlayPause),
+            Command(C::NextTrack),
+            Command(C::PreviousTrack),
+            Command(C::VolumeUp),
+            Command(C::VolumeDown),
+            Command(C::Mute),
+            Display(true),
+            Display(false),
+            Pause,
+            Reverse,
+            Setting(S::FasterScan),
+            Setting(S::SlowerScan),
+            Setting(S::FasterLine),
+            Setting(S::SlowerLine),
+            Setting(S::LineMode),
+            Setting(S::GridMode),
         ] {
             let mut tile = FrameTile {
                 color: Default::default(),
@@ -213,7 +692,10 @@ mod tests {
                 selected: false,
             };
             let normal = bitmap(&tile).unwrap();
-            assert!(images.iter().all(|previous| previous != normal.data()));
+            assert!(
+                images.iter().all(|previous| previous != normal.data()),
+                "Duplicate artwork: {icon:?}"
+            );
             images.push(normal.data().to_vec());
             tile.selected = true;
             let selected = bitmap(&tile).unwrap();
