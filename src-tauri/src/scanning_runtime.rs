@@ -535,7 +535,9 @@ fn tick<A: Adapter>(app: &AppHandle) {
                 .is_some_and(|start| now_ms.saturating_sub(start) >= settings.escape_ms())
         };
         if expired {
-            disable::<A>(app, "Remote switch held. Start forwarding again.");
+            // Mirror the local emergency hold: reset the scan, keep the
+            // session. The next tick restarts remote scanning in place.
+            reset_scanner::<A>(app, "Switch held too long. Scan reset.");
             return;
         }
     }

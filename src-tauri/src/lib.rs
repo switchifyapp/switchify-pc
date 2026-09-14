@@ -1266,7 +1266,6 @@ fn save_remote_switches(
     config: remote_scan::Config,
 ) -> Result<remote_scan::Config, String> {
     require_main(&window)?;
-    point_scan_runtime::pause(&app);
     remote_scan::save(&app, config)
 }
 #[tauri::command]
@@ -1286,9 +1285,11 @@ fn save_switches(
     require_main(&window)?;
     // Sync commands run on the main thread, which pausing the overlay needs.
     point_scan_runtime::pause(&app);
-    remote_scan::save(&app, remote_scan::config(&app))?;
-    app.state::<switch_runtime::Controller>()
-        .save(&app, settings)
+    let view = app
+        .state::<switch_runtime::Controller>()
+        .save(&app, settings)?;
+    remote_scan::apply(&app);
+    Ok(view)
 }
 #[tauri::command]
 fn begin_switch_capture(

@@ -20,8 +20,10 @@ pub fn configure(app: &AppHandle, config: Config) -> Result<View, String> {
     if config.switches().keys() != previous.switches().keys() {
         return Err("Edit key assignments in Settings → Switches.".into());
     }
-    crate::remote_scan::save(app, crate::remote_scan::config(app))?;
-    scanning_runtime::configure::<PointScan>(app, config)
+    let view = scanning_runtime::configure::<PointScan>(app, config)?;
+    // A mode change alters which remote assignments a live session needs.
+    crate::remote_scan::apply(app);
+    Ok(view)
 }
 pub fn pause(app: &AppHandle) {
     scanning_runtime::pause::<PointScan>(app);

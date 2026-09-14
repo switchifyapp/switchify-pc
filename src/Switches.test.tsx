@@ -35,6 +35,14 @@ const initial: SwitchState = {
   unavailableKeys: [],
 };
 let current: SwitchState;
+type RemoteSlotFixture = { pressAction: string | null; holdActions: string[]; name?: string };
+const emptySlot: RemoteSlotFixture = { pressAction: null, holdActions: [] };
+const initialRemote: { schemaVersion: number; revision: number; slots: RemoteSlotFixture[] } = {
+  schemaVersion: 1,
+  revision: 1,
+  slots: [{ pressAction: "select", holdActions: [] }, ...Array.from({ length: 7 }, () => emptySlot)],
+};
+let remote: typeof initialRemote;
 const scan = {
   config: defaultPointScanConfig,
   enabled: false,
@@ -62,6 +70,7 @@ function event(next: SwitchState) {
 }
 beforeEach(() => {
   current = structuredClone(initial);
+  remote = structuredClone(initialRemote);
   Object.defineProperty(window, "__TAURI_INTERNALS__", {
     configurable: true,
     value: {},
@@ -86,6 +95,11 @@ beforeEach(() => {
           capture: { active: false, key: null, error: null },
         };
         return current;
+      case "get_remote_switches":
+        return structuredClone(remote);
+      case "save_remote_switches":
+        remote = { ...args.config, revision: remote.revision + 1 };
+        return remote;
       case "get_point_scan":
         return scan;
       case "configure_point_scan":
@@ -330,4 +344,50 @@ it("keeps focus in the draft when another switch is removed while adding", async
   fireEvent.click(screen.getByRole("button", { name: "Remove Head switch" }));
   await waitFor(() => expect(current.settings.bindings).toHaveLength(0));
   expect(document.activeElement).toBe(screen.getByLabelText("New switch name"));
+});
+it("lists remote switches with local ones and edits them in place", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Remote switch 1" });
+  expect(screen.getByText("Remote 1")).toBeTruthy();
+  open("Remote switch 1");
+  expect(screen.queryByRole("button", { name: /Learn another key/ })).toBeNull();
+  fireEvent.change(screen.getByLabelText("Normal action for Remote switch 1"), { target: { value: "next" } });
+  await waitFor(() => expect(remote.slots[0].pressAction).toBe("next"));
+  fireEvent.change(screen.getByLabelText("Name for Remote 1"), { target: { value: "Chin" } });
+  await waitFor(() => expect(remote.slots[0].name).toBe("Chin"));
+  await screen.findByRole("heading", { name: "Chin" });
+  fireEvent.click(screen.getByRole("button", { name: "Add hold action for Chin" }));
+  await waitFor(() => expect(remote.slots[0].holdActions).toEqual(["next"]));
+  expect(mocks.invoke.mock.calls.some(([c]) => c === "save_switches")).toBe(false);
+});
+it("adds a remote switch into the next free slot and can move it", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Remote switch 1" });
+  fireEvent.click(screen.getByRole("button", { name: "Add remote switch" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  const slot = screen.getByLabelText("Remote switch number for Remote switch 2");
+  expect(slot).toHaveValue("1");
+  fireEvent.change(slot, { target: { value: "3" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save switch" }));
+  await waitFor(() => expect(remote.slots[3].pressAction).toBe("select"));
+  expect(remote.slots[1].pressAction).toBeNull();
+  await screen.findByRole("heading", { name: "Remote switch 4" });
+  open("Remote switch 4");
+  fireEvent.change(screen.getByLabelText("Remote switch number for Remote switch 4"), { target: { value: "1" } });
+  await waitFor(() => expect(remote.slots[1].pressAction).toBe("select"));
+  expect(remote.slots[3].pressAction).toBeNull();
+  expect(screen.getByRole("button", { name: "Close Remote switch 2" })).toBeTruthy();
+});
+it("removes a remote switch and surfaces a failed remote save with retry", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Remote switch 1" });
+  mocks.invoke.mockImplementationOnce(async () => {
+    throw "Remote save failed";
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Remove Remote switch 1" }));
+  await screen.findByText("Remote save failed");
+  expect(remote.slots[0].pressAction).toBe("select");
+  fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
+  await waitFor(() => expect(remote.slots[0].pressAction).toBeNull());
+  expect(screen.queryByRole("heading", { name: "Remote switch 1" })).toBeNull();
 });
