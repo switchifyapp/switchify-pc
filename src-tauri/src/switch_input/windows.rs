@@ -271,10 +271,8 @@ unsafe fn run(
             .collect();
         driver.ready(down);
         let mut core = driver.core.lock().unwrap_or_else(|p| p.into_inner());
-        if !core.down.is_empty() {
-            bail!("Release held keys before starting capture.");
-        }
-        core.begin(mode, driver.now());
+        let down = core.down.clone();
+        core.begin_with_pressed_keys(mode, driver.now(), down)?;
         Ok(())
     })();
     let timer = if setup.is_ok() {
@@ -386,6 +384,30 @@ mod tests {
             },
             keys: HashMap::from([(32, "Space".into()), (27, "Escape".into())]),
         }
+    }
+    #[test]
+    fn learning_ignores_hotkey_for_preheld_key_until_raw_release() {
+        let i = input();
+        {
+            let mut c = i.driver.core.lock().unwrap();
+            c.stop(StopReason::Disabled);
+            c.begin_with_pressed_keys(
+                Mode::Learning,
+                0,
+                std::collections::HashSet::from(["Space".into()]),
+            )
+            .unwrap();
+        }
+        i.hotkey(32);
+        i.raw(32, true);
+        assert!(i.driver.core.lock().unwrap().events.is_empty());
+        i.hotkey(32);
+        i.raw(32, true);
+        let mut c = i.driver.core.lock().unwrap();
+        assert!(
+            matches!(c.events.pop_front(), Some(Event::Learned { code, .. }) if code == "Space")
+        );
+        assert!(c.events.is_empty());
     }
     #[test]
     fn raw_make_and_unmatched_break_cannot_start_gestures() {
