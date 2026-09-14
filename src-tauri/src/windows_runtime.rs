@@ -4,7 +4,7 @@ use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use enigo::{Enigo, Settings};
+use enigo::Enigo;
 use tauri::{AppHandle, Manager};
 use windows::core::{IInspectable, Ref, GUID, HSTRING};
 use windows::Devices::Bluetooth::BluetoothError;
@@ -1059,7 +1059,7 @@ async fn start_gatt(
         }))
         .map_err(|error| error.to_string())?;
 
-    let input = Enigo::new(&Settings::default())
+    let input = Enigo::new(&crate::input::injection_settings())
         .map_err(|_| "Windows input injection could not initialize.".to_string())?;
     if !generation_is_current(&lifecycle, generation) {
         notifications.shutdown();

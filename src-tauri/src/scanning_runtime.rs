@@ -399,7 +399,21 @@ fn dispatch<A: Adapter>(
             host.hide();
         }
     });
-    A::activate(app, request)
+    if let Err(error) = A::activate(app, request) {
+        A::cleanup(app)?;
+        let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+        d.message = error.clone();
+        if let Some(engine) = d.engine.as_mut() {
+            engine.execution_failed(error);
+        }
+    }
+    {
+        let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+        if d.engine.as_ref().is_some_and(|e| !e.active()) {
+            d.display = None;
+        }
+    }
+    Ok(())
 }
 fn render_tiles(tiles: &[crate::scanning::FrameTile]) -> Result<(), String> {
     TILES.with(|slot| {
@@ -709,6 +723,60 @@ fn show_prompt(
             scale,
         )
     })
+}
+
+pub fn update_point_setting(
+    app: &AppHandle,
+    setting: crate::scan_menu::Setting,
+) -> Result<(), String> {
+    use crate::point_scan_runtime::PointScan;
+    let controller = app.state::<Controller<PointScan>>();
+    let mut data = controller.data.lock().unwrap_or_else(|p| p.into_inner());
+    let mut config = data.config.clone();
+    setting.apply(&mut config);
+    config.validate()?;
+    let path = config_path::<PointScan>(app)?;
+    let save = || -> Result<(), String> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|_| "Cannot save scanning settings.")?;
+        }
+        let temp = path.with_extension("json.tmp");
+        std::fs::write(
+            &temp,
+            serde_json::to_vec_pretty(&config).map_err(|_| "Cannot encode scanning settings.")?,
+        )
+        .map_err(|_| "Cannot save scanning settings.")?;
+        std::fs::rename(&temp, &path).map_err(|_| "Cannot save scanning settings.".to_string())
+    };
+    save()?;
+    if let Some(engine) = data.engine.as_mut() {
+        engine.technique.apply_config(
+            config.point(),
+            matches!(
+                setting,
+                crate::scan_menu::Setting::LineMode | crate::scan_menu::Setting::GridMode
+            ),
+        );
+    }
+    data.config = config;
+    drop(data);
+    publish::<PointScan>(app);
+    Ok(())
+}
+pub fn restart_point_on_display(app: &AppHandle, next: bool) -> Result<(), String> {
+    use crate::point_scan_runtime::PointScan;
+    let (cursor, displays) = crate::display_navigation::displays(app).map_err(|e| e.message)?;
+    let target = crate::display_navigation::cycle_center(cursor, &displays, next)?;
+    crate::scan_executor::move_to(target)?;
+    let controller = app.state::<Controller<PointScan>>();
+    let mut data = controller.data.lock().unwrap_or_else(|p| p.into_inner());
+    let (technique, environment) = PointScan::create(app, data.config.clone())?;
+    let mut engine = Session::new(technique, data.config.automatic);
+    engine.action(Action::Select);
+    data.engine = Some(engine);
+    data.display = Some(environment);
+    data.last_tick = Instant::now();
+    Ok(())
 }
 
 #[cfg(test)]

@@ -61,7 +61,7 @@ impl AccessibilityAdapter for SystemAccessibilityAdapter {
     fn create_input(&mut self) -> Result<Self::Input, String> {
         Enigo::new(&Settings {
             open_prompt_to_get_permissions: false,
-            ..Settings::default()
+            ..crate::input::injection_settings()
         })
         .map_err(|error| error.to_string())
     }
@@ -69,7 +69,7 @@ impl AccessibilityAdapter for SystemAccessibilityAdapter {
     fn request_prompt(&mut self) {
         let _ = Enigo::new(&Settings {
             open_prompt_to_get_permissions: true,
-            ..Settings::default()
+            ..crate::input::injection_settings()
         });
     }
 

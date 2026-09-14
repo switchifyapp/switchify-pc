@@ -190,7 +190,7 @@ mod platform {
                 opacity: 255,
                 role: crate::scanning::VisualRole::Accent,
             }])?;
-            let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
+            let label = NSTextField::wrappingLabelWithString(&NSString::from_str(text), mtm);
             label.setFont(Some(&NSFont::systemFontOfSize(20.0 * scale)));
             label.setTextColor(Some(&NSColor::whiteColor()));
             label.setFrame(NSRect::new(
@@ -230,7 +230,7 @@ mod platform {
             let artwork = NSImageView::initWithFrame(NSImageView::alloc(mtm), bounds);
             artwork.setImage(Some(&image));
             view.addSubview(&artwork);
-            let label = NSTextField::labelWithString(&NSString::from_str(&tile.text), mtm);
+            let label = NSTextField::wrappingLabelWithString(&NSString::from_str(&tile.text), mtm);
             label.setFont(Some(&NSFont::boldSystemFontOfSize(15.0 * tile.scale)));
             label.setTextColor(Some(&NSColor::whiteColor()));
             label.setAlignment(NSTextAlignment::Center);
@@ -313,4 +313,50 @@ pub fn foreground() -> Result<usize, String> {
     {
         Err("Local scanning is unavailable.".into())
     }
+}
+
+#[cfg(target_os = "macos")]
+pub fn close_foreground_window() -> Result<(), String> {
+    use core_foundation::{
+        base::{CFType, CFTypeRef, TCFType},
+        string::{CFString, CFStringRef},
+    };
+    #[link(name = "ApplicationServices", kind = "framework")]
+    unsafe extern "C" {
+        fn AXUIElementCreateApplication(pid: i32) -> CFTypeRef;
+        fn AXUIElementCopyAttributeValue(
+            element: CFTypeRef,
+            attribute: CFStringRef,
+            value: *mut CFTypeRef,
+        ) -> i32;
+        fn AXUIElementPerformAction(element: CFTypeRef, action: CFStringRef) -> i32;
+    }
+    fn attribute(element: &CFType, name: &str) -> Result<CFType, String> {
+        let name = CFString::new(name);
+        let mut value = std::ptr::null();
+        let result = unsafe {
+            AXUIElementCopyAttributeValue(
+                element.as_CFTypeRef(),
+                name.as_concrete_TypeRef(),
+                &mut value,
+            )
+        };
+        if result != 0 || value.is_null() {
+            return Err("The foreground window's close button is unavailable.".into());
+        }
+        Ok(unsafe { CFType::wrap_under_create_rule(value) })
+    }
+    let application = unsafe { AXUIElementCreateApplication(foreground()? as i32) };
+    if application.is_null() {
+        return Err("No foreground application is available.".into());
+    }
+    let application = unsafe { CFType::wrap_under_create_rule(application) };
+    let window = attribute(&application, "AXFocusedWindow")?;
+    let button = attribute(&window, "AXCloseButton")?;
+    let action = CFString::new("AXPress");
+    if unsafe { AXUIElementPerformAction(button.as_CFTypeRef(), action.as_concrete_TypeRef()) } != 0
+    {
+        return Err("The foreground window could not be closed.".into());
+    }
+    Ok(())
 }
