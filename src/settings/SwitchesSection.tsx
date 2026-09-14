@@ -1,6 +1,6 @@
-import { RemoteSwitches } from "./RemoteSwitches";
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Keyboard, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Keyboard, Smartphone, Trash2, X } from "lucide-react";
+import { useRemoteSwitches, type RemoteSlot } from "../scanning/useRemoteSwitches";
 import {
   actions,
   type Binding,
@@ -86,6 +86,7 @@ function SwitchEditor({
   onDone,
   onRemove,
   nameRef,
+  remote,
 }: {
   id?: string;
   binding: Binding;
@@ -99,10 +100,14 @@ function SwitchEditor({
   onDone: () => void;
   onRemove: () => void;
   nameRef: React.RefObject<HTMLInputElement | null>;
+  /** Present for a switch forwarded from Switchify Remote: its slot and the
+   *  slots it could move to. Remote switches have a default name, so a new
+   *  one can be saved unnamed. */
+  remote?: { slot: number; free: number[]; onSlot: (slot: number) => void };
 }) {
-  const name = binding.name || "this switch";
+  const name = binding.name || (remote ? `Remote switch ${remote.slot + 1}` : "this switch");
   const keyErrorId = useId();
-  const canSave = !isNew || (!!binding.name.trim() && !!binding.key);
+  const canSave = !isNew || (!!binding.key && (!!binding.name.trim() || !!remote));
   const move = (index: number, delta: number) => {
     const holdActions = [...binding.holdActions];
     [holdActions[index], holdActions[index + delta]] = [
@@ -124,27 +129,46 @@ function SwitchEditor({
           onChange={(e) => onChange({ ...binding, name: e.target.value })}
         />
       </label>
-      <div className="field">
-        <span>Key</span>
-        <div className="key-row">
-          <KeyBadge value={binding.key} unavailable={unavailable} />
-          <button
-            type="button"
-            className="secondary"
-            aria-label={isNew ? "Learn switch key" : `Learn another key for ${name}`}
-            aria-describedby={keyError || unavailable ? keyErrorId : undefined}
-            onClick={onLearn}
+      {remote ? (
+        <label className="field">
+          <span>Remote switch</span>
+          <select
+            aria-label={`Remote switch number for ${name}`}
+            value={remote.slot}
+            onChange={(e) => remote.onSlot(Number(e.target.value))}
           >
-            {binding.key ? "Change key" : "Learn key"}
-          </button>
+            {[remote.slot, ...remote.free]
+              .sort((a, b) => a - b)
+              .map((slot) => (
+                <option key={slot} value={slot}>
+                  Switch {slot + 1} on the Forwarding screen
+                </option>
+              ))}
+          </select>
+        </label>
+      ) : (
+        <div className="field">
+          <span>Key</span>
+          <div className="key-row">
+            <KeyBadge value={binding.key} unavailable={unavailable} />
+            <button
+              type="button"
+              className="secondary"
+              aria-label={isNew ? "Learn switch key" : `Learn another key for ${name}`}
+              aria-describedby={keyError || unavailable ? keyErrorId : undefined}
+              onClick={onLearn}
+            >
+              {binding.key ? "Change key" : "Learn key"}
+            </button>
+          </div>
+          {(keyError || unavailable) && (
+            <span className="field-error" id={keyErrorId} role="alert">
+              {keyError ??
+                "This key is unavailable on this computer. Learn another key."}
+            </span>
+          )}
         </div>
-        {(keyError || unavailable) && (
-          <span className="field-error" id={keyErrorId} role="alert">
-            {keyError ??
-              "This key is unavailable on this computer. Learn another key."}
-          </span>
-        )}
-      </div>
+      )}
       <label className="field">
         <span>Press and release</span>
         <ActionSelect
@@ -317,7 +341,47 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
       ? controller.error
       : null;
   const [draft, setDraft] = useState<Binding | null>(null);
+  // A draft with a slot is a remote switch; it never learns a key.
+  const [draftSlot, setDraftSlot] = useState<number | null>(null);
   useEffect(() => { onDraftChange?.(draft !== null); }, [draft, onDraftChange]);
+  const remote = useRemoteSwitches();
+  const slots = remote.config?.slots ?? [];
+  const remoteRows = slots
+    .map((slot, index) => ({ slot, index }))
+    .filter(({ slot }) => slot.pressAction !== null);
+  const freeSlots = slots
+    .map((slot, index) => (slot.pressAction === null ? index : -1))
+    .filter((index) => index >= 0);
+  const remoteId = (index: number) => `remote-${index + 1}`;
+  const remoteBinding = (slot: RemoteSlot, index: number): Binding => ({
+    id: remoteId(index),
+    name: slot.name ?? "",
+    key: `Remote ${index + 1}`,
+    pressAction: slot.pressAction ?? "select",
+    holdActions: slot.holdActions,
+  });
+  const setSlot = (index: number, slot: RemoteSlot | null) =>
+    remote.update(
+      slots.map((s, i) =>
+        i === index ? (slot ?? { pressAction: null, holdActions: [] }) : s,
+      ),
+    );
+  const slotFrom = (binding: Binding): RemoteSlot => ({
+    pressAction: binding.pressAction,
+    holdActions: binding.holdActions,
+    ...(binding.name.trim() ? { name: binding.name.trim() } : {}),
+  });
+  const moveSlot = (from: number, to: number) => {
+    if (from === to || slots[to]?.pressAction !== null) return;
+    remote.update(
+      slots.map((s, i) =>
+        i === to ? slots[from] : i === from ? { pressAction: null, holdActions: [] } : s,
+      ),
+    );
+    // The row is keyed by its number, so it remounts; keep focus on it.
+    focusAfter.current = remoteId(to);
+    setExpanded(remoteId(to));
+  };
   const [expanded, setExpanded] = useState<string | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   // A key error belongs to the row that was learning when it happened, not to
@@ -330,15 +394,18 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
   // the page. Remember where focus should land and move it after the render.
   const editRefs = useRef(new Map<string, HTMLButtonElement>());
   const addRef = useRef<HTMLButtonElement>(null);
+  const addRemoteRef = useRef<HTMLButtonElement>(null);
   const focusAfter = useRef<string | null>(null);
   useEffect(() => {
     if (!focusAfter.current) return;
     const id = focusAfter.current;
     focusAfter.current = null;
-    // While a new switch is being drafted the Add switch button is not rendered,
-    // so a removal elsewhere hands focus to the draft's name field instead.
+    // Fall through past controls that are unmounted or disabled: while a new
+    // switch is being drafted the Add buttons are not rendered, so focus lands
+    // on the draft's name field instead.
     const target = id === newId ? null : editRefs.current.get(id);
-    (target ?? addRef.current ?? nameRef.current)?.focus();
+    const enabled = (el: HTMLElement | null) => (el && !(el as HTMLButtonElement).disabled ? el : null);
+    (target ?? enabled(addRef.current) ?? enabled(addRemoteRef.current) ?? nameRef.current)?.focus();
   });
   const cancel = useRef(controller.cancelCapture);
   cancel.current = controller.cancelCapture;
@@ -412,12 +479,23 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
     void controller.capture();
   };
   const startAdd = () => {
+    setDraftSlot(null);
     setDraft({ id: newId, name: "", key: "", pressAction: "select", holdActions: [] });
     setExpanded(newId);
     learn(newId);
   };
+  const startAddRemote = () => {
+    const slot = freeSlots[0];
+    if (slot === undefined) return;
+    setDraftSlot(slot);
+    setDraft({ id: newId, name: "", key: `Remote ${slot + 1}`, pressAction: "select", holdActions: [] });
+    setExpanded(newId);
+    // The Add buttons unmount while drafting; the name field takes focus.
+    focusAfter.current = newId;
+  };
   const cancelAdd = () => {
     setDraft(null);
+    setDraftSlot(null);
     setExpanded(null);
     setRowError(null);
     focusAfter.current = newId;
@@ -427,7 +505,16 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
     }
   };
   const add = () => {
-    if (!draft?.name.trim() || !draft.key) return;
+    if (!draft) return;
+    if (draftSlot !== null) {
+      setSlot(draftSlot, slotFrom(draft));
+      setDraft(null);
+      setDraftSlot(null);
+      setExpanded(null);
+      focusAfter.current = newId;
+      return;
+    }
+    if (!draft.name.trim() || !draft.key) return;
     controller.update({
       ...settings,
       bindings: [
@@ -439,7 +526,10 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
     setExpanded(null);
     focusAfter.current = newId;
   };
-  const escapeMs = escapeHoldMs(settings.bindings, settings.holdIntervalMs);
+  const escapeMs = escapeHoldMs(
+    [...settings.bindings, ...remoteRows.map(({ slot, index }) => remoteBinding(slot, index))],
+    settings.holdIntervalMs,
+  );
   const isPreset = (holdIntervalPresets as readonly number[]).includes(
     settings.holdIntervalMs,
   );
@@ -467,20 +557,33 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
       )}
       <SettingGroup
         title="Switches"
-        description="Add keyboard switches and choose what each one does."
+        description="Add keyboard switches or switches forwarded from Switchify Remote, and choose what each one does."
       >
         <SettingNote
           about="switches"
           summary="Press and release a switch to run its action. Hold it to step through its hold actions instead."
-          detail={`Movement freezes while a switch is held, and each hold action is offered on screen in turn. Escape disables switch control immediately. Holding any assigned switch for ${seconds(escapeMs)} also disables it.`}
+          detail={`Movement freezes while a switch is held, and each hold action is offered on screen in turn. Escape resets the scan. Holding any switch for ${seconds(escapeMs)} also resets it. Remote switches are numbered as they appear on the Forwarding screen in Switchify Remote and share the hold timing below.`}
         />
         <p className="setting-note switch-status" role="status">
-          {pending
+          {pending || remote.pending
             ? "Saving switches..."
-            : unsaved
+            : unsaved || remote.unsaved
               ? "Switch assignments have unsaved changes."
               : "Changes save automatically and apply straight away."}
         </p>
+        {remote.error && (
+          <div className="dialog-error switch-error" role="alert">
+            <span>{remote.error}</span>
+            <button
+              type="button"
+              className="secondary"
+              disabled={!!remote.pending}
+              onClick={remote.retry}
+            >
+              Retry save
+            </button>
+          </div>
+        )}
         {(error || state?.error) && (
           <div className="dialog-error switch-error" role="alert">
             <span>{error || state?.error}</span>
@@ -496,7 +599,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
             )}
           </div>
         )}
-        {!settings.bindings.length && !draft ? (
+        {!settings.bindings.length && !remoteRows.length && !draft ? (
           <div className="empty-state switch-empty">
             <Keyboard size={28} aria-hidden="true" />
             <h3>No switches yet</h3>
@@ -504,15 +607,26 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
               Automatic scanning needs a Select switch. Manual scanning also
               needs Next and Previous.
             </p>
-            <button
-              type="button"
-              className="primary"
-              ref={addRef}
-              disabled={disabled}
-              onClick={startAdd}
-            >
-              Add switch
-            </button>
+            <div className="switch-list-actions">
+              <button
+                type="button"
+                className="primary"
+                ref={addRef}
+                disabled={disabled}
+                onClick={startAdd}
+              >
+                Add switch
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                ref={addRemoteRef}
+                disabled={!remote.config || !freeSlots.length}
+                onClick={startAddRemote}
+              >
+                Add remote switch
+              </button>
+            </div>
           </div>
         ) : (
           <div className="switch-list" id={listId}>
@@ -583,23 +697,95 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
                 </article>
               );
             })}
+            {remoteRows.map(({ slot, index }) => {
+              const binding = remoteBinding(slot, index);
+              const open = expanded === binding.id;
+              const name = binding.name || `Remote switch ${index + 1}`;
+              return (
+                <article
+                  key={binding.id}
+                  className="switch-row"
+                  data-open={open || undefined}
+                >
+                  <div className="switch-row-summary">
+                    <Smartphone size={20} aria-hidden="true" />
+                    <div>
+                      <h3>{name}</h3>
+                      <p>{summary(binding)}</p>
+                    </div>
+                    <KeyBadge value={binding.key} unavailable={false} />
+                    <button
+                      type="button"
+                      className="secondary"
+                      ref={(el) => {
+                        if (el) editRefs.current.set(binding.id, el);
+                        else editRefs.current.delete(binding.id);
+                      }}
+                      aria-expanded={open}
+                      aria-controls={open ? `${listId}-${binding.id}` : undefined}
+                      aria-label={`${open ? "Close" : "Edit"} ${name}`}
+                      disabled={!!draft}
+                      onClick={() => setExpanded(open ? null : binding.id)}
+                    >
+                      {open ? "Close" : "Edit"}
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button danger-icon"
+                      aria-label={`Remove ${name}`}
+                      onClick={() => {
+                        focusAfter.current = newId;
+                        setSlot(index, null);
+                      }}
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                  {open && (
+                    <SwitchEditor
+                      id={`${listId}-${binding.id}`}
+                      binding={binding}
+                      isNew={false}
+                      disabled={false}
+                      holdIntervalMs={settings.holdIntervalMs}
+                      unavailable={false}
+                      keyError={null}
+                      onChange={(next) => setSlot(index, slotFrom(next))}
+                      onLearn={() => {}}
+                      onDone={() => {
+                        focusAfter.current = binding.id;
+                        setExpanded(null);
+                      }}
+                      onRemove={() => {
+                        focusAfter.current = newId;
+                        setSlot(index, null);
+                      }}
+                      nameRef={nameRef}
+                      remote={{ slot: index, free: freeSlots, onSlot: (to) => moveSlot(index, to) }}
+                    />
+                  )}
+                </article>
+              );
+            })}
             {draft && (
               <article className="switch-row" data-open>
                 <div className="switch-row-summary">
-                  <Keyboard size={20} aria-hidden="true" />
+                  {draftSlot === null ? <Keyboard size={20} aria-hidden="true" /> : <Smartphone size={20} aria-hidden="true" />}
                   <div>
-                    <h3>New switch</h3>
+                    <h3>{draftSlot === null ? "New switch" : "New remote switch"}</h3>
                     <p>
-                      {draft.key
-                        ? "Name it and choose its actions, then save."
-                        : "Learn its key first."}
+                      {draftSlot !== null
+                        ? "Choose its number and actions, then save."
+                        : draft.key
+                          ? "Name it and choose its actions, then save."
+                          : "Learn its key first."}
                     </p>
                   </div>
                 </div>
                 <SwitchEditor
                   binding={draft}
                   isNew
-                  disabled={disabled}
+                  disabled={draftSlot === null && disabled}
                   holdIntervalMs={settings.holdIntervalMs}
                   unavailable={false}
                   keyError={errorFor(newId)}
@@ -608,6 +794,18 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
                   onDone={add}
                   onRemove={cancelAdd}
                   nameRef={nameRef}
+                  remote={
+                    draftSlot === null
+                      ? undefined
+                      : {
+                          slot: draftSlot,
+                          free: freeSlots.filter((s) => s !== draftSlot),
+                          onSlot: (slot) => {
+                            setDraftSlot(slot);
+                            setDraft({ ...draft, key: `Remote ${slot + 1}` });
+                          },
+                        }
+                  }
                 />
               </article>
             )}
@@ -621,6 +819,15 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
                   onClick={startAdd}
                 >
                   Add switch
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  ref={addRemoteRef}
+                  disabled={!remote.config || !freeSlots.length}
+                  onClick={startAddRemote}
+                >
+                  Add remote switch
                 </button>
               </div>
             )}
@@ -672,11 +879,10 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
           <p className="setting-note">
             The first action appears after one interval and the next after
             each further interval. The last action stays offered. Holding any
-            switch for {seconds(escapeMs)} disables switch control.
+            switch for {seconds(escapeMs)} resets the scan.
           </p>
         </div>
       </SettingGroup>
-      <RemoteSwitches />
     </>
   );
 }

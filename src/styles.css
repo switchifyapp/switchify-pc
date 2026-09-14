@@ -357,7 +357,9 @@ button:disabled { cursor: default; opacity: 0.55; }
 .hold-actions .disclosure { margin-top: 0; }
 .switch-editor-footer { display: flex; gap: 8px; padding-top: 4px; }
 .switch-editor-footer .danger { margin-left: auto; }
-.switch-list-actions { display: flex; }
+.switch-list-actions { display: flex; gap: 8px; }
+.switch-empty .switch-list-actions { margin-top: 16px; }
+.switch-empty .primary { margin-top: 0; }
 
 @media (max-width: 680px) {
   .switch-row-summary { grid-template-columns: auto minmax(0, 1fr) auto; }

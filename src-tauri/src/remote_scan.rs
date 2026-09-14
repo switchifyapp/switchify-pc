@@ -19,6 +19,18 @@ const MAX_EVENTS: usize = 64;
 pub struct Slot {
     pub press_action: Option<Action>,
     pub hold_actions: Vec<Action>,
+    /// User-facing name; falls back to "Remote switch N".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+impl Slot {
+    pub fn display_name(&self, index: usize) -> String {
+        self.name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map_or_else(|| format!("Remote switch {}", index + 1), str::to_string)
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -46,6 +58,7 @@ impl Default for Config {
             .map(|press_action| Slot {
                 press_action,
                 hold_actions: vec![],
+                name: None,
             })
             .collect(),
         }
@@ -57,7 +70,8 @@ impl Config {
             || self.revision == 0
             || self.slots.len() != 8
             || self.slots.iter().any(|s| {
-                s.hold_actions.len() > 32
+                s.name.as_ref().is_some_and(|n| n.chars().count() > 64)
+                    || s.hold_actions.len() > 32
                     || s.press_action == Some(Action::Cancel)
                     || s.hold_actions.contains(&Action::Cancel)
                     || (s.press_action.is_none() && !s.hold_actions.is_empty())
@@ -79,7 +93,7 @@ impl Config {
                 .filter_map(|(i, s)| {
                     Some(Binding {
                         id: (i + 1).to_string(),
-                        name: format!("Remote switch {}", i + 1),
+                        name: s.display_name(i),
                         key: format!("F{}", i + 1),
                         press_action: s.press_action?,
                         hold_actions: s.hold_actions.clone(),
@@ -92,6 +106,7 @@ impl Config {
         json!({"id":PROFILE_ID,"name":"Switchify scanning","version":self.revision,"kind":"scanning","bindings":self.slots.iter().enumerate().map(|(i,s)| {
         let mut label = s.press_action.map_or("Unassigned", Action::label).to_string();
         if !s.hold_actions.is_empty() { label.push_str("; hold: "); label.push_str(&s.hold_actions.iter().map(|a| a.label()).collect::<Vec<_>>().join(", ")); }
+        if s.press_action.is_some() && s.name.as_deref().is_some_and(|n| !n.trim().is_empty()) { label = format!("{}: {label}", s.display_name(i)); }
         json!({"switchId":i+1,"label":label,"behavior":if s.press_action.is_some(){"stateful"}else{"unassigned"}})
     }).collect::<Vec<_>>()})
     }
@@ -156,9 +171,6 @@ impl Mailbox {
             .as_u64()
             .filter(|n| (1..=8).contains(n))
             .ok_or("Invalid remote switch count")? as u8;
-        if payload["profileVersion"].as_u64() != Some(self.config.revision.into()) {
-            return Err("The scanning profile changed. Reload profiles and start again.".into());
-        }
         let id = payload["sessionId"]
             .as_str()
             .filter(|id| uuid::Uuid::parse_str(id).is_ok())
@@ -177,6 +189,20 @@ impl Mailbox {
             settings,
         });
         Ok(())
+    }
+    /// Applies the current config to a live session so edits take effect on the
+    /// next press instead of ending the session. A config the mode can no longer
+    /// use ends it, since scanning could not continue anyway.
+    fn apply(&mut self, interval: u64, automatic: bool) {
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+        let settings = self.config.settings(session.count as usize, interval);
+        if settings.validate_actions(automatic).is_ok() {
+            session.settings = settings;
+        } else {
+            self.stop();
+        }
     }
     fn accept(
         &mut self,
@@ -308,9 +334,30 @@ pub fn save(app: &AppHandle, mut config: Config) -> Result<Config, String> {
         serde_json::to_vec_pretty(&config).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
-    data.stop();
     data.config = config.clone();
+    drop(data);
+    apply(app);
     Ok(config)
+}
+/// Re-derives a live session's settings from the saved remote config, the
+/// shared hold interval and the current scan mode.
+pub fn apply(app: &AppHandle) {
+    let Some(c) = app.try_state::<Controller>() else {
+        return;
+    };
+    let interval = app
+        .state::<crate::switch_runtime::Controller>()
+        .settings()
+        .hold_interval_ms;
+    let automatic = app
+        .state::<crate::point_scan_runtime::Controller>()
+        .view()
+        .config
+        .automatic;
+    c.data
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .apply(interval, automatic);
 }
 pub fn cancel(app: &AppHandle) {
     if let Some(c) = app.try_state::<Controller>() {
@@ -488,7 +535,16 @@ mod tests {
         m.start("peer", &start(3), 1000, false, 0).unwrap();
         let mut changed = start(3);
         changed["profileVersion"] = json!(2);
-        assert!(m.start("peer", &changed, 1000, true, 0).is_err());
+        m.start("peer", &changed, 1000, true, 0).unwrap();
+        m.config.slots[0].name = Some("Head switch".into());
+        assert_eq!(m.config.settings(1, 1000).bindings[0].name, "Head switch");
+        assert!(m.config.profile()["bindings"][0]["label"]
+            .as_str()
+            .unwrap()
+            .starts_with("Head switch: Select"));
+        m.config.slots[0].name = Some("x".repeat(65));
+        assert!(m.config.validate().is_err());
+        m.config.slots[0].name = None;
         serde_json::from_slice::<Config>(&serde_json::to_vec(&m.config).unwrap())
             .unwrap()
             .validate()
@@ -532,6 +588,20 @@ mod tests {
         );
     }
     #[test]
+    fn a_withdrawn_press_followed_by_a_new_press_resets_then_presses() {
+        // Remote reports a replacement press as a sync without the switch and
+        // then a fresh down, so the PC never sees a release it could act on.
+        let mut m = ready();
+        m.accept("peer", "switch.edge", &edge(2, 1, "down"), 1)
+            .unwrap();
+        m.queue.clear();
+        m.accept("peer", "switch.sync", &sync(3, vec![]), 2)
+            .unwrap();
+        m.accept("peer", "switch.edge", &edge(4, 1, "down"), 3)
+            .unwrap();
+        assert_eq!(m.queue, VecDeque::from([Edge::Reset, Edge::Down(1)]));
+    }
+    #[test]
     fn stop_and_overflow_discard_queued_input() {
         let mut m = ready();
         let generation = m.generation;
@@ -558,6 +628,23 @@ mod tests {
         }
         assert!(m.session.is_none());
         assert!(m.queue.is_empty());
+    }
+    #[test]
+    fn applying_config_updates_a_live_session_or_ends_an_unusable_one() {
+        let mut m = ready();
+        m.config.slots[0].hold_actions = vec![Action::Stop];
+        m.apply(1000, true);
+        assert_eq!(
+            m.session.as_ref().unwrap().settings.bindings[0].hold_actions,
+            vec![Action::Stop]
+        );
+        m.config.slots[0].press_action = Some(Action::Next);
+        for slot in &mut m.config.slots[1..] {
+            slot.press_action = None;
+            slot.hold_actions.clear();
+        }
+        m.apply(1000, true);
+        assert!(m.session.is_none(), "no Select left, so the session ends");
     }
     #[test]
     fn remote_edges_use_shared_release_and_hold_gestures() {
