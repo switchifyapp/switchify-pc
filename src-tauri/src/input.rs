@@ -416,6 +416,10 @@ impl InputInjector for Enigo {
             .map_err(enigo_error("send the media command"))
     }
     fn window(&mut self, action: &str) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        if action == "closeFocused" {
+            return crate::scan_host::close_foreground_window();
+        }
         #[cfg(target_os = "windows")]
         if matches!(action, "minimizeFocused" | "maximizeFocused") {
             use windows_sys::Win32::UI::WindowsAndMessaging::*;

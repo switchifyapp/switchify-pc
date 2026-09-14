@@ -134,13 +134,7 @@ pub fn shortcut(command: crate::scan_menu::Command, mac: bool) -> Option<Vec<&'s
                 vec!["Meta", "D"]
             }
         }
-        CloseWindow => {
-            if mac {
-                vec!["Meta", "W"]
-            } else {
-                vec!["Alt", "F4"]
-            }
-        }
+        CloseWindow if !mac => vec!["Alt", "F4"],
         Minimize if mac => vec!["Meta", "M"],
         Maximize if mac => vec!["Ctrl", "Meta", "F"],
         _ => return None,
@@ -187,6 +181,7 @@ fn execute_command<I: InputInjector>(
         VolumeUp => input.injector.media("volumeUp"),
         VolumeDown => input.injector.media("volumeDown"),
         Mute => input.injector.media("mute"),
+        CloseWindow => input.injector.window("closeFocused"),
         Minimize => input.injector.window("minimizeFocused"),
         Maximize => input.injector.window("maximizeFocused"),
         _ => Err("Action is unavailable on this platform.".into()),
@@ -343,10 +338,25 @@ mod tests {
             shortcut(Command::CloseWindow, false).unwrap(),
             ["Alt", "F4"]
         );
-        assert_eq!(shortcut(Command::CloseWindow, true).unwrap(), ["Meta", "W"]);
+        assert_eq!(shortcut(Command::CloseWindow, true), None);
         assert!(crate::input::own_input(crate::input::SCAN_EVENT_MARKER));
         assert!(!crate::input::own_input(0));
         assert!(!crate::input::own_input(1234));
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn close_window_uses_native_window_action_without_typing_or_clicking() {
+        let mut input = DesktopInput::new(Fake::default());
+        execute(
+            &mut input,
+            Request::Command {
+                command: Command::CloseWindow,
+                point: (100, 200),
+            },
+            true,
+        )
+        .unwrap();
+        assert_eq!(input.injector.events, ["window closeFocused"]);
     }
     #[test]
     fn media_and_extra_clicks_execute_once() {
