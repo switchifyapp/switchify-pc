@@ -9,6 +9,7 @@ The frozen C# application is not maintained in this repository. Do not reintrodu
 ## Workflow
 
 - Start every change with a GitHub issue and a scoped branch from current `main`.
+- Never create a GitHub issue without a milestone. Select or create the appropriate milestone first and include it in the issue creation request; assigning it afterward is not allowed. This applies to every issue, including bugs, chores, release preparation, and follow-up work. Verify the milestone on the created issue before continuing.
 - Keep commits and pull requests focused on that issue.
 - Open a draft pull request with the issue-closing reference and validation evidence.
 - Before handoff, deploy an independent agent that did not implement the change to review the pull request's latest head, and address all actionable findings. If review fixes change the head, repeat the independent review on the new latest head.
