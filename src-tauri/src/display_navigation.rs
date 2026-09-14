@@ -312,6 +312,33 @@ pub fn target_center(
     ))
 }
 
+pub fn cycle_center(
+    cursor: (f64, f64),
+    displays: &[Display],
+    next: bool,
+) -> Result<(i32, i32), String> {
+    let current = current_display(cursor, displays).ok_or("No scanning display is available.")?;
+    if displays.len() < 2 {
+        return Err("No other display is connected.".into());
+    }
+    let mut ordered = displays.iter().collect::<Vec<_>>();
+    ordered.sort_by_key(|d| (d.x, d.y, d.width, d.height));
+    let index = ordered
+        .iter()
+        .position(|d| *d == current)
+        .ok_or("Display is no longer available.")?;
+    let index = if next {
+        (index + 1) % ordered.len()
+    } else {
+        (index + ordered.len() - 1) % ordered.len()
+    };
+    let (x, y) = ordered[index].center();
+    Ok((
+        x.clamp(i32::MIN as i64, i32::MAX as i64) as i32,
+        y.clamp(i32::MIN as i64, i32::MAX as i64) as i32,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,6 +354,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn display_cycle_is_stable_wraps_and_handles_missing_displays() {
+        let displays = vec![
+            display(1920, 0, 1920, 1080),
+            display(0, 0, 1920, 1080),
+            display(-1280, 0, 1280, 1024),
+        ];
+        assert_eq!(
+            cycle_center((10., 10.), &displays, true).unwrap(),
+            (2880, 540)
+        );
+        assert_eq!(
+            cycle_center((10., 10.), &displays, false).unwrap(),
+            (-640, 512)
+        );
+        assert_eq!(
+            cycle_center((2000., 10.), &displays, true).unwrap(),
+            (-640, 512)
+        );
+        assert!(cycle_center((0., 0.), &displays[..1], true).is_err());
+        assert!(cycle_center((0., 0.), &[], true).is_err());
+    }
     #[test]
     fn finds_each_direction_and_centers_mixed_resolutions() {
         let source = display(0, 0, 1920, 1080);

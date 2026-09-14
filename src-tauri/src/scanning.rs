@@ -226,6 +226,7 @@ pub const MAX_SCAN_CYCLES: usize = 3;
 pub trait Technique {
     type Selection;
     type Phase: Clone + Default + PartialEq + Serialize;
+    fn execution_failed(&mut self, _message: String) {}
     fn start(&mut self);
     fn advance(&mut self, elapsed_ms: u64);
     fn handle(&mut self, action: Action) -> Option<Self::Selection>;
@@ -271,6 +272,11 @@ impl<T: Technique> Session<T> {
             paused: false,
         }
     }
+    pub fn execution_failed(&mut self, message: String) {
+        self.active = true;
+        self.paused = false;
+        self.technique.execution_failed(message);
+    }
     pub fn active(&self) -> bool {
         self.active
     }
@@ -299,10 +305,11 @@ impl<T: Technique> Session<T> {
         if !self.technique.pausable() {
             self.paused = false;
         }
-        if (selection.is_some() && self.technique.complete_on_selection())
-            || self.technique.finished()
-        {
+        if selection.is_some() && self.technique.complete_on_selection() {
             self.reset();
+        } else if self.technique.finished() {
+            self.active = false;
+            self.paused = false;
         }
         selection
     }
@@ -320,7 +327,8 @@ impl<T: Technique> Session<T> {
     pub fn take_selection(&mut self) -> Option<T::Selection> {
         let selection = self.technique.take_selection();
         if self.technique.finished() {
-            self.reset();
+            self.active = false;
+            self.paused = false;
         }
         selection
     }

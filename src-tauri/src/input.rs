@@ -11,6 +11,18 @@ use crate::mouse_repeat::RepeatKey;
 use crate::protocol::MouseButton;
 use crate::state::{normalize_pointer_scale_percent, AppModel, SwitchBinding, SwitchProfile};
 
+pub const SCAN_EVENT_MARKER: i64 = 0x53575043;
+pub fn injection_settings() -> enigo::Settings {
+    enigo::Settings {
+        event_source_user_data: Some(SCAN_EVENT_MARKER),
+        windows_dw_extra_info: Some(SCAN_EVENT_MARKER as usize),
+        ..Default::default()
+    }
+}
+pub fn own_input(marker: i64) -> bool {
+    marker == SCAN_EVENT_MARKER
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PointerFeedback {
     Move,
@@ -132,6 +144,10 @@ fn pointer_button(button: MouseButton) -> Button {
 #[cfg(target_os = "windows")]
 fn windows_alphanumeric_key(name: &str) -> Option<Key> {
     Some(match name {
+        "=" => Key::OEMPlus,
+        "-" => Key::OEMMinus,
+        "[" => Key::OEM4,
+        "]" => Key::OEM6,
         "A" => Key::A,
         "B" => Key::B,
         "C" => Key::C,
@@ -401,6 +417,25 @@ impl InputInjector for Enigo {
     }
     fn window(&mut self, action: &str) -> Result<(), String> {
         #[cfg(target_os = "windows")]
+        if matches!(action, "minimizeFocused" | "maximizeFocused") {
+            use windows_sys::Win32::UI::WindowsAndMessaging::*;
+            let window = unsafe { GetForegroundWindow() };
+            if window.is_null() {
+                return Err("No foreground window.".into());
+            }
+            let command = if action == "minimizeFocused" {
+                SW_MINIMIZE
+            } else if unsafe { IsZoomed(window) } != 0 {
+                SW_RESTORE
+            } else {
+                SW_MAXIMIZE
+            };
+            unsafe {
+                ShowWindow(window, command);
+            }
+            return Ok(());
+        }
+        #[cfg(target_os = "windows")]
         let keys: &[&str] = match action {
             "switchNext" => &["Alt", "Tab"],
             "switchPrevious" => &["Alt", "Shift", "Tab"],
@@ -433,6 +468,7 @@ impl InputInjector for Enigo {
 
 pub struct DesktopInput<I: InputInjector> {
     pub(crate) injector: I,
+    scan_keys: Vec<String>,
     held_modifiers: HashSet<ModifierKey>,
     pending_modifier_releases: HashSet<ModifierKey>,
     pending_key_releases: HashSet<RepeatKey>,
@@ -462,6 +498,7 @@ impl<I: InputInjector> DesktopInput<I> {
     pub fn new(injector: I) -> Self {
         Self {
             injector,
+            scan_keys: vec![],
             held_modifiers: HashSet::new(),
             pending_modifier_releases: HashSet::new(),
             pending_key_releases: HashSet::new(),
@@ -1233,9 +1270,48 @@ impl<I: InputInjector> DesktopInput<I> {
         }
     }
 
+    pub fn scan_chord(
+        &mut self,
+        keys: &[&str],
+        click: Option<((i32, i32), MouseButton, u8)>,
+    ) -> Result<(), String> {
+        self.release_scan_keys()?;
+        let result = (|| {
+            for key in keys {
+                self.scan_keys.push((*key).into());
+                self.injector.set_key(key, true)?;
+            }
+            if let Some((point, button, count)) = click {
+                self.move_pointer_absolute(point.0, point.1)?;
+                self.held_button = Some(button);
+                self.injector.click_pointer(button, count)?;
+                self.held_button = None;
+            }
+            Ok(())
+        })();
+        let released = self.release_scan_keys();
+        result.and(released)
+    }
+    fn release_scan_keys(&mut self) -> Result<(), String> {
+        let mut error = None;
+        for index in (0..self.scan_keys.len()).rev() {
+            match self.injector.set_key(&self.scan_keys[index], false) {
+                Ok(()) => {
+                    self.scan_keys.remove(index);
+                }
+                Err(e) => {
+                    error.get_or_insert(e);
+                }
+            }
+        }
+        error.map_or(Ok(()), Err)
+    }
     pub fn release_all(&mut self) -> Result<(), String> {
         let mut first_error = self.stop_switch_session().err();
         self.text_streams.clear();
+        if let Err(error) = self.release_scan_keys() {
+            first_error.get_or_insert(error);
+        }
         if let Err(error) = self.release_held_button() {
             first_error.get_or_insert(error);
         }

@@ -111,7 +111,7 @@ unsafe extern "system" fn window(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -
             }
         });
     }
-    if msg == WM_HOTKEY {
+    if msg == WM_HOTKEY && !crate::input::own_input(unsafe { GetMessageExtraInfo() } as i64) {
         INPUT.with(|slot| {
             if let Some(input) = slot.borrow().as_ref() {
                 input.hotkey(wp as i32);
@@ -141,7 +141,9 @@ unsafe extern "system" fn window(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -
             let key = unsafe { raw.data.keyboard };
             // Hotkeys own presses. Raw make events can be repeats or modified keys
             // that we did not reserve, so they must never start a gesture.
-            if key.Flags & RI_KEY_BREAK as u16 != 0 {
+            if key.Flags & RI_KEY_BREAK as u16 != 0
+                && !crate::input::own_input(key.ExtraInformation as i64)
+            {
                 INPUT.with(|slot| {
                     if let Some(input) = slot.borrow().as_ref() {
                         input.raw(key.VKey as i32, true);
