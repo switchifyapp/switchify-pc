@@ -377,6 +377,15 @@ it("adds a remote switch into the next free slot and can move it", async () => {
   await waitFor(() => expect(remote.slots[1].pressAction).toBe("select"));
   expect(remote.slots[3].pressAction).toBeNull();
   expect(screen.getByRole("button", { name: "Close Remote switch 2" })).toBeTruthy();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close Remote switch 2" }));
+});
+it("moves focus into the remote draft and back to a usable Add button", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Remote switch 1" });
+  fireEvent.click(screen.getByRole("button", { name: "Add remote switch" }));
+  expect(document.activeElement).toBe(screen.getByLabelText("New switch name"));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add switch" }));
 });
 it("removes a remote switch and surfaces a failed remote save with retry", async () => {
   render(<Shell />);

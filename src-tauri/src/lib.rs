@@ -1301,7 +1301,7 @@ fn begin_switch_capture(
         return Err("Focus Switchify PC before learning a switch.".into());
     }
     point_scan_prepare(&app)?;
-    point_scan_runtime::pause(&app);
+    point_scan_runtime::interrupt(&app);
     app.state::<switch_runtime::Controller>()
         .begin_capture(&app)
 }

@@ -28,6 +28,9 @@ pub fn configure(app: &AppHandle, config: Config) -> Result<View, String> {
 pub fn pause(app: &AppHandle) {
     scanning_runtime::pause::<PointScan>(app);
 }
+pub fn interrupt(app: &AppHandle) {
+    scanning_runtime::interrupt::<PointScan>(app);
+}
 pub fn install(app: &AppHandle) {
     scanning_runtime::install::<PointScan>(app);
 }

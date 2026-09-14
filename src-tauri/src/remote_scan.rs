@@ -588,6 +588,20 @@ mod tests {
         );
     }
     #[test]
+    fn a_withdrawn_press_followed_by_a_new_press_resets_then_presses() {
+        // Remote reports a replacement press as a sync without the switch and
+        // then a fresh down, so the PC never sees a release it could act on.
+        let mut m = ready();
+        m.accept("peer", "switch.edge", &edge(2, 1, "down"), 1)
+            .unwrap();
+        m.queue.clear();
+        m.accept("peer", "switch.sync", &sync(3, vec![]), 2)
+            .unwrap();
+        m.accept("peer", "switch.edge", &edge(4, 1, "down"), 3)
+            .unwrap();
+        assert_eq!(m.queue, VecDeque::from([Edge::Reset, Edge::Down(1)]));
+    }
+    #[test]
     fn stop_and_overflow_discard_queued_input() {
         let mut m = ready();
         let generation = m.generation;

@@ -34,11 +34,8 @@ export function useRemoteSwitches() {
     void invoke<RemoteConfig>("get_remote_switches")
       .then((value) => {
         if (!alive) return;
-        // A save that raced the load wins; it already holds newer slots.
-        if (model.current.revision === 0) {
-          model.current.config = value;
-          setConfig(value);
-        }
+        model.current.config = value;
+        setConfig(value);
       })
       .catch((e) => {
         if (alive) setError(String(e));

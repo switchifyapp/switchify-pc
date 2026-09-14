@@ -378,6 +378,8 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
         i === to ? slots[from] : i === from ? { pressAction: null, holdActions: [] } : s,
       ),
     );
+    // The row is keyed by its number, so it remounts; keep focus on it.
+    focusAfter.current = remoteId(to);
     setExpanded(remoteId(to));
   };
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -392,15 +394,18 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
   // the page. Remember where focus should land and move it after the render.
   const editRefs = useRef(new Map<string, HTMLButtonElement>());
   const addRef = useRef<HTMLButtonElement>(null);
+  const addRemoteRef = useRef<HTMLButtonElement>(null);
   const focusAfter = useRef<string | null>(null);
   useEffect(() => {
     if (!focusAfter.current) return;
     const id = focusAfter.current;
     focusAfter.current = null;
-    // While a new switch is being drafted the Add switch button is not rendered,
-    // so a removal elsewhere hands focus to the draft's name field instead.
+    // Fall through past controls that are unmounted or disabled: while a new
+    // switch is being drafted the Add buttons are not rendered, so focus lands
+    // on the draft's name field instead.
     const target = id === newId ? null : editRefs.current.get(id);
-    (target ?? addRef.current ?? nameRef.current)?.focus();
+    const enabled = (el: HTMLElement | null) => (el && !(el as HTMLButtonElement).disabled ? el : null);
+    (target ?? enabled(addRef.current) ?? enabled(addRemoteRef.current) ?? nameRef.current)?.focus();
   });
   const cancel = useRef(controller.cancelCapture);
   cancel.current = controller.cancelCapture;
@@ -485,6 +490,8 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
     setDraftSlot(slot);
     setDraft({ id: newId, name: "", key: `Remote ${slot + 1}`, pressAction: "select", holdActions: [] });
     setExpanded(newId);
+    // The Add buttons unmount while drafting; the name field takes focus.
+    focusAfter.current = newId;
   };
   const cancelAdd = () => {
     setDraft(null);
@@ -519,7 +526,10 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
     setExpanded(null);
     focusAfter.current = newId;
   };
-  const escapeMs = escapeHoldMs(settings.bindings, settings.holdIntervalMs);
+  const escapeMs = escapeHoldMs(
+    [...settings.bindings, ...remoteRows.map(({ slot, index }) => remoteBinding(slot, index))],
+    settings.holdIntervalMs,
+  );
   const isPreset = (holdIntervalPresets as readonly number[]).includes(
     settings.holdIntervalMs,
   );
@@ -610,6 +620,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
               <button
                 type="button"
                 className="secondary"
+                ref={addRemoteRef}
                 disabled={!remote.config || !freeSlots.length}
                 onClick={startAddRemote}
               >
@@ -812,6 +823,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
                 <button
                   type="button"
                   className="secondary"
+                  ref={addRemoteRef}
                   disabled={!remote.config || !freeSlots.length}
                   onClick={startAddRemote}
                 >

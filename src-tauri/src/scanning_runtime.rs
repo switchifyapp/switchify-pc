@@ -207,10 +207,17 @@ fn reset_scanner<A: Adapter>(app: &AppHandle, message: &str) {
     hide_prompt();
     publish::<A>(app);
 }
-/// Pauses scanning so switches can be saved or learned. Must run on the main
-/// thread, as the commands that call it do; the tick loop re-arms afterwards.
+/// Pauses scanning so settings can be saved. Must run on the main thread, as
+/// the commands that call it do. A live remote session survives: only the
+/// scanner and the local key broker reset, and the next tick restarts the
+/// session with the freshly applied settings.
 pub fn pause<A: Adapter>(app: &AppHandle) {
-    disable::<A>(app, "Scanning paused while switches change.");
+    reset_scanner::<A>(app, "Scanning paused while switches change.");
+}
+/// Stops scanning outright, ending any remote session, so the local key
+/// broker is free for learning a key.
+pub fn interrupt<A: Adapter>(app: &AppHandle) {
+    disable::<A>(app, "Scanning paused while a switch is learned.");
 }
 /// Saves new settings and re-arms scanning with them. A failure to arm is not
 /// an error here: the settings are saved and the view's message says why
@@ -221,7 +228,7 @@ pub fn configure<A: Adapter>(
 ) -> Result<View<A::Config, <A::Technique as Technique>::Phase>, String> {
     A::validate(&config)?;
     let path = config_path::<A>(app)?;
-    disable::<A>(app, "Applying scanning settings...");
+    reset_scanner::<A>(app, "Applying scanning settings...");
     let save = || -> Result<(), String> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
