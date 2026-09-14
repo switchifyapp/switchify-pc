@@ -18,6 +18,12 @@ pub enum Request {
         dx: i32,
         dy: i32,
     },
+    Command {
+        command: crate::scan_menu::Command,
+        point: Point,
+    },
+    Setting(crate::scan_menu::Setting),
+    Display(bool),
     DragStart(Point),
     DragMove(Point),
     DragEnd(Point),
@@ -65,11 +71,12 @@ pub struct Workflow {
     point: Engine,
     stage: Stage,
     menu: Menu,
-    parent_menu: Option<Menu>,
+    parent_menu: Vec<Menu>,
     source: Point,
     destination: Point,
     elapsed: u64,
     pending: Option<Request>,
+    error: Option<String>,
 }
 impl Workflow {
     pub fn new(config: PointSettings, screen: Rect, scale: f64) -> Result<Self, String> {
@@ -78,19 +85,32 @@ impl Workflow {
             point: Engine::new(config, screen, scale)?,
             stage: Stage::Idle,
             menu: Menu::new(Kind::Actions, period),
-            parent_menu: None,
+            parent_menu: vec![],
             source: (0, 0),
             destination: (0, 0),
             elapsed: 0,
             pending: None,
+            error: None,
         })
+    }
+    pub fn apply_config(&mut self, config: PointSettings, restart: bool) {
+        self.point.config = config;
+        self.menu.set_period(self.point.config.block_interval_ms);
+        for menu in &mut self.parent_menu {
+            menu.set_period(self.point.config.block_interval_ms);
+        }
+        if restart {
+            self.parent_menu.clear();
+            self.stage = Stage::Point;
+            self.point.start();
+        }
     }
     fn open(&mut self, kind: Kind) {
         self.menu = Menu::new(kind, self.point.config.block_interval_ms);
         self.stage = Stage::Menu;
     }
     fn restore_actions(&mut self) {
-        if let Some(menu) = self.parent_menu.take() {
+        if let Some(menu) = self.parent_menu.pop() {
             self.menu = menu;
             self.menu.restart_interval();
             self.stage = Stage::Menu;
@@ -100,6 +120,32 @@ impl Workflow {
     }
     fn selected(&mut self, item: Item) -> Option<Request> {
         match item {
+            Item::More | Item::Group(_) => {
+                let kind = if let Item::Group(kind) = item {
+                    kind
+                } else {
+                    Kind::More
+                };
+                let next = Menu::new(kind, self.point.config.block_interval_ms);
+                self.parent_menu
+                    .push(std::mem::replace(&mut self.menu, next));
+            }
+            Item::Command(command) => {
+                if !command.stays_open() {
+                    self.stage = Stage::Idle;
+                }
+                return Some(Request::Command {
+                    command,
+                    point: self.source,
+                });
+            }
+            Item::Setting(setting) => return Some(Request::Setting(setting)),
+            Item::Display(next) => return Some(Request::Display(next)),
+            Item::Pause => self.menu.suspended = true,
+            Item::Reverse => {
+                self.menu.handle(Action::Reverse);
+            }
+
             Item::LeftClick | Item::RightClick | Item::DoubleClick => {
                 self.stage = Stage::Idle;
                 return Some(if item == Item::LeftClick {
@@ -114,14 +160,15 @@ impl Workflow {
             }
             Item::Scroll | Item::Drag => {
                 let next = Menu::new(Kind::Scroll, self.point.config.block_interval_ms);
-                self.parent_menu = Some(std::mem::replace(&mut self.menu, next));
+                self.parent_menu
+                    .push(std::mem::replace(&mut self.menu, next));
                 if item == Item::Drag {
                     self.stage = Stage::Destination;
                     self.point.start();
                 }
             }
             Item::NewPoint => {
-                self.parent_menu = None;
+                self.parent_menu.clear();
                 self.stage = Stage::Point;
                 self.point.start();
             }
@@ -157,6 +204,14 @@ impl Workflow {
 impl Technique for Workflow {
     type Selection = Request;
     type Phase = Phase;
+    fn execution_failed(&mut self, message: String) {
+        self.pending = None;
+        self.stage = Stage::Menu;
+        self.menu = Menu::new(Kind::Actions, self.point.config.block_interval_ms);
+        self.parent_menu.clear();
+        self.menu.suspended = true;
+        self.error = Some(message);
+    }
     fn start(&mut self) {
         self.reset();
         self.stage = Stage::Point;
@@ -164,8 +219,9 @@ impl Technique for Workflow {
     }
     fn reset(&mut self) {
         self.stage = Stage::Idle;
-        self.parent_menu = None;
+        self.parent_menu.clear();
         self.pending = None;
+        self.error = None;
         self.elapsed = 0;
         self.source = (0, 0);
         self.destination = (0, 0);
@@ -197,6 +253,13 @@ impl Technique for Workflow {
                 }
             }
             Stage::Menu => {
+                if self.error.is_some() {
+                    if action == Action::Select {
+                        self.error = None;
+                        self.menu.restart_interval();
+                    }
+                    return None;
+                }
                 if let Some(item) = self.menu.handle(action) {
                     return self.selected(item);
                 }
@@ -274,6 +337,14 @@ impl Technique for Workflow {
             ),
             _ => Frame::default(),
         };
+        if let Some(error) = &self.error {
+            frame.tiles.clear();
+            if let Some(label) = frame.label.as_mut() {
+                label.text = format!("{error}\nSelect to return");
+                label.rect.height = 100.0 * self.point.units_per_logical_pixel;
+                label.scale *= 0.65;
+            }
+        }
         if matches!(self.stage, Stage::Menu | Stage::Destination) {
             let s = self.point.units_per_logical_pixel;
             frame.strips.extend(outline(
@@ -348,6 +419,61 @@ mod tests {
         s.action(Action::Select)
     }
     #[test]
+    fn nested_back_restores_parent_and_pause_resumes_without_selection() {
+        let mut w = Workflow::new(
+            crate::point_scan::Config::default().point(),
+            Rect {
+                x: 0.,
+                y: 0.,
+                width: 1280.,
+                height: 720.,
+            },
+            1.,
+        )
+        .unwrap();
+        w.source = (120, 80);
+        w.stage = Stage::Menu;
+        w.selected(Item::More);
+        w.selected(Item::Group(Kind::Browser));
+        w.selected(Item::Group(Kind::Tabs));
+        assert_eq!(w.parent_menu.len(), 3);
+        w.selected(Item::Back);
+        assert_eq!(w.menu.kind, Kind::Browser);
+        w.selected(Item::Back);
+        assert_eq!(w.menu.kind, Kind::More);
+        w.selected(Item::Pause);
+        let frame = w.frame();
+        w.advance(5000);
+        assert_eq!(w.frame(), frame);
+        assert!(w.handle(Action::Select).is_none());
+        assert!(!w.menu.suspended);
+        assert_eq!(w.source, (120, 80));
+    }
+    #[test]
+    fn command_failure_preserves_point_and_requires_acknowledgement() {
+        let mut w = Workflow::new(
+            crate::point_scan::Config::default().point(),
+            Rect {
+                x: 0.,
+                y: 0.,
+                width: 1280.,
+                height: 720.,
+            },
+            1.,
+        )
+        .unwrap();
+        w.source = (120, 80);
+        w.stage = Stage::Menu;
+        assert!(matches!(
+            w.selected(Item::Command(crate::scan_menu::Command::Copy)),
+            Some(Request::Command { .. })
+        ));
+        w.execution_failed("Action failed.".into());
+        assert!(w.frame().label.unwrap().text.contains("Select to return"));
+        assert!(w.handle(Action::Select).is_none());
+        assert_eq!(w.selected(Item::LeftClick), Some(default_click((120, 80))));
+    }
+    #[test]
     fn scanner_colour_follows_action_scroll_and_drag_menus() {
         use crate::scanning::ScannerColor::*;
         for color in [Red, Green, Blue, Yellow, White] {
@@ -368,7 +494,7 @@ mod tests {
         for (column, right, count) in [(0, false, 1), (1, true, 1), (2, false, 2)] {
             let mut s = session(false);
             open(&mut s);
-            assert_eq!(s.frame().tiles.len(), 7);
+            assert_eq!(s.frame().tiles.len(), 8);
             assert_eq!(
                 choose(&mut s, 0, column),
                 Some(Request::Click {

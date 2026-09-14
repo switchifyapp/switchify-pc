@@ -134,12 +134,19 @@ mod platform {
     pub struct Host {
         panels: Vec<Retained<NSPanel>>,
         last_rects: Vec<crate::scanning::PaintedRect>,
+        last_title: Option<(String, Rect, f64)>,
+        title: Option<(
+            Retained<objc2_app_kit::NSView>,
+            Retained<objc2_app_kit::NSTextField>,
+        )>,
     }
     impl Host {
         pub fn new() -> Result<Self, String> {
             Ok(Self {
                 panels: vec![],
                 last_rects: vec![],
+                title: None,
+                last_title: None,
             })
         }
         pub fn render(&mut self, rects: &[crate::scanning::PaintedRect]) -> Result<(), String> {
@@ -180,9 +187,83 @@ mod platform {
             self.last_rects = rects.to_vec();
             Ok(())
         }
+        pub fn menu_title(&mut self, text: &str, rect: Rect, scale: f64) -> Result<(), String> {
+            use objc2_app_kit::{
+                NSFont, NSFontWeightSemibold, NSTextAlignment, NSTextField, NSView,
+            };
+            use objc2_foundation::NSString;
+            if self
+                .last_title
+                .as_ref()
+                .is_some_and(|(old_text, old_rect, old_scale)| {
+                    old_text == text && *old_rect == rect && *old_scale == scale
+                })
+            {
+                return Ok(());
+            }
+            let mtm = MainThreadMarker::new().ok_or("Menu title requires the main thread.")?;
+            self.render(&[crate::scanning::PaintedRect {
+                rect,
+                color: [30, 35, 46],
+                opacity: 0,
+                role: crate::scanning::VisualRole::Accent,
+            }])?;
+            let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(rect.width, rect.height));
+            if self.title.is_none() {
+                let view = NSView::initWithFrame(NSView::alloc(mtm), bounds);
+                view.setWantsLayer(true);
+                let label = NSTextField::wrappingLabelWithString(&NSString::from_str(text), mtm);
+                label.setTextColor(Some(&NSColor::whiteColor()));
+                label.setAlignment(NSTextAlignment::Center);
+                view.addSubview(&label);
+                self.title = Some((view, label));
+            }
+            let (view, label) = self.title.as_ref().unwrap();
+            view.setFrame(bounds);
+            let layer = view
+                .layer()
+                .ok_or("Menu title background is unavailable.")?;
+            layer.setBackgroundColor(Some(
+                &NSColor::colorWithSRGBRed_green_blue_alpha(
+                    30.0 / 255.0,
+                    35.0 / 255.0,
+                    46.0 / 255.0,
+                    1.0,
+                )
+                .CGColor(),
+            ));
+            layer.setCornerRadius(10.0 * scale);
+            let value = NSString::from_str(text);
+            if label.stringValue() != value {
+                label.setStringValue(&value);
+            }
+            label.setFont(Some(&NSFont::systemFontOfSize_weight(
+                18.0 * scale,
+                unsafe { NSFontWeightSemibold },
+            )));
+            let width = (rect.width - 24.0 * scale).max(1.0);
+            let measured = label
+                .cell()
+                .ok_or("Menu title text is unavailable.")?
+                .cellSizeForBounds(NSRect::new(
+                    NSPoint::new(0.0, 0.0),
+                    NSSize::new(width, rect.height),
+                ));
+            let height = measured.height.min(rect.height);
+            label.setFrame(NSRect::new(
+                NSPoint::new(12.0 * scale, (rect.height - height) / 2.0),
+                NSSize::new(width, height),
+            ));
+            if self.panels[0].contentView().as_deref() != Some(view.as_ref()) {
+                self.panels[0].setContentView(Some(view));
+            }
+            self.last_title = Some((text.to_owned(), rect, scale));
+            Ok(())
+        }
         pub fn prompt(&mut self, text: &str, rect: Rect, scale: f64) -> Result<(), String> {
             use objc2_app_kit::{NSFont, NSTextField};
             use objc2_foundation::NSString;
+            self.last_title = None;
             let mtm = MainThreadMarker::new().ok_or("Prompt requires the main thread.")?;
             self.render(&[crate::scanning::PaintedRect {
                 rect,
@@ -190,7 +271,7 @@ mod platform {
                 opacity: 255,
                 role: crate::scanning::VisualRole::Accent,
             }])?;
-            let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
+            let label = NSTextField::wrappingLabelWithString(&NSString::from_str(text), mtm);
             label.setFont(Some(&NSFont::systemFontOfSize(20.0 * scale)));
             label.setTextColor(Some(&NSColor::whiteColor()));
             label.setFrame(NSRect::new(
@@ -230,7 +311,7 @@ mod platform {
             let artwork = NSImageView::initWithFrame(NSImageView::alloc(mtm), bounds);
             artwork.setImage(Some(&image));
             view.addSubview(&artwork);
-            let label = NSTextField::labelWithString(&NSString::from_str(&tile.text), mtm);
+            let label = NSTextField::wrappingLabelWithString(&NSString::from_str(&tile.text), mtm);
             label.setFont(Some(&NSFont::boldSystemFontOfSize(15.0 * tile.scale)));
             label.setTextColor(Some(&NSColor::whiteColor()));
             label.setAlignment(NSTextAlignment::Center);
@@ -243,6 +324,7 @@ mod platform {
             Ok(())
         }
         pub fn hide(&mut self) {
+            self.last_title = None;
             self.last_rects.clear();
             for panel in &self.panels {
                 panel.orderOut(None);
@@ -312,5 +394,147 @@ pub fn foreground() -> Result<usize, String> {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         Err("Local scanning is unavailable.".into())
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn close_foreground_window() -> Result<(), String> {
+    use core_foundation::{
+        base::{CFType, CFTypeRef, TCFType},
+        string::{CFString, CFStringRef},
+    };
+    #[link(name = "ApplicationServices", kind = "framework")]
+    unsafe extern "C" {
+        fn AXUIElementCreateApplication(pid: i32) -> CFTypeRef;
+        fn AXUIElementCopyAttributeValue(
+            element: CFTypeRef,
+            attribute: CFStringRef,
+            value: *mut CFTypeRef,
+        ) -> i32;
+        fn AXUIElementPerformAction(element: CFTypeRef, action: CFStringRef) -> i32;
+    }
+    fn attribute(element: &CFType, name: &str) -> Result<CFType, String> {
+        let name = CFString::new(name);
+        let mut value = std::ptr::null();
+        let result = unsafe {
+            AXUIElementCopyAttributeValue(
+                element.as_CFTypeRef(),
+                name.as_concrete_TypeRef(),
+                &mut value,
+            )
+        };
+        if result != 0 || value.is_null() {
+            return Err("The foreground window's close button is unavailable.".into());
+        }
+        Ok(unsafe { CFType::wrap_under_create_rule(value) })
+    }
+    let application = unsafe { AXUIElementCreateApplication(foreground()? as i32) };
+    if application.is_null() {
+        return Err("No foreground application is available.".into());
+    }
+    let application = unsafe { CFType::wrap_under_create_rule(application) };
+    let window = attribute(&application, "AXFocusedWindow")?;
+    let button = attribute(&window, "AXCloseButton")?;
+    let action = CFString::new("AXPress");
+    if unsafe { AXUIElementPerformAction(button.as_CFTypeRef(), action.as_concrete_TypeRef()) } != 0
+    {
+        return Err("The foreground window could not be closed.".into());
+    }
+    Ok(())
+}
+
+impl Host {
+    pub fn label(
+        &mut self,
+        label: &crate::scanning::FrameLabel,
+        menu_title: Option<MenuTitle>,
+    ) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        if let Some(MenuTitle { rect, scale }) = menu_title {
+            return self.menu_title(&label.text, rect, scale);
+        }
+        #[cfg(not(target_os = "macos"))]
+        if let Some(MenuTitle { rect, scale }) = menu_title {
+            let _ = (rect, scale);
+        }
+        self.prompt(&label.text, label.rect, label.scale)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct MenuTitle {
+    rect: Rect,
+    scale: f64,
+}
+
+pub fn menu_title_geometry(
+    label: &crate::scanning::FrameLabel,
+    tiles: &[crate::scanning::FrameTile],
+) -> Option<MenuTitle> {
+    let first = tiles.first()?;
+    let left = tiles
+        .iter()
+        .map(|tile| tile.rect.x)
+        .fold(f64::INFINITY, f64::min);
+    let right = tiles
+        .iter()
+        .map(|tile| tile.rect.x + tile.rect.width)
+        .fold(f64::NEG_INFINITY, f64::max);
+    Some(MenuTitle {
+        rect: Rect {
+            x: left,
+            width: right - left,
+            ..label.rect
+        },
+        scale: first.scale,
+    })
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::*;
+    use crate::scan_menu::{Kind, Menu};
+
+    #[test]
+    fn titles_follow_tile_edges_without_changing_header_spacing() {
+        for screen in [
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 320.0,
+                height: 240.0,
+            },
+            Rect {
+                x: -2048.0,
+                y: -100.0,
+                width: 2048.0,
+                height: 1109.0,
+            },
+        ] {
+            for units in [1.0, 2.0] {
+                let mut menu = Menu::new(Kind::Actions, 500);
+                for paused in [false, true] {
+                    menu.suspended = paused;
+                    let frame = menu.frame((0, 0), screen, units);
+                    let label = frame.label.as_ref().unwrap();
+                    let MenuTitle { rect, scale } =
+                        menu_title_geometry(label, &frame.tiles).unwrap();
+                    assert_eq!(rect.x, frame.tiles[0].rect.x);
+                    let last = &frame.tiles[2].rect;
+                    assert!((rect.x + rect.width - last.x - last.width).abs() < 0.001);
+                    assert_eq!(rect.y, label.rect.y);
+                    assert_eq!(rect.height, label.rect.height);
+                    assert!(
+                        (frame.tiles[0].rect.y - rect.y - rect.height - 8.0 * scale).abs() < 0.001
+                    );
+                    assert!(rect.x >= screen.x && rect.x + rect.width <= screen.x + screen.width);
+                    assert!(rect.y >= screen.y && rect.y + rect.height <= screen.y + screen.height);
+                    if paused {
+                        assert_eq!(label.text, "Select to resume");
+                    }
+                    assert!(menu_title_geometry(label, &[]).is_none());
+                }
+            }
+        }
     }
 }

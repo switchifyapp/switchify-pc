@@ -122,6 +122,7 @@ impl Capture {
                             events.lost();
                             return CallbackResult::Keep;
                         }
+                        if crate::input::own_input(event.get_integer_value_field(42)) { return CallbackResult::Keep; }
                         let code = event.get_integer_value_field(9) as u16;
                         if let Some((name, _)) = CODES.iter().find(|(_, c)| *c == code) {
                             if events.key(name, matches!(kind, CGEventType::KeyDown)) {

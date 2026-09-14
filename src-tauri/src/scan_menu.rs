@@ -5,6 +5,13 @@ use crate::{
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
+    More,
+    Group(Kind),
+    Command(Command),
+    Setting(Setting),
+    Display(bool),
+    Pause,
+    Reverse,
     LeftClick,
     RightClick,
     DoubleClick,
@@ -24,6 +31,14 @@ pub enum Item {
 impl Item {
     pub fn label(self) -> &'static str {
         match self {
+            Self::More => "More",
+            Self::Group(kind) => kind.label(),
+            Self::Command(command) => command.label(),
+            Self::Setting(setting) => setting.label(),
+            Self::Display(true) => "Next display",
+            Self::Display(false) => "Previous display",
+            Self::Pause => "Pause scanning",
+            Self::Reverse => "Reverse direction",
             Self::LeftClick => "Left click",
             Self::RightClick => "Right click",
             Self::DoubleClick => "Double click",
@@ -35,7 +50,7 @@ impl Item {
             Self::Down => "Down",
             Self::Left => "Left",
             Self::Right => "Right",
-            Self::Back => "Back to actions",
+            Self::Back => "Back",
             Self::DragHere => "Drag here",
             Self::DestinationAgain => "New destination",
             Self::CancelDrag => "Cancel drag",
@@ -44,6 +59,16 @@ impl Item {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
+    More,
+    Mouse,
+    Editing,
+    Windows,
+    Browser,
+    Tabs,
+    Zoom,
+    Media,
+    Displays,
+    Scanning,
     Actions,
     Scroll,
     ConfirmDrag,
@@ -60,16 +85,7 @@ pub struct Menu {
 }
 impl Menu {
     pub fn new(kind: Kind, period: u64) -> Self {
-        use Item::*;
-        let rows = match kind {
-            Kind::Actions => vec![
-                vec![LeftClick, RightClick, DoubleClick],
-                vec![Scroll, Drag],
-                vec![NewPoint, Cancel],
-            ],
-            Kind::Scroll => vec![vec![Up, Down], vec![Left, Right], vec![Back]],
-            Kind::ConfirmDrag => vec![vec![DragHere, DestinationAgain, CancelDrag]],
-        };
+        let rows = kind.rows();
         let nav = Navigator::new(
             rows.iter()
                 .map(|row| Node::Branch(row.iter().copied().map(Node::Leaf).collect()))
@@ -85,6 +101,10 @@ impl Menu {
             forward: true,
             suspended: false,
         }
+    }
+    pub fn set_period(&mut self, period: u64) {
+        self.period = period;
+        self.restart_interval();
     }
     pub fn restart_interval(&mut self) {
         self.interval.reset();
@@ -169,6 +189,7 @@ impl Menu {
                 Kind::Actions => "Choose an action",
                 Kind::Scroll => "Scroll at selected point",
                 Kind::ConfirmDrag => "Confirm drag",
+                kind => kind.label(),
             }
         };
         frame.label = Some(FrameLabel {
@@ -223,9 +244,343 @@ fn place(point: (i32, i32), screen: Rect, width: f64, height: f64, gap: f64) -> 
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Command {
+    MiddleClick,
+    TripleClick,
+    ShiftClick,
+    CtrlClick,
+    AltClick,
+    MetaClick,
+    Copy,
+    Cut,
+    Paste,
+    SelectAll,
+    Undo,
+    Redo,
+    Save,
+    Find,
+    SwitchNext,
+    SwitchPrevious,
+    Overview,
+    Desktop,
+    Minimize,
+    Maximize,
+    CloseWindow,
+    BrowserBack,
+    BrowserForward,
+    Reload,
+    NewTab,
+    CloseTab,
+    ReopenTab,
+    NextTab,
+    PreviousTab,
+    Address,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
+    PlayPause,
+    NextTrack,
+    PreviousTrack,
+    VolumeUp,
+    VolumeDown,
+    Mute,
+}
+impl Command {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::MiddleClick => "Middle click",
+            Self::TripleClick => "Triple click",
+            Self::ShiftClick => "Shift-click",
+            Self::CtrlClick => "Ctrl-click",
+            Self::AltClick => {
+                if cfg!(target_os = "macos") {
+                    "Option-click"
+                } else {
+                    "Alt-click"
+                }
+            }
+            Self::MetaClick => {
+                if cfg!(target_os = "macos") {
+                    "Command-click"
+                } else {
+                    "Windows-click"
+                }
+            }
+            Self::Copy => "Copy",
+            Self::Cut => "Cut",
+            Self::Paste => "Paste",
+            Self::SelectAll => "Select all",
+            Self::Undo => "Undo",
+            Self::Redo => "Redo",
+            Self::Save => "Save",
+            Self::Find => "Find",
+            Self::SwitchNext => "Switch app forward",
+            Self::SwitchPrevious => "Switch app backward",
+            Self::Overview => "App overview",
+            Self::Desktop => "Show desktop",
+            Self::Minimize => "Minimize",
+            Self::Maximize => {
+                if cfg!(target_os = "macos") {
+                    "Toggle full screen"
+                } else {
+                    "Maximize / restore"
+                }
+            }
+            Self::CloseWindow => "Close window",
+            Self::BrowserBack => "Back",
+            Self::BrowserForward => "Forward",
+            Self::Reload => "Reload",
+            Self::NewTab => "New tab",
+            Self::CloseTab => "Close tab",
+            Self::ReopenTab => "Reopen closed tab",
+            Self::NextTab => "Next tab",
+            Self::PreviousTab => "Previous tab",
+            Self::Address => "Address bar",
+            Self::ZoomIn => "Zoom in",
+            Self::ZoomOut => "Zoom out",
+            Self::ZoomReset => "Reset zoom",
+            Self::PlayPause => "Play / pause",
+            Self::NextTrack => "Next track",
+            Self::PreviousTrack => "Previous track",
+            Self::VolumeUp => "Volume up",
+            Self::VolumeDown => "Volume down",
+            Self::Mute => "Mute",
+        }
+    }
+    pub fn stays_open(self) -> bool {
+        matches!(
+            self,
+            Self::PlayPause
+                | Self::NextTrack
+                | Self::PreviousTrack
+                | Self::VolumeUp
+                | Self::VolumeDown
+                | Self::Mute
+        )
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Setting {
+    FasterScan,
+    SlowerScan,
+    FasterLine,
+    SlowerLine,
+    LineMode,
+    GridMode,
+}
+impl Setting {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::FasterScan => "Faster auto scan",
+            Self::SlowerScan => "Slower auto scan",
+            Self::FasterLine => "Faster lines",
+            Self::SlowerLine => "Slower lines",
+            Self::LineMode => "Line only",
+            Self::GridMode => "Grid then line",
+        }
+    }
+    pub fn apply(self, config: &mut crate::point_scan::Config) {
+        const RATES: &[u64] = &[250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000];
+        match self {
+            Self::FasterScan => {
+                config.block_interval_ms = RATES
+                    .iter()
+                    .rev()
+                    .copied()
+                    .find(|v| *v < config.block_interval_ms)
+                    .unwrap_or(RATES[0])
+            }
+            Self::SlowerScan => {
+                config.block_interval_ms = RATES
+                    .iter()
+                    .copied()
+                    .find(|v| *v > config.block_interval_ms)
+                    .unwrap_or(5000)
+            }
+            Self::FasterLine => config.speed = (config.speed + 1).min(4),
+            Self::SlowerLine => config.speed = config.speed.saturating_sub(1),
+            Self::LineMode => config.mode = crate::point_scan::Mode::Line,
+            Self::GridMode => config.mode = crate::point_scan::Mode::Grid,
+        }
+    }
+}
+impl Kind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Actions => "Choose an action",
+            Self::Scroll => "Scroll",
+            Self::ConfirmDrag => "Confirm drag",
+            Self::More => "More actions",
+            Self::Mouse => "Mouse",
+            Self::Editing => "Editing",
+            Self::Windows => "Apps and windows",
+            Self::Browser => "Browser",
+            Self::Tabs => "Tabs",
+            Self::Zoom => "Zoom",
+            Self::Media => "Media",
+            Self::Displays => "Displays",
+            Self::Scanning => "Scanning",
+        }
+    }
+    fn rows(self) -> Vec<Vec<Item>> {
+        use self::Command as C;
+        use Item::*;
+        let items = match self {
+            Self::Actions => {
+                return vec![
+                    vec![LeftClick, RightClick, DoubleClick],
+                    vec![Scroll, Drag, More],
+                    vec![NewPoint, Cancel],
+                ]
+            }
+            Self::Scroll => return vec![vec![Up, Down], vec![Left, Right], vec![Back]],
+            Self::ConfirmDrag => return vec![vec![DragHere, DestinationAgain, CancelDrag]],
+            Self::More => vec![
+                Group(Self::Mouse),
+                Group(Self::Editing),
+                Group(Self::Windows),
+                Group(Self::Browser),
+                Group(Self::Media),
+                Group(Self::Displays),
+                Group(Self::Scanning),
+                Back,
+            ],
+            Self::Mouse => vec![
+                Command(C::MiddleClick),
+                Command(C::TripleClick),
+                Command(C::ShiftClick),
+                Command(C::CtrlClick),
+                Command(C::AltClick),
+                Command(C::MetaClick),
+                Back,
+            ],
+            Self::Editing => vec![
+                Command(C::Copy),
+                Command(C::Cut),
+                Command(C::Paste),
+                Command(C::SelectAll),
+                Command(C::Undo),
+                Command(C::Redo),
+                Command(C::Save),
+                Command(C::Find),
+                Back,
+            ],
+            Self::Windows => vec![
+                Command(C::SwitchNext),
+                Command(C::SwitchPrevious),
+                Command(C::Overview),
+                Command(C::Desktop),
+                Command(C::Minimize),
+                Command(C::Maximize),
+                Command(C::CloseWindow),
+                Back,
+            ],
+            Self::Browser => vec![
+                Command(C::BrowserBack),
+                Command(C::BrowserForward),
+                Command(C::Reload),
+                Group(Self::Tabs),
+                Group(Self::Zoom),
+                Command(C::Address),
+                Back,
+            ],
+            Self::Tabs => vec![
+                Command(C::NewTab),
+                Command(C::CloseTab),
+                Command(C::ReopenTab),
+                Command(C::NextTab),
+                Command(C::PreviousTab),
+                Back,
+            ],
+            Self::Zoom => vec![
+                Command(C::ZoomIn),
+                Command(C::ZoomOut),
+                Command(C::ZoomReset),
+                Back,
+            ],
+            Self::Media => vec![
+                Command(C::PlayPause),
+                Command(C::NextTrack),
+                Command(C::PreviousTrack),
+                Command(C::VolumeUp),
+                Command(C::VolumeDown),
+                Command(C::Mute),
+                Back,
+            ],
+            Self::Displays => vec![Display(true), Display(false), Back],
+            Self::Scanning => vec![
+                Pause,
+                Reverse,
+                Setting(self::Setting::FasterScan),
+                Setting(self::Setting::SlowerScan),
+                Setting(self::Setting::FasterLine),
+                Setting(self::Setting::SlowerLine),
+                Setting(self::Setting::LineMode),
+                Setting(self::Setting::GridMode),
+                Back,
+            ],
+        };
+        items.chunks(3).map(|row| row.to_vec()).collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn every_submenu_is_reachable_and_fits_a_three_by_three_grid() {
+        let mut pending = vec![Kind::Actions];
+        let mut visited = vec![];
+        let mut commands = vec![];
+        while let Some(kind) = pending.pop() {
+            if visited.contains(&kind) {
+                continue;
+            }
+            visited.push(kind);
+            let rows = kind.rows();
+            assert!(rows.len() <= 3);
+            assert!(rows.iter().all(|r| r.len() <= 3));
+            if kind != Kind::Actions {
+                assert!(rows.iter().flatten().any(|i| *i == Item::Back));
+            }
+            for item in rows.into_iter().flatten() {
+                match item {
+                    Item::More => pending.push(Kind::More),
+                    Item::Group(k) => pending.push(k),
+                    Item::Command(c) => commands.push(c),
+                    _ => {}
+                }
+            }
+        }
+        assert_eq!(commands.len(), 39);
+        assert!(visited.contains(&Kind::Scanning));
+        assert!(visited.contains(&Kind::Displays));
+        assert!(visited.contains(&Kind::Tabs));
+        assert!(visited.contains(&Kind::Zoom));
+    }
+    #[test]
+    fn settings_step_presets_and_clamp_at_limits() {
+        let mut c = crate::point_scan::Config {
+            block_interval_ms: 650,
+            ..Default::default()
+        };
+        Setting::FasterScan.apply(&mut c);
+        assert_eq!(c.block_interval_ms, 500);
+        Setting::SlowerScan.apply(&mut c);
+        assert_eq!(c.block_interval_ms, 750);
+        for _ in 0..20 {
+            Setting::FasterScan.apply(&mut c);
+            Setting::SlowerLine.apply(&mut c);
+        }
+        assert_eq!((c.block_interval_ms, c.speed), (250, 0));
+        for _ in 0..20 {
+            Setting::SlowerScan.apply(&mut c);
+            Setting::FasterLine.apply(&mut c);
+        }
+        assert_eq!((c.block_interval_ms, c.speed), (5000, 4));
+        c.validate().unwrap();
+    }
     #[test]
     fn grid_keeps_square_columns_and_highlights_the_current_row_or_item() {
         let screen = Rect {

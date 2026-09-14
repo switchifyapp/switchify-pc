@@ -56,7 +56,11 @@ impl Adapter for PointScan {
     }
     fn activate(app: &AppHandle, request: Request) -> Result<(), String> {
         crate::point_scan_ready(app)?;
-        crate::scan_executor::activate(request)
+        match request {
+            Request::Setting(setting) => scanning_runtime::update_point_setting(app, setting),
+            Request::Display(next) => scanning_runtime::restart_point_on_display(app, next),
+            request => crate::scan_executor::activate(request),
+        }
     }
     fn cleanup(_app: &AppHandle) -> Result<(), String> {
         crate::scan_executor::cleanup()

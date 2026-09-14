@@ -111,7 +111,7 @@ unsafe extern "system" fn window(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -
             }
         });
     }
-    if msg == WM_HOTKEY {
+    if msg == WM_HOTKEY && !crate::input::own_input(unsafe { GetMessageExtraInfo() } as i64) {
         INPUT.with(|slot| {
             if let Some(input) = slot.borrow().as_ref() {
                 input.hotkey(wp as i32);
@@ -141,7 +141,9 @@ unsafe extern "system" fn window(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -
             let key = unsafe { raw.data.keyboard };
             // Hotkeys own presses. Raw make events can be repeats or modified keys
             // that we did not reserve, so they must never start a gesture.
-            if key.Flags & RI_KEY_BREAK as u16 != 0 {
+            if key.Flags & RI_KEY_BREAK as u16 != 0
+                && !crate::input::own_input(key.ExtraInformation as i64)
+            {
                 INPUT.with(|slot| {
                     if let Some(input) = slot.borrow().as_ref() {
                         input.raw(key.VKey as i32, true);
@@ -271,10 +273,8 @@ unsafe fn run(
             .collect();
         driver.ready(down);
         let mut core = driver.core.lock().unwrap_or_else(|p| p.into_inner());
-        if !core.down.is_empty() {
-            bail!("Release held keys before starting capture.");
-        }
-        core.begin(mode, driver.now());
+        let down = core.down.clone();
+        core.begin_with_pressed_keys(mode, driver.now(), down)?;
         Ok(())
     })();
     let timer = if setup.is_ok() {
@@ -386,6 +386,30 @@ mod tests {
             },
             keys: HashMap::from([(32, "Space".into()), (27, "Escape".into())]),
         }
+    }
+    #[test]
+    fn learning_ignores_hotkey_for_preheld_key_until_raw_release() {
+        let i = input();
+        {
+            let mut c = i.driver.core.lock().unwrap();
+            c.stop(StopReason::Disabled);
+            c.begin_with_pressed_keys(
+                Mode::Learning,
+                0,
+                std::collections::HashSet::from(["Space".into()]),
+            )
+            .unwrap();
+        }
+        i.hotkey(32);
+        i.raw(32, true);
+        assert!(i.driver.core.lock().unwrap().events.is_empty());
+        i.hotkey(32);
+        i.raw(32, true);
+        let mut c = i.driver.core.lock().unwrap();
+        assert!(
+            matches!(c.events.pop_front(), Some(Event::Learned { code, .. }) if code == "Space")
+        );
+        assert!(c.events.is_empty());
     }
     #[test]
     fn raw_make_and_unmatched_break_cannot_start_gestures() {

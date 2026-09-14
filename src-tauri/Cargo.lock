@@ -2725,6 +2725,7 @@ dependencies = [
  "bitflags 2.13.1",
  "objc2",
  "objc2-core-foundation",
+ "objc2-core-graphics",
  "objc2-foundation",
 ]
 
@@ -3985,7 +3986,7 @@ dependencies = [
 
 [[package]]
 name = "switchify-pc"
-version = "1.0.0-rc.7"
+version = "1.0.0-rc.8"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4002,6 +4003,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-core-graphics",
  "objc2-foundation",
+ "objc2-quartz-core",
  "rand 0.8.7",
  "reqwest",
  "serde",
