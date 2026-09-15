@@ -1,6 +1,47 @@
 use super::{Core, Driver, Mode, StopReason, HEARTBEAT_TIMEOUT_MS};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering::*};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Resource {
+    RawInput,
+    Hook,
+    Timer,
+}
+pub(super) trait NativeResources {
+    fn acquire(&mut self, resource: Resource) -> bool;
+    fn release(&mut self, resource: Resource) -> bool;
+}
+pub(super) struct Installation<'a, T: NativeResources> {
+    api: &'a mut T,
+    count: usize,
+}
+impl<'a, T: NativeResources> Installation<'a, T> {
+    const ORDER: [Resource; 3] = [Resource::RawInput, Resource::Hook, Resource::Timer];
+    pub fn start(api: &'a mut T) -> Option<Self> {
+        let mut installation = Self { api, count: 0 };
+        for resource in Self::ORDER {
+            if !installation.api.acquire(resource) {
+                return None;
+            }
+            installation.count += 1;
+        }
+        Some(installation)
+    }
+    pub fn stop(&mut self) -> bool {
+        let mut success = true;
+        while self.count > 0 {
+            self.count -= 1;
+            success &= self.api.release(Self::ORDER[self.count]);
+        }
+        success
+    }
+}
+impl<T: NativeResources> Drop for Installation<'_, T> {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 const CAPACITY: usize = 256;
 const ESCAPE: usize = 27;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -237,6 +278,60 @@ mod tests {
         )
     }
     #[test]
+    fn startup_failure_rolls_back_and_shutdown_attempts_every_cleanup_once() {
+        #[derive(Default)]
+        struct Fake {
+            fail_start: Option<Resource>,
+            fail_stop: bool,
+            acquired: Vec<Resource>,
+            released: Vec<Resource>,
+        }
+        impl NativeResources for Fake {
+            fn acquire(&mut self, resource: Resource) -> bool {
+                if self.fail_start == Some(resource) {
+                    return false;
+                }
+                self.acquired.push(resource);
+                true
+            }
+            fn release(&mut self, resource: Resource) -> bool {
+                self.released.push(resource);
+                !self.fail_stop
+            }
+        }
+        for failure in [
+            Some(Resource::RawInput),
+            Some(Resource::Hook),
+            Some(Resource::Timer),
+            None,
+        ] {
+            let mut fake = Fake {
+                fail_start: failure,
+                ..Default::default()
+            };
+            {
+                let installation = Installation::start(&mut fake);
+                assert_eq!(installation.is_none(), failure.is_some());
+            }
+            assert_eq!(
+                fake.released,
+                fake.acquired.iter().copied().rev().collect::<Vec<_>>()
+            );
+        }
+        let mut fake = Fake {
+            fail_stop: true,
+            ..Default::default()
+        };
+        {
+            let mut installation = Installation::start(&mut fake).unwrap();
+            assert!(!installation.stop());
+        }
+        assert_eq!(
+            fake.released,
+            vec![Resource::Timer, Resource::Hook, Resource::RawInput]
+        );
+    }
+    #[test]
     fn consumes_edges_and_repeats_but_not_unrelated_or_generated_input() {
         let (mut state, shared, mut core, names) = setup(Mode::Active);
         assert!(!state.key(&shared, 16, true, false, 1));
@@ -392,6 +487,42 @@ mod tests {
         thread.join().unwrap();
         assert!(shared.enabled.load(Acquire));
         assert!(shared.pop().is_none());
+    }
+    #[test]
+    fn cancellation_reconciles_a_release_between_worker_dispatch_and_exit() {
+        let (mut state, shared, mut core, names) = setup(Mode::Active);
+        state.key(&shared, 32, true, false, 1);
+        shared.cancel();
+        core.stop(StopReason::Disabled);
+        shared.drain_into(&mut core, &names, 2);
+        assert!(core.physical.contains("Space"));
+        assert!(state.key(&shared, 32, false, false, 3));
+        assert!(!shared.has_owned());
+        shared.drain_into(&mut core, &names, 4);
+        assert!(core
+            .begin_with_pressed_keys(Mode::Active, 5, Default::default())
+            .is_ok());
+    }
+    #[test]
+    fn unplug_without_release_requires_a_safe_complete_gesture_to_recover() {
+        let (mut state, shared, mut core, names) = setup(Mode::Active);
+        state.key(&shared, 32, true, false, 1);
+        shared.fail(StopReason::CaptureLost);
+        shared.drain_into(&mut core, &names, 2);
+        assert!(shared.has_owned());
+        assert!(state.key(&shared, 32, true, false, 3));
+        assert!(state.key(&shared, 32, false, false, 4));
+        shared.drain_into(&mut core, &names, 5);
+        assert!(!shared.has_owned());
+        assert!(core.physical.is_empty());
+        assert_eq!(core.events.len(), 1);
+        assert!(matches!(
+            core.events[0],
+            super::super::Event::Stopped {
+                reason: StopReason::CaptureLost,
+                ..
+            }
+        ));
     }
     #[test]
     fn native_loss_cancels_and_owned_keys_remain_suppressed_until_release() {

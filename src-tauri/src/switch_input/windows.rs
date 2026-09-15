@@ -1,5 +1,5 @@
 use super::{
-    windows_hook::{Shared, State},
+    windows_hook::{Installation, NativeResources, Resource, Shared, State},
     Driver, Mode, StopReason,
 };
 use anyhow::{bail, Result};
@@ -131,6 +131,57 @@ unsafe extern "system" fn window(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -
 }
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
+}
+
+struct Resources {
+    hwnd: HWND,
+    module: HINSTANCE,
+    hook: HHOOK,
+}
+impl NativeResources for Resources {
+    fn acquire(&mut self, resource: Resource) -> bool {
+        unsafe {
+            match resource {
+                Resource::RawInput => {
+                    RegisterRawInputDevices(
+                        &RAWINPUTDEVICE {
+                            usUsagePage: 1,
+                            usUsage: 6,
+                            dwFlags: RIDEV_INPUTSINK | RIDEV_DEVNOTIFY,
+                            hwndTarget: self.hwnd,
+                        },
+                        1,
+                        std::mem::size_of::<RAWINPUTDEVICE>() as u32,
+                    ) != 0
+                }
+                Resource::Hook => {
+                    self.hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard), self.module, 0);
+                    !self.hook.is_null()
+                }
+                Resource::Timer => SetTimer(self.hwnd, 1, 20, None) != 0,
+            }
+        }
+    }
+    fn release(&mut self, resource: Resource) -> bool {
+        unsafe {
+            match resource {
+                Resource::Timer => KillTimer(self.hwnd, 1) != 0,
+                Resource::Hook => UnhookWindowsHookEx(self.hook) != 0,
+                Resource::RawInput => {
+                    RegisterRawInputDevices(
+                        &RAWINPUTDEVICE {
+                            usUsagePage: 1,
+                            usUsage: 6,
+                            dwFlags: RIDEV_REMOVE,
+                            hwndTarget: std::ptr::null_mut(),
+                        },
+                        1,
+                        std::mem::size_of::<RAWINPUTDEVICE>() as u32,
+                    ) != 0
+                }
+            }
+        }
+    }
 }
 
 pub struct Capture {
@@ -266,30 +317,22 @@ unsafe fn run(
             started: driver.started,
         })
     });
-    let raw = RAWINPUTDEVICE {
-        usUsagePage: 1,
-        usUsage: 6,
-        dwFlags: RIDEV_INPUTSINK | RIDEV_DEVNOTIFY,
-        hwndTarget: hwnd,
+    let mut resources = Resources {
+        hwnd,
+        module,
+        hook: std::ptr::null_mut(),
     };
-    let raw_ok =
-        RegisterRawInputDevices(&raw, 1, std::mem::size_of::<RAWINPUTDEVICE>() as u32) != 0;
-    let hook = if raw_ok {
-        SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard), module, 0)
-    } else {
-        std::ptr::null_mut()
-    };
-    let startup_ready = !hook.is_null()
+    let mut installation = Installation::start(&mut resources);
+    let startup_ready = installation.is_some()
         && INPUT.with(|slot| {
             let mut slot = slot.borrow_mut();
             let input = slot.as_mut().unwrap();
             let mut pressed = std::collections::HashSet::new();
             for (code, name) in names.iter().enumerate() {
-                input
-                    .state
-                    .refresh_key(code, GetAsyncKeyState(code as i32) < 0);
+                let down = GetAsyncKeyState(code as i32) < 0;
+                input.state.refresh_key(code, down);
                 if let Some(name) = name {
-                    if GetAsyncKeyState(code as i32) < 0 {
+                    if down {
                         pressed.insert(name.clone());
                     }
                 }
@@ -301,12 +344,7 @@ unsafe fn run(
             core.reconcile_pressed_keys(pressed);
             !blocked
         });
-    let timer = if startup_ready {
-        SetTimer(hwnd, 1, 20, None)
-    } else {
-        0
-    };
-    let worker = if timer != 0 {
+    let worker = if startup_ready {
         let state = shared.clone();
         let events = driver.clone();
         let id = GetCurrentThreadId();
@@ -316,6 +354,7 @@ unsafe fn run(
                 while !state.shutdown.load(Acquire) {
                     state.dispatch(&events, &names);
                     if !state.enabled.load(Acquire) && !state.has_owned() {
+                        state.dispatch(&events, &names);
                         unsafe {
                             PostThreadMessageW(id, WM_QUIT, 0, 0);
                         }
@@ -341,26 +380,13 @@ unsafe fn run(
         }
     }
     shared.shutdown.store(true, Release);
-    if !hook.is_null() {
-        UnhookWindowsHookEx(hook);
-    }
-    if timer != 0 {
-        KillTimer(hwnd, 1);
-    }
-    if raw_ok {
-        let remove = RAWINPUTDEVICE {
-            dwFlags: RIDEV_REMOVE,
-            hwndTarget: std::ptr::null_mut(),
-            ..raw
-        };
-        RegisterRawInputDevices(&remove, 1, std::mem::size_of::<RAWINPUTDEVICE>() as u32);
-    }
+    let cleaned = installation.as_mut().is_none_or(Installation::stop);
     DestroyWindow(hwnd);
     INPUT.with(|slot| *slot.borrow_mut() = None);
     if let Some(worker) = worker {
         let _ = worker.join();
     }
-    if shared.enabled.swap(false, AcqRel) {
+    if shared.enabled.swap(false, AcqRel) || !cleaned {
         driver.lost();
     }
 }
