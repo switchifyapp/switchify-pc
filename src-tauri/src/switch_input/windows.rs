@@ -1,13 +1,11 @@
-//! Windows hotkey presses and Raw Input releases. No low-level hook dependency.
-use super::{Driver, Mode};
+use super::{
+    windows_hook::{await_shutdown, Installation, NativeResources, Resource, Shared, State},
+    Driver, Mode, StopReason,
+};
 use anyhow::{bail, Result};
 use std::{
     cell::RefCell,
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
-    },
+    sync::{atomic::Ordering::*, mpsc, Arc},
     time::Duration,
 };
 use windows_sys::Win32::{
@@ -79,116 +77,211 @@ fn known_keys() -> Vec<(u32, String)> {
         .map(|name| (code_for_name(&name).unwrap(), name))
         .collect()
 }
+
 struct Input {
-    driver: Driver,
-    keys: HashMap<i32, String>,
-}
-impl Input {
-    fn hotkey(&self, id: i32) {
-        if let Some(name) = self.keys.get(&id) {
-            self.driver.key(name, true);
-        }
-    }
-    fn raw(&self, vk: i32, released: bool) {
-        if released {
-            if let Some(name) = self.keys.get(&vk) {
-                self.driver.key(name, false);
-            }
-        }
-    }
+    state: State,
+    shared: Arc<Shared>,
+    started: std::time::Instant,
 }
 thread_local! { static INPUT: RefCell<Option<Input>> = const { RefCell::new(None) }; }
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(Some(0)).collect()
+unsafe extern "system" fn keyboard(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    if code >= 0
+        && matches!(
+            wp as u32,
+            WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
+        )
+    {
+        let key = &*(lp as *const KBDLLHOOKSTRUCT);
+        if crate::input::own_input(key.dwExtraInfo as i64) {
+            return CallNextHookEx(std::ptr::null_mut(), code, wp, lp);
+        }
+        let consumed = INPUT.with(|slot| {
+            let Ok(mut slot) = slot.try_borrow_mut() else {
+                return false;
+            };
+            let Some(input) = slot.as_mut() else {
+                return false;
+            };
+            let now = input.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+            input.state.key(
+                &input.shared,
+                key.vkCode,
+                matches!(wp as u32, WM_KEYDOWN | WM_SYSKEYDOWN),
+                false,
+                now,
+            )
+        });
+        if consumed {
+            return 1;
+        }
+    }
+    CallNextHookEx(std::ptr::null_mut(), code, wp, lp)
 }
 unsafe extern "system" fn window(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     if msg == WM_INPUT_DEVICE_CHANGE && wp == GIDC_REMOVAL as usize {
         INPUT.with(|slot| {
-            if let Some(input) = slot.borrow().as_ref() {
-                input.driver.lost();
-                // The removed device may not own a held switch. Off-mode cleanup
-                // reconciles actual key state before releasing its reservation.
-            }
-        });
-    }
-    if msg == WM_HOTKEY && !crate::input::own_input(unsafe { GetMessageExtraInfo() } as i64) {
-        INPUT.with(|slot| {
-            if let Some(input) = slot.borrow().as_ref() {
-                input.hotkey(wp as i32);
-            }
-        });
-        return 0;
-    }
-    if msg == WM_INPUT {
-        let mut raw: RAWINPUT = unsafe { std::mem::zeroed() };
-        let mut size = std::mem::size_of::<RAWINPUT>() as u32;
-        let count = unsafe {
-            GetRawInputData(
-                lp as HRAWINPUT,
-                RID_INPUT,
-                &mut raw as *mut _ as *mut _,
-                &mut size,
-                std::mem::size_of::<RAWINPUTHEADER>() as u32,
-            )
-        };
-        if count == u32::MAX {
-            INPUT.with(|slot| {
-                if let Some(input) = slot.borrow().as_ref() {
-                    input.driver.lost();
+            if let Ok(slot) = slot.try_borrow() {
+                if let Some(input) = slot.as_ref() {
+                    input.shared.fail(StopReason::CaptureLost);
                 }
-            });
-        } else if raw.header.dwType == RIM_TYPEKEYBOARD {
-            let key = unsafe { raw.data.keyboard };
-            // Hotkeys own presses. Raw make events can be repeats or modified keys
-            // that we did not reserve, so they must never start a gesture.
-            if key.Flags & RI_KEY_BREAK as u16 != 0
-                && !crate::input::own_input(key.ExtraInformation as i64)
-            {
-                INPUT.with(|slot| {
-                    if let Some(input) = slot.borrow().as_ref() {
-                        input.raw(key.VKey as i32, true);
-                    }
-                });
+            }
+        });
+    }
+    DefWindowProcW(hwnd, msg, wp, lp)
+}
+fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(Some(0)).collect()
+}
+
+struct Resources {
+    hwnd: HWND,
+    module: HINSTANCE,
+    hook: HHOOK,
+}
+impl NativeResources for Resources {
+    fn acquire(&mut self, resource: Resource) -> bool {
+        unsafe {
+            match resource {
+                Resource::RawInput => {
+                    RegisterRawInputDevices(
+                        &RAWINPUTDEVICE {
+                            usUsagePage: 1,
+                            usUsage: 6,
+                            dwFlags: RIDEV_INPUTSINK | RIDEV_DEVNOTIFY,
+                            hwndTarget: self.hwnd,
+                        },
+                        1,
+                        std::mem::size_of::<RAWINPUTDEVICE>() as u32,
+                    ) != 0
+                }
+                Resource::Hook => {
+                    self.hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard), self.module, 0);
+                    !self.hook.is_null()
+                }
+                Resource::Timer => SetTimer(self.hwnd, 1, 20, None) != 0,
             }
         }
     }
-    unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
+    fn release(&mut self, resource: Resource) -> bool {
+        unsafe {
+            match resource {
+                Resource::Timer => KillTimer(self.hwnd, 1) != 0,
+                Resource::Hook => UnhookWindowsHookEx(self.hook) != 0,
+                Resource::RawInput => {
+                    RegisterRawInputDevices(
+                        &RAWINPUTDEVICE {
+                            usUsagePage: 1,
+                            usUsage: 6,
+                            dwFlags: RIDEV_REMOVE,
+                            hwndTarget: std::ptr::null_mut(),
+                        },
+                        1,
+                        std::mem::size_of::<RAWINPUTDEVICE>() as u32,
+                    ) != 0
+                }
+            }
+        }
+    }
 }
 
-/// Owns every registration on one dedicated message-loop thread.
 pub struct Capture {
-    stop: Arc<AtomicBool>,
+    shared: Arc<Shared>,
     thread_id: u32,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl Capture {
     pub fn start(driver: Driver, mode: Mode) -> Result<Self> {
-        let stop = Arc::new(AtomicBool::new(false));
-        let stopping = stop.clone();
+        let mut names: [Option<String>; 256] = std::array::from_fn(|_| None);
+        let mut down = [false; 256];
+        for (vk, name) in known_keys() {
+            down[vk as usize] = unsafe { GetAsyncKeyState(vk as i32) < 0 };
+            names[vk as usize] = Some(name);
+        }
+        let pressed = names
+            .iter()
+            .enumerate()
+            .filter_map(|(vk, name)| if down[vk] { name.clone() } else { None })
+            .collect();
+        driver.ready(pressed);
+        let (generation, active) = {
+            let mut core = driver.core.lock().unwrap_or_else(|p| p.into_inner());
+            let pressed = core.down.clone();
+            let generation = core.begin_with_pressed_keys(mode, driver.now(), pressed)?;
+            let active = std::array::from_fn(|vk| {
+                names[vk]
+                    .as_ref()
+                    .is_some_and(|name| mode == Mode::Learning || core.mappings.contains_key(name))
+            });
+            (generation, active)
+        };
+        let shared = Arc::new(Shared::new(generation, driver.now()));
+        let running = shared.clone();
+        let capture_driver = driver.clone();
         let (tx, rx) = mpsc::sync_channel(1);
-        let thread = std::thread::Builder::new()
-            .name("switchify-keyboard-input".into())
-            .spawn(move || unsafe { run(driver, mode, stopping, tx) })?;
+        let thread = match std::thread::Builder::new()
+            .name("switchify-keyboard-hook".into())
+            .spawn(move || unsafe { run(capture_driver, mode, active, down, names, running, tx) })
+        {
+            Ok(thread) => thread,
+            Err(error) => {
+                driver.lost();
+                return Err(error.into());
+            }
+        };
         match rx.recv_timeout(Duration::from_secs(3)) {
             Ok(Ok(thread_id)) => Ok(Self {
-                stop,
+                shared,
                 thread_id,
                 thread: Some(thread),
             }),
             Ok(Err(error)) => {
+                shared.shutdown.store(true, Release);
                 let _ = thread.join();
+                driver.lost();
                 bail!(error)
             }
             Err(_) => {
-                stop.store(true, Ordering::Release);
+                shared.shutdown.store(true, Release);
+                shared.cancel();
+                driver.lost();
                 bail!("Keyboard capture did not acknowledge startup.")
             }
         }
     }
+    pub fn cancel(&self) {
+        self.shared.cancel();
+    }
+    pub fn await_shutdown(&self) -> Result<()> {
+        let started = std::time::Instant::now();
+        await_shutdown(
+            || {
+                let held = self.held_keys();
+                if !held.is_empty() {
+                    bail!(
+                        "Release held keys before starting capture: {}.",
+                        held.join(", ")
+                    );
+                }
+                Ok(self
+                    .thread
+                    .as_ref()
+                    .is_none_or(std::thread::JoinHandle::is_finished))
+            },
+            || std::thread::sleep(Duration::from_millis(1)),
+            || started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        )
+    }
+    pub fn held_keys(&self) -> Vec<String> {
+        known_keys()
+            .into_iter()
+            .filter_map(|(vk, name)| self.shared.owned[vk as usize].load(Acquire).then_some(name))
+            .collect()
+    }
 }
 impl Drop for Capture {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Release);
+        self.shared.cancel();
+        self.shared.shutdown.store(true, Release);
         unsafe {
             PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0);
         }
@@ -201,7 +294,10 @@ impl Drop for Capture {
 unsafe fn run(
     driver: Driver,
     mode: Mode,
-    stopping: Arc<AtomicBool>,
+    active: [bool; 256],
+    down: [bool; 256],
+    names: [Option<String>; 256],
+    shared: Arc<Shared>,
     tx: mpsc::SyncSender<Result<u32, String>>,
 ) {
     let module = GetModuleHandleW(std::ptr::null());
@@ -213,9 +309,7 @@ unsafe fn run(
         ..std::mem::zeroed()
     };
     if RegisterClassW(&wc) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS {
-        let _ = tx.send(Err(
-            "Could not register the keyboard input window.".to_string()
-        ));
+        let _ = tx.send(Err("Could not register the keyboard input window.".into()));
         return;
     }
     let hwnd = CreateWindowExW(
@@ -233,270 +327,85 @@ unsafe fn run(
         std::ptr::null(),
     );
     if hwnd.is_null() {
-        let _ = tx.send(Err(
-            "Could not create the keyboard input window.".to_string()
-        ));
-        return;
-    }
-    let raw = RAWINPUTDEVICE {
-        usUsagePage: 1,
-        usUsage: 6,
-        dwFlags: RIDEV_INPUTSINK | RIDEV_DEVNOTIFY,
-        hwndTarget: hwnd,
-    };
-    let mut registered = HashMap::new();
-    let setup = (|| -> Result<()> {
-        if RegisterRawInputDevices(&raw, 1, std::mem::size_of::<RAWINPUTDEVICE>() as u32) == 0 {
-            bail!("Could not receive keyboard releases.");
-        }
-        let keys = if mode == Mode::Learning {
-            known_keys()
-        } else {
-            let c = driver.core.lock().unwrap_or_else(|p| p.into_inner());
-            c.mappings
-                .keys()
-                .chain(std::iter::once(&"Escape".to_string()))
-                .map(|n| (code_for_name(n).unwrap(), n.clone()))
-                .collect()
-        };
-        for (vk, name) in keys {
-            if RegisterHotKey(hwnd, vk as i32, MOD_NOREPEAT, vk) != 0 {
-                registered.insert(vk as i32, name);
-            } else if mode == Mode::Active || name == "Escape" {
-                bail!("The {name} key could not be reserved. It may already be used by another application.");
-            }
-        }
-        let down = known_keys()
-            .into_iter()
-            .filter(|(vk, _)| GetAsyncKeyState(*vk as i32) < 0)
-            .map(|(_, name)| name)
-            .collect();
-        driver.ready(down);
-        let mut core = driver.core.lock().unwrap_or_else(|p| p.into_inner());
-        let down = core.down.clone();
-        core.begin_with_pressed_keys(mode, driver.now(), down)?;
-        Ok(())
-    })();
-    let timer = if setup.is_ok() {
-        SetTimer(hwnd, 1, 20, None)
-    } else {
-        0
-    };
-    let setup = setup.and_then(|()| {
-        if timer == 0 {
-            bail!("Could not start the keyboard watchdog.");
-        }
-        Ok(())
-    });
-    if let Err(e) = setup {
-        for id in registered.keys() {
-            UnregisterHotKey(hwnd, *id);
-        }
-        let remove = RAWINPUTDEVICE {
-            dwFlags: RIDEV_REMOVE,
-            hwndTarget: std::ptr::null_mut(),
-            ..raw
-        };
-        RegisterRawInputDevices(&remove, 1, std::mem::size_of::<RAWINPUTDEVICE>() as u32);
-        DestroyWindow(hwnd);
-        driver.lost();
-        let _ = tx.send(Err(e.to_string()));
+        let _ = tx.send(Err("Could not create the keyboard input window.".into()));
         return;
     }
     INPUT.with(|slot| {
         *slot.borrow_mut() = Some(Input {
-            driver: driver.clone(),
-            keys: registered.clone(),
+            state: State::new(mode, active, down),
+            shared: shared.clone(),
+            started: driver.started,
         })
     });
-    let mut msg = std::mem::zeroed();
-    if tx.send(Ok(GetCurrentThreadId())).is_ok() {
-        while !stopping.load(Ordering::Acquire) {
+    let mut resources = Resources {
+        hwnd,
+        module,
+        hook: std::ptr::null_mut(),
+    };
+    let mut installation = Installation::start(&mut resources);
+    let startup_ready = installation.is_some()
+        && INPUT.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            let input = slot.as_mut().unwrap();
+            let mut pressed = std::collections::HashSet::new();
+            for (code, name) in names.iter().enumerate() {
+                let down = GetAsyncKeyState(code as i32) < 0;
+                input.state.refresh_key(code, down);
+                if let Some(name) = name {
+                    if down {
+                        pressed.insert(name.clone());
+                    }
+                }
+            }
+            let mut core = driver.core.lock().unwrap_or_else(|p| p.into_inner());
+            let blocked = pressed.iter().any(|name| {
+                name == "Escape" || (mode == Mode::Active && core.mappings.contains_key(name))
+            });
+            core.reconcile_pressed_keys(pressed);
+            !blocked
+        });
+    let worker = if startup_ready {
+        let state = shared.clone();
+        let events = driver.clone();
+        std::thread::Builder::new()
+            .name("switchify-keyboard-events".into())
+            .spawn(move || {
+                while !state.shutdown.load(Acquire) {
+                    state.dispatch(&events, &names);
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                state.dispatch(&events, &names);
+            })
+            .ok()
+    } else {
+        None
+    };
+    if worker.is_none() || shared.shutdown.load(Acquire) {
+        let _ = tx.send(Err("Could not start native keyboard suppression.".into()));
+    } else if tx.send(Ok(GetCurrentThreadId())).is_ok() {
+        let mut msg = std::mem::zeroed();
+        while !shared.shutdown.load(Acquire) {
             if GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) <= 0 {
                 break;
             }
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
-            driver.tick();
-            let mut core = driver.core.lock().unwrap_or_else(|p| p.into_inner());
-            if core.status.mode == Mode::Off {
-                // Reconcile only after cancellation; a lost raw break must not
-                // leave a reservation stuck, and must never execute an action.
-                core.physical.retain(|name| {
-                    code_for_name(name).is_some_and(|vk| GetAsyncKeyState(vk as i32) < 0)
-                });
-                // Drain keys already consumed when cancelled, without releasing
-                // their autorepeat into the foreground application.
-                registered.retain(|id, name| {
-                    if core.physical.contains(name) {
-                        true
-                    } else {
-                        UnregisterHotKey(hwnd, *id);
-                        false
-                    }
-                });
-                INPUT.with(|slot| {
-                    if let Some(input) = slot.borrow_mut().as_mut() {
-                        input.keys = registered.clone();
-                    }
-                });
-                if registered.is_empty() {
-                    break;
-                }
+            if shared.drained() {
+                break;
             }
         }
     }
-    for id in registered.keys() {
-        UnregisterHotKey(hwnd, *id);
+    if shared.enabled.load(Acquire) {
+        shared.fail(StopReason::CaptureLost);
     }
-    KillTimer(hwnd, timer);
-    let remove = RAWINPUTDEVICE {
-        dwFlags: RIDEV_REMOVE,
-        hwndTarget: std::ptr::null_mut(),
-        ..raw
-    };
-    RegisterRawInputDevices(&remove, 1, std::mem::size_of::<RAWINPUTDEVICE>() as u32);
+    shared.shutdown.store(true, Release);
+    let cleaned = installation.as_mut().is_none_or(Installation::stop);
     DestroyWindow(hwnd);
     INPUT.with(|slot| *slot.borrow_mut() = None);
-    let active = driver
-        .core
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .status
-        .mode
-        != Mode::Off;
-    if active {
+    if let Some(worker) = worker {
+        let _ = worker.join();
+    }
+    if shared.enabled.swap(false, AcqRel) || !cleaned {
         driver.lost();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::switch_input::{Action, Core, Event, StopReason};
-    use std::{sync::Mutex, time::Instant};
-    fn input() -> Input {
-        let mut core = Core::default();
-        core.mappings.insert("Space".into(), "select".into());
-        core.begin(Mode::Active, 0);
-        Input {
-            driver: Driver {
-                core: Arc::new(Mutex::new(core)),
-                started: Instant::now(),
-            },
-            keys: HashMap::from([(32, "Space".into()), (27, "Escape".into())]),
-        }
-    }
-    #[test]
-    fn learning_ignores_hotkey_for_preheld_key_until_raw_release() {
-        let i = input();
-        {
-            let mut c = i.driver.core.lock().unwrap();
-            c.stop(StopReason::Disabled);
-            c.begin_with_pressed_keys(
-                Mode::Learning,
-                0,
-                std::collections::HashSet::from(["Space".into()]),
-            )
-            .unwrap();
-        }
-        i.hotkey(32);
-        i.raw(32, true);
-        assert!(i.driver.core.lock().unwrap().events.is_empty());
-        i.hotkey(32);
-        i.raw(32, true);
-        let mut c = i.driver.core.lock().unwrap();
-        assert!(
-            matches!(c.events.pop_front(), Some(Event::Learned { code, .. }) if code == "Space")
-        );
-        assert!(c.events.is_empty());
-    }
-    #[test]
-    fn raw_make_and_unmatched_break_cannot_start_gestures() {
-        let i = input();
-        i.raw(32, false);
-        i.raw(32, true);
-        assert!(i.driver.core.lock().unwrap().events.is_empty());
-        i.hotkey(32);
-        i.hotkey(32);
-        i.raw(32, false);
-        i.raw(32, true);
-        i.raw(32, true);
-        let c = i.driver.core.lock().unwrap();
-        assert_eq!(c.events.len(), 2);
-        assert!(matches!(
-            c.events[0],
-            Event::Switch {
-                action: Action::Pressed,
-                ..
-            }
-        ));
-        assert!(matches!(
-            c.events[1],
-            Event::Switch {
-                action: Action::Released,
-                ..
-            }
-        ));
-    }
-    #[test]
-    fn escape_cancels_pending_action_and_drains_held_switch() {
-        let i = input();
-        i.hotkey(32);
-        i.hotkey(27);
-        assert_eq!(
-            i.driver.core.lock().unwrap().status.reason,
-            Some(StopReason::Escape)
-        );
-        i.raw(32, true);
-        i.raw(27, true);
-        let c = i.driver.core.lock().unwrap();
-        assert!(c.physical.is_empty());
-        assert_eq!(c.events.len(), 1);
-        assert!(matches!(c.events[0], Event::Stopped { .. }));
-    }
-    #[test]
-    fn missing_raw_release_cancels_without_inventing_an_action() {
-        let i = input();
-        i.hotkey(32);
-        let mut c = i.driver.core.lock().unwrap();
-        c.last_heartbeat = 4000;
-        c.tick(4000);
-        assert_eq!(c.status.reason, Some(StopReason::HoldEscape));
-        assert_eq!(c.events.len(), 1);
-    }
-    #[test]
-    fn learning_uses_complete_hotkey_and_raw_release_pair() {
-        let i = input();
-        i.driver.core.lock().unwrap().begin(Mode::Learning, 0);
-        i.raw(32, true);
-        i.hotkey(32);
-        i.raw(32, true);
-        let c = i.driver.core.lock().unwrap();
-        assert_eq!(c.events.len(), 1);
-        assert!(matches!(&c.events[0],Event::Learned {code,..} if code=="Space"));
-    }
-    #[test]
-    fn f12_is_not_reservable() {
-        assert!(!super::super::supported_key("F12"));
-        assert!(!known_keys().iter().any(|(_, name)| name == "F12"));
-    }
-    #[test]
-    fn device_loss_preserves_other_held_keys_until_their_release() {
-        let i = input();
-        i.hotkey(32);
-        i.driver.lost();
-        assert!(i.driver.core.lock().unwrap().physical.contains("Space"));
-        i.raw(32, true);
-        let c = i.driver.core.lock().unwrap();
-        assert!(c.physical.is_empty());
-        assert_eq!(c.events.len(), 1);
-        assert!(matches!(
-            c.events[0],
-            Event::Stopped {
-                reason: StopReason::CaptureLost,
-                ..
-            }
-        ));
     }
 }
