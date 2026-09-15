@@ -182,8 +182,8 @@ impl Workflow {
             Item::Up | Item::Down | Item::Left | Item::Right => {
                 self.menu.restart_interval();
                 let (dx, dy) = match item {
-                    Item::Up => (0, -3),
-                    Item::Down => (0, 3),
+                    Item::Up => (0, 3),
+                    Item::Down => (0, -3),
                     Item::Left => (-3, 0),
                     _ => (3, 0),
                 };
@@ -738,7 +738,7 @@ mod tests {
             Some(Request::Scroll {
                 point: (-1000, 20),
                 dx: 0,
-                dy: 3
+                dy: -3
             })
         );
         assert_eq!(
@@ -746,7 +746,7 @@ mod tests {
             Some(Request::Scroll {
                 point: (-1000, 20),
                 dx: 0,
-                dy: 3
+                dy: -3
             })
         );
         s.action(Action::Next);

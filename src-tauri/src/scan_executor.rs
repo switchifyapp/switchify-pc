@@ -266,6 +266,82 @@ mod tests {
         }
     }
     #[test]
+    fn scanning_menu_scrolls_all_four_directions_and_repeats_without_leaving_menu() {
+        use crate::point_scan::Config;
+        use crate::point_workflow::{Phase, Workflow, WorkflowPhase};
+        use crate::scanning::{Action, Rect, Session, Technique};
+
+        for automatic in [false, true] {
+            for (row, column, dx, dy) in [(0, 0, 0, 3), (0, 1, 0, -3), (1, 0, -3, 0), (1, 1, 3, 0)]
+            {
+                let workflow = Workflow::new(
+                    Config {
+                        block_interval_ms: 250,
+                        ..Config::default()
+                    }
+                    .point(),
+                    Rect {
+                        x: -500.0,
+                        y: 50.0,
+                        width: 1000.0,
+                        height: 800.0,
+                    },
+                    1.0,
+                )
+                .unwrap();
+                let mut session = Session::new(workflow, automatic);
+                for action in [
+                    Action::Select,
+                    Action::Select,
+                    Action::Select,
+                    Action::Next,
+                    Action::Select,
+                    Action::Select,
+                ] {
+                    assert_eq!(session.action(action), None);
+                }
+                for _ in 0..row {
+                    assert_eq!(session.action(Action::Next), None);
+                }
+                assert_eq!(session.action(Action::Select), None);
+                for _ in 0..column {
+                    assert_eq!(session.action(Action::Next), None);
+                }
+                let mut input = DesktopInput::new(Fake::default());
+                for _ in 0..2 {
+                    let before = session.frame().tiles;
+                    session.tick(100, false);
+                    let request = session.action(Action::Select).unwrap();
+                    assert_eq!(
+                        request,
+                        Request::Scroll {
+                            point: (-500, 50),
+                            dx,
+                            dy
+                        }
+                    );
+                    execute(&mut input, request, true).unwrap();
+                    assert_eq!(
+                        session.technique.phase(),
+                        Phase::Workflow(WorkflowPhase::Menu)
+                    );
+                    session.tick(100, false);
+                    assert_eq!(session.frame().tiles, before);
+                    assert_eq!(session.take_selection(), None);
+                }
+                assert_eq!(
+                    input.injector.events,
+                    vec![
+                        "move -500 50".to_string(),
+                        format!("scroll {dx} {dy}"),
+                        "move -500 50".to_string(),
+                        format!("scroll {dx} {dy}"),
+                    ]
+                );
+            }
+        }
+    }
+    #[test]
     fn resetting_an_executing_drag_releases_input_and_retains_failed_cleanup_for_retry() {
         let mut input = DesktopInput::new(Fake::default());
         execute(&mut input, Request::DragStart((100, 200)), true).unwrap();
