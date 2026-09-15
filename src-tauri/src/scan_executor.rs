@@ -27,14 +27,15 @@ pub fn execute<I: InputInjector>(
             if input.has_active_drag() {
                 return Err("End the active drag before clicking.".into());
             }
-            input.move_pointer_absolute(point.0, point.1)?;
-            input.click_pointer(
+            input.click_pointer_at(
+                point,
                 if right {
                     MouseButton::Right
                 } else {
                     MouseButton::Left
                 },
                 count,
+                &[],
             )
         }
         Request::Scroll { point, dx, dy } => {
@@ -208,11 +209,16 @@ pub fn move_to(point: (i32, i32)) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::scan_menu::Command;
+    type TargetClick = ((i32, i32), MouseButton, u8, Vec<String>);
     #[derive(Default)]
     struct Fake {
         events: Vec<String>,
         fail_release: bool,
         fail_click: bool,
+        fail_move: bool,
+        cursor: (i32, i32),
+        target_clicks: Vec<TargetClick>,
+        legacy_clicks: usize,
     }
     impl InputInjector for Fake {
         fn inject_text(&mut self, _: &str) -> Result<(), String> {
@@ -223,9 +229,33 @@ mod tests {
         }
         fn move_pointer_absolute(&mut self, x: i32, y: i32) -> Result<(), String> {
             self.events.push(format!("move {x} {y}"));
+            if self.fail_move {
+                return Err("move failed".into());
+            }
+            Ok(())
+        }
+        fn click_pointer_at(
+            &mut self,
+            point: (i32, i32),
+            button: MouseButton,
+            count: u8,
+            modifiers: &[&str],
+        ) -> Result<(), String> {
+            self.move_pointer_absolute(point.0, point.1)?;
+            if self.fail_click {
+                return Err("click failed".into());
+            }
+            self.events.push(format!("click {button:?} {count}"));
+            self.target_clicks.push((
+                point,
+                button,
+                count,
+                modifiers.iter().map(|key| (*key).into()).collect(),
+            ));
             Ok(())
         }
         fn click_pointer(&mut self, button: MouseButton, count: u8) -> Result<(), String> {
+            self.legacy_clicks += 1;
             self.events.push(format!("click {button:?} {count}"));
             if self.fail_click {
                 Err("click failed".into())
@@ -265,6 +295,95 @@ mod tests {
             Ok(())
         }
     }
+    #[test]
+    fn every_scan_click_uses_target_even_while_cursor_readback_is_stale() {
+        for point in [(-1600, -200), (3600, 1200)] {
+            let mut cases = vec![
+                (
+                    crate::point_workflow::default_click(point),
+                    MouseButton::Left,
+                    1,
+                    vec![],
+                ),
+                (
+                    Request::Click {
+                        point,
+                        right: true,
+                        count: 1,
+                    },
+                    MouseButton::Right,
+                    1,
+                    vec![],
+                ),
+                (
+                    Request::Click {
+                        point,
+                        right: false,
+                        count: 2,
+                    },
+                    MouseButton::Left,
+                    2,
+                    vec![],
+                ),
+            ];
+            for (command, button, count, keys) in [
+                (Command::MiddleClick, MouseButton::Middle, 1, vec![]),
+                (Command::TripleClick, MouseButton::Left, 3, vec![]),
+                (
+                    Command::ShiftClick,
+                    MouseButton::Left,
+                    1,
+                    vec!["Shift".into()],
+                ),
+                (
+                    Command::CtrlClick,
+                    MouseButton::Left,
+                    1,
+                    vec!["Ctrl".into()],
+                ),
+                (Command::AltClick, MouseButton::Left, 1, vec!["Alt".into()]),
+                (
+                    Command::MetaClick,
+                    MouseButton::Left,
+                    1,
+                    vec!["Meta".into()],
+                ),
+            ] {
+                cases.push((Request::Command { command, point }, button, count, keys));
+            }
+            for (request, button, count, keys) in cases {
+                let mut input = DesktopInput::new(Fake {
+                    cursor: (15, 20),
+                    ..Default::default()
+                });
+                execute(&mut input, request, true).unwrap();
+                assert_eq!(input.injector.cursor, (15, 20));
+                assert_eq!(input.injector.legacy_clicks, 0);
+                assert_eq!(input.injector.target_clicks, [(point, button, count, keys)]);
+                assert!(!input.has_active_drag());
+            }
+        }
+    }
+
+    #[test]
+    fn failed_point_move_never_clicks_and_cleanup_releases_owned_input() {
+        for command in [None, Some(Command::ShiftClick)] {
+            let mut input = DesktopInput::new(Fake {
+                fail_move: true,
+                ..Default::default()
+            });
+            let point = (-900, 400);
+            let request = command.map_or(crate::point_workflow::default_click(point), |command| {
+                Request::Command { command, point }
+            });
+            assert!(execute(&mut input, request, true).is_err());
+            assert!(input.injector.target_clicks.is_empty());
+            assert_eq!(input.injector.legacy_clicks, 0);
+            input.release_all().unwrap();
+            assert!(!input.has_active_drag());
+        }
+    }
+
     #[test]
     fn scanning_menu_scrolls_all_four_directions_and_repeats_without_leaving_menu() {
         use crate::point_scan::Config;
