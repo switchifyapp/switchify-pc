@@ -276,12 +276,9 @@ function SwitchEditor({
   );
 }
 
-// Learning must own the keyboard: on Windows the reserved press never reaches
-// the page but its release does, and a Space release on a focused button
-// clicks it, while an unreserved key would scroll Settings. A separate window
-// is not an option because losing main-window focus cancels the capture. So a
-// modal holds focus on itself, not on a control, and swallows every key event
-// until learning ends. Escape still reaches the backend through its hotkey.
+// Keep focus off actionable controls throughout learning, including pre-held
+// releases and keys outside the native supported set. Losing main-window focus
+// cancels learning; Escape is handled by native capture.
 function CaptureDialog({ name, onCancel }: { name: string; onCancel: () => void }) {
   const ref = useRef<HTMLElement>(null);
   const titleId = useId();

@@ -6,6 +6,9 @@ mod keys;
 mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
+#[cfg(any(target_os = "windows", test))]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod windows_hook;
 use anyhow::{bail, Result};
 pub use keys::normalize as normalize_key;
 use std::{
@@ -273,12 +276,14 @@ impl Driver {
     fn now(&self) -> u64 {
         self.started.elapsed().as_millis().min(u64::MAX as u128) as u64
     }
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     fn key(&self, code: &str, pressed: bool) -> bool {
         self.core
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .key(code, pressed, self.now())
     }
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     fn tick(&self) {
         self.core
             .lock()
@@ -405,8 +410,12 @@ impl Capture {
                 .iter()
                 .cloned()
                 .collect::<Vec<_>>();
+            if let Some(native) = &self.native {
+                held.extend(native.held_keys());
+            }
             if !held.is_empty() {
                 held.sort();
+                held.dedup();
                 bail!(
                     "Release held keys before starting capture: {}.",
                     held.join(", ")
@@ -447,6 +456,10 @@ impl Capture {
         core.down.clear();
     }
     pub fn stop(&mut self) {
+        #[cfg(target_os = "windows")]
+        if let Some(native) = &self.native {
+            native.cancel();
+        }
         self.driver
             .core
             .lock()
