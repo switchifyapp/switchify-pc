@@ -178,7 +178,7 @@ impl Workflow {
                 self.stage = Stage::Point;
                 self.point.start();
             }
-            Item::Cancel => self.stage = Stage::Idle,
+            Item::Cancel => self.reset(),
             Item::Up | Item::Down | Item::Left | Item::Right => {
                 self.menu.restart_interval();
                 let (dx, dy) = match item {
@@ -482,6 +482,41 @@ mod tests {
         }
         s.action(Action::Select)
     }
+    #[test]
+    fn closing_every_page_clears_nested_workflow_and_waits_for_a_new_select() {
+        for automatic in [false, true] {
+            for kind in crate::scan_menu::ALL_MENU_KINDS {
+                let mut s = session(automatic);
+                open(&mut s);
+                s.technique.selected(Item::More);
+                s.technique.selected(Item::Group(Kind::Browser));
+                s.technique.open(kind);
+                s.technique.destination = (40, 50);
+                s.technique.elapsed = 123;
+                s.technique.pending = Some(default_click((10, 20)));
+                let tiles = s.frame().tiles;
+                let rows = tiles
+                    .iter()
+                    .filter(|tile| tile.rect.x == tiles[0].rect.x)
+                    .count();
+                assert_eq!(choose(&mut s, rows - 1, 1), None, "{kind:?}");
+                assert!(!s.active());
+                assert!(s.technique.stage == Stage::Idle);
+                assert!(s.technique.parent_menu.is_empty());
+                assert!(s.technique.pending.is_none());
+                assert_eq!(s.technique.source, (0, 0));
+                assert_eq!(s.technique.destination, (0, 0));
+                assert_eq!(s.technique.elapsed, 0);
+                assert!(s.frame().tiles.is_empty());
+                s.tick(5000, false);
+                assert_eq!(s.take_selection(), None);
+                assert!(!s.active());
+                assert_eq!(s.action(Action::Select), None);
+                assert!(s.active());
+                assert!(s.technique.stage == Stage::Point);
+            }
+        }
+    }
     fn auto_session(
         mode: crate::point_scan::Mode,
         automatic: bool,
@@ -754,6 +789,7 @@ mod tests {
         s.action(Action::Next);
         s.action(Action::Next);
         assert_eq!(s.action(Action::Select), None);
+        assert_eq!(s.action(Action::Select), None);
         assert_eq!(s.technique.menu.kind, Kind::Actions);
         assert_eq!(s.action(Action::Select), None);
         assert_eq!(s.technique.menu.kind, Kind::Scroll);
@@ -866,7 +902,7 @@ mod tests {
         );
         s.action(Action::Select);
         s.action(Action::Select);
-        assert_eq!(choose(&mut s, 0, 2), None);
+        assert_eq!(choose(&mut s, 1, 0), None);
         assert_eq!(s.technique.menu.kind, Kind::Actions);
         assert_eq!(s.take_selection(), None);
     }
