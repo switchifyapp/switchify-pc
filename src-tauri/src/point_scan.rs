@@ -21,6 +21,8 @@ pub struct Config {
     pub speed: usize,
     pub grid_size: usize,
     pub block_interval_ms: u64,
+    pub auto_select_enabled: bool,
+    pub auto_select_delay_ms: u64,
     pub select_key: String,
     pub next_key: String,
     pub back_key: String,
@@ -35,6 +37,8 @@ impl Default for Config {
             speed: 2,
             grid_size: 4,
             block_interval_ms: 1000,
+            auto_select_enabled: false,
+            auto_select_delay_ms: 1000,
             select_key: "Space".into(),
             next_key: "Enter".into(),
             back_key: "Backspace".into(),
@@ -59,6 +63,8 @@ impl Config {
             speed: self.speed,
             grid_size: self.grid_size,
             block_interval_ms: self.block_interval_ms,
+            auto_select_enabled: self.auto_select_enabled,
+            auto_select_delay_ms: self.auto_select_delay_ms,
         }
     }
     pub fn validate(&self) -> Result<(), String> {
@@ -73,12 +79,16 @@ pub struct PointSettings {
     pub speed: usize,
     pub grid_size: usize,
     pub block_interval_ms: u64,
+    pub auto_select_enabled: bool,
+    pub auto_select_delay_ms: u64,
 }
 impl PointSettings {
     fn validate(&self) -> Result<(), String> {
         if self.speed > 4
             || !(2..=10).contains(&self.grid_size)
             || !(250..=5000).contains(&self.block_interval_ms)
+            || !(100..=100_000).contains(&self.auto_select_delay_ms)
+            || !self.auto_select_delay_ms.is_multiple_of(100)
         {
             return Err("Point scan speed, grid size, or interval is invalid.".into());
         }
@@ -412,6 +422,7 @@ impl Technique for Engine {
             grid,
             strips,
             tiles: vec![],
+            countdown: None,
             label: (self.phase == Phase::RowEscape).then(|| {
                 let scale = self.units_per_logical_pixel;
                 let width = (360.0 * scale).min(self.screen.width);
@@ -469,6 +480,28 @@ mod tests {
             block_interval_ms: 250,
             ..Config::default()
         })
+    }
+    #[test]
+    fn auto_select_delays_are_bounded_and_round_trip() {
+        for delay in [100, 500, 1000, 100_000] {
+            let config = Config {
+                auto_select_enabled: true,
+                auto_select_delay_ms: delay,
+                ..Config::default()
+            };
+            config.validate().unwrap();
+            let restored: Config =
+                serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
+            assert_eq!(restored, config);
+        }
+        for delay in [0, 99, 101, 100_100, u64::MAX] {
+            assert!(Config {
+                auto_select_delay_ms: delay,
+                ..Config::default()
+            }
+            .validate()
+            .is_err());
+        }
     }
     #[test]
     fn grid_highlights_fill_only_the_current_target_then_clear_for_lines() {
@@ -835,11 +868,15 @@ mod tests {
         assert!(e.technique.x > -1000.0);
     }
     #[test]
-    fn existing_flat_settings_round_trip_without_schema_changes() {
+    fn existing_flat_settings_gain_safe_auto_select_defaults() {
         let mut json = serde_json::json!({"mode":"grid","automatic":false,"speed":4,"gridSize":7,"blockIntervalMs":1500,"selectKey":"F1","nextKey":"F2","backKey":"F3","pauseKey":"F4"});
         let config: Config = serde_json::from_value(json.clone()).unwrap();
         config.validate().unwrap();
         assert_eq!(config.scanner_color, crate::scanning::ScannerColor::Blue);
+        assert!(!config.auto_select_enabled);
+        assert_eq!(config.auto_select_delay_ms, 1000);
+        json["autoSelectEnabled"] = serde_json::json!(false);
+        json["autoSelectDelayMs"] = serde_json::json!(1000);
         json["scannerColor"] = serde_json::json!("blue");
         assert_eq!(serde_json::to_value(&config).unwrap(), json);
         assert!(!config.switches().automatic);

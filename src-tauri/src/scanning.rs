@@ -155,6 +155,7 @@ pub struct Frame {
     pub strips: Vec<Rect>,
     pub tiles: Vec<FrameTile>,
     pub label: Option<FrameLabel>,
+    pub countdown: Option<Countdown>,
 }
 impl Frame {
     pub fn rectangles(&self) -> Vec<PaintedRect> {
@@ -204,6 +205,46 @@ impl Frame {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
+pub struct Countdown {
+    pub point: (i32, i32),
+    pub scale: f64,
+    pub permille: u16,
+    pub color: ScannerColor,
+}
+
+impl Countdown {
+    pub fn rect(&self) -> Rect {
+        let size = 64.0 * self.scale;
+        Rect {
+            x: f64::from(self.point.0) - size / 2.0,
+            y: f64::from(self.point.1) - size / 2.0,
+            width: size,
+            height: size,
+        }
+    }
+    pub fn bitmap(&self, pixel_ratio: f64) -> Result<tiny_skia::Pixmap, String> {
+        let size = (64.0 * self.scale * pixel_ratio).ceil().clamp(1.0, 1024.0) as u32;
+        let mut bitmap =
+            tiny_skia::Pixmap::new(size, size).ok_or("Cannot draw the auto-select countdown.")?;
+        crate::overlay::draw_dwell_progress(
+            &mut bitmap,
+            size as f32 / 2.0,
+            size as f32,
+            self.color.rgb(),
+            self.permille,
+        );
+        Ok(bitmap)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct UpdateContext {
+    pub movement_enabled: bool,
+    pub paused: bool,
+    pub switch_held: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct FrameTile {
     pub color: ScannerColor,
     pub text: String,
@@ -233,6 +274,9 @@ pub const MAX_SCAN_CYCLES: usize = 3;
 pub trait Technique {
     type Selection;
     type Phase: Clone + Default + PartialEq + Serialize;
+    fn auto_selecting(&self) -> bool {
+        false
+    }
     fn execution_failed(&mut self, _message: String) {}
     fn start(&mut self);
     fn advance(&mut self, elapsed_ms: u64);
@@ -251,8 +295,8 @@ pub trait Technique {
     fn finished(&self) -> bool {
         false
     }
-    fn update(&mut self, elapsed_ms: u64, advancing: bool) {
-        if advancing {
+    fn update(&mut self, elapsed_ms: u64, context: UpdateContext) {
+        if context.movement_enabled {
             self.advance(elapsed_ms);
         }
     }
@@ -308,6 +352,9 @@ impl<T: Technique> Session<T> {
             }
             return None;
         }
+        if self.technique.auto_selecting() {
+            self.paused = false;
+        }
         let selection = self.technique.handle(action);
         if !self.technique.pausable() {
             self.paused = false;
@@ -324,7 +371,11 @@ impl<T: Technique> Session<T> {
         if self.active && elapsed_ms > 0 {
             self.technique.update(
                 elapsed_ms.min(MAX_ELAPSED_MS),
-                self.automatic && !self.paused && !select_held,
+                UpdateContext {
+                    movement_enabled: self.automatic && !self.paused && !select_held,
+                    paused: self.paused,
+                    switch_held: select_held,
+                },
             );
             if self.technique.exhausted() {
                 self.reset();

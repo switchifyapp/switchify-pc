@@ -189,6 +189,7 @@ it("explains the selectable row escape phase", async () => {
 });
 
 it.each([
+  ["autoSelecting", "Waiting to click. Press a switch for the action menu."],
   ["menu", "Choose an action at the selected point."],
   ["menuSuspended", "Select to resume the action menu."],
   ["dragDestination", "Choose drag destination."],
@@ -222,4 +223,20 @@ it("retains a failed colour selection for retry", async () => {
   await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
     config: { ...defaultPointScanConfig, scannerColor: "white" },
   }));
+});
+
+it("saves auto selection separately from scan movement and validates its delay", async () => {
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  expect(screen.queryByRole("spinbutton", { name: "Auto select delay (seconds)" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Auto select" }));
+  const delay = screen.getByRole("spinbutton", { name: "Auto select delay (seconds)" });
+  expect(delay).toHaveValue(1);
+  fireEvent.change(delay, { target: { value: "0.5" } });
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: { ...defaultPointScanConfig, autoSelectEnabled: true, autoSelectDelayMs: 500 },
+  }));
+  const calls = mocks.invoke.mock.calls.length;
+  fireEvent.change(delay, { target: { value: "0.05" } });
+  expect(mocks.invoke).toHaveBeenCalledTimes(calls);
 });

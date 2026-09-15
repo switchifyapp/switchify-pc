@@ -229,7 +229,7 @@ pub(crate) fn present_solid(
     present_rgba(window, x, y, width.max(1), height.max(1), &rgba)
 }
 
-fn present_rgba(
+pub(crate) fn present_rgba(
     window: HWND,
     x: i32,
     y: i32,

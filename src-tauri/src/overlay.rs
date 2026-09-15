@@ -474,7 +474,13 @@ pub(crate) fn render_marker(frame: &Frame, scale: f64) -> Pixmap {
     pixmap
 }
 
-fn draw_dwell_progress(pixmap: &mut Pixmap, center: f32, unit: f32, color: [u8; 3], permille: u16) {
+pub(crate) fn draw_dwell_progress(
+    pixmap: &mut Pixmap,
+    center: f32,
+    unit: f32,
+    color: [u8; 3],
+    permille: u16,
+) {
     let radius = unit * 0.29;
     let width = (unit * 0.045).max(3.0);
     let segments = 64usize;

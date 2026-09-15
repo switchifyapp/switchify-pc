@@ -22,11 +22,25 @@ pub struct Gestures {
     interval_ms: u64,
 }
 impl Gestures {
+    #[cfg(test)]
     pub fn pressed(&mut self, id: &str, now: u64, settings: &Settings) {
+        self.pressed_for_scan(id, now, settings, false);
+    }
+    pub fn pressed_for_scan(&mut self, id: &str, now: u64, settings: &Settings, countdown: bool) {
         if !self.held.insert(id.into()) || self.held.len() != 1 {
             return;
         }
         if let Some(binding) = settings.bindings.iter().find(|b| b.id == id) {
+            let mut binding = binding.clone();
+            if countdown
+                && !matches!(
+                    binding.press_action,
+                    Action::Stop | Action::Pause | Action::Cancel
+                )
+            {
+                binding.press_action = Action::Select;
+                binding.hold_actions.clear();
+            }
             self.interval_ms = settings.hold_interval_ms;
             self.press = Some(Press {
                 binding: binding.clone(),
@@ -91,6 +105,40 @@ mod tests {
             ],
             ..Settings::default()
         }
+    }
+    #[test]
+    fn countdown_press_overrides_normal_actions_and_holds_once() {
+        for id in ["one", "two"] {
+            for duration in [10, 999, 2500] {
+                let mut gestures = Gestures::default();
+                gestures.pressed_for_scan(id, 0, &settings(), true);
+                assert!(gestures.held());
+                assert!(gestures.prompt(duration).is_none());
+                assert_eq!(gestures.released(id, duration), Some(Action::Select));
+                assert_eq!(gestures.released(id, duration), None);
+            }
+        }
+    }
+    #[test]
+    fn countdown_preserves_safety_switches_and_cancellation() {
+        for action in [Action::Stop, Action::Pause, Action::Cancel] {
+            let mut settings = settings();
+            settings.bindings[0].press_action = action;
+            let mut gestures = Gestures::default();
+            gestures.pressed_for_scan("one", 0, &settings, true);
+            assert_eq!(gestures.released("one", 10), Some(action));
+            gestures.pressed_for_scan("one", 20, &settings, true);
+            gestures.cancel();
+            assert_eq!(gestures.released("one", 30), None);
+        }
+    }
+    #[test]
+    fn overlapping_countdown_switches_do_not_select_a_menu_tile() {
+        let mut gestures = Gestures::default();
+        gestures.pressed_for_scan("one", 0, &settings(), true);
+        gestures.pressed_for_scan("two", 10, &settings(), true);
+        assert_eq!(gestures.released("one", 20), Some(Action::Select));
+        assert_eq!(gestures.released("two", 30), None);
     }
     #[test]
     fn boundary_and_last_action_match_android() {
