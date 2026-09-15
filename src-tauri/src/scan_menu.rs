@@ -45,7 +45,7 @@ impl Item {
             Self::Scroll => "Scroll",
             Self::Drag => "Drag",
             Self::NewPoint => "New point",
-            Self::Cancel => "Cancel",
+            Self::Cancel => "Close menu",
             Self::Up => "Up",
             Self::Down => "Down",
             Self::Left => "Left",
@@ -73,6 +73,22 @@ pub enum Kind {
     Scroll,
     ConfirmDrag,
 }
+#[cfg(test)]
+pub(crate) const ALL_MENU_KINDS: [Kind; 13] = [
+    Kind::Actions,
+    Kind::More,
+    Kind::Mouse,
+    Kind::Editing,
+    Kind::Windows,
+    Kind::Browser,
+    Kind::Tabs,
+    Kind::Zoom,
+    Kind::Media,
+    Kind::Displays,
+    Kind::Scanning,
+    Kind::Scroll,
+    Kind::ConfirmDrag,
+];
 pub struct Menu {
     pub kind: Kind,
     rows: Vec<Vec<Item>>,
@@ -435,8 +451,10 @@ impl Kind {
                     vec![NewPoint, Cancel],
                 ]
             }
-            Self::Scroll => return vec![vec![Up, Down], vec![Left, Right], vec![Back]],
-            Self::ConfirmDrag => return vec![vec![DragHere, DestinationAgain, CancelDrag]],
+            Self::Scroll => return vec![vec![Up, Down], vec![Left, Right], vec![Back, Cancel]],
+            Self::ConfirmDrag => {
+                return vec![vec![DragHere, DestinationAgain], vec![CancelDrag, Cancel]]
+            }
             Self::More => vec![
                 Group(Self::Mouse),
                 Group(Self::Editing),
@@ -522,7 +540,10 @@ impl Kind {
                 Back,
             ],
         };
-        items.chunks(3).map(|row| row.to_vec()).collect()
+        let actions: Vec<_> = items.into_iter().filter(|item| *item != Back).collect();
+        let mut rows: Vec<_> = actions.chunks(3).map(|row| row.to_vec()).collect();
+        rows.push(vec![Back, Cancel]);
+        rows
     }
 }
 
@@ -530,7 +551,78 @@ impl Kind {
 mod tests {
     use super::*;
     #[test]
-    fn every_submenu_is_reachable_and_fits_a_three_by_three_grid() {
+    fn every_page_has_one_close_tile_in_its_final_navigation_row() {
+        for kind in ALL_MENU_KINDS {
+            let rows = kind.rows();
+            let back = match kind {
+                Kind::Actions => Item::NewPoint,
+                Kind::ConfirmDrag => Item::CancelDrag,
+                _ => Item::Back,
+            };
+            assert_eq!(rows.last().unwrap(), &[back, Item::Cancel], "{kind:?}");
+            assert_eq!(
+                rows.iter()
+                    .flatten()
+                    .filter(|item| **item == Item::Cancel)
+                    .count(),
+                1
+            );
+            assert!(rows.len() <= 4 && rows.iter().all(|row| row.len() <= 3));
+            assert_eq!(Item::Cancel.label(), "Close menu");
+        }
+    }
+
+    #[test]
+    fn close_tile_is_reachable_by_automatic_row_and_item_scanning_on_every_page() {
+        for kind in ALL_MENU_KINDS {
+            let mut menu = Menu::new(kind, 250);
+            for _ in 1..kind.rows().len() {
+                menu.advance(250);
+            }
+            assert_eq!(menu.handle(Action::Select), None);
+            menu.advance(250);
+            assert_eq!(menu.handle(Action::Select), Some(Item::Cancel), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn every_page_including_four_row_pages_fits_small_scaled_displays() {
+        for kind in ALL_MENU_KINDS {
+            for (width, height) in [(320., 240.), (1920., 1080.)] {
+                let screen = Rect {
+                    x: -1920.,
+                    y: -200.,
+                    width,
+                    height,
+                };
+                for units in [1., 1.5, 2.] {
+                    for point in [
+                        (-1920, -200),
+                        (
+                            (screen.x + width - 1.) as i32,
+                            (screen.y + height - 1.) as i32,
+                        ),
+                    ] {
+                        let frame = Menu::new(kind, 250).frame(point, screen, units);
+                        assert!(frame.tiles.iter().any(|tile| tile.text == "Close menu"));
+                        for rect in frame
+                            .tiles
+                            .iter()
+                            .map(|tile| tile.rect)
+                            .chain(frame.label.iter().map(|label| label.rect))
+                        {
+                            assert!(rect.width > 0. && rect.height > 0.);
+                            assert!(rect.x >= screen.x && rect.y >= screen.y);
+                            assert!(rect.x + rect.width <= screen.x + screen.width + 0.001);
+                            assert!(rect.y + rect.height <= screen.y + screen.height + 0.001);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn every_submenu_is_reachable_and_fits_three_columns_and_four_rows() {
         let mut pending = vec![Kind::Actions];
         let mut visited = vec![];
         let mut commands = vec![];
@@ -540,7 +632,7 @@ mod tests {
             }
             visited.push(kind);
             let rows = kind.rows();
-            assert!(rows.len() <= 3);
+            assert!(rows.len() <= 4);
             assert!(rows.iter().all(|r| r.len() <= 3));
             if kind != Kind::Actions {
                 assert!(rows.iter().flatten().any(|i| *i == Item::Back));
