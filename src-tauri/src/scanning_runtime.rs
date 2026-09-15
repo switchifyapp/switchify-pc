@@ -725,7 +725,7 @@ fn show_prompt(
         if p.is_none() {
             *p = Some(Host::new()?);
         }
-        p.as_mut().unwrap().prompt(
+        p.as_mut().unwrap().hud_prompt(
             &format!(
                 "Release {} for {}",
                 prompt.switch_name,
@@ -733,6 +733,15 @@ fn show_prompt(
             ),
             rect,
             scale,
+            crate::scanning::HudPresentation {
+                screen: crate::scanning::Rect {
+                    x: f64::from(display.x),
+                    y: f64::from(display.y),
+                    width: f64::from(display.width),
+                    height: f64::from(display.height),
+                },
+                scale,
+            },
         )
     })
 }

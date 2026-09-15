@@ -418,6 +418,10 @@ impl Technique for Engine {
                 let height = (64.0 * scale).min(self.screen.height);
                 FrameLabel {
                     text: "Back to rows".into(),
+                    hud: Some(crate::scanning::HudPresentation {
+                        screen: self.screen,
+                        scale,
+                    }),
                     rect: Rect {
                         x: self.screen.x + (self.screen.width - width) / 2.0,
                         y: (self.row_rect().y + 8.0 * scale)
@@ -542,6 +546,8 @@ mod tests {
         e.action(Action::Select);
         e.action(Action::Back);
         let frame = e.frame();
+        let original_label = frame.label.as_ref().unwrap().clone();
+        assert!(original_label.hud.is_some());
         for hold_actions in [vec![], vec![Action::Pause]] {
             let settings = crate::switches::Settings {
                 bindings: vec![crate::switches::Binding {
@@ -566,9 +572,10 @@ mod tests {
                 hold_actions.is_empty()
             );
             gestures.released("test", 1001);
-            assert!(frame
-                .label_for_prompt(gestures.prompt(1001).is_some())
-                .is_some());
+            assert_eq!(
+                frame.label_for_prompt(gestures.prompt(1001).is_some()),
+                Some(&original_label)
+            );
             gestures.cancel();
             e.action(Action::Cancel);
             assert!(e.frame().label_for_prompt(false).is_none());

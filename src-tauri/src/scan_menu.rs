@@ -199,6 +199,7 @@ impl Menu {
                 ..panel
             },
             scale: scale * 0.75,
+            hud: None,
         });
         frame
     }

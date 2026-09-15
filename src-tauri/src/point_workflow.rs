@@ -343,6 +343,10 @@ impl Technique for Workflow {
                 label.text = format!("{error}\nSelect to return");
                 label.rect.height = 100.0 * self.point.units_per_logical_pixel;
                 label.scale *= 0.65;
+                label.hud = Some(crate::scanning::HudPresentation {
+                    screen: self.point.screen,
+                    scale: self.point.units_per_logical_pixel,
+                });
             }
         }
         if matches!(self.stage, Stage::Menu | Stage::Destination) {
@@ -359,6 +363,10 @@ impl Technique for Workflow {
             if self.stage == Stage::Destination {
                 frame.label = Some(FrameLabel {
                     text: "Choose drag destination".into(),
+                    hud: Some(crate::scanning::HudPresentation {
+                        screen: self.point.screen,
+                        scale: s,
+                    }),
                     rect: Rect {
                         x: self.point.screen.x,
                         y: self.point.screen.y,
@@ -469,7 +477,11 @@ mod tests {
             Some(Request::Command { .. })
         ));
         w.execution_failed("Action failed.".into());
-        assert!(w.frame().label.unwrap().text.contains("Select to return"));
+        let label = w.frame().label.unwrap();
+        assert!(label.text.contains("Select to return"));
+        assert_eq!(label.hud.as_ref().unwrap().scale, 1.0);
+        assert_eq!(label.hud.as_ref().unwrap().screen, w.point.screen);
+        assert!(label.scale < label.hud.as_ref().unwrap().scale);
         assert!(w.handle(Action::Select).is_none());
         assert_eq!(w.selected(Item::LeftClick), Some(default_click((120, 80))));
     }
