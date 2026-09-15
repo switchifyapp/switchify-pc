@@ -421,12 +421,8 @@ impl Capture {
                     held.join(", ")
                 );
             }
-            if self
-                .native
-                .as_ref()
-                .is_some_and(|native| !native.finished())
-            {
-                bail!("Keyboard capture is finishing. Try again.");
+            if let Some(native) = &self.native {
+                native.await_shutdown()?;
             }
             self.native.take();
             self.native = Some(windows::Capture::start(self.driver.clone(), mode)?);

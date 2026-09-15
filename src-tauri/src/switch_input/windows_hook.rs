@@ -42,6 +42,19 @@ impl<T: NativeResources> Drop for Installation<'_, T> {
     }
 }
 
+pub(super) fn await_shutdown(
+    mut poll: impl FnMut() -> anyhow::Result<bool>,
+    mut wait: impl FnMut(),
+) -> anyhow::Result<()> {
+    for _ in 0..3000 {
+        if poll()? {
+            return Ok(());
+        }
+        wait();
+    }
+    anyhow::bail!("Keyboard capture is finishing. Try again.")
+}
+
 const CAPACITY: usize = 256;
 const ESCAPE: usize = 27;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -282,6 +295,28 @@ mod tests {
             core,
             names,
         )
+    }
+    #[test]
+    fn immediate_restart_waits_for_shutdown_but_not_for_held_keys() {
+        let polls = std::cell::Cell::new(0);
+        let waits = std::cell::Cell::new(0);
+        await_shutdown(
+            || {
+                polls.set(polls.get() + 1);
+                Ok(polls.get() == 3)
+            },
+            || waits.set(waits.get() + 1),
+        )
+        .unwrap();
+        assert_eq!(waits.get(), 2);
+        assert!(await_shutdown(
+            || anyhow::bail!("Release held keys"),
+            || panic!("must report held keys immediately")
+        )
+        .is_err());
+        let waits = std::cell::Cell::new(0);
+        assert!(await_shutdown(|| Ok(false), || waits.set(waits.get() + 1)).is_err());
+        assert_eq!(waits.get(), 3000);
     }
     #[test]
     fn startup_failure_rolls_back_and_shutdown_attempts_every_cleanup_once() {
