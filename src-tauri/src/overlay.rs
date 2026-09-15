@@ -1,4 +1,5 @@
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tauri::AppHandle;
@@ -64,39 +65,106 @@ impl CursorOverlayVisualTokens {
 #[derive(Clone)]
 pub struct CursorOverlay {
     sender: Sender<Command>,
+    gate: VisibilityGate,
+}
+
+/// Shared with the native hosts: checks happen at presentation time, not just
+/// when work is queued. Never hold this lock while dispatching to AppKit.
+#[derive(Clone, Default)]
+pub(crate) struct VisibilityGate(Arc<Mutex<Visibility>>);
+#[derive(Default)]
+struct Visibility {
+    epoch: u64,
+    suppressed: bool,
+    hidden: bool,
+}
+impl VisibilityGate {
+    pub(crate) fn present(
+        &self,
+        epoch: u64,
+        render: impl FnOnce() -> Result<(), String>,
+    ) -> Result<(), String> {
+        let state = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        if state.epoch == epoch && !state.suppressed {
+            render()
+        } else {
+            Ok(())
+        }
+    }
+    pub(crate) fn hide(&self, epoch: Option<u64>, hide: impl FnOnce()) {
+        let mut state = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        hide();
+        if epoch == Some(state.epoch) && state.suppressed {
+            state.hidden = true;
+        }
+    }
 }
 
 impl CursorOverlay {
     pub fn install(app: AppHandle, shared: SharedModel) -> Self {
         let (sender, receiver) = mpsc::channel();
-        platform::spawn(app, shared, receiver);
-        Self { sender }
+        let gate = VisibilityGate::default();
+        platform::spawn(app, shared, receiver, gate.clone());
+        Self { sender, gate }
+    }
+
+    fn send(&self, command: Command) {
+        let state = self.gate.0.lock().unwrap_or_else(|p| p.into_inner());
+        let _ = self
+            .sender
+            .send(Command::Scoped(state.epoch, Box::new(command)));
+    }
+
+    pub(crate) fn suppress_for_scan(&self) -> Result<u64, String> {
+        let mut state = self.gate.0.lock().unwrap_or_else(|p| p.into_inner());
+        state.epoch += 1;
+        state.suppressed = true;
+        state.hidden = false;
+        self.sender
+            .send(Command::Suppress(state.epoch))
+            .map_err(|_| "Cursor overlay is unavailable.".to_string())?;
+        Ok(state.epoch)
+    }
+
+    pub(crate) fn scan_ready(&self, epoch: u64) -> bool {
+        let state = self.gate.0.lock().unwrap_or_else(|p| p.into_inner());
+        state.epoch == epoch && state.suppressed && state.hidden
+    }
+
+    /// Called only after all scanner windows have been hidden.
+    pub(crate) fn release_scan(&self, epoch: u64) {
+        let mut state = self.gate.0.lock().unwrap_or_else(|p| p.into_inner());
+        if state.epoch != epoch || !state.suppressed {
+            return;
+        }
+        state.epoch += 1;
+        state.suppressed = false;
+        state.hidden = false;
+        let _ = self.sender.send(Command::Resume(state.epoch));
     }
 
     pub fn show(&self, feedback: PointerFeedback, settings: AppSettings) {
-        let _ = self.sender.send(Command::Show(feedback, settings));
+        self.send(Command::Show(feedback, settings));
     }
 
     pub fn mark_control_active(&self, settings: AppSettings) {
-        let _ = self.sender.send(Command::MarkControlActive(settings));
+        self.send(Command::MarkControlActive(settings));
     }
 
     pub fn apply_settings(&self, settings: AppSettings) {
-        let _ = self.sender.send(Command::ApplySettings(settings));
+        self.send(Command::ApplySettings(settings));
     }
 
     pub fn hide_for_typing(&self) {
-        let _ = self.sender.send(Command::HideForTyping);
+        self.send(Command::HideForTyping);
     }
 
     pub fn show_dwell(&self, permille: u16, settings: AppSettings) {
-        let _ = self
-            .sender
-            .send(Command::ShowDwell(permille.min(1000), settings));
+        self.send(Command::ShowDwell(permille.min(1000), settings));
     }
 
     pub fn end_dwell(&self) {
-        let _ = self.sender.send(Command::EndDwell);
+        self.send(Command::EndDwell);
     }
 
     pub fn begin_repeat(
@@ -107,7 +175,7 @@ impl CursorOverlay {
         dragging: bool,
         settings: AppSettings,
     ) {
-        let _ = self.sender.send(Command::BeginRepeat(
+        self.send(Command::BeginRepeat(
             generation,
             command,
             accelerated,
@@ -117,15 +185,18 @@ impl CursorOverlay {
     }
 
     pub fn end_repeat(&self, generation: u64) {
-        let _ = self.sender.send(Command::EndRepeat(generation));
+        self.send(Command::EndRepeat(generation));
     }
 
     pub fn end_session(&self) {
-        let _ = self.sender.send(Command::EndSession);
+        self.send(Command::EndSession);
     }
 }
 
 pub(crate) enum Command {
+    Scoped(u64, Box<Command>),
+    Suppress(u64),
+    Resume(u64),
     Show(PointerFeedback, AppSettings),
     MarkControlActive(AppSettings),
     ApplySettings(AppSettings),
@@ -166,6 +237,23 @@ pub(crate) struct OverlayEngine {
 }
 
 impl OverlayEngine {
+    fn clear_scan_feedback(&mut self) {
+        self.feedback = None;
+        self.drag_active = false;
+        self.repeat_generation = None;
+        self.dwell_active = false;
+        self.deadline = None;
+        self.visible = false;
+    }
+
+    fn resume_after_scan(&mut self, now: Instant) -> Update {
+        self.clear_scan_feedback();
+        if self.control_active {
+            self.handle(Command::MarkControlActive(self.settings.clone()), now)
+        } else {
+            Update::None
+        }
+    }
     pub(crate) fn new(now: Instant) -> Self {
         Self {
             settings: AppSettings::default(),
@@ -183,6 +271,9 @@ impl OverlayEngine {
 
     pub(crate) fn handle(&mut self, command: Command, now: Instant) -> Update {
         match command {
+            Command::Scoped(_, _) | Command::Suppress(_) | Command::Resume(_) => {
+                unreachable!("handled by overlay worker")
+            }
             Command::Show(feedback, settings) => {
                 self.typing_suppressed = false;
                 self.settings = settings;
@@ -722,33 +813,65 @@ fn draw_scroll(pixmap: &mut Pixmap, center: f32, unit: f32, color: [u8; 3], dx: 
 }
 
 pub(crate) fn run_loop(
-    mut render: impl FnMut(&Frame) -> Result<(), String>,
-    mut hide: impl FnMut(),
+    mut render: impl FnMut(&Frame, u64) -> Result<(), String>,
+    mut hide: impl FnMut(Option<u64>),
     mut service_platform_events: impl FnMut() -> bool,
     receiver: Receiver<Command>,
+    gate: VisibilityGate,
 ) {
     let mut engine = OverlayEngine::new(Instant::now());
     loop {
         if !service_platform_events() {
-            hide();
+            hide(None);
             break;
         }
-        let update = match receiver.recv_timeout(Duration::from_millis(25)) {
+        let command = receiver.recv_timeout(Duration::from_millis(25));
+        let (epoch, suppressed) = {
+            let state = gate.0.lock().unwrap_or_else(|p| p.into_inner());
+            (state.epoch, state.suppressed)
+        };
+        let update = match command {
+            Ok(Command::Suppress(token)) => {
+                engine.clear_scan_feedback();
+                hide(Some(token));
+                continue;
+            }
+            Ok(Command::Resume(token)) => {
+                if token != epoch || suppressed {
+                    continue;
+                }
+                engine.resume_after_scan(Instant::now())
+            }
+            Ok(Command::Scoped(token, command)) => {
+                let update = engine.handle(*command, Instant::now());
+                if suppressed || token != epoch {
+                    engine.clear_scan_feedback();
+                    Update::None
+                } else {
+                    update
+                }
+            }
             Ok(command) => engine.handle(command, Instant::now()),
             Err(mpsc::RecvTimeoutError::Timeout) => engine.tick(Instant::now()),
             Err(mpsc::RecvTimeoutError::Disconnected) => Update::Shutdown,
         };
+        let update = if suppressed && matches!(update, Update::Render(_)) {
+            engine.clear_scan_feedback();
+            Update::None
+        } else {
+            update
+        };
         match update {
             Update::Render(frame) => {
-                if render(&frame).is_err() {
-                    hide();
+                if render(&frame, epoch).is_err() {
+                    hide(None);
                     break;
                 }
             }
-            Update::Hide => hide(),
+            Update::Hide => hide(None),
             Update::None => {}
             Update::Shutdown => {
-                hide();
+                hide(None);
                 break;
             }
         }
@@ -758,6 +881,200 @@ pub(crate) fn run_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_overlay() -> (CursorOverlay, Receiver<Command>) {
+        let (sender, receiver) = mpsc::channel();
+        (
+            CursorOverlay {
+                sender,
+                gate: VisibilityGate::default(),
+            },
+            receiver,
+        )
+    }
+
+    #[test]
+    fn native_hide_is_acknowledged_before_scanning_and_stale_frames_cannot_return() {
+        let (overlay, _receiver) = test_overlay();
+        let visible = std::cell::Cell::new(false);
+        overlay
+            .gate
+            .present(0, || {
+                visible.set(true);
+                Ok(())
+            })
+            .unwrap();
+        let first = overlay.suppress_for_scan().unwrap();
+        assert!(!overlay.scan_ready(first));
+        overlay.gate.hide(Some(first), || visible.set(false));
+        assert!(overlay.scan_ready(first));
+        assert!(!visible.get());
+        // A native callback queued before acquisition cannot render afterward.
+        overlay
+            .gate
+            .present(0, || {
+                visible.set(true);
+                Ok(())
+            })
+            .unwrap();
+        assert!(!visible.get());
+        overlay.release_scan(first);
+        let second = overlay.suppress_for_scan().unwrap();
+        overlay.release_scan(first);
+        overlay.gate.hide(Some(first), || {});
+        assert!(!overlay.scan_ready(second));
+        overlay.gate.hide(Some(second), || {});
+        assert!(overlay.scan_ready(second));
+        overlay
+            .gate
+            .present(first, || {
+                visible.set(true);
+                Ok(())
+            })
+            .unwrap();
+        assert!(!visible.get());
+    }
+
+    #[test]
+    fn queued_feedback_is_discarded_and_only_persistent_cursor_is_restored() {
+        for visibility in ["onInput", "whileControlling"] {
+            let (overlay, receiver) = test_overlay();
+            let settings = AppSettings {
+                cursor_overlay_visibility: visibility.into(),
+                ..Default::default()
+            };
+            overlay.mark_control_active(settings.clone());
+            let token = overlay.suppress_for_scan().unwrap();
+            overlay.show(
+                PointerFeedback::Click {
+                    button: crate::protocol::MouseButton::Left,
+                    count: 1,
+                },
+                settings.clone(),
+            );
+            overlay.show_dwell(800, settings.clone());
+            overlay.begin_repeat(
+                1,
+                RepeatCommand::Scroll { dx: 0, dy: 1 },
+                false,
+                false,
+                settings,
+            );
+            let gate = overlay.gate.clone();
+            gate.hide(Some(token), || {});
+            overlay.release_scan(token);
+            drop(overlay);
+            let mut frames = Vec::new();
+            run_loop(
+                |frame, epoch| {
+                    gate.present(epoch, || {
+                        frames.push(frame.feedback);
+                        Ok(())
+                    })
+                },
+                |epoch| gate.hide(epoch, || {}),
+                || true,
+                receiver,
+                gate.clone(),
+            );
+            if visibility == "whileControlling" {
+                assert_eq!(frames, [PointerFeedback::Move]);
+            } else {
+                assert!(frames.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn disconnect_typing_and_disabled_preferences_prevent_restoration() {
+        for command in [
+            Command::EndSession,
+            Command::HideForTyping,
+            Command::ApplySettings(AppSettings {
+                cursor_overlay_enabled: false,
+                ..Default::default()
+            }),
+        ] {
+            let (overlay, receiver) = test_overlay();
+            overlay.mark_control_active(AppSettings::default());
+            let token = overlay.suppress_for_scan().unwrap();
+            overlay.send(command);
+            let gate = overlay.gate.clone();
+            gate.hide(Some(token), || {});
+            overlay.release_scan(token);
+            drop(overlay);
+            run_loop(
+                |_, _| panic!("ineligible cursor was restored"),
+                |epoch| gate.hide(epoch, || {}),
+                || true,
+                receiver,
+                gate.clone(),
+            );
+        }
+    }
+
+    #[test]
+    fn fake_native_hosts_never_overlap_during_handoff_and_restore_fresh_input() {
+        use std::cell::Cell;
+        let (overlay, receiver) = test_overlay();
+        let gate = overlay.gate.clone();
+        let cursor_visible = Cell::new(false);
+        let scan_visible = Cell::new(false);
+        let token = Cell::new(0);
+        let step = Cell::new(0);
+        let mut frames = Vec::new();
+        run_loop(
+            |frame, epoch| {
+                gate.present(epoch, || {
+                    assert!(!scan_visible.get(), "cursor rendered over scanning");
+                    cursor_visible.set(true);
+                    frames.push(frame.feedback);
+                    Ok(())
+                })
+            },
+            |epoch| gate.hide(epoch, || cursor_visible.set(false)),
+            || {
+                let current = step.get();
+                step.set(current + 1);
+                match current {
+                    0 => overlay.show(PointerFeedback::Move, AppSettings::default()),
+                    1 => {
+                        assert!(cursor_visible.get());
+                        token.set(overlay.suppress_for_scan().unwrap());
+                    }
+                    2 => {
+                        assert!(overlay.scan_ready(token.get()));
+                        assert!(!cursor_visible.get());
+                        scan_visible.set(true);
+                        overlay.show(PointerFeedback::Drag, AppSettings::default());
+                    }
+                    3 => overlay.show_dwell(500, AppSettings::default()),
+                    4 => overlay.apply_settings(AppSettings::default()),
+                    5 => {
+                        assert!(!cursor_visible.get());
+                        scan_visible.set(false);
+                        overlay.release_scan(token.get());
+                    }
+                    6 => overlay.show(
+                        PointerFeedback::Scroll { dx: 0, dy: 1 },
+                        AppSettings::default(),
+                    ),
+                    _ => return false,
+                }
+                true
+            },
+            receiver,
+            gate.clone(),
+        );
+        assert_eq!(
+            frames,
+            [
+                PointerFeedback::Move,
+                PointerFeedback::Move,
+                PointerFeedback::Scroll { dx: 0, dy: 1 }
+            ]
+        );
+    }
 
     fn ring_frame(feedback: PointerFeedback) -> Frame {
         Frame {
@@ -1390,13 +1707,14 @@ mod tests {
         let mut service_count = 0;
 
         run_loop(
-            |_| Ok(()),
-            || {},
+            |_, _| Ok(()),
+            |_| {},
             || {
                 service_count += 1;
                 true
             },
             receiver,
+            VisibilityGate::default(),
         );
 
         assert_eq!(service_count, 1);
@@ -1407,7 +1725,13 @@ mod tests {
         let (_sender, receiver) = mpsc::channel();
         let hidden = std::cell::Cell::new(false);
 
-        run_loop(|_| Ok(()), || hidden.set(true), || false, receiver);
+        run_loop(
+            |_, _| Ok(()),
+            |_| hidden.set(true),
+            || false,
+            receiver,
+            VisibilityGate::default(),
+        );
 
         assert!(hidden.get());
     }

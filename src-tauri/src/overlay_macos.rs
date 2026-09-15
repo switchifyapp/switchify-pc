@@ -13,7 +13,7 @@ use objc2_foundation::{NSArray, NSPoint, NSRect, NSSize};
 use tauri::AppHandle;
 
 use crate::macos_overlay_window;
-use crate::overlay::{render_marker, run_loop, Command, Frame};
+use crate::overlay::{render_marker, run_loop, Command, Frame, VisibilityGate};
 use crate::state::{emit_state, set_activity, ActivityKind, SharedModel};
 
 // With AlphaNonpremultiplied and AlphaFirst both absent, AppKit expects the
@@ -24,7 +24,12 @@ thread_local! {
     static HOST: RefCell<Option<MacOverlayHost>> = const { RefCell::new(None) };
 }
 
-pub(super) fn spawn(app: AppHandle, shared: SharedModel, receiver: Receiver<Command>) {
+pub(super) fn spawn(
+    app: AppHandle,
+    shared: SharedModel,
+    receiver: Receiver<Command>,
+    gate: VisibilityGate,
+) {
     let Some(mtm) = MainThreadMarker::new() else {
         report_failure(&app, &shared, "the AppKit main thread is unavailable");
         return;
@@ -43,17 +48,24 @@ pub(super) fn spawn(app: AppHandle, shared: SharedModel, receiver: Receiver<Comm
             let failure_app = app.clone();
             let failure_shared = shared.clone();
             let hide_app = app.clone();
+            let render_gate = gate.clone();
+            let hide_gate = gate.clone();
             run_loop(
-                move |frame| {
+                move |frame, epoch| {
                     let (sender, result) = mpsc::sync_channel(1);
                     let frame = frame.clone();
+                    let gate = render_gate.clone();
                     render_app
                         .run_on_main_thread(move || {
-                            let value = HOST.with(|slot| {
-                                slot.borrow_mut()
-                                    .as_mut()
-                                    .ok_or_else(|| "the AppKit overlay is unavailable".to_string())?
-                                    .render(&frame)
+                            let value = gate.present(epoch, || {
+                                HOST.with(|slot| {
+                                    slot.borrow_mut()
+                                        .as_mut()
+                                        .ok_or_else(|| {
+                                            "the AppKit overlay is unavailable".to_string()
+                                        })?
+                                        .render(&frame)
+                                })
                             });
                             let _ = sender.send(value);
                         })
@@ -66,17 +78,21 @@ pub(super) fn spawn(app: AppHandle, shared: SharedModel, receiver: Receiver<Comm
                     }
                     value
                 },
-                move || {
-                    let _ = hide_app.run_on_main_thread(|| {
-                        HOST.with(|slot| {
-                            if let Some(host) = slot.borrow_mut().as_mut() {
-                                host.hide();
-                            }
+                move |epoch| {
+                    let gate = hide_gate.clone();
+                    let _ = hide_app.run_on_main_thread(move || {
+                        gate.hide(epoch, || {
+                            HOST.with(|slot| {
+                                if let Some(host) = slot.borrow_mut().as_mut() {
+                                    host.hide();
+                                }
+                            })
                         });
                     });
                 },
                 || true,
                 receiver,
+                gate,
             );
         })
         .expect("cursor overlay thread should start");

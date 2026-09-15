@@ -1,5 +1,7 @@
 # Native point scan
 
+The cursor overlay is hidden before a scan appears and stays hidden through pauses, hold prompts, action menus, auto-selection and drag execution. Local and remote scans use the same handoff on Windows and macOS. Once all scan windows are hidden, the cursor resumes its configured visibility: while-controlling mode restores an eligible active-session marker, while on-input mode waits for new pointer input. Old click, scroll and dwell feedback is not replayed. Merely arming scanning does not hide the cursor; the system pointer and modifier-key overlay are unchanged.
+
 Point scan ports the Android line-only and grid-then-line techniques to Switchify PC. The reference source is `switchifyapp/switchify-android` commit `856720d8747e2f3d1724a572bf754ffae05df299`, especially `PointScanLineManager`, `PointScanBlockManager`, and `ContinuousLineSpeedUtils`.
 
 Open **Settings → Switches** to add named keyboard switches and assign normal and hold actions. There is no on/off control: scanning is armed whenever the saved switches cover the current mode (Select for automatic scanning; Select, Next and Previous for manual) and the environment allows it. The runtime re-arms after a save, after key learning, after Escape, when an Android session ends, and retries a failed key reservation every two seconds. Fresh installs have no assignments; old point-scan keys migrate once. See [switch assignments](switches.md). Scanning arms at startup, so assigned keys are reserved from launch.
