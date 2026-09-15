@@ -86,6 +86,9 @@ impl Shared {
     pub fn has_owned(&self) -> bool {
         self.owned.iter().any(|key| key.load(Acquire))
     }
+    pub fn drained(&self) -> bool {
+        !self.enabled.load(Acquire) && !self.has_owned()
+    }
     pub fn cancel(&self) {
         self.enabled.store(false, Release);
     }
@@ -236,6 +239,9 @@ impl State {
             shared.push(code as u8, false, ms);
             return false;
         }
+        self.consume(shared, code, pressed, ms)
+    }
+    fn consume(&mut self, shared: &Shared, code: usize, pressed: bool, ms: u64) -> bool {
         shared.owned[code].store(pressed, Release);
         if code == ESCAPE {
             if pressed {
@@ -487,6 +493,23 @@ mod tests {
         thread.join().unwrap();
         assert!(shared.enabled.load(Acquire));
         assert!(shared.pop().is_none());
+    }
+    #[test]
+    fn cancellation_during_a_callback_must_be_confirmed_after_callback_completion() {
+        let (mut state, shared, mut core, names) = setup(Mode::Active);
+        state.down[32] = true;
+        shared.cancel();
+        core.stop(StopReason::Disabled);
+        assert!(shared.drained());
+        assert!(state.consume(&shared, 32, true, 1));
+        assert!(!shared.drained());
+        shared.drain_into(&mut core, &names, 2);
+        assert_eq!(core.events.len(), 1);
+        assert!(state.key(&shared, 32, true, false, 3));
+        assert!(state.key(&shared, 32, false, false, 4));
+        assert!(shared.drained());
+        shared.drain_into(&mut core, &names, 5);
+        assert!(core.physical.is_empty());
     }
     #[test]
     fn cancellation_reconciles_a_release_between_worker_dispatch_and_exit() {

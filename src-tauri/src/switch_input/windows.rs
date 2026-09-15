@@ -251,6 +251,11 @@ impl Capture {
     pub fn cancel(&self) {
         self.shared.cancel();
     }
+    pub fn finished(&self) -> bool {
+        self.thread
+            .as_ref()
+            .is_none_or(std::thread::JoinHandle::is_finished)
+    }
     pub fn held_keys(&self) -> Vec<String> {
         known_keys()
             .into_iter()
@@ -347,21 +352,14 @@ unsafe fn run(
     let worker = if startup_ready {
         let state = shared.clone();
         let events = driver.clone();
-        let id = GetCurrentThreadId();
         std::thread::Builder::new()
             .name("switchify-keyboard-events".into())
             .spawn(move || {
                 while !state.shutdown.load(Acquire) {
                     state.dispatch(&events, &names);
-                    if !state.enabled.load(Acquire) && !state.has_owned() {
-                        state.dispatch(&events, &names);
-                        unsafe {
-                            PostThreadMessageW(id, WM_QUIT, 0, 0);
-                        }
-                        break;
-                    }
                     std::thread::sleep(Duration::from_millis(5));
                 }
+                state.dispatch(&events, &names);
             })
             .ok()
     } else {
@@ -377,7 +375,13 @@ unsafe fn run(
             }
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
+            if shared.drained() {
+                break;
+            }
         }
+    }
+    if shared.enabled.load(Acquire) {
+        shared.fail(StopReason::CaptureLost);
     }
     shared.shutdown.store(true, Release);
     let cleaned = installation.as_mut().is_none_or(Installation::stop);
