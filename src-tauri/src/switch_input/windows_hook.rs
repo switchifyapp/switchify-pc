@@ -45,8 +45,9 @@ impl<T: NativeResources> Drop for Installation<'_, T> {
 pub(super) fn await_shutdown(
     mut poll: impl FnMut() -> anyhow::Result<bool>,
     mut wait: impl FnMut(),
+    mut elapsed_ms: impl FnMut() -> u64,
 ) -> anyhow::Result<()> {
-    for _ in 0..3000 {
+    while elapsed_ms() < 3000 {
         if poll()? {
             return Ok(());
         }
@@ -306,17 +307,24 @@ mod tests {
                 Ok(polls.get() == 3)
             },
             || waits.set(waits.get() + 1),
+            || 0,
         )
         .unwrap();
         assert_eq!(waits.get(), 2);
         assert!(await_shutdown(
             || anyhow::bail!("Release held keys"),
-            || panic!("must report held keys immediately")
+            || panic!("must report held keys immediately"),
+            || 0
         )
         .is_err());
         let waits = std::cell::Cell::new(0);
-        assert!(await_shutdown(|| Ok(false), || waits.set(waits.get() + 1)).is_err());
-        assert_eq!(waits.get(), 3000);
+        assert!(await_shutdown(
+            || Ok(false),
+            || waits.set(waits.get() + 1),
+            || waits.get() * 16
+        )
+        .is_err());
+        assert_eq!(waits.get(), 188);
     }
     #[test]
     fn startup_failure_rolls_back_and_shutdown_attempts_every_cleanup_once() {

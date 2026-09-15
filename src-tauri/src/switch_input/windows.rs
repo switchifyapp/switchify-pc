@@ -252,6 +252,7 @@ impl Capture {
         self.shared.cancel();
     }
     pub fn await_shutdown(&self) -> Result<()> {
+        let started = std::time::Instant::now();
         await_shutdown(
             || {
                 let held = self.held_keys();
@@ -267,6 +268,7 @@ impl Capture {
                     .is_none_or(std::thread::JoinHandle::is_finished))
             },
             || std::thread::sleep(Duration::from_millis(1)),
+            || started.elapsed().as_millis().min(u64::MAX as u128) as u64,
         )
     }
     pub fn held_keys(&self) -> Vec<String> {
