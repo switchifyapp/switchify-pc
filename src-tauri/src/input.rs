@@ -125,6 +125,16 @@ pub trait InputInjector {
     fn move_pointer(&mut self, dx: i32, dy: i32) -> Result<(), String>;
     fn move_pointer_absolute(&mut self, x: i32, y: i32) -> Result<(), String>;
     fn click_pointer(&mut self, button: MouseButton, click_count: u8) -> Result<(), String>;
+    fn click_pointer_at(
+        &mut self,
+        point: (i32, i32),
+        button: MouseButton,
+        count: u8,
+        _modifiers: &[&str],
+    ) -> Result<(), String> {
+        self.move_pointer_absolute(point.0, point.1)?;
+        self.click_pointer(button, count)
+    }
     fn set_pointer_button(&mut self, button: MouseButton, down: bool) -> Result<(), String>;
     fn scroll(&mut self, dx: i32, dy: i32) -> Result<(), String>;
     fn set_key(&mut self, key: &str, down: bool) -> Result<(), String>;
@@ -364,6 +374,16 @@ impl InputInjector for Enigo {
         }
         Ok(())
     }
+    #[cfg(target_os = "macos")]
+    fn click_pointer_at(
+        &mut self,
+        point: (i32, i32),
+        button: MouseButton,
+        count: u8,
+        modifiers: &[&str],
+    ) -> Result<(), String> {
+        crate::macos_point_click::post(point, button, count, modifiers)
+    }
     fn set_pointer_button(&mut self, button: MouseButton, down: bool) -> Result<(), String> {
         self.button(
             pointer_button(button),
@@ -595,6 +615,23 @@ impl<I: InputInjector> DesktopInput<I> {
             return Err("No local drag is active.".into());
         }
         self.injector.move_pointer_absolute(point.0, point.1)
+    }
+    pub fn click_pointer_at(
+        &mut self,
+        point: (i32, i32),
+        button: MouseButton,
+        count: u8,
+        modifiers: &[&str],
+    ) -> Result<(), String> {
+        if self.has_active_drag() || self.has_active_switch_session() {
+            return Err("End switch forwarding or dragging before clicking.".into());
+        }
+        self.held_button = Some(button);
+        self.injector
+            .click_pointer_at(point, button, count, modifiers)?;
+        self.held_button = None;
+        self.pointer_feedback = Some(PointerFeedback::Click { button, count });
+        Ok(())
     }
     pub fn click_pointer(&mut self, button: MouseButton, click_count: u8) -> Result<(), String> {
         self.release_held_button()?;
@@ -1286,10 +1323,7 @@ impl<I: InputInjector> DesktopInput<I> {
                 self.injector.set_key(key, true)?;
             }
             if let Some((point, button, count)) = click {
-                self.move_pointer_absolute(point.0, point.1)?;
-                self.held_button = Some(button);
-                self.injector.click_pointer(button, count)?;
-                self.held_button = None;
+                self.click_pointer_at(point, button, count, keys)?;
             }
             Ok(())
         })();

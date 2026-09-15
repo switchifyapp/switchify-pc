@@ -11,6 +11,5 @@ pub fn click<I: crate::input::InputInjector>(
     if input.has_active_switch_session() || input.has_active_drag() {
         return Err("End switch forwarding or dragging before using point scan.".into());
     }
-    input.move_pointer_absolute(point.0, point.1)?;
-    input.click_pointer(crate::protocol::MouseButton::Left, 1)
+    input.click_pointer_at(point, crate::protocol::MouseButton::Left, 1, &[])
 }

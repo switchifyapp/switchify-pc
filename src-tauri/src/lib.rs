@@ -10,6 +10,8 @@ mod macos;
 #[cfg(target_os = "macos")]
 mod macos_overlay_window;
 #[cfg(target_os = "macos")]
+mod macos_point_click;
+#[cfg(target_os = "macos")]
 mod macos_relaunch;
 mod modifier_overlay;
 mod mouse_repeat;
