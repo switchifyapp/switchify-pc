@@ -213,10 +213,17 @@ pub struct FrameTile {
     pub selected: bool,
 }
 #[derive(Debug, Clone, PartialEq)]
+pub struct HudPresentation {
+    pub screen: Rect,
+    pub scale: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct FrameLabel {
     pub text: String,
     pub rect: Rect,
     pub scale: f64,
+    pub hud: Option<HudPresentation>,
 }
 
 /// Automatic movement gives up after this many full passes of the current

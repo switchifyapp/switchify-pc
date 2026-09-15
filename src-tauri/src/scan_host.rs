@@ -134,7 +134,7 @@ mod platform {
     pub struct Host {
         panels: Vec<Retained<NSPanel>>,
         last_rects: Vec<crate::scanning::PaintedRect>,
-        last_title: Option<(String, Rect, f64)>,
+        last_title: Option<(String, Rect, f64, Option<Rect>)>,
         title: Option<(
             Retained<objc2_app_kit::NSView>,
             Retained<objc2_app_kit::NSTextField>,
@@ -188,26 +188,32 @@ mod platform {
             Ok(())
         }
         pub fn menu_title(&mut self, text: &str, rect: Rect, scale: f64) -> Result<(), String> {
+            self.text_panel(text, rect, scale, None)
+        }
+        pub fn text_panel(
+            &mut self,
+            text: &str,
+            requested: Rect,
+            scale: f64,
+            screen: Option<Rect>,
+        ) -> Result<(), String> {
             use objc2_app_kit::{
                 NSFont, NSFontWeightSemibold, NSTextAlignment, NSTextField, NSView,
             };
             use objc2_foundation::NSString;
-            if self
-                .last_title
-                .as_ref()
-                .is_some_and(|(old_text, old_rect, old_scale)| {
-                    old_text == text && *old_rect == rect && *old_scale == scale
-                })
-            {
+            if self.last_title.as_ref().is_some_and(
+                |(old_text, old_rect, old_scale, old_screen)| {
+                    old_text == text
+                        && *old_rect == requested
+                        && *old_scale == scale
+                        && *old_screen == screen
+                },
+            ) {
                 return Ok(());
             }
             let mtm = MainThreadMarker::new().ok_or("Menu title requires the main thread.")?;
-            self.render(&[crate::scanning::PaintedRect {
-                rect,
-                color: [30, 35, 46],
-                opacity: 0,
-                role: crate::scanning::VisualRole::Accent,
-            }])?;
+            let mut rect =
+                screen.map_or(requested, |screen| hud_rect(requested, screen, 0.0, scale));
             let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(rect.width, rect.height));
             if self.title.is_none() {
                 let view = NSView::initWithFrame(NSView::alloc(mtm), bounds);
@@ -220,19 +226,6 @@ mod platform {
             }
             let (view, label) = self.title.as_ref().unwrap();
             view.setFrame(bounds);
-            let layer = view
-                .layer()
-                .ok_or("Menu title background is unavailable.")?;
-            layer.setBackgroundColor(Some(
-                &NSColor::colorWithSRGBRed_green_blue_alpha(
-                    30.0 / 255.0,
-                    35.0 / 255.0,
-                    46.0 / 255.0,
-                    1.0,
-                )
-                .CGColor(),
-            ));
-            layer.setCornerRadius(10.0 * scale);
             let value = NSString::from_str(text);
             if label.stringValue() != value {
                 label.setStringValue(&value);
@@ -247,44 +240,49 @@ mod platform {
                 .ok_or("Menu title text is unavailable.")?
                 .cellSizeForBounds(NSRect::new(
                     NSPoint::new(0.0, 0.0),
-                    NSSize::new(width, rect.height),
+                    NSSize::new(width, f64::MAX),
                 ));
-            let height = measured.height.min(rect.height);
+            if let Some(screen) = screen {
+                rect = hud_rect(requested, screen, measured.height, scale);
+            }
+            let height = measured.height.min((rect.height - 24.0 * scale).max(1.0));
+            view.setFrame(NSRect::new(
+                NSPoint::new(0.0, 0.0),
+                NSSize::new(rect.width, rect.height),
+            ));
+            let layer = view
+                .layer()
+                .ok_or("Menu title background is unavailable.")?;
+            layer.setBackgroundColor(Some(
+                &NSColor::colorWithSRGBRed_green_blue_alpha(
+                    30.0 / 255.0,
+                    35.0 / 255.0,
+                    46.0 / 255.0,
+                    1.0,
+                )
+                .CGColor(),
+            ));
+            layer.setCornerRadius(10.0 * scale);
+
             label.setFrame(NSRect::new(
                 NSPoint::new(12.0 * scale, (rect.height - height) / 2.0),
                 NSSize::new(width, height),
             ));
-            if self.panels[0].contentView().as_deref() != Some(view.as_ref()) {
-                self.panels[0].setContentView(Some(view));
-            }
-            self.last_title = Some((text.to_owned(), rect, scale));
-            Ok(())
-        }
-        pub fn prompt(&mut self, text: &str, rect: Rect, scale: f64) -> Result<(), String> {
-            use objc2_app_kit::{NSFont, NSTextField};
-            use objc2_foundation::NSString;
-            self.last_title = None;
-            let mtm = MainThreadMarker::new().ok_or("Prompt requires the main thread.")?;
+            let view = view.clone();
             self.render(&[crate::scanning::PaintedRect {
                 rect,
                 color: [30, 35, 46],
-                opacity: 255,
+                opacity: 0,
                 role: crate::scanning::VisualRole::Accent,
             }])?;
-            let label = NSTextField::wrappingLabelWithString(&NSString::from_str(text), mtm);
-            label.setFont(Some(&NSFont::systemFontOfSize(20.0 * scale)));
-            label.setTextColor(Some(&NSColor::whiteColor()));
-            label.setFrame(NSRect::new(
-                NSPoint::new(12.0 * scale, 12.0 * scale),
-                NSSize::new(
-                    (rect.width - 24.0 * scale).max(1.0),
-                    (rect.height - 24.0 * scale).max(1.0),
-                ),
-            ));
-            self.panels[0].setBackgroundColor(Some(&NSColor::blackColor()));
-            self.panels[0].setContentView(Some(&label));
-            self.panels[0].orderFrontRegardless();
+            if self.panels[0].contentView().as_deref() != Some(view.as_ref()) {
+                self.panels[0].setContentView(Some(&view));
+            }
+            self.last_title = Some((text.to_owned(), requested, scale, screen));
             Ok(())
+        }
+        pub fn prompt(&mut self, text: &str, rect: Rect, scale: f64) -> Result<(), String> {
+            self.text_panel(text, rect, scale, None)
         }
         pub fn tile(&mut self, tile: &crate::scanning::FrameTile) -> Result<(), String> {
             use objc2_app_kit::{NSFont, NSImageView, NSTextAlignment, NSTextField, NSView};
@@ -444,6 +442,24 @@ pub fn close_foreground_window() -> Result<(), String> {
 }
 
 impl Host {
+    pub fn hud_prompt(
+        &mut self,
+        text: &str,
+        rect: Rect,
+        legacy_scale: f64,
+        presentation: crate::scanning::HudPresentation,
+    ) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = legacy_scale;
+            self.text_panel(text, rect, presentation.scale, Some(presentation.screen))
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = presentation;
+            self.prompt(text, rect, legacy_scale)
+        }
+    }
     pub fn label(
         &mut self,
         label: &crate::scanning::FrameLabel,
@@ -456,6 +472,9 @@ impl Host {
         #[cfg(not(target_os = "macos"))]
         if let Some(MenuTitle { rect, scale }) = menu_title {
             let _ = (rect, scale);
+        }
+        if let Some(hud) = &label.hud {
+            return self.hud_prompt(&label.text, label.rect, label.scale, hud.clone());
         }
         self.prompt(&label.text, label.rect, label.scale)
     }
@@ -490,10 +509,72 @@ pub fn menu_title_geometry(
     })
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn hud_rect(requested: Rect, screen: Rect, text_height: f64, scale: f64) -> Rect {
+    let width = requested.width.min(screen.width).max(1.0);
+    let height = requested
+        .height
+        .max(text_height + 24.0 * scale)
+        .min(screen.height)
+        .max(1.0);
+    Rect {
+        x: requested.x.clamp(screen.x, screen.x + screen.width - width),
+        y: requested
+            .y
+            .clamp(screen.y, screen.y + screen.height - height),
+        width,
+        height,
+    }
+}
+
 #[cfg(test)]
 mod title_tests {
     use super::*;
     use crate::scan_menu::{Kind, Menu};
+
+    #[test]
+    fn wrapped_hud_grows_and_stays_inside_scaled_negative_displays() {
+        for scale in [1.0, 2.0] {
+            let screen = Rect {
+                x: -640.0 * scale,
+                y: -200.0 * scale,
+                width: 640.0 * scale,
+                height: 480.0 * scale,
+            };
+            let requested = Rect {
+                x: screen.x + 20.0 * scale,
+                y: screen.y + 420.0 * scale,
+                width: 360.0 * scale,
+                height: 64.0 * scale,
+            };
+            let rect = hud_rect(requested, screen, 120.0 * scale, scale);
+            assert_eq!(rect.width, requested.width);
+            assert_eq!(rect.x, requested.x);
+            assert_eq!(rect.height, 144.0 * scale);
+            assert_eq!(rect.y + rect.height, screen.y + screen.height);
+            assert_eq!(
+                hud_rect(requested, screen, 20.0 * scale, scale).height,
+                requested.height
+            );
+        }
+    }
+
+    #[test]
+    fn tiny_display_bounds_cap_long_hud_and_preserve_visible_geometry() {
+        let screen = Rect {
+            x: 100.0,
+            y: -50.0,
+            width: 160.0,
+            height: 100.0,
+        };
+        let requested = Rect {
+            x: 110.0,
+            y: -30.0,
+            width: 720.0,
+            height: 64.0,
+        };
+        assert_eq!(hud_rect(requested, screen, 400.0, 1.0), screen);
+    }
 
     #[test]
     fn titles_follow_tile_edges_without_changing_header_spacing() {
