@@ -524,17 +524,14 @@ fn tick<A: Adapter>(app: &AppHandle) {
             publish::<A>(app);
         }
         for edge in edges {
+            if matches!(edge, crate::remote_scan::Edge::Reset) {
+                reset_scanner::<A>(app, "Remote switches changed. Scan reset.");
+                return;
+            }
             let action = {
                 let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
                 match edge {
-                    crate::remote_scan::Edge::Reset => {
-                        d.pressed.cancel();
-                        d.remote_hold_started = None;
-                        if let Some(engine) = d.engine.as_mut() {
-                            engine.reset();
-                        }
-                        None
-                    }
+                    crate::remote_scan::Edge::Reset => unreachable!(),
                     crate::remote_scan::Edge::Down(id) => {
                         if !d.pressed.held() {
                             d.remote_hold_started = Some(now_ms);
