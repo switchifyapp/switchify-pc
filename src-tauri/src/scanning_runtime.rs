@@ -199,14 +199,8 @@ fn reset_scanner<A: Adapter>(app: &AppHandle, message: &str) {
         c.data.lock().unwrap_or_else(|p| p.into_inner()).message =
             "Input cleanup will be retried before scanning resumes.".into();
     }
-    let _ = render_tiles(&[]);
     app.state::<switch_runtime::Controller>().stop();
-    HOST.with(|host| {
-        if let Some(host) = host.borrow_mut().as_mut() {
-            host.hide();
-        }
-    });
-    hide_prompt();
+    hide_scan_visuals();
     let token = c
         .data
         .lock()
@@ -423,13 +417,7 @@ fn dispatch<A: Adapter>(
     if !c.enabled.load(Ordering::SeqCst) || !input_active(app, input_generation, remote) {
         return Err("Scan action was cancelled.".into());
     }
-    render_tiles(&[])?;
-    hide_prompt();
-    HOST.with(|slot| {
-        if let Some(host) = slot.borrow_mut().as_mut() {
-            host.hide();
-        }
-    });
+    hide_scan_visuals();
     if let Err(error) = A::activate(app, request) {
         A::cleanup(app)?;
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
@@ -464,6 +452,37 @@ fn render_countdown(countdown: Option<&crate::scanning::Countdown>) -> Result<()
         Ok(())
     })
 }
+
+// Rendering can fail after a native window is shown but before its cache is
+// committed. Cleanup must never rely on that cache to decide whether to hide.
+fn clear_cached_visual<H, C: Default>(state: &mut (H, C), hide: impl FnOnce(&mut H)) {
+    hide(&mut state.0);
+    state.1 = C::default();
+}
+
+fn hide_scan_visuals() {
+    for slot in [&HOST, &PROMPT, &LABEL] {
+        slot.with(|host| {
+            if let Some(host) = host.borrow_mut().as_mut() {
+                host.hide();
+            }
+        });
+    }
+    TILES.with(|slot| {
+        clear_cached_visual(&mut slot.borrow_mut(), |hosts| {
+            for host in hosts {
+                host.hide();
+            }
+        })
+    });
+    COUNTDOWN.with(|slot| {
+        clear_cached_visual(&mut slot.borrow_mut(), |host| {
+            if let Some(host) = host {
+                host.hide();
+            }
+        })
+    });
+}
 fn render_tiles(tiles: &[crate::scanning::FrameTile]) -> Result<(), String> {
     TILES.with(|slot| {
         let mut slot = slot.borrow_mut();
@@ -492,6 +511,13 @@ fn render<A: Adapter>(
     let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
     let cursor = app.state::<crate::overlay::CursorOverlay>();
     let active = d.engine.as_ref().is_some_and(Session::active) || prompt.is_some();
+    if !active {
+        hide_scan_visuals();
+        if let Some((token, _)) = d.cursor_suppression.take() {
+            cursor.release_scan(token);
+        }
+        return Ok(());
+    }
     if active {
         let (token, started) = match d.cursor_suppression {
             Some(lease) => lease,
@@ -524,12 +550,6 @@ fn render<A: Adapter>(
     render_countdown(frame.countdown.as_ref())?;
     render_label(frame.label_for_prompt(prompt.is_some()), &frame.tiles)?;
     show_prompt(app, prompt)?;
-    if !active {
-        // Native scanning windows have all been hidden before the cursor can return.
-        if let Some((token, _)) = d.cursor_suppression.take() {
-            cursor.release_scan(token);
-        }
-    }
     Ok(())
 }
 fn tick<A: Adapter>(app: &AppHandle) {
@@ -889,6 +909,21 @@ pub fn restart_point_on_display(app: &AppHandle, next: bool) -> Result<(), Strin
 
 #[cfg(test)]
 mod ownership_tests {
+    #[test]
+    fn failed_partial_presentations_are_hidden_even_with_empty_caches() {
+        let mut tiles = (vec![true, true, false], Vec::<u8>::new());
+        super::clear_cached_visual(&mut tiles, |hosts| hosts.fill(false));
+        assert!(tiles.0.iter().all(|visible| !visible));
+        assert!(tiles.1.is_empty());
+        let mut countdown = (Some(true), None::<u8>);
+        super::clear_cached_visual(&mut countdown, |host| {
+            if let Some(visible) = host {
+                *visible = false;
+            }
+        });
+        assert_eq!(countdown, (Some(false), None));
+    }
+
     #[test]
     fn stopped_remote_input_cannot_fall_back_to_a_matching_local_generation() {
         assert!(!super::source_is_current(true, false, true));
