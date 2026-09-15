@@ -43,7 +43,7 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
-thread_local! {static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)}; static LABEL:RefCell<Option<Host>>=const{RefCell::new(None)}; static TILES:RefCell<(Vec<Host>,Vec<crate::scanning::FrameTile>)>=const{RefCell::new((vec![],vec![]))};}
+thread_local! {static COUNTDOWN: RefCell<(Option<Host>, Option<crate::scanning::Countdown>)> = const { RefCell::new((None, None)) }; static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)}; static LABEL:RefCell<Option<Host>>=const{RefCell::new(None)}; static TILES:RefCell<(Vec<Host>,Vec<crate::scanning::FrameTile>)>=const{RefCell::new((vec![],vec![]))};}
 /// Scanning has no on/off switch. It is armed whenever the saved switches can
 /// drive the current mode and the environment allows it, and the tick loop
 /// re-arms it after anything that stopped it: a save, key learning, Escape, an
@@ -422,6 +422,24 @@ fn dispatch<A: Adapter>(
     }
     Ok(())
 }
+fn render_countdown(countdown: Option<&crate::scanning::Countdown>) -> Result<(), String> {
+    COUNTDOWN.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.1.as_ref() == countdown {
+            return Ok(());
+        }
+        if let Some(countdown) = countdown {
+            if slot.0.is_none() {
+                slot.0 = Some(Host::new()?);
+            }
+            slot.0.as_mut().unwrap().countdown(countdown)?;
+        } else if let Some(host) = slot.0.as_mut() {
+            host.hide();
+        }
+        slot.1 = countdown.cloned();
+        Ok(())
+    })
+}
 fn render_tiles(tiles: &[crate::scanning::FrameTile]) -> Result<(), String> {
     TILES.with(|slot| {
         let mut slot = slot.borrow_mut();
@@ -460,6 +478,7 @@ fn render<A: Adapter>(
         }
     })?;
     render_tiles(&frame.tiles)?;
+    render_countdown(frame.countdown.as_ref())?;
     render_label(frame.label_for_prompt(prompt.is_some()), &frame.tiles)
 }
 fn tick<A: Adapter>(app: &AppHandle) {
@@ -505,19 +524,24 @@ fn tick<A: Adapter>(app: &AppHandle) {
             publish::<A>(app);
         }
         for edge in edges {
+            if matches!(edge, crate::remote_scan::Edge::Reset) {
+                reset_scanner::<A>(app, "Remote switches changed. Scan reset.");
+                return;
+            }
             let action = {
                 let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
                 match edge {
-                    crate::remote_scan::Edge::Reset => {
-                        d.pressed.cancel();
-                        d.remote_hold_started = None;
-                        None
-                    }
+                    crate::remote_scan::Edge::Reset => unreachable!(),
                     crate::remote_scan::Edge::Down(id) => {
                         if !d.pressed.held() {
                             d.remote_hold_started = Some(now_ms);
                         }
-                        d.pressed.pressed(&id.to_string(), now_ms, &settings);
+                        let countdown = d
+                            .engine
+                            .as_ref()
+                            .is_some_and(|e| e.technique.auto_selecting());
+                        d.pressed
+                            .pressed_for_scan(&id.to_string(), now_ms, &settings, countdown);
                         None
                     }
                     crate::remote_scan::Edge::Up(id) => {
@@ -575,7 +599,12 @@ fn tick<A: Adapter>(app: &AppHandle) {
                     }
                     if action == crate::switch_input::Action::Pressed {
                         let settings = d.switches.clone();
-                        d.pressed.pressed(&switch_id, monotonic_ms, &settings);
+                        let countdown = d
+                            .engine
+                            .as_ref()
+                            .is_some_and(|e| e.technique.auto_selecting());
+                        d.pressed
+                            .pressed_for_scan(&switch_id, monotonic_ms, &settings, countdown);
                         None
                     } else {
                         d.pressed.released(&switch_id, monotonic_ms)
@@ -685,6 +714,7 @@ fn render_label(
     })
 }
 fn hide_prompt() {
+    let _ = render_countdown(None);
     let _ = render_label(None, &[]);
     hide_hold_prompt();
 }

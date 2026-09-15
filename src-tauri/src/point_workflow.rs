@@ -2,7 +2,7 @@
 use crate::{
     point_scan::{Engine, PointSettings},
     scan_menu::{outline, Item, Kind, Menu},
-    scanning::{Action, Frame, FrameLabel, Rect, Technique},
+    scanning::{Action, Frame, FrameLabel, Rect, Technique, UpdateContext},
 };
 use serde::Serialize;
 pub type Point = (i32, i32);
@@ -28,7 +28,6 @@ pub enum Request {
     DragMove(Point),
     DragEnd(Point),
 }
-/// Future auto-selection policy can return this same request after its countdown.
 pub fn default_click(point: Point) -> Request {
     Request::Click {
         point,
@@ -55,6 +54,7 @@ impl Default for Phase {
 pub enum WorkflowPhase {
     Menu,
     MenuSuspended,
+    AutoSelecting,
     DragDestination,
     DragConfirmation,
     Executing,
@@ -62,6 +62,7 @@ pub enum WorkflowPhase {
 #[derive(PartialEq)]
 enum Stage {
     Idle,
+    Countdown,
     Point,
     Menu,
     Destination,
@@ -94,6 +95,11 @@ impl Workflow {
         })
     }
     pub fn apply_config(&mut self, config: PointSettings, restart: bool) {
+        if self.stage == Stage::Countdown {
+            self.pending = None;
+            self.elapsed = 0;
+            self.open(Kind::Actions);
+        }
         self.point.config = config;
         self.menu.set_period(self.point.config.block_interval_ms);
         for menu in &mut self.parent_menu {
@@ -233,6 +239,9 @@ impl Technique for Workflow {
     fn complete_on_selection(&self) -> bool {
         false
     }
+    fn auto_selecting(&self) -> bool {
+        self.stage == Stage::Countdown
+    }
     fn pausable(&self) -> bool {
         self.stage != Stage::Executing
     }
@@ -248,7 +257,12 @@ impl Technique for Workflow {
                             selection_policy(point, self.point.config.block_interval_ms);
                         self.source = target;
                         self.menu = menu;
-                        self.stage = Stage::Menu;
+                        self.elapsed = 0;
+                        self.stage = if self.point.config.auto_select_enabled {
+                            Stage::Countdown
+                        } else {
+                            Stage::Menu
+                        };
                     }
                 }
             }
@@ -263,6 +277,10 @@ impl Technique for Workflow {
                 if let Some(item) = self.menu.handle(action) {
                     return self.selected(item);
                 }
+            }
+            Stage::Countdown => {
+                self.elapsed = 0;
+                self.open(Kind::Actions);
             }
             Stage::Idle | Stage::Executing => {}
         }
@@ -285,8 +303,19 @@ impl Technique for Workflow {
             _ => {}
         }
     }
-    fn update(&mut self, ms: u64, advancing: bool) {
-        if self.stage == Stage::Executing {
+    fn update(&mut self, ms: u64, context: UpdateContext) {
+        if self.stage == Stage::Countdown {
+            if !context.paused && !context.switch_held {
+                self.elapsed = self
+                    .elapsed
+                    .saturating_add(ms)
+                    .min(self.point.config.auto_select_delay_ms);
+                if self.elapsed == self.point.config.auto_select_delay_ms {
+                    self.pending = Some(default_click(self.source));
+                    self.stage = Stage::Idle;
+                }
+            }
+        } else if self.stage == Stage::Executing {
             self.elapsed = (self.elapsed + ms).min(300);
             let t = self.elapsed as f64 / 300.0;
             let p = (
@@ -301,7 +330,7 @@ impl Technique for Workflow {
             } else {
                 Request::DragMove(p)
             });
-        } else if advancing {
+        } else if context.movement_enabled {
             self.advance(ms);
         }
     }
@@ -311,6 +340,7 @@ impl Technique for Workflow {
     fn phase(&self) -> Phase {
         match self.stage {
             Stage::Idle => Phase::default(),
+            Stage::Countdown => Phase::Workflow(WorkflowPhase::AutoSelecting),
             Stage::Point => Phase::Point(self.point.phase()),
             Stage::Destination => Phase::Workflow(WorkflowPhase::DragDestination),
             Stage::Executing => Phase::Workflow(WorkflowPhase::Executing),
@@ -325,6 +355,32 @@ impl Technique for Workflow {
     }
     fn frame(&self) -> Frame {
         let mut frame = match self.stage {
+            Stage::Countdown => {
+                let scale = self.point.units_per_logical_pixel;
+                let screen = self.point.screen;
+                let width = (480.0 * scale).min(screen.width);
+                Frame {
+                    countdown: Some(crate::scanning::Countdown {
+                        point: self.source,
+                        scale,
+                        permille: (self.elapsed * 1000 / self.point.config.auto_select_delay_ms)
+                            as u16,
+                        color: self.point.config.scanner_color,
+                    }),
+                    label: Some(FrameLabel {
+                        text: "Press a switch for the action menu.".into(),
+                        rect: Rect {
+                            x: screen.x + (screen.width - width) / 2.0,
+                            y: screen.y + 20.0 * scale,
+                            width,
+                            height: (64.0 * scale).min(screen.height),
+                        },
+                        scale,
+                        hud: Some(crate::scanning::HudPresentation { screen, scale }),
+                    }),
+                    ..Frame::default()
+                }
+            }
             Stage::Point | Stage::Destination => self.point.frame(),
             Stage::Menu => self.menu.frame(
                 if self.menu.kind == Kind::ConfirmDrag {
@@ -426,6 +482,158 @@ mod tests {
         }
         s.action(Action::Select)
     }
+    fn auto_session(
+        mode: crate::point_scan::Mode,
+        automatic: bool,
+    ) -> crate::scanning::Session<Workflow> {
+        let config = crate::point_scan::Config {
+            mode,
+            automatic,
+            auto_select_enabled: true,
+            ..Default::default()
+        };
+        let workflow = Workflow::new(
+            config.point(),
+            Rect {
+                x: -1000.0,
+                y: -100.0,
+                width: 800.0,
+                height: 600.0,
+            },
+            1.0,
+        )
+        .unwrap();
+        let mut session = crate::scanning::Session::new(workflow, automatic);
+        let presses = if mode == crate::point_scan::Mode::Grid {
+            5
+        } else {
+            3
+        };
+        for _ in 0..presses {
+            assert_eq!(session.action(Action::Select), None);
+        }
+        assert!(session.technique.auto_selecting());
+        session
+    }
+    fn advance_auto(session: &mut crate::scanning::Session<Workflow>, duration: u64, held: bool) {
+        for _ in 0..duration / 100 {
+            session.tick(100, held);
+        }
+        session.tick(duration % 100, held);
+    }
+    #[test]
+    fn auto_click_runs_once_in_every_scan_mode_and_then_waits() {
+        for mode in [crate::point_scan::Mode::Line, crate::point_scan::Mode::Grid] {
+            for automatic in [false, true] {
+                let mut session = auto_session(mode, automatic);
+                let target = session.technique.source;
+                advance_auto(&mut session, 999, false);
+                assert_eq!(session.take_selection(), None);
+                assert_eq!(session.frame().countdown.as_ref().unwrap().point, target);
+                session.tick(1, false);
+                assert_eq!(session.take_selection(), Some(default_click(target)));
+                assert!(!session.active());
+                advance_auto(&mut session, 2000, false);
+                assert_eq!(session.take_selection(), None);
+                assert!(session.frame().countdown.is_none());
+            }
+        }
+    }
+    #[test]
+    fn held_switch_and_pause_freeze_countdown_and_menu_consumes_selection() {
+        let mut session = auto_session(crate::point_scan::Mode::Line, false);
+        advance_auto(&mut session, 900, false);
+        advance_auto(&mut session, 2000, true);
+        assert_eq!(session.frame().countdown.unwrap().permille, 900);
+        session.action(Action::Pause);
+        advance_auto(&mut session, 2000, false);
+        assert_eq!(session.frame().countdown.unwrap().permille, 900);
+        session.action(Action::Pause);
+        assert_eq!(session.action(Action::Select), None);
+        assert_eq!(
+            session.technique.phase(),
+            Phase::Workflow(WorkflowPhase::Menu)
+        );
+        advance_auto(&mut session, 2000, false);
+        assert_eq!(session.take_selection(), None);
+        assert!(!session.frame().tiles.is_empty());
+    }
+    #[test]
+    fn pause_resumes_remaining_time_and_reset_discards_even_pending_click() {
+        let mut session = auto_session(crate::point_scan::Mode::Line, true);
+        advance_auto(&mut session, 900, false);
+        session.action(Action::Pause);
+        advance_auto(&mut session, 500, false);
+        session.action(Action::Pause);
+        advance_auto(&mut session, 99, false);
+        assert_eq!(session.take_selection(), None);
+        session.tick(1, false);
+        session.reset();
+        assert_eq!(session.take_selection(), None);
+        for action in [Action::Cancel, Action::Stop] {
+            let mut session = auto_session(crate::point_scan::Mode::Line, false);
+            session.action(action);
+            advance_auto(&mut session, 2000, false);
+            assert_eq!(session.take_selection(), None);
+        }
+    }
+    #[test]
+    fn config_changes_cancel_countdown_and_auto_click_errors_offer_menu_return() {
+        let mut session = auto_session(crate::point_scan::Mode::Line, false);
+        let config = session.technique.point.config.clone();
+        session.technique.apply_config(config, false);
+        advance_auto(&mut session, 2000, false);
+        assert_eq!(session.take_selection(), None);
+        let mut session = auto_session(crate::point_scan::Mode::Line, false);
+        advance_auto(&mut session, 1000, false);
+        assert!(session.take_selection().is_some());
+        session.execution_failed("Click failed".into());
+        assert!(session
+            .frame()
+            .label
+            .unwrap()
+            .text
+            .contains("Select to return"));
+        assert_eq!(session.action(Action::Select), None);
+        assert_eq!(
+            session.technique.phase(),
+            Phase::Workflow(WorkflowPhase::Menu)
+        );
+        assert_eq!(session.take_selection(), None);
+    }
+    #[test]
+    fn auto_selection_excludes_drag_destinations() {
+        let mut session = auto_session(crate::point_scan::Mode::Line, false);
+        session.action(Action::Select);
+        session.technique.selected(Item::Drag);
+        session.action(Action::Select);
+        session.action(Action::Select);
+        assert_eq!(
+            session.technique.phase(),
+            Phase::Workflow(WorkflowPhase::DragConfirmation)
+        );
+        assert!(session.frame().countdown.is_none());
+    }
+    #[test]
+    fn countdown_artwork_has_transparent_center_and_growing_colour() {
+        let mut countdown = crate::scanning::Countdown {
+            point: (-200, 50),
+            scale: 2.0,
+            permille: 100,
+            color: crate::scanning::ScannerColor::Green,
+        };
+        let early = countdown.bitmap(2.0).unwrap();
+        countdown.permille = 900;
+        let late = countdown.bitmap(2.0).unwrap();
+        assert_eq!(late.pixel(128, 128).unwrap().alpha(), 0);
+        let alpha =
+            |p: &tiny_skia::Pixmap| p.pixels().iter().map(|p| p.alpha() as u64).sum::<u64>();
+        assert!(alpha(&late) > alpha(&early));
+        let rect = countdown.rect();
+        assert_eq!(rect.x + rect.width / 2.0, -200.0);
+        assert_eq!(rect.y + rect.height / 2.0, 50.0);
+    }
+
     #[test]
     fn nested_back_restores_parent_and_pause_resumes_without_selection() {
         let mut w = Workflow::new(

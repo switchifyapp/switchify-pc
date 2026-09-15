@@ -102,6 +102,19 @@ mod platform {
                 scale,
             )
         }
+        pub fn countdown(&mut self, countdown: &crate::scanning::Countdown) -> Result<(), String> {
+            self.ensure_windows(1)?;
+            let rect = countdown.rect();
+            let pixels = countdown.bitmap(1.0)?;
+            crate::overlay::platform::present_rgba(
+                self.windows[0],
+                rect.x.round() as i32,
+                rect.y.round() as i32,
+                pixels.width() as i32,
+                pixels.height() as i32,
+                pixels.data(),
+            )
+        }
         pub fn tile(&mut self, tile: &crate::scanning::FrameTile) -> Result<(), String> {
             self.ensure_windows(1)?;
             crate::modifier_overlay::windows_backend::present_scan_tile(self.windows[0], tile)
@@ -133,6 +146,7 @@ mod platform {
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     pub struct Host {
         panels: Vec<Retained<NSPanel>>,
+        countdown_view: Option<Retained<objc2_app_kit::NSImageView>>,
         last_rects: Vec<crate::scanning::PaintedRect>,
         last_title: Option<(String, Rect, f64, Option<Rect>)>,
         title: Option<(
@@ -144,6 +158,7 @@ mod platform {
         pub fn new() -> Result<Self, String> {
             Ok(Self {
                 panels: vec![],
+                countdown_view: None,
                 last_rects: vec![],
                 title: None,
                 last_title: None,
@@ -284,6 +299,35 @@ mod platform {
         pub fn prompt(&mut self, text: &str, rect: Rect, scale: f64) -> Result<(), String> {
             self.text_panel(text, rect, scale, None)
         }
+        pub fn countdown(&mut self, countdown: &crate::scanning::Countdown) -> Result<(), String> {
+            use objc2_app_kit::NSImageView;
+            let mtm = MainThreadMarker::new().ok_or("Countdown requires the main thread.")?;
+            let rect = countdown.rect();
+            self.render(&[crate::scanning::PaintedRect {
+                rect,
+                color: [0, 0, 0],
+                opacity: 0,
+                role: crate::scanning::VisualRole::Accent,
+            }])?;
+            let ratio = self.panels[0].backingScaleFactor();
+            let pixels = countdown.bitmap(ratio)?;
+            let image = crate::overlay::platform::image_from_rgba(
+                pixels.data(),
+                pixels.width() as usize,
+                pixels.height() as usize,
+                rect.width,
+            )?;
+            let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(rect.width, rect.height));
+            if self.countdown_view.is_none() {
+                let view = NSImageView::initWithFrame(NSImageView::alloc(mtm), bounds);
+                self.panels[0].setContentView(Some(&view));
+                self.countdown_view = Some(view);
+            }
+            let view = self.countdown_view.as_ref().unwrap();
+            view.setFrame(bounds);
+            view.setImage(Some(&image));
+            Ok(())
+        }
         pub fn tile(&mut self, tile: &crate::scanning::FrameTile) -> Result<(), String> {
             use objc2_app_kit::{NSFont, NSImageView, NSTextAlignment, NSTextField, NSView};
             use objc2_foundation::NSString;
@@ -342,6 +386,9 @@ mod platform {
             Err("Point scan is unavailable.".into())
         }
         pub fn prompt(&mut self, _: &str, _: Rect, _: f64) -> Result<(), String> {
+            Err("Scanning is unavailable.".into())
+        }
+        pub fn countdown(&mut self, _: &crate::scanning::Countdown) -> Result<(), String> {
             Err("Scanning is unavailable.".into())
         }
         pub fn tile(&mut self, _: &crate::scanning::FrameTile) -> Result<(), String> {

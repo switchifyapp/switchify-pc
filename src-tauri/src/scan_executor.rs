@@ -235,7 +235,11 @@ mod tests {
         }
         fn set_pointer_button(&mut self, button: MouseButton, down: bool) -> Result<(), String> {
             self.events.push(format!("button {button:?} {down}"));
-            Ok(())
+            if !down && self.fail_release {
+                Err("release failed".into())
+            } else {
+                Ok(())
+            }
         }
         fn scroll(&mut self, dx: i32, dy: i32) -> Result<(), String> {
             self.events.push(format!("scroll {dx} {dy}"));
@@ -260,6 +264,22 @@ mod tests {
             self.events.push(format!("window {action}"));
             Ok(())
         }
+    }
+    #[test]
+    fn resetting_an_executing_drag_releases_input_and_retains_failed_cleanup_for_retry() {
+        let mut input = DesktopInput::new(Fake::default());
+        execute(&mut input, Request::DragStart((100, 200)), true).unwrap();
+        execute(&mut input, Request::DragMove((150, 250)), true).unwrap();
+        input.injector.fail_release = true;
+        assert!(input.release_all().is_err());
+        assert!(input.has_active_drag());
+        input.injector.fail_release = false;
+        input.release_all().unwrap();
+        assert!(!input.has_active_drag());
+        assert!(input
+            .injector
+            .events
+            .ends_with(&["button Left false".into()]));
     }
     #[test]
     fn editing_shortcuts_preserve_focus_and_release_keys_in_reverse_order() {

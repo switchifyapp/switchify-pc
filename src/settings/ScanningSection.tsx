@@ -8,6 +8,7 @@ import { SettingGroup, Toggle, OptionGroup, secondsOptions } from "./controls";
 
 const phases = {
   idle: "Ready to begin",
+  autoSelecting: "Waiting to click. Press a switch for the action menu",
   menu: "Choose an action at the selected point",
   menuSuspended: "Select to resume the action menu",
   dragDestination: "Choose drag destination",
@@ -38,7 +39,7 @@ export function ScanningSection({
         <p>
           Focus the application you want to use, then press Select to scan the
           display under the pointer. Choose the X position, then the Y position
-          to open the action menu. Choose a click, scroll, or drag action using your switches.
+          to choose a point. Use the action menu for clicks, scrolling and dragging, or enable Auto select to click after a delay.
         </p>
 
         <p>
@@ -112,6 +113,15 @@ export function ScanningSection({
 
         <p>Assign switch actions in the Switches page. All actions run on release. Holding a switch freezes movement. After clicking, or after three passes without a selection, use Select to start again.</p>
 
+      </SettingGroup>
+
+      <SettingGroup title="Auto selection" description="Automatically left-click the chosen point after a delay. Press a switch again during the delay to open the action menu.">
+        <Toggle label="Auto select" checked={config.autoSelectEnabled} disabled={disabled} onChange={(value) => update("autoSelectEnabled", value)} />
+        {config.autoSelectEnabled && <label className="exact-speed">
+          <span>Auto select delay (seconds)</span>
+          <input type="number" min="0.1" max="100" step="0.1" disabled={disabled} value={config.autoSelectDelayMs / 1000}
+            onChange={(event) => { if (event.currentTarget.validity.valid && event.currentTarget.value !== "") update("autoSelectDelayMs", Math.round(event.currentTarget.valueAsNumber * 1000)); }} />
+        </label>}
       </SettingGroup>
 
       <SettingGroup title="Scanner colour" description="Choose the colour used by the grid, scanning lines, and action menu.">

@@ -9,6 +9,8 @@ export type PointScanConfig = {
   speed: number;
   gridSize: number;
   blockIntervalMs: number;
+  autoSelectEnabled: boolean;
+  autoSelectDelayMs: number;
   selectKey: string;
   nextKey: string;
   backKey: string;
@@ -18,7 +20,7 @@ export type PointScanState = {
   remote?: boolean;
   config: PointScanConfig;
   enabled: boolean;
-  phase: "idle" | "row" | "rowEscape" | "cell" | "x" | "y" | "menu" | "menuSuspended" | "dragDestination" | "dragConfirmation" | "executing";
+  phase: "autoSelecting" | "idle" | "row" | "rowEscape" | "cell" | "x" | "y" | "menu" | "menuSuspended" | "dragDestination" | "dragConfirmation" | "executing";
   paused: boolean;
   message: string;
   supported: boolean;
@@ -30,6 +32,8 @@ export const defaultPointScanConfig: PointScanConfig = {
   speed: 2,
   gridSize: 4,
   blockIntervalMs: 1000,
+  autoSelectEnabled: false,
+  autoSelectDelayMs: 1000,
   selectKey: "Space",
   nextKey: "Enter",
   backKey: "Backspace",
