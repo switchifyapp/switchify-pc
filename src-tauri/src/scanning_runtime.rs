@@ -57,6 +57,7 @@ pub struct Controller<A: Adapter> {
     data: Mutex<Data<A>>,
 }
 struct Data<A: Adapter> {
+    cursor_suppression: Option<(u64, Instant)>,
     config: A::Config,
     engine: Option<Session<A::Technique>>,
     display: Option<A::Environment>,
@@ -93,6 +94,7 @@ impl<A: Adapter> Controller<A> {
             halted: AtomicBool::new(false),
             generation: AtomicU64::new(0),
             data: Mutex::new(Data {
+                cursor_suppression: None,
                 config,
                 engine: None,
                 display: None,
@@ -205,6 +207,16 @@ fn reset_scanner<A: Adapter>(app: &AppHandle, message: &str) {
         }
     });
     hide_prompt();
+    let token = c
+        .data
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .cursor_suppression
+        .take();
+    if let Some((token, _)) = token {
+        app.state::<crate::overlay::CursorOverlay>()
+            .release_scan(token);
+    }
     publish::<A>(app);
 }
 /// Pauses scanning so settings can be saved. Must run on the main thread, as
@@ -362,6 +374,18 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
         disable::<A>(app, "Escape pressed. Scanning reset.");
         return;
     }
+    // Do not act on a scan the user cannot see during the native handoff.
+    if c.data
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .cursor_suppression
+        .is_some_and(|(token, _)| {
+            !app.state::<crate::overlay::CursorOverlay>()
+                .scan_ready(token)
+        })
+    {
+        return;
+    }
     hide_prompt();
     let result = (|| -> Result<(), String> {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
@@ -465,7 +489,26 @@ fn render<A: Adapter>(
     prompt: Option<&crate::switch_gestures::Prompt>,
 ) -> Result<(), String> {
     let c = app.state::<Controller<A>>();
-    let d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+    let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+    let cursor = app.state::<crate::overlay::CursorOverlay>();
+    let active = d.engine.as_ref().is_some_and(Session::active) || prompt.is_some();
+    if active {
+        let (token, started) = match d.cursor_suppression {
+            Some(lease) => lease,
+            None => {
+                let lease = (cursor.suppress_for_scan()?, Instant::now());
+                d.cursor_suppression = Some(lease);
+                lease
+            }
+        };
+        if !cursor.scan_ready(token) {
+            if started.elapsed() >= std::time::Duration::from_secs(2) {
+                return Err("Cursor overlay could not be hidden for scanning.".into());
+            }
+            d.last_tick = Instant::now();
+            return Ok(());
+        }
+    }
     let frame = d
         .engine
         .as_ref()
@@ -479,7 +522,15 @@ fn render<A: Adapter>(
     })?;
     render_tiles(&frame.tiles)?;
     render_countdown(frame.countdown.as_ref())?;
-    render_label(frame.label_for_prompt(prompt.is_some()), &frame.tiles)
+    render_label(frame.label_for_prompt(prompt.is_some()), &frame.tiles)?;
+    show_prompt(app, prompt)?;
+    if !active {
+        // Native scanning windows have all been hidden before the cursor can return.
+        if let Some((token, _)) = d.cursor_suppression.take() {
+            cursor.release_scan(token);
+        }
+    }
+    Ok(())
 }
 fn tick<A: Adapter>(app: &AppHandle) {
     let c = app.state::<Controller<A>>();
@@ -634,7 +685,14 @@ fn tick<A: Adapter>(app: &AppHandle) {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
         A::validate_environment(app, d.display.as_ref())?;
         let now = Instant::now();
-        let elapsed = now.duration_since(d.last_tick).as_millis() as u64;
+        let elapsed = if d.cursor_suppression.is_some_and(|(token, _)| {
+            !app.state::<crate::overlay::CursorOverlay>()
+                .scan_ready(token)
+        }) {
+            0
+        } else {
+            now.duration_since(d.last_tick).as_millis() as u64
+        };
         d.last_tick = now;
         let held = d.pressed.held();
         let prompt = d.pressed.prompt(now_ms);
@@ -657,7 +715,6 @@ fn tick<A: Adapter>(app: &AppHandle) {
         if phase_changed {
             publish::<A>(app);
         }
-        show_prompt(app, prompt.as_ref())?;
         render::<A>(app, prompt.as_ref())
     })();
     if let Err(error) = result {

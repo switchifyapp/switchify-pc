@@ -23,10 +23,15 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 
-use crate::overlay::{render_marker, run_loop, Command, Frame};
+use crate::overlay::{render_marker, run_loop, Command, Frame, VisibilityGate};
 use crate::state::{emit_state, set_activity, ActivityKind, SharedModel};
 
-pub(super) fn spawn(app: AppHandle, shared: SharedModel, receiver: Receiver<Command>) {
+pub(super) fn spawn(
+    app: AppHandle,
+    shared: SharedModel,
+    receiver: Receiver<Command>,
+    gate: VisibilityGate,
+) {
     thread::Builder::new()
         .name("Switchify cursor overlay".into())
         .spawn(move || {
@@ -41,16 +46,17 @@ pub(super) fn spawn(app: AppHandle, shared: SharedModel, receiver: Receiver<Comm
             let failure_shared = shared.clone();
             let host = RefCell::new(host);
             run_loop(
-                |frame| {
-                    let result = host.borrow_mut().render(frame);
+                |frame, epoch| {
+                    let result = gate.present(epoch, || host.borrow_mut().render(frame));
                     if let Err(error) = &result {
                         report_failure(&failure_app, &failure_shared, error);
                     }
                     result
                 },
-                || host.borrow_mut().hide(),
+                |epoch| gate.hide(epoch, || host.borrow_mut().hide()),
                 pump_window_messages,
                 receiver,
+                gate.clone(),
             );
         })
         .expect("cursor overlay thread should start");
@@ -373,10 +379,11 @@ mod tests {
             };
             ready_sender.send(handles).unwrap();
             run_loop(
-                |frame| host.borrow_mut().render(frame),
-                || host.borrow_mut().hide(),
+                |frame, _| host.borrow_mut().render(frame),
+                |_| host.borrow_mut().hide(),
                 pump_window_messages,
                 command_receiver,
+                VisibilityGate::default(),
             );
         });
         let handles = ready_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
