@@ -56,6 +56,7 @@ internal static class WindowsProbe
         form.Shown+=(s,e)=>{
             editor.Focus();
             Log("initiallyOpen="+initiallyOpen);
+            Log("beforeOpen editorFocus="+editor.Focused+" foreground="+(GetForegroundWindow()==form.Handle));
             if(!initiallyOpen) Process.Start(new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),"System32","osk.exe")) { UseShellExecute=true });
             timer.Start();
         };
@@ -70,7 +71,9 @@ internal static class WindowsProbe
                     Log("elements="+all.Count+" visibleEnabledButtons="+visible.Length);
                     foreach(var key in visible) { object pattern;Log("button id="+key.Current.AutomationId+" name="+key.Current.Name+" invoke="+key.TryGetCurrentPattern(InvokePattern.Pattern,out pattern)); }
                     if(visible.Length<20) throw new Exception("UIAccess key discovery failed");
-                    form.Activate();editor.Focus();Recording=true;
+                    Log("afterOpen editorFocus="+editor.Focused+" foreground="+(GetForegroundWindow()==form.Handle));
+                    if(!editor.Focused || GetForegroundWindow()!=form.Handle) throw new Exception("Opening OSK did not preserve disposable editor focus");
+                    Recording=true;
                     return;
                 }
                 if(step<ids.Length) {

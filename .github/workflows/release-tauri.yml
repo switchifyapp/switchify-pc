@@ -19,7 +19,11 @@ jobs:
           $framework = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319"
           $references = Get-ChildItem 'C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework' -Directory | Sort-Object Name -Descending | Select-Object -First 1
           if (-not $references) { throw 'No .NET Framework reference assemblies found.' }
-          $wpf = Join-Path $references.FullName WPF
+          $wpf = $references.FullName
+          if (-not (Test-Path "$wpf\UIAutomationClient.dll")) { $wpf = Join-Path $references.FullName WPF }
+          foreach ($assembly in @('UIAutomationClient.dll','UIAutomationTypes.dll','WindowsBase.dll')) {
+            if (-not (Test-Path (Join-Path $wpf $assembly))) { throw "Missing reference assembly: $assembly" }
+          }
           & "$framework\csc.exe" /nologo /target:winexe /platform:x64 /out:SwitchifyKeyboardQualification.exe /win32manifest:tools/keyboard-qualification/WindowsProbe.manifest /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Core.dll "/r:$wpf\UIAutomationClient.dll" "/r:$wpf\UIAutomationTypes.dll" "/r:$wpf\WindowsBase.dll" tools/keyboard-qualification/WindowsProbe.cs
           if ($LASTEXITCODE -ne 0) { throw 'Qualification compilation failed.' }
           ./scripts/Sign-Windows.ps1 SwitchifyKeyboardQualification.exe
