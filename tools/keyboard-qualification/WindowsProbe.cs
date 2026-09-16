@@ -1,5 +1,7 @@
 using System;
 using System.Diagnostics;
+using System.Collections.Concurrent;
+using System.Threading;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -13,6 +15,8 @@ internal static class WindowsProbe
     [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr w, IntPtr l);
     [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] static extern IntPtr GetModuleHandle(string name);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] static extern bool PostThreadMessage(uint thread, uint message, IntPtr w, IntPtr l);
     [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
     [DllImport("advapi32.dll", SetLastError=true)] static extern bool GetTokenInformation(IntPtr token, int info, out int value, int size, out int returned);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
@@ -22,13 +26,32 @@ internal static class WindowsProbe
     static readonly Hook Callback=OnKey;
     static IntPtr HookHandle;
     static IntPtr EditorWindow;
-    static bool Recording;
+    static volatile bool Recording;
+    static readonly ConcurrentQueue<string> Events=new ConcurrentQueue<string>();
+    static int EventCount, Overflow;
+    static uint HookThread;
+    static void FlushEvents() {
+        string value;
+        while(Events.TryDequeue(out value)) { Interlocked.Decrement(ref EventCount);Log(value); }
+        if(Interlocked.Exchange(ref Overflow,0)!=0) { Recording=false;Log("BLOCKED: Event evidence overflowed or could not be recorded."); }
+    }
+    static AutomationElement OwnedKeyboard(DateTime opened,ref int ownedPid) {
+        int expectedPid=ownedPid;
+        var matches=Process.GetProcessesByName("osk").Where(p=>expectedPid==0 ? p.StartTime.ToUniversalTime()>=opened : p.Id==expectedPid).ToArray();
+        if(matches.Length!=1 || matches[0].MainWindowHandle==IntPtr.Zero) return null;
+        ownedPid=matches[0].Id;
+        return AutomationElement.FromHandle(matches[0].MainWindowHandle);
+    }
     static void Log(string value) { File.AppendAllText(Output, DateTime.UtcNow.ToString("o")+" "+value+Environment.NewLine); }
     static IntPtr OnKey(int code,IntPtr w,IntPtr l) {
-        if(code>=0 && Recording && GetForegroundWindow()==EditorWindow) {
-            var key=(Key)Marshal.PtrToStructure(l,typeof(Key));
-            Log("key message="+w.ToInt64()+" vk="+key.vk+" flags="+key.flags+" extra="+key.extra.ToUInt64());
-        }
+        try {
+            if(code>=0 && Recording && GetForegroundWindow()==EditorWindow) {
+                if(Interlocked.Increment(ref EventCount)<=512) {
+                    var key=(Key)Marshal.PtrToStructure(l,typeof(Key));
+                    Events.Enqueue("key time="+key.time+" message="+w.ToInt64()+" vk="+key.vk+" flags="+key.flags+" extra="+key.extra.ToUInt64());
+                } else { Interlocked.Decrement(ref EventCount);Interlocked.Exchange(ref Overflow,1);Recording=false; }
+            }
+        } catch { Interlocked.Exchange(ref Overflow,1);Recording=false; }
         return CallNextHookEx(HookHandle,code,w,l);
     }
     [STAThread] static void Main() {
@@ -45,27 +68,41 @@ internal static class WindowsProbe
         var editor=new TextBox { Multiline=true,Dock=DockStyle.Fill,Font=new System.Drawing.Font("Segoe UI",20) };
         form.Controls.Add(editor);
         EditorWindow=form.Handle;
-        HookHandle=SetWindowsHookEx(13,Callback,GetModuleHandle(null),0);
+        var ready=new ManualResetEventSlim();
+        var hookThread=new Thread(()=>{
+            HookThread=GetCurrentThreadId();
+            HookHandle=SetWindowsHookEx(13,Callback,GetModuleHandle(null),0);
+            ready.Set();
+            if(HookHandle!=IntPtr.Zero) { try { Application.Run(); } finally { UnhookWindowsHookEx(HookHandle); } }
+        });
+        hookThread.IsBackground=true;hookThread.SetApartmentState(ApartmentState.STA);hookThread.Start();
+        if(!ready.Wait(3000)) { Log("BLOCKED: Hook startup timed out.");return; }
         Log("hook="+(HookHandle!=IntPtr.Zero));
         if(HookHandle==IntPtr.Zero) return;
-        var timer=new Timer { Interval=1000 };
+        var timer=new System.Windows.Forms.Timer { Interval=1000 };
         int step=0,attempts=0;
         bool initiallyOpen=Process.GetProcessesByName("osk").Length>0;
         string[] ids={"1e","1e","39","1c","e"};
         AutomationElement root=null;
+        DateTime opened=DateTime.MaxValue;int ownedPid=0;
         form.Shown+=(s,e)=>{
             editor.Focus();
             Log("initiallyOpen="+initiallyOpen);
             Log("beforeOpen editorFocus="+editor.Focused+" foreground="+(GetForegroundWindow()==form.Handle));
-            if(!initiallyOpen) Process.Start(new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),"System32","osk.exe")) { UseShellExecute=true });
-            timer.Start();
+            try {
+                if(!initiallyOpen) { opened=DateTime.UtcNow;Process.Start(new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),"System32","osk.exe")) { UseShellExecute=true }); }
+                timer.Start();
+            } catch(Exception error) { Log("BLOCKED: Keyboard opening failed: "+error.Message); }
         };
         timer.Tick+=(s,e)=>{
             try {
+                FlushEvents();
                 if(root==null) {
-                    var process=Process.GetProcessesByName("osk").FirstOrDefault();
-                    if(process==null || process.MainWindowHandle==IntPtr.Zero) { if(++attempts>15) throw new Exception("Keyboard did not open");return; }
-                    root=AutomationElement.FromHandle(process.MainWindowHandle);
+                    if(initiallyOpen) {
+                        var process=Process.GetProcessesByName("osk").FirstOrDefault();
+                        if(process!=null && process.MainWindowHandle!=IntPtr.Zero) root=AutomationElement.FromHandle(process.MainWindowHandle);
+                    } else root=OwnedKeyboard(opened,ref ownedPid);
+                    if(root==null) { if(++attempts>15) throw new Exception("Keyboard did not open");return; }
                     var all=root.FindAll(TreeScope.Descendants,Condition.TrueCondition);
                     var visible=all.Cast<AutomationElement>().Where(x=>x.Current.ControlType==ControlType.Button && !x.Current.IsOffscreen && x.Current.IsEnabled && !x.Current.BoundingRectangle.IsEmpty).ToArray();
                     Log("elements="+all.Count+" visibleEnabledButtons="+visible.Length);
@@ -96,8 +133,18 @@ internal static class WindowsProbe
         };
         form.Deactivate+=(s,e)=>{if(Recording){Recording=false;timer.Stop();Log("BLOCKED: Disposable editor lost focus; sequence cancelled.");}};
         form.FormClosed+=(s,e)=>{
-            Recording=false;timer.Stop();UnhookWindowsHookEx(HookHandle);
-            if(!initiallyOpen && root!=null) { try { object pattern;if(root.TryGetCurrentPattern(WindowPattern.Pattern,out pattern)) { ((WindowPattern)pattern).Close();Log("keyboardClose=invoked"); } else Log("keyboardClose=unsupported"); }catch(Exception error){Log("keyboardClose="+error.GetType().Name);} }
+            Recording=false;timer.Stop();PostThreadMessage(HookThread,0x0012,IntPtr.Zero,IntPtr.Zero);
+            if(!hookThread.Join(1500)) Log("BLOCKED: Hook shutdown timed out.");
+            FlushEvents();
+            if(!initiallyOpen && opened!=DateTime.MaxValue) {
+                try {
+                    AutomationElement owned=null;
+                    for(int retry=0;retry<20 && owned==null;retry++) { owned=OwnedKeyboard(opened,ref ownedPid);if(owned==null) Thread.Sleep(100); }
+                    object pattern;
+                    if(owned!=null && owned.TryGetCurrentPattern(WindowPattern.Pattern,out pattern)) { ((WindowPattern)pattern).Close();Log("keyboardClose=invoked; verify disappearance"); }
+                    else Log("keyboardClose=unavailable; restore manually if still visible");
+                } catch(Exception error) { Log("keyboardClose="+error.GetType().Name+"; restore manually if still visible"); }
+            }
         };
         Application.Run(form);
     }
