@@ -51,7 +51,7 @@ internal static class WindowsProbe
         var timer=new Timer { Interval=1000 };
         int step=0,attempts=0;
         bool initiallyOpen=Process.GetProcessesByName("osk").Length>0;
-        string[] ids={"1e","1e","39","1c","e","2a","1e","2a"};
+        string[] ids={"1e","1e","39","1c","e"};
         AutomationElement root=null;
         form.Shown+=(s,e)=>{
             editor.Focus();
