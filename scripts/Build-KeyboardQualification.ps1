@@ -6,20 +6,24 @@ $output = Join-Path $repo 'dist/keyboard-qualification'
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
 $packs = Join-Path ${env:ProgramFiles(x86)} 'Reference Assemblies/Microsoft/Framework/.NETFramework'
-$references = Get-ChildItem $packs -Directory | Sort-Object Name -Descending | Select-Object -First 1
-if (-not $references -or -not (Test-Path $compiler)) {
-    throw '.NET Framework compiler and reference assemblies are required.'
-}
-$wpf = $references.FullName
-if (-not (Test-Path (Join-Path $wpf 'UIAutomationClient.dll'))) {
-    $wpf = Join-Path $wpf 'WPF'
-}
+if (-not (Test-Path $compiler)) { throw '.NET Framework compiler is required.' }
 $assemblies = @('UIAutomationClient.dll', 'UIAutomationTypes.dll', 'WindowsBase.dll')
+$folders = @()
+if (Test-Path $packs) {
+    foreach ($pack in (Get-ChildItem $packs -Directory | Sort-Object Name -Descending)) {
+        $folders += $pack.FullName
+        $folders += Join-Path $pack.FullName 'WPF'
+    }
+}
+$folders += Join-Path (Split-Path -Parent $compiler) 'WPF'
+$wpf = $folders | Where-Object {
+    $candidate = $_
+    @($assemblies | Where-Object { -not (Test-Path (Join-Path $candidate $_)) }).Count -eq 0
+} | Select-Object -First 1
+if (-not $wpf) { throw '.NET Framework UI Automation assemblies were not found in the targeting packs or framework WPF runtime.' }
 $arguments = @('/nologo', '/target:winexe', '/platform:x64', '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:System.Core.dll')
 foreach ($assembly in $assemblies) {
-    $path = Join-Path $wpf $assembly
-    if (-not (Test-Path $path)) { throw "Missing reference assembly: $assembly" }
-    $arguments += "/r:$path"
+    $arguments += '/r:' + (Join-Path $wpf $assembly)
 }
 $executable = Join-Path $output 'SwitchifyKeyboardQualification.exe'
 $arguments += "/out:$executable"
