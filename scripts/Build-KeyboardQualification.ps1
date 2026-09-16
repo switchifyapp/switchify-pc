@@ -21,7 +21,7 @@ $wpf = $folders | Where-Object {
     @($assemblies | Where-Object { -not (Test-Path (Join-Path $candidate $_)) }).Count -eq 0
 } | Select-Object -First 1
 if (-not $wpf) { throw '.NET Framework UI Automation assemblies were not found in the targeting packs or framework WPF runtime.' }
-$arguments = @('/nologo', '/target:winexe', '/platform:x64', '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:System.Core.dll')
+$arguments = @('/nologo', '/target:winexe', '/platform:x64', '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:System.Core.dll', '/r:Accessibility.dll')
 foreach ($assembly in $assemblies) {
     $arguments += '/r:' + (Join-Path $wpf $assembly)
 }
