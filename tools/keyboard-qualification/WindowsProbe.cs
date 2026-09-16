@@ -174,6 +174,7 @@ internal static class WindowsProbe
         }
         if(Owned==null) { Log("keyboardClose=no-owned-process");return; }
         try {
+            OwnedWindow=WaitForWindow(()=>Owned.HasExited,()=>{Owned.Refresh();return Owned.MainWindowHandle;},()=>Thread.Sleep(100));
             if(Owned.HasExited) { Log("keyboardClose=verified-exited");return; }
             uint process;GetWindowThreadProcessId(OwnedWindow,out process);
             if(OwnedWindow==IntPtr.Zero || process!=(uint)Owned.Id) { Log("BLOCKED: Owned keyboard window is unavailable.");return; }
@@ -186,6 +187,17 @@ internal static class WindowsProbe
             }
             Log("BLOCKED: Keyboard remained visible after native close.");
         } finally { Owned.Dispose(); }
+    }
+    // Pure retry policy: fake callbacks exercise delayed windows and cancellation
+    // cleanup in CI without creating a window or sending any native input.
+    internal static IntPtr WaitForWindow(Func<bool> exited, Func<IntPtr> findWindow, Action wait) {
+        for(int attempt=0;attempt<30;attempt++) {
+            if(exited()) return IntPtr.Zero;
+            var window=findWindow();
+            if(window!=IntPtr.Zero) return window;
+            wait();
+        }
+        return IntPtr.Zero;
     }
     [STAThread] static void Main(string[] args) {
         File.WriteAllText(Output,"");

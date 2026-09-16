@@ -1,4 +1,4 @@
-param([switch]$Sign)
+param([switch]$Sign, [switch]$Test)
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -31,6 +31,17 @@ $arguments += '/win32manifest:' + (Join-Path $repo 'tools/keyboard-qualification
 $arguments += Join-Path $repo 'tools/keyboard-qualification/WindowsProbe.cs'
 & $compiler @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Keyboard qualification compilation failed.' }
+if ($Test) {
+    $testExecutable = Join-Path $output 'KeyboardQualificationTests.exe'
+    $testArguments = @($arguments | Where-Object { $_ -notmatch '^/(out|target|win32manifest):' -and $_ -notlike '*.cs' })
+    $testArguments += @('/target:exe', '/main:KeyboardQualificationTests', "/out:$testExecutable")
+    $testArguments += Join-Path $repo 'tools/keyboard-qualification/WindowsProbe.cs'
+    $testArguments += Join-Path $repo 'tools/keyboard-qualification/KeyboardQualificationTests.cs'
+    & $compiler @testArguments
+    if ($LASTEXITCODE -ne 0) { throw 'Keyboard qualification test compilation failed.' }
+    & $testExecutable
+    if ($LASTEXITCODE -ne 0) { throw 'Keyboard qualification tests failed.' }
+}
 if ($Sign) {
     if ($env:SWITCHIFY_ALLOW_UNSIGNED_UIACCESS_PACKAGE -eq '1') {
         throw 'Disable the unsigned development override before requesting a signed probe.'

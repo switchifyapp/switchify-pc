@@ -2,7 +2,8 @@
 
 This standalone probe tests native OSK activation under signed UIAccess. It is not
 the Windows scanning implementation and does not qualify mapped-switch filtering.
-Hosted CI compiles it without running it. Run native tests explicitly with a
+Hosted CI compiles it and runs fake lifecycle tests without executing the probe.
+Run native tests explicitly with a
 disposable editor and other input idle.
 
 ## Build and run
@@ -10,7 +11,7 @@ disposable editor and other input idle.
 With SimplySign authenticated and `SWITCHIFY_CERTUM_CERT_THUMBPRINT` configured:
 
 ```powershell
-pwsh ./scripts/Build-KeyboardQualification.ps1 -Sign
+pwsh ./scripts/Build-KeyboardQualification.ps1 -Test -Sign
 ```
 
 Copy `dist/keyboard-qualification/SwitchifyKeyboardQualification.exe` to

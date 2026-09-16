@@ -113,8 +113,8 @@ jobs:
           components: rustfmt, clippy
       - run: npm ci
       - if: runner.os == 'Windows'
-        name: Compile native keyboard qualification probe
-        run: pwsh ./scripts/Build-KeyboardQualification.ps1
+        name: Compile keyboard probe and test fake lifecycle callbacks
+        run: pwsh ./scripts/Build-KeyboardQualification.ps1 -Test
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
