@@ -30,10 +30,11 @@ internal static class WindowsProbe
     static readonly ConcurrentQueue<string> Events=new ConcurrentQueue<string>();
     static int EventCount, Overflow;
     static uint HookThread;
-    static void FlushEvents() {
+    static bool FlushEvents() {
         string value;
         while(Events.TryDequeue(out value)) { Interlocked.Decrement(ref EventCount);Log(value); }
-        if(Interlocked.Exchange(ref Overflow,0)!=0) { Recording=false;Log("BLOCKED: Event evidence overflowed or could not be recorded."); }
+        if(Interlocked.Exchange(ref Overflow,0)!=0) { Recording=false;Log("BLOCKED: Event evidence overflowed or could not be recorded.");return false; }
+        return true;
     }
     static AutomationElement OwnedKeyboard(DateTime opened,ref int ownedPid) {
         int expectedPid=ownedPid;
@@ -96,7 +97,7 @@ internal static class WindowsProbe
         };
         timer.Tick+=(s,e)=>{
             try {
-                FlushEvents();
+                if(!FlushEvents()) throw new Exception("Event evidence is incomplete; sequence cancelled");
                 if(root==null) {
                     if(initiallyOpen) {
                         var process=Process.GetProcessesByName("osk").FirstOrDefault();
