@@ -127,6 +127,9 @@ jobs:
       - if: runner.os == 'macOS'
         run: npm run tauri build -- --bundles ${{ matrix.bundles }} --no-sign
       - if: runner.os == 'Windows'
+        name: Compile native keyboard qualification probe
+        run: pwsh ./scripts/Build-KeyboardQualification.ps1
+      - if: runner.os == 'Windows'
         run: pwsh ./scripts/Build-WindowsUiAccess.ps1 -SkipSign
       - if: runner.os == 'Windows'
         run: |
