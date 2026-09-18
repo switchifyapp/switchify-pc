@@ -401,6 +401,13 @@ impl Capture {
         }
         #[cfg(target_os = "windows")]
         {
+            if self
+                .native
+                .as_ref()
+                .is_some_and(windows::Capture::recovering)
+            {
+                bail!("{}", windows_hook::RECOVERY_MESSAGE);
+            }
             let mut held = self
                 .driver
                 .core
@@ -462,6 +469,17 @@ impl Capture {
         #[cfg(target_os = "windows")]
         if let Some(native) = &self.native {
             native.cancel();
+        }
+        self.driver
+            .core
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .stop(StopReason::Disabled);
+    }
+    pub fn stop_for_recovery(&mut self) {
+        #[cfg(target_os = "windows")]
+        if let Some(native) = &self.native {
+            native.cancel_for_recovery();
         }
         self.driver
             .core
