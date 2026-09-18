@@ -1,5 +1,5 @@
 use super::{
-    windows_hook::{await_shutdown, Installation, NativeResources, Resource, Shared, State},
+    windows_hook::{Installation, NativeResources, Resource, Shared, State},
     Driver, Mode, StopReason,
 };
 use anyhow::{bail, Result};
@@ -306,25 +306,10 @@ impl Capture {
     pub fn recovering(&self) -> bool {
         self.shared.recovering()
     }
-    pub fn await_shutdown(&self) -> Result<()> {
-        let started = std::time::Instant::now();
-        await_shutdown(
-            || {
-                let held = self.held_keys();
-                if !held.is_empty() {
-                    bail!(
-                        "Release held keys before starting capture: {}.",
-                        held.join(", ")
-                    );
-                }
-                Ok(self
-                    .thread
-                    .as_ref()
-                    .is_none_or(std::thread::JoinHandle::is_finished))
-            },
-            || std::thread::sleep(Duration::from_millis(1)),
-            || started.elapsed().as_millis().min(u64::MAX as u128) as u64,
-        )
+    pub fn finished(&self) -> bool {
+        self.thread
+            .as_ref()
+            .is_none_or(std::thread::JoinHandle::is_finished)
     }
     pub fn held_keys(&self) -> Vec<String> {
         known_keys()
