@@ -1360,6 +1360,10 @@ fn point_scan_prepare(app: &AppHandle) -> Result<(), String> {
 }
 
 pub fn run() {
+    #[cfg(target_os = "windows")]
+    if switch_input::run_worker_from_args() {
+        return;
+    }
     #[cfg(target_os = "macos")]
     if macos_relaunch::run_from_args() {
         return;

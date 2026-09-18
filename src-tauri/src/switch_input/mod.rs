@@ -9,14 +9,23 @@ mod windows;
 #[cfg(any(target_os = "windows", test))]
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod windows_hook;
+#[cfg(target_os = "windows")]
+mod windows_worker;
+#[cfg(any(target_os = "windows", test))]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod windows_worker_protocol;
 use anyhow::{bail, Result};
 pub use keys::normalize as normalize_key;
+#[cfg(target_os = "windows")]
+pub fn run_worker_from_args() -> bool {
+    windows_worker::run_from_args()
+}
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex},
     time::Instant,
 };
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Action {
     Pressed,
     Released,
@@ -30,7 +39,7 @@ pub const HEARTBEAT_INTERVAL_MS: u64 = 500;
 pub const HEARTBEAT_TIMEOUT_MS: u64 = 1500;
 const QUEUE_LIMIT: usize = 256;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum StopReason {
     Disabled,
     Escape,
@@ -39,7 +48,7 @@ pub enum StopReason {
     QueueOverflow,
     CaptureLost,
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Event {
     Switch {
         generation: u64,
@@ -56,13 +65,13 @@ pub enum Event {
         reason: StopReason,
     },
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Mode {
     Off,
     Learning,
     Active,
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct Status {
     pub generation: u64,
     pub mode: Mode,
@@ -70,6 +79,8 @@ pub struct Status {
 }
 #[cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
 struct Core {
+    #[cfg(any(target_os = "windows", test))]
+    worker_failed: bool,
     status: Status,
     native_lost: bool,
     mappings: HashMap<String, String>,
@@ -84,6 +95,8 @@ struct Core {
 impl Default for Core {
     fn default() -> Self {
         Self {
+            #[cfg(any(target_os = "windows", test))]
+            worker_failed: false,
             status: Status {
                 generation: 0,
                 mode: Mode::Off,
@@ -307,7 +320,7 @@ impl Driver {
 pub struct Capture {
     driver: Driver,
     #[cfg(target_os = "windows")]
-    native: Option<windows::Capture>,
+    native: Option<windows_worker::Capture>,
     #[cfg(target_os = "macos")]
     native: Option<macos::Capture>,
 }
@@ -335,6 +348,10 @@ impl Capture {
             .status
     }
     pub fn heartbeat(&self) {
+        #[cfg(target_os = "windows")]
+        if let Some(native) = &self.native {
+            native.check_health();
+        }
         let mut core = self.driver.core.lock().unwrap_or_else(|p| p.into_inner());
         core.last_heartbeat = self.driver.now();
     }
@@ -401,6 +418,22 @@ impl Capture {
         }
         #[cfg(target_os = "windows")]
         {
+            if self
+                .driver
+                .core
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .worker_failed
+            {
+                bail!("{}", windows_worker_protocol::WORKER_FAILURE_MESSAGE);
+            }
+            if self
+                .native
+                .as_ref()
+                .is_some_and(windows_worker::Capture::recovering)
+            {
+                bail!("{}", windows_hook::RECOVERY_MESSAGE);
+            }
             let mut held = self
                 .driver
                 .core
@@ -425,7 +458,7 @@ impl Capture {
                 native.await_shutdown()?;
             }
             self.native.take();
-            self.native = Some(windows::Capture::start(self.driver.clone(), mode)?);
+            self.native = Some(windows_worker::Capture::start(self.driver.clone(), mode)?);
             Ok(self.status().generation)
         }
         #[cfg(not(target_os = "windows"))]
@@ -462,6 +495,17 @@ impl Capture {
         #[cfg(target_os = "windows")]
         if let Some(native) = &self.native {
             native.cancel();
+        }
+        self.driver
+            .core
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .stop(StopReason::Disabled);
+    }
+    pub fn stop_for_recovery(&mut self) {
+        #[cfg(target_os = "windows")]
+        if let Some(native) = &self.native {
+            native.cancel_for_recovery();
         }
         self.driver
             .core

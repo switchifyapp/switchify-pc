@@ -205,16 +205,27 @@ impl Controller {
     }
     pub fn cancel_capture(&self, app: &AppHandle) {
         let mut d = self.data.lock().unwrap_or_else(|p| p.into_inner());
-        if !d.capture.active {
+        if !d.capture.active && !(cfg!(target_os = "windows") && d.capture.error.is_some()) {
             return;
         }
+        let generation = d.capture_generation;
         d.capture = CaptureState::default();
         drop(d);
-        self.broker.lock().unwrap_or_else(|p| p.into_inner()).stop();
+        let mut broker = self.broker.lock().unwrap_or_else(|p| p.into_inner());
+        if broker.status().generation == generation {
+            broker.stop();
+        }
+        drop(broker);
         self.publish(app);
     }
     pub fn stop(&self) {
         self.broker.lock().unwrap_or_else(|p| p.into_inner()).stop();
+    }
+    pub fn stop_for_recovery(&self) {
+        self.broker
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .stop_for_recovery();
     }
     pub fn shutdown(&self) {
         self.broker
@@ -273,6 +284,9 @@ pub fn stop_message(reason: StopReason) -> &'static str {
         StopReason::HeartbeatTimeout => "Switch capture stopped because its heartbeat was missed.",
         StopReason::QueueOverflow => "Switch capture stopped because input could not be processed.",
         StopReason::CaptureLost => {
+            #[cfg(target_os = "windows")]
+            return "Keyboard capture interrupted. Release your switches, then press and release a switch to reconnect.";
+            #[cfg(not(target_os = "windows"))]
             "Switch capture was lost. Check input permission; scanning retries."
         }
     }
