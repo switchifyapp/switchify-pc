@@ -5,6 +5,44 @@ use tiny_skia::{
 };
 
 pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
+    if tile.icon == Item::KeyboardKey {
+        let mut bitmap = Pixmap::new(
+            tile.rect.width.round().max(1.0) as u32,
+            tile.rect.height.round().max(1.0) as u32,
+        )
+        .ok_or("Cannot allocate keyboard key")?;
+        let rgb = if tile.selected {
+            tile.color.menu_fill()
+        } else {
+            [30, 35, 46]
+        };
+        bitmap.fill(Color::from_rgba8(rgb[0], rgb[1], rgb[2], 255));
+        if tile.selected {
+            let mut paint = Paint::default();
+            let [r, g, b] = tile.color.rgb();
+            paint.set_color_rgba8(r, g, b, 255);
+            let mut path = PathBuilder::new();
+            if let Some(rect) = tiny_skia::Rect::from_xywh(
+                1.0,
+                1.0,
+                (bitmap.width() as f32 - 2.0).max(0.1),
+                (bitmap.height() as f32 - 2.0).max(0.1),
+            ) {
+                path.push_rect(rect);
+                bitmap.stroke_path(
+                    &path.finish().unwrap(),
+                    &paint,
+                    &Stroke {
+                        width: 2.0,
+                        ..Default::default()
+                    },
+                    Transform::identity(),
+                    None,
+                );
+            }
+        }
+        return Ok(bitmap);
+    }
     let size = tile.rect.width.round().max(1.0) as u32;
     let mut pixmap = Pixmap::new(size, size).ok_or("Cannot allocate action tile")?;
     pixmap.fill(if tile.selected {
@@ -81,12 +119,14 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
             lines(&[(62., 46.), (106., 90.)]);
             lines(&[(106., 46.), (62., 90.)]);
         }
-        More | Group(_) | Command(_) | Setting(_) | Display(_) | Pause | Reverse => {
+        TypeHere | Keyboard | More | Group(_) | Command(_) | Setting(_) | Display(_) | Pause
+        | Reverse => {
             artwork(&mut path, tile.icon);
         }
         DragHere => {
             lines(&[(55., 69.), (75., 89.), (113., 47.)]);
         }
+        KeyboardKey => unreachable!("Keyboard keys are rendered without artwork"),
     }
     if matches!(tile.icon, LeftClick | RightClick | DoubleClick) {
         path.move_to(62., 64.);
@@ -232,6 +272,19 @@ fn return_arrow(path: &mut PathBuilder, forward: bool) {
 fn artwork(path: &mut PathBuilder, item: Item) {
     use crate::scan_menu::{Command as C, Kind as K, Setting as S};
     match item {
+        Item::TypeHere | Item::Keyboard => {
+            rect(path, 46., 44., 76., 48.);
+            for y in [55., 67.] {
+                for x in [58., 74., 90., 106.] {
+                    rect(path, x, y, 4., 4.);
+                }
+            }
+            line(path, &[(66., 81.), (102., 81.)]);
+            if item == Item::TypeHere {
+                line(path, &[(84., 100.), (84., 114.)]);
+                line(path, &[(77., 107.), (91., 107.)]);
+            }
+        }
         Item::More => {
             for x in [60., 84., 108.] {
                 path.push_circle(x, 68., 5.);

@@ -11,6 +11,8 @@ use tauri::{AppHandle, Manager};
 pub struct Environment {
     display: Display,
     foreground: usize,
+    keyboard_area: Rect,
+    handoff_until: Option<std::time::Instant>,
 }
 pub struct PointScan;
 pub type Controller = scanning_runtime::Controller<PointScan>;
@@ -59,13 +61,40 @@ impl Adapter for PointScan {
         crate::scan_executor::cleanup()?;
         crate::point_scan_prepare(app)
     }
-    fn activate(app: &AppHandle, request: Request) -> Result<(), String> {
+    fn activate(app: &AppHandle, request: Request) -> Result<Option<Environment>, String> {
         crate::point_scan_ready(app)?;
         match request {
+            Request::OpenKeyboard { point: Some(_) } => {
+                crate::scan_executor::activate(request)?;
+                let (_, mut environment) =
+                    new_engine(app, app.state::<Controller>().view().config)?;
+                // Allow the one requested click to establish focus before accepting
+                // any key. No typing or scan advancement occurs during this handoff.
+                environment.handoff_until =
+                    Some(std::time::Instant::now() + std::time::Duration::from_millis(150));
+                return Ok(Some(environment));
+            }
             Request::Setting(setting) => scanning_runtime::update_point_setting(app, setting),
             Request::Display(next) => scanning_runtime::restart_point_on_display(app, next),
             request => crate::scan_executor::activate(request),
         }
+        .map(|()| None)
+    }
+    fn settle_environment(
+        app: &AppHandle,
+        environment: Option<&mut Environment>,
+    ) -> Result<bool, String> {
+        if let Some(environment) = environment {
+            if let Some(until) = environment.handoff_until {
+                crate::point_scan_ready(app)?;
+                if std::time::Instant::now() < until {
+                    return Ok(false);
+                }
+                environment.foreground = crate::scan_host::foreground()?;
+                environment.handoff_until = None;
+            }
+        }
+        Ok(true)
     }
     fn cleanup(_app: &AppHandle) -> Result<(), String> {
         crate::scan_executor::cleanup()
@@ -81,7 +110,7 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
     } else {
         1.0
     };
-    let e = Workflow::new(
+    let mut e = Workflow::new(
         config.point(),
         Rect {
             x: display.x.into(),
@@ -91,11 +120,20 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
         },
         units,
     )?;
+    let keyboard_area = crate::scan_host::work_area(Rect {
+        x: display.x.into(),
+        y: display.y.into(),
+        width: display.width.into(),
+        height: display.height.into(),
+    })?;
+    e.set_keyboard_area(keyboard_area);
     Ok((
         e,
         Environment {
             display,
             foreground: crate::scan_host::foreground()?,
+            keyboard_area,
+            handoff_until: None,
         },
     ))
 }
@@ -108,6 +146,16 @@ fn validate_display(app: &AppHandle, display: Option<&Environment>) -> Result<()
         let (_, displays) = display_navigation::displays(app).map_err(|e| e.message)?;
         if !displays.contains(&expected.display) {
             return Err("Display geometry changed. Scanning restarts.".into());
+        }
+        let d = &expected.display;
+        if crate::scan_host::work_area(Rect {
+            x: d.x.into(),
+            y: d.y.into(),
+            width: d.width.into(),
+            height: d.height.into(),
+        })? != expected.keyboard_area
+        {
+            return Err("Display work area changed. Scanning restarts.".into());
         }
     }
     Ok(())

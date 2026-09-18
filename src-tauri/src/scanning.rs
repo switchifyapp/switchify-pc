@@ -278,6 +278,7 @@ pub trait Technique {
         false
     }
     fn execution_failed(&mut self, _message: String) {}
+    fn execution_succeeded(&mut self) {}
     fn start(&mut self);
     fn advance(&mut self, elapsed_ms: u64);
     fn handle(&mut self, action: Action) -> Option<Self::Selection>;

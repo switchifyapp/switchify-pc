@@ -20,7 +20,7 @@ export type PointScanState = {
   remote?: boolean;
   config: PointScanConfig;
   enabled: boolean;
-  phase: "autoSelecting" | "idle" | "row" | "rowEscape" | "cell" | "x" | "y" | "menu" | "menuSuspended" | "dragDestination" | "dragConfirmation" | "executing";
+  phase: "autoSelecting" | "idle" | "row" | "rowEscape" | "cell" | "x" | "y" | "menu" | "menuSuspended" | "dragDestination" | "dragConfirmation" | "executing" | "keyboard" | "keyboardSuspended" | "keyboardOpening";
   paused: boolean;
   message: string;
   supported: boolean;

@@ -1,6 +1,68 @@
 //! Native, nonactivating strips, using the same display units as input injection.
 use crate::scanning::Rect;
 
+/// Work area in the same native coordinates used by the scan engine.
+pub fn work_area(screen: Rect) -> Result<Rect, String> {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows::Win32::{
+            Foundation::POINT,
+            Graphics::Gdi::{
+                GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+            },
+        };
+        let monitor = MonitorFromPoint(
+            POINT {
+                x: (screen.x + screen.width / 2.0) as i32,
+                y: (screen.y + screen.height / 2.0) as i32,
+            },
+            MONITOR_DEFAULTTONEAREST,
+        );
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return Err("Display work area is unavailable.".into());
+        }
+        let r = info.rcWork;
+        Ok(Rect {
+            x: r.left.into(),
+            y: r.top.into(),
+            width: (r.right - r.left).into(),
+            height: (r.bottom - r.top).into(),
+        })
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::NSScreen;
+        let mtm = MainThreadMarker::new().ok_or("Keyboard requires the main thread.")?;
+        let screens = NSScreen::screens(mtm);
+        let primary = screens
+            .firstObject()
+            .ok_or("Display work area is unavailable.")?;
+        let top = primary.frame().origin.y + primary.frame().size.height;
+        for s in screens.iter() {
+            let r = s.frame();
+            if (r.origin.x - screen.x).abs() < 1.0
+                && (top - r.origin.y - r.size.height - screen.y).abs() < 1.0
+            {
+                let r = s.visibleFrame();
+                return Ok(Rect {
+                    x: r.origin.x,
+                    y: top - r.origin.y - r.size.height,
+                    width: r.size.width,
+                    height: r.size.height,
+                });
+            }
+        }
+        Err("Display work area is unavailable.".into())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    Ok(screen)
+}
+
 #[cfg(target_os = "windows")]
 mod platform {
     use super::*;
@@ -354,13 +416,26 @@ mod platform {
             artwork.setImage(Some(&image));
             view.addSubview(&artwork);
             let label = NSTextField::wrappingLabelWithString(&NSString::from_str(&tile.text), mtm);
-            label.setFont(Some(&NSFont::boldSystemFontOfSize(15.0 * tile.scale)));
+            let key = tile.icon == crate::scan_menu::Item::KeyboardKey;
+            label.setFont(Some(&NSFont::boldSystemFontOfSize(
+                if key { 18.0 } else { 15.0 } * tile.scale,
+            )));
             label.setTextColor(Some(&NSColor::whiteColor()));
             label.setAlignment(NSTextAlignment::Center);
-            label.setFrame(NSRect::new(
-                NSPoint::new(6.0 * tile.scale, 12.0 * tile.scale),
-                NSSize::new(tile.rect.width - 12.0 * tile.scale, 40.0 * tile.scale),
-            ));
+            label.setFrame(if key {
+                NSRect::new(
+                    NSPoint::new(2.0, (tile.rect.height - 42.0 * tile.scale).max(0.0) / 2.0),
+                    NSSize::new(
+                        tile.rect.width - 4.0,
+                        (42.0 * tile.scale).min(tile.rect.height),
+                    ),
+                )
+            } else {
+                NSRect::new(
+                    NSPoint::new(6.0 * tile.scale, 12.0 * tile.scale),
+                    NSSize::new(tile.rect.width - 12.0 * tile.scale, 40.0 * tile.scale),
+                )
+            });
             view.addSubview(&label);
             self.panels[0].setContentView(Some(&view));
             Ok(())

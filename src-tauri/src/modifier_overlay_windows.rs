@@ -595,6 +595,30 @@ pub(crate) fn present_scan_tile(
     tile: &crate::scanning::FrameTile,
 ) -> Result<(), String> {
     let pixmap = crate::scan_tile::bitmap(tile)?;
+    if tile.icon == crate::scan_menu::Item::KeyboardKey {
+        let width = pixmap.width() as i32;
+        let height = pixmap.height() as i32;
+        let layout = Layout {
+            x: tile.rect.x.round() as i32,
+            y: tile.rect.y.round() as i32,
+            width,
+            height,
+            scale: tile.scale * 18.0 / FONT_SIZE,
+            chips: vec![RECT {
+                left: 2,
+                top: 0,
+                right: width - 2,
+                bottom: height,
+            }],
+        };
+        return present_pixmap_with_text(
+            window,
+            std::slice::from_ref(&tile.text),
+            &layout,
+            pixmap.data(),
+            true,
+        );
+    }
     let size = pixmap.width() as i32;
     let layout = Layout {
         x: tile.rect.x.round() as i32,

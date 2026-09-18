@@ -5,6 +5,9 @@ use crate::{
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
+    TypeHere,
+    Keyboard,
+    KeyboardKey,
     More,
     Group(Kind),
     Command(Command),
@@ -31,6 +34,9 @@ pub enum Item {
 impl Item {
     pub fn label(self) -> &'static str {
         match self {
+            Self::TypeHere => "Type here",
+            Self::Keyboard => "Keyboard",
+            Self::KeyboardKey => "Key",
             Self::More => "More",
             Self::Group(kind) => kind.label(),
             Self::Command(command) => command.label(),
@@ -448,6 +454,7 @@ impl Kind {
                 return vec![
                     vec![LeftClick, RightClick, DoubleClick],
                     vec![Scroll, Drag, More],
+                    vec![TypeHere],
                     vec![NewPoint, Cancel],
                 ]
             }
@@ -456,6 +463,7 @@ impl Kind {
                 return vec![vec![DragHere, DestinationAgain], vec![CancelDrag, Cancel]]
             }
             Self::More => vec![
+                Keyboard,
                 Group(Self::Mouse),
                 Group(Self::Editing),
                 Group(Self::Windows),
@@ -738,6 +746,6 @@ mod tests {
         assert_eq!(m.nav.index(), 0);
         m.handle(Action::Reverse);
         m.advance(250);
-        assert_eq!(m.nav.index(), 2);
+        assert_eq!(m.nav.index(), 3);
     }
 }

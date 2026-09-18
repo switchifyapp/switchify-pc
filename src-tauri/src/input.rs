@@ -154,6 +154,14 @@ fn pointer_button(button: MouseButton) -> Button {
 #[cfg(target_os = "windows")]
 fn windows_alphanumeric_key(name: &str) -> Option<Key> {
     Some(match name {
+        #[cfg(target_os = "windows")]
+        "Insert" => Key::Insert,
+        #[cfg(target_os = "windows")]
+        "PrintScreen" => Key::PrintScr,
+        #[cfg(target_os = "windows")]
+        "ScrollLock" => Key::Scroll,
+        #[cfg(target_os = "windows")]
+        "Pause" => Key::Pause,
         "=" => Key::OEMPlus,
         "-" => Key::OEMMinus,
         "[" => Key::OEM4,

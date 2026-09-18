@@ -7,6 +7,9 @@ import {
 import { SettingGroup, Toggle, OptionGroup, secondsOptions } from "./controls";
 
 const phases = {
+  keyboard: "Choose a keyboard row, then a key",
+  keyboardSuspended: "Select to resume the keyboard",
+  keyboardOpening: "Opening the keyboard",
   idle: "Ready to begin",
   autoSelecting: "Waiting to click. Press a switch for the action menu",
   menu: "Choose an action at the selected point",
