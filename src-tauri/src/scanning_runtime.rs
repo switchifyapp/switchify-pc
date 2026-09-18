@@ -185,6 +185,9 @@ fn disable<A: Adapter>(app: &AppHandle, message: &str) {
     reset_scanner::<A>(app, message);
 }
 fn reset_scanner<A: Adapter>(app: &AppHandle, message: &str) {
+    reset_scanner_for_capture::<A>(app, message, false);
+}
+fn reset_scanner_for_capture<A: Adapter>(app: &AppHandle, message: &str, recovering: bool) {
     let c = app.state::<Controller<A>>();
     c.enabled.store(false, Ordering::SeqCst);
     c.generation.fetch_add(1, Ordering::SeqCst);
@@ -203,7 +206,12 @@ fn reset_scanner<A: Adapter>(app: &AppHandle, message: &str) {
         c.data.lock().unwrap_or_else(|p| p.into_inner()).message =
             "Input cleanup will be retried before scanning resumes.".into();
     }
-    app.state::<switch_runtime::Controller>().stop();
+    if recovering {
+        app.state::<switch_runtime::Controller>()
+            .stop_for_recovery();
+    } else {
+        app.state::<switch_runtime::Controller>().stop();
+    }
     hide_scan_visuals();
     let token = c
         .data
@@ -364,7 +372,8 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
         return;
     }
     if !input_active(app, input_generation, remote) {
-        disable::<A>(app, "Switch capture stopped.");
+        crate::remote_scan::cancel(app);
+        reset_scanner_for_capture::<A>(app, "Switch capture stopped.", true);
         return;
     }
     if matches!(action, Action::Cancel | Action::Stop) {
@@ -667,7 +676,13 @@ fn tick<A: Adapter>(app: &AppHandle) {
         }
         match event {
             Event::Stopped { reason, .. } => {
-                disable::<A>(app, switch_runtime::stop_message(reason));
+                crate::remote_scan::cancel(app);
+                reset_scanner_for_capture::<A>(
+                    app,
+                    switch_runtime::stop_message(reason),
+                    cfg!(target_os = "windows")
+                        && reason == crate::switch_input::StopReason::CaptureLost,
+                );
                 return;
             }
             Event::Switch {

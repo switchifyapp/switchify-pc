@@ -1,5 +1,5 @@
 use super::{
-    windows_hook::{await_shutdown, Installation, NativeResources, Resource, Shared, State},
+    windows_hook::{Installation, NativeResources, Resource, Shared, State},
     Driver, Mode, StopReason,
 };
 use anyhow::{bail, Result};
@@ -118,11 +118,43 @@ unsafe extern "system" fn keyboard(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT
     CallNextHookEx(std::ptr::null_mut(), code, wp, lp)
 }
 unsafe extern "system" fn window(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    if msg == WM_INPUT {
+        let mut raw: RAWINPUT = std::mem::zeroed();
+        let mut size = std::mem::size_of::<RAWINPUT>() as u32;
+        let read = GetRawInputData(
+            lp as HRAWINPUT,
+            RID_INPUT,
+            &mut raw as *mut _ as *mut _,
+            &mut size,
+            std::mem::size_of::<RAWINPUTHEADER>() as u32,
+        );
+        if read != u32::MAX
+            && read >= std::mem::size_of::<RAWINPUTHEADER>() as u32
+            && raw.header.dwType == RIM_TYPEKEYBOARD
+        {
+            let key = raw.data.keyboard;
+            INPUT.with(|slot| {
+                if let Ok(mut slot) = slot.try_borrow_mut() {
+                    if let Some(input) = slot.as_mut() {
+                        let now = input.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                        input.state.raw(
+                            &input.shared,
+                            key.VKey as u32,
+                            key.Flags & RI_KEY_BREAK as u16 == 0,
+                            crate::input::own_input(key.ExtraInformation as i64),
+                            now,
+                        );
+                    }
+                }
+            });
+        }
+    }
     if msg == WM_INPUT_DEVICE_CHANGE && wp == GIDC_REMOVAL as usize {
         INPUT.with(|slot| {
-            if let Ok(slot) = slot.try_borrow() {
-                if let Some(input) = slot.as_ref() {
-                    input.shared.fail(StopReason::CaptureLost);
+            if let Ok(mut slot) = slot.try_borrow_mut() {
+                if let Some(input) = slot.as_mut() {
+                    let now = input.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                    input.state.interrupted(&input.shared, now);
                 }
             }
         });
@@ -139,6 +171,23 @@ struct Resources {
     hook: HHOOK,
 }
 impl NativeResources for Resources {
+    fn replace_hook(&mut self) -> bool {
+        unsafe {
+            let replacement = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard), self.module, 0);
+            if replacement.is_null() {
+                return false;
+            }
+            if replacement != self.hook
+                && UnhookWindowsHookEx(self.hook) == 0
+                && GetLastError() != ERROR_INVALID_HOOK_HANDLE
+            {
+                UnhookWindowsHookEx(replacement);
+                return false;
+            }
+            self.hook = replacement;
+            true
+        }
+    }
     fn acquire(&mut self, resource: Resource) -> bool {
         unsafe {
             match resource {
@@ -249,27 +298,18 @@ impl Capture {
         }
     }
     pub fn cancel(&self) {
+        self.shared.cancel_recovery();
+    }
+    pub fn cancel_for_recovery(&self) {
         self.shared.cancel();
     }
-    pub fn await_shutdown(&self) -> Result<()> {
-        let started = std::time::Instant::now();
-        await_shutdown(
-            || {
-                let held = self.held_keys();
-                if !held.is_empty() {
-                    bail!(
-                        "Release held keys before starting capture: {}.",
-                        held.join(", ")
-                    );
-                }
-                Ok(self
-                    .thread
-                    .as_ref()
-                    .is_none_or(std::thread::JoinHandle::is_finished))
-            },
-            || std::thread::sleep(Duration::from_millis(1)),
-            || started.elapsed().as_millis().min(u64::MAX as u128) as u64,
-        )
+    pub fn recovering(&self) -> bool {
+        self.shared.recovering()
+    }
+    pub fn finished(&self) -> bool {
+        self.thread
+            .as_ref()
+            .is_none_or(std::thread::JoinHandle::is_finished)
     }
     pub fn held_keys(&self) -> Vec<String> {
         known_keys()
@@ -300,6 +340,11 @@ unsafe fn run(
     shared: Arc<Shared>,
     tx: mpsc::SyncSender<Result<u32, String>>,
 ) {
+    let escape_ms = driver
+        .core
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .escape_ms;
     let module = GetModuleHandleW(std::ptr::null());
     let class = wide("SwitchifyLocalKeyboardInput");
     let wc = WNDCLASSW {
@@ -390,6 +435,22 @@ unsafe fn run(
             }
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
+            let now = driver.now();
+            let replace = INPUT.with(|slot| {
+                slot.borrow_mut()
+                    .as_mut()
+                    .is_some_and(|input| input.state.maintenance(&shared, now, escape_ms))
+            });
+            if replace {
+                let replaced = installation
+                    .as_mut()
+                    .is_some_and(Installation::replace_hook);
+                INPUT.with(|slot| {
+                    if let Some(input) = slot.borrow_mut().as_mut() {
+                        input.state.replaced(replaced, now);
+                    }
+                });
+            }
             if shared.drained() {
                 break;
             }
