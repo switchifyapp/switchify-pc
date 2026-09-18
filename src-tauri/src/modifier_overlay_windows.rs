@@ -622,7 +622,7 @@ pub(crate) fn present_scan_tile(
             y: tile.rect.y.round() as i32,
             width,
             height,
-            scale: tile.scale * 18.0 / FONT_SIZE,
+            scale: tile.scale * crate::scan_tile::keyboard_font_size(tile) / FONT_SIZE,
             chips: vec![RECT {
                 left: horizontal_padding,
                 top: vertical_padding,

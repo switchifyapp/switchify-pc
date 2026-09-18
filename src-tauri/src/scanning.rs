@@ -149,6 +149,7 @@ pub struct PaintedRect {
 }
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Frame {
+    pub backdrop: Option<Rect>,
     pub color: ScannerColor,
     pub fills: Vec<Rect>,
     pub grid: Vec<Rect>,
@@ -160,6 +161,14 @@ pub struct Frame {
 impl Frame {
     pub fn rectangles(&self) -> Vec<PaintedRect> {
         let mut result = Vec::new();
+        if let Some(rect) = self.backdrop {
+            result.push(PaintedRect {
+                rect,
+                color: [20, 24, 32],
+                opacity: 255,
+                role: VisualRole::Accent,
+            });
+        }
         for rect in &self.fills {
             result.push(PaintedRect {
                 rect: *rect,
@@ -244,6 +253,19 @@ pub struct UpdateContext {
     pub switch_held: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyboardRole {
+    Character,
+    Utility,
+    Toolbar,
+    Status,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeyboardTileStyle {
+    pub role: KeyboardRole,
+    pub active: bool,
+    pub row_scan: bool,
+}
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameTile {
     pub color: ScannerColor,
@@ -251,6 +273,7 @@ pub struct FrameTile {
     pub rect: Rect,
     pub scale: f64,
     pub icon: crate::scan_menu::Item,
+    pub keyboard: Option<KeyboardTileStyle>,
     pub selected: bool,
 }
 #[derive(Debug, Clone, PartialEq)]

@@ -417,6 +417,7 @@ impl Technique for Engine {
             });
         }
         Frame {
+            backdrop: None,
             color: self.config.scanner_color,
             fills,
             grid,

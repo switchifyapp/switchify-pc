@@ -2,7 +2,10 @@
 use crate::{
     scan_menu::Item,
     scan_tree::{Navigator, Node, Selection},
-    scanning::{Action, Frame, FrameTile, Interval, Rect, ScannerColor, MAX_SCAN_CYCLES},
+    scanning::{
+        Action, Frame, FrameTile, Interval, KeyboardRole, KeyboardTileStyle, Rect, ScannerColor,
+        MAX_SCAN_CYCLES,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,8 +32,8 @@ impl Modifier {
     fn suffix(self) -> &'static str {
         match self {
             Self::Off => "",
-            Self::Once => "\nonce",
-            Self::Locked => "\nlocked",
+            Self::Once => "\nNext key",
+            Self::Locked => "\nLocked",
         }
     }
 }
@@ -93,7 +96,6 @@ pub fn rows(page: Page, mac: bool) -> Vec<Vec<Key>> {
             middle.push(N("Enter"));
             let mut bottom = vec![Key::Modifier(0)];
             bottom.extend(chars("\\zxcvbnm,./", "|ZXCVBNM<>?"));
-            bottom.push(C(' ', ' '));
             vec![number, top, middle, bottom]
         }
         Page::Functions => {
@@ -141,19 +143,29 @@ pub fn rows(page: Page, mac: bool) -> Vec<Vec<Key>> {
             ],
         ],
     };
+    result.push(if page == Page::Letters {
+        vec![
+            Key::Modifier(1),
+            Key::Modifier(2),
+            C(' ', ' '),
+            Key::Modifier(3),
+        ]
+    } else {
+        vec![
+            Key::Modifier(0),
+            Key::Modifier(1),
+            Key::Modifier(2),
+            C(' ', ' '),
+            Key::Modifier(3),
+            Key::Caps,
+        ]
+    });
     result.push(vec![
-        Key::Modifier(0),
-        Key::Modifier(1),
-        Key::Modifier(2),
-        Key::Modifier(3),
-        Key::Caps,
-    ]);
-    result.push(vec![
+        Key::Close,
         Key::Page(Page::Letters),
         Key::Page(Page::Functions),
         Key::Page(Page::Numbers),
         Key::Dock,
-        Key::Close,
     ]);
     result
 }
@@ -339,82 +351,138 @@ impl Keyboard {
                 },
                 self.modifiers[i].suffix()
             ),
-            Key::Caps => if self.caps { "Caps\non" } else { "Caps\noff" }.into(),
+            Key::Caps => if self.caps {
+                "Caps lock\nOn"
+            } else {
+                "Caps lock"
+            }
+            .into(),
             Key::Page(page) => format!(
                 "{}{}",
                 match page {
                     Page::Letters => "Letters",
-                    Page::Functions => "Functions",
+                    Page::Functions => "Navigation",
                     Page::Numbers => "Numbers",
                 },
                 if page == self.page { " •" } else { "" }
             ),
-            Key::Dock => if self.top {
-                "Move to bottom"
-            } else {
-                "Move to top"
-            }
-            .into(),
-            Key::Close => "Close".into(),
+            Key::Dock => if self.top { "Dock bottom" } else { "Dock top" }.into(),
+            Key::Close => "Close keyboard".into(),
+        }
+    }
+    fn weight(key: Key) -> f64 {
+        match key {
+            Key::Character(' ', _) => 4.0,
+            Key::Named("Backspace" | "Enter") => 1.9,
+            Key::Named("Tab") | Key::Caps | Key::Modifier(_) => 1.6,
+            Key::Close | Key::Dock => 1.5,
+            _ => 1.0,
+        }
+    }
+    fn style(&self, key: Key, row_scan: bool) -> KeyboardTileStyle {
+        KeyboardTileStyle {
+            role: match key {
+                Key::Character(..) => KeyboardRole::Character,
+                Key::Page(_) | Key::Dock | Key::Close => KeyboardRole::Toolbar,
+                _ => KeyboardRole::Utility,
+            },
+            active: match key {
+                Key::Modifier(i) => self.modifiers[i] != Modifier::Off,
+                Key::Caps => self.caps,
+                Key::Page(page) => self.page == page,
+                _ => false,
+            },
+            row_scan,
         }
     }
     pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor) -> Frame {
-        let width = (1200.0 * units).min(screen.width - 16.0 * units).max(1.0);
-        let height = (420.0 * units).min(screen.height / 2.0).max(1.0);
+        let width = (1180.0 * units).min((screen.width - 24.0 * units).max(1.0));
+        let height = (460.0 * units).min(screen.height * 0.55).max(1.0);
         let x = screen.x + (screen.width - width) / 2.0;
         let y = if self.top {
             screen.y
         } else {
             screen.y + screen.height - height
         };
-        let row_height = height / (self.rows.len() as f64 + 0.5);
-        let mut frame = Frame::default();
+        let row_height = height / (self.rows.len() as f64 + 0.9);
+        let scale = units.min(row_height / 60.0).min(width / 1040.0);
+        let gap = (6.0 * scale).min(row_height / 8.0);
+        let header_height = row_height * 0.9;
+        let mut frame = Frame {
+            backdrop: Some(Rect {
+                x,
+                y,
+                width,
+                height,
+            }),
+            ..Frame::default()
+        };
+        let row_scan = self.nav.path().is_empty();
         let active_row = self.nav.path().first().copied().unwrap_or(self.nav.index());
         for (r, row) in self.rows.iter().enumerate() {
-            let key_width = width / row.len() as f64;
+            let total_weight: f64 = row.iter().copied().map(Self::weight).sum();
+            let cell_unit = (width - gap * (row.len() - 1) as f64).max(1.0) / total_weight;
+            let mut left = x;
             for (c, key) in row.iter().enumerate() {
+                let key_width = cell_unit * Self::weight(*key);
                 frame.tiles.push(FrameTile {
                     color,
                     text: self.label(*key),
                     icon: Item::KeyboardKey,
+                    keyboard: Some(self.style(*key, row_scan)),
                     rect: Rect {
-                        x: x + c as f64 * key_width + 2.0 * units,
-                        y: y + r as f64 * row_height + 2.0 * units,
-                        width: (key_width - 4.0 * units).max(1.0),
-                        height: (row_height - 4.0 * units).max(1.0),
+                        x: left,
+                        y: y + header_height + r as f64 * row_height,
+                        width: key_width,
+                        height: (row_height - gap).max(1.0),
                     },
-                    scale: units.min(row_height / 44.0).min(key_width / 65.0),
+                    scale,
                     selected: !self.suspended
+                        && !self.nav.escaping()
                         && r == active_row
-                        && (self.nav.path().is_empty()
-                            || self.nav.escaping()
-                            || c == self.nav.index()),
+                        && (row_scan || c == self.nav.index()),
                 });
+                left += key_width + gap;
             }
         }
+        let page = match self.page {
+            Page::Letters => "Letters",
+            Page::Functions => "Navigation",
+            Page::Numbers => "Numbers",
+        };
         let text = if self.error {
-            "Input failed. Select to resume."
+            "Input failed · Select to try again".to_owned()
         } else if self.suspended {
-            "Select to resume keyboard."
+            "Keyboard paused · Select to resume".to_owned()
         } else if self.nav.escaping() {
-            "Back to rows"
-        } else if self.nav.path().is_empty() {
-            "Choose a row"
+            "Back to rows · Select to return".to_owned()
+        } else if row_scan {
+            format!("{} · Select a row", page)
         } else {
-            "Choose a key"
+            format!(
+                "{} · Select {}",
+                page,
+                self.label(self.rows[active_row][self.nav.index()])
+                    .replace('\n', " ")
+            )
         };
         frame.tiles.push(FrameTile {
             color,
-            text: text.into(),
+            text,
             icon: Item::KeyboardKey,
+            keyboard: Some(KeyboardTileStyle {
+                role: KeyboardRole::Status,
+                active: false,
+                row_scan: false,
+            }),
             rect: Rect {
                 x,
-                y: y + height - row_height * 0.5,
+                y,
                 width,
-                height: row_height * 0.5,
+                height: (header_height - gap).max(1.0),
             },
-            scale: units.min(row_height / 44.0),
-            selected: self.nav.escaping(),
+            scale,
+            selected: !self.suspended && self.nav.escaping(),
         });
         frame
     }
@@ -423,6 +491,67 @@ impl Keyboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn everyday_keys_are_unique_and_space_is_wide() {
+        let k = Keyboard::new(false);
+        let keys = k.rows.concat();
+        for key in [
+            Key::Caps,
+            Key::Modifier(0),
+            Key::Character(' ', ' '),
+            Key::Close,
+        ] {
+            assert_eq!(
+                keys.iter().filter(|candidate| **candidate == key).count(),
+                1
+            );
+        }
+        let frame = k.frame(
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1280.0,
+                height: 680.0,
+            },
+            1.0,
+            ScannerColor::default(),
+        );
+        let space = frame.tiles.iter().find(|t| t.text == "Space").unwrap();
+        let letter = frame.tiles.iter().find(|t| t.text == "a").unwrap();
+        assert!(space.rect.width > letter.rect.width * 3.0);
+        let backspace = frame.tiles.iter().find(|t| t.text == "Backspace").unwrap();
+        assert!(backspace.rect.width > letter.rect.width);
+        assert_eq!(k.rows.last().unwrap()[0], Key::Close);
+    }
+    #[test]
+    fn row_escape_only_highlights_return_and_modifier_state_is_separate() {
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 680.0,
+        };
+        let mut k = Keyboard::new(false);
+        k.choose(Key::Modifier(0));
+        let active = k.frame(screen, 1.0, ScannerColor::default());
+        let shift = active
+            .tiles
+            .iter()
+            .find(|t| t.text.starts_with("Shift"))
+            .unwrap();
+        assert!(shift.keyboard.unwrap().active);
+        assert!(!shift.selected);
+        k.handle(Action::Select);
+        let keys = k.frame(screen, 1.0, ScannerColor::default());
+        assert_eq!(keys.tiles.iter().filter(|t| t.selected).count(), 1);
+        k.handle(Action::Back);
+        let escaping = k.frame(screen, 1.0, ScannerColor::default());
+        let selected: Vec<_> = escaping.tiles.iter().filter(|t| t.selected).collect();
+        assert_eq!(selected.len(), 1);
+        assert!(selected[0].text.starts_with("Back to rows"));
+        k.handle(Action::Select);
+        assert!(k.nav.path().is_empty());
+    }
     #[test]
     fn uk_layout_and_platform_keys() {
         let letters = rows(Page::Letters, false).concat();
@@ -504,7 +633,7 @@ mod tests {
     }
     #[test]
     fn geometry_fits_work_area_at_both_docks_and_scales() {
-        for units in [1.0, 1.5, 2.0] {
+        for units in [0.75, 1.0, 1.5, 2.0, 3.0] {
             for top in [false, true] {
                 for page in [Page::Letters, Page::Functions, Page::Numbers] {
                     let mut k = Keyboard::new(false);
@@ -513,8 +642,8 @@ mod tests {
                     let screen = Rect {
                         x: -1600.0,
                         y: -200.0,
-                        width: 1600.0,
-                        height: 900.0,
+                        width: 800.0,
+                        height: 600.0,
                     };
                     for tile in k.frame(screen, units, ScannerColor::default()).tiles {
                         assert!(tile.rect.x >= screen.x && tile.rect.y >= screen.y);

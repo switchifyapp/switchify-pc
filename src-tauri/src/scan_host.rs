@@ -419,17 +419,28 @@ mod platform {
             let label = NSTextField::wrappingLabelWithString(&NSString::from_str(&tile.text), mtm);
             let key = tile.icon == crate::scan_menu::Item::KeyboardKey;
             label.setFont(Some(&NSFont::boldSystemFontOfSize(
-                if key { 18.0 } else { 15.0 } * tile.scale,
+                if key {
+                    crate::scan_tile::keyboard_font_size(tile)
+                } else {
+                    15.0
+                } * tile.scale,
             )));
             label.setTextColor(Some(&NSColor::whiteColor()));
             label.setAlignment(NSTextAlignment::Center);
             label.setFrame(if key {
+                let padding = 8.0 * tile.scale;
+                let width = (tile.rect.width - padding * 2.0).max(1.0);
+                let measured = label
+                    .cell()
+                    .ok_or("Keyboard label is unavailable.")?
+                    .cellSizeForBounds(NSRect::new(
+                        NSPoint::new(0.0, 0.0),
+                        NSSize::new(width, f64::MAX),
+                    ));
+                let height = measured.height.min(tile.rect.height);
                 NSRect::new(
-                    NSPoint::new(2.0, (tile.rect.height - 42.0 * tile.scale).max(0.0) / 2.0),
-                    NSSize::new(
-                        tile.rect.width - 4.0,
-                        (42.0 * tile.scale).min(tile.rect.height),
-                    ),
+                    NSPoint::new(padding, (tile.rect.height - height) / 2.0),
+                    NSSize::new(width, height),
                 )
             } else {
                 NSRect::new(
