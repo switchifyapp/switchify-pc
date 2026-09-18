@@ -536,6 +536,9 @@ fn present_pixmap_with_text(
         SetBkMode(memory.0, TRANSPARENT);
         SetTextColor(memory.0, COLORREF(0x00ff_ffff));
         for (label, chip) in labels.iter().zip(&layout.chips) {
+            if label.is_empty() {
+                continue;
+            }
             let mut text = label.encode_utf16().collect::<Vec<_>>();
             let mut text_rect = *chip;
             if center_wrapped {
@@ -691,6 +694,34 @@ pub(crate) fn present_scan_prompt(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn empty_keyboard_backdrop_label_never_reaches_native_text_drawing() {
+        let layout = super::Layout {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 50,
+            scale: 1.0,
+            chips: vec![windows::Win32::Foundation::RECT {
+                left: 8,
+                top: 6,
+                right: 92,
+                bottom: 44,
+            }],
+        };
+        let pixels = vec![255; 100 * 50 * 4];
+        for wrapped in [false, true] {
+            let result = super::present_pixmap_with_text(
+                windows::Win32::Foundation::HWND::default(),
+                &[String::new()],
+                &layout,
+                &pixels,
+                wrapped,
+                wrapped,
+            );
+            assert!(result.is_err());
+        }
+    }
     use super::*;
     use windows::Win32::Foundation::{LPARAM, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -845,6 +876,24 @@ mod tests {
     #[test]
     fn native_window_render_smoke_becomes_visible_and_hides() {
         let mut host = NativeHost::new().unwrap();
+        let keyboard = crate::scan_keyboard::Keyboard::new(false);
+        let frame = keyboard.frame(
+            crate::scanning::Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1280.0,
+                height: 720.0,
+            },
+            1.0,
+            crate::scanning::ScannerColor::default(),
+        );
+        for tile in &frame.tiles {
+            super::present_scan_tile(host.window, tile).unwrap();
+            unsafe {
+                assert!(IsWindowVisible(host.window).as_bool());
+            }
+        }
+        host.hide();
         host.render(&["Ctrl".into(), "Shift".into()]).unwrap();
         unsafe {
             assert!(IsWindowVisible(host.window).as_bool());
