@@ -373,7 +373,7 @@ mod platform {
             }])?;
             let ratio = self.panels[0].backingScaleFactor();
             let pixels = countdown.bitmap(ratio)?;
-            let image = crate::overlay::platform::image_from_rgba(
+            let image = crate::overlay::platform::image_from_rgba_rect(
                 pixels.data(),
                 pixels.width() as usize,
                 pixels.height() as usize,
@@ -400,6 +400,7 @@ mod platform {
                 pixels.width() as usize,
                 pixels.height() as usize,
                 tile.rect.width,
+                tile.rect.height,
             )?;
             self.render(&[crate::scanning::PaintedRect {
                 rect: tile.rect,
@@ -490,6 +491,70 @@ pub fn modifiers_released() -> bool {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         false
+    }
+}
+
+/// Resolve the intended target while scan overlays are hidden, before clicking.
+/// Uses the same identity as `foreground`: a Windows root window or macOS PID.
+pub fn target_at(point: (i32, i32)) -> Result<usize, String> {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows::Win32::{
+            Foundation::POINT,
+            UI::WindowsAndMessaging::{GetAncestor, WindowFromPoint, GA_ROOT},
+        };
+        let child = WindowFromPoint(POINT {
+            x: point.0,
+            y: point.1,
+        });
+        let root = GetAncestor(child, GA_ROOT);
+        if root.0.is_null() {
+            return Err("The selected target is unavailable.".into());
+        }
+        Ok(root.0 as usize)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use core_foundation::base::{CFType, CFTypeRef, TCFType};
+        #[link(name = "ApplicationServices", kind = "framework")]
+        unsafe extern "C" {
+            fn AXUIElementCreateSystemWide() -> CFTypeRef;
+            fn AXUIElementCopyElementAtPosition(
+                element: CFTypeRef,
+                x: f32,
+                y: f32,
+                result: *mut CFTypeRef,
+            ) -> i32;
+            fn AXUIElementGetPid(element: CFTypeRef, pid: *mut i32) -> i32;
+        }
+        let system = unsafe { AXUIElementCreateSystemWide() };
+        if system.is_null() {
+            return Err("The selected target is unavailable.".into());
+        }
+        let system = unsafe { CFType::wrap_under_create_rule(system) };
+        let mut element = std::ptr::null();
+        let status = unsafe {
+            AXUIElementCopyElementAtPosition(
+                system.as_CFTypeRef(),
+                point.0 as f32,
+                point.1 as f32,
+                &mut element,
+            )
+        };
+        if status != 0 || element.is_null() {
+            return Err("The selected target is unavailable.".into());
+        }
+        let element = unsafe { CFType::wrap_under_create_rule(element) };
+        let mut pid = 0;
+        if unsafe { AXUIElementGetPid(element.as_CFTypeRef(), &mut pid) } != 0 || pid <= 0 {
+            return Err("The selected target is unavailable.".into());
+        }
+        Ok(pid as usize)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = point;
+        Err("Local scanning is unavailable.".into())
     }
 }
 

@@ -32,7 +32,16 @@ pub fn execute<I: InputInjector>(
             if let Some(character) = stroke.character().filter(|_| !stroke.shortcut()) {
                 return input.type_text(&character.to_string());
             }
+            let mut modifiers = stroke.modifiers;
             let name = match stroke.key {
+                crate::scan_keyboard::Key::Character('+', '+') => {
+                    modifiers[0] = true;
+                    "=".into()
+                }
+                crate::scan_keyboard::Key::Character('*', '*') => {
+                    modifiers[0] = true;
+                    "8".into()
+                }
                 crate::scan_keyboard::Key::Character(base, _) => {
                     base.to_ascii_uppercase().to_string()
                 }
@@ -41,7 +50,7 @@ pub fn execute<I: InputInjector>(
             };
             let mut keys: Vec<&str> = ["Shift", "Ctrl", "Alt", "Meta"]
                 .into_iter()
-                .zip(stroke.modifiers)
+                .zip(modifiers)
                 .filter_map(|(key, on)| on.then_some(key))
                 .collect();
             keys.push(&name);
@@ -380,6 +389,34 @@ mod tests {
             input.injector.events,
             ["key Escape true", "key Escape false"]
         );
+    }
+    #[test]
+    fn numeric_operator_shortcuts_include_required_shift_and_release_every_key() {
+        use crate::scan_keyboard::{Key, Stroke};
+        for (operator, native_key) in [('+', "="), ('*', "8")] {
+            let mut input = DesktopInput::new(Fake::default());
+            execute(
+                &mut input,
+                Request::Keyboard(Stroke {
+                    key: Key::Character(operator, operator),
+                    modifiers: [false, true, false, false],
+                    caps: false,
+                }),
+                true,
+            )
+            .unwrap();
+            assert_eq!(
+                input.injector.events,
+                [
+                    "key Shift true".to_string(),
+                    "key Ctrl true".to_string(),
+                    format!("key {native_key} true"),
+                    format!("key {native_key} false"),
+                    "key Ctrl false".to_string(),
+                    "key Shift false".to_string(),
+                ]
+            );
+        }
     }
     #[test]
     fn keyboard_releases_failed_keys_and_rejects_external_modifiers() {
