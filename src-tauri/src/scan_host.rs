@@ -373,7 +373,7 @@ mod platform {
             }])?;
             let ratio = self.panels[0].backingScaleFactor();
             let pixels = countdown.bitmap(ratio)?;
-            let image = crate::overlay::platform::image_from_rgba_rect(
+            let image = crate::overlay::platform::image_from_rgba(
                 pixels.data(),
                 pixels.width() as usize,
                 pixels.height() as usize,
@@ -395,7 +395,7 @@ mod platform {
             use objc2_foundation::NSString;
             let mtm = MainThreadMarker::new().ok_or("Action tile requires the main thread")?;
             let pixels = crate::scan_tile::bitmap(tile)?;
-            let image = crate::overlay::platform::image_from_rgba(
+            let image = crate::overlay::platform::image_from_rgba_rect(
                 pixels.data(),
                 pixels.width() as usize,
                 pixels.height() as usize,
