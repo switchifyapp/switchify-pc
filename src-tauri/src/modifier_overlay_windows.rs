@@ -546,6 +546,9 @@ fn present_pixmap_with_text(
                     &mut measured,
                     DT_CENTER | DT_WORDBREAK | DT_CALCRECT,
                 );
+                let vertical_padding = text_rect.top.min((layout.height - height).max(0) / 2);
+                text_rect.top = vertical_padding;
+                text_rect.bottom = layout.height - vertical_padding;
                 text_rect.top += ((text_rect.bottom - text_rect.top - height) / 2).max(0);
             }
             let _ = DrawTextW(
