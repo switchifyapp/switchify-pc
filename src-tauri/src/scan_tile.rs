@@ -13,6 +13,24 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
         .ok_or("Cannot allocate keyboard key")?;
         use crate::scanning::KeyboardRole;
         let style = tile.keyboard;
+        if style.is_some_and(|s| s.role == KeyboardRole::Background) {
+            let mut paint = Paint::default();
+            paint.set_color_rgba8(20, 24, 32, 255);
+            let path = key_outline(
+                bitmap.width() as f32,
+                bitmap.height() as f32,
+                0.0,
+                (18.0 * tile.scale) as f32,
+            );
+            bitmap.fill_path(
+                &path,
+                &paint,
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+            return Ok(bitmap);
+        }
         let base = match style.map(|s| s.role) {
             Some(KeyboardRole::Character) => [43, 51, 66],
             Some(KeyboardRole::Utility) => [34, 41, 54],

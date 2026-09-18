@@ -408,6 +408,12 @@ mod platform {
                 opacity: 255,
                 role: crate::scanning::VisualRole::Accent,
             }])?;
+            if tile
+                .keyboard
+                .is_some_and(|s| s.role == crate::scanning::KeyboardRole::Background)
+            {
+                self.panels[0].setBackgroundColor(Some(&NSColor::clearColor()));
+            }
             let bounds = NSRect::new(
                 NSPoint::new(0.0, 0.0),
                 NSSize::new(tile.rect.width, tile.rect.height),

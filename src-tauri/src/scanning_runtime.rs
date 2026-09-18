@@ -519,8 +519,16 @@ fn render_tiles(tiles: &[crate::scanning::FrameTile]) -> Result<(), String> {
         while slot.0.len() < tiles.len() {
             slot.0.push(Host::new()?);
         }
-        for (index, host) in slot.0.iter_mut().enumerate() {
+        let (hosts, previous) = &mut *slot;
+        for (index, host) in hosts.iter_mut().enumerate() {
             if let Some(tile) = tiles.get(index) {
+                if tile
+                    .keyboard
+                    .is_some_and(|s| s.role == crate::scanning::KeyboardRole::Background)
+                    && previous.get(index) == Some(tile)
+                {
+                    continue;
+                }
                 host.tile(tile)?;
             } else {
                 host.hide();

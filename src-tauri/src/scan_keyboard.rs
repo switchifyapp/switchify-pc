@@ -404,19 +404,36 @@ impl Keyboard {
         } else {
             screen.y + screen.height - height
         };
-        let row_height = height / (self.rows.len() as f64 + 0.9);
-        let scale = units.min(row_height / 60.0).min(width / 1040.0);
+        let outer_scale = units.min(height / 460.0).min(width / 1180.0);
+        let padding = 16.0 * outer_scale;
+        let content_width = (width - padding * 2.0).max(1.0);
+        let content_height = (height - padding * 2.0).max(1.0);
+        let row_height = content_height / (self.rows.len() as f64 + 0.9);
+        let scale = units.min(row_height / 60.0).min(content_width / 1040.0);
         let gap = (6.0 * scale).min(row_height / 8.0);
         let header_height = row_height * 0.9;
-        let mut frame = Frame {
-            backdrop: Some(Rect {
+        let mut frame = Frame::default();
+        frame.tiles.push(FrameTile {
+            color,
+            text: String::new(),
+            icon: Item::KeyboardKey,
+            keyboard: Some(KeyboardTileStyle {
+                role: KeyboardRole::Background,
+                active: false,
+                row_scan: false,
+            }),
+            rect: Rect {
                 x,
                 y,
                 width,
                 height,
-            }),
-            ..Frame::default()
-        };
+            },
+            scale: outer_scale,
+            selected: false,
+        });
+        let x = x + padding;
+        let y = y + padding;
+        let width = content_width;
         let row_scan = self.nav.path().is_empty();
         let active_row = self.nav.path().first().copied().unwrap_or(self.nav.index());
         for (r, row) in self.rows.iter().enumerate() {
@@ -491,6 +508,31 @@ impl Keyboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rounded_panel_has_clear_corners_and_insets_all_controls() {
+        let frame = Keyboard::new(false).frame(
+            Rect {
+                x: -1280.0,
+                y: 0.0,
+                width: 1280.0,
+                height: 720.0,
+            },
+            1.0,
+            ScannerColor::default(),
+        );
+        let panel = &frame.tiles[0];
+        assert_eq!(panel.keyboard.unwrap().role, KeyboardRole::Background);
+        for key in &frame.tiles[1..] {
+            assert!(key.rect.x > panel.rect.x);
+            assert!(key.rect.y > panel.rect.y);
+            assert!(key.rect.x + key.rect.width < panel.rect.x + panel.rect.width);
+            assert!(key.rect.y + key.rect.height < panel.rect.y + panel.rect.height);
+        }
+        let pixels = crate::scan_tile::bitmap(panel).unwrap();
+        assert_eq!(pixels.data()[3], 0);
+        let center = ((pixels.height() / 2 * pixels.width() + pixels.width() / 2) * 4 + 3) as usize;
+        assert_eq!(pixels.data()[center], 255);
+    }
     #[test]
     fn everyday_keys_are_unique_and_space_is_wide() {
         let k = Keyboard::new(false);

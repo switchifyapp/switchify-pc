@@ -149,7 +149,6 @@ pub struct PaintedRect {
 }
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Frame {
-    pub backdrop: Option<Rect>,
     pub color: ScannerColor,
     pub fills: Vec<Rect>,
     pub grid: Vec<Rect>,
@@ -161,14 +160,6 @@ pub struct Frame {
 impl Frame {
     pub fn rectangles(&self) -> Vec<PaintedRect> {
         let mut result = Vec::new();
-        if let Some(rect) = self.backdrop {
-            result.push(PaintedRect {
-                rect,
-                color: [20, 24, 32],
-                opacity: 255,
-                role: VisualRole::Accent,
-            });
-        }
         for rect in &self.fills {
             result.push(PaintedRect {
                 rect: *rect,
@@ -255,6 +246,7 @@ pub struct UpdateContext {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyboardRole {
+    Background,
     Character,
     Utility,
     Toolbar,
