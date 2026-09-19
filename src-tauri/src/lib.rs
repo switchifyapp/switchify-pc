@@ -20,6 +20,7 @@ mod point_scan;
 mod point_scan_activation;
 mod point_scan_runtime;
 mod point_workflow;
+mod prediction;
 mod protocol;
 mod remote_scan;
 mod scan_executor;
@@ -1361,6 +1362,9 @@ fn point_scan_prepare(app: &AppHandle) -> Result<(), String> {
 }
 
 pub fn run() {
+    if prediction::worker::run_from_args() {
+        return;
+    }
     #[cfg(target_os = "windows")]
     if switch_input::run_worker_from_args() {
         return;

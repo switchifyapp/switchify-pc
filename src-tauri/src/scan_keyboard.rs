@@ -39,6 +39,7 @@ impl Modifier {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
+    Prediction(usize),
     Character(char, char),
     Named(&'static str),
     Modifier(usize),
@@ -72,6 +73,7 @@ impl Stroke {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Output {
+    Prediction { token: u64, index: usize },
     Stroke(Stroke),
     Close,
 }
@@ -184,6 +186,11 @@ pub struct Keyboard {
     cycles: usize,
     forward: bool,
     pending: bool,
+    prediction_enabled: bool,
+    prediction_failed: bool,
+    predictions: Option<crate::prediction::worker::Batch>,
+    queued_predictions: Option<crate::prediction::worker::Batch>,
+    prefer_predictions: bool,
 }
 impl Keyboard {
     pub fn new(mac: bool) -> Self {
@@ -203,6 +210,83 @@ impl Keyboard {
             cycles: 0,
             forward: true,
             pending: false,
+            prediction_enabled: false,
+            prediction_failed: false,
+            predictions: None,
+            queued_predictions: None,
+            prefer_predictions: true,
+        }
+    }
+    pub fn enable_predictions(&mut self, enabled: bool) {
+        if self.prediction_enabled == enabled {
+            return;
+        }
+        self.prediction_enabled = enabled;
+        self.rebuild_rows();
+    }
+    fn rebuild_rows(&mut self) {
+        self.rows = rows(self.page, self.mac);
+        if self.prediction_enabled && self.page == Page::Letters {
+            self.rows.insert(0, (0..5).map(Key::Prediction).collect());
+        }
+        self.nav = Self::navigator(&self.rows);
+        self.skip_disabled();
+    }
+    fn prediction_row_active(&self) -> bool {
+        self.prediction_enabled
+            && self.page == Page::Letters
+            && self.nav.path().first().copied().unwrap_or(self.nav.index()) == 0
+    }
+    pub fn predictions(&mut self, batch: Option<crate::prediction::worker::Batch>, failed: bool) {
+        self.prediction_failed = failed;
+        if batch.is_none() {
+            self.predictions = None;
+            self.queued_predictions = None;
+            self.skip_disabled();
+            return;
+        }
+        if self.prediction_row_active() && self.predictions.is_some() {
+            if self.predictions.as_ref().map(|b| b.token) != batch.as_ref().map(|b| b.token) {
+                self.predictions = None;
+                self.queued_predictions = batch;
+                self.skip_disabled();
+            }
+        } else {
+            self.predictions = batch;
+            if self.prefer_predictions
+                && self
+                    .predictions
+                    .as_ref()
+                    .is_some_and(|b| !b.words.is_empty())
+            {
+                self.nav.reset();
+                self.interval.reset();
+                self.prefer_predictions = false;
+            }
+        }
+    }
+    fn disabled(&self) -> bool {
+        if !self.prediction_row_active() || self.nav.escaping() {
+            return false;
+        }
+        let count = self.predictions.as_ref().map_or(0, |b| b.words.len());
+        if self.nav.path().is_empty() {
+            count == 0
+        } else {
+            self.nav.index() >= count
+        }
+    }
+    fn skip_disabled(&mut self) {
+        for _ in 0..8 {
+            if !self.disabled() {
+                break;
+            }
+            self.nav.step(self.forward);
+        }
+        if !self.prediction_row_active() {
+            if let Some(batch) = self.queued_predictions.take() {
+                self.predictions = Some(batch);
+            }
         }
     }
     fn navigator(rows: &[Vec<Key>]) -> Navigator<Key> {
@@ -213,21 +297,23 @@ impl Keyboard {
         )
     }
     fn restart(&mut self) {
+        self.prefer_predictions = true;
         self.nav.reset();
         self.interval.reset();
         self.cycles = 0;
         self.forward = true;
         self.suspended = false;
+        self.skip_disabled();
     }
     pub fn advance(&mut self, ms: u64, period: u64) {
-        if !self.pending
-            && !self.suspended
-            && self.interval.elapsed(ms, period)
-            && self.nav.step(self.forward)
-        {
-            self.cycles += 1;
-            self.suspended = self.cycles >= MAX_SCAN_CYCLES;
+        if !self.pending && !self.suspended && self.interval.elapsed(ms, period) {
+            self.prefer_predictions = false;
+            if self.nav.step(self.forward) {
+                self.cycles += 1;
+                self.suspended = self.cycles >= MAX_SCAN_CYCLES;
+            }
         }
+        self.skip_disabled();
     }
     pub fn handle(&mut self, action: Action) -> Option<Output> {
         if self.pending {
@@ -240,6 +326,7 @@ impl Keyboard {
             }
             return None;
         }
+        self.prefer_predictions = false;
         match action {
             Action::Select => {
                 self.interval.reset();
@@ -263,20 +350,33 @@ impl Keyboard {
             }
             _ => {}
         }
+        self.skip_disabled();
         None
     }
     fn choose(&mut self, key: Key) -> Option<Output> {
         match key {
+            Key::Prediction(index) => {
+                let batch = self.predictions.as_ref()?;
+                if index >= batch.words.len() {
+                    return None;
+                }
+                self.pending = true;
+                return Some(Output::Prediction {
+                    token: batch.token,
+                    index,
+                });
+            }
             Key::Modifier(i) => self.modifiers[i] = self.modifiers[i].next(),
             Key::Caps => self.caps = !self.caps,
             Key::Dock => self.top = !self.top,
             Key::Page(page) => {
                 self.page = page;
-                self.rows = rows(page, self.mac);
-                self.nav = Self::navigator(&self.rows);
+                self.rebuild_rows();
             }
             Key::Close => return Some(Output::Close),
             Key::Character(..) | Key::Named(_) => {
+                self.predictions = None;
+                self.queued_predictions = None;
                 self.pending = true;
                 return Some(Output::Stroke(Stroke {
                     key,
@@ -309,6 +409,12 @@ impl Keyboard {
     }
     fn label(&self, key: Key) -> String {
         match key {
+            Key::Prediction(i) => self
+                .predictions
+                .as_ref()
+                .and_then(|b| b.words.get(i))
+                .cloned()
+                .unwrap_or_default(),
             Key::Character(' ', _) => "Space".into(),
             Key::Character(..) => Stroke {
                 key,
@@ -467,7 +573,9 @@ impl Keyboard {
             Page::Functions => "Navigation",
             Page::Numbers => "Numbers",
         };
-        let text = if self.error {
+        let text = if self.prediction_failed {
+            "Predictions unavailable · Keyboard ready".to_owned()
+        } else if self.error {
             "Input failed · Select to try again".to_owned()
         } else if self.suspended {
             "Keyboard paused · Select to resume".to_owned()
@@ -508,6 +616,62 @@ impl Keyboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn arriving_predictions_receive_a_full_scan_interval() {
+        let mut keyboard = Keyboard::new(false);
+        keyboard.enable_predictions(true);
+        keyboard.advance(490, 500);
+        assert_eq!(keyboard.nav.index(), 1);
+        let batch = crate::prediction::worker::Batch {
+            token: 1,
+            words: vec!["hello".into()],
+        };
+        keyboard.predictions(Some(batch.clone()), false);
+        assert_eq!(keyboard.nav.index(), 0);
+        keyboard.advance(10, 500);
+        assert_eq!(keyboard.nav.index(), 0);
+        keyboard.predictions(Some(batch), false);
+        keyboard.advance(489, 500);
+        assert_eq!(keyboard.nav.index(), 0);
+        keyboard.advance(1, 500);
+        assert_eq!(keyboard.nav.index(), 1);
+    }
+
+    #[test]
+    fn predictions_skip_empty_slots_and_defer_acceptance() {
+        let mut k = Keyboard::new(false);
+        k.enable_predictions(true);
+        assert_eq!(k.nav.index(), 1);
+        k.predictions(
+            Some(crate::prediction::worker::Batch {
+                token: 7,
+                words: vec!["water".into(), "walk".into()],
+            }),
+            false,
+        );
+        k.restart();
+        assert_eq!(k.nav.index(), 0);
+        assert_eq!(k.handle(Action::Select), None);
+        assert_eq!(
+            k.handle(Action::Select),
+            Some(Output::Prediction { token: 7, index: 0 })
+        );
+        assert!(k.handle(Action::Select).is_none());
+        k.succeeded();
+        assert!(k.nav.path().is_empty());
+        k.handle(Action::Select);
+        k.handle(Action::Next);
+        k.handle(Action::Next);
+        assert!(k.nav.escaping());
+        k.predictions(None, false);
+        assert!(k.choose(Key::Prediction(0)).is_none());
+        k.choose(Key::Page(Page::Numbers));
+        assert!(!k
+            .rows
+            .iter()
+            .flatten()
+            .any(|k| matches!(k, Key::Prediction(_))));
+    }
     #[test]
     fn rounded_panel_has_clear_corners_and_insets_all_controls() {
         let frame = Keyboard::new(false).frame(

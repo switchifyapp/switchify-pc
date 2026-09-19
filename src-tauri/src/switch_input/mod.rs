@@ -16,6 +16,21 @@ mod windows_worker;
 mod windows_worker_protocol;
 use anyhow::{bail, Result};
 pub use keys::normalize as normalize_key;
+pub fn prediction_key_code(name: &str) -> Option<u32> {
+    #[cfg(target_os = "windows")]
+    {
+        windows::code_for_name(name)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos::code_for_name(name).map(u32::from)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = name;
+        None
+    }
+}
 #[cfg(target_os = "windows")]
 pub fn run_worker_from_args() -> bool {
     windows_worker::run_from_args()

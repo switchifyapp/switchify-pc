@@ -34,6 +34,7 @@
     }
   },
   "bundle": {
+    "resources": ["resources/WordData2017051601.db"],
     "active": true,
     "targets": "all",
     "icon": [

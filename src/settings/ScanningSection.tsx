@@ -120,6 +120,7 @@ export function ScanningSection({
       </SettingGroup>
 
       <SettingGroup title="Auto selection" description="Automatically left-click the chosen point after a delay. Press a switch again during the delay to open the action menu.">
+        <Toggle label="Word prediction" checked={config.wordPrediction} disabled={disabled} onChange={(value) => update("wordPrediction", value)} />
         <Toggle label="Auto select" checked={config.autoSelectEnabled} disabled={disabled} onChange={(value) => update("autoSelectEnabled", value)} />
         {config.autoSelectEnabled && <label className="exact-speed">
           <span>Auto select delay (seconds)</span>

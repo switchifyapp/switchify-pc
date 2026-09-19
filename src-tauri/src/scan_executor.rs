@@ -15,6 +15,7 @@ pub fn execute<I: InputInjector>(
         );
     }
     match request {
+        Request::Prediction { .. } => Err("Prediction requires the scan controller.".into()),
         Request::OpenKeyboard { point } => {
             if input.has_active_drag() {
                 return Err("End the active drag before typing.".into());
@@ -108,6 +109,20 @@ pub fn activate(request: Request) -> Result<(), String> {
             let _ = input.release_all();
         }
         result
+    })
+}
+pub fn prediction_text(text: &str) -> Result<(), String> {
+    if text.chars().count() > 64 || !crate::scan_host::modifiers_released() {
+        return Err("Prediction input is unavailable.".into());
+    }
+    INPUT.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let input = slot.as_mut().ok_or("Prediction input is unavailable.")?;
+        if input.has_active_drag() || input.has_active_switch_session() {
+            return Err("Prediction input is unavailable.".into());
+        }
+        input.release_all()?;
+        input.type_text(text)
     })
 }
 pub fn cleanup() -> Result<(), String> {

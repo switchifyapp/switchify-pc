@@ -8,6 +8,10 @@ use serde::Serialize;
 pub type Point = (i32, i32);
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Request {
+    Prediction {
+        token: u64,
+        index: usize,
+    },
     OpenKeyboard {
         point: Option<Point>,
     },
@@ -124,6 +128,18 @@ impl Workflow {
             self.stage = Stage::Point;
             self.point.start();
         }
+    }
+    pub fn prediction_keyboard(&mut self) -> Option<&mut crate::scan_keyboard::Keyboard> {
+        if self.stage == Stage::Keyboard {
+            self.keyboard
+                .enable_predictions(self.point.config.word_prediction);
+            Some(&mut self.keyboard)
+        } else {
+            None
+        }
+    }
+    pub fn prediction_enabled(&self) -> bool {
+        self.point.config.word_prediction
     }
     pub fn set_keyboard_area(&mut self, area: Rect) {
         self.keyboard_area = area;
@@ -287,6 +303,9 @@ impl Technique for Workflow {
             Stage::Keyboard => match self.keyboard.handle(action) {
                 Some(crate::scan_keyboard::Output::Stroke(stroke)) => {
                     return Some(Request::Keyboard(stroke))
+                }
+                Some(crate::scan_keyboard::Output::Prediction { token, index }) => {
+                    return Some(Request::Prediction { token, index })
                 }
                 Some(crate::scan_keyboard::Output::Close) => self.start(),
                 None => {}

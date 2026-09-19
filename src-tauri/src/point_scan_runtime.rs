@@ -82,6 +82,14 @@ impl Adapter for PointScan {
     fn activate(app: &AppHandle, request: Request) -> Result<Option<Environment>, String> {
         crate::point_scan_ready(app)?;
         match request {
+            Request::Prediction { token, index } => {
+                return crate::prediction::select(token, index).map(|()| None)
+            }
+            Request::Keyboard(stroke) => {
+                let result = crate::scan_executor::activate(request);
+                crate::prediction::record(stroke, result.is_ok());
+                return result.map(|()| None);
+            }
             Request::OpenKeyboard { point: Some(point) } => {
                 let target = crate::scan_host::target_at(point)?;
                 crate::scan_executor::activate(request)?;
@@ -117,7 +125,18 @@ impl Adapter for PointScan {
         }
         Ok(true)
     }
+    fn preserve_visuals(request: &Request) -> bool {
+        matches!(request, Request::Keyboard(_) | Request::Prediction { .. })
+    }
+    fn deferred(request: &Request) -> bool {
+        matches!(request, Request::Prediction { .. })
+    }
+    fn poll(app: &AppHandle, technique: &mut Workflow, captured_keys: &[String]) {
+        let enabled = technique.prediction_enabled();
+        crate::prediction::poll(app, technique.prediction_keyboard(), enabled, captured_keys);
+    }
     fn cleanup(_app: &AppHandle) -> Result<(), String> {
+        crate::prediction::stop();
         crate::scan_executor::cleanup()
     }
 }
@@ -185,6 +204,28 @@ fn validate_display(app: &AppHandle, display: Option<&Environment>) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typing_preserves_visuals_but_pointer_execution_hides_them() {
+        assert!(PointScan::preserve_visuals(&Request::Keyboard(
+            crate::scan_keyboard::Stroke {
+                key: crate::scan_keyboard::Key::Character('a', 'A'),
+                modifiers: [false; 4],
+                caps: false,
+            }
+        )));
+        assert!(PointScan::preserve_visuals(&Request::Prediction {
+            token: 1,
+            index: 0
+        }));
+        assert!(!PointScan::preserve_visuals(
+            &crate::point_workflow::default_click((10, 20))
+        ));
+        assert!(!PointScan::preserve_visuals(&Request::OpenKeyboard {
+            point: Some((10, 20))
+        }));
+        assert!(!PointScan::preserve_visuals(&Request::DragStart((10, 20))));
+    }
 
     #[test]
     fn focus_handoff_waits_and_only_accepts_the_clicked_target() {
