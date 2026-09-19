@@ -325,6 +325,9 @@ pub(super) fn watch_parent() {
     #[cfg(target_os = "macos")]
     {
         let parent = unsafe { libc::getppid() };
+        if parent <= 1 {
+            std::process::exit(0);
+        }
         std::thread::spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_millis(250));
             if unsafe { libc::getppid() } != parent {
@@ -380,6 +383,39 @@ pub fn run_from_args() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn orphaned_worker_exits_at_startup() {
+        const FLAG: &str = "SWITCHIFY_PREDICTION_ORPHAN_TEST";
+        if std::env::var_os(FLAG).is_some() {
+            for _ in 0..100 {
+                if unsafe { libc::getppid() } <= 1 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert_eq!(unsafe { libc::getppid() }, 1);
+            println!("orphan-started");
+            std::io::stdout().flush().unwrap();
+            watch_parent();
+            println!("orphan-survived");
+            return;
+        }
+        let output = std::process::Command::new("/bin/sh")
+            .args([
+                "-c",
+                "\"$1\" --exact prediction::worker::tests::orphaned_worker_exits_at_startup --nocapture &",
+                "orphan-probe",
+            ])
+            .arg(std::env::current_exe().unwrap())
+            .env(FLAG, "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(output.status.success());
+        assert!(stdout.contains("orphan-started"), "{stdout}");
+        assert!(!stdout.contains("orphan-survived"), "{stdout}");
+    }
     struct Fake {
         raw: RawContext,
         target: usize,

@@ -4,7 +4,7 @@
 
 Keep both providers experimental. Mac is the stronger candidate for a later production trial: this VM produced relevant UK-English completions and next words with modest process overhead. Windows also returned usable results after the locale retry/filtering path, but needs broader language-pack and quality coverage. Neither is qualified for the shipping default: switch-driven insertion and suggestion-row timing have not been validated interactively in this run, and the six-sentence corpus is too small to establish quality or reliability.
 
-The implementation is stacked on PR #796, `codex/word-prediction-795`, at `e5ee2a598b062640d311ae8e6c45de2729127b7d`. The VM binaries and raw results below were built from implementation commit `90bde1d507d08d783e07b2ea966bff06c01e0db7`. No schema, BLE, settings UI, or provider selector changes are included. Native-first is the default only in this experimental branch when the existing word-prediction setting is enabled.
+The implementation is stacked on PR #796, `codex/word-prediction-795`, at `e5ee2a598b062640d311ae8e6c45de2729127b7d`. The VM binaries and raw results below were built from implementation commit `90bde1d507d08d783e07b2ea966bff06c01e0db7`. A later cleanup guard and subprocess test handle a Mac helper orphaned before its watcher starts; the measurements predate that guard. No schema, BLE, settings UI, or provider selector changes are included. Native-first is the default only in this experimental branch when the existing word-prediction setting is enabled.
 
 ## Measurements
 
@@ -61,7 +61,7 @@ The debug application resolves its prediction database from the build-time sourc
 
 ## Implementation and automated validation
 
-`Provider` separates native generation from the existing database and shared context/insertion engine. Native work runs in a disposable helper process with a 600 ms budget inside the existing two-second prediction-worker deadline. Windows contains children in a Job; Mac helpers watch the parent. Cancellation still terminates the outer worker and invalidates pending batches. Native failure, timeout and empty filtered lists use the database. Unsafe/protected, selected, stale-focus and invalid contexts remain rejected by the shared engine before any provider request; the target and input generation are checked again after generation.
+`Provider` separates native generation from the existing database and shared context/insertion engine. Native work runs in a disposable helper process with a 600 ms budget inside the existing two-second prediction-worker deadline. Windows contains children in a Job; Mac helpers watch the parent and exit immediately if already orphaned at startup. A subprocess regression test verifies this startup race without desktop input. Cancellation still terminates the outer worker and invalidates pending batches. Native failure, timeout and empty filtered lists use the database. Unsafe/protected, selected, stale-focus and invalid contexts remain rejected by the shared engine before any provider request; the target and input generation are checked again after generation.
 
 Mac supplies the surrounding text and UTF-16 prefix range to NSSpellChecker, selecting an available `en_GB` dictionary or `en`. A zero-length range at a boundary returned next words in this VM. Apple's API documentation describes partial-word completion, so the observed zero-length behaviour should be requalified across supported macOS versions. [Apple completion API](https://developer.apple.com/documentation/appkit/nsspellchecker/completions(forpartialwordrange:in:language:inspelldocumentwithtag:))
 
@@ -71,7 +71,7 @@ Filtering preserves rank, removes duplicate/empty/multiline/incompatible words, 
 
 Fake-provider/input tests cover rank, filtering, native-first behaviour, database failure/fallback, locale retry, invalid context, identical-result caching, exactly-once suffix-and-space insertion, and killing a hanging helper before the overall worker deadline. Existing prerequisite tests cover shared context validation, cancellation, focus/input-generation changes, worker timeout, protected text, and scanning behaviour. These tests are not a substitute for native interactive qualification.
 
-Required local frontend lint/tests/build and Mac Rust format/Clippy/tests passed (449 unit tests, seven integration tests; one manual benchmark ignored). Windows ARM64 Clippy and Rust tests passed; the native overlay smoke test was excluded from the headless SYSTEM-session test runner. The Windows Tauri debug build and Mac development-signed app build succeeded. The signed local Mac app was not stopped or replaced.
+Required local frontend lint/tests/build and Mac Rust format/Clippy/tests passed (450 unit tests, seven integration tests; one manual benchmark ignored). Windows ARM64 Clippy and Rust tests passed; the native overlay smoke test was excluded from the headless SYSTEM-session test runner. The Windows Tauri debug build and Mac development-signed app build succeeded. The signed local Mac app was not stopped or replaced.
 
 ## Interactive qualification gap and restoration
 
