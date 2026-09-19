@@ -1,8 +1,13 @@
 //! A content-free input epoch. Never suppresses or records external input.
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 static EPOCH: AtomicU64 = AtomicU64::new(0);
-pub fn epoch() -> u64 {
-    EPOCH.load(Ordering::SeqCst)
+static HEALTHY: AtomicBool = AtomicBool::new(false);
+pub fn snapshot() -> (u64, bool) {
+    (EPOCH.load(Ordering::SeqCst), HEALTHY.load(Ordering::SeqCst))
+}
+fn unavailable() {
+    HEALTHY.store(false, Ordering::SeqCst);
+    changed();
 }
 fn changed() {
     EPOCH.fetch_add(1, Ordering::SeqCst);
@@ -54,6 +59,7 @@ pub fn start(ignored: Vec<u32>) -> bool {
             0,
         );
         let ok = !k.is_null() && !m.is_null();
+        HEALTHY.store(ok, Ordering::SeqCst);
         let _ = tx.send(ok);
         if ok {
             let mut message = std::mem::zeroed();
@@ -68,7 +74,7 @@ pub fn start(ignored: Vec<u32>) -> bool {
         if !m.is_null() {
             UnhookWindowsHookEx(m);
         }
-        changed();
+        unavailable();
     });
     rx.recv_timeout(std::time::Duration::from_millis(500))
         .unwrap_or(false)
@@ -94,8 +100,15 @@ pub fn start(ignored: Vec<u32>) -> bool {
                 CGEventType::ScrollWheel,
             ],
             move |_, kind, event| {
+                if matches!(
+                    kind,
+                    CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput
+                ) {
+                    unavailable();
+                    return CallbackResult::Keep;
+                }
                 if !crate::input::own_input(event.get_integer_value_field(42))
-                    && (kind != CGEventType::KeyDown
+                    && (!matches!(kind, CGEventType::KeyDown)
                         || !ignored.contains(&(event.get_integer_value_field(9) as u32)))
                 {
                     changed();
@@ -103,12 +116,13 @@ pub fn start(ignored: Vec<u32>) -> bool {
                 CallbackResult::Keep
             },
             || {
+                HEALTHY.store(true, Ordering::SeqCst);
                 let _ = ready.send(true);
                 core_foundation::runloop::CFRunLoop::run_current();
             },
         );
         let _ = tx.send(false);
-        changed();
+        unavailable();
     });
     rx.recv_timeout(std::time::Duration::from_millis(500))
         .unwrap_or(false)

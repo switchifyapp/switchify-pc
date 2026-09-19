@@ -128,15 +128,9 @@ impl Adapter for PointScan {
     fn deferred(request: &Request) -> bool {
         matches!(request, Request::Prediction { .. })
     }
-    fn poll(app: &AppHandle, technique: &mut Workflow, config: &Config) {
+    fn poll(app: &AppHandle, technique: &mut Workflow, captured_keys: &[String]) {
         let enabled = technique.prediction_enabled();
-        let ignored = vec![
-            config.select_key.clone(),
-            config.next_key.clone(),
-            config.back_key.clone(),
-            config.pause_key.clone(),
-        ];
-        crate::prediction::poll(app, technique.prediction_keyboard(), enabled, &ignored);
+        crate::prediction::poll(app, technique.prediction_keyboard(), enabled, captured_keys);
     }
     fn cleanup(_app: &AppHandle) -> Result<(), String> {
         crate::prediction::stop();

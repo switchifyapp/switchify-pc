@@ -13,7 +13,7 @@ pub trait Adapter: Send + Sync + 'static {
     fn deferred(_request: &<Self::Technique as Technique>::Selection) -> bool {
         false
     }
-    fn poll(_app: &AppHandle, _technique: &mut Self::Technique, _config: &Self::Config) {}
+    fn poll(_app: &AppHandle, _technique: &mut Self::Technique, _captured_keys: &[String]) {}
     fn cleanup(app: &AppHandle) -> Result<(), String>;
     fn validate(config: &Self::Config) -> Result<(), String>;
     fn switches(config: &Self::Config) -> SwitchSettings;
@@ -354,6 +354,13 @@ fn ensure<A: Adapter>(app: &AppHandle) {
             }
         }
     }
+}
+fn prediction_captured_keys(remote: bool, settings: &Settings) -> Vec<String> {
+    let mut keys = vec!["Escape".to_owned()];
+    if !remote {
+        keys.extend(settings.bindings.iter().map(|b| b.key.clone()));
+    }
+    keys
 }
 fn source_is_current(remote: bool, remote_current: bool, local_current: bool) -> bool {
     if remote {
@@ -769,9 +776,9 @@ fn tick<A: Adapter>(app: &AppHandle) {
         let held = d.pressed.held();
         let prompt = d.pressed.prompt(now_ms);
         let mut request = None;
-        let prediction_config = d.config.clone();
+        let captured_keys = prediction_captured_keys(d.remote, &d.switches);
         let phase_changed = if let Some(engine) = d.engine.as_mut() {
-            A::poll(app, &mut engine.technique, &prediction_config);
+            A::poll(app, &mut engine.technique, &captured_keys);
             let before = engine.technique.phase();
             engine.tick(elapsed, held);
             request = engine.take_selection();
@@ -978,6 +985,22 @@ mod ownership_tests {
         assert_eq!(countdown, (Some(false), None));
     }
 
+    #[test]
+    fn prediction_ignores_only_keys_captured_by_the_current_source() {
+        use super::{prediction_captured_keys, Action, Settings};
+        let settings = Settings {
+            bindings: vec![crate::switches::Binding {
+                id: "custom".into(),
+                name: "Select".into(),
+                key: "F9".into(),
+                press_action: Action::Select,
+                hold_actions: vec![],
+            }],
+            ..Settings::default()
+        };
+        assert_eq!(prediction_captured_keys(false, &settings), ["Escape", "F9"]);
+        assert_eq!(prediction_captured_keys(true, &settings), ["Escape"]);
+    }
     #[test]
     fn stopped_remote_input_cannot_fall_back_to_a_matching_local_generation() {
         assert!(!super::source_is_current(true, false, true));

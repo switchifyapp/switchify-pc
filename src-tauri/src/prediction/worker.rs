@@ -75,6 +75,7 @@ pub struct Engine<A: Adapter> {
     boundary: bool,
     tracked: bool,
     activity: u64,
+    observe: fn() -> (u64, bool),
     batch: Option<Batch>,
     suffixes: Vec<String>,
     token: u64,
@@ -90,7 +91,8 @@ impl<A: Adapter> Engine<A> {
             snapshot: None,
             fallback: String::new(),
             boundary: false,
-            activity: activity::epoch(),
+            activity: activity::snapshot().0,
+            observe: activity::snapshot,
             batch: None,
             suffixes: Vec::new(),
             token: 0,
@@ -114,7 +116,7 @@ impl<A: Adapter> Engine<A> {
     fn stable(&mut self, target: &A::Target, epoch: u64) -> bool {
         self.target()
             .is_ok_and(|current| self.adapter.same(target, &current).unwrap_or(false))
-            && activity::epoch() == epoch
+            && (self.observe)().0 == epoch
     }
     fn query(
         &mut self,
@@ -131,17 +133,17 @@ impl<A: Adapter> Engine<A> {
                 return None;
             }
         };
-        let epoch = activity::epoch();
+        let (epoch, healthy) = (self.observe)();
         let same = self
             .target
             .as_ref()
             .is_some_and(|old| self.adapter.same(old, &target).unwrap_or(false));
         let uninterrupted = epoch == self.activity;
-        if !same || !uninterrupted || reset {
+        if !same || !uninterrupted || reset || !healthy {
             self.clear();
         }
         self.activity = epoch;
-        if same && uninterrupted && !reset && self.tracked {
+        if same && uninterrupted && !reset && self.tracked && healthy {
             if let Some(text) = edit {
                 if text.chars().count() > 512 {
                     self.clear();
@@ -169,7 +171,7 @@ impl<A: Adapter> Engine<A> {
         let raw = match self.adapter.read(&target) {
             Ok(raw) if context::eligible(&raw) => raw,
             Err(Status::Unsupported)
-                if self.tracked && self.boundary && self.adapter.editable(&target) =>
+                if self.tracked && healthy && self.boundary && self.adapter.editable(&target) =>
             {
                 RawContext {
                     before: self.fallback.clone(),
@@ -248,7 +250,7 @@ impl<A: Adapter> Engine<A> {
             .target
             .as_ref()
             .is_some_and(|old| self.adapter.same(old, &target).unwrap_or(false))
-            || self.activity != activity::epoch()
+            || self.activity != (self.observe)().0
         {
             self.clear();
             return None;
@@ -256,6 +258,7 @@ impl<A: Adapter> Engine<A> {
         let expected = self.snapshot.as_ref()?;
         let valid = if expected.position == -1 {
             self.tracked
+                && (self.observe)().1
                 && self.boundary
                 && self.adapter.editable(&target)
                 && matches!(self.adapter.read(&target), Err(Status::Unsupported))
@@ -294,6 +297,7 @@ impl<A: Adapter> Engine<A> {
                 }
                 let tracking = stable
                     && self.tracked
+                    && (self.observe)().1
                     && current.is_ok_and(|target| self.adapter.editable(&target));
                 Response::Suggestions {
                     generation,
@@ -323,7 +327,7 @@ pub fn run_from_args() -> bool {
         }
         let path = PathBuf::from(&args[2]);
         let ignored: Vec<u32> = serde_json::from_str(&args[3].to_string_lossy()).map_err(|_| ())?;
-        if ignored.len() > 16 {
+        if ignored.len() > 129 {
             return Err(());
         }
         #[cfg(target_os = "macos")]
@@ -413,7 +417,10 @@ mod tests {
         }
     }
     fn engine() -> Engine<Fake> {
-        Engine::new(Fake::new(), Database::fixture(), true)
+        let mut e = Engine::new(Fake::new(), Database::fixture(), true);
+        e.observe = || (0, true);
+        e.activity = 0;
+        e
     }
     #[test]
     fn only_suffix_and_space_are_returned_once() {
@@ -465,10 +472,35 @@ mod tests {
         e.adapter.unsupported = true;
         assert!(e.query(None, false, false, false).is_none());
         e.query(Some(" wa".into()), false, false, false).unwrap();
-        e.activity = activity::epoch().wrapping_sub(1);
+        e.activity = 0u64.wrapping_sub(1);
         assert!(e.query(Some(" wa".into()), false, false, false).is_none());
         assert!(e.fallback.is_empty());
         assert!(!e.boundary);
+    }
+    #[test]
+    fn lost_observer_disables_fallback_query_and_acceptance() {
+        let mut e = engine();
+        e.adapter.unsupported = true;
+        e.query(None, false, false, false);
+        let batch = e.query(Some(" wa".into()), false, false, false).unwrap();
+        e.observe = || (0, false);
+        assert!(e.accept(batch.token, 0).is_none());
+        assert!(e.query(Some(" wa".into()), false, false, false).is_none());
+        assert!(!e.boundary);
+        assert!(matches!(
+            e.respond(Request::Query {
+                generation: 1,
+                edit: None,
+                reset: false,
+                shift: false,
+                caps: false,
+            }),
+            Response::Suggestions {
+                tracking: false,
+                batch: None,
+                ..
+            }
+        ));
     }
     #[test]
     fn casing_and_unchanged_snapshots_keep_choice_identity() {

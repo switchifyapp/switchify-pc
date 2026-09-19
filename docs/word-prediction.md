@@ -26,6 +26,14 @@ Native integration checks remain pending on Windows and macOS. The older standal
 
 For each app tested, collect at least 100 successful reads and report median, p95, maximum and failures. Target warm context-plus-query p95 below 50 ms; report startup and the 250-ms polling interval separately. Unsupported and untested apps must remain identified as such.
 
+Prepare a disposable field containing `I would like some wa`, with the caret after `wa`. From the repository root run the command below, then focus that field during its five-second countdown. It samples every 250 ms, stops after 100 supported warm samples (or 200 attempts), and prints only counts, fixture comparisons and timings. It sends read-only queries; it cannot accept a word or inject input. The first request includes worker/database startup and is excluded from warm percentiles.
+
+```powershell
+node scripts/measure-word-prediction.mjs src-tauri/target/debug/switchify-pc.exe Notepad water
+```
+
+For macOS, pass the signed app's `Contents/MacOS/switchify-pc` executable after building with `npm run macos:run`. Use a fresh run for each app. Keep all focused fields synthetic throughout measurement. Repeat functional checks with an empty field, `Hello. wa`, multiline text, `café naïve wa`, a pasted sentence, deletion, a caret inside a word, a nonempty selection, selection replacement, and switching between two fields. Verify that protected fields produce no suggestions and that closing the keyboard removes the worker. Do not count empty/unsupported responses as successful latency samples.
+
 Measured locally on Windows in a debug build (200 synthetic database queries): median 2.59 ms, p95 10.78 ms, maximum 14.35 ms, zero query failures. Database startup took 251.13 ms. These numbers exclude accessibility and IPC and are not app compatibility results.
 
 | App | Integration status |
