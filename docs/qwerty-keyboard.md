@@ -8,9 +8,9 @@ Scan a row, select it, then scan and select a key. The escape slot returns to ro
 
 Pages:
 
-- **Letters:** UK QWERTY, numbers and punctuation, including £ and the UK shifted symbols.
+- **Letters:** UK QWERTY and punctuation, with Backspace beside the top letter row.
 - **Functions:** Esc, F1–F12, arrows, Home, End, Page Up, Page Down and Delete. Windows also has Insert, Print Screen, Scroll Lock and Pause.
-- **Numbers:** digits, decimal point, arithmetic operators, Enter and Backspace. Digits are independent of hardware Num Lock.
+- **Numbers:** digits, decimal point, arithmetic operators, UK number-row symbols (including £), Enter and Backspace. Digits are independent of hardware Num Lock.
 
 The bottom control row starts with Close keyboard, followed by Letters, Navigation, Numbers and docking. Space has a dedicated wide key. Editing and modifier keys are wider than ordinary characters; duplicate Shift and Caps controls are removed from the letters page. A header names the current page and scan target. The return-to-rows slot highlights only the header. Active modifiers and the current page have an indicator separate from the scan highlight. Modifiers are available on every page. Shift, Ctrl, Alt/Option and Windows/Command cycle through **off → once → locked → off**. The label shows once or locked. Caps is a keyboard-local uppercase setting; Shift reverses its letter case. Page and position controls do not consume a one-shot modifier.
 

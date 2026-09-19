@@ -87,16 +87,15 @@ pub fn rows(page: Page, mac: bool) -> Vec<Vec<Key>> {
     };
     let mut result = match page {
         Page::Letters => {
-            let mut number = chars("`1234567890-=", "¬!\"£$%^&*()_+");
-            number.push(N("Backspace"));
             let mut top = vec![N("Tab")];
             top.extend(chars("qwertyuiop[]", "QWERTYUIOP{}"));
+            top.push(N("Backspace"));
             let mut middle = vec![Key::Caps];
             middle.extend(chars("asdfghjkl;'#", "ASDFGHJKL:@~"));
             middle.push(N("Enter"));
             let mut bottom = vec![Key::Modifier(0)];
             bottom.extend(chars("\\zxcvbnm,./", "|ZXCVBNM<>?"));
-            vec![number, top, middle, bottom]
+            vec![top, middle, bottom]
         }
         Page::Functions => {
             let mut result = vec![
@@ -141,6 +140,7 @@ pub fn rows(page: Page, mac: bool) -> Vec<Vec<Key>> {
                 N("Enter"),
                 N("Backspace"),
             ],
+            chars("`¬!\"£$%^&()_=", "`¬!\"£$%^&()_="),
         ],
     };
     result.push(if page == Page::Letters {
@@ -600,7 +600,19 @@ mod tests {
         for c in 'a'..='z' {
             assert!(letters.contains(&Key::Character(c, c.to_ascii_uppercase())));
         }
-        assert!(letters.contains(&Key::Character('3', '£')));
+        assert!(!letters
+            .iter()
+            .any(|key| matches!(key, Key::Character(c, _) if c.is_ascii_digit())));
+        assert!(rows(Page::Letters, false)[0].contains(&Key::Named("Backspace")));
+        let numbers = rows(Page::Numbers, false).concat();
+        for symbol in "`1234567890-=¬!\"£$%^&*()_+".chars() {
+            assert!(
+                numbers
+                    .iter()
+                    .any(|key| matches!(key, Key::Character(a, b) if *a == symbol || *b == symbol)),
+                "Missing {symbol}"
+            );
+        }
         assert!(rows(Page::Functions, false)
             .concat()
             .contains(&Key::Named("Insert")));
