@@ -5,6 +5,91 @@ use tiny_skia::{
 };
 
 pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
+    if tile.icon == Item::KeyboardKey {
+        let mut bitmap = Pixmap::new(
+            tile.rect.width.round().max(1.0) as u32,
+            tile.rect.height.round().max(1.0) as u32,
+        )
+        .ok_or("Cannot allocate keyboard key")?;
+        use crate::scanning::KeyboardRole;
+        let style = tile.keyboard;
+        if style.is_some_and(|s| s.role == KeyboardRole::Background) {
+            let mut paint = Paint::default();
+            paint.set_color_rgba8(20, 24, 32, 255);
+            let path = key_outline(
+                bitmap.width() as f32,
+                bitmap.height() as f32,
+                0.0,
+                (18.0 * tile.scale) as f32,
+            );
+            bitmap.fill_path(
+                &path,
+                &paint,
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+            return Ok(bitmap);
+        }
+        let base = match style.map(|s| s.role) {
+            Some(KeyboardRole::Character) => [43, 51, 66],
+            Some(KeyboardRole::Utility) => [34, 41, 54],
+            _ => [25, 30, 40],
+        };
+        bitmap.fill(Color::from_rgba8(20, 24, 32, 255));
+        let rgb = if tile.selected {
+            tile.color.menu_fill()
+        } else {
+            base
+        };
+        let inset = (2.0 * tile.scale) as f32;
+        let radius = (8.0 * tile.scale) as f32;
+        let width = bitmap.width() as f32;
+        let height = bitmap.height() as f32;
+        let path = key_outline(width, height, inset.min(width.min(height) / 4.0), radius);
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(rgb[0], rgb[1], rgb[2], 255);
+        bitmap.fill_path(
+            &path,
+            &paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+        let [r, g, b] = if tile.selected {
+            tile.color.rgb()
+        } else {
+            [62, 72, 89]
+        };
+        paint.set_color_rgba8(r, g, b, 255);
+        bitmap.stroke_path(
+            &path,
+            &paint,
+            &Stroke {
+                width: if tile.selected && !style.is_some_and(|s| s.row_scan) {
+                    3.0
+                } else {
+                    1.0
+                } * tile.scale as f32,
+                ..Default::default()
+            },
+            Transform::identity(),
+            None,
+        );
+        if style.is_some_and(|s| s.active) {
+            let [r, g, b] = tile.color.rgb();
+            paint.set_color_rgba8(r, g, b, 255);
+            if let Some(rect) = tiny_skia::Rect::from_xywh(
+                width * 0.35,
+                height - 5.0 * tile.scale as f32,
+                width * 0.3,
+                (2.0 * tile.scale) as f32,
+            ) {
+                bitmap.fill_rect(rect, &paint, Transform::identity(), None);
+            }
+        }
+        return Ok(bitmap);
+    }
     let size = tile.rect.width.round().max(1.0) as u32;
     let mut pixmap = Pixmap::new(size, size).ok_or("Cannot allocate action tile")?;
     pixmap.fill(if tile.selected {
@@ -81,12 +166,14 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
             lines(&[(62., 46.), (106., 90.)]);
             lines(&[(106., 46.), (62., 90.)]);
         }
-        More | Group(_) | Command(_) | Setting(_) | Display(_) | Pause | Reverse => {
+        TypeHere | Keyboard | More | Group(_) | Command(_) | Setting(_) | Display(_) | Pause
+        | Reverse => {
             artwork(&mut path, tile.icon);
         }
         DragHere => {
             lines(&[(55., 69.), (75., 89.), (113., 47.)]);
         }
+        KeyboardKey => unreachable!("Keyboard keys are rendered without artwork"),
     }
     if matches!(tile.icon, LeftClick | RightClick | DoubleClick) {
         path.move_to(62., 64.);
@@ -144,6 +231,30 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
         }
     }
     Ok(pixmap)
+}
+
+pub fn keyboard_font_size(tile: &FrameTile) -> f64 {
+    match tile.keyboard.map(|s| s.role) {
+        Some(crate::scanning::KeyboardRole::Character) if tile.text.chars().count() == 1 => 24.0,
+        Some(crate::scanning::KeyboardRole::Status) => 17.0,
+        _ => 16.0,
+    }
+}
+fn key_outline(width: f32, height: f32, inset: f32, radius: f32) -> tiny_skia::Path {
+    let (left, top, right, bottom) = (inset, inset, width - inset, height - inset);
+    let r = radius.min((right - left) / 2.0).min((bottom - top) / 2.0);
+    let mut p = PathBuilder::new();
+    p.move_to(left + r, top);
+    p.line_to(right - r, top);
+    p.quad_to(right, top, right, top + r);
+    p.line_to(right, bottom - r);
+    p.quad_to(right, bottom, right - r, bottom);
+    p.line_to(left + r, bottom);
+    p.quad_to(left, bottom, left, bottom - r);
+    p.line_to(left, top + r);
+    p.quad_to(left, top, left + r, top);
+    p.close();
+    p.finish().unwrap()
 }
 
 fn line(path: &mut PathBuilder, points: &[(f32, f32)]) {
@@ -232,6 +343,19 @@ fn return_arrow(path: &mut PathBuilder, forward: bool) {
 fn artwork(path: &mut PathBuilder, item: Item) {
     use crate::scan_menu::{Command as C, Kind as K, Setting as S};
     match item {
+        Item::TypeHere | Item::Keyboard => {
+            rect(path, 46., 44., 76., 48.);
+            for y in [55., 67.] {
+                for x in [58., 74., 90., 106.] {
+                    rect(path, x, y, 4., 4.);
+                }
+            }
+            line(path, &[(66., 81.), (102., 81.)]);
+            if item == Item::TypeHere {
+                line(path, &[(84., 100.), (84., 114.)]);
+                line(path, &[(77., 107.), (91., 107.)]);
+            }
+        }
         Item::More => {
             for x in [60., 84., 108.] {
                 path.push_circle(x, 68., 5.);
@@ -579,6 +703,7 @@ mod tests {
         use crate::scanning::{Rect, ScannerColor::*};
         for color in [Red, Green, Blue, Yellow, White] {
             let mut tile = FrameTile {
+                keyboard: None,
                 color,
                 text: "Click".into(),
                 rect: Rect {
@@ -679,6 +804,7 @@ mod tests {
             Setting(S::GridMode),
         ] {
             let mut tile = FrameTile {
+                keyboard: None,
                 color: Default::default(),
                 text: icon.label().into(),
                 rect: crate::scanning::Rect {

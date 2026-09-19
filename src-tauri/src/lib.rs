@@ -24,6 +24,7 @@ mod protocol;
 mod remote_scan;
 mod scan_executor;
 mod scan_host;
+mod scan_keyboard;
 mod scan_menu;
 mod scan_tile;
 mod scan_tree;

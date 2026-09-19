@@ -8,6 +8,10 @@ use serde::Serialize;
 pub type Point = (i32, i32);
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Request {
+    OpenKeyboard {
+        point: Option<Point>,
+    },
+    Keyboard(crate::scan_keyboard::Stroke),
     Click {
         point: Point,
         right: bool,
@@ -52,6 +56,9 @@ impl Default for Phase {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkflowPhase {
+    Keyboard,
+    KeyboardSuspended,
+    KeyboardOpening,
     Menu,
     MenuSuspended,
     AutoSelecting,
@@ -61,6 +68,8 @@ pub enum WorkflowPhase {
 }
 #[derive(PartialEq)]
 enum Stage {
+    Keyboard,
+    KeyboardOpening,
     Idle,
     Countdown,
     Point,
@@ -69,6 +78,8 @@ enum Stage {
     Executing,
 }
 pub struct Workflow {
+    keyboard: crate::scan_keyboard::Keyboard,
+    keyboard_area: Rect,
     point: Engine,
     stage: Stage,
     menu: Menu,
@@ -83,6 +94,8 @@ impl Workflow {
     pub fn new(config: PointSettings, screen: Rect, scale: f64) -> Result<Self, String> {
         let period = config.block_interval_ms;
         Ok(Self {
+            keyboard: crate::scan_keyboard::Keyboard::new(cfg!(target_os = "macos")),
+            keyboard_area: screen,
             point: Engine::new(config, screen, scale)?,
             stage: Stage::Idle,
             menu: Menu::new(Kind::Actions, period),
@@ -106,10 +119,14 @@ impl Workflow {
             menu.set_period(self.point.config.block_interval_ms);
         }
         if restart {
+            self.keyboard = crate::scan_keyboard::Keyboard::new(cfg!(target_os = "macos"));
             self.parent_menu.clear();
             self.stage = Stage::Point;
             self.point.start();
         }
+    }
+    pub fn set_keyboard_area(&mut self, area: Rect) {
+        self.keyboard_area = area;
     }
     fn open(&mut self, kind: Kind) {
         self.menu = Menu::new(kind, self.point.config.block_interval_ms);
@@ -126,6 +143,14 @@ impl Workflow {
     }
     fn selected(&mut self, item: Item) -> Option<Request> {
         match item {
+            Item::TypeHere | Item::Keyboard => {
+                self.stage = Stage::KeyboardOpening;
+                self.keyboard = crate::scan_keyboard::Keyboard::new(cfg!(target_os = "macos"));
+                return Some(Request::OpenKeyboard {
+                    point: (item == Item::TypeHere).then_some(self.source),
+                });
+            }
+            Item::KeyboardKey => {}
             Item::More | Item::Group(_) => {
                 let kind = if let Item::Group(kind) = item {
                     kind
@@ -211,6 +236,10 @@ impl Technique for Workflow {
     type Selection = Request;
     type Phase = Phase;
     fn execution_failed(&mut self, message: String) {
+        if self.stage == Stage::Keyboard {
+            self.keyboard.failed();
+            return;
+        }
         self.pending = None;
         self.stage = Stage::Menu;
         self.menu = Menu::new(Kind::Actions, self.point.config.block_interval_ms);
@@ -218,12 +247,20 @@ impl Technique for Workflow {
         self.menu.suspended = true;
         self.error = Some(message);
     }
+    fn execution_succeeded(&mut self) {
+        if self.stage == Stage::KeyboardOpening {
+            self.stage = Stage::Keyboard;
+        } else if self.stage == Stage::Keyboard {
+            self.keyboard.succeeded();
+        }
+    }
     fn start(&mut self) {
         self.reset();
         self.stage = Stage::Point;
         self.point.start();
     }
     fn reset(&mut self) {
+        self.keyboard = crate::scan_keyboard::Keyboard::new(cfg!(target_os = "macos"));
         self.stage = Stage::Idle;
         self.parent_menu.clear();
         self.pending = None;
@@ -247,6 +284,14 @@ impl Technique for Workflow {
     }
     fn handle(&mut self, action: Action) -> Option<Request> {
         match self.stage {
+            Stage::Keyboard => match self.keyboard.handle(action) {
+                Some(crate::scan_keyboard::Output::Stroke(stroke)) => {
+                    return Some(Request::Keyboard(stroke))
+                }
+                Some(crate::scan_keyboard::Output::Close) => self.start(),
+                None => {}
+            },
+            Stage::KeyboardOpening => {}
             Stage::Point | Stage::Destination => {
                 if let Some(point) = self.point.handle(action) {
                     if self.stage == Stage::Destination {
@@ -288,6 +333,9 @@ impl Technique for Workflow {
     }
     fn advance(&mut self, ms: u64) {
         match self.stage {
+            Stage::Keyboard => self
+                .keyboard
+                .advance(ms, self.point.config.block_interval_ms),
             Stage::Point | Stage::Destination => {
                 self.point.advance(ms);
                 if self.point.exhausted() {
@@ -339,6 +387,12 @@ impl Technique for Workflow {
     }
     fn phase(&self) -> Phase {
         match self.stage {
+            Stage::KeyboardOpening => Phase::Workflow(WorkflowPhase::KeyboardOpening),
+            Stage::Keyboard => Phase::Workflow(if self.keyboard.suspended {
+                WorkflowPhase::KeyboardSuspended
+            } else {
+                WorkflowPhase::Keyboard
+            }),
             Stage::Idle => Phase::default(),
             Stage::Countdown => Phase::Workflow(WorkflowPhase::AutoSelecting),
             Stage::Point => Phase::Point(self.point.phase()),
@@ -355,6 +409,11 @@ impl Technique for Workflow {
     }
     fn frame(&self) -> Frame {
         let mut frame = match self.stage {
+            Stage::Keyboard => self.keyboard.frame(
+                self.keyboard_area,
+                self.point.units_per_logical_pixel,
+                self.point.config.scanner_color,
+            ),
             Stage::Countdown => {
                 let scale = self.point.units_per_logical_pixel;
                 let screen = self.point.screen;
@@ -465,6 +524,57 @@ mod tests {
             .unwrap(),
             automatic,
         )
+    }
+    #[test]
+    fn keyboard_opening_waits_for_click_success_and_failure_stays_in_menu() {
+        let mut s = session(false);
+        let w = &mut s.technique;
+        w.source = (120, 230);
+        assert_eq!(
+            w.selected(Item::TypeHere),
+            Some(Request::OpenKeyboard {
+                point: Some((120, 230))
+            })
+        );
+        assert_eq!(w.phase(), Phase::Workflow(WorkflowPhase::KeyboardOpening));
+        assert!(w.handle(Action::Select).is_none());
+        w.execution_failed("Click failed".into());
+        assert_eq!(w.phase(), Phase::Workflow(WorkflowPhase::MenuSuspended));
+        w.error = None;
+        assert_eq!(
+            w.selected(Item::Keyboard),
+            Some(Request::OpenKeyboard { point: None })
+        );
+        w.execution_succeeded();
+        assert_eq!(w.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+        w.keyboard.modifiers[0] = crate::scan_keyboard::Modifier::Locked;
+        w.keyboard.caps = true;
+        w.execution_failed("Do not expose provider details".into());
+        assert_eq!(w.phase(), Phase::Workflow(WorkflowPhase::KeyboardSuspended));
+        assert_eq!(
+            w.keyboard.modifiers,
+            [crate::scan_keyboard::Modifier::Off; 4]
+        );
+        w.reset();
+        assert!(!w.keyboard.caps);
+        assert!(w.frame().tiles.is_empty());
+    }
+    #[test]
+    fn keyboard_key_acknowledgement_is_exactly_once_and_reset_discards_state() {
+        let mut s = session(false);
+        let w = &mut s.technique;
+        w.selected(Item::Keyboard);
+        w.execution_succeeded();
+        assert!(w.handle(Action::Select).is_none());
+        assert!(matches!(
+            w.handle(Action::Select),
+            Some(Request::Keyboard(_))
+        ));
+        assert!(w.handle(Action::Select).is_none());
+        w.execution_succeeded();
+        assert!(w.handle(Action::Select).is_none());
+        w.reset();
+        assert_eq!(w.phase(), Phase::default());
     }
     fn open(s: &mut Session<Workflow>) {
         for _ in 0..3 {
@@ -749,7 +859,7 @@ mod tests {
         for (column, right, count) in [(0, false, 1), (1, true, 1), (2, false, 2)] {
             let mut s = session(false);
             open(&mut s);
-            assert_eq!(s.frame().tiles.len(), 8);
+            assert_eq!(s.frame().tiles.len(), 9);
             assert_eq!(
                 choose(&mut s, 0, column),
                 Some(Request::Click {
@@ -836,7 +946,7 @@ mod tests {
     fn automatic_menu_pauses_preserving_target_and_select_only_resumes() {
         let mut s = session(true);
         open(&mut s);
-        for _ in 0..9 {
+        for _ in 0..12 {
             s.tick(250, false);
             s.take_selection();
         }
@@ -882,14 +992,14 @@ mod tests {
     fn point_reselection_cancel_and_drag_confirmation_back_paths() {
         let mut s = session(false);
         open(&mut s);
-        assert_eq!(choose(&mut s, 2, 0), None);
+        assert_eq!(choose(&mut s, 3, 0), None);
         assert_eq!(
             s.technique.phase(),
             Phase::Point(crate::point_scan::Phase::X)
         );
         s.action(Action::Select);
         s.action(Action::Select);
-        assert_eq!(choose(&mut s, 2, 1), None);
+        assert_eq!(choose(&mut s, 3, 1), None);
         assert!(!s.active());
         open(&mut s);
         choose(&mut s, 1, 1);

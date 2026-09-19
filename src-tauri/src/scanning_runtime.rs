@@ -28,7 +28,11 @@ pub trait Adapter: Send + Sync + 'static {
     fn activate(
         app: &AppHandle,
         selection: <Self::Technique as Technique>::Selection,
-    ) -> Result<(), String>;
+    ) -> Result<Option<Self::Environment>, String>;
+    fn settle_environment(
+        app: &AppHandle,
+        environment: Option<&mut Self::Environment>,
+    ) -> Result<bool, String>;
 }
 
 use crate::switch_input::Event;
@@ -398,6 +402,9 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
             d.display = Some(display);
             A::prepare(app)?;
         }
+        if !A::settle_environment(app, d.display.as_mut())? {
+            return Ok(());
+        }
         A::validate_environment(app, d.display.as_ref())?;
         let point = d.engine.as_mut().and_then(|e| e.action(action));
         d.last_tick = Instant::now();
@@ -427,12 +434,23 @@ fn dispatch<A: Adapter>(
         return Err("Scan action was cancelled.".into());
     }
     hide_scan_visuals();
-    if let Err(error) = A::activate(app, request) {
-        A::cleanup(app)?;
-        let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
-        d.message = error.clone();
-        if let Some(engine) = d.engine.as_mut() {
-            engine.execution_failed(error);
+    match A::activate(app, request) {
+        Ok(environment) => {
+            let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(environment) = environment {
+                d.display = Some(environment);
+            }
+            if let Some(engine) = d.engine.as_mut() {
+                engine.technique.execution_succeeded();
+            }
+        }
+        Err(error) => {
+            A::cleanup(app)?;
+            let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+            d.message = error.clone();
+            if let Some(engine) = d.engine.as_mut() {
+                engine.execution_failed(error);
+            }
         }
     }
     {
@@ -501,8 +519,16 @@ fn render_tiles(tiles: &[crate::scanning::FrameTile]) -> Result<(), String> {
         while slot.0.len() < tiles.len() {
             slot.0.push(Host::new()?);
         }
-        for (index, host) in slot.0.iter_mut().enumerate() {
+        let (hosts, previous) = &mut *slot;
+        for (index, host) in hosts.iter_mut().enumerate() {
             if let Some(tile) = tiles.get(index) {
+                if tile
+                    .keyboard
+                    .is_some_and(|s| s.role == crate::scanning::KeyboardRole::Background)
+                    && previous.get(index) == Some(tile)
+                {
+                    continue;
+                }
                 host.tile(tile)?;
             } else {
                 host.hide();
@@ -718,6 +744,10 @@ fn tick<A: Adapter>(app: &AppHandle) {
     }
     let result = (|| -> Result<(), String> {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+        if !A::settle_environment(app, d.display.as_mut())? {
+            d.last_tick = Instant::now();
+            return Ok(());
+        }
         A::validate_environment(app, d.display.as_ref())?;
         let now = Instant::now();
         let elapsed = if d.cursor_suppression.is_some_and(|(token, _)| {

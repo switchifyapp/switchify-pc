@@ -1,6 +1,68 @@
 //! Native, nonactivating strips, using the same display units as input injection.
 use crate::scanning::Rect;
 
+/// Work area in the same native coordinates used by the scan engine.
+pub fn work_area(screen: Rect) -> Result<Rect, String> {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows::Win32::{
+            Foundation::POINT,
+            Graphics::Gdi::{
+                GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+            },
+        };
+        let monitor = MonitorFromPoint(
+            POINT {
+                x: (screen.x + screen.width / 2.0) as i32,
+                y: (screen.y + screen.height / 2.0) as i32,
+            },
+            MONITOR_DEFAULTTONEAREST,
+        );
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return Err("Display work area is unavailable.".into());
+        }
+        let r = info.rcWork;
+        Ok(Rect {
+            x: r.left.into(),
+            y: r.top.into(),
+            width: (r.right - r.left).into(),
+            height: (r.bottom - r.top).into(),
+        })
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::NSScreen;
+        let mtm = MainThreadMarker::new().ok_or("Keyboard requires the main thread.")?;
+        let screens = NSScreen::screens(mtm);
+        let primary = screens
+            .firstObject()
+            .ok_or("Display work area is unavailable.")?;
+        let top = primary.frame().origin.y + primary.frame().size.height;
+        for s in screens.iter() {
+            let r = s.frame();
+            if (r.origin.x - screen.x).abs() < 1.0
+                && (top - r.origin.y - r.size.height - screen.y).abs() < 1.0
+            {
+                let r = s.visibleFrame();
+                return Ok(Rect {
+                    x: r.origin.x,
+                    y: top - r.origin.y - r.size.height,
+                    width: r.size.width,
+                    height: r.size.height,
+                });
+            }
+        }
+        Err("Display work area is unavailable.".into())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    Ok(screen)
+}
+
 #[cfg(target_os = "windows")]
 mod platform {
     use super::*;
@@ -333,11 +395,12 @@ mod platform {
             use objc2_foundation::NSString;
             let mtm = MainThreadMarker::new().ok_or("Action tile requires the main thread")?;
             let pixels = crate::scan_tile::bitmap(tile)?;
-            let image = crate::overlay::platform::image_from_rgba(
+            let image = crate::overlay::platform::image_from_rgba_rect(
                 pixels.data(),
                 pixels.width() as usize,
                 pixels.height() as usize,
                 tile.rect.width,
+                tile.rect.height,
             )?;
             self.render(&[crate::scanning::PaintedRect {
                 rect: tile.rect,
@@ -345,6 +408,12 @@ mod platform {
                 opacity: 255,
                 role: crate::scanning::VisualRole::Accent,
             }])?;
+            if tile
+                .keyboard
+                .is_some_and(|s| s.role == crate::scanning::KeyboardRole::Background)
+            {
+                self.panels[0].setBackgroundColor(Some(&NSColor::clearColor()));
+            }
             let bounds = NSRect::new(
                 NSPoint::new(0.0, 0.0),
                 NSSize::new(tile.rect.width, tile.rect.height),
@@ -354,13 +423,37 @@ mod platform {
             artwork.setImage(Some(&image));
             view.addSubview(&artwork);
             let label = NSTextField::wrappingLabelWithString(&NSString::from_str(&tile.text), mtm);
-            label.setFont(Some(&NSFont::boldSystemFontOfSize(15.0 * tile.scale)));
+            let key = tile.icon == crate::scan_menu::Item::KeyboardKey;
+            label.setFont(Some(&NSFont::boldSystemFontOfSize(
+                if key {
+                    crate::scan_tile::keyboard_font_size(tile)
+                } else {
+                    15.0
+                } * tile.scale,
+            )));
             label.setTextColor(Some(&NSColor::whiteColor()));
             label.setAlignment(NSTextAlignment::Center);
-            label.setFrame(NSRect::new(
-                NSPoint::new(6.0 * tile.scale, 12.0 * tile.scale),
-                NSSize::new(tile.rect.width - 12.0 * tile.scale, 40.0 * tile.scale),
-            ));
+            label.setFrame(if key {
+                let padding = 8.0 * tile.scale;
+                let width = (tile.rect.width - padding * 2.0).max(1.0);
+                let measured = label
+                    .cell()
+                    .ok_or("Keyboard label is unavailable.")?
+                    .cellSizeForBounds(NSRect::new(
+                        NSPoint::new(0.0, 0.0),
+                        NSSize::new(width, f64::MAX),
+                    ));
+                let height = measured.height.min(tile.rect.height);
+                NSRect::new(
+                    NSPoint::new(padding, (tile.rect.height - height) / 2.0),
+                    NSSize::new(width, height),
+                )
+            } else {
+                NSRect::new(
+                    NSPoint::new(6.0 * tile.scale, 12.0 * tile.scale),
+                    NSSize::new(tile.rect.width - 12.0 * tile.scale, 40.0 * tile.scale),
+                )
+            });
             view.addSubview(&label);
             self.panels[0].setContentView(Some(&view));
             Ok(())
@@ -415,6 +508,70 @@ pub fn modifiers_released() -> bool {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         false
+    }
+}
+
+/// Resolve the intended target while scan overlays are hidden, before clicking.
+/// Uses the same identity as `foreground`: a Windows root window or macOS PID.
+pub fn target_at(point: (i32, i32)) -> Result<usize, String> {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows::Win32::{
+            Foundation::POINT,
+            UI::WindowsAndMessaging::{GetAncestor, WindowFromPoint, GA_ROOT},
+        };
+        let child = WindowFromPoint(POINT {
+            x: point.0,
+            y: point.1,
+        });
+        let root = GetAncestor(child, GA_ROOT);
+        if root.0.is_null() {
+            return Err("The selected target is unavailable.".into());
+        }
+        Ok(root.0 as usize)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use core_foundation::base::{CFType, CFTypeRef, TCFType};
+        #[link(name = "ApplicationServices", kind = "framework")]
+        unsafe extern "C" {
+            fn AXUIElementCreateSystemWide() -> CFTypeRef;
+            fn AXUIElementCopyElementAtPosition(
+                element: CFTypeRef,
+                x: f32,
+                y: f32,
+                result: *mut CFTypeRef,
+            ) -> i32;
+            fn AXUIElementGetPid(element: CFTypeRef, pid: *mut i32) -> i32;
+        }
+        let system = unsafe { AXUIElementCreateSystemWide() };
+        if system.is_null() {
+            return Err("The selected target is unavailable.".into());
+        }
+        let system = unsafe { CFType::wrap_under_create_rule(system) };
+        let mut element = std::ptr::null();
+        let status = unsafe {
+            AXUIElementCopyElementAtPosition(
+                system.as_CFTypeRef(),
+                point.0 as f32,
+                point.1 as f32,
+                &mut element,
+            )
+        };
+        if status != 0 || element.is_null() {
+            return Err("The selected target is unavailable.".into());
+        }
+        let element = unsafe { CFType::wrap_under_create_rule(element) };
+        let mut pid = 0;
+        if unsafe { AXUIElementGetPid(element.as_CFTypeRef(), &mut pid) } != 0 || pid <= 0 {
+            return Err("The selected target is unavailable.".into());
+        }
+        Ok(pid as usize)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = point;
+        Err("Local scanning is unavailable.".into())
     }
 }
 

@@ -228,6 +228,20 @@ pub(crate) fn image_from_rgba(
     height: usize,
     logical_size: f64,
 ) -> Result<Retained<NSImage>, String> {
+    image_from_rgba_rect(rgba, width, height, logical_size, logical_size)
+}
+
+pub(crate) fn image_from_rgba_rect(
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+    logical_width: f64,
+    logical_height: f64,
+) -> Result<Retained<NSImage>, String> {
+    if !logical_height.is_finite() || logical_height <= 0.0 {
+        return Err("Invalid overlay height.".into());
+    }
+    let logical_size = logical_width;
     let layout = MacBitmapLayout::new(rgba.len(), width, height, logical_size)?;
     let representation = unsafe {
         NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bitmapFormat_bytesPerRow_bitsPerPixel(
@@ -251,13 +265,13 @@ pub(crate) fn image_from_rgba(
     }
     representation.setSize(NSSize {
         width: layout.logical_size,
-        height: layout.logical_size,
+        height: logical_height,
     });
     let image = NSImage::initWithSize(
         NSImage::alloc(),
         NSSize {
             width: layout.logical_size,
-            height: layout.logical_size,
+            height: logical_height,
         },
     );
     image.addRepresentation(&representation as &NSImageRep);

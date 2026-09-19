@@ -15,6 +15,47 @@ pub fn execute<I: InputInjector>(
         );
     }
     match request {
+        Request::OpenKeyboard { point } => {
+            if input.has_active_drag() {
+                return Err("End the active drag before typing.".into());
+            }
+            match point {
+                Some(point) => input.click_pointer_at(point, MouseButton::Left, 1, &[]),
+                None => Ok(()),
+            }
+        }
+        Request::Keyboard(stroke) => {
+            if input.has_active_drag() {
+                return Err("End the active drag before typing.".into());
+            }
+            input.release_all()?;
+            if let Some(character) = stroke.character().filter(|_| !stroke.shortcut()) {
+                return input.type_text(&character.to_string());
+            }
+            let mut modifiers = stroke.modifiers;
+            let name = match stroke.key {
+                crate::scan_keyboard::Key::Character('+', '+') => {
+                    modifiers[0] = true;
+                    "=".into()
+                }
+                crate::scan_keyboard::Key::Character('*', '*') => {
+                    modifiers[0] = true;
+                    "8".into()
+                }
+                crate::scan_keyboard::Key::Character(base, _) => {
+                    base.to_ascii_uppercase().to_string()
+                }
+                crate::scan_keyboard::Key::Named(name) => name.into(),
+                _ => return Err("Invalid keyboard action.".into()),
+            };
+            let mut keys: Vec<&str> = ["Shift", "Ctrl", "Alt", "Meta"]
+                .into_iter()
+                .zip(modifiers)
+                .filter_map(|(key, on)| on.then_some(key))
+                .collect();
+            keys.push(&name);
+            input.scan_chord(&keys, None)
+        }
         Request::Command { command, point } => execute_command(input, command, point),
         Request::Setting(_) | Request::Display(_) => {
             Err("Scanning action requires the scan controller.".into())
@@ -221,8 +262,9 @@ mod tests {
         legacy_clicks: usize,
     }
     impl InputInjector for Fake {
-        fn inject_text(&mut self, _: &str) -> Result<(), String> {
-            panic!("No typing keyboard")
+        fn inject_text(&mut self, text: &str) -> Result<(), String> {
+            self.events.push(format!("text {text}"));
+            Ok(())
         }
         fn move_pointer(&mut self, _: i32, _: i32) -> Result<(), String> {
             panic!("No relative movement")
@@ -294,6 +336,134 @@ mod tests {
             self.events.push(format!("window {action}"));
             Ok(())
         }
+    }
+    #[test]
+    fn keyboard_text_chords_and_current_focus_use_fake_input() {
+        use crate::scan_keyboard::{Key, Stroke};
+        let mut input = DesktopInput::new(Fake::default());
+        execute(&mut input, Request::OpenKeyboard { point: None }, true).unwrap();
+        assert!(input.injector.events.is_empty());
+        execute(
+            &mut input,
+            Request::Keyboard(Stroke {
+                key: Key::Character('3', '£'),
+                modifiers: [true, false, false, false],
+                caps: false,
+            }),
+            true,
+        )
+        .unwrap();
+        assert_eq!(input.injector.events, ["text £"]);
+        input.injector.events.clear();
+        execute(
+            &mut input,
+            Request::Keyboard(Stroke {
+                key: Key::Character('a', 'A'),
+                modifiers: [false, true, false, false],
+                caps: false,
+            }),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            input.injector.events,
+            [
+                "key Ctrl true",
+                "key A true",
+                "key A false",
+                "key Ctrl false"
+            ]
+        );
+        input.injector.events.clear();
+        execute(
+            &mut input,
+            Request::Keyboard(Stroke {
+                key: Key::Named("Escape"),
+                modifiers: [false; 4],
+                caps: false,
+            }),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            input.injector.events,
+            ["key Escape true", "key Escape false"]
+        );
+    }
+    #[test]
+    fn numeric_operator_shortcuts_include_required_shift_and_release_every_key() {
+        use crate::scan_keyboard::{Key, Stroke};
+        for (operator, native_key) in [('+', "="), ('*', "8")] {
+            let mut input = DesktopInput::new(Fake::default());
+            execute(
+                &mut input,
+                Request::Keyboard(Stroke {
+                    key: Key::Character(operator, operator),
+                    modifiers: [false, true, false, false],
+                    caps: false,
+                }),
+                true,
+            )
+            .unwrap();
+            assert_eq!(
+                input.injector.events,
+                [
+                    "key Shift true".to_string(),
+                    "key Ctrl true".to_string(),
+                    format!("key {native_key} true"),
+                    format!("key {native_key} false"),
+                    "key Ctrl false".to_string(),
+                    "key Shift false".to_string(),
+                ]
+            );
+        }
+    }
+    #[test]
+    fn keyboard_releases_failed_keys_and_rejects_external_modifiers() {
+        use crate::scan_keyboard::{Key, Stroke};
+        let request = Request::Keyboard(Stroke {
+            key: Key::Named("Tab"),
+            modifiers: [true, false, false, false],
+            caps: false,
+        });
+        let mut input = DesktopInput::new(Fake {
+            fail_release: true,
+            ..Default::default()
+        });
+        assert!(execute(&mut input, request, true).is_err());
+        input.injector.fail_release = false;
+        input.release_all().unwrap();
+        assert!(input
+            .injector
+            .events
+            .ends_with(&["key Tab false".into(), "key Shift false".into()]));
+        input.injector.events.clear();
+        assert!(execute(&mut input, request, false).is_err());
+        assert!(input.injector.events.is_empty());
+    }
+    #[test]
+    fn type_here_clicks_exactly_once_and_propagates_failure() {
+        let mut input = DesktopInput::new(Fake::default());
+        execute(
+            &mut input,
+            Request::OpenKeyboard {
+                point: Some((42, 70)),
+            },
+            true,
+        )
+        .unwrap();
+        assert_eq!(input.injector.target_clicks.len(), 1);
+        assert_eq!(input.injector.target_clicks[0].0, (42, 70));
+        input.injector.fail_click = true;
+        assert!(execute(
+            &mut input,
+            Request::OpenKeyboard {
+                point: Some((42, 70))
+            },
+            true
+        )
+        .is_err());
+        assert_eq!(input.injector.target_clicks.len(), 1);
     }
     #[test]
     fn every_scan_click_uses_target_even_while_cursor_readback_is_stale() {

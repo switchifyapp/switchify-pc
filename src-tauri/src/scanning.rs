@@ -244,6 +244,20 @@ pub struct UpdateContext {
     pub switch_held: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyboardRole {
+    Background,
+    Character,
+    Utility,
+    Toolbar,
+    Status,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeyboardTileStyle {
+    pub role: KeyboardRole,
+    pub active: bool,
+    pub row_scan: bool,
+}
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameTile {
     pub color: ScannerColor,
@@ -251,6 +265,7 @@ pub struct FrameTile {
     pub rect: Rect,
     pub scale: f64,
     pub icon: crate::scan_menu::Item,
+    pub keyboard: Option<KeyboardTileStyle>,
     pub selected: bool,
 }
 #[derive(Debug, Clone, PartialEq)]
@@ -278,6 +293,7 @@ pub trait Technique {
         false
     }
     fn execution_failed(&mut self, _message: String) {}
+    fn execution_succeeded(&mut self) {}
     fn start(&mut self);
     fn advance(&mut self, elapsed_ms: u64);
     fn handle(&mut self, action: Action) -> Option<Self::Selection>;

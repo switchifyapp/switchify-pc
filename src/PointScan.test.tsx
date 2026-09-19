@@ -195,6 +195,9 @@ it.each([
   ["dragDestination", "Choose drag destination."],
   ["dragConfirmation", "Confirm drag."],
   ["executing", "Performing drag."],
+  ["keyboard", "Choose a keyboard row, then a key."],
+  ["keyboardSuspended", "Select to resume the keyboard."],
+  ["keyboardOpening", "Opening the keyboard."],
 ])("explains the %s workflow phase", async (phase, message) => {
   mocks.invoke.mockResolvedValue({ ...initial, enabled: true, phase });
   render(<PointScan />);

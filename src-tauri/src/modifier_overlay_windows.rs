@@ -13,7 +13,7 @@ use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, CreateDIBSection, CreateFontW, DeleteDC, DeleteObject, DrawTextW, GetDC,
     GetMonitorInfoW, MonitorFromPoint, ReleaseDC, SelectObject, SetBkMode, SetTextColor,
     AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION,
-    CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_QUALITY, DIB_RGB_COLORS, DT_CENTER,
+    CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_QUALITY, DIB_RGB_COLORS, DT_CALCRECT, DT_CENTER,
     DT_SINGLELINE, DT_VCENTER, DT_WORDBREAK, FF_DONTCARE, FW_BOLD, HDC, HGDIOBJ, MONITORINFO,
     MONITOR_DEFAULTTONEAREST, OUT_DEFAULT_PRECIS, TRANSPARENT,
 };
@@ -411,6 +411,7 @@ fn present(window: HWND, labels: &[String], layout: &Layout) -> Result<(), Strin
         layout,
         pixmap.data(),
         labels.iter().any(|label| label.contains('\n')),
+        false,
     )
 }
 
@@ -466,6 +467,7 @@ fn present_pixmap_with_text(
     layout: &Layout,
     rgba: &[u8],
     wrap: bool,
+    center_wrapped: bool,
 ) -> Result<(), String> {
     unsafe {
         let screen = ScreenDc(GetDC(None));
@@ -534,8 +536,24 @@ fn present_pixmap_with_text(
         SetBkMode(memory.0, TRANSPARENT);
         SetTextColor(memory.0, COLORREF(0x00ff_ffff));
         for (label, chip) in labels.iter().zip(&layout.chips) {
+            if label.is_empty() {
+                continue;
+            }
             let mut text = label.encode_utf16().collect::<Vec<_>>();
             let mut text_rect = *chip;
+            if center_wrapped {
+                let mut measured = text_rect;
+                let height = DrawTextW(
+                    memory.0,
+                    &mut text,
+                    &mut measured,
+                    DT_CENTER | DT_WORDBREAK | DT_CALCRECT,
+                );
+                let vertical_padding = text_rect.top.min((layout.height - height).max(0) / 2);
+                text_rect.top = vertical_padding;
+                text_rect.bottom = layout.height - vertical_padding;
+                text_rect.top += ((text_rect.bottom - text_rect.top - height) / 2).max(0);
+            }
             let _ = DrawTextW(
                 memory.0,
                 &mut text,
@@ -595,6 +613,35 @@ pub(crate) fn present_scan_tile(
     tile: &crate::scanning::FrameTile,
 ) -> Result<(), String> {
     let pixmap = crate::scan_tile::bitmap(tile)?;
+    if tile.icon == crate::scan_menu::Item::KeyboardKey {
+        let width = pixmap.width() as i32;
+        let height = pixmap.height() as i32;
+        let horizontal_padding = (8.0 * tile.scale).round().max(1.0) as i32;
+        let vertical_padding = (6.0 * tile.scale).round().max(1.0) as i32;
+        let horizontal_padding = horizontal_padding.min((width - 1).max(0) / 2);
+        let vertical_padding = vertical_padding.min((height - 1).max(0) / 2);
+        let layout = Layout {
+            x: tile.rect.x.round() as i32,
+            y: tile.rect.y.round() as i32,
+            width,
+            height,
+            scale: tile.scale * crate::scan_tile::keyboard_font_size(tile) / FONT_SIZE,
+            chips: vec![RECT {
+                left: horizontal_padding,
+                top: vertical_padding,
+                right: width - horizontal_padding,
+                bottom: height - vertical_padding,
+            }],
+        };
+        return present_pixmap_with_text(
+            window,
+            std::slice::from_ref(&tile.text),
+            &layout,
+            pixmap.data(),
+            true,
+            true,
+        );
+    }
     let size = pixmap.width() as i32;
     let layout = Layout {
         x: tile.rect.x.round() as i32,
@@ -615,6 +662,7 @@ pub(crate) fn present_scan_tile(
         &layout,
         pixmap.data(),
         true,
+        false,
     )
 }
 
@@ -646,6 +694,34 @@ pub(crate) fn present_scan_prompt(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn empty_keyboard_backdrop_label_never_reaches_native_text_drawing() {
+        let layout = super::Layout {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 50,
+            scale: 1.0,
+            chips: vec![windows::Win32::Foundation::RECT {
+                left: 8,
+                top: 6,
+                right: 92,
+                bottom: 44,
+            }],
+        };
+        let pixels = vec![255; 100 * 50 * 4];
+        for wrapped in [false, true] {
+            let result = super::present_pixmap_with_text(
+                windows::Win32::Foundation::HWND::default(),
+                &[String::new()],
+                &layout,
+                &pixels,
+                wrapped,
+                wrapped,
+            );
+            assert!(result.is_err());
+        }
+    }
     use super::*;
     use windows::Win32::Foundation::{LPARAM, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -800,6 +876,24 @@ mod tests {
     #[test]
     fn native_window_render_smoke_becomes_visible_and_hides() {
         let mut host = NativeHost::new().unwrap();
+        let keyboard = crate::scan_keyboard::Keyboard::new(false);
+        let frame = keyboard.frame(
+            crate::scanning::Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1280.0,
+                height: 720.0,
+            },
+            1.0,
+            crate::scanning::ScannerColor::default(),
+        );
+        for tile in &frame.tiles {
+            super::present_scan_tile(host.window, tile).unwrap();
+            unsafe {
+                assert!(IsWindowVisible(host.window).as_bool());
+            }
+        }
+        host.hide();
         host.render(&["Ctrl".into(), "Shift".into()]).unwrap();
         unsafe {
             assert!(IsWindowVisible(host.window).as_bool());

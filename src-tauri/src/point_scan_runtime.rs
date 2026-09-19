@@ -11,6 +11,26 @@ use tauri::{AppHandle, Manager};
 pub struct Environment {
     display: Display,
     foreground: usize,
+    keyboard_area: Rect,
+    handoff: Option<FocusHandoff>,
+}
+#[derive(Clone)]
+struct FocusHandoff {
+    target: usize,
+    ready_at: std::time::Instant,
+}
+impl FocusHandoff {
+    fn verify(&self, now: std::time::Instant, foreground: usize) -> Result<bool, String> {
+        if now < self.ready_at {
+            return Ok(false);
+        }
+        if foreground != self.target {
+            return Err(
+                "The selected target did not receive focus. Please select it again.".into(),
+            );
+        }
+        Ok(true)
+    }
 }
 pub struct PointScan;
 pub type Controller = scanning_runtime::Controller<PointScan>;
@@ -59,13 +79,43 @@ impl Adapter for PointScan {
         crate::scan_executor::cleanup()?;
         crate::point_scan_prepare(app)
     }
-    fn activate(app: &AppHandle, request: Request) -> Result<(), String> {
+    fn activate(app: &AppHandle, request: Request) -> Result<Option<Environment>, String> {
         crate::point_scan_ready(app)?;
         match request {
+            Request::OpenKeyboard { point: Some(point) } => {
+                let target = crate::scan_host::target_at(point)?;
+                crate::scan_executor::activate(request)?;
+                let (_, mut environment) =
+                    new_engine(app, app.state::<Controller>().view().config)?;
+                // Allow the one requested click to establish focus before accepting
+                // any key. No typing or scan advancement occurs during this handoff.
+                environment.handoff = Some(FocusHandoff {
+                    target,
+                    ready_at: std::time::Instant::now() + std::time::Duration::from_millis(150),
+                });
+                return Ok(Some(environment));
+            }
             Request::Setting(setting) => scanning_runtime::update_point_setting(app, setting),
             Request::Display(next) => scanning_runtime::restart_point_on_display(app, next),
             request => crate::scan_executor::activate(request),
         }
+        .map(|()| None)
+    }
+    fn settle_environment(
+        app: &AppHandle,
+        environment: Option<&mut Environment>,
+    ) -> Result<bool, String> {
+        if let Some(environment) = environment {
+            if let Some(handoff) = &environment.handoff {
+                crate::point_scan_ready(app)?;
+                if !handoff.verify(std::time::Instant::now(), crate::scan_host::foreground()?)? {
+                    return Ok(false);
+                }
+                environment.foreground = handoff.target;
+                environment.handoff = None;
+            }
+        }
+        Ok(true)
     }
     fn cleanup(_app: &AppHandle) -> Result<(), String> {
         crate::scan_executor::cleanup()
@@ -81,7 +131,7 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
     } else {
         1.0
     };
-    let e = Workflow::new(
+    let mut e = Workflow::new(
         config.point(),
         Rect {
             x: display.x.into(),
@@ -91,11 +141,20 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
         },
         units,
     )?;
+    let keyboard_area = crate::scan_host::work_area(Rect {
+        x: display.x.into(),
+        y: display.y.into(),
+        width: display.width.into(),
+        height: display.height.into(),
+    })?;
+    e.set_keyboard_area(keyboard_area);
     Ok((
         e,
         Environment {
             display,
             foreground: crate::scan_host::foreground()?,
+            keyboard_area,
+            handoff: None,
         },
     ))
 }
@@ -109,6 +168,36 @@ fn validate_display(app: &AppHandle, display: Option<&Environment>) -> Result<()
         if !displays.contains(&expected.display) {
             return Err("Display geometry changed. Scanning restarts.".into());
         }
+        let d = &expected.display;
+        if crate::scan_host::work_area(Rect {
+            x: d.x.into(),
+            y: d.y.into(),
+            width: d.width.into(),
+            height: d.height.into(),
+        })? != expected.keyboard_area
+        {
+            return Err("Display work area changed. Scanning restarts.".into());
+        }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn focus_handoff_waits_and_only_accepts_the_clicked_target() {
+        let start = std::time::Instant::now();
+        let handoff = FocusHandoff {
+            target: 42,
+            ready_at: start + std::time::Duration::from_millis(150),
+        };
+        assert_eq!(handoff.verify(start, 7), Ok(false));
+        assert_eq!(handoff.verify(start, 42), Ok(false));
+        assert_eq!(handoff.verify(handoff.ready_at, 42), Ok(true));
+        // A failed activation and an unrelated app stealing focus both fail closed.
+        assert!(handoff.verify(handoff.ready_at, 7).is_err());
+        assert!(handoff.verify(handoff.ready_at, 99).is_err());
+    }
 }
