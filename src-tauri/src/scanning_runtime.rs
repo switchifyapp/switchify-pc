@@ -13,6 +13,9 @@ pub trait Adapter: Send + Sync + 'static {
     fn deferred(_request: &<Self::Technique as Technique>::Selection) -> bool {
         false
     }
+    fn preserve_visuals(_request: &<Self::Technique as Technique>::Selection) -> bool {
+        false
+    }
     fn poll(_app: &AppHandle, _technique: &mut Self::Technique, _captured_keys: &[String]) {}
     fn cleanup(app: &AppHandle) -> Result<(), String>;
     fn validate(config: &Self::Config) -> Result<(), String>;
@@ -444,7 +447,9 @@ fn dispatch<A: Adapter>(
     if !c.enabled.load(Ordering::SeqCst) || !input_active(app, input_generation, remote) {
         return Err("Scan action was cancelled.".into());
     }
-    hide_scan_visuals();
+    if !A::preserve_visuals(&request) {
+        hide_scan_visuals();
+    }
     let deferred = A::deferred(&request);
     match A::activate(app, request) {
         Ok(environment) => {
@@ -524,6 +529,26 @@ fn hide_scan_visuals() {
         })
     });
 }
+fn update_tiles(
+    previous: &[crate::scanning::FrameTile],
+    tiles: &[crate::scanning::FrameTile],
+    host_count: usize,
+    mut present: impl FnMut(usize, Option<&crate::scanning::FrameTile>) -> Result<(), String>,
+) -> Result<(), String> {
+    let background_changed = tiles.iter().enumerate().any(|(index, tile)| {
+        tile.keyboard
+            .is_some_and(|s| s.role == crate::scanning::KeyboardRole::Background)
+            && previous.get(index) != Some(tile)
+    });
+    for index in 0..host_count {
+        let tile = tiles.get(index);
+        if !background_changed && previous.get(index) == tile {
+            continue;
+        }
+        present(index, tile)?;
+    }
+    Ok(())
+}
 fn render_tiles(tiles: &[crate::scanning::FrameTile]) -> Result<(), String> {
     TILES.with(|slot| {
         let mut slot = slot.borrow_mut();
@@ -534,20 +559,14 @@ fn render_tiles(tiles: &[crate::scanning::FrameTile]) -> Result<(), String> {
             slot.0.push(Host::new()?);
         }
         let (hosts, previous) = &mut *slot;
-        for (index, host) in hosts.iter_mut().enumerate() {
-            if let Some(tile) = tiles.get(index) {
-                if tile
-                    .keyboard
-                    .is_some_and(|s| s.role == crate::scanning::KeyboardRole::Background)
-                    && previous.get(index) == Some(tile)
-                {
-                    continue;
-                }
-                host.tile(tile)?;
+        update_tiles(previous, tiles, hosts.len(), |index, tile| {
+            if let Some(tile) = tile {
+                hosts[index].tile(tile)
             } else {
-                host.hide();
+                hosts[index].hide();
+                Ok(())
             }
-        }
+        })?;
         slot.1 = tiles.to_vec();
         Ok(())
     })
@@ -970,6 +989,57 @@ pub fn restart_point_on_display(app: &AppHandle, next: bool) -> Result<(), Strin
 
 #[cfg(test)]
 mod ownership_tests {
+    #[test]
+    fn keyboard_updates_preserve_unchanged_tiles_and_restore_background_order() {
+        let keyboard = crate::scan_keyboard::Keyboard::new(false);
+        let frame = keyboard.frame(
+            crate::scanning::Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1280.0,
+                height: 720.0,
+            },
+            1.0,
+            crate::scanning::ScannerColor::default(),
+        );
+        let previous = frame.tiles;
+        let mut current = previous.clone();
+        current[1].text = "updated".into();
+        let mut updates = Vec::new();
+        super::update_tiles(&previous, &current, current.len(), |index, tile| {
+            updates.push((index, tile.is_some()));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(updates, vec![(1, true)]);
+        updates.clear();
+        super::update_tiles(&current, &current, current.len(), |index, _| {
+            updates.push((index, true));
+            Ok(())
+        })
+        .unwrap();
+        assert!(updates.is_empty());
+        current[0].rect.x += 10.0;
+        super::update_tiles(&previous, &current, current.len(), |index, _| {
+            updates.push((index, true));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(updates.len(), current.len());
+        assert_eq!(updates[0], (0, true));
+        updates.clear();
+        super::update_tiles(&current, &[], current.len(), |index, tile| {
+            updates.push((index, tile.is_some()));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(updates.len(), current.len());
+        assert!(updates.iter().all(|(_, visible)| !visible));
+        assert!(
+            super::update_tiles(&[], &current, current.len(), |_, _| Err("failed".into())).is_err()
+        );
+    }
+
     #[test]
     fn failed_partial_presentations_are_hidden_even_with_empty_caches() {
         let mut tiles = (vec![true, true, false], Vec::<u8>::new());
