@@ -136,11 +136,12 @@ impl<A: Adapter> Engine<A> {
             .target
             .as_ref()
             .is_some_and(|old| self.adapter.same(old, &target).unwrap_or(false));
-        if !same || epoch != self.activity || reset {
+        let uninterrupted = epoch == self.activity;
+        if !same || !uninterrupted || reset {
             self.clear();
         }
         self.activity = epoch;
-        if same && !reset && self.tracked {
+        if same && uninterrupted && !reset && self.tracked {
             if let Some(text) = edit {
                 if text.chars().count() > 512 {
                     self.clear();
@@ -457,6 +458,17 @@ mod tests {
         e.query(Some(" wa".into()), false, false, false).unwrap();
         e.adapter.target = 2;
         assert!(e.query(None, false, false, false).is_none());
+    }
+    #[test]
+    fn external_activity_discards_edits_queued_before_the_change() {
+        let mut e = engine();
+        e.adapter.unsupported = true;
+        assert!(e.query(None, false, false, false).is_none());
+        e.query(Some(" wa".into()), false, false, false).unwrap();
+        e.activity = activity::epoch().wrapping_sub(1);
+        assert!(e.query(Some(" wa".into()), false, false, false).is_none());
+        assert!(e.fallback.is_empty());
+        assert!(!e.boundary);
     }
     #[test]
     fn casing_and_unchanged_snapshots_keep_choice_identity() {
