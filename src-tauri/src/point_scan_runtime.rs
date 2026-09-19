@@ -82,6 +82,14 @@ impl Adapter for PointScan {
     fn activate(app: &AppHandle, request: Request) -> Result<Option<Environment>, String> {
         crate::point_scan_ready(app)?;
         match request {
+            Request::Prediction { token, index } => {
+                return crate::prediction::select(token, index).map(|()| None)
+            }
+            Request::Keyboard(stroke) => {
+                let result = crate::scan_executor::activate(request);
+                crate::prediction::record(stroke, result.is_ok());
+                return result.map(|()| None);
+            }
             Request::OpenKeyboard { point: Some(point) } => {
                 let target = crate::scan_host::target_at(point)?;
                 crate::scan_executor::activate(request)?;
@@ -117,7 +125,21 @@ impl Adapter for PointScan {
         }
         Ok(true)
     }
+    fn deferred(request: &Request) -> bool {
+        matches!(request, Request::Prediction { .. })
+    }
+    fn poll(app: &AppHandle, technique: &mut Workflow, config: &Config) {
+        let enabled = technique.prediction_enabled();
+        let ignored = vec![
+            config.select_key.clone(),
+            config.next_key.clone(),
+            config.back_key.clone(),
+            config.pause_key.clone(),
+        ];
+        crate::prediction::poll(app, technique.prediction_keyboard(), enabled, &ignored);
+    }
     fn cleanup(_app: &AppHandle) -> Result<(), String> {
+        crate::prediction::stop();
         crate::scan_executor::cleanup()
     }
 }

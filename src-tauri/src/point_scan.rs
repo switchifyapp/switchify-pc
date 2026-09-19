@@ -15,6 +15,7 @@ pub enum Mode {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
+    pub word_prediction: bool,
     pub scanner_color: crate::scanning::ScannerColor,
     pub mode: Mode,
     pub automatic: bool,
@@ -31,6 +32,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            word_prediction: true,
             scanner_color: Default::default(),
             mode: Mode::Line,
             automatic: true,
@@ -58,6 +60,7 @@ impl Config {
     }
     pub fn point(&self) -> PointSettings {
         PointSettings {
+            word_prediction: self.word_prediction,
             scanner_color: self.scanner_color,
             mode: self.mode,
             speed: self.speed,
@@ -74,6 +77,7 @@ impl Config {
 }
 #[derive(Clone)]
 pub struct PointSettings {
+    pub word_prediction: bool,
     pub scanner_color: crate::scanning::ScannerColor,
     pub mode: Mode,
     pub speed: usize,
@@ -482,6 +486,15 @@ mod tests {
         })
     }
     #[test]
+    fn legacy_settings_enable_predictions_and_explicit_disable_roundtrips() {
+        let c: Config = serde_json::from_str("{}").unwrap();
+        assert!(c.word_prediction);
+        let c: Config = serde_json::from_str(r#"{"wordPrediction":false}"#).unwrap();
+        assert!(!c.word_prediction);
+        let restored: Config = serde_json::from_value(serde_json::to_value(c).unwrap()).unwrap();
+        assert!(!restored.word_prediction);
+    }
+    #[test]
     fn auto_select_delays_are_bounded_and_round_trip() {
         for delay in [100, 500, 1000, 100_000] {
             let config = Config {
@@ -878,6 +891,7 @@ mod tests {
         json["autoSelectEnabled"] = serde_json::json!(false);
         json["autoSelectDelayMs"] = serde_json::json!(1000);
         json["scannerColor"] = serde_json::json!("blue");
+        json["wordPrediction"] = serde_json::json!(true);
         assert_eq!(serde_json::to_value(&config).unwrap(), json);
         assert!(!config.switches().automatic);
         assert_eq!(config.point().grid_size, 7);

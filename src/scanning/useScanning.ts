@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 export type ScannerColor = "red" | "green" | "blue" | "yellow" | "white";
 export type PointScanConfig = {
+  wordPrediction: boolean;
   scannerColor: ScannerColor;
   mode: "line" | "grid";
   automatic: boolean;
@@ -26,6 +27,7 @@ export type PointScanState = {
   supported: boolean;
 };
 export const defaultPointScanConfig: PointScanConfig = {
+  wordPrediction: true,
   scannerColor: "blue",
   mode: "line",
   automatic: true,

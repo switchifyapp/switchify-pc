@@ -10,6 +10,10 @@ pub trait Adapter: Send + Sync + 'static {
     type Environment: Clone + Send;
     const EVENT: &'static str;
     const FILE: &'static str;
+    fn deferred(_request: &<Self::Technique as Technique>::Selection) -> bool {
+        false
+    }
+    fn poll(_app: &AppHandle, _technique: &mut Self::Technique, _config: &Self::Config) {}
     fn cleanup(app: &AppHandle) -> Result<(), String>;
     fn validate(config: &Self::Config) -> Result<(), String>;
     fn switches(config: &Self::Config) -> SwitchSettings;
@@ -434,6 +438,7 @@ fn dispatch<A: Adapter>(
         return Err("Scan action was cancelled.".into());
     }
     hide_scan_visuals();
+    let deferred = A::deferred(&request);
     match A::activate(app, request) {
         Ok(environment) => {
             let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
@@ -441,7 +446,9 @@ fn dispatch<A: Adapter>(
                 d.display = Some(environment);
             }
             if let Some(engine) = d.engine.as_mut() {
-                engine.technique.execution_succeeded();
+                if !deferred {
+                    engine.technique.execution_succeeded();
+                }
             }
         }
         Err(error) => {
@@ -762,7 +769,9 @@ fn tick<A: Adapter>(app: &AppHandle) {
         let held = d.pressed.held();
         let prompt = d.pressed.prompt(now_ms);
         let mut request = None;
+        let prediction_config = d.config.clone();
         let phase_changed = if let Some(engine) = d.engine.as_mut() {
+            A::poll(app, &mut engine.technique, &prediction_config);
             let before = engine.technique.phase();
             engine.tick(elapsed, held);
             request = engine.take_selection();

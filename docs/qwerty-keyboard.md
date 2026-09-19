@@ -16,7 +16,7 @@ The bottom control row starts with Close keyboard, followed by Letters, Navigati
 
 Modifier keys are pressed only around each emitted shortcut and immediately released. Selecting a locked modifier does not hold that operating-system key while the scanner runs. Ordinary characters use text injection; command combinations and navigation use native key events. Native shortcuts retain the operating system's layout semantics.
 
-The keyboard closes when the foreground target or display environment changes, or its scan session ends. Failed input clears keyboard modifiers and requires Select to resume. Stop, disconnect and application exit use the shared deterministic input cleanup. No typed text is logged, and no prediction data, context reader, protocol extension or persistent keyboard settings are added.
+The keyboard closes when the foreground target or display environment changes, or its scan session ends. Failed input clears keyboard modifiers and requires Select to resume. Stop, disconnect and application exit use the shared deterministic input cleanup. Word prediction can be enabled in Scanning settings. Five suggestions appear on the Letters page. Selecting a suggestion inserts its missing suffix and a space. Prediction uses local, read-only data; no personal vocabulary is saved. See [word prediction](word-prediction.md) for context availability and validation.
 
 ## Manual validation
 
