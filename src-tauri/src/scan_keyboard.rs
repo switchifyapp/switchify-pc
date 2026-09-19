@@ -260,6 +260,7 @@ impl Keyboard {
                     .is_some_and(|b| !b.words.is_empty())
             {
                 self.nav.reset();
+                self.interval.reset();
                 self.prefer_predictions = false;
             }
         }
@@ -615,6 +616,27 @@ impl Keyboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn arriving_predictions_receive_a_full_scan_interval() {
+        let mut keyboard = Keyboard::new(false);
+        keyboard.enable_predictions(true);
+        keyboard.advance(490, 500);
+        assert_eq!(keyboard.nav.index(), 1);
+        let batch = crate::prediction::worker::Batch {
+            token: 1,
+            words: vec!["hello".into()],
+        };
+        keyboard.predictions(Some(batch.clone()), false);
+        assert_eq!(keyboard.nav.index(), 0);
+        keyboard.advance(10, 500);
+        assert_eq!(keyboard.nav.index(), 0);
+        keyboard.predictions(Some(batch), false);
+        keyboard.advance(489, 500);
+        assert_eq!(keyboard.nav.index(), 0);
+        keyboard.advance(1, 500);
+        assert_eq!(keyboard.nav.index(), 1);
+    }
+
     #[test]
     fn predictions_skip_empty_slots_and_defer_acceptance() {
         let mut k = Keyboard::new(false);
