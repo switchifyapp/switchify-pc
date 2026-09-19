@@ -1362,6 +1362,12 @@ fn point_scan_prepare(app: &AppHandle) -> Result<(), String> {
 }
 
 pub fn run() {
+    if prediction::provider::probe_from_args() {
+        return;
+    }
+    if prediction::provider::run_from_args() {
+        return;
+    }
     if prediction::worker::run_from_args() {
         return;
     }

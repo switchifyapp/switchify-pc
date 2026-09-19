@@ -2,6 +2,7 @@ use super::{
     activity,
     context::{self, Adapter, RawContext, Status},
     database::Database,
+    provider::{Native, Provider, WithFallback},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -66,9 +67,9 @@ pub fn receive<T: serde::de::DeserializeOwned>(reader: &mut impl Read) -> Result
     reader.read_exact(&mut bytes).map_err(|_| ())?;
     serde_json::from_slice(&bytes).map_err(|_| ())
 }
-pub struct Engine<A: Adapter> {
+pub struct Engine<A: Adapter, P: Provider = Database> {
     adapter: A,
-    database: Database,
+    provider: P,
     target: Option<A::Target>,
     snapshot: Option<RawContext>,
     fallback: String,
@@ -81,11 +82,11 @@ pub struct Engine<A: Adapter> {
     token: u64,
     case: (bool, bool),
 }
-impl<A: Adapter> Engine<A> {
-    pub fn new(adapter: A, database: Database, tracked: bool) -> Self {
+impl<A: Adapter, P: Provider> Engine<A, P> {
+    pub fn new(adapter: A, provider: P, tracked: bool) -> Self {
         Self {
             adapter,
-            database,
+            provider,
             tracked,
             target: None,
             snapshot: None,
@@ -191,18 +192,22 @@ impl<A: Adapter> Engine<A> {
             self.clear();
             return None;
         }
-        self.target = Some(target);
         if self.snapshot.as_ref() == Some(&raw) && self.case == (shift, caps) {
             return self.batch.clone();
         }
         let ctx = context::extract(&raw.before, raw.clipped_start);
-        let words = match self.database.predict(&ctx) {
+        let words = match self.provider.predict(&ctx, &raw.before) {
             Ok(w) => w,
             Err(_) => {
                 self.clear();
                 return None;
             }
         };
+        if !self.stable(&target, epoch) {
+            self.clear();
+            return None;
+        }
+        self.target = Some(target);
         self.token = self.token.wrapping_add(1);
         self.suffixes.clear();
         let mut labels = Vec::new();
@@ -316,6 +321,19 @@ impl<A: Adapter> Engine<A> {
         }
     }
 }
+pub(super) fn watch_parent() {
+    #[cfg(target_os = "macos")]
+    {
+        let parent = unsafe { libc::getppid() };
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            if unsafe { libc::getppid() } != parent {
+                std::process::exit(0);
+            }
+        });
+    }
+}
+
 pub fn run_from_args() -> bool {
     let args: Vec<_> = std::env::args_os().collect();
     if args.get(1).is_none_or(|s| s != ARG) {
@@ -330,16 +348,7 @@ pub fn run_from_args() -> bool {
         if ignored.len() > 129 {
             return Err(());
         }
-        #[cfg(target_os = "macos")]
-        {
-            let parent = unsafe { libc::getppid() };
-            std::thread::spawn(move || loop {
-                std::thread::sleep(std::time::Duration::from_millis(250));
-                if unsafe { libc::getppid() } != parent {
-                    std::process::exit(0);
-                }
-            });
-        }
+        watch_parent();
         let tracked = activity::start(ignored);
         #[cfg(target_os = "windows")]
         let adapter = super::windows::WindowsAdapter::new().map_err(|_| ())?;
@@ -348,7 +357,14 @@ pub fn run_from_args() -> bool {
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             let database = Database::open(&path)?;
-            let mut engine = Engine::new(adapter, database, tracked);
+            let mut engine = Engine::new(
+                adapter,
+                WithFallback {
+                    native: Native,
+                    fallback: database,
+                },
+                tracked,
+            );
             let mut input = std::io::stdin().lock();
             let mut output = std::io::stdout().lock();
             while let Ok(request) = receive::<Request>(&mut input) {
@@ -422,6 +438,36 @@ mod tests {
         e.activity = 0;
         e
     }
+    #[test]
+    fn native_provider_obeys_context_gates_caching_and_exactly_once_acceptance() {
+        struct Counting(std::rc::Rc<std::cell::Cell<usize>>);
+        impl Provider for Counting {
+            fn predict(&mut self, _: &context::Context, _: &str) -> Result<Vec<String>, ()> {
+                self.0.set(self.0.get() + 1);
+                Ok(vec!["water".into()])
+            }
+        }
+        let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut e = Engine::new(Fake::new(), Counting(calls.clone()), true);
+        e.observe = || (0, true);
+        e.activity = 0;
+        let first = e.query(None, false, false, false).unwrap();
+        let again = e.query(None, false, false, false).unwrap();
+        assert_eq!(first.token, again.token);
+        assert_eq!(calls.get(), 1);
+        assert_eq!(e.accept(first.token, 0), Some("ter ".into()));
+        assert!(e.accept(first.token, 0).is_none());
+        e.adapter.protected = true;
+        assert!(e.query(None, false, false, false).is_none());
+        e.adapter.protected = false;
+        e.adapter.raw.has_selection = true;
+        assert!(e.query(None, false, false, false).is_none());
+        e.adapter.raw.has_selection = false;
+        e.adapter.raw.after = "x".into();
+        assert!(e.query(None, false, false, false).is_none());
+        assert_eq!(calls.get(), 1);
+    }
+
     #[test]
     fn only_suffix_and_space_are_returned_once() {
         let mut e = engine();

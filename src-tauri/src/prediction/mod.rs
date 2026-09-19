@@ -3,6 +3,7 @@ mod context;
 mod database;
 #[cfg(target_os = "macos")]
 mod macos;
+pub mod provider;
 #[cfg(target_os = "windows")]
 mod windows;
 pub mod worker;

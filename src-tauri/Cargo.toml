@@ -43,13 +43,14 @@ core-graphics = { version = "0.25", features = ["highsierra"] }
 libc = "0.2"
 objc2 = "0.6.4"
 objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["CALayer", "objc2-core-foundation", "objc2-core-graphics"] }
-objc2-app-kit = { version = "0.3.2", features = ["NSBitmapImageRep", "NSColor", "NSControl", "NSEvent", "NSGraphics", "NSImage", "NSImageRep", "NSImageView", "NSPanel", "NSTextField", "NSFont", "NSResponder", "NSScreen", "NSView", "NSWindow", "NSWorkspace", "NSRunningApplication", "objc2-core-foundation"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSBitmapImageRep", "NSColor", "NSControl", "NSEvent", "NSGraphics", "NSImage", "NSImageRep", "NSImageView", "NSPanel", "NSTextField", "NSFont", "NSResponder", "NSScreen", "NSView", "NSWindow", "NSWorkspace", "NSRunningApplication", "NSSpellChecker", "objc2-core-foundation"] }
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["CGEventSource", "CGEventTypes"] }
 objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSGeometry", "NSHost", "NSNotification", "NSObject", "NSOperation", "NSString", "NSThread", "NSURL", "block2"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_System_JobObjects", "Win32_System_SystemInformation", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
 windows = { version = "0.62.2", features = [
+  "Data_Text",
   "Devices_Bluetooth",
   "Devices_Bluetooth_GenericAttributeProfile",
   "Devices_Radios",
@@ -74,6 +75,7 @@ windows = { version = "0.62.2", features = [
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_WindowsAndMessaging"
 ] }
+windows-collections = "0.3.2"
 winreg = "0.55"
 
 [patch.crates-io]
