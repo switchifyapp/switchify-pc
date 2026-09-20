@@ -385,3 +385,8 @@ button:disabled { cursor: default; opacity: 0.55; }
 .scanner-sample.yellow { --scanner-colour: #ffd166; }
 .scanner-sample.white { --scanner-colour: #ffffff; }
 .scanner-sample-selection { display: flex; align-items: center; justify-content: center; height: 100%; border: 3px solid var(--scanner-colour); background: color-mix(in srgb, var(--scanner-colour) 25%, transparent); color: white; }
+
+.scanner-sample-selection.thin { border-width: 1px; }
+.scanner-sample-selection.standard { border-width: 2px; }
+.scanner-sample-selection.thick { border-width: 4px; }
+.scanner-preference + .scanner-preference { margin-top: 20px; }

@@ -102,14 +102,24 @@ pub struct Menu {
     period: u64,
 }
 impl Menu {
+    #[cfg(test)]
     pub fn new(kind: Kind, period: u64) -> Self {
+        Self::configured(
+            kind,
+            crate::scan_preferences::Resolved {
+                interval_ms: period,
+                ..Default::default()
+            },
+        )
+    }
+    pub fn configured(kind: Kind, options: crate::scan_preferences::Resolved) -> Self {
         let rows = kind.rows();
-        let scan = ItemScanner::rows(&rows, Policy::MENU);
+        let scan = ItemScanner::configured_rows(&rows, Policy::MENU, options);
         Self {
             kind,
             rows,
             scan,
-            period,
+            period: options.interval_ms,
         }
     }
     pub fn suspended(&self) -> bool {
@@ -143,13 +153,7 @@ impl Menu {
         let height = logical_height * scale;
         let panel = place(point, screen, width, height, 20.0 * scale);
         let mut frame = Frame::default();
-        let active_row = self
-            .scan
-            .nav
-            .path()
-            .first()
-            .copied()
-            .unwrap_or(self.scan.nav.index());
+        let (active_row, active_column) = self.scan.position(&self.rows);
         for (r, row) in self.rows.iter().enumerate() {
             let tile_width = 180.0 * scale;
             for (c, item) in row.iter().enumerate() {
@@ -159,11 +163,9 @@ impl Menu {
                     width: 168.0 * scale,
                     height: 168.0 * scale,
                 };
-                let selected = r == active_row
-                    && (self.scan.nav.path().is_empty()
-                        || self.scan.nav.escaping()
-                        || c == self.scan.nav.index());
+                let selected = r == active_row && active_column.is_none_or(|column| column == c);
                 frame.tiles.push(FrameTile {
+                    thickness: Default::default(),
                     keyboard: None,
                     color: Default::default(),
                     text: item.label().into(),
@@ -378,20 +380,25 @@ impl Setting {
     pub fn apply(self, config: &mut crate::point_scan::Config) {
         const RATES: &[u64] = &[250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000];
         match self {
-            Self::FasterScan => {
-                config.block_interval_ms = RATES
-                    .iter()
-                    .rev()
-                    .copied()
-                    .find(|v| *v < config.block_interval_ms)
-                    .unwrap_or(RATES[0])
-            }
-            Self::SlowerScan => {
-                config.block_interval_ms = RATES
-                    .iter()
-                    .copied()
-                    .find(|v| *v > config.block_interval_ms)
-                    .unwrap_or(5000)
+            Self::FasterScan | Self::SlowerScan => {
+                let current = config
+                    .resolved(crate::scan_preferences::Area::Menu)
+                    .interval_ms;
+                let next = if self == Self::FasterScan {
+                    RATES
+                        .iter()
+                        .rev()
+                        .copied()
+                        .find(|v| *v < current)
+                        .unwrap_or(RATES[0])
+                } else {
+                    RATES.iter().copied().find(|v| *v > current).unwrap_or(5000)
+                };
+                if config.scan_preferences.menu.interval_ms.is_some() {
+                    config.scan_preferences.menu.interval_ms = Some(next);
+                } else {
+                    config.block_interval_ms = next;
+                }
             }
             Self::FasterLine => config.speed = (config.speed + 1).min(4),
             Self::SlowerLine => config.speed = config.speed.saturating_sub(1),
@@ -719,5 +726,18 @@ mod tests {
         m.handle(Action::Reverse);
         m.advance(250);
         assert_eq!(m.scan.nav.index(), 3);
+    }
+    #[test]
+    fn menu_speed_changes_respect_the_area_override() {
+        let mut c = crate::point_scan::Config::default();
+        c.scan_preferences.menu.interval_ms = Some(500);
+        Setting::SlowerScan.apply(&mut c);
+        assert_eq!(c.scan_preferences.menu.interval_ms, Some(750));
+        assert_eq!(c.block_interval_ms, 1000);
+        assert_eq!(c.point().block_interval_ms, 1000);
+        c.scan_preferences.menu.interval_ms = None;
+        Setting::FasterScan.apply(&mut c);
+        assert_eq!(c.block_interval_ms, 750);
+        assert_eq!(c.scan_preferences.menu.interval_ms, None);
     }
 }

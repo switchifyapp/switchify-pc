@@ -243,3 +243,28 @@ it("saves auto selection separately from scan movement and validates its delay",
   fireEvent.change(delay, { target: { value: "0.05" } });
   expect(mocks.invoke).toHaveBeenCalledTimes(calls);
 });
+
+
+it("persists area overrides and restores inheritance without changing other areas", async () => {
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  const area = screen.getByRole("combobox", { name: "Customise scanning for" });
+  fireEvent.change(area, { target: { value: "keyboard" } });
+  expect(screen.getByRole("button", { name: "Reverse" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Use shared initial direction" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Reverse" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Reverse" }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: expect.objectContaining({ scanPreferences: expect.objectContaining({ keyboard: { direction: "reverse" }, menu: {} }) })
+  }));
+  fireEvent.change(area, { target: { value: "menu" } });
+  expect(screen.getByRole("button", { name: "Forward" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.change(area, { target: { value: "keyboard" } });
+  expect(screen.getByRole("button", { name: "Reverse" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByRole("button", { name: "Use shared settings for this area" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Forward" })).toBeDisabled());
+  expect(screen.getByRole("button", { name: "Forward" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.change(area, { target: { value: "point" } });
+  expect(screen.queryByRole("button", { name: "One item at a time" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Line only" })).toBeEnabled();
+});

@@ -4,7 +4,9 @@ import {
   validSwitches,
 } from "../scanning/useScanning";
 
-import { SettingGroup, Toggle, OptionGroup, secondsOptions } from "./controls";
+import { SettingGroup, Toggle, OptionGroup } from "./controls";
+
+import { ScannerPreferences } from "./ScannerPreferences";
 
 const phases = {
   keyboard: "Choose a keyboard row, then a key",
@@ -91,33 +93,7 @@ export function ScanningSection({
         )}
       </SettingGroup>
 
-      <SettingGroup
-        title="Scan movement"
-        description="Movement and switch actions shared by scanning techniques."
-      >
-        <Toggle
-          label="Automatic scanning"
-          checked={config.automatic}
-          disabled={disabled}
-          onChange={(value) => update("automatic", value)}
-        />
-
-        <OptionGroup<number>
-          legend="Auto scan rate"
-          disabled={disabled}
-          value={config.blockIntervalMs}
-          onChange={(value) => update("blockIntervalMs", value)}
-          options={secondsOptions([
-            250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000,
-          ])}
-          note={{
-            summary: "How long each grid row, grid cell, or action-menu item stays highlighted before scanning moves on automatically. Shorter times scan faster; longer times give you more time to select. Line speed controls how fast the scanning lines move.",
-          }}
-        />
-
-        <p>Assign switch actions in the Switches page. All actions run on release. Holding a switch freezes movement. After clicking, or after three passes without a selection, use Select to start again.</p>
-
-      </SettingGroup>
+      <ScannerPreferences controller={controller} />
 
       <SettingGroup title="Auto selection" description="Automatically left-click the chosen point after a delay. Press a switch again during the delay to open the action menu.">
         <Toggle label="Word prediction" checked={config.wordPrediction} disabled={disabled} onChange={(value) => update("wordPrediction", value)} />
@@ -127,24 +103,6 @@ export function ScanningSection({
           <input type="number" min="0.1" max="100" step="0.1" disabled={disabled} value={config.autoSelectDelayMs / 1000}
             onChange={(event) => { if (event.currentTarget.validity.valid && event.currentTarget.value !== "") update("autoSelectDelayMs", Math.round(event.currentTarget.valueAsNumber * 1000)); }} />
         </label>}
-      </SettingGroup>
-
-      <SettingGroup title="Scanner colour" description="Choose the colour used by the grid, scanning lines, and action menu.">
-        <fieldset disabled={disabled}>
-          <legend>Scanner colour</legend>
-          <div className="scanner-colours">
-            {(["red", "green", "blue", "yellow", "white"] as const).map((colour) => (
-              <label key={colour}>
-                <input type="radio" name="scanner-colour" value={colour} checked={config.scannerColor === colour} onChange={() => update("scannerColor", colour)} />
-                <span className={`color-swatch ${colour}`} aria-hidden="true" />
-                <span>{colour[0].toUpperCase() + colour.slice(1)}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        <div className={`scanner-sample ${config.scannerColor}`} role="img" aria-label={`${config.scannerColor} scanner highlight sample`}>
-          <span className="scanner-sample-selection">Selected area</span>
-        </div>
       </SettingGroup>
 
       <SettingGroup
