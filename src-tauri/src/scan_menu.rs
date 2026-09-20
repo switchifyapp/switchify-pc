@@ -1,7 +1,7 @@
 //! Menu rows and navigation are independent of native windows and input.
 use crate::{
-    scan_tree::{Navigator, Node, Selection},
-    scanning::{Action, Frame, FrameLabel, FrameTile, Interval, Rect, MAX_SCAN_CYCLES},
+    scan_items::{ItemScanner, Policy},
+    scanning::{Action, Frame, FrameLabel, FrameTile, Rect},
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
@@ -98,77 +98,40 @@ pub(crate) const ALL_MENU_KINDS: [Kind; 13] = [
 pub struct Menu {
     pub kind: Kind,
     rows: Vec<Vec<Item>>,
-    nav: Navigator<Item>,
-    interval: Interval,
+    scan: ItemScanner<Item>,
     period: u64,
-    cycles: usize,
-    forward: bool,
-    pub suspended: bool,
 }
 impl Menu {
     pub fn new(kind: Kind, period: u64) -> Self {
         let rows = kind.rows();
-        let nav = Navigator::new(
-            rows.iter()
-                .map(|row| Node::Branch(row.iter().copied().map(Node::Leaf).collect()))
-                .collect(),
-        );
+        let scan = ItemScanner::rows(&rows, Policy::MENU);
         Self {
             kind,
             rows,
-            nav,
-            interval: Interval::default(),
+            scan,
             period,
-            cycles: 0,
-            forward: true,
-            suspended: false,
         }
+    }
+    pub fn suspended(&self) -> bool {
+        self.scan.suspended
+    }
+    pub fn suspend(&mut self) {
+        self.scan.suspended = true;
     }
     pub fn set_period(&mut self, period: u64) {
         self.period = period;
         self.restart_interval();
     }
     pub fn restart_interval(&mut self) {
-        self.interval.reset();
-        self.cycles = 0;
-        self.suspended = false;
+        self.scan.restart_interval();
     }
     pub fn advance(&mut self, ms: u64) {
-        if !self.suspended && self.interval.elapsed(ms, self.period) && self.nav.step(self.forward)
-        {
-            self.cycles += 1;
-            self.suspended = self.cycles >= MAX_SCAN_CYCLES;
-        }
+        self.scan.advance(ms, self.period);
     }
     pub fn handle(&mut self, action: Action) -> Option<Item> {
-        if self.suspended {
-            if action == Action::Select {
-                self.restart_interval();
-            }
-            return None;
-        }
-        match action {
-            Action::Select => {
-                self.restart_interval();
-                match self.nav.select() {
-                    Selection::Leaf(item) => return Some(item),
-                    Selection::Entered | Selection::Escaped => self.forward = true,
-                    Selection::None => {}
-                }
-            }
-            Action::Next | Action::Back => {
-                self.interval.reset();
-                self.forward = action == Action::Next;
-                self.nav.step(self.forward);
-            }
-            Action::Reverse => {
-                self.forward = !self.forward;
-                self.restart_interval();
-            }
-            _ => {}
-        }
-        None
+        self.scan.handle(action)
     }
+
     pub fn frame(&self, point: (i32, i32), screen: Rect, units: f64) -> Frame {
         let columns = self.rows.iter().map(Vec::len).max().unwrap_or(1) as f64;
         let logical_width = 16.0 + columns * 180.0;
@@ -180,7 +143,13 @@ impl Menu {
         let height = logical_height * scale;
         let panel = place(point, screen, width, height, 20.0 * scale);
         let mut frame = Frame::default();
-        let active_row = self.nav.path().first().copied().unwrap_or(self.nav.index());
+        let active_row = self
+            .scan
+            .nav
+            .path()
+            .first()
+            .copied()
+            .unwrap_or(self.scan.nav.index());
         for (r, row) in self.rows.iter().enumerate() {
             let tile_width = 180.0 * scale;
             for (c, item) in row.iter().enumerate() {
@@ -191,7 +160,9 @@ impl Menu {
                     height: 168.0 * scale,
                 };
                 let selected = r == active_row
-                    && (self.nav.path().is_empty() || self.nav.escaping() || c == self.nav.index());
+                    && (self.scan.nav.path().is_empty()
+                        || self.scan.nav.escaping()
+                        || c == self.scan.nav.index());
                 frame.tiles.push(FrameTile {
                     keyboard: None,
                     color: Default::default(),
@@ -203,9 +174,9 @@ impl Menu {
                 });
             }
         }
-        let text = if self.suspended {
+        let text = if self.suspended() {
             "Select to resume"
-        } else if self.nav.escaping() {
+        } else if self.scan.nav.escaping() {
             "Back to rows"
         } else {
             match self.kind {
@@ -741,12 +712,12 @@ mod tests {
         m.advance(249);
         m.handle(Action::Back);
         m.advance(1);
-        assert!(m.nav.escaping());
+        assert!(m.scan.nav.escaping());
         assert_eq!(m.handle(Action::Select), None);
-        assert!(m.nav.path().is_empty());
-        assert_eq!(m.nav.index(), 0);
+        assert!(m.scan.nav.path().is_empty());
+        assert_eq!(m.scan.nav.index(), 0);
         m.handle(Action::Reverse);
         m.advance(250);
-        assert_eq!(m.nav.index(), 3);
+        assert_eq!(m.scan.nav.index(), 3);
     }
 }

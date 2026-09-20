@@ -188,7 +188,7 @@ impl Workflow {
             }
             Item::Setting(setting) => return Some(Request::Setting(setting)),
             Item::Display(next) => return Some(Request::Display(next)),
-            Item::Pause => self.menu.suspended = true,
+            Item::Pause => self.menu.suspend(),
             Item::Reverse => {
                 self.menu.handle(Action::Reverse);
             }
@@ -260,7 +260,7 @@ impl Technique for Workflow {
         self.stage = Stage::Menu;
         self.menu = Menu::new(Kind::Actions, self.point.config.block_interval_ms);
         self.parent_menu.clear();
-        self.menu.suspended = true;
+        self.menu.suspend();
         self.error = Some(message);
     }
     fn execution_succeeded(&mut self) {
@@ -407,7 +407,7 @@ impl Technique for Workflow {
     fn phase(&self) -> Phase {
         match self.stage {
             Stage::KeyboardOpening => Phase::Workflow(WorkflowPhase::KeyboardOpening),
-            Stage::Keyboard => Phase::Workflow(if self.keyboard.suspended {
+            Stage::Keyboard => Phase::Workflow(if self.keyboard.suspended() {
                 WorkflowPhase::KeyboardSuspended
             } else {
                 WorkflowPhase::Keyboard
@@ -417,7 +417,7 @@ impl Technique for Workflow {
             Stage::Point => Phase::Point(self.point.phase()),
             Stage::Destination => Phase::Workflow(WorkflowPhase::DragDestination),
             Stage::Executing => Phase::Workflow(WorkflowPhase::Executing),
-            Stage::Menu => Phase::Workflow(if self.menu.suspended {
+            Stage::Menu => Phase::Workflow(if self.menu.suspended() {
                 WorkflowPhase::MenuSuspended
             } else if self.menu.kind == Kind::ConfirmDrag {
                 WorkflowPhase::DragConfirmation
@@ -826,7 +826,7 @@ mod tests {
         w.advance(5000);
         assert_eq!(w.frame(), frame);
         assert!(w.handle(Action::Select).is_none());
-        assert!(!w.menu.suspended);
+        assert!(!w.menu.suspended());
         assert_eq!(w.source, (120, 80));
     }
     #[test]

@@ -799,7 +799,9 @@ mod title_tests {
             for units in [1.0, 2.0] {
                 let mut menu = Menu::new(Kind::Actions, 500);
                 for paused in [false, true] {
-                    menu.suspended = paused;
+                    if paused {
+                        menu.suspend();
+                    }
                     let frame = menu.frame((0, 0), screen, units);
                     let label = frame.label.as_ref().unwrap();
                     let MenuTitle { rect, scale } =
