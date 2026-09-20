@@ -8,16 +8,23 @@ use std::{
     io::{Read, Write},
     path::PathBuf,
 };
+use unicode_segmentation::UnicodeSegmentation;
 pub const ARG: &str = "--switchify-prediction-worker";
 pub const LIMIT: usize = 16384;
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum Edit {
+    Append(String),
+    Backspace,
+    Reset,
+}
 
 // Private inherited-pipe payloads. Never log these or forward them to Tauri.
 #[derive(Serialize, Deserialize)]
 pub enum Request {
     Query {
         generation: u64,
-        edit: Option<String>,
-        reset: bool,
+        edits: Vec<Edit>,
         shift: bool,
         caps: bool,
     },
@@ -73,6 +80,7 @@ pub struct Engine<A: Adapter> {
     snapshot: Option<RawContext>,
     fallback: String,
     boundary: bool,
+    fallback_clipped: bool,
     tracked: bool,
     activity: u64,
     observe: fn() -> (u64, bool),
@@ -91,6 +99,7 @@ impl<A: Adapter> Engine<A> {
             snapshot: None,
             fallback: String::new(),
             boundary: false,
+            fallback_clipped: true,
             activity: activity::snapshot().0,
             observe: activity::snapshot,
             batch: None,
@@ -102,6 +111,7 @@ impl<A: Adapter> Engine<A> {
     fn clear(&mut self) {
         self.fallback.clear();
         self.boundary = false;
+        self.fallback_clipped = true;
         self.snapshot = None;
         self.batch = None;
         self.suffixes.clear();
@@ -118,6 +128,44 @@ impl<A: Adapter> Engine<A> {
             .is_ok_and(|current| self.adapter.same(target, &current).unwrap_or(false))
             && (self.observe)().0 == epoch
     }
+    fn trim_buffer(&mut self) {
+        while self.fallback.chars().count() > 512 {
+            let end = self.fallback.graphemes(true).next().unwrap().len();
+            self.fallback.drain(..end);
+            self.fallback_clipped = true;
+        }
+    }
+    fn apply_edit(&mut self, edit: Edit) {
+        match edit {
+            Edit::Reset => self.clear(),
+            Edit::Append(text) => {
+                if text.chars().count() > 512 {
+                    self.clear();
+                    return;
+                }
+                for c in text.chars() {
+                    if c.is_whitespace() || matches!(c, '.' | '!' | '?' | ',' | ';' | ':') {
+                        self.boundary = true;
+                    }
+                    if self.boundary {
+                        self.fallback.push(c);
+                    }
+                }
+                self.trim_buffer();
+            }
+            Edit::Backspace => {
+                if let Some((start, _)) = self.fallback.grapheme_indices(true).next_back() {
+                    self.fallback.truncate(start);
+                    if self.fallback.is_empty() && self.fallback_clipped {
+                        self.boundary = false;
+                    }
+                } else {
+                    self.clear();
+                }
+            }
+        }
+    }
+    #[cfg(test)]
     fn query(
         &mut self,
         edit: Option<String>,
@@ -125,6 +173,16 @@ impl<A: Adapter> Engine<A> {
         shift: bool,
         caps: bool,
     ) -> Option<Batch> {
+        let mut edits = Vec::new();
+        if reset {
+            edits.push(Edit::Reset);
+        }
+        if let Some(text) = edit {
+            edits.push(Edit::Append(text));
+        }
+        self.query_edits(edits, shift, caps)
+    }
+    fn query_edits(&mut self, edits: Vec<Edit>, shift: bool, caps: bool) -> Option<Batch> {
         let target = match self.target() {
             Ok(t) => t,
             Err(_) => {
@@ -139,7 +197,7 @@ impl<A: Adapter> Engine<A> {
             .as_ref()
             .is_some_and(|old| self.adapter.same(old, &target).unwrap_or(false));
         let uninterrupted = epoch == self.activity;
-        if !same || !uninterrupted || reset {
+        if !same || !uninterrupted {
             self.clear();
         }
         if !healthy {
@@ -150,28 +208,12 @@ impl<A: Adapter> Engine<A> {
             }
         }
         self.activity = epoch;
-        if same && uninterrupted && !reset && self.tracked && healthy {
-            if let Some(text) = edit {
-                if text.chars().count() > 512 {
-                    self.clear();
-                } else {
-                    for c in text.chars() {
-                        if c.is_whitespace() || matches!(c, '.' | '!' | '?' | ',' | ';' | ':') {
-                            self.boundary = true;
-                        }
-                        if self.boundary {
-                            self.fallback.push(c);
-                        }
-                    }
-                    self.fallback = self
-                        .fallback
-                        .chars()
-                        .rev()
-                        .take(512)
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .rev()
-                        .collect();
+        if same && uninterrupted && self.tracked && healthy {
+            if edits.len() > 512 {
+                self.clear();
+            } else {
+                for edit in edits {
+                    self.apply_edit(edit);
                 }
             }
         }
@@ -183,7 +225,7 @@ impl<A: Adapter> Engine<A> {
                 RawContext {
                     before: self.fallback.clone(),
                     after: String::new(),
-                    clipped_start: true,
+                    clipped_start: self.fallback_clipped,
                     has_selection: false,
                     position: -1,
                 }
@@ -197,6 +239,12 @@ impl<A: Adapter> Engine<A> {
         if !self.stable(&target, epoch) {
             self.clear();
             return None;
+        }
+        if raw.position != -1 && self.tracked && healthy && self.adapter.editable(&target) {
+            self.fallback = raw.before.clone();
+            self.fallback_clipped = raw.clipped_start;
+            self.boundary = true;
+            self.trim_buffer();
         }
         self.target = Some(target);
         if self.snapshot.as_ref() == Some(&raw) && self.case == (shift, caps) {
@@ -286,12 +334,11 @@ impl<A: Adapter> Engine<A> {
         match request {
             Request::Query {
                 generation,
-                edit,
-                reset,
+                edits,
                 shift,
                 caps,
             } => {
-                let mut batch = self.query(edit, reset, shift, caps);
+                let mut batch = self.query_edits(edits, shift, caps);
                 let current = self.target();
                 let stable = current.as_ref().is_ok_and(|current| {
                     self.target
@@ -431,6 +478,119 @@ mod tests {
         e.activity = 0;
         e
     }
+
+    #[test]
+    fn buffered_edits_preserve_order_unicode_and_boundary_confidence() {
+        let mut e = engine();
+        e.adapter.unsupported = true;
+        e.query(None, false, false, false);
+        let b = e
+            .query_edits(
+                vec![Edit::Append(" waX".into()), Edit::Backspace],
+                false,
+                false,
+            )
+            .unwrap();
+        assert_eq!(b.words[0], "water");
+        assert_eq!(e.fallback, " wa");
+        e.query_edits(
+            vec![
+                Edit::Append("e\u{301}👩‍💻".into()),
+                Edit::Backspace,
+                Edit::Backspace,
+            ],
+            false,
+            false,
+        );
+        assert_eq!(e.fallback, " wa");
+        e.query_edits(
+            vec![
+                Edit::Backspace,
+                Edit::Backspace,
+                Edit::Backspace,
+                Edit::Backspace,
+                Edit::Append("wa".into()),
+            ],
+            false,
+            false,
+        );
+        assert!(!e.boundary);
+        assert!(e.query(None, false, false, false).is_none());
+        assert!(e.query(Some(" wa".into()), false, false, false).is_some());
+    }
+    #[test]
+    fn native_context_seeds_fallback_and_recovers_authoritatively() {
+        let mut e = engine();
+        e.query(None, false, false, false).unwrap();
+        e.adapter.unsupported = true;
+        let b = e
+            .query_edits(vec![Edit::Append("t".into())], false, false)
+            .unwrap();
+        assert_eq!(e.fallback, "I like wat");
+        let suffix = e.accept(b.token, 0).unwrap();
+        assert_eq!(suffix, "er ");
+        assert!(e.accept(b.token, 0).is_none());
+        e.query_edits(vec![Edit::Append(suffix)], false, false);
+        assert_eq!(e.fallback, "I like water ");
+        e.adapter.unsupported = false;
+        e.adapter.raw.before = "wa".into();
+        let recovered = e.query(None, false, false, false).unwrap();
+        assert_eq!(e.fallback, "wa");
+        assert!(e.accept(b.token, 0).is_none());
+        assert_eq!(e.accept(recovered.token, 0), Some("ter ".into()));
+    }
+    #[test]
+    fn reset_then_new_typing_does_not_reuse_old_context() {
+        let mut e = engine();
+        e.query(None, false, false, false);
+        e.adapter.unsupported = true;
+        e.query_edits(vec![Edit::Reset, Edit::Append("wa".into())], false, false);
+        assert!(!e.boundary);
+        let b = e
+            .query_edits(vec![Edit::Append(" wa".into())], false, false)
+            .unwrap();
+        for _ in 0..40 {
+            assert_eq!(e.query(None, false, false, false).unwrap().token, b.token);
+        }
+        e.adapter.target += 1;
+        assert!(e
+            .query_edits(vec![Edit::Append("ter ".into())], false, false)
+            .is_none());
+        assert!(e.fallback.is_empty());
+    }
+    #[test]
+    fn buffer_and_edit_queue_are_bounded() {
+        let mut e = engine();
+        e.query(None, false, false, false);
+        e.adapter.unsupported = true;
+        for _ in 0..8 {
+            e.query_edits(vec![Edit::Append(" word".repeat(90))], false, false);
+        }
+        assert!(e.fallback.chars().count() <= 512);
+        assert!(e.fallback_clipped);
+        e.query_edits(vec![Edit::Backspace; 513], false, false);
+        assert!(e.fallback.is_empty());
+        let mut service = crate::prediction::Service::default();
+        for _ in 0..513 {
+            service.queue_edit(Edit::Append("a".into()));
+        }
+        let edits = service.take_edits();
+        assert!(matches!(edits[0], Edit::Reset));
+        assert_eq!(edits.len(), 2);
+    }
+    #[test]
+    fn layouts_hide_suggestions_without_discarding_buffer_tracking() {
+        let mut service = crate::prediction::Service::default();
+        let mut keyboard = crate::scan_keyboard::Keyboard::new(false);
+        keyboard.page = crate::scan_keyboard::Page::Numbers;
+        service.suggestions(&mut keyboard, None, true);
+        assert!(service.tracking);
+        service.queue_edit(Edit::Append("123".into()));
+        keyboard.page = crate::scan_keyboard::Page::Letters;
+        service.suggestions(&mut keyboard, None, true);
+        assert!(!service.reset);
+        assert_eq!(service.take_edits().len(), 1);
+    }
     #[test]
     fn native_predictions_survive_polls_without_fallback_tracking() {
         for unavailable in 0..3 {
@@ -447,8 +607,7 @@ mod tests {
             for _ in 0..40 {
                 let response = e.respond(Request::Query {
                     generation: 0,
-                    edit: service.edit.take(),
-                    reset: std::mem::take(&mut service.reset),
+                    edits: service.take_edits(),
                     shift: false,
                     caps: false,
                 });
@@ -518,12 +677,12 @@ mod tests {
     fn losing_tracking_does_not_erase_a_pending_context_reset() {
         let mut service = crate::prediction::Service {
             reset: true,
-            edit: Some("queued".into()),
+            edit: vec![Edit::Append("queued".into())],
             ..Default::default()
         };
         service.suggestions(&mut crate::scan_keyboard::Keyboard::new(false), None, false);
         assert!(service.reset);
-        assert!(service.edit.is_none());
+        assert!(service.edit.is_empty());
     }
     #[test]
     fn only_suffix_and_space_are_returned_once() {
@@ -593,8 +752,7 @@ mod tests {
         assert!(matches!(
             e.respond(Request::Query {
                 generation: 1,
-                edit: None,
-                reset: false,
+                edits: vec![],
                 shift: false,
                 caps: false,
             }),
@@ -622,8 +780,7 @@ mod tests {
         assert!(receive::<Request>(&mut &b"bad!"[..]).is_err());
         let request = Request::Query {
             generation: 1,
-            edit: Some("x".repeat(LIMIT)),
-            reset: false,
+            edits: vec![Edit::Append("x".repeat(LIMIT))],
             shift: false,
             caps: false,
         };
