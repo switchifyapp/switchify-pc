@@ -113,7 +113,7 @@ impl Preferences {
             automatic: local.automatic.unwrap_or(automatic),
             interval_ms: local
                 .interval_ms
-                .filter(|v| (250..=5000).contains(v))
+                .filter(|v| (100..=10000).contains(v))
                 .unwrap_or(interval_ms),
             direction: local.direction.unwrap_or(self.direction),
             pass_limit: local.pass_limit.filter(|v| valid_passes(*v)).unwrap_or(
@@ -146,7 +146,7 @@ pub fn deserialize_preferences<'de, D: serde::Deserializer<'de>>(
         &mut preferences.menu,
         &mut preferences.keyboard,
     ] {
-        local.interval_ms = local.interval_ms.filter(|v| (250..=5000).contains(v));
+        local.interval_ms = local.interval_ms.filter(|v| (100..=10000).contains(v));
         local.pass_limit = local.pass_limit.filter(|v| valid_passes(*v));
     }
     Ok(preferences)

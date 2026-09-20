@@ -279,17 +279,17 @@ it("keeps rate values in manual mode and preserves keyboard settings when resett
   await screen.findByText(initial.message);
   fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Word prediction" }));
-  fireEvent.change(screen.getByLabelText("Auto scan rate"), { target: { value: "500" } });
+  fireEvent.click(screen.getByRole("button", { name: "Decrease auto scan interval by 0.1 seconds" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Automatic scanning" }));
-  expect(screen.getByLabelText("Auto scan rate")).toBeDisabled();
-  expect(screen.getByLabelText("Auto scan rate")).toHaveValue("500");
+  expect(screen.getByRole("button", { name: "Decrease auto scan interval by 0.1 seconds" })).toBeDisabled();
+  expect(screen.getByLabelText("Auto scan rate")).toHaveTextContent("0.9 s");
   fireEvent.click(screen.getByRole("button", { name: "Use default for auto scan rate" }));
   await waitFor(() => expect(screen.getByRole("group", { name: "Auto scan rate setting" })).toHaveFocus());
-  expect(screen.getByLabelText("Auto scan rate")).toBeDisabled();
-  expect(screen.getByLabelText("Auto scan rate")).toHaveValue("1000");
+  expect(screen.getByRole("button", { name: "Decrease auto scan interval by 0.1 seconds" })).toBeDisabled();
+  expect(screen.getByLabelText("Auto scan rate")).toHaveTextContent("1 s");
   fireEvent.click(screen.getByRole("button", { name: "Reset scanning overrides" }));
-  expect(screen.getByLabelText("Auto scan rate")).toBeEnabled();
-  expect(screen.getByLabelText("Auto scan rate")).toHaveValue("1000");
+  expect(screen.getByRole("button", { name: "Decrease auto scan interval by 0.1 seconds" })).toBeEnabled();
+  expect(screen.getByLabelText("Auto scan rate")).toHaveTextContent("1 s");
   expect(screen.getByRole("checkbox", { name: "Word prediction" })).not.toBeChecked();
   await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
     config: expect.objectContaining({ wordPrediction: false, scanPreferences: expect.objectContaining({ keyboard: {} }) })
@@ -363,4 +363,21 @@ it("saves the keyboard after-typing choice and preserves it while manual", async
   fireEvent.click(screen.getByRole("checkbox", { name: "Automatic scanning" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Wait for Select" })).toBeEnabled());
   expect(screen.getByRole("button", { name: "Wait for Select" })).toHaveAttribute("aria-pressed", "true");
+});
+
+it.each([100, 250, 750, 10000])("adjusts and persists the shared interval from %i ms without rounding legacy values", async (rate) => {
+  mocks.invoke.mockImplementation(async (command, args) => command === "get_point_scan"
+    ? { ...initial, config: { ...initial.config, blockIntervalMs: rate } } : { ...initial, ...args });
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  const decrease = screen.getByRole("button", { name: "Decrease auto scan interval by 0.1 seconds" });
+  const increase = screen.getByRole("button", { name: "Increase auto scan interval by 0.1 seconds" });
+  expect(decrease).toHaveProperty("disabled", rate === 100);
+  expect(increase).toHaveProperty("disabled", rate === 10000);
+  const next = rate === 100 ? 200 : Math.max(100, rate - 100);
+  fireEvent.click(rate === 100 ? increase : decrease);
+  expect(screen.getByLabelText("Auto scan rate")).toHaveTextContent(`${next / 1000} s`);
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: expect.objectContaining({ blockIntervalMs: next })
+  }));
 });

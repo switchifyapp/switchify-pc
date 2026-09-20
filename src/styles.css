@@ -437,3 +437,7 @@ button:disabled { cursor: default; opacity: 0.55; }
   .scanner-area-badge { grid-column: 2; grid-row: 2 / 4; align-self: center; margin: 0; }
   .scanner-area-card > span:not(.scanner-area-badge) { grid-column: 1; }
 }
+
+.scan-rate-stepper { display: flex; align-items: center; gap: 8px; }
+.scan-rate-stepper button { min-width: 44px; min-height: 44px; font-size: 22px; }
+.scan-rate-stepper output { min-width: 72px; text-align: center; font-variant-numeric: tabular-nums; }

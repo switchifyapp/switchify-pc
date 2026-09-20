@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ScanningController, ScannerColor, PointScanConfig } from '../scanning/useScanning';
-import { areaOptions, sharedOptions, defaultScanPreferences, scanIntervals, type ScanArea, type ScanOptions } from '../scanning/preferences';
+import { areaOptions, sharedOptions, defaultScanPreferences, type ScanArea, type ScanOptions } from '../scanning/preferences';
 import { SettingGroup, Toggle, OptionGroup } from './controls';
 
 export function ScannerPreferences({ controller }: { controller: ScanningController }) {
@@ -144,9 +144,11 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
       onChange={value => update('keyboardWaitAfterTyping', value === 'wait')}
       note={{ summary: effective.automatic ? 'After typing a key or suggestion, wait for Select before scanning again.' : 'Used in automatic keyboard scanning. Your choice is kept while scanning manually.' }} />}
     {field('intervalMs', 'Auto scan rate', locked => <>
-      <label className="exact-speed"><span>Auto scan rate</span><select disabled={locked || !effective.automatic} value={effective.intervalMs} onChange={event => change('intervalMs', Number(event.target.value))}>
-        {[...new Set([...scanIntervals, effective.intervalMs])].sort((a, b) => a - b).map(value => <option key={value} value={value}>{value / 1000} {value === 1000 ? 'second' : 'seconds'}</option>)}
-      </select></label>
+      <div className="exact-speed"><span>Auto scan rate</span><div className="scan-rate-stepper">
+        <button type="button" aria-label="Decrease auto scan interval by 0.1 seconds" disabled={locked || !effective.automatic || effective.intervalMs <= 100} onClick={() => change('intervalMs', Math.max(100, effective.intervalMs - 100))}>−</button>
+        <output aria-label="Auto scan rate" aria-live="polite">{effective.intervalMs / 1000} s</output>
+        <button type="button" aria-label="Increase auto scan interval by 0.1 seconds" disabled={locked || !effective.automatic || effective.intervalMs >= 10000} onClick={() => change('intervalMs', Math.min(10000, effective.intervalMs + 100))}>+</button>
+      </div></div>
       <p className="setting-note">{effective.automatic ? 'Time each row or item stays highlighted. Lower values scan faster. Line speed is separate.' : 'Used in automatic scanning. Your rate is kept while scanning manually.'}</p>
     </>)}
     {field('direction', 'Initial direction', locked => <OptionGroup<ScanOptions['direction']> legend="Initial direction" disabled={locked} value={effective.direction} options={[{ value: 'forward', label: 'Forward' }, { value: 'reverse', label: 'Reverse' }]} onChange={value => change('direction', value)} />)}

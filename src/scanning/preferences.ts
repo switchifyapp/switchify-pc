@@ -14,7 +14,6 @@ export const defaultScanPreferences: ScanPreferences = {
   direction: 'forward', passLimit: 3, pattern: 'grouped', thickness: 'standard',
   point: {}, menu: {}, keyboard: {},
 };
-export const scanIntervals = [250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000];
 export function sharedOptions(config: PointScanConfig): ScanOptions {
   const settings = config.scanPreferences ?? defaultScanPreferences;
   return { automatic: config.automatic, intervalMs: config.blockIntervalMs, color: config.scannerColor,
