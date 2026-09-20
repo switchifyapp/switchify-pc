@@ -37,7 +37,6 @@ pub enum Area {
     Point,
     Menu,
     Keyboard,
-    App,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -60,7 +59,6 @@ pub struct Preferences {
     pub point: Overrides,
     pub menu: Overrides,
     pub keyboard: Overrides,
-    pub app: Overrides,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -72,7 +70,6 @@ impl Default for Preferences {
             point: Default::default(),
             menu: Default::default(),
             keyboard: Default::default(),
-            app: Default::default(),
         }
     }
 }
@@ -111,7 +108,6 @@ impl Preferences {
             Area::Point => self.point,
             Area::Menu => self.menu,
             Area::Keyboard => self.keyboard,
-            Area::App => self.app,
         };
         Resolved {
             automatic: local.automatic.unwrap_or(automatic),
@@ -149,7 +145,6 @@ pub fn deserialize_preferences<'de, D: serde::Deserializer<'de>>(
         &mut preferences.point,
         &mut preferences.menu,
         &mut preferences.keyboard,
-        &mut preferences.app,
     ] {
         local.interval_ms = local.interval_ms.filter(|v| (250..=5000).contains(v));
         local.pass_limit = local.pass_limit.filter(|v| valid_passes(*v));
@@ -172,7 +167,7 @@ mod tests {
         assert_eq!(keyboard.interval_ms, 250);
         assert!(!keyboard.exhausted(10000));
         assert_eq!(keyboard.color, ScannerColor::Red);
-        for area in [Area::Point, Area::Menu, Area::App] {
+        for area in [Area::Point, Area::Menu] {
             let inherited = settings.resolve(area, true, 1500, ScannerColor::Green);
             assert!(inherited.automatic);
             assert_eq!(inherited.interval_ms, 1500);

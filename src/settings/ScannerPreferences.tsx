@@ -29,7 +29,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
   };
   return <SettingGroup title="Scanning defaults and overrides" description="Set shared defaults, then customise individual areas when you need different behaviour.">
     <label className="exact-speed"><span>Customise scanning for</span><select value={area} onChange={event => setArea(event.target.value as typeof area)}>
-      <option value="shared">Shared defaults</option><option value="point">Point scanning</option><option value="menu">Menus</option><option value="keyboard">Keyboard</option><option value="app">App screens</option>
+      <option value="shared">Shared defaults</option><option value="point">Point scanning</option><option value="menu">Menus</option><option value="keyboard">Keyboard</option>
     </select></label>
     {area !== 'shared' && <p className="setting-note">Checked “Use shared” controls follow your shared defaults. Uncheck one to choose a value for this area.</p>}
     {field('automatic', 'Automatic scanning', locked => <Toggle label="Automatic scanning" checked={effective.automatic} disabled={locked} onChange={value => change('automatic', value)} />)}

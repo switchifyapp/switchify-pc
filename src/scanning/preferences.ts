@@ -1,5 +1,5 @@
 import type { PointScanConfig, ScannerColor } from './useScanning';
-export type ScanArea = 'point' | 'menu' | 'keyboard' | 'app';
+export type ScanArea = 'point' | 'menu' | 'keyboard';
 export type ScanOptions = {
   automatic: boolean;
   intervalMs: number;
@@ -12,7 +12,7 @@ export type ScanOptions = {
 export type ScanPreferences = Pick<ScanOptions, 'direction' | 'passLimit' | 'pattern' | 'thickness'> & Record<ScanArea, Partial<ScanOptions>>;
 export const defaultScanPreferences: ScanPreferences = {
   direction: 'forward', passLimit: 3, pattern: 'grouped', thickness: 'standard',
-  point: {}, menu: {}, keyboard: {}, app: {},
+  point: {}, menu: {}, keyboard: {},
 };
 export const scanIntervals = [250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000];
 export function sharedOptions(config: PointScanConfig): ScanOptions {

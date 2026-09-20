@@ -59,7 +59,7 @@ including reordered content, cancellation, exactly-once completion and timing.
 ## Settings
 
 `scan_preferences::Preferences` resolves shared defaults and optional per-area
-values into `Resolved` options. The existing top-level automatic, interval and
+values for point scanning, menus and the keyboard into `Resolved` options. The existing top-level automatic, interval and
 colour fields remain the shared defaults for compatibility. Missing overrides
 inherit them; removing an override restores inheritance. Direction, pass limit,
 item pattern and highlight thickness have backward-compatible defaults.
@@ -74,10 +74,3 @@ unavailable predictions counts automatic wraps but never manual passes.
 The existing configure API cancels a running scan and waits for Select. Native
 frames carry effective colour and thickness; individual renderers do not resolve
 settings. Point line/grid geometry and movement speed remain separate controls.
-
-## Following stage
-
-Issue #802 adds a main-window React content adapter and foreground/modal ownership,
-using the app-area preferences already stored here. Individual screens must not
-implement traversal or timers. Preserve input generation checks, cleanup, native
-focus, point countdown cancellation and Remote behaviour.

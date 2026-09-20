@@ -58,7 +58,6 @@ impl Config {
                 crate::scan_preferences::Area::Point,
                 crate::scan_preferences::Area::Menu,
                 crate::scan_preferences::Area::Keyboard,
-                crate::scan_preferences::Area::App,
             ]
             .into_iter()
             .all(|area| self.resolved(area).automatic),
@@ -990,7 +989,7 @@ mod tests {
         use crate::scan_preferences::{Area, Direction, Pattern, Thickness};
         let legacy = serde_json::json!({"automatic":false,"blockIntervalMs":1500,"scannerColor":"green","speed":4});
         let mut config: Config = serde_json::from_value(legacy).unwrap();
-        for area in [Area::Point, Area::Menu, Area::Keyboard, Area::App] {
+        for area in [Area::Point, Area::Menu, Area::Keyboard] {
             let resolved = config.resolved(area);
             assert!(!resolved.automatic);
             assert_eq!(resolved.interval_ms, 1500);
@@ -1007,6 +1006,25 @@ mod tests {
         assert!(!restored.automatic);
         assert!(restored.resolved(Area::Keyboard).automatic);
         assert!(!restored.switches().automatic);
+    }
+
+    #[test]
+    fn obsolete_app_override_does_not_require_manual_switches() {
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "automatic": false,
+            "scanPreferences": {
+                "point": {"automatic": true},
+                "menu": {"automatic": true},
+                "keyboard": {"automatic": true},
+                "app": {"automatic": false}
+            }
+        }))
+        .unwrap();
+        assert!(config.switches().automatic);
+        let stored = serde_json::to_value(&config).unwrap();
+        assert!(stored["scanPreferences"].get("app").is_none());
+        let restored: Config = serde_json::from_value(stored).unwrap();
+        assert_eq!(restored, config);
     }
 
     #[test]
