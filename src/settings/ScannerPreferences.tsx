@@ -139,6 +139,10 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     </SettingGroup>}
     <SettingGroup title="Movement" description="Choose how scanning advances and when it waits for you.">
     {field('automatic', 'Automatic scanning', locked => <Toggle label="Automatic scanning" checked={effective.automatic} disabled={locked} onChange={value => change('automatic', value)} />)}
+    {area === 'keyboard' && <OptionGroup<'continue' | 'wait'> legend="After typing" disabled={disabled || !effective.automatic} value={config.keyboardWaitAfterTyping ? 'wait' : 'continue'}
+      options={[{ value: 'continue', label: 'Continue scanning' }, { value: 'wait', label: 'Wait for Select' }]}
+      onChange={value => update('keyboardWaitAfterTyping', value === 'wait')}
+      note={{ summary: effective.automatic ? 'After typing a key or suggestion, wait for Select before scanning again.' : 'Used in automatic keyboard scanning. Your choice is kept while scanning manually.' }} />}
     {field('intervalMs', 'Auto scan rate', locked => <>
       <label className="exact-speed"><span>Auto scan rate</span><select disabled={locked || !effective.automatic} value={effective.intervalMs} onChange={event => change('intervalMs', Number(event.target.value))}>
         {[...new Set([...scanIntervals, effective.intervalMs])].sort((a, b) => a - b).map(value => <option key={value} value={value}>{value / 1000} {value === 1000 ? 'second' : 'seconds'}</option>)}

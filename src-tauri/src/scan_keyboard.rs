@@ -184,6 +184,8 @@ pub struct Keyboard {
     predictions: Option<crate::prediction::worker::Batch>,
     queued_predictions: Option<crate::prediction::worker::Batch>,
     prefer_predictions: bool,
+    wait_after_typing: bool,
+    waiting_after_typing: bool,
 }
 impl Keyboard {
     #[cfg(test)]
@@ -208,7 +210,13 @@ impl Keyboard {
             predictions: None,
             queued_predictions: None,
             prefer_predictions: true,
+            wait_after_typing: false,
+            waiting_after_typing: false,
         }
+    }
+    pub fn with_wait_after_typing(mut self, enabled: bool) -> Self {
+        self.wait_after_typing = enabled;
+        self
     }
     pub fn enable_predictions(&mut self, enabled: bool) {
         if self.prediction_enabled == enabled {
@@ -236,6 +244,11 @@ impl Keyboard {
         self.prediction_failed = failed;
         if batch.is_none() {
             self.predictions = None;
+            self.queued_predictions = None;
+            return;
+        }
+        if self.waiting_after_typing {
+            self.predictions = batch;
             self.queued_predictions = None;
             return;
         }
@@ -290,6 +303,7 @@ impl Keyboard {
         self.scan.suspended
     }
     fn restart(&mut self) {
+        self.waiting_after_typing = false;
         self.prefer_predictions = true;
         self.scan.restart();
         self.skip_disabled(false);
@@ -373,6 +387,11 @@ impl Keyboard {
             }
             self.activation = None;
             self.restart();
+            if self.wait_after_typing && self.scan.options.automatic {
+                self.waiting_after_typing = true;
+                self.prefer_predictions = false;
+                self.scan.suspended = true;
+            }
         }
     }
     pub fn failed(&mut self) {
@@ -554,6 +573,8 @@ impl Keyboard {
         };
         let text = if self.error {
             "Input failed · Select to try again".to_owned()
+        } else if self.waiting_after_typing {
+            "Press Select to continue typing.".to_owned()
         } else if self.scan.suspended {
             "Keyboard paused · Select to resume".to_owned()
         } else if self.scan.nav.escaping() {
@@ -598,6 +619,137 @@ impl Keyboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn typing_wait_consumes_resume_and_restarts_a_full_interval() {
+        use crate::scan_preferences::{Direction, Pattern, Resolved};
+        for direction in [Direction::Forward, Direction::Reverse] {
+            for pattern in [Pattern::Grouped, Pattern::Linear] {
+                for automatic in [false, true] {
+                    for enabled in [false, true] {
+                        let mut k = Keyboard::configured(
+                            false,
+                            Resolved {
+                                direction,
+                                pattern,
+                                automatic,
+                                pass_limit: 1,
+                                ..Default::default()
+                            },
+                        )
+                        .with_wait_after_typing(enabled);
+                        assert!(matches!(
+                            k.choose(Key::Character('a', 'A')),
+                            Some(Output::Stroke(_))
+                        ));
+                        assert!(k.handle(Action::Select).is_none());
+                        k.succeeded();
+                        assert_eq!(k.waiting_after_typing, automatic && enabled);
+                        assert_eq!(k.suspended(), automatic && enabled);
+                        if automatic && enabled {
+                            let position = k.scan.position(&k.rows);
+                            k.advance(5000, 1000);
+                            assert_eq!(k.scan.position(&k.rows), position);
+                            k.handle(Action::Next);
+                            k.handle(Action::Back);
+                            k.handle(Action::Reverse);
+                            assert!(k.waiting_after_typing);
+                            assert!(k.handle(Action::Select).is_none());
+                            assert!(!k.waiting_after_typing);
+                            k.advance(999, 1000);
+                            assert_eq!(k.scan.position(&k.rows), position);
+                            k.advance(1, 1000);
+                            assert_ne!(k.scan.position(&k.rows), position);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn predictions_and_duplicate_completion_cannot_resume_typing_wait() {
+        let mut k = Keyboard::new(false).with_wait_after_typing(true);
+        k.enable_predictions(true);
+        k.predictions(
+            Some(crate::prediction::worker::Batch {
+                token: 1,
+                words: vec!["hello".into()],
+            }),
+            false,
+        );
+        assert!(matches!(
+            k.choose(Key::Prediction(0)),
+            Some(Output::Prediction { token: 1, index: 0 })
+        ));
+        k.succeeded();
+        for token in 2..5 {
+            k.predictions(
+                Some(crate::prediction::worker::Batch {
+                    token,
+                    words: vec!["world".into()],
+                }),
+                false,
+            );
+            k.succeeded();
+            k.advance(5000, 1000);
+            assert!(k.waiting_after_typing);
+            let frame = k.frame(
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1000.0,
+                    height: 800.0,
+                },
+                1.0,
+                ScannerColor::Blue,
+            );
+            assert!(frame
+                .tiles
+                .iter()
+                .any(|t| t.text == "Press Select to continue typing."));
+            assert!(!frame.tiles.iter().any(|t| t.selected));
+        }
+        assert!(k.handle(Action::Select).is_none());
+        assert_eq!(k.predictions.as_ref().unwrap().token, 4);
+        assert!(k.handle(Action::Select).is_none());
+        assert_eq!(
+            k.handle(Action::Select),
+            Some(Output::Prediction { token: 4, index: 0 })
+        );
+        assert!(k.handle(Action::Select).is_none());
+    }
+    #[test]
+    fn keyboard_controls_remain_immediate_and_failures_keep_error_recovery() {
+        for key in [
+            Key::Modifier(0),
+            Key::Caps,
+            Key::Dock,
+            Key::Page(Page::Numbers),
+        ] {
+            let mut k = Keyboard::new(false).with_wait_after_typing(true);
+            assert!(k.choose(key).is_none());
+            assert!(!k.waiting_after_typing);
+            assert!(!k.suspended());
+        }
+        for key in [
+            Key::Character(' ', ' '),
+            Key::Named("Backspace"),
+            Key::Named("ArrowLeft"),
+        ] {
+            let mut k = Keyboard::new(false).with_wait_after_typing(true);
+            k.choose(key);
+            k.succeeded();
+            assert!(k.waiting_after_typing);
+        }
+        let mut k = Keyboard::new(false).with_wait_after_typing(true);
+        k.choose(Key::Named("Enter"));
+        k.failed();
+        assert!(!k.waiting_after_typing);
+        assert!(k.error);
+        assert!(k.suspended());
+        assert!(k.handle(Action::Select).is_none());
+        assert!(!k.error);
+        assert!(!k.waiting_after_typing);
+    }
     #[test]
     fn arriving_predictions_receive_a_full_scan_interval() {
         let mut keyboard = Keyboard::new(false);
