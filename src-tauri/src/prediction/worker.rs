@@ -139,8 +139,15 @@ impl<A: Adapter> Engine<A> {
             .as_ref()
             .is_some_and(|old| self.adapter.same(old, &target).unwrap_or(false));
         let uninterrupted = epoch == self.activity;
-        if !same || !uninterrupted || reset || !healthy {
+        if !same || !uninterrupted || reset {
             self.clear();
+        }
+        if !healthy {
+            self.fallback.clear();
+            self.boundary = false;
+            if self.snapshot.as_ref().is_some_and(|raw| raw.position == -1) {
+                self.clear();
+            }
         }
         self.activity = epoch;
         if same && uninterrupted && !reset && self.tracked && healthy {
@@ -369,6 +376,7 @@ mod tests {
         target: usize,
         protected: bool,
         unsupported: bool,
+        editable: bool,
         reads: usize,
         change_on_read: bool,
     }
@@ -385,6 +393,7 @@ mod tests {
                 target: 1,
                 protected: false,
                 unsupported: false,
+                editable: true,
                 reads: 0,
                 change_on_read: false,
             }
@@ -399,7 +408,7 @@ mod tests {
             Ok(self.protected)
         }
         fn editable(&mut self, _: &usize) -> bool {
-            true
+            self.editable
         }
         fn same(&mut self, a: &usize, b: &usize) -> Result<bool, Status> {
             Ok(a == b)
@@ -421,6 +430,100 @@ mod tests {
         e.observe = || (0, true);
         e.activity = 0;
         e
+    }
+    #[test]
+    fn native_predictions_survive_polls_without_fallback_tracking() {
+        for unavailable in 0..3 {
+            let mut e = engine();
+            match unavailable {
+                0 => e.tracked = false,
+                1 => e.adapter.editable = false,
+                _ => e.observe = || (0, false),
+            }
+            let mut service = crate::prediction::Service::default();
+            let mut keyboard = crate::scan_keyboard::Keyboard::new(false);
+            keyboard.enable_predictions(true);
+            let mut original = None;
+            for _ in 0..40 {
+                let response = e.respond(Request::Query {
+                    generation: 0,
+                    edit: service.edit.take(),
+                    reset: std::mem::take(&mut service.reset),
+                    shift: false,
+                    caps: false,
+                });
+                let Response::Suggestions {
+                    batch, tracking, ..
+                } = response
+                else {
+                    panic!("expected suggestions");
+                };
+                assert!(!tracking);
+                let batch = batch.unwrap();
+                let expected = original.get_or_insert_with(|| batch.clone());
+                assert_eq!(batch.token, expected.token);
+                assert_eq!(batch.words, expected.words);
+                service.suggestions(&mut keyboard, Some(batch), tracking);
+                keyboard.advance(250, 1000);
+            }
+            let token = original.unwrap().token;
+            assert_eq!(e.accept(token, 0), Some("ter ".into()));
+            assert!(e.accept(token, 0).is_none());
+        }
+    }
+    #[test]
+    fn genuine_context_changes_invalidate_identical_native_candidates() {
+        for change in 0..4 {
+            let mut e = engine();
+            e.adapter.editable = false;
+            let original = e.query(None, false, false, false).unwrap();
+            match change {
+                0 => e.adapter.target += 1,
+                1 => e.adapter.raw.position += 1,
+                2 => e.activity = u64::MAX,
+                _ => {}
+            }
+            let replacement = e.query(None, change == 3, false, false).unwrap();
+            assert_eq!(replacement.words, original.words);
+            assert_ne!(replacement.token, original.token);
+            assert!(e.accept(original.token, 0).is_none());
+            assert_eq!(e.accept(replacement.token, 0), Some("ter ".into()));
+        }
+    }
+    #[test]
+    fn native_edits_selection_and_casing_refresh_without_tracking() {
+        let mut e = engine();
+        e.tracked = false;
+        let original = e.query(None, false, false, false).unwrap();
+        e.adapter.raw.before.push('t');
+        let typed = e.query(None, false, false, false).unwrap();
+        assert_ne!(typed.token, original.token);
+        assert!(e.accept(original.token, 0).is_none());
+        e.adapter.raw.before.pop();
+        let deleted = e.query(None, false, false, false).unwrap();
+        assert_ne!(deleted.token, typed.token);
+        let shifted = e.query(None, false, true, false).unwrap();
+        assert_ne!(shifted.token, deleted.token);
+        assert!(e.accept(deleted.token, 0).is_none());
+        e.adapter.raw.has_selection = true;
+        assert!(e.query(None, false, false, false).is_none());
+        assert!(e.accept(shifted.token, 0).is_none());
+        e.adapter.raw.has_selection = false;
+        let restored = e.query(None, false, false, false).unwrap();
+        e.adapter.protected = true;
+        assert!(e.query(None, false, false, false).is_none());
+        assert!(e.accept(restored.token, 0).is_none());
+    }
+    #[test]
+    fn losing_tracking_does_not_erase_a_pending_context_reset() {
+        let mut service = crate::prediction::Service {
+            reset: true,
+            edit: Some("queued".into()),
+            ..Default::default()
+        };
+        service.suggestions(&mut crate::scan_keyboard::Keyboard::new(false), None, false);
+        assert!(service.reset);
+        assert!(service.edit.is_none());
     }
     #[test]
     fn only_suffix_and_space_are_returned_once() {
