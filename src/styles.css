@@ -390,3 +390,50 @@ button:disabled { cursor: default; opacity: 0.55; }
 .scanner-sample-selection.standard { border-width: 2px; }
 .scanner-sample-selection.thick { border-width: 4px; }
 .scanner-preference + .scanner-preference { margin-top: 20px; }
+
+.scanner-settings { max-width: 920px; }
+.scanner-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-muted); }
+.scanner-help { margin: 18px 0 28px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.scanner-help summary { cursor: pointer; color: var(--text); padding: 8px 0; }
+.scanner-help p + p { margin-top: 10px; }
+.scanner-panel-heading { margin-bottom: 24px; }
+.scanner-panel-heading h2, .scanner-areas h2 { font-size: 20px; margin-bottom: 8px; }
+.scanner-panel-heading > p, .scanner-areas header p { color: var(--muted); font-size: 14px; line-height: 1.5; }
+.scanner-panel-heading > button { padding-left: 0; margin-bottom: 16px; }
+.scanner-preferences .setting-group { grid-template-columns: minmax(140px, .6fr) minmax(0, 1.8fr); gap: 24px; padding: 28px 0; }
+.scanner-preferences .setting-group h2 { font-size: 16px; }
+.scanner-preferences .setting-group header p, .scanner-preferences .setting-note { font-size: 13px; line-height: 1.5; }
+.scanner-preferences .setting-controls { gap: 24px; }
+.scanner-preferences .scanner-preference { margin: 0; min-width: 0; }
+.scanner-inheritance { display: flex; align-items: center; justify-content: space-between; min-height: 36px; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+.scanner-inheritance > span, .scanner-area-badge { background: var(--surface-muted); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
+.scanner-inheritance .custom { color: var(--text); font-weight: 600; }
+.scanner-preferences .exact-speed { margin: 0; font-size: 14px; color: var(--text); }
+.scanner-preferences .exact-speed select, .scanner-preferences .exact-speed input { min-height: 44px; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); background: var(--surface); }
+.scanner-preferences .segmented button { min-height: 44px; }
+.scanner-areas { margin-top: 24px; }
+.scanner-area-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.scanner-area-card { display: flex; flex-direction: column; gap: 12px; padding: 20px; border: 1px solid var(--border); border-radius: 12px; color: var(--text); background: var(--surface); text-align: left; cursor: pointer; font: inherit; min-width: 0; }
+.scanner-area-card:hover { background: var(--surface-hover); }
+.scanner-area-card strong { display: flex; justify-content: space-between; gap: 10px; font-size: 16px; }
+.scanner-area-card > span { font-size: 13px; color: var(--muted); line-height: 1.5; }
+.scanner-area-appearance { display: flex; align-items: center; gap: 8px; text-transform: capitalize; }
+.scanner-area-badge { align-self: flex-start; margin-top: auto; }
+.scanner-save-note { margin-top: 24px; }
+@media (max-width: 850px) {
+  .scanner-area-cards { grid-template-columns: 1fr; }
+  .scanner-preferences .setting-group { grid-template-columns: 1fr; gap: 16px; }
+}
+@media (max-width: 520px) {
+  .scanner-preferences .exact-speed { align-items: stretch; flex-direction: column; }
+  .scanner-preferences .segmented { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.scanner-preferences fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.scanner-preferences legend { padding: 0; margin-bottom: 10px; color: var(--text); font-size: 14px; }
+.scanner-preferences .scanner-areas { margin: 0 0 32px; }
+@media (max-width: 850px) {
+  .scanner-area-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; padding: 16px; }
+  .scanner-area-card strong { grid-column: 1 / -1; margin-bottom: 4px; }
+  .scanner-area-badge { grid-column: 2; grid-row: 2 / 4; align-self: center; margin: 0; }
+  .scanner-area-card > span:not(.scanner-area-badge) { grid-column: 1; }
+}
