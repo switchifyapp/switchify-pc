@@ -48,9 +48,9 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
   };
   const field = (key: keyof ScanOptions, label: string, children: (locked: boolean) => ReactNode) => {
     const custom = area !== 'shared' && settings[area][key] != null;
-    return <div className="scanner-preference" key={key}>
+    return <div className="scanner-preference" key={key} tabIndex={-1} role="group" aria-label={label}>
       {area !== 'shared' && <div className="scanner-inheritance"><span className={custom ? 'custom' : ''}>{custom ? 'Custom' : 'Default'}</span>
-        {custom && <button type="button" className="text-button" disabled={disabled} aria-label={`Use default for ${label.toLowerCase()}`} onClick={event => { const field = event.currentTarget.closest('.scanner-preference'); change(key, undefined); requestAnimationFrame(() => field?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), button:not(:disabled)')?.focus()); }}>Use default</button>}
+        {custom && <button type="button" className="text-button" disabled={disabled} aria-label={`Use default for ${label.toLowerCase()}`} onClick={event => { const field = event.currentTarget.closest<HTMLElement>('.scanner-preference'); change(key, undefined); requestAnimationFrame(() => (field?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), button:not(:disabled)') ?? field)?.focus()); }}>Use default</button>}
       </div>}
       {children(disabled)}
     </div>;
