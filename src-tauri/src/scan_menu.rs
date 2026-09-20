@@ -378,21 +378,15 @@ impl Setting {
         }
     }
     pub fn apply(self, config: &mut crate::point_scan::Config) {
-        const RATES: &[u64] = &[250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000];
         match self {
             Self::FasterScan | Self::SlowerScan => {
                 let current = config
                     .resolved(crate::scan_preferences::Area::Menu)
                     .interval_ms;
                 let next = if self == Self::FasterScan {
-                    RATES
-                        .iter()
-                        .rev()
-                        .copied()
-                        .find(|v| *v < current)
-                        .unwrap_or(RATES[0])
+                    current.saturating_sub(100).max(100)
                 } else {
-                    RATES.iter().copied().find(|v| *v > current).unwrap_or(5000)
+                    current.saturating_add(100).min(10000)
                 };
                 if config.scan_preferences.menu.interval_ms.is_some() {
                     config.scan_preferences.menu.interval_ms = Some(next);
@@ -640,25 +634,25 @@ mod tests {
         assert!(visited.contains(&Kind::Zoom));
     }
     #[test]
-    fn settings_step_presets_and_clamp_at_limits() {
+    fn settings_step_tenths_and_clamp_at_limits() {
         let mut c = crate::point_scan::Config {
             block_interval_ms: 650,
             ..Default::default()
         };
         Setting::FasterScan.apply(&mut c);
-        assert_eq!(c.block_interval_ms, 500);
+        assert_eq!(c.block_interval_ms, 550);
         Setting::SlowerScan.apply(&mut c);
-        assert_eq!(c.block_interval_ms, 750);
-        for _ in 0..20 {
+        assert_eq!(c.block_interval_ms, 650);
+        for _ in 0..110 {
             Setting::FasterScan.apply(&mut c);
             Setting::SlowerLine.apply(&mut c);
         }
-        assert_eq!((c.block_interval_ms, c.speed), (250, 0));
-        for _ in 0..20 {
+        assert_eq!((c.block_interval_ms, c.speed), (100, 0));
+        for _ in 0..110 {
             Setting::SlowerScan.apply(&mut c);
             Setting::FasterLine.apply(&mut c);
         }
-        assert_eq!((c.block_interval_ms, c.speed), (5000, 4));
+        assert_eq!((c.block_interval_ms, c.speed), (10000, 4));
         c.validate().unwrap();
     }
     #[test]
@@ -732,12 +726,12 @@ mod tests {
         let mut c = crate::point_scan::Config::default();
         c.scan_preferences.menu.interval_ms = Some(500);
         Setting::SlowerScan.apply(&mut c);
-        assert_eq!(c.scan_preferences.menu.interval_ms, Some(750));
+        assert_eq!(c.scan_preferences.menu.interval_ms, Some(600));
         assert_eq!(c.block_interval_ms, 1000);
         assert_eq!(c.point().block_interval_ms, 1000);
         c.scan_preferences.menu.interval_ms = None;
         Setting::FasterScan.apply(&mut c);
-        assert_eq!(c.block_interval_ms, 750);
+        assert_eq!(c.block_interval_ms, 900);
         assert_eq!(c.scan_preferences.menu.interval_ms, None);
     }
 }

@@ -122,7 +122,7 @@ impl PointSettings {
     fn validate(&self) -> Result<(), String> {
         if self.speed > 4
             || !(2..=10).contains(&self.grid_size)
-            || !(250..=5000).contains(&self.block_interval_ms)
+            || !(100..=10000).contains(&self.block_interval_ms)
             || !(100..=100_000).contains(&self.auto_select_delay_ms)
             || !self.auto_select_delay_ms.is_multiple_of(100)
         {
@@ -513,6 +513,37 @@ impl Technique for Engine {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn auto_scan_interval_bounds_and_legacy_values_roundtrip() {
+        for interval in [100, 200, 250, 750, 1000, 10000] {
+            let mut config = super::Config {
+                block_interval_ms: interval,
+                ..Default::default()
+            };
+            config.scan_preferences.point.interval_ms = Some(interval);
+            config.scan_preferences.menu.interval_ms = Some(interval);
+            config.scan_preferences.keyboard.interval_ms = Some(interval);
+            config.validate().unwrap();
+            let restored: super::Config =
+                serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
+            for area in [
+                crate::scan_preferences::Area::Point,
+                crate::scan_preferences::Area::Menu,
+                crate::scan_preferences::Area::Keyboard,
+            ] {
+                assert_eq!(restored.resolved(area).interval_ms, interval);
+            }
+        }
+        for interval in [0, 99, 10001, u64::MAX] {
+            assert!(super::Config {
+                block_interval_ms: interval,
+                ..Default::default()
+            }
+            .validate()
+            .is_err());
+        }
+    }
+
     use super::*;
     use crate::scanning::Session;
     fn engine(config: Config) -> Session<Engine> {
