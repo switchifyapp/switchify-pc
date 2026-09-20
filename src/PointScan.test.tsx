@@ -301,7 +301,6 @@ it("restores overview scroll and leaves point-specific values intact on override
   await screen.findByText(initial.message);
   document.documentElement.scrollTop = 380;
   fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
-  expect(document.documentElement.scrollTop).toBe(0);
   expect(screen.queryByRole("button", { name: "One item at a time" })).not.toBeInTheDocument();
   expect(screen.queryByRole("checkbox", { name: "Word prediction" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Grid then line" }));
@@ -319,4 +318,32 @@ it("restores overview scroll and leaves point-specific values intact on override
   expect(screen.getByRole("button", { name: "Customise point scanning" })).toHaveFocus();
   expect(mocks.invoke).toHaveBeenCalledTimes(calls);
   document.documentElement.scrollTop = 0;
+});
+
+it("brings the area header into view with help expanded and restores the overview on Back", async () => {
+  const previous = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+  const scrollIntoView = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+  try {
+    render(<PointScan />);
+    await screen.findByText(initial.message);
+    fireEvent.click(screen.getByText("How scanning works"));
+    expect(screen.getByText("How scanning works").closest("details")).toHaveAttribute("open");
+    document.documentElement.scrollTop = 640;
+    fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
+    const heading = screen.getByRole("heading", { name: "Keyboard" });
+    expect(heading).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "start", behavior: "instant" });
+    expect(scrollIntoView.mock.contexts[0]).toBe(heading.closest("header"));
+    expect(document.documentElement.scrollTop).not.toBe(0);
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Back to scanning settings" }));
+    expect(screen.getByRole("button", { name: "Customise keyboard" })).toHaveFocus();
+    expect(document.documentElement.scrollTop).toBe(640);
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  } finally {
+    document.documentElement.scrollTop = 0;
+    if (previous) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", previous);
+    else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+  }
 });

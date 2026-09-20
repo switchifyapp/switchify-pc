@@ -23,7 +23,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
       if (scroller) scroller.scrollTop = overviewScroll.current;
     } else {
       heading.current?.focus({ preventScroll: true });
-      if (scroller) scroller.scrollTop = 0;
+      heading.current?.closest('header')?.scrollIntoView?.({ block: 'start', behavior: 'instant' });
     }
   }, [area]);
   const openArea = (next: ScanArea) => {
