@@ -7,7 +7,7 @@ mod macos;
 mod windows;
 pub mod worker;
 
-use crate::scan_keyboard::{Keyboard, Modifier, Page, Stroke};
+use crate::scan_keyboard::{Key, Keyboard, Modifier, Page, Stroke};
 use std::{
     cell::RefCell,
     path::Path,
@@ -17,7 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager};
-use worker::{Request, Response};
+use worker::{Edit, Request, Response};
 
 #[cfg(target_os = "windows")]
 struct Job(windows_sys::Win32::Foundation::HANDLE);
@@ -144,7 +144,7 @@ struct Service {
     generation: u64,
     outstanding: Option<Instant>,
     last: Option<Instant>,
-    edit: Option<String>,
+    edit: Vec<Edit>,
     reset: bool,
     accept: Option<(u64, usize)>,
     accepting: bool,
@@ -152,6 +152,34 @@ struct Service {
     tracking: bool,
 }
 impl Service {
+    fn queue_edit(&mut self, edit: Edit) {
+        if self.edit.len() >= 512 {
+            self.edit.clear();
+            self.reset = true;
+        }
+        self.edit.push(edit);
+    }
+    fn take_edits(&mut self) -> Vec<Edit> {
+        let mut edits = std::mem::take(&mut self.edit);
+        if std::mem::take(&mut self.reset) {
+            edits.insert(0, Edit::Reset);
+        }
+        edits
+    }
+
+    fn received_suggestions(
+        &mut self,
+        keyboard: &mut Keyboard,
+        generation: u64,
+        batch: Option<worker::Batch>,
+        tracking: bool,
+    ) {
+        if generation == self.generation {
+            self.suggestions(keyboard, batch, tracking);
+        } else {
+            self.reset = true;
+        }
+    }
     fn suggestions(
         &mut self,
         keyboard: &mut Keyboard,
@@ -160,15 +188,17 @@ impl Service {
     ) {
         self.tracking = tracking;
         if !tracking {
-            self.edit = None;
+            self.edit.clear();
         }
-        keyboard.predictions(batch, false);
+        let visible = keyboard.page == Page::Letters
+            && !keyboard.modifiers[1..].iter().any(|m| *m != Modifier::Off);
+        keyboard.predictions(if visible { batch } else { None }, false);
     }
     fn fail(&mut self, keyboard: &mut Keyboard) {
         self.client = None;
         self.failed = true;
         self.tracking = false;
-        self.edit = None;
+        self.edit.clear();
         self.outstanding = None;
         keyboard.predictions(None, true);
         if self.accepting || self.accept.is_some() {
@@ -188,19 +218,19 @@ pub fn record(stroke: Stroke, success: bool) {
         s.generation = s.generation.wrapping_add(1);
         s.last = None;
         if success && !stroke.shortcut() && s.tracking {
-            if let Some(c) = stroke.character() {
-                if s.edit
-                    .as_ref()
-                    .is_some_and(|text| text.chars().count() >= 512)
-                {
-                    s.edit = None;
-                    s.reset = true;
-                }
-                s.edit.get_or_insert_with(String::new).push(c);
+            let edit = stroke
+                .character()
+                .map(|c| Edit::Append(c.to_string()))
+                .or_else(|| {
+                    (stroke.key == Key::Named("Backspace") && !stroke.modifiers[0])
+                        .then_some(Edit::Backspace)
+                });
+            if let Some(edit) = edit {
+                s.queue_edit(edit);
                 return;
             }
         }
-        s.edit = None;
+        s.edit.clear();
         s.reset = true;
     });
 }
@@ -294,8 +324,8 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                         generation,
                         batch,
                         tracking,
-                    } if generation == s.generation => {
-                        s.suggestions(keyboard, batch, tracking);
+                    } => {
+                        s.received_suggestions(keyboard, generation, batch, tracking);
                     }
                     Response::Insert { generation, text } => {
                         s.accepting = false;
@@ -303,8 +333,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                             text.ok_or(()).and_then(|text| {
                                 crate::point_scan_ready(app).map_err(|_| ())?;
                                 crate::scan_executor::prediction_text(&text).map_err(|_| ())?;
-                                s.edit = Some(text);
-                                s.reset = false;
+                                s.queue_edit(Edit::Append(text));
                                 Ok(())
                             })
                         } else {
@@ -321,7 +350,6 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                             keyboard.failed();
                         }
                     }
-                    _ => {}
                 }
             }
             Ok(Err(())) | Err(mpsc::TryRecvError::Disconnected) => {
@@ -341,15 +369,6 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 index,
             }
         } else {
-            if keyboard.page != Page::Letters
-                || keyboard.modifiers[1..].iter().any(|m| *m != Modifier::Off)
-            {
-                keyboard.predictions(None, false);
-                s.tracking = false;
-                s.edit = None;
-                s.reset = true;
-                return;
-            }
             if s.last
                 .is_some_and(|t| t.elapsed() < Duration::from_millis(250))
             {
@@ -357,8 +376,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
             }
             Request::Query {
                 generation: s.generation,
-                edit: s.edit.take(),
-                reset: std::mem::take(&mut s.reset),
+                edits: s.take_edits(),
                 shift: keyboard.modifiers[0] != Modifier::Off,
                 caps: keyboard.caps,
             }
