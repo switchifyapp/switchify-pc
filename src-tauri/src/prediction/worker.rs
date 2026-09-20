@@ -480,6 +480,48 @@ mod tests {
     }
 
     #[test]
+    fn stale_native_reads_cannot_double_apply_later_typing_or_backspace() {
+        for deletion in [false, true] {
+            let mut e = engine();
+            e.query(None, false, false, false);
+            let mut service = crate::prediction::Service {
+                generation: 1,
+                tracking: true,
+                ..Default::default()
+            };
+            let mut keyboard = crate::scan_keyboard::Keyboard::new(false);
+            e.adapter.raw.before = if deletion { "I like w" } else { "I like wat" }.into();
+            let response = e.respond(Request::Query {
+                generation: 0,
+                edits: vec![],
+                shift: false,
+                caps: false,
+            });
+            service.queue_edit(if deletion {
+                Edit::Backspace
+            } else {
+                Edit::Append("t".into())
+            });
+            if let Response::Suggestions {
+                generation,
+                batch,
+                tracking,
+            } = response
+            {
+                service.received_suggestions(&mut keyboard, generation, batch, tracking);
+            } else {
+                panic!("expected suggestions");
+            }
+            e.adapter.unsupported = true;
+            assert!(e.query_edits(service.take_edits(), false, false).is_none());
+            assert!(e.fallback.is_empty());
+            assert!(!e.boundary);
+            assert!(e
+                .query_edits(vec![Edit::Append(" wa".into())], false, false)
+                .is_some());
+        }
+    }
+    #[test]
     fn buffered_edits_preserve_order_unicode_and_boundary_confidence() {
         let mut e = engine();
         e.adapter.unsupported = true;

@@ -167,6 +167,19 @@ impl Service {
         edits
     }
 
+    fn received_suggestions(
+        &mut self,
+        keyboard: &mut Keyboard,
+        generation: u64,
+        batch: Option<worker::Batch>,
+        tracking: bool,
+    ) {
+        if generation == self.generation {
+            self.suggestions(keyboard, batch, tracking);
+        } else {
+            self.reset = true;
+        }
+    }
     fn suggestions(
         &mut self,
         keyboard: &mut Keyboard,
@@ -298,8 +311,8 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                         generation,
                         batch,
                         tracking,
-                    } if generation == s.generation => {
-                        s.suggestions(keyboard, batch, tracking);
+                    } => {
+                        s.received_suggestions(keyboard, generation, batch, tracking);
                     }
                     Response::Insert { generation, text } => {
                         s.accepting = false;
@@ -324,7 +337,6 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                             keyboard.failed();
                         }
                     }
-                    _ => {}
                 }
             }
             Ok(Err(())) | Err(mpsc::TryRecvError::Disconnected) => {
