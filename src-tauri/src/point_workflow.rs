@@ -102,7 +102,8 @@ impl Workflow {
             keyboard: crate::scan_keyboard::Keyboard::configured(
                 cfg!(target_os = "macos"),
                 keyboard_options,
-            ),
+            )
+            .with_wait_after_typing(config.keyboard_wait_after_typing),
             keyboard_area: screen,
             point: Engine::new(config, screen, scale)?,
             stage: Stage::Idle,
@@ -138,7 +139,8 @@ impl Workflow {
             self.keyboard = crate::scan_keyboard::Keyboard::configured(
                 cfg!(target_os = "macos"),
                 self.point.config.keyboard_scan,
-            );
+            )
+            .with_wait_after_typing(self.point.config.keyboard_wait_after_typing);
             self.parent_menu.clear();
             self.stage = Stage::Point;
             self.point.start();
@@ -179,7 +181,8 @@ impl Workflow {
                 self.keyboard = crate::scan_keyboard::Keyboard::configured(
                     cfg!(target_os = "macos"),
                     self.point.config.keyboard_scan,
-                );
+                )
+                .with_wait_after_typing(self.point.config.keyboard_wait_after_typing);
                 return Some(Request::OpenKeyboard {
                     point: (item == Item::TypeHere).then_some(self.source),
                 });
@@ -297,7 +300,8 @@ impl Technique for Workflow {
         self.keyboard = crate::scan_keyboard::Keyboard::configured(
             cfg!(target_os = "macos"),
             self.point.config.keyboard_scan,
-        );
+        )
+        .with_wait_after_typing(self.point.config.keyboard_wait_after_typing);
         self.stage = Stage::Idle;
         self.parent_menu.clear();
         self.pending = None;
@@ -602,6 +606,61 @@ mod tests {
         w.reset();
         assert!(!w.keyboard.caps);
         assert!(w.frame().tiles.is_empty());
+    }
+    #[test]
+    fn typing_wait_survives_pause_hold_and_predictions_but_not_stop_or_config_reset() {
+        let mut s = session(true);
+        let config = Config {
+            keyboard_wait_after_typing: true,
+            block_interval_ms: 250,
+            ..Default::default()
+        };
+        s.technique.apply_config(config.point(), false);
+        s.action(Action::Select);
+        s.technique.selected(Item::Keyboard);
+        s.technique.execution_succeeded();
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::Keyboard)
+        );
+        assert!(s.action(Action::Select).is_none());
+        assert!(matches!(
+            s.action(Action::Select),
+            Some(Request::Keyboard(_))
+        ));
+        s.technique.execution_succeeded();
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::KeyboardSuspended)
+        );
+        let waiting = s.frame();
+        s.action(Action::Pause);
+        s.tick(250, false);
+        s.action(Action::Pause);
+        s.tick(250, true);
+        s.tick(250, false);
+        assert_eq!(s.frame(), waiting);
+        assert!(s.action(Action::Select).is_none());
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::Keyboard)
+        );
+        let resumed = s.frame();
+        s.tick(249, false);
+        assert_eq!(s.frame(), resumed);
+        s.tick(1, false);
+        assert_ne!(s.frame(), resumed);
+        s.action(Action::Stop);
+        assert!(!s.active());
+        s.technique.execution_succeeded();
+        assert_eq!(s.technique.phase(), Phase::default());
+        s.technique.apply_config(config.point(), true);
+        s.technique.selected(Item::Keyboard);
+        s.technique.execution_succeeded();
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::Keyboard)
+        );
     }
     #[test]
     fn keyboard_key_acknowledgement_is_exactly_once_and_reset_discards_state() {

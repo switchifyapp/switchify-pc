@@ -18,6 +18,7 @@ pub struct Config {
     #[serde(deserialize_with = "crate::scan_preferences::deserialize_preferences")]
     pub scan_preferences: crate::scan_preferences::Preferences,
     pub word_prediction: bool,
+    pub keyboard_wait_after_typing: bool,
     pub scanner_color: crate::scanning::ScannerColor,
     pub mode: Mode,
     pub automatic: bool,
@@ -36,6 +37,7 @@ impl Default for Config {
         Self {
             scan_preferences: Default::default(),
             word_prediction: true,
+            keyboard_wait_after_typing: false,
             scanner_color: Default::default(),
             mode: Mode::Line,
             automatic: true,
@@ -84,6 +86,7 @@ impl Config {
             menu_scan: self.resolved(crate::scan_preferences::Area::Menu),
             keyboard_scan: self.resolved(crate::scan_preferences::Area::Keyboard),
             word_prediction: self.word_prediction,
+            keyboard_wait_after_typing: self.keyboard_wait_after_typing,
             scanner_color: self.resolved(crate::scan_preferences::Area::Point).color,
             mode: self.mode,
             speed: self.speed,
@@ -106,6 +109,7 @@ pub struct PointSettings {
     pub menu_scan: crate::scan_preferences::Resolved,
     pub keyboard_scan: crate::scan_preferences::Resolved,
     pub word_prediction: bool,
+    pub keyboard_wait_after_typing: bool,
     pub scanner_color: crate::scanning::ScannerColor,
     pub mode: Mode,
     pub speed: usize,
@@ -545,6 +549,21 @@ mod tests {
         assert!(!restored.word_prediction);
     }
     #[test]
+    fn keyboard_wait_defaults_off_and_round_trips() {
+        let legacy: Config = serde_json::from_str("{}").unwrap();
+        assert!(!legacy.keyboard_wait_after_typing);
+        for enabled in [false, true] {
+            let config = Config {
+                keyboard_wait_after_typing: enabled,
+                ..Default::default()
+            };
+            let restored: Config =
+                serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
+            assert_eq!(restored.keyboard_wait_after_typing, enabled);
+            assert_eq!(restored.point().keyboard_wait_after_typing, enabled);
+        }
+    }
+    #[test]
     fn auto_select_delays_are_bounded_and_round_trip() {
         for delay in [100, 500, 1000, 100_000] {
             let config = Config {
@@ -942,6 +961,7 @@ mod tests {
         json["autoSelectDelayMs"] = serde_json::json!(1000);
         json["scannerColor"] = serde_json::json!("blue");
         json["wordPrediction"] = serde_json::json!(true);
+        json["keyboardWaitAfterTyping"] = serde_json::json!(false);
         json["scanPreferences"] =
             serde_json::to_value(crate::scan_preferences::Preferences::default()).unwrap();
         assert_eq!(serde_json::to_value(&config).unwrap(), json);

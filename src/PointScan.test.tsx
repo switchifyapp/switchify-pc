@@ -347,3 +347,20 @@ it("brings the area header into view with help expanded and restores the overvie
     else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
   }
 });
+
+it("saves the keyboard after-typing choice and preserves it while manual", async () => {
+  mocks.invoke.mockImplementation(async (command, args) => command === "get_point_scan" ? initial : { ...initial, config: args.config });
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  expect(screen.queryByText("After typing")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
+  expect(screen.getByRole("button", { name: "Continue scanning" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByRole("button", { name: "Wait for Select" }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", { config: { ...defaultPointScanConfig, keyboardWaitAfterTyping: true } }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Automatic scanning" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Wait for Select" })).toBeDisabled());
+  expect(screen.getByRole("button", { name: "Wait for Select" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByRole("checkbox", { name: "Automatic scanning" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Wait for Select" })).toBeEnabled());
+  expect(screen.getByRole("button", { name: "Wait for Select" })).toHaveAttribute("aria-pressed", "true");
+});
