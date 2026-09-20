@@ -2,6 +2,7 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Node<T> {
     Branch(Vec<Node<T>>),
+    Group { id: String, children: Vec<Node<T>> },
     Leaf(T),
 }
 
@@ -9,6 +10,14 @@ impl<T> Node<T> {
     fn normalized(self) -> Option<Self> {
         match self {
             Self::Leaf(_) => Some(self),
+            Self::Group { id, children } => {
+                let children: Vec<_> = children.into_iter().filter_map(Self::normalized).collect();
+                match children.len() {
+                    0 => None,
+                    1 => children.into_iter().next(),
+                    _ => Some(Self::Group { id, children }),
+                }
+            }
             Self::Branch(children) => {
                 let mut children: Vec<_> =
                     children.into_iter().filter_map(Self::normalized).collect();
@@ -49,7 +58,7 @@ impl<T: Clone> Navigator<T> {
     fn siblings(&self) -> &[Node<T>] {
         let mut nodes = self.roots.as_slice();
         for index in &self.path {
-            let Node::Branch(children) = &nodes[*index] else {
+            let (Node::Branch(children) | Node::Group { children, .. }) = &nodes[*index] else {
                 unreachable!()
             };
             nodes = children;
@@ -107,13 +116,69 @@ impl<T: Clone> Navigator<T> {
         }
         match self.siblings().get(self.index) {
             Some(Node::Leaf(value)) => Selection::Leaf(value.clone()),
-            Some(Node::Branch(_)) => {
+            Some(Node::Branch(_) | Node::Group { .. }) => {
                 self.path.push(self.index);
                 self.index = 0;
                 Selection::Entered
             }
             None => Selection::None,
         }
+    }
+}
+
+impl<T: Clone + PartialEq> Navigator<T> {
+    pub fn replace(&mut self, roots: Vec<Node<T>>) -> Option<bool> {
+        let roots: Vec<_> = roots.into_iter().filter_map(Node::normalized).collect();
+        if roots == self.roots {
+            return None;
+        }
+        let mut old = self.roots.as_slice();
+        let mut new = roots.as_slice();
+        let mut path = Vec::new();
+        let mut preserved = true;
+        for &index in &self.path {
+            let Some(next) = new.iter().position(|node| same_identity(&old[index], node)) else {
+                preserved = false;
+                break;
+            };
+            let (Node::Branch(old_children)
+            | Node::Group {
+                children: old_children,
+                ..
+            }) = &old[index]
+            else {
+                unreachable!()
+            };
+            let (Node::Branch(new_children)
+            | Node::Group {
+                children: new_children,
+                ..
+            }) = &new[next]
+            else {
+                unreachable!()
+            };
+            path.push(next);
+            old = old_children;
+            new = new_children;
+        }
+        let index = if preserved {
+            old.get(self.index)
+                .and_then(|selected| new.iter().position(|node| same_identity(selected, node)))
+        } else {
+            None
+        };
+        preserved &= index.is_some();
+        self.index = index.unwrap_or(0);
+        self.escaping &= preserved && !path.is_empty();
+        self.path = path;
+        self.roots = roots;
+        Some(preserved)
+    }
+}
+fn same_identity<T: PartialEq>(a: &Node<T>, b: &Node<T>) -> bool {
+    match (a, b) {
+        (Node::Group { id: a, .. }, Node::Group { id: b, .. }) => a == b,
+        _ => a == b,
     }
 }
 

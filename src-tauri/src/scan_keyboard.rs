@@ -1,11 +1,8 @@
 //! Switch-owned keyboard state and geometry. No native input or captured text.
 use crate::{
+    scan_items::{ItemScanner, Policy},
     scan_menu::Item,
-    scan_tree::{Navigator, Node, Selection},
-    scanning::{
-        Action, Frame, FrameTile, Interval, KeyboardRole, KeyboardTileStyle, Rect, ScannerColor,
-        MAX_SCAN_CYCLES,
-    },
+    scanning::{Action, Frame, FrameTile, KeyboardRole, KeyboardTileStyle, Rect, ScannerColor},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,15 +174,11 @@ pub struct Keyboard {
     pub modifiers: [Modifier; 4],
     pub caps: bool,
     pub top: bool,
-    pub suspended: bool,
     pub error: bool,
     mac: bool,
     rows: Vec<Vec<Key>>,
-    nav: Navigator<Key>,
-    interval: Interval,
-    cycles: usize,
-    forward: bool,
-    pending: bool,
+    scan: ItemScanner<Key>,
+    activation: Option<u64>,
     prediction_enabled: bool,
     prediction_failed: bool,
     predictions: Option<crate::prediction::worker::Batch>,
@@ -195,21 +188,17 @@ pub struct Keyboard {
 impl Keyboard {
     pub fn new(mac: bool) -> Self {
         let rows = rows(Page::Letters, mac);
-        let nav = Self::navigator(&rows);
+        let scan = ItemScanner::rows(&rows, Policy::KEYBOARD);
         Self {
             page: Page::Letters,
             modifiers: [Modifier::Off; 4],
             caps: false,
             top: false,
-            suspended: false,
             error: false,
             mac,
             rows,
-            nav,
-            interval: Interval::default(),
-            cycles: 0,
-            forward: true,
-            pending: false,
+            scan,
+            activation: None,
             prediction_enabled: false,
             prediction_failed: false,
             predictions: None,
@@ -229,13 +218,22 @@ impl Keyboard {
         if self.prediction_enabled && self.page == Page::Letters {
             self.rows.insert(0, (0..5).map(Key::Prediction).collect());
         }
-        self.nav = Self::navigator(&self.rows);
+        self.scan.replace(ItemScanner::nodes(&self.rows));
+        self.scan.restart();
+        self.activation = None;
         self.skip_disabled();
     }
     fn prediction_row_active(&self) -> bool {
         self.prediction_enabled
             && self.page == Page::Letters
-            && self.nav.path().first().copied().unwrap_or(self.nav.index()) == 0
+            && self
+                .scan
+                .nav
+                .path()
+                .first()
+                .copied()
+                .unwrap_or(self.scan.nav.index())
+                == 0
     }
     pub fn predictions(&mut self, batch: Option<crate::prediction::worker::Batch>, failed: bool) {
         self.prediction_failed = failed;
@@ -259,21 +257,21 @@ impl Keyboard {
                     .as_ref()
                     .is_some_and(|b| !b.words.is_empty())
             {
-                self.nav.reset();
-                self.interval.reset();
+                self.scan.nav.reset();
+                self.scan.reset_clock();
                 self.prefer_predictions = false;
             }
         }
     }
     fn disabled(&self) -> bool {
-        if !self.prediction_row_active() || self.nav.escaping() {
+        if !self.prediction_row_active() || self.scan.nav.escaping() {
             return false;
         }
         let count = self.predictions.as_ref().map_or(0, |b| b.words.len());
-        if self.nav.path().is_empty() {
+        if self.scan.nav.path().is_empty() {
             count == 0
         } else {
-            self.nav.index() >= count
+            self.scan.nav.index() >= count
         }
     }
     fn skip_disabled(&mut self) {
@@ -281,7 +279,7 @@ impl Keyboard {
             if !self.disabled() {
                 break;
             }
-            self.nav.step(self.forward);
+            self.scan.skip();
         }
         if !self.prediction_row_active() {
             if let Some(batch) = self.queued_predictions.take() {
@@ -289,37 +287,25 @@ impl Keyboard {
             }
         }
     }
-    fn navigator(rows: &[Vec<Key>]) -> Navigator<Key> {
-        Navigator::new(
-            rows.iter()
-                .map(|row| Node::Branch(row.iter().copied().map(Node::Leaf).collect()))
-                .collect(),
-        )
+    pub fn suspended(&self) -> bool {
+        self.scan.suspended
     }
     fn restart(&mut self) {
         self.prefer_predictions = true;
-        self.nav.reset();
-        self.interval.reset();
-        self.cycles = 0;
-        self.forward = true;
-        self.suspended = false;
+        self.scan.restart();
         self.skip_disabled();
     }
     pub fn advance(&mut self, ms: u64, period: u64) {
-        if !self.pending && !self.suspended && self.interval.elapsed(ms, period) {
+        if self.scan.advance(ms, period) {
             self.prefer_predictions = false;
-            if self.nav.step(self.forward) {
-                self.cycles += 1;
-                self.suspended = self.cycles >= MAX_SCAN_CYCLES;
-            }
         }
         self.skip_disabled();
     }
     pub fn handle(&mut self, action: Action) -> Option<Output> {
-        if self.pending {
+        if self.scan.pending() {
             return None;
         }
-        if self.suspended {
+        if self.scan.suspended {
             if action == Action::Select {
                 self.error = false;
                 self.restart();
@@ -327,28 +313,8 @@ impl Keyboard {
             return None;
         }
         self.prefer_predictions = false;
-        match action {
-            Action::Select => {
-                self.interval.reset();
-                self.cycles = 0;
-                match self.nav.select() {
-                    Selection::Leaf(key) => return self.choose(key),
-                    Selection::Entered | Selection::Escaped => self.forward = true,
-                    Selection::None => {}
-                }
-            }
-            Action::Next | Action::Back => {
-                self.interval.reset();
-                self.cycles = 0;
-                self.forward = action == Action::Next;
-                self.nav.step(self.forward);
-            }
-            Action::Reverse => {
-                self.forward = !self.forward;
-                self.interval.reset();
-                self.cycles = 0;
-            }
-            _ => {}
+        if let Some(key) = self.scan.handle(action) {
+            return self.choose(key);
         }
         self.skip_disabled();
         None
@@ -360,7 +326,8 @@ impl Keyboard {
                 if index >= batch.words.len() {
                     return None;
                 }
-                self.pending = true;
+                self.activation = self.scan.begin_activation();
+                self.activation?;
                 return Some(Output::Prediction {
                     token: batch.token,
                     index,
@@ -377,7 +344,8 @@ impl Keyboard {
             Key::Character(..) | Key::Named(_) => {
                 self.predictions = None;
                 self.queued_predictions = None;
-                self.pending = true;
+                self.activation = self.scan.begin_activation();
+                self.activation?;
                 return Some(Output::Stroke(Stroke {
                     key,
                     modifiers: self.modifiers.map(|m| m != Modifier::Off),
@@ -389,23 +357,27 @@ impl Keyboard {
         None
     }
     pub fn succeeded(&mut self) {
-        if self.pending {
+        if self
+            .activation
+            .take()
+            .is_some_and(|revision| self.scan.complete_activation(revision))
+        {
             for modifier in &mut self.modifiers {
                 if *modifier == Modifier::Once {
                     *modifier = Modifier::Off;
                 }
             }
-            self.pending = false;
+            self.activation = None;
             self.restart();
         }
     }
     pub fn failed(&mut self) {
         self.modifiers = [Modifier::Off; 4];
         self.caps = false;
-        self.pending = false;
+        self.activation = None;
         self.restart();
         self.error = true;
-        self.suspended = true;
+        self.scan.suspended = true;
     }
     fn label(&self, key: Key) -> String {
         match key {
@@ -540,8 +512,14 @@ impl Keyboard {
         let x = x + padding;
         let y = y + padding;
         let width = content_width;
-        let row_scan = self.nav.path().is_empty();
-        let active_row = self.nav.path().first().copied().unwrap_or(self.nav.index());
+        let row_scan = self.scan.nav.path().is_empty();
+        let active_row = self
+            .scan
+            .nav
+            .path()
+            .first()
+            .copied()
+            .unwrap_or(self.scan.nav.index());
         for (r, row) in self.rows.iter().enumerate() {
             let total_weight: f64 = row.iter().copied().map(Self::weight).sum();
             let cell_unit = (width - gap * (row.len() - 1) as f64).max(1.0) / total_weight;
@@ -560,10 +538,10 @@ impl Keyboard {
                         height: (row_height - gap).max(1.0),
                     },
                     scale,
-                    selected: !self.suspended
-                        && !self.nav.escaping()
+                    selected: !self.scan.suspended
+                        && !self.scan.nav.escaping()
                         && r == active_row
-                        && (row_scan || c == self.nav.index()),
+                        && (row_scan || c == self.scan.nav.index()),
                 });
                 left += key_width + gap;
             }
@@ -577,9 +555,9 @@ impl Keyboard {
             "Predictions unavailable · Keyboard ready".to_owned()
         } else if self.error {
             "Input failed · Select to try again".to_owned()
-        } else if self.suspended {
+        } else if self.scan.suspended {
             "Keyboard paused · Select to resume".to_owned()
-        } else if self.nav.escaping() {
+        } else if self.scan.nav.escaping() {
             "Back to rows · Select to return".to_owned()
         } else if row_scan {
             format!("{} · Select a row", page)
@@ -587,7 +565,7 @@ impl Keyboard {
             format!(
                 "{} · Select {}",
                 page,
-                self.label(self.rows[active_row][self.nav.index()])
+                self.label(self.rows[active_row][self.scan.nav.index()])
                     .replace('\n', " ")
             )
         };
@@ -607,7 +585,7 @@ impl Keyboard {
                 height: (header_height - gap).max(1.0),
             },
             scale,
-            selected: !self.suspended && self.nav.escaping(),
+            selected: !self.scan.suspended && self.scan.nav.escaping(),
         });
         frame
     }
@@ -616,32 +594,33 @@ impl Keyboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scanning::MAX_SCAN_CYCLES;
     #[test]
     fn arriving_predictions_receive_a_full_scan_interval() {
         let mut keyboard = Keyboard::new(false);
         keyboard.enable_predictions(true);
         keyboard.advance(490, 500);
-        assert_eq!(keyboard.nav.index(), 1);
+        assert_eq!(keyboard.scan.nav.index(), 1);
         let batch = crate::prediction::worker::Batch {
             token: 1,
             words: vec!["hello".into()],
         };
         keyboard.predictions(Some(batch.clone()), false);
-        assert_eq!(keyboard.nav.index(), 0);
+        assert_eq!(keyboard.scan.nav.index(), 0);
         keyboard.advance(10, 500);
-        assert_eq!(keyboard.nav.index(), 0);
+        assert_eq!(keyboard.scan.nav.index(), 0);
         keyboard.predictions(Some(batch), false);
         keyboard.advance(489, 500);
-        assert_eq!(keyboard.nav.index(), 0);
+        assert_eq!(keyboard.scan.nav.index(), 0);
         keyboard.advance(1, 500);
-        assert_eq!(keyboard.nav.index(), 1);
+        assert_eq!(keyboard.scan.nav.index(), 1);
     }
 
     #[test]
     fn predictions_skip_empty_slots_and_defer_acceptance() {
         let mut k = Keyboard::new(false);
         k.enable_predictions(true);
-        assert_eq!(k.nav.index(), 1);
+        assert_eq!(k.scan.nav.index(), 1);
         k.predictions(
             Some(crate::prediction::worker::Batch {
                 token: 7,
@@ -650,7 +629,7 @@ mod tests {
             false,
         );
         k.restart();
-        assert_eq!(k.nav.index(), 0);
+        assert_eq!(k.scan.nav.index(), 0);
         assert_eq!(k.handle(Action::Select), None);
         assert_eq!(
             k.handle(Action::Select),
@@ -658,11 +637,11 @@ mod tests {
         );
         assert!(k.handle(Action::Select).is_none());
         k.succeeded();
-        assert!(k.nav.path().is_empty());
+        assert!(k.scan.nav.path().is_empty());
         k.handle(Action::Select);
         k.handle(Action::Next);
         k.handle(Action::Next);
-        assert!(k.nav.escaping());
+        assert!(k.scan.nav.escaping());
         k.predictions(None, false);
         assert!(k.choose(Key::Prediction(0)).is_none());
         k.choose(Key::Page(Page::Numbers));
@@ -756,7 +735,7 @@ mod tests {
         assert_eq!(selected.len(), 1);
         assert!(selected[0].text.starts_with("Back to rows"));
         k.handle(Action::Select);
-        assert!(k.nav.path().is_empty());
+        assert!(k.scan.nav.path().is_empty());
     }
     #[test]
     fn uk_layout_and_platform_keys() {
@@ -811,9 +790,9 @@ mod tests {
         k.choose(Key::Modifier(2));
         k.failed();
         assert_eq!(k.modifiers, [Modifier::Off; 4]);
-        assert!(k.suspended);
+        assert!(k.suspended());
         k.handle(Action::Select);
-        assert!(!k.suspended);
+        assert!(!k.suspended());
     }
     #[test]
     fn caps_xor_shift_only_affects_letters() {
@@ -832,22 +811,22 @@ mod tests {
     fn scan_returns_to_top_and_has_row_escape_and_suspension() {
         let mut k = Keyboard::new(false);
         k.handle(Action::Select);
-        assert!(!k.nav.path().is_empty());
+        assert!(!k.scan.nav.path().is_empty());
         k.handle(Action::Back);
-        assert!(k.nav.escaping());
+        assert!(k.scan.nav.escaping());
         k.handle(Action::Select);
-        assert!(k.nav.path().is_empty());
+        assert!(k.scan.nav.path().is_empty());
         k.handle(Action::Select);
         assert!(matches!(k.handle(Action::Select), Some(Output::Stroke(_))));
         k.succeeded();
-        assert!(k.nav.path().is_empty());
-        assert_eq!(k.nav.index(), 0);
+        assert!(k.scan.nav.path().is_empty());
+        assert_eq!(k.scan.nav.index(), 0);
         for _ in 0..k.rows.len() * MAX_SCAN_CYCLES {
             k.advance(100, 100);
         }
-        assert!(k.suspended);
+        assert!(k.suspended());
         assert!(k.handle(Action::Select).is_none());
-        assert!(!k.suspended);
+        assert!(!k.suspended());
     }
     #[test]
     fn geometry_fits_work_area_at_both_docks_and_scales() {
