@@ -12,7 +12,7 @@ Use `scan_items::ItemScanner<Action>` with a small typed action enum. Supply
 `scan_tree::Node::Group` nodes with stable group IDs and `Leaf` action identities.
 Group IDs must be unique among siblings; leaf identities must be unique within
 their group. They must identify the operation, not its current label or bounds.
-The `rows` convenience constructor is for fixed row layouts: its positional row
+The `configured_rows` convenience constructor is for fixed row layouts: its positional row
 IDs are not suitable when groups can reorder. Supply explicit groups in that case.
 Empty groups are removed. Explicitly identified groups retain their identity even
 with one child. Anonymous branches and fixed single-item rows collapse as before.
@@ -56,10 +56,28 @@ including reordered content, cancellation, exactly-once completion and timing.
 - Native hosts render `Frame` without activating Switchify. Domain actions are
   executed through the existing typed workflow requests and platform adapters.
 
-## Following stages
+## Settings
 
-Issue #801 adds validated shared settings and per-area overrides to this core.
-Issue #802 adds a main-window React content adapter and foreground/modal ownership.
-Those stages do not require individual screens to implement traversal or timers.
-They must preserve the current input generation checks, cleanup, native focus,
-point countdown cancellation and Remote behaviour.
+`scan_preferences::Preferences` resolves shared defaults and optional per-area
+values into `Resolved` options. The existing top-level automatic, interval and
+colour fields remain the shared defaults for compatibility. Missing overrides
+inherit them; removing an override restores inheritance. Direction, pass limit,
+item pattern and highlight thickness have backward-compatible defaults.
+
+Use `Config::resolved(Area)` for effective settings. The workflow supplies the
+active area's automatic mode to the session, so one manual area does not stop
+another area's automatic movement. Switch eligibility requires navigation keys
+if any area is manual. Pass limit zero means unlimited; grouped and linear item
+scanning share the same navigator and execution revision. Keyboard skipping of
+unavailable predictions counts automatic wraps but never manual passes.
+
+The existing configure API cancels a running scan and waits for Select. Native
+frames carry effective colour and thickness; individual renderers do not resolve
+settings. Point line/grid geometry and movement speed remain separate controls.
+
+## Following stage
+
+Issue #802 adds a main-window React content adapter and foreground/modal ownership,
+using the app-area preferences already stored here. Individual screens must not
+implement traversal or timers. Preserve input generation checks, cleanup, native
+focus, point countdown cancellation and Remote behaviour.
