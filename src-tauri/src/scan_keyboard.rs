@@ -896,12 +896,12 @@ mod tests {
         assert!(frame
             .tiles
             .iter()
-            .any(|tile| tile.label.contains("Select to resume")));
+            .any(|tile| tile.text.contains("Select to resume")));
         k.failed();
         let frame = k.frame(screen, 1.0, ScannerColor::Blue);
         assert!(frame
             .tiles
             .iter()
-            .any(|tile| tile.label.contains("Select to try again")));
+            .any(|tile| tile.text.contains("Select to try again")));
     }
 }
