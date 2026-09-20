@@ -148,7 +148,8 @@ impl<T: Clone + PartialEq> ItemScanner<T> {
         self.revision = self.revision.wrapping_add(1);
         self.pending = false;
         if !preserved {
-            self.restart_interval();
+            self.interval.reset();
+            self.cycles = 0;
         }
         true
     }
@@ -293,6 +294,45 @@ mod tests {
         assert!(!scan.complete_activation(first));
         scan.replace(vec![Node::Leaf("save")]);
         assert!(!scan.complete_activation(second));
+        assert_eq!(scan.handle(Action::Select), Some("save"));
+    }
+    #[test]
+    fn back_remains_back_when_the_hidden_edge_item_disappears() {
+        for forward in [false, true] {
+            let mut scan = ItemScanner::new(
+                vec![group("edit", &["copy", "paste", "undo"])],
+                Policy::MENU,
+            );
+            scan.handle(Action::Select);
+            if forward {
+                scan.handle(Action::Next);
+                scan.handle(Action::Next);
+            }
+            scan.handle(if forward { Action::Next } else { Action::Back });
+            assert!(scan.nav.escaping());
+            scan.advance(400, 500);
+            scan.replace(vec![
+                group("other", &["save", "close"]),
+                group("edit", &["paste", "cut"]),
+            ]);
+            assert!(scan.nav.escaping());
+            assert_eq!(scan.nav.path(), &[1]);
+            assert!(!scan.advance(99, 500));
+            assert_eq!(scan.handle(Action::Select), None);
+            assert!(scan.nav.path().is_empty());
+            assert_eq!(scan.nav.index(), 1);
+        }
+    }
+    #[test]
+    fn changing_content_never_resumes_a_suspended_scanner() {
+        let mut scan = scanner(Policy::MENU);
+        scan.handle(Action::Next);
+        scan.suspended = true;
+        scan.replace(vec![Node::Leaf("save")]);
+        assert!(scan.suspended);
+        assert!(!scan.advance(500, 500));
+        assert_eq!(scan.handle(Action::Select), None);
+        assert!(!scan.suspended);
         assert_eq!(scan.handle(Action::Select), Some("save"));
     }
 }

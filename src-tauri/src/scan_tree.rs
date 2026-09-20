@@ -167,7 +167,7 @@ impl<T: Clone + PartialEq> Navigator<T> {
         } else {
             None
         };
-        preserved &= index.is_some();
+        preserved &= index.is_some() || (self.escaping && !path.is_empty());
         self.index = index.unwrap_or(0);
         self.escaping &= preserved && !path.is_empty();
         self.path = path;
