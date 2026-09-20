@@ -1,6 +1,7 @@
 use super::context::{Adapter, RawContext, Status};
 use core_foundation::{
     base::{CFEqual, CFRange, CFType, CFTypeRef, TCFType},
+    runloop::{kCFRunLoopDefaultMode, CFRunLoop},
     string::{CFString, CFStringRef},
 };
 
@@ -84,6 +85,15 @@ impl Adapter for MacAdapter {
         objc2::rc::autoreleasepool(|_| {
             focused_application(
                 || {
+                    // The pipe-driven worker has no AppKit event loop. Refresh
+                    // NSWorkspace's foreground cache without waiting for events.
+                    unsafe {
+                        CFRunLoop::run_in_mode(
+                            kCFRunLoopDefaultMode,
+                            std::time::Duration::ZERO,
+                            false,
+                        );
+                    }
                     objc2_app_kit::NSWorkspace::sharedWorkspace()
                         .frontmostApplication()
                         .map(|app| app.processIdentifier())
