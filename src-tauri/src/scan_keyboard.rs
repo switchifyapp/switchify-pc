@@ -237,14 +237,12 @@ impl Keyboard {
         if batch.is_none() {
             self.predictions = None;
             self.queued_predictions = None;
-            self.skip_disabled(false);
             return;
         }
-        if self.prediction_row_active() && self.predictions.is_some() {
+        if self.prediction_row_active() {
             if self.predictions.as_ref().map(|b| b.token) != batch.as_ref().map(|b| b.token) {
                 self.predictions = None;
                 self.queued_predictions = batch;
-                self.skip_disabled(false);
             }
         } else {
             self.predictions = batch;
@@ -297,11 +295,10 @@ impl Keyboard {
         self.skip_disabled(false);
     }
     pub fn advance(&mut self, ms: u64, period: u64) {
-        let moved = self.scan.advance(ms, period);
-        if moved {
+        if self.scan.advance(ms, period) {
             self.prefer_predictions = false;
+            self.skip_disabled(true);
         }
-        self.skip_disabled(moved);
     }
     pub fn handle(&mut self, action: Action) -> Option<Output> {
         if self.scan.pending() {
@@ -315,6 +312,11 @@ impl Keyboard {
             return None;
         }
         self.prefer_predictions = false;
+        if self.disabled() && action == Action::Select {
+            self.scan.restart_interval();
+            self.skip_disabled(false);
+            return None;
+        }
         if let Some(key) = self.scan.handle(action) {
             return self.choose(key);
         }
@@ -537,6 +539,7 @@ impl Keyboard {
                     },
                     scale,
                     selected: !self.scan.suspended
+                        && !self.disabled()
                         && !self.scan.nav.escaping()
                         && r == active_row
                         && active_column.is_none_or(|column| c == column),
@@ -555,6 +558,8 @@ impl Keyboard {
             "Keyboard paused · Select to resume".to_owned()
         } else if self.scan.nav.escaping() {
             "Back to rows · Select to return".to_owned()
+        } else if self.disabled() {
+            "Suggestions updating · Select to continue".to_owned()
         } else if self.prediction_failed {
             "Predictions unavailable · Keyboard ready".to_owned()
         } else if row_scan {
@@ -943,6 +948,76 @@ mod tests {
             }
             k.advance(500, 500);
             assert!(k.suspended());
+        }
+    }
+    #[test]
+    fn invalid_predictions_wait_for_permitted_movement_and_count_reverse_wraps() {
+        use crate::scan_preferences::{Direction, Pattern, Resolved};
+        for pattern in [Pattern::Grouped, Pattern::Linear] {
+            for replacement in [false, true] {
+                for manual in [false, true] {
+                    let mut k = Keyboard::configured(
+                        false,
+                        Resolved {
+                            direction: Direction::Reverse,
+                            pattern,
+                            pass_limit: 1,
+                            automatic: !manual,
+                            ..Default::default()
+                        },
+                    );
+                    k.enable_predictions(true);
+                    k.predictions(
+                        Some(crate::prediction::worker::Batch {
+                            token: 1,
+                            words: vec!["hello".into(), "world".into()],
+                        }),
+                        false,
+                    );
+                    let count = if pattern == Pattern::Grouped {
+                        k.rows.len()
+                    } else {
+                        k.rows.iter().skip(1).map(Vec::len).sum::<usize>() + 2
+                    };
+                    for _ in 0..count - 1 {
+                        k.advance(500, 500);
+                    }
+                    assert!(k.prediction_row_active());
+                    k.advance(490, 500);
+                    let position = k.scan.nav.index();
+                    let next = replacement.then(|| crate::prediction::worker::Batch {
+                        token: 2,
+                        words: vec!["new".into()],
+                    });
+                    for _ in 0..3 {
+                        k.predictions(next.clone(), false);
+                    }
+                    assert_eq!(k.scan.nav.index(), position);
+                    assert!(!k.suspended());
+                    let frame = k.frame(
+                        Rect {
+                            x: 0.0,
+                            y: 0.0,
+                            width: 1000.0,
+                            height: 800.0,
+                        },
+                        1.0,
+                        ScannerColor::Blue,
+                    );
+                    assert!(!frame.tiles.iter().any(|tile| tile.selected));
+                    if manual {
+                        assert!(k.handle(Action::Select).is_none());
+                        assert!(!k.suspended());
+                        assert!(!k.prediction_row_active());
+                    } else {
+                        k.advance(9, 500);
+                        assert_eq!(k.scan.nav.index(), position);
+                        assert!(!k.suspended());
+                        k.advance(1, 500);
+                        assert!(k.suspended());
+                    }
+                }
+            }
         }
     }
 }
