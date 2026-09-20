@@ -249,6 +249,7 @@ impl Keyboard {
         } else {
             self.predictions = batch;
             if self.prefer_predictions
+                && self.scan.options.direction == crate::scan_preferences::Direction::Forward
                 && self
                     .predictions
                     .as_ref()
@@ -903,5 +904,45 @@ mod tests {
             .tiles
             .iter()
             .any(|tile| tile.text.contains("Select to try again")));
+    }
+    #[test]
+    fn arriving_predictions_preserve_reverse_origin_and_full_pass() {
+        use crate::scan_preferences::{Direction, Pattern, Resolved};
+        for pattern in [Pattern::Grouped, Pattern::Linear] {
+            let mut k = Keyboard::configured(
+                false,
+                Resolved {
+                    direction: Direction::Reverse,
+                    pattern,
+                    pass_limit: 1,
+                    ..Default::default()
+                },
+            );
+            k.enable_predictions(true);
+            let origin = k.scan.nav.index();
+            k.advance(490, 500);
+            k.predictions(
+                Some(crate::prediction::worker::Batch {
+                    token: 1,
+                    words: vec!["hello".into(), "world".into()],
+                }),
+                false,
+            );
+            assert_eq!(k.scan.nav.index(), origin);
+            k.advance(10, 500);
+            assert_ne!(k.scan.nav.index(), origin);
+            assert!(!k.suspended());
+            let count = if pattern == Pattern::Grouped {
+                k.rows.len()
+            } else {
+                k.rows.iter().skip(1).map(Vec::len).sum::<usize>() + 2
+            };
+            for _ in 1..count - 1 {
+                k.advance(500, 500);
+                assert!(!k.suspended());
+            }
+            k.advance(500, 500);
+            assert!(k.suspended());
+        }
     }
 }
