@@ -14,7 +14,8 @@ Group IDs must be unique among siblings; leaf identities must be unique within
 their group. They must identify the operation, not its current label or bounds.
 The `rows` convenience constructor is for fixed row layouts: its positional row
 IDs are not suitable when groups can reorder. Supply explicit groups in that case.
-Empty branches are removed and singleton branches collapse as before.
+Empty groups are removed. Explicitly identified groups retain their identity even
+with one child. Anonymous branches and fixed single-item rows collapse as before.
 
 Call `handle` with normalized switch actions and `advance` with elapsed time only
 when the containing session permits movement. The core owns the interval,

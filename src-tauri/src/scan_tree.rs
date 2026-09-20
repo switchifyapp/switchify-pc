@@ -14,7 +14,6 @@ impl<T> Node<T> {
                 let children: Vec<_> = children.into_iter().filter_map(Self::normalized).collect();
                 match children.len() {
                     0 => None,
-                    1 => children.into_iter().next(),
                     _ => Some(Self::Group { id, children }),
                 }
             }

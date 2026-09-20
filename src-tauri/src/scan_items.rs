@@ -45,9 +45,15 @@ impl<T: Clone> ItemScanner<T> {
     pub fn nodes(rows: &[Vec<T>]) -> Vec<Node<T>> {
         rows.iter()
             .enumerate()
-            .map(|(index, row)| Node::Group {
-                id: format!("row-{index}"),
-                children: row.iter().cloned().map(Node::Leaf).collect(),
+            .map(|(index, row)| {
+                if let [only] = row.as_slice() {
+                    Node::Leaf(only.clone())
+                } else {
+                    Node::Group {
+                        id: format!("row-{index}"),
+                        children: row.iter().cloned().map(Node::Leaf).collect(),
+                    }
+                }
             })
             .collect()
     }
@@ -334,5 +340,38 @@ mod tests {
         assert_eq!(scan.handle(Action::Select), None);
         assert!(!scan.suspended);
         assert_eq!(scan.handle(Action::Select), Some("save"));
+    }
+    #[test]
+    fn identified_group_survives_shrinking_to_one_item_while_back_is_selected() {
+        for forward in [false, true] {
+            let mut scan = ItemScanner::new(vec![group("edit", &["copy", "paste"])], Policy::MENU);
+            scan.handle(Action::Select);
+            if forward {
+                scan.handle(Action::Next);
+            }
+            scan.handle(if forward { Action::Next } else { Action::Back });
+            scan.replace(vec![group("edit", &["paste"])]);
+            assert!(scan.nav.escaping());
+            assert_eq!(scan.handle(Action::Select), None);
+            assert!(scan.nav.path().is_empty());
+            assert_eq!(scan.handle(Action::Select), None);
+            assert_eq!(scan.handle(Action::Select), Some("paste"));
+        }
+    }
+
+    #[test]
+    fn selected_leaf_survives_its_group_shrinking_to_one_child() {
+        let mut scan = ItemScanner::new(vec![group("edit", &["copy", "paste"])], Policy::MENU);
+        scan.handle(Action::Select);
+        scan.handle(Action::Next);
+        scan.replace(vec![group("edit", &["paste"])]);
+        assert_eq!(scan.nav.path(), &[0]);
+        assert_eq!(scan.handle(Action::Select), Some("paste"));
+    }
+
+    #[test]
+    fn fixed_single_item_rows_keep_direct_activation() {
+        let mut scan = ItemScanner::rows(&[vec!["close"]], Policy::MENU);
+        assert_eq!(scan.handle(Action::Select), Some("close"));
     }
 }
