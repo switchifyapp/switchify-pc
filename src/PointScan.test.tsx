@@ -284,7 +284,7 @@ it("keeps rate values in manual mode and preserves keyboard settings when resett
   expect(screen.getByLabelText("Auto scan rate")).toBeDisabled();
   expect(screen.getByLabelText("Auto scan rate")).toHaveValue("500");
   fireEvent.click(screen.getByRole("button", { name: "Use default for auto scan rate" }));
-  await waitFor(() => expect(screen.getByRole("group", { name: "Auto scan rate" })).toHaveFocus());
+  await waitFor(() => expect(screen.getByRole("group", { name: "Auto scan rate setting" })).toHaveFocus());
   expect(screen.getByLabelText("Auto scan rate")).toBeDisabled();
   expect(screen.getByLabelText("Auto scan rate")).toHaveValue("1000");
   fireEvent.click(screen.getByRole("button", { name: "Reset scanning overrides" }));
