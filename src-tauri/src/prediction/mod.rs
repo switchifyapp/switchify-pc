@@ -215,16 +215,29 @@ pub fn select(token: u64, index: usize) -> Result<(), String> {
     })
 }
 fn resource(app: &AppHandle) -> Result<std::path::PathBuf, ()> {
-    if cfg!(debug_assertions) {
-        return Ok(Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/WordData2017051601.db"));
-    }
-    app.path()
+    let bundled = app
+        .path()
         .resolve(
             "resources/WordData2017051601.db",
             tauri::path::BaseDirectory::Resource,
         )
-        .map_err(|_| ())
+        .map_err(|_| ());
+    let development = cfg!(debug_assertions)
+        .then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/WordData2017051601.db"));
+    database_resource(bundled, development)
 }
+
+fn database_resource(
+    bundled: Result<std::path::PathBuf, ()>,
+    development: Option<std::path::PathBuf>,
+) -> Result<std::path::PathBuf, ()> {
+    bundled
+        .ok()
+        .filter(|path| path.is_file())
+        .or_else(|| development.filter(|path| path.is_file()))
+        .ok_or(())
+}
+
 pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ignored: &[String]) {
     let Some(keyboard) = keyboard else {
         stop();
@@ -362,6 +375,43 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn database_resolution_supports_transferred_bundles_and_unbundled_development() {
+        let root = std::env::temp_dir().join(format!("switchify-resource-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let bundled = root.join("bundled.db");
+        let source = root.join("source.db");
+        std::fs::write(&bundled, []).unwrap();
+        std::fs::write(&source, []).unwrap();
+        assert_eq!(
+            database_resource(Ok(bundled.clone()), Some(source.clone())),
+            Ok(bundled.clone())
+        );
+        assert_eq!(
+            database_resource(Ok(bundled.clone()), None),
+            Ok(bundled.clone())
+        );
+        std::fs::remove_file(&source).unwrap();
+        assert_eq!(
+            database_resource(Ok(bundled.clone()), Some(source.clone())),
+            Ok(bundled.clone())
+        );
+        std::fs::write(&source, []).unwrap();
+        std::fs::remove_file(&bundled).unwrap();
+        assert_eq!(
+            database_resource(Ok(bundled.clone()), Some(source.clone())),
+            Ok(source.clone())
+        );
+        assert_eq!(
+            database_resource(Err(()), Some(source.clone())),
+            Ok(source.clone())
+        );
+        assert_eq!(database_resource(Ok(bundled), None), Err(()));
+        assert_eq!(database_resource(Ok(root.clone()), None), Err(()));
+        std::fs::remove_file(source).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
     #[test]
     fn cancellation_kills_and_reaps_a_blocked_worker() {
         #[cfg(target_os = "windows")]

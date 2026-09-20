@@ -7,6 +7,7 @@ use core_foundation::{
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
     fn AXUIElementCreateSystemWide() -> CFTypeRef;
+    fn AXUIElementCreateApplication(pid: i32) -> CFTypeRef;
     fn AXUIElementCopyAttributeValue(e: CFTypeRef, a: CFStringRef, out: *mut CFTypeRef) -> i32;
     fn AXUIElementCopyParameterizedAttributeValue(
         e: CFTypeRef,
@@ -41,9 +42,7 @@ fn string(value: CFType) -> Result<String, Status> {
     }
     Ok(unsafe { CFString::wrap_under_get_rule(value.as_CFTypeRef().cast()) }.to_string())
 }
-pub struct MacAdapter {
-    system: CFType,
-}
+pub struct MacAdapter;
 impl MacAdapter {
     pub fn new() -> Result<Self, Status> {
         let system = unsafe { AXUIElementCreateSystemWide() };
@@ -53,9 +52,8 @@ impl MacAdapter {
         unsafe {
             AXUIElementSetMessagingTimeout(system, 0.2);
         }
-        Ok(Self {
-            system: unsafe { CFType::wrap_under_create_rule(system) },
-        })
+        let _system = unsafe { CFType::wrap_under_create_rule(system) };
+        Ok(Self)
     }
     fn text(&self, target: &CFType, range: CFRange) -> Result<String, Status> {
         let parameter = unsafe { AXValueCreate(4, (&range as *const CFRange).cast()) };
@@ -83,7 +81,23 @@ impl MacAdapter {
 impl Adapter for MacAdapter {
     type Target = CFType;
     fn focused(&mut self) -> Result<CFType, Status> {
-        attribute(&self.system, "AXFocusedUIElement")
+        objc2::rc::autoreleasepool(|_| {
+            focused_application(
+                || {
+                    objc2_app_kit::NSWorkspace::sharedWorkspace()
+                        .frontmostApplication()
+                        .map(|app| app.processIdentifier())
+                },
+                |pid| {
+                    let app = unsafe { AXUIElementCreateApplication(pid) };
+                    if app.is_null() {
+                        return Err(Status::NoFocus);
+                    }
+                    let app = unsafe { CFType::wrap_under_create_rule(app) };
+                    attribute(&app, "AXFocusedUIElement")
+                },
+            )
+        })
     }
     fn protected(&mut self, target: &CFType) -> Result<bool, Status> {
         if unsafe { IsSecureEventInputEnabled() } {
@@ -182,5 +196,57 @@ impl Adapter for MacAdapter {
             has_selection: range.length != 0,
             position: range.location as i64,
         })
+    }
+}
+
+fn focused_application<T>(
+    mut foreground: impl FnMut() -> Option<i32>,
+    focused: impl FnOnce(i32) -> Result<T, Status>,
+) -> Result<T, Status> {
+    let pid = foreground().filter(|pid| *pid > 0).ok_or(Status::NoFocus)?;
+    let target = focused(pid)?;
+    if foreground() != Some(pid) {
+        return Err(Status::NoFocus);
+    }
+    Ok(target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_focus_from_current_application() {
+        assert_eq!(focused_application(|| Some(42), |pid| Ok(pid + 1)), Ok(43));
+    }
+
+    #[test]
+    fn rejects_missing_foreground_without_querying_accessibility() {
+        for pid in [None, Some(0), Some(-1)] {
+            assert_eq!(
+                focused_application(
+                    || pid,
+                    |_| -> Result<(), Status> { panic!("must not query an invalid application") }
+                ),
+                Err(Status::NoFocus)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_foreground_changes_during_discovery() {
+        let mut applications = [Some(42), Some(43)].into_iter();
+        assert_eq!(
+            focused_application(|| applications.next().unwrap(), |_| Ok(())),
+            Err(Status::NoFocus)
+        );
+    }
+
+    #[test]
+    fn preserves_accessibility_failures() {
+        assert_eq!(
+            focused_application(|| Some(42), |_| Err::<(), _>(Status::Unsupported)),
+            Err(Status::Unsupported)
+        );
     }
 }
