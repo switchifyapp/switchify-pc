@@ -152,6 +152,18 @@ struct Service {
     tracking: bool,
 }
 impl Service {
+    fn suggestions(
+        &mut self,
+        keyboard: &mut Keyboard,
+        batch: Option<worker::Batch>,
+        tracking: bool,
+    ) {
+        self.tracking = tracking;
+        if !tracking {
+            self.edit = None;
+        }
+        keyboard.predictions(batch, false);
+    }
     fn fail(&mut self, keyboard: &mut Keyboard) {
         self.client = None;
         self.failed = true;
@@ -270,12 +282,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                         batch,
                         tracking,
                     } if generation == s.generation => {
-                        s.tracking = tracking;
-                        if !tracking {
-                            s.edit = None;
-                            s.reset = true;
-                        }
-                        keyboard.predictions(batch, false);
+                        s.suggestions(keyboard, batch, tracking);
                     }
                     Response::Insert { generation, text } => {
                         s.accepting = false;

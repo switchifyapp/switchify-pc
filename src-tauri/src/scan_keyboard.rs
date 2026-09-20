@@ -620,6 +620,77 @@ mod tests {
     }
 
     #[test]
+    fn unchanged_predictions_preserve_navigation_timing_and_pass_limits() {
+        use crate::scan_preferences::{Direction, Pattern, Resolved};
+        for direction in [Direction::Forward, Direction::Reverse] {
+            for pattern in [Pattern::Grouped, Pattern::Linear] {
+                for automatic in [false, true] {
+                    let options = Resolved {
+                        direction,
+                        pattern,
+                        pass_limit: 2,
+                        ..Default::default()
+                    };
+                    let mut baseline = Keyboard::configured(false, options);
+                    let mut polled = Keyboard::configured(false, options);
+                    let batch = crate::prediction::worker::Batch {
+                        token: 7,
+                        words: vec!["water".into(), "walk".into()],
+                    };
+                    for k in [&mut baseline, &mut polled] {
+                        k.enable_predictions(true);
+                        k.predictions(Some(batch.clone()), false);
+                        k.restart();
+                    }
+                    let ticks = 12 * (polled.rows.iter().map(Vec::len).sum::<usize>() + 1);
+                    for tick in 0..ticks {
+                        polled.predictions(Some(batch.clone()), false);
+                        if automatic {
+                            baseline.advance(250, 1000);
+                            polled.advance(250, 1000);
+                        } else if tick % 4 == 3 {
+                            baseline.handle(Action::Next);
+                            polled.handle(Action::Next);
+                        }
+                        assert_eq!(
+                            polled.scan.position(&polled.rows),
+                            baseline.scan.position(&baseline.rows)
+                        );
+                        assert_eq!(polled.suspended(), baseline.suspended());
+                        assert_eq!(polled.disabled(), baseline.disabled());
+                        assert_eq!(polled.predictions.as_ref().unwrap().token, 7);
+                        assert!(polled.queued_predictions.is_none());
+                    }
+                    if automatic {
+                        assert!(polled.suspended());
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn unchanged_predictions_preserve_selected_key_and_execute_once() {
+        let mut k = Keyboard::new(false);
+        k.enable_predictions(true);
+        let batch = crate::prediction::worker::Batch {
+            token: 7,
+            words: vec!["water".into(), "walk".into()],
+        };
+        k.predictions(Some(batch.clone()), false);
+        k.handle(Action::Select);
+        k.advance(750, 1000);
+        k.predictions(Some(batch.clone()), false);
+        assert_eq!(k.scan.position(&k.rows), (0, Some(0)));
+        k.advance(250, 1000);
+        assert_eq!(k.scan.position(&k.rows), (0, Some(1)));
+        k.predictions(Some(batch), false);
+        assert_eq!(
+            k.handle(Action::Select),
+            Some(Output::Prediction { token: 7, index: 1 })
+        );
+        assert!(k.handle(Action::Select).is_none());
+    }
+    #[test]
     fn predictions_skip_empty_slots_and_defer_acceptance() {
         let mut k = Keyboard::new(false);
         k.enable_predictions(true);
