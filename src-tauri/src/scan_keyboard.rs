@@ -548,14 +548,14 @@ impl Keyboard {
             Page::Functions => "Navigation",
             Page::Numbers => "Numbers",
         };
-        let text = if self.prediction_failed {
-            "Predictions unavailable · Keyboard ready".to_owned()
-        } else if self.error {
+        let text = if self.error {
             "Input failed · Select to try again".to_owned()
         } else if self.scan.suspended {
             "Keyboard paused · Select to resume".to_owned()
         } else if self.scan.nav.escaping() {
             "Back to rows · Select to return".to_owned()
+        } else if self.prediction_failed {
+            "Predictions unavailable · Keyboard ready".to_owned()
         } else if row_scan {
             format!("{} · Select a row", page)
         } else {
@@ -880,5 +880,28 @@ mod tests {
             }
             assert!(!k.suspended());
         }
+    }
+    #[test]
+    fn prediction_warning_does_not_hide_resume_or_error_instructions() {
+        let mut k = Keyboard::new(false);
+        k.prediction_failed = true;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        k.scan.suspended = true;
+        let frame = k.frame(screen, 1.0, ScannerColor::Blue);
+        assert!(frame
+            .tiles
+            .iter()
+            .any(|tile| tile.label.contains("Select to resume")));
+        k.failed();
+        let frame = k.frame(screen, 1.0, ScannerColor::Blue);
+        assert!(frame
+            .tiles
+            .iter()
+            .any(|tile| tile.label.contains("Select to try again")));
     }
 }
