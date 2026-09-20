@@ -73,6 +73,10 @@ impl<T: Clone> Navigator<T> {
     pub fn escaping(&self) -> bool {
         self.escaping
     }
+    pub fn start_at_end(&mut self) {
+        self.index = self.siblings().len().saturating_sub(1);
+        self.escaping = false;
+    }
     pub fn reset(&mut self) {
         self.path.clear();
         self.index = 0;

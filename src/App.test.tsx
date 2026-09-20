@@ -6,6 +6,7 @@ import type { BluetoothState, SwitchProfile } from "./types";
 
 import * as switchHooks from "./scanning/useSwitches";
 import * as scanHooks from "./scanning/useScanning";
+import { defaultScanPreferences } from "./scanning/preferences";
 
 const defaultBrowserSettings = structuredClone(browserState.settings);
 
@@ -37,13 +38,14 @@ describe("Switchify PC shell", () => {
     browserState.accessibility = "granted";
     browserState.bluetooth = "unsupported";
     vi.spyOn(switchHooks, "useSwitches").mockReturnValue(localSwitches());
-    const scanning: scanHooks.ScanningController = { config: scanHooks.defaultPointScanConfig, state: { config: scanHooks.defaultPointScanConfig, supported: true, enabled: true, paused: false, phase: "idle", message: "Ready" }, pending: 0, error: null, unsaved: false, update: vi.fn(), retry: vi.fn() };
+    const scanning: scanHooks.ScanningController = { config: { ...scanHooks.defaultPointScanConfig, scanPreferences: { ...defaultScanPreferences, point: { automatic: false } } }, state: { config: scanHooks.defaultPointScanConfig, supported: true, enabled: true, paused: false, phase: "idle", message: "Ready" }, pending: 0, error: null, unsaved: false, update: vi.fn(), retry: vi.fn() };
     vi.spyOn(scanHooks, "useScanning").mockReturnValue(scanning);
     let receive: ((state: typeof browserState) => void) | undefined;
     vi.spyOn(api, "onState").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
     render(<App />);
     await screen.findByRole("heading", { name: "Ready for switch control" });
     expect(screen.getByText("1 saved · Select assigned")).toBeInTheDocument();
+    expect(screen.getByText("Manual scanning · Line only")).toBeInTheDocument();
     scanning.state = { ...scanning.state!, paused: true };
     act(() => receive?.({ ...structuredClone(browserState), bluetooth: "connected" }));
     expect(screen.getByText("Local scanning is paused while an Android device is connected.")).toBeInTheDocument();

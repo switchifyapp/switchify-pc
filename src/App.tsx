@@ -12,6 +12,7 @@ import { updateDescription, updateInFlight, updateLiveness, updateProgress, upda
 import { TabPanel, Tabs } from "./Tabs";
 import { useSwitches, type SwitchController } from "./scanning/useSwitches";
 import { useScanning, type ScanningController } from "./scanning/useScanning";
+import { areaOptions } from "./scanning/preferences";
 
 import { SwitchesSection } from "./settings/SwitchesSection";
 import { ScanningSection } from "./settings/ScanningSection";
@@ -72,7 +73,7 @@ function HomeView({ state, switches, scanning, navigate, onDisconnect, onAccessi
     <section className="status-list" aria-label="Switch control status">
       <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} /></div>{state.accessibility === "required" && <button className="text-button" onClick={onAccessibility}>Open Accessibility Settings</button>}</article>
       <article><StatusIcon ok={hasSelect}><Keyboard size={19} /></StatusIcon><div><h3>Configured switches</h3><p>{saved.length} saved · {hasSelect ? "Select assigned" : "Select action needed"}</p></div></article>
-      <article><SlidersHorizontal size={19} /><div><h3>Scanning</h3><p>{scanning.config.automatic ? "Automatic scanning" : "Manual scanning"} · {scanning.config.mode === "line" ? "Line only" : "Grid then line"}</p></div><button className="text-button" onClick={() => navigate("scanning")}>Configure scanning</button></article>
+      <article><SlidersHorizontal size={19} /><div><h3>Scanning</h3><p>{areaOptions(scanning.config, "point").automatic ? "Automatic scanning" : "Manual scanning"} · {scanning.config.mode === "line" ? "Line only" : "Grid then line"}</p></div><button className="text-button" onClick={() => navigate("scanning")}>Configure scanning</button></article>
     </section>
     <section className="status-list" aria-label="Optional Android connection"><article><Smartphone size={19} /><div><h3>Android connection</h3><p>{state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothLabels.connected : bluetoothLabels[state.bluetooth]}</p></div><button className="text-button" onClick={() => navigate("android")}>Manage Android connection</button>{state.bluetooth === "connected" && <button className="secondary" onClick={onDisconnect}>Disconnect</button>}</article></section>
   </div>;

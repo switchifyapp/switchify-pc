@@ -1,7 +1,7 @@
 //! Android point scanning, with desktop coordinates and no OS input in the engine.
 use crate::scan_tree::{Navigator, Node, Selection};
 use crate::scanning::{
-    Action, Frame, FrameLabel, Interval, Rect, SwitchSettings, Technique, MAX_SCAN_CYCLES, TICK_MS,
+    Action, Frame, FrameLabel, Interval, Rect, SwitchSettings, Technique, TICK_MS,
 };
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +15,8 @@ pub enum Mode {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
+    #[serde(deserialize_with = "crate::scan_preferences::deserialize_preferences")]
+    pub scan_preferences: crate::scan_preferences::Preferences,
     pub word_prediction: bool,
     pub scanner_color: crate::scanning::ScannerColor,
     pub mode: Mode,
@@ -32,6 +34,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            scan_preferences: Default::default(),
             word_prediction: true,
             scanner_color: Default::default(),
             mode: Mode::Line,
@@ -51,21 +54,43 @@ impl Default for Config {
 impl Config {
     pub fn switches(&self) -> SwitchSettings {
         SwitchSettings {
-            automatic: self.automatic,
+            automatic: [
+                crate::scan_preferences::Area::Point,
+                crate::scan_preferences::Area::Menu,
+                crate::scan_preferences::Area::Keyboard,
+            ]
+            .into_iter()
+            .all(|area| self.resolved(area).automatic),
             select_key: self.select_key.clone(),
             next_key: self.next_key.clone(),
             back_key: self.back_key.clone(),
             pause_key: self.pause_key.clone(),
         }
     }
+    pub fn resolved(
+        &self,
+        area: crate::scan_preferences::Area,
+    ) -> crate::scan_preferences::Resolved {
+        self.scan_preferences.resolve(
+            area,
+            self.automatic,
+            self.block_interval_ms,
+            self.scanner_color,
+        )
+    }
     pub fn point(&self) -> PointSettings {
         PointSettings {
+            scan: self.resolved(crate::scan_preferences::Area::Point),
+            menu_scan: self.resolved(crate::scan_preferences::Area::Menu),
+            keyboard_scan: self.resolved(crate::scan_preferences::Area::Keyboard),
             word_prediction: self.word_prediction,
-            scanner_color: self.scanner_color,
+            scanner_color: self.resolved(crate::scan_preferences::Area::Point).color,
             mode: self.mode,
             speed: self.speed,
             grid_size: self.grid_size,
-            block_interval_ms: self.block_interval_ms,
+            block_interval_ms: self
+                .resolved(crate::scan_preferences::Area::Point)
+                .interval_ms,
             auto_select_enabled: self.auto_select_enabled,
             auto_select_delay_ms: self.auto_select_delay_ms,
         }
@@ -77,6 +102,9 @@ impl Config {
 }
 #[derive(Clone)]
 pub struct PointSettings {
+    pub scan: crate::scan_preferences::Resolved,
+    pub menu_scan: crate::scan_preferences::Resolved,
+    pub keyboard_scan: crate::scan_preferences::Resolved,
     pub word_prediction: bool,
     pub scanner_color: crate::scanning::ScannerColor,
     pub mode: Mode,
@@ -160,13 +188,30 @@ impl Engine {
             units_per_logical_pixel,
         })
     }
+    fn initial_direction(&self) -> f64 {
+        if self.config.scan.direction == crate::scan_preferences::Direction::Forward {
+            1.0
+        } else {
+            -1.0
+        }
+    }
+    fn reset_line_origin(&mut self) {
+        self.x = self.region.x;
+        self.y = self.region.y;
+        if self.initial_direction() < 0.0 {
+            self.x += self.region.width - 1.0;
+            self.y += self.region.height - 1.0;
+        }
+    }
     pub fn reset(&mut self) {
         self.phase = Phase::Idle;
         self.region = self.screen;
-        self.x = self.screen.x;
-        self.y = self.screen.y;
+        self.reset_line_origin();
         self.grid.reset();
-        self.direction = 1.0;
+        if self.initial_direction() < 0.0 {
+            self.grid.start_at_end();
+        }
+        self.direction = self.initial_direction();
         self.block_elapsed.reset();
         self.cycles = 0;
     }
@@ -180,18 +225,23 @@ impl Engine {
                         match self.grid.select() {
                             Selection::Leaf(_) => {
                                 self.region = self.cell_rect();
-                                self.x = self.region.x;
-                                self.y = self.region.y;
+                                self.reset_line_origin();
                                 self.phase = Phase::X;
                             }
-                            Selection::Entered | Selection::Escaped => self.sync_grid_phase(),
+                            Selection::Entered => {
+                                if self.initial_direction() < 0.0 {
+                                    self.grid.start_at_end();
+                                }
+                                self.sync_grid_phase();
+                            }
+                            Selection::Escaped => self.sync_grid_phase(),
                             Selection::None => {}
                         }
-                        self.direction = 1.0;
+                        self.direction = self.initial_direction();
                     }
                     Phase::X => {
                         self.phase = Phase::Y;
-                        self.direction = 1.0;
+                        self.direction = self.initial_direction();
                     }
                     Phase::Y => {
                         let point = (
@@ -305,7 +355,7 @@ impl Engine {
     }
     /// Thin rectangles let both native hosts render without a full-screen bitmap.
     pub fn lines(&self) -> Vec<Rect> {
-        let t = 2.0 * self.units_per_logical_pixel;
+        let t = 2.0 * self.units_per_logical_pixel * self.config.scan.thickness.scale();
         let mut result = vec![];
         match self.phase {
             Phase::Idle => return result,
@@ -453,7 +503,7 @@ impl Technique for Engine {
         self.phase
     }
     fn exhausted(&self) -> bool {
-        self.cycles >= MAX_SCAN_CYCLES
+        self.config.scan.exhausted(self.cycles)
     }
 }
 
@@ -892,6 +942,8 @@ mod tests {
         json["autoSelectDelayMs"] = serde_json::json!(1000);
         json["scannerColor"] = serde_json::json!("blue");
         json["wordPrediction"] = serde_json::json!(true);
+        json["scanPreferences"] =
+            serde_json::to_value(crate::scan_preferences::Preferences::default()).unwrap();
         assert_eq!(serde_json::to_value(&config).unwrap(), json);
         assert!(!config.switches().automatic);
         assert_eq!(config.point().grid_size, 7);
@@ -931,5 +983,82 @@ mod tests {
             1.0
         )
         .is_err());
+    }
+    #[test]
+    fn legacy_settings_and_new_overrides_round_trip_without_changing_shared_values() {
+        use crate::scan_preferences::{Area, Direction, Pattern, Thickness};
+        let legacy = serde_json::json!({"automatic":false,"blockIntervalMs":1500,"scannerColor":"green","speed":4});
+        let mut config: Config = serde_json::from_value(legacy).unwrap();
+        for area in [Area::Point, Area::Menu, Area::Keyboard] {
+            let resolved = config.resolved(area);
+            assert!(!resolved.automatic);
+            assert_eq!(resolved.interval_ms, 1500);
+            assert_eq!(resolved.color, crate::scanning::ScannerColor::Green);
+            assert_eq!(resolved.pass_limit, 3);
+        }
+        config.scan_preferences.keyboard.automatic = Some(true);
+        config.scan_preferences.keyboard.direction = Some(Direction::Reverse);
+        config.scan_preferences.keyboard.pattern = Some(Pattern::Linear);
+        config.scan_preferences.keyboard.thickness = Some(Thickness::Thick);
+        let stored = serde_json::to_vec(&config).unwrap();
+        let restored: Config = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(restored, config);
+        assert!(!restored.automatic);
+        assert!(restored.resolved(Area::Keyboard).automatic);
+        assert!(!restored.switches().automatic);
+    }
+
+    #[test]
+    fn obsolete_app_override_does_not_require_manual_switches() {
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "automatic": false,
+            "scanPreferences": {
+                "point": {"automatic": true},
+                "menu": {"automatic": true},
+                "keyboard": {"automatic": true},
+                "app": {"automatic": false}
+            }
+        }))
+        .unwrap();
+        assert!(config.switches().automatic);
+        let stored = serde_json::to_value(&config).unwrap();
+        assert!(stored["scanPreferences"].get("app").is_none());
+        let restored: Config = serde_json::from_value(stored).unwrap();
+        assert_eq!(restored, config);
+    }
+
+    #[test]
+    fn invalid_preferences_do_not_discard_existing_point_settings() {
+        for prefs in [
+            serde_json::json!({"direction":"invalid"}),
+            serde_json::json!({"passLimit":999,"menu":{"intervalMs":0,"passLimit":9}}),
+        ] {
+            let config: Config = serde_json::from_value(serde_json::json!({"automatic":false,"speed":4,"blockIntervalMs":1500,"scanPreferences":prefs})).unwrap();
+            assert_eq!(config.speed, 4);
+            assert!(!config.automatic);
+            let options = config.resolved(crate::scan_preferences::Area::Menu);
+            assert_eq!(options.pass_limit, 3);
+            assert_eq!(options.interval_ms, 1500);
+        }
+    }
+
+    #[test]
+    fn reverse_point_scan_starts_at_the_far_edge_and_uses_its_pass_limit() {
+        let mut config = Config::default();
+        config.scan_preferences.direction = crate::scan_preferences::Direction::Reverse;
+        config.scan_preferences.pass_limit = 1;
+        let mut session = engine(config);
+        session.action(Action::Select);
+        let before = session.technique.x;
+        assert_eq!(
+            before,
+            session.technique.screen.x + session.technique.screen.width - 1.0
+        );
+        session.tick(100, false);
+        assert!(session.technique.x < before);
+        for _ in 0..1000 {
+            session.tick(250, false);
+        }
+        assert!(!session.active());
     }
 }

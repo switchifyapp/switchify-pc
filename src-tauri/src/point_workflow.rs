@@ -43,8 +43,8 @@ pub fn default_click(point: Point) -> Request {
         count: 1,
     }
 }
-fn selection_policy(point: Point, period: u64) -> (Point, Menu) {
-    (point, Menu::new(Kind::Actions, period))
+fn selection_policy(point: Point, options: crate::scan_preferences::Resolved) -> (Point, Menu) {
+    (point, Menu::configured(Kind::Actions, options))
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
@@ -96,13 +96,17 @@ pub struct Workflow {
 }
 impl Workflow {
     pub fn new(config: PointSettings, screen: Rect, scale: f64) -> Result<Self, String> {
-        let period = config.block_interval_ms;
+        let menu_options = config.menu_scan;
+        let keyboard_options = config.keyboard_scan;
         Ok(Self {
-            keyboard: crate::scan_keyboard::Keyboard::new(cfg!(target_os = "macos")),
+            keyboard: crate::scan_keyboard::Keyboard::configured(
+                cfg!(target_os = "macos"),
+                keyboard_options,
+            ),
             keyboard_area: screen,
             point: Engine::new(config, screen, scale)?,
             stage: Stage::Idle,
-            menu: Menu::new(Kind::Actions, period),
+            menu: Menu::configured(Kind::Actions, menu_options),
             parent_menu: vec![],
             source: (0, 0),
             destination: (0, 0),
@@ -111,6 +115,13 @@ impl Workflow {
             error: None,
         })
     }
+    fn active_preferences(&self) -> crate::scan_preferences::Resolved {
+        match self.stage {
+            Stage::Keyboard | Stage::KeyboardOpening => self.point.config.keyboard_scan,
+            Stage::Menu => self.point.config.menu_scan,
+            _ => self.point.config.scan,
+        }
+    }
     pub fn apply_config(&mut self, config: PointSettings, restart: bool) {
         if self.stage == Stage::Countdown {
             self.pending = None;
@@ -118,12 +129,16 @@ impl Workflow {
             self.open(Kind::Actions);
         }
         self.point.config = config;
-        self.menu.set_period(self.point.config.block_interval_ms);
+        self.menu
+            .set_period(self.point.config.menu_scan.interval_ms);
         for menu in &mut self.parent_menu {
-            menu.set_period(self.point.config.block_interval_ms);
+            menu.set_period(self.point.config.menu_scan.interval_ms);
         }
         if restart {
-            self.keyboard = crate::scan_keyboard::Keyboard::new(cfg!(target_os = "macos"));
+            self.keyboard = crate::scan_keyboard::Keyboard::configured(
+                cfg!(target_os = "macos"),
+                self.point.config.keyboard_scan,
+            );
             self.parent_menu.clear();
             self.stage = Stage::Point;
             self.point.start();
@@ -145,7 +160,7 @@ impl Workflow {
         self.keyboard_area = area;
     }
     fn open(&mut self, kind: Kind) {
-        self.menu = Menu::new(kind, self.point.config.block_interval_ms);
+        self.menu = Menu::configured(kind, self.point.config.menu_scan);
         self.stage = Stage::Menu;
     }
     fn restore_actions(&mut self) {
@@ -161,7 +176,10 @@ impl Workflow {
         match item {
             Item::TypeHere | Item::Keyboard => {
                 self.stage = Stage::KeyboardOpening;
-                self.keyboard = crate::scan_keyboard::Keyboard::new(cfg!(target_os = "macos"));
+                self.keyboard = crate::scan_keyboard::Keyboard::configured(
+                    cfg!(target_os = "macos"),
+                    self.point.config.keyboard_scan,
+                );
                 return Some(Request::OpenKeyboard {
                     point: (item == Item::TypeHere).then_some(self.source),
                 });
@@ -173,7 +191,7 @@ impl Workflow {
                 } else {
                     Kind::More
                 };
-                let next = Menu::new(kind, self.point.config.block_interval_ms);
+                let next = Menu::configured(kind, self.point.config.menu_scan);
                 self.parent_menu
                     .push(std::mem::replace(&mut self.menu, next));
             }
@@ -206,7 +224,7 @@ impl Workflow {
                 });
             }
             Item::Scroll | Item::Drag => {
-                let next = Menu::new(Kind::Scroll, self.point.config.block_interval_ms);
+                let next = Menu::configured(Kind::Scroll, self.point.config.menu_scan);
                 self.parent_menu
                     .push(std::mem::replace(&mut self.menu, next));
                 if item == Item::Drag {
@@ -258,7 +276,7 @@ impl Technique for Workflow {
         }
         self.pending = None;
         self.stage = Stage::Menu;
-        self.menu = Menu::new(Kind::Actions, self.point.config.block_interval_ms);
+        self.menu = Menu::configured(Kind::Actions, self.point.config.menu_scan);
         self.parent_menu.clear();
         self.menu.suspend();
         self.error = Some(message);
@@ -276,7 +294,10 @@ impl Technique for Workflow {
         self.point.start();
     }
     fn reset(&mut self) {
-        self.keyboard = crate::scan_keyboard::Keyboard::new(cfg!(target_os = "macos"));
+        self.keyboard = crate::scan_keyboard::Keyboard::configured(
+            cfg!(target_os = "macos"),
+            self.point.config.keyboard_scan,
+        );
         self.stage = Stage::Idle;
         self.parent_menu.clear();
         self.pending = None;
@@ -291,6 +312,9 @@ impl Technique for Workflow {
     }
     fn complete_on_selection(&self) -> bool {
         false
+    }
+    fn automatic(&self, _fallback: bool) -> bool {
+        self.active_preferences().automatic
     }
     fn auto_selecting(&self) -> bool {
         self.stage == Stage::Countdown
@@ -317,8 +341,7 @@ impl Technique for Workflow {
                         self.destination = point;
                         self.open(Kind::ConfirmDrag);
                     } else {
-                        let (target, menu) =
-                            selection_policy(point, self.point.config.block_interval_ms);
+                        let (target, menu) = selection_policy(point, self.point.config.menu_scan);
                         self.source = target;
                         self.menu = menu;
                         self.elapsed = 0;
@@ -354,7 +377,7 @@ impl Technique for Workflow {
         match self.stage {
             Stage::Keyboard => self
                 .keyboard
-                .advance(ms, self.point.config.block_interval_ms),
+                .advance(ms, self.point.config.keyboard_scan.interval_ms),
             Stage::Point | Stage::Destination => {
                 self.point.advance(ms);
                 if self.point.exhausted() {
@@ -511,9 +534,11 @@ impl Technique for Workflow {
                 });
             }
         }
-        frame.color = self.point.config.scanner_color;
+        let preferences = self.active_preferences();
+        frame.color = preferences.color;
         for tile in &mut frame.tiles {
             tile.color = frame.color;
+            tile.thickness = preferences.thickness;
         }
         frame
     }
@@ -863,6 +888,9 @@ mod tests {
         for color in [Red, Green, Blue, Yellow, White] {
             let mut s = session(false);
             s.technique.point.config.scanner_color = color;
+            s.technique.point.config.scan.color = color;
+            s.technique.point.config.menu_scan.color = color;
+            s.technique.point.config.keyboard_scan.color = color;
             open(&mut s);
             for kind in [Kind::Actions, Kind::Scroll, Kind::ConfirmDrag] {
                 s.technique.open(kind);
@@ -1034,5 +1062,38 @@ mod tests {
         assert_eq!(choose(&mut s, 1, 0), None);
         assert_eq!(s.technique.menu.kind, Kind::Actions);
         assert_eq!(s.take_selection(), None);
+    }
+    #[test]
+    fn session_uses_each_areas_automatic_setting_without_ignoring_pause_or_hold() {
+        use crate::scan_preferences::Area;
+        let mut config = crate::point_scan::Config {
+            automatic: false,
+            ..Default::default()
+        };
+        config.scan_preferences.menu.automatic = Some(true);
+        config.scan_preferences.menu.interval_ms = Some(250);
+        config.scan_preferences.keyboard.automatic = Some(false);
+        let mut s = session(false);
+        s.technique.apply_config(config.point(), false);
+        s.action(Action::Select);
+        let initial = s.frame();
+        s.tick(250, false);
+        assert_eq!(s.frame(), initial);
+        s.action(Action::Select);
+        s.action(Action::Select);
+        let menu = s.frame();
+        s.tick(250, true);
+        assert_eq!(s.frame(), menu);
+        s.action(Action::Pause);
+        s.tick(250, false);
+        assert_eq!(s.frame(), menu);
+        s.action(Action::Pause);
+        s.tick(250, false);
+        assert_ne!(s.frame(), menu);
+        assert!(config.resolved(Area::Menu).automatic);
+        s.technique.stage = Stage::Keyboard;
+        let keyboard = s.frame();
+        s.tick(250, false);
+        assert_eq!(s.frame(), keyboard);
     }
 }

@@ -42,7 +42,17 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
         } else {
             base
         };
-        let inset = (2.0 * tile.scale) as f32;
+        let stroke_width = if tile.selected && !style.is_some_and(|s| s.row_scan) {
+            3.0
+        } else {
+            1.0
+        } * tile.scale as f32
+            * if tile.selected {
+                tile.thickness.scale() as f32
+            } else {
+                1.0
+            };
+        let inset = ((2.0 * tile.scale) as f32).max(stroke_width / 2.0);
         let radius = (8.0 * tile.scale) as f32;
         let width = bitmap.width() as f32;
         let height = bitmap.height() as f32;
@@ -66,11 +76,7 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
             &path,
             &paint,
             &Stroke {
-                width: if tile.selected && !style.is_some_and(|s| s.row_scan) {
-                    3.0
-                } else {
-                    1.0
-                } * tile.scale as f32,
+                width: stroke_width,
                 ..Default::default()
             },
             Transform::identity(),
@@ -104,12 +110,16 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
     paint.set_color_rgba8(r, g, b, 255);
     if tile.selected {
         let mut border = PathBuilder::new();
-        border.push_rect(tiny_skia::Rect::from_xywh(2.0, 2.0, 164.0, 164.0).unwrap());
+        let thickness = 4.0 * tile.thickness.scale() as f32;
+        let inset = thickness / 2.0;
+        border.push_rect(
+            tiny_skia::Rect::from_xywh(inset, inset, 168.0 - thickness, 168.0 - thickness).unwrap(),
+        );
         pixmap.stroke_path(
             &border.finish().unwrap(),
             &paint,
             &Stroke {
-                width: 4.0,
+                width: thickness,
                 ..Default::default()
             },
             transform,
@@ -703,6 +713,7 @@ mod tests {
         use crate::scanning::{Rect, ScannerColor::*};
         for color in [Red, Green, Blue, Yellow, White] {
             let mut tile = FrameTile {
+                thickness: Default::default(),
                 keyboard: None,
                 color,
                 text: "Click".into(),
@@ -804,6 +815,7 @@ mod tests {
             Setting(S::GridMode),
         ] {
             let mut tile = FrameTile {
+                thickness: Default::default(),
                 keyboard: None,
                 color: Default::default(),
                 text: icon.label().into(),

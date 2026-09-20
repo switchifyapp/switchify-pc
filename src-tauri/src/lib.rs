@@ -28,6 +28,7 @@ mod scan_host;
 mod scan_items;
 mod scan_keyboard;
 mod scan_menu;
+mod scan_preferences;
 mod scan_tile;
 mod scan_tree;
 mod scanning;

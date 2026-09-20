@@ -353,6 +353,7 @@ pub fn apply(app: &AppHandle) {
         .state::<crate::point_scan_runtime::Controller>()
         .view()
         .config
+        .switches()
         .automatic;
     c.data
         .lock()
@@ -444,7 +445,7 @@ pub fn route(
             device,
             payload,
             interval,
-            view.config.automatic,
+            view.config.switches().automatic,
             now,
         ));
     }

@@ -260,6 +260,7 @@ pub struct KeyboardTileStyle {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameTile {
+    pub thickness: crate::scan_preferences::Thickness,
     pub color: ScannerColor,
     pub text: String,
     pub rect: Rect,
@@ -282,13 +283,12 @@ pub struct FrameLabel {
     pub hud: Option<HudPresentation>,
 }
 
-/// Automatic movement gives up after this many full passes of the current
-/// phase without a selection, so an unattended scan does not sweep forever.
-pub const MAX_SCAN_CYCLES: usize = 3;
-
 pub trait Technique {
     type Selection;
     type Phase: Clone + Default + PartialEq + Serialize;
+    fn automatic(&self, fallback: bool) -> bool {
+        fallback
+    }
     fn auto_selecting(&self) -> bool {
         false
     }
@@ -300,7 +300,7 @@ pub trait Technique {
     fn reset(&mut self);
     fn frame(&self) -> Frame;
     fn phase(&self) -> Self::Phase;
-    /// True once automatic movement has completed `MAX_SCAN_CYCLES` passes
+    /// True once automatic movement has completed the configured number of passes
     /// without a selection; the session then resets and waits for Select.
     fn pausable(&self) -> bool {
         true
@@ -388,7 +388,9 @@ impl<T: Technique> Session<T> {
             self.technique.update(
                 elapsed_ms.min(MAX_ELAPSED_MS),
                 UpdateContext {
-                    movement_enabled: self.automatic && !self.paused && !select_held,
+                    movement_enabled: self.technique.automatic(self.automatic)
+                        && !self.paused
+                        && !select_held,
                     paused: self.paused,
                     switch_held: select_held,
                 },
