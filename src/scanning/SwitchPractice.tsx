@@ -72,12 +72,12 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
       <p>{view?.source} · {view?.input ? `Last input: ${view.input}` : "No input received yet"}{view?.action && ` · ${actions[view.action]}`} · Completed: {view?.completed ?? 0}</p>
       <svg className="switch-practice-preview" viewBox="0 0 1280 720" role="img" aria-label={view?.label || "Practice scanning area"}>
         <rect width="1280" height="720" fill="#18202c" />
-        <circle cx="640" cy="360" r="45" fill="#45546a" />
-        <text x="640" y="450" textAnchor="middle" fill="white" fontSize="24">Choose any point to practise</text>
+        {!view?.tiles.length && <><circle cx="640" cy="360" r="45" fill="#45546a" /><text x="640" y="450" textAnchor="middle" fill="white" fontSize="24">Choose any point to practise</text></>}
         {view?.rectangles.map(([x,y,width,height],i) => <rect key={i} x={x} y={y} width={width} height={height} fill="#64a6ff" opacity="0.65" />)}
         {view?.tiles.map(({rect:[x,y,width,height],text,selected},i) => <g key={i}><rect x={x} y={y} width={width} height={height} fill={selected ? "#356394" : "#253040"} stroke={selected ? "white" : "#8092ac"}/><text x={x+width/2} y={y+height/2} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize="18">{text}</text></g>)}
       </svg>
       <p>{view?.label}</p>
+      {!!view?.tiles.length && <><p aria-live="polite">Highlighted: {view.tiles.filter(tile => tile.selected).map(tile => tile.text).join(", ") || "No action selected"}</p><ul className="switch-practice-menu" aria-label="Practice action menu">{view.tiles.map((tile,i) => <li key={i} data-selected={tile.selected}>{tile.text}</li>)}</ul></>}
       {error && <p role="alert">{error}</p>}
       <div className="switch-practice-buttons"><button type="button" className="primary" disabled={pending} onClick={() => void close()}>Exit practice</button></div>
     </section></div>, document.body)}

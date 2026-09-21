@@ -79,6 +79,14 @@ describe("safe switch practice", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(invoke.mock.calls.filter(c => c[0] === "end_switch_practice")).toHaveLength(1);
   });
+  it("exposes readable menu labels outside the scaled preview", async () => {
+    invoke.mockResolvedValue({ ...view, label: "Choose an action", tiles: [ { rect: [0,0,100,50], text: "Left click", selected: true }, { rect: [100,0,100,50], text: "Right click", selected: false } ] });
+    render(<SwitchPractice />); fireEvent.click(screen.getByRole("button", { name: "Test switches" }));
+    await screen.findByRole("dialog");
+    expect(screen.getByRole("list", { name: "Practice action menu" })).toHaveTextContent("Left clickRight click");
+    expect(screen.getByText("Highlighted: Left click")).toBeInTheDocument();
+    expect(screen.queryByText("Choose any point to practise")).not.toBeInTheDocument();
+  });
   it("does not allow starting with unsaved settings or without a native backend", () => {
     const { rerender } = render(<SwitchPractice disabled />);
     expect(screen.getByRole("button", { name: "Test switches" })).toBeDisabled();
