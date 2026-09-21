@@ -25,12 +25,14 @@ pub enum Request {
     Query {
         generation: u64,
         edits: Vec<Edit>,
+        revision: u64,
         shift: bool,
         caps: bool,
     },
     Accept {
         generation: u64,
         token: u64,
+        revision: u64,
         index: usize,
     },
 }
@@ -44,6 +46,7 @@ pub enum Response {
     Suggestions {
         generation: u64,
         batch: Option<Batch>,
+        revision: u64,
         tracking: bool,
     },
     Insert {
@@ -78,9 +81,13 @@ pub struct Engine<A: Adapter> {
     database: Database,
     target: Option<A::Target>,
     snapshot: Option<RawContext>,
-    fallback: String,
+    buffer: String,
     boundary: bool,
-    fallback_clipped: bool,
+    buffer_clipped: bool,
+    revision: u64,
+    native: Option<(u64, RawContext)>,
+    pending_seed: Option<(u64, RawContext)>,
+    buffered: bool,
     tracked: bool,
     activity: u64,
     observe: fn() -> (u64, bool),
@@ -97,9 +104,13 @@ impl<A: Adapter> Engine<A> {
             tracked,
             target: None,
             snapshot: None,
-            fallback: String::new(),
+            buffer: String::new(),
             boundary: false,
-            fallback_clipped: true,
+            buffer_clipped: true,
+            revision: 0,
+            native: None,
+            pending_seed: None,
+            buffered: false,
             activity: activity::snapshot().0,
             observe: activity::snapshot,
             batch: None,
@@ -109,9 +120,11 @@ impl<A: Adapter> Engine<A> {
         }
     }
     fn clear(&mut self) {
-        self.fallback.clear();
+        self.buffer.clear();
         self.boundary = false;
-        self.fallback_clipped = true;
+        self.buffer_clipped = true;
+        self.native = None;
+        self.pending_seed = None;
         self.snapshot = None;
         self.batch = None;
         self.suffixes.clear();
@@ -129,10 +142,10 @@ impl<A: Adapter> Engine<A> {
             && (self.observe)().0 == epoch
     }
     fn trim_buffer(&mut self) {
-        while self.fallback.chars().count() > 512 {
-            let end = self.fallback.graphemes(true).next().unwrap().len();
-            self.fallback.drain(..end);
-            self.fallback_clipped = true;
+        while self.buffer.chars().count() > 512 {
+            let end = self.buffer.graphemes(true).next().unwrap().len();
+            self.buffer.drain(..end);
+            self.buffer_clipped = true;
         }
     }
     fn apply_edit(&mut self, edit: Edit) {
@@ -148,15 +161,15 @@ impl<A: Adapter> Engine<A> {
                         self.boundary = true;
                     }
                     if self.boundary {
-                        self.fallback.push(c);
+                        self.buffer.push(c);
                     }
                 }
                 self.trim_buffer();
             }
             Edit::Backspace => {
-                if let Some((start, _)) = self.fallback.grapheme_indices(true).next_back() {
-                    self.fallback.truncate(start);
-                    if self.fallback.is_empty() && self.fallback_clipped {
+                if let Some((start, _)) = self.buffer.grapheme_indices(true).next_back() {
+                    self.buffer.truncate(start);
+                    if self.buffer.is_empty() && self.buffer_clipped {
                         self.boundary = false;
                     }
                 } else {
@@ -182,7 +195,44 @@ impl<A: Adapter> Engine<A> {
         }
         self.query_edits(edits, shift, caps)
     }
+    #[cfg(test)]
     fn query_edits(&mut self, edits: Vec<Edit>, shift: bool, caps: bool) -> Option<Batch> {
+        let revision = self.revision + u64::from(!edits.is_empty());
+        let result = self.query_revision(edits, revision, shift, caps);
+        if result.is_none() && self.pending_seed.is_some() {
+            self.query_revision(Vec::new(), revision, shift, caps)
+        } else {
+            result
+        }
+    }
+    fn buffer_matches(&self, raw: &RawContext, allow_position_change: bool) -> bool {
+        let text_matches = self.buffer == raw.before
+            || (raw.clipped_start && !raw.before.is_empty() && self.buffer.ends_with(&raw.before))
+            || (self.buffer_clipped
+                && !self.buffer.is_empty()
+                && raw.before.ends_with(&self.buffer));
+        text_matches
+            && context::eligible(raw)
+            && self.native.as_ref().is_none_or(|(_, old)| {
+                old.after == raw.after && (allow_position_change || old.position == raw.position)
+            })
+    }
+    fn query_revision(
+        &mut self,
+        edits: Vec<Edit>,
+        revision: u64,
+        shift: bool,
+        caps: bool,
+    ) -> Option<Batch> {
+        if revision < self.revision || (revision == self.revision && !edits.is_empty()) {
+            self.clear();
+            return None;
+        }
+        let changed_revision = revision != self.revision;
+        self.revision = revision;
+        if changed_revision {
+            self.pending_seed = None;
+        }
         let target = match self.target() {
             Ok(t) => t,
             Err(_) => {
@@ -197,56 +247,83 @@ impl<A: Adapter> Engine<A> {
             .as_ref()
             .is_some_and(|old| self.adapter.same(old, &target).unwrap_or(false));
         let uninterrupted = epoch == self.activity;
-        if !same || !uninterrupted {
+        let buffered = self.tracked && healthy && self.adapter.editable(&target);
+        if !same || !uninterrupted || buffered != self.buffered {
             self.clear();
         }
-        if !healthy {
-            self.fallback.clear();
-            self.boundary = false;
-            if self.snapshot.as_ref().is_some_and(|raw| raw.position == -1) {
-                self.clear();
-            }
-        }
+        self.buffered = buffered;
         self.activity = epoch;
-        if same && uninterrupted && self.tracked && healthy {
-            if edits.len() > 512 {
-                self.clear();
-            } else {
-                for edit in edits {
+        if edits.len() > 512 {
+            self.clear();
+            self.target = Some(target);
+            return None;
+        }
+        if same && uninterrupted {
+            for edit in edits {
+                if buffered || matches!(edit, Edit::Reset) {
                     self.apply_edit(edit);
                 }
             }
         }
-        let raw = match self.adapter.read(&target) {
-            Ok(raw) if context::eligible(&raw) => raw,
-            Err(Status::Unsupported)
-                if self.tracked && healthy && self.boundary && self.adapter.editable(&target) =>
-            {
-                RawContext {
-                    before: self.fallback.clone(),
-                    after: String::new(),
-                    clipped_start: self.fallback_clipped,
-                    has_selection: false,
-                    position: -1,
-                }
-            }
-            _ => {
-                self.clear();
-                self.target = Some(target);
-                return None;
-            }
-        };
+        let native = self.adapter.read(&target);
         if !self.stable(&target, epoch) {
             self.clear();
+            self.target = None;
             return None;
         }
-        if raw.position != -1 && self.tracked && healthy && self.adapter.editable(&target) {
-            self.fallback = raw.before.clone();
-            self.fallback_clipped = raw.clipped_start;
-            self.boundary = true;
-            self.trim_buffer();
-        }
         self.target = Some(target);
+        let raw = if buffered {
+            match native {
+                Ok(raw) if context::eligible(&raw) => {
+                    let allow_position_change =
+                        self.native.as_ref().is_none_or(|(r, _)| *r != revision);
+                    if self.boundary && self.buffer_matches(&raw, allow_position_change) {
+                        self.pending_seed = None;
+                        self.native = Some((revision, raw));
+                    } else if self
+                        .pending_seed
+                        .as_ref()
+                        .is_some_and(|(r, seed)| *r == revision && seed == &raw)
+                    {
+                        self.buffer = raw.before.clone();
+                        self.buffer_clipped = raw.clipped_start;
+                        self.boundary = true;
+                        self.trim_buffer();
+                        self.native = Some((revision, raw));
+                        self.pending_seed = None;
+                    } else {
+                        self.pending_seed = Some((revision, raw));
+                        self.snapshot = None;
+                        self.batch = None;
+                        self.suffixes.clear();
+                        return None;
+                    }
+                }
+                Err(Status::Unsupported) if self.pending_seed.is_none() => {}
+                _ => {
+                    self.clear();
+                    return None;
+                }
+            }
+            if !self.boundary {
+                return None;
+            }
+            RawContext {
+                before: self.buffer.clone(),
+                after: String::new(),
+                clipped_start: self.buffer_clipped,
+                has_selection: false,
+                position: -1,
+            }
+        } else {
+            match native {
+                Ok(raw) if context::eligible(&raw) => raw,
+                _ => {
+                    self.clear();
+                    return None;
+                }
+            }
+        };
         if self.snapshot.as_ref() == Some(&raw) && self.case == (shift, caps) {
             return self.batch.clone();
         }
@@ -316,7 +393,11 @@ impl<A: Adapter> Engine<A> {
                 && (self.observe)().1
                 && self.boundary
                 && self.adapter.editable(&target)
-                && matches!(self.adapter.read(&target), Err(Status::Unsupported))
+                && match self.adapter.read(&target) {
+                    Ok(raw) => self.buffer_matches(&raw, false),
+                    Err(Status::Unsupported) => true,
+                    _ => false,
+                }
         } else {
             self.adapter
                 .read(&target)
@@ -335,10 +416,11 @@ impl<A: Adapter> Engine<A> {
             Request::Query {
                 generation,
                 edits,
+                revision,
                 shift,
                 caps,
             } => {
-                let mut batch = self.query_edits(edits, shift, caps);
+                let mut batch = self.query_revision(edits, revision, shift, caps);
                 let current = self.target();
                 let stable = current.as_ref().is_ok_and(|current| {
                     self.target
@@ -356,16 +438,23 @@ impl<A: Adapter> Engine<A> {
                 Response::Suggestions {
                     generation,
                     batch,
+                    revision: self.revision,
                     tracking,
                 }
             }
             Request::Accept {
                 generation,
                 token,
+                revision,
                 index,
             } => Response::Insert {
                 generation,
-                text: self.accept(token, index),
+                text: if revision == self.revision {
+                    self.accept(token, index)
+                } else {
+                    self.clear();
+                    None
+                },
             },
         }
     }
@@ -480,6 +569,151 @@ mod tests {
     }
 
     #[test]
+    fn native_seed_requires_a_stable_edit_revision() {
+        let mut e = engine();
+        assert!(e.query_revision(vec![], 0, false, false).is_none());
+        assert!(!e.boundary);
+        e.adapter.raw.before.push('t');
+        assert!(e
+            .query_revision(vec![Edit::Append("t".into())], 1, false, false)
+            .is_none());
+        let batch = e.query_revision(vec![], 1, false, false).unwrap();
+        assert_eq!(e.buffer, "I like wat");
+        assert_eq!(e.accept(batch.token, 0), Some("er ".into()));
+    }
+    #[test]
+    fn buffer_stays_primary_when_native_context_is_shorter() {
+        let mut e = engine();
+        e.query(None, false, false, false).unwrap();
+        e.adapter.raw.before = "wat".into();
+        e.adapter.raw.clipped_start = true;
+        e.adapter.raw.position += 1;
+        let batch = e
+            .query_revision(vec![Edit::Append("t".into())], 1, false, false)
+            .unwrap();
+        assert_eq!(e.buffer, "I like wat");
+        assert_eq!(e.snapshot.as_ref().unwrap().position, -1);
+        for _ in 0..30 {
+            assert_eq!(
+                e.query_revision(vec![], 1, false, false).unwrap().token,
+                batch.token
+            );
+            assert_eq!(e.buffer, "I like wat");
+        }
+        assert_eq!(e.accept(batch.token, 0), Some("er ".into()));
+        assert!(e.accept(batch.token, 0).is_none());
+    }
+    #[test]
+    fn mismatch_hides_choices_before_confirmed_resynchronisation() {
+        let mut e = engine();
+        let previous = e.query(None, false, false, false).unwrap();
+        e.adapter.raw.before = "wa".into();
+        assert!(e.query_revision(vec![], 0, false, false).is_none());
+        assert!(e.accept(previous.token, 0).is_none());
+        assert_eq!(e.buffer, "I like wa");
+        let recovered = e.query_revision(vec![], 0, false, false).unwrap();
+        assert_eq!(e.buffer, "wa");
+        assert_ne!(previous.token, recovered.token);
+        assert_eq!(e.accept(recovered.token, 0), Some("ter ".into()));
+    }
+    #[test]
+    fn selection_and_provider_loss_cannot_confirm_uncertain_context() {
+        for selected in [false, true] {
+            let mut e = engine();
+            e.query(None, false, false, false);
+            e.adapter.raw.before = "wa".into();
+            assert!(e.query_revision(vec![], 0, false, false).is_none());
+            e.adapter.raw.has_selection = selected;
+            e.adapter.unsupported = !selected;
+            assert!(e.query_revision(vec![], 0, false, false).is_none());
+            assert!(!e.boundary);
+            assert!(e.pending_seed.is_none());
+        }
+    }
+    #[test]
+    fn acknowledgements_survive_stale_suggestions_without_resetting_buffer() {
+        let mut e = engine();
+        e.query(None, false, false, false);
+        let mut service = crate::prediction::Service {
+            tracking: true,
+            ..Default::default()
+        };
+        service.queue_edit(Edit::Append("t".into()));
+        e.adapter.raw.before.push('t');
+        e.adapter.raw.position += 1;
+        let response = e.respond(Request::Query {
+            generation: 0,
+            edits: service.take_edits(),
+            revision: 1,
+            shift: false,
+            caps: false,
+        });
+        service.queue_edit(Edit::Append("e".into()));
+        service.generation = 1;
+        let Response::Suggestions {
+            generation,
+            revision,
+            batch,
+            tracking,
+        } = response
+        else {
+            panic!("query response");
+        };
+        service.received_suggestions(
+            &mut crate::scan_keyboard::Keyboard::new(false),
+            generation,
+            revision,
+            batch,
+            tracking,
+        );
+        assert_eq!(service.acknowledged_revision, 1);
+        assert_eq!(service.edit_revision, 2);
+        assert!(!service.reset);
+        e.adapter.unsupported = true;
+        let batch = e
+            .query_revision(service.take_edits(), 2, false, false)
+            .unwrap();
+        assert_eq!(e.buffer, "I like wate");
+        assert_eq!(e.accept(batch.token, 0), Some("r ".into()));
+    }
+    #[test]
+    fn stale_accept_revisions_and_replayed_edits_never_insert_or_duplicate() {
+        let mut e = engine();
+        let batch = e.query(None, false, false, false).unwrap();
+        let response = e.respond(Request::Accept {
+            generation: 0,
+            token: batch.token,
+            revision: 1,
+            index: 0,
+        });
+        assert!(matches!(response, Response::Insert { text: None, .. }));
+        e.adapter.unsupported = true;
+        e.query_revision(vec![Edit::Append(" wa".into())], 1, false, false)
+            .unwrap();
+        assert!(e
+            .query_revision(vec![Edit::Append(" wa".into())], 1, false, false)
+            .is_none());
+        assert!(e.buffer.is_empty());
+    }
+    #[test]
+    fn lost_tracking_uses_native_context_and_recovery_reseeds_buffer() {
+        let mut e = engine();
+        e.query(None, false, false, false);
+        e.observe = || (0, false);
+        let native = e.query_revision(vec![], 0, false, false).unwrap();
+        assert!(!e.buffered);
+        assert_eq!(
+            e.snapshot.as_ref().unwrap().position,
+            e.adapter.raw.position
+        );
+        assert_eq!(e.accept(native.token, 0), Some("ter ".into()));
+        e.observe = || (0, true);
+        assert!(e.query_revision(vec![], 0, false, false).is_none());
+        assert!(e.query_revision(vec![], 0, false, false).is_some());
+        assert!(e.buffered);
+    }
+
+    #[test]
     fn stale_native_reads_cannot_double_apply_later_typing_or_backspace() {
         for deletion in [false, true] {
             let mut e = engine();
@@ -493,6 +727,7 @@ mod tests {
             e.adapter.raw.before = if deletion { "I like w" } else { "I like wat" }.into();
             let response = e.respond(Request::Query {
                 generation: 0,
+                revision: 0,
                 edits: vec![],
                 shift: false,
                 caps: false,
@@ -505,17 +740,21 @@ mod tests {
             if let Response::Suggestions {
                 generation,
                 batch,
+                revision,
                 tracking,
             } = response
             {
-                service.received_suggestions(&mut keyboard, generation, batch, tracking);
+                service.received_suggestions(&mut keyboard, generation, revision, batch, tracking);
             } else {
                 panic!("expected suggestions");
             }
             e.adapter.unsupported = true;
-            assert!(e.query_edits(service.take_edits(), false, false).is_none());
-            assert!(e.fallback.is_empty());
-            assert!(!e.boundary);
+            assert!(!service.reset);
+            assert!(e
+                .query_revision(service.take_edits(), service.edit_revision, false, false)
+                .is_some());
+            assert_eq!(e.buffer, if deletion { "I like w" } else { "I like wat" });
+            assert!(e.boundary);
             assert!(e
                 .query_edits(vec![Edit::Append(" wa".into())], false, false)
                 .is_some());
@@ -534,7 +773,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(b.words[0], "water");
-        assert_eq!(e.fallback, " wa");
+        assert_eq!(e.buffer, " wa");
         e.query_edits(
             vec![
                 Edit::Append("e\u{301}👩‍💻".into()),
@@ -544,7 +783,7 @@ mod tests {
             false,
             false,
         );
-        assert_eq!(e.fallback, " wa");
+        assert_eq!(e.buffer, " wa");
         e.query_edits(
             vec![
                 Edit::Backspace,
@@ -561,23 +800,23 @@ mod tests {
         assert!(e.query(Some(" wa".into()), false, false, false).is_some());
     }
     #[test]
-    fn native_context_seeds_fallback_and_recovers_authoritatively() {
+    fn native_context_seeds_buffer_and_recovers_authoritatively() {
         let mut e = engine();
         e.query(None, false, false, false).unwrap();
         e.adapter.unsupported = true;
         let b = e
             .query_edits(vec![Edit::Append("t".into())], false, false)
             .unwrap();
-        assert_eq!(e.fallback, "I like wat");
+        assert_eq!(e.buffer, "I like wat");
         let suffix = e.accept(b.token, 0).unwrap();
         assert_eq!(suffix, "er ");
         assert!(e.accept(b.token, 0).is_none());
         e.query_edits(vec![Edit::Append(suffix)], false, false);
-        assert_eq!(e.fallback, "I like water ");
+        assert_eq!(e.buffer, "I like water ");
         e.adapter.unsupported = false;
         e.adapter.raw.before = "wa".into();
         let recovered = e.query(None, false, false, false).unwrap();
-        assert_eq!(e.fallback, "wa");
+        assert_eq!(e.buffer, "wa");
         assert!(e.accept(b.token, 0).is_none());
         assert_eq!(e.accept(recovered.token, 0), Some("ter ".into()));
     }
@@ -598,7 +837,7 @@ mod tests {
         assert!(e
             .query_edits(vec![Edit::Append("ter ".into())], false, false)
             .is_none());
-        assert!(e.fallback.is_empty());
+        assert!(e.buffer.is_empty());
     }
     #[test]
     fn buffer_and_edit_queue_are_bounded() {
@@ -608,10 +847,10 @@ mod tests {
         for _ in 0..8 {
             e.query_edits(vec![Edit::Append(" word".repeat(90))], false, false);
         }
-        assert!(e.fallback.chars().count() <= 512);
-        assert!(e.fallback_clipped);
+        assert!(e.buffer.chars().count() <= 512);
+        assert!(e.buffer_clipped);
         e.query_edits(vec![Edit::Backspace; 513], false, false);
-        assert!(e.fallback.is_empty());
+        assert!(e.buffer.is_empty());
         let mut service = crate::prediction::Service::default();
         for _ in 0..513 {
             service.queue_edit(Edit::Append("a".into()));
@@ -634,7 +873,7 @@ mod tests {
         assert_eq!(service.take_edits().len(), 1);
     }
     #[test]
-    fn native_predictions_survive_polls_without_fallback_tracking() {
+    fn native_predictions_survive_polls_without_buffer_tracking() {
         for unavailable in 0..3 {
             let mut e = engine();
             match unavailable {
@@ -650,6 +889,7 @@ mod tests {
                 let response = e.respond(Request::Query {
                     generation: 0,
                     edits: service.take_edits(),
+                    revision: service.edit_revision,
                     shift: false,
                     caps: false,
                 });
@@ -758,7 +998,7 @@ mod tests {
         assert!(e.accept(b.token, 0).is_none());
     }
     #[test]
-    fn fallback_requires_boundary_and_resets_on_edits_and_focus() {
+    fn buffer_requires_boundary_and_resets_on_edits_and_focus() {
         let mut e = engine();
         e.adapter.unsupported = true;
         assert!(e.query(None, false, false, false).is_none());
@@ -778,11 +1018,11 @@ mod tests {
         e.query(Some(" wa".into()), false, false, false).unwrap();
         e.activity = 0u64.wrapping_sub(1);
         assert!(e.query(Some(" wa".into()), false, false, false).is_none());
-        assert!(e.fallback.is_empty());
+        assert!(e.buffer.is_empty());
         assert!(!e.boundary);
     }
     #[test]
-    fn lost_observer_disables_fallback_query_and_acceptance() {
+    fn lost_observer_disables_buffer_query_and_acceptance() {
         let mut e = engine();
         e.adapter.unsupported = true;
         e.query(None, false, false, false);
@@ -794,6 +1034,7 @@ mod tests {
         assert!(matches!(
             e.respond(Request::Query {
                 generation: 1,
+                revision: e.revision,
                 edits: vec![],
                 shift: false,
                 caps: false,
@@ -822,6 +1063,7 @@ mod tests {
         assert!(receive::<Request>(&mut &b"bad!"[..]).is_err());
         let request = Request::Query {
             generation: 1,
+            revision: 1,
             edits: vec![Edit::Append("x".repeat(LIMIT))],
             shift: false,
             caps: false,
