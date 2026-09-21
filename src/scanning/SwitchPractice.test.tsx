@@ -44,6 +44,14 @@ describe("safe switch practice", () => {
     await act(async () => { resolve(view); });
     expect(invoke.mock.calls.filter(c => c[0] === "end_switch_practice")).toHaveLength(2);
   });
+  it("acknowledges a switch emergency stop and closes without requiring mouse assistance", async () => {
+    invoke.mockImplementation(async (command: string) => command === "get_switch_practice" ? { ...view, active: false, message: "Practice stopped" } : command === "end_switch_practice" ? undefined : view);
+    render(<SwitchPractice />); fireEvent.click(screen.getByRole("button", { name: "Test switches" }));
+    await screen.findByRole("dialog");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(invoke).toHaveBeenCalledWith("end_switch_practice");
+    expect(screen.getByRole("button", { name: "Test switches" })).toHaveFocus();
+  });
   it("retains safe ownership when a feedback poll fails until explicit exit", async () => {
     invoke.mockImplementation(async (command: string) => {
       if (command === "get_switch_practice") throw new Error("Feedback failed");

@@ -27,7 +27,7 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
     const timer = window.setInterval(() => {
       if (polling) return;
       polling = true;
-      void invoke<View>("get_switch_practice").then(v => { if (alive) setView(v); }).catch(e => {
+      void invoke<View>("get_switch_practice").then(v => { if (alive) { setView(v); if (!v.active) { window.clearInterval(timer); void close(); } } }).catch(e => {
         if (alive) {
           window.clearInterval(timer);
           setError(`Practice feedback is unavailable. Use Exit practice before retrying. ${String(e)}`);
@@ -67,7 +67,7 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
     }}>
       <h2 id="practice-title">Safe switch practice</h2>
       <p>Press Select to start, use Next/Previous to move, then Select to choose a point and an action. Nothing here clicks, types, or changes settings. Practice uses your saved line/grid and timing settings.</p>
-      <p>Press Escape, use Stop scanning, or hold any switch through its emergency stop to finish. Practice also stops on loss of focus, disconnect, or after two minutes. Remote forwarding stops when practice ends.</p>
+      <p>Press Escape, use Stop scanning, or hold any switch through its emergency stop to finish. The practice window closes when testing stops, including on loss of focus, disconnect, or after two minutes. Remote forwarding stops when practice ends.</p>
       <p role="status" aria-live="polite">{view?.message ?? "Starting practice…"}</p>
       <p>{view?.source} · {view?.input ? `Last input: ${view.input}` : "No input received yet"}{view?.action && ` · ${actions[view.action]}`} · Completed: {view?.completed ?? 0}</p>
       <svg className="switch-practice-preview" viewBox="0 0 1280 720" role="img" aria-label={view?.label || "Practice scanning area"}>
