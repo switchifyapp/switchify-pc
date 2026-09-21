@@ -28,8 +28,10 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
       if (polling) return;
       polling = true;
       void invoke<View>("get_switch_practice").then(v => { if (alive) setView(v); }).catch(e => {
-        if (alive) setError(String(e));
-        void invoke("end_switch_practice").catch(() => {});
+        if (alive) {
+          window.clearInterval(timer);
+          setError(`Practice feedback is unavailable. Use Exit practice before retrying. ${String(e)}`);
+        }
       }).finally(() => { polling = false; });
     }, 100);
     return () => { alive = false; window.clearInterval(timer); background.forEach((element, i) => { if (!previous[i]) element.removeAttribute("inert"); }); };

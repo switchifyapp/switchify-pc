@@ -44,6 +44,36 @@ describe("safe switch practice", () => {
     await act(async () => { resolve(view); });
     expect(invoke.mock.calls.filter(c => c[0] === "end_switch_practice")).toHaveLength(2);
   });
+  it("retains safe ownership when a feedback poll fails until explicit exit", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "get_switch_practice") throw new Error("Feedback failed");
+      return command === "end_switch_practice" ? undefined : view;
+    });
+    render(<SwitchPractice />); fireEvent.click(screen.getByRole("button", { name: "Test switches" }));
+    await screen.findByRole("dialog");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Use Exit practice");
+    expect(invoke).not.toHaveBeenCalledWith("end_switch_practice");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Exit practice" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(invoke).toHaveBeenCalledWith("end_switch_practice");
+  });
+  it("ignores a stale failed poll after exit and reopening", async () => {
+    let reject!: (reason: Error) => void;
+    let first = true;
+    invoke.mockImplementation((command: string) => {
+      if (command === "get_switch_practice" && first) { first = false; return new Promise((_, r) => { reject = r; }); }
+      return Promise.resolve(command === "end_switch_practice" ? undefined : view);
+    });
+    render(<SwitchPractice />); fireEvent.click(screen.getByRole("button", { name: "Test switches" }));
+    await screen.findByRole("dialog"); await waitFor(() => expect(reject).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Exit practice" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Test switches" })); await screen.findByRole("dialog");
+    await act(async () => { reject(new Error("Old feedback failure")); });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(invoke.mock.calls.filter(c => c[0] === "end_switch_practice")).toHaveLength(1);
+  });
   it("does not allow starting with unsaved settings or without a native backend", () => {
     const { rerender } = render(<SwitchPractice disabled />);
     expect(screen.getByRole("button", { name: "Test switches" })).toBeDisabled();
