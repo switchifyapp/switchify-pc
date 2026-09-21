@@ -76,11 +76,32 @@ export function useRemoteSwitches() {
     setConfig(next);
     save(m.revision, next);
   };
+  const remove = async (index: number) => {
+    const m = model.current;
+    if (!m.config || m.pending || m.revision !== m.saved) return false;
+    const next = { ...m.config, slots: m.config.slots.map((slot, i) => i === index ? { pressAction: null, holdActions: [] } : slot) };
+    m.pending++;
+    setPending(m.pending);
+    setError(null);
+    try {
+      const result = await invoke<RemoteConfig>("save_remote_switches", { config: next });
+      m.config = result;
+      setConfig(result);
+      return true;
+    } catch (e) {
+      setError(String(e));
+      return false;
+    } finally {
+      m.pending--;
+      setPending(m.pending);
+    }
+  };
   return {
     config,
     pending,
     error,
     update,
+    remove,
     retry: () => {
       if (model.current.config)
         save(model.current.revision, model.current.config);

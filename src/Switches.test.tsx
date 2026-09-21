@@ -1,3 +1,4 @@
+import { useLayoutEffect, type ReactNode } from "react";
 import {
   act,
   fireEvent,
@@ -159,6 +160,7 @@ it("cancelling a new switch also cancels its capture", async () => {
   event({ ...current, capture: { active: false, key: "Enter", error: null } });
   await screen.findByText("Enter");
   fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
+  fireEvent.click(screen.getByRole("button", { name: "Discard switch" }));
   expect(screen.queryByLabelText("New switch name")).toBeNull();
   expect(current.settings.bindings).toHaveLength(1);
 });
@@ -345,8 +347,9 @@ it("keeps focus in the draft when another switch is removed while adding", async
   event(current);
   await screen.findByText("Enter");
   fireEvent.click(screen.getByRole("button", { name: "Remove Head switch" }));
+  fireEvent.click(screen.getByRole("button", { name: "Remove switch" }));
   await waitFor(() => expect(current.settings.bindings).toHaveLength(0));
-  expect(document.activeElement).toBe(screen.getByLabelText("New switch name"));
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("New switch name")));
 });
 it("lists remote switches with local ones and edits them in place", async () => {
   render(<Shell />);
@@ -397,9 +400,11 @@ it("removes a remote switch and surfaces a failed remote save with retry", async
     throw "Remote save failed";
   });
   fireEvent.click(screen.getByRole("button", { name: "Remove Remote switch 1" }));
-  await screen.findByText("Remote save failed");
+  fireEvent.click(screen.getByRole("button", { name: "Remove switch" }));
+  await screen.findByText(/Could not remove the switch/);
   expect(remote.slots[0].pressAction).toBe("select");
-  fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
+  expect(screen.getByRole("heading", { name: "Remote switch 1" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Remove switch" }));
   await waitFor(() => expect(remote.slots[0].pressAction).toBeNull());
   expect(screen.queryByRole("heading", { name: "Remote switch 1" })).toBeNull();
 });
@@ -460,6 +465,8 @@ it("preserves a newly learned key while typing and releases capture ownership on
   fireEvent.change(screen.getByRole("textbox", { name: "New switch name" }), { target: { value: "Second switch" } });
   expect(screen.getByText("Enter", { selector: "kbd" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
+  expect(current.keyboardEntry).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Discard switch" }));
   await waitFor(() => expect(current.keyboardEntry).toBe(false));
   expect(current.settings.bindings).toHaveLength(1);
 });
@@ -472,15 +479,125 @@ it("offers recovery when returning to Switches with keyboard typing still active
 });
 
 
-it.each([0, 1])("releases keyboard entry when the edited remote switch is removed using control %s", async (index) => {
+it.each([["Remote switch 1", 0], ["Remote switch 1", 1], ["Head switch", 0], ["Head switch", 1]] as const)("releases keyboard entry when %s is removed using control %s", async (name, index) => {
   render(<Shell />);
-  fireEvent.click(await screen.findByRole("button", { name: "Edit Remote switch 1" }));
+  fireEvent.click(await screen.findByRole("button", { name: `Edit ${name}` }));
   fireEvent.click(screen.getByRole("button", { name: "Type with keyboard" }));
   await screen.findByRole("button", { name: "Resume switch control" });
-  fireEvent.click(screen.getAllByRole("button", { name: "Remove Remote switch 1" })[index]);
+  fireEvent.click(screen.getAllByRole("button", { name: `Remove ${name}` })[index]);
+  expect(current.keyboardEntry).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Remove switch" }));
   await waitFor(() => expect(current.keyboardEntry).toBe(false));
   expect(mocks.invoke).toHaveBeenCalledWith("set_switch_keyboard_entry", { active: false });
-  expect(screen.queryByRole("heading", { name: "Remote switch 1" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name })).not.toBeInTheDocument();
+});
+it("keeps an edited local draft and restores focus after cancelling discard", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Head switch" });
+  fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
+  await screen.findByRole("button", { name: "Cancel capture" });
+  event({ ...current, capture: { active: false, key: "Enter", error: null } });
+  fireEvent.change(await screen.findByLabelText("New switch name"), { target: { value: "Foot" } });
+  const cancel = screen.getByRole("button", { name: "Cancel new switch" });
+  cancel.focus();
+  fireEvent.click(cancel);
+  const dialog = screen.getByRole("alertdialog", { name: "Discard this new switch?" });
+  const keep = within(dialog).getByRole("button", { name: "Keep switch" });
+  expect(keep).toHaveFocus();
+  fireEvent.keyDown(keep, { key: "Tab", shiftKey: true });
+  expect(within(dialog).getByRole("button", { name: "Discard switch" })).toHaveFocus();
+  fireEvent.keyDown(dialog, { key: "Escape" });
+  await waitFor(() => expect(cancel).toHaveFocus());
+  expect(screen.getByLabelText("New switch name")).toHaveValue("Foot");
+});
+it("requires discard after changing a remote draft action, while untouched cancellation is immediate", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Remote switch 1" });
+  fireEvent.click(screen.getByRole("button", { name: "Add remote switch" }));
+  fireEvent.change(screen.getByLabelText("New switch action"), { target: { value: "next" } });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
+  expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Discard switch" }));
+  expect(remote.slots[1].pressAction).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Add remote switch" }));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
+  expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("New switch name")).not.toBeInTheDocument();
+});
+it.each(["Head switch", "Remote switch 1"])("protects both removal controls for %s", async (name) => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name });
+  const remove = screen.getByRole("button", { name: `Remove ${name}` });
+  remove.focus();
+  fireEvent.click(remove);
+  expect(screen.getByRole("alertdialog", { name: `Remove ${name}?` })).toBeInTheDocument();
+  expect(mocks.invoke.mock.calls.some(([command]) => command.startsWith("save_"))).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Keep switch" }));
+  await waitFor(() => expect(remove).toHaveFocus());
+  open(name);
+  fireEvent.click(screen.getAllByRole("button", { name: `Remove ${name}` })[1]);
+  fireEvent.click(screen.getByRole("button", { name: "Remove switch" }));
+  await waitFor(() => expect(screen.queryByRole("heading", { name })).not.toBeInTheDocument());
+});
+it("retains a local assignment when deletion fails and allows keeping it", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Head switch" });
+  mocks.invoke.mockImplementationOnce(async () => { throw "Disk full"; });
+  fireEvent.click(screen.getByRole("button", { name: "Remove Head switch" }));
+  fireEvent.click(screen.getByRole("button", { name: "Remove switch" }));
+  await screen.findByText(/Could not remove the switch/);
+  fireEvent.click(screen.getByRole("button", { name: "Keep switch" }));
+  expect(screen.getByRole("heading", { name: "Head switch" })).toBeInTheDocument();
+  expect(current.settings.bindings[0]).toEqual(initial.settings.bindings[0]);
+});
+
+it("hands remote draft focus to the committed input before passive work can run", async () => {
+  const committedFocus: (Element | null)[] = [];
+  function CommitProbe({ children, revision }: { children: ReactNode; revision: number }) {
+    useLayoutEffect(() => { if (revision) committedFocus.push(document.activeElement); }, [revision]);
+    return children;
+  }
+  const view = render(<CommitProbe revision={0}><Shell /></CommitProbe>);
+  await screen.findByRole("heading", { name: "Remote switch 1" });
+  const add = screen.getByRole("button", { name: "Add remote switch" });
+  add.focus();
+  act(() => {
+    fireEvent.click(add);
+    // A parent update can commit alongside asynchronous backend state. Observe
+    // focus at that commit, before any pending passive effects get a turn.
+    view.rerender(<CommitProbe revision={1}><Shell /></CommitProbe>);
+  });
+  const name = screen.getByRole("textbox", { name: "New switch name" });
+  expect(committedFocus).toEqual([name]);
+  act(() => {
+    fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
+    view.rerender(<CommitProbe revision={2}><Shell /></CommitProbe>);
+  });
+  expect(committedFocus[1]).toBe(screen.getByRole("button", { name: "Add switch" }));
+});
+
+it.each(["remove", "discard"])("restores usable focus after confirmed %s with browser inert behavior", async (operation) => {
+  const focus = HTMLElement.prototype.focus;
+  const spy = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement, options?: FocusOptions) {
+    // jsdom does not enforce inert; browsers refuse focus inside an inert root.
+    if (!this.closest("[inert]")) focus.call(this, options);
+  });
+  try {
+    render(<Shell />);
+    await screen.findByRole("heading", { name: "Remote switch 1" });
+    if (operation === "remove") {
+      fireEvent.click(screen.getByRole("button", { name: "Remove Head switch" }));
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: "Add remote switch" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "New switch name" }), { target: { value: "Foot" } });
+      fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
+    }
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByRole("button", { name: "Keep switch" })).toHaveFocus();
+    fireEvent.click(within(dialog).getByRole("button", { name: operation === "remove" ? "Remove switch" : "Discard switch" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Add switch" })).toHaveFocus();
+  } finally { spy.mockRestore(); }
 });
 
 it("separates an empty local configuration from the six remote presets", async () => {
