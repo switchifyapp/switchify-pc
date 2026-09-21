@@ -187,6 +187,10 @@ button:disabled { cursor: default; opacity: 0.55; }
 .setup-statuses article { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; min-height: 92px; border-bottom: 1px solid var(--border); padding: 14px 4px; }
 .setup-statuses h3 { font-size: 14px; }
 .android-download { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 36px; }
+.android-download figure { margin: 0; max-width: 210px; }
+.android-download figcaption { margin-top: 8px; color: var(--muted); font-size: 13px; }
+.android-pairing { margin-top: 28px; }
+.android-pairing ol { padding-left: 24px; color: var(--muted); line-height: 1.6; }
 .android-download a { width: max-content; margin-top: 22px; text-decoration: none; }
 .android-download img { width: 190px; height: 190px; border: 1px solid var(--border); border-radius: 9px; padding: 10px; background: white; image-rendering: crisp-edges; }
 .setup-pairings { margin-top: 20px; border-top: 1px solid var(--border); }
@@ -441,3 +445,6 @@ button:disabled { cursor: default; opacity: 0.55; }
 .scan-rate-stepper { display: flex; align-items: center; gap: 8px; }
 .scan-rate-stepper button { min-width: 44px; min-height: 44px; font-size: 22px; }
 .scan-rate-stepper output { min-width: 72px; text-align: center; font-variant-numeric: tabular-nums; }
+
+.setup-navigation-guidance { flex: 0 0 auto; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.setup-navigation-guidance:not(:empty) { padding-bottom: 16px; }
