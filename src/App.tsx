@@ -87,7 +87,11 @@ function AndroidConnection({ state, onDisconnect }: { state: AppState; onDisconn
       {state.bluetooth === "connected" && <button className="secondary" onClick={onDisconnect}>Disconnect</button>}
     </section>
     <p>Android connection is optional. Bluetooth advertises automatically; local switches do not need an Android device. Connecting an Android device pauses local scanning until it disconnects.</p>
-    <div className="android-download"><div><h2>Connect Switchify for Android</h2><p>Install Switchify, select this computer, then approve the pairing request only if the codes match in both apps.</p><a className="secondary" href={androidDownloadUrl} target="_blank" rel="noreferrer">Open Google Play</a></div><img src={androidQrUrl} alt="QR code for Switchify on Google Play" /></div>
+    <div className="android-download">
+      <div><h2>Install Switchify for Android</h2><p>Need the Android app? Scan the QR code or open Google Play to install Switchify.</p><a className="secondary" href={androidDownloadUrl} target="_blank" rel="noreferrer">Open Google Play</a></div>
+      <figure><img src={androidQrUrl} alt="QR code for Switchify on Google Play" /><figcaption>Scan to open Google Play and install Switchify.</figcaption></figure>
+    </div>
+    <section className="android-pairing"><h2>Already installed? Connect to this computer</h2><ol><li>Open Switchify on your Android device and select this computer.</li><li>Compare the pairing codes shown in both apps.</li><li>Approve the pairing request on this computer only if the codes match.</li></ol></section>
   </section>;
 }
 
