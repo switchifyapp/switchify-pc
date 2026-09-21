@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Accessibility, Bluetooth, ChevronRight, CircleHelp, Download,
   Copy, Home, Keyboard, Plus, Power, RefreshCw, Save, Settings,
@@ -365,6 +365,24 @@ function SetupGuide({ state, switches, suspended, busy, error, skip, finish, acc
   const switchBusy = capturing || !!switches.pending || switches.unsaved || switchDraft;
   const titles = ["Input access", "Add your switch", "Scanning basics", "Start with system", "Anonymous diagnostics"];
   const canContinue = step === 1 ? !switchBusy && !!switches.state?.settings.bindings.length : step === 3 ? startupChoice !== null : step === 4 ? diagnosticsChoice !== null : true;
+  const guidanceId = useId();
+  const navigationGuidance = capturing
+    ? "Finish capturing a switch or cancel capture before continuing."
+    : switches.pending
+      ? "Wait for your switch changes to finish saving before continuing."
+      : switches.unsaved
+        ? "Your switch changes have not saved. Retry saving before continuing."
+        : switchDraft
+          ? "Save or cancel the new switch before continuing."
+          : busy
+            ? "Please wait while setup saves your changes."
+            : step === 1 && !switches.state?.settings.bindings.length
+              ? "Add and save a local keyboard switch to enable Next. If you use only remote switches or want to configure switches later, choose Skip switch configuration to continue setup. Remote presets alone do not confirm a connected switch."
+              : step === 3 && startupChoice === null
+                ? "Choose Start with system or Start manually to enable Next."
+                : step === 4 && diagnosticsChoice === null
+                  ? "Choose whether to share diagnostics to enable Finish."
+                  : null;
 
   useEffect(() => { if (!suspended && !capturing) dialogRef.current?.focus(); }, [step, suspended]);
 
@@ -391,7 +409,8 @@ function SetupGuide({ state, switches, suspended, busy, error, skip, finish, acc
       {step === 3 && <div><h3>Choose startup behavior</h3><p>Switchify can start quietly when you sign in, ready for your switches.</p><div className="setup-choices" role="group" aria-label="Start with system choice"><button className="secondary" aria-pressed={startupChoice === true} onClick={() => setStartupChoice(true)}>Start with system</button><button className="secondary" aria-pressed={startupChoice === false} onClick={() => setStartupChoice(false)}>Start manually</button></div></div>}
       {step === 4 && <div><h3>Choose whether to share diagnostics</h3><p>Optional anonymous app health and sanitized errors help improve Switchify. Typed text, commands, pairing secrets, device names, and full paths are never included.</p><div className="setup-choices" role="group" aria-label="Anonymous diagnostics choice"><button className="secondary" disabled={!state.telemetry.available} aria-pressed={diagnosticsChoice === true} onClick={() => setDiagnosticsChoice(true)}>Share diagnostics</button><button className="secondary" aria-pressed={diagnosticsChoice === false} onClick={() => setDiagnosticsChoice(false)}>Don’t share</button></div><a className="setup-privacy" href="https://switchifyapp.com/privacy" target="_blank" rel="noreferrer">Privacy policy</a></div>}
     </div>
-    <footer>{step === 1 && <button className="secondary" disabled={busy || switchBusy} onClick={() => setStep(2)}>Skip switch configuration</button>}<button className="text-button" disabled={busy || switchBusy} onClick={() => void skip()}>Skip for now</button><span /><button className="secondary" disabled={busy || switchBusy || step === 0} onClick={() => setStep((current) => current - 1)}>Back</button><button className="primary" disabled={busy || switchBusy || !canContinue} onClick={() => step === 4 ? void finish(startupChoice!, diagnosticsChoice!) : setStep((current) => current + 1)}>{step === 4 ? "Finish" : "Next"}</button></footer>
+    <p id={guidanceId} className="setup-navigation-guidance" role="status">{navigationGuidance}</p>
+    <footer><button className="text-button" disabled={busy || switchBusy} onClick={() => void skip()}>Skip setup for now</button>{step === 1 && <button className="secondary" disabled={busy || switchBusy} onClick={() => setStep(2)}>Skip switch configuration</button>}<span /><button className="secondary" disabled={busy || switchBusy || step === 0} onClick={() => setStep((current) => current - 1)}>Back</button><button className="primary" aria-describedby={navigationGuidance ? guidanceId : undefined} disabled={busy || switchBusy || !canContinue} onClick={() => step === 4 ? void finish(startupChoice!, diagnosticsChoice!) : setStep((current) => current + 1)}>{step === 4 ? "Finish" : "Next"}</button></footer>
   </section></div>;
 }
 
