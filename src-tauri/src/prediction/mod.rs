@@ -145,6 +145,8 @@ struct Service {
     outstanding: Option<Instant>,
     last: Option<Instant>,
     edit: Vec<Edit>,
+    edit_revision: u64,
+    acknowledged_revision: u64,
     reset: bool,
     accept: Option<(u64, usize)>,
     accepting: bool,
@@ -153,6 +155,7 @@ struct Service {
 }
 impl Service {
     fn queue_edit(&mut self, edit: Edit) {
+        self.edit_revision = self.edit_revision.wrapping_add(1);
         if self.edit.len() >= 512 {
             self.edit.clear();
             self.reset = true;
@@ -162,6 +165,7 @@ impl Service {
     fn take_edits(&mut self) -> Vec<Edit> {
         let mut edits = std::mem::take(&mut self.edit);
         if std::mem::take(&mut self.reset) {
+            self.edit_revision = self.edit_revision.wrapping_add(1);
             edits.insert(0, Edit::Reset);
         }
         edits
@@ -171,13 +175,23 @@ impl Service {
         &mut self,
         keyboard: &mut Keyboard,
         generation: u64,
+        revision: u64,
         batch: Option<worker::Batch>,
         tracking: bool,
     ) {
-        if generation == self.generation {
+        if revision < self.acknowledged_revision || revision > self.edit_revision {
+            self.fail(keyboard);
+            return;
+        }
+        self.acknowledged_revision = revision;
+        if generation == self.generation && revision == self.edit_revision {
             self.suggestions(keyboard, batch, tracking);
         } else {
-            self.reset = true;
+            self.tracking = tracking;
+            if !tracking {
+                self.edit.clear();
+                self.reset = true;
+            }
         }
     }
     fn suggestions(
@@ -323,9 +337,10 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                     Response::Suggestions {
                         generation,
                         batch,
+                        revision,
                         tracking,
                     } => {
-                        s.received_suggestions(keyboard, generation, batch, tracking);
+                        s.received_suggestions(keyboard, generation, revision, batch, tracking);
                     }
                     Response::Insert { generation, text } => {
                         s.accepting = false;
@@ -366,6 +381,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
             Request::Accept {
                 generation: s.generation,
                 token,
+                revision: s.edit_revision,
                 index,
             }
         } else {
@@ -377,6 +393,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
             Request::Query {
                 generation: s.generation,
                 edits: s.take_edits(),
+                revision: s.edit_revision,
                 shift: keyboard.modifiers[0] != Modifier::Off,
                 caps: keyboard.caps,
             }
@@ -393,6 +410,50 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_successful_supported_edits_enter_the_buffer() {
+        stop();
+        SERVICE.with(|s| s.borrow_mut().tracking = true);
+        let stroke = Stroke {
+            key: Key::Character('a', 'A'),
+            modifiers: [false; 4],
+            caps: false,
+        };
+        record(stroke, true);
+        SERVICE.with(|s| {
+            let s = s.borrow();
+            assert_eq!(s.edit_revision, 1);
+            assert!(matches!(&s.edit[0], Edit::Append(text) if text == "a"));
+        });
+        record(stroke, false);
+        SERVICE.with(|s| {
+            let mut s = s.borrow_mut();
+            assert!(s.edit.is_empty());
+            assert!(s.reset);
+            assert!(matches!(s.take_edits()[0], Edit::Reset));
+        });
+        record(
+            Stroke {
+                key: Key::Named("ArrowLeft"),
+                ..stroke
+            },
+            true,
+        );
+        SERVICE.with(|s| assert!(s.borrow().reset));
+        stop();
+    }
+    #[test]
+    fn invalid_edit_acknowledgements_fail_closed() {
+        let mut service = Service {
+            edit_revision: 3,
+            acknowledged_revision: 2,
+            ..Default::default()
+        };
+        let mut keyboard = Keyboard::new(false);
+        service.received_suggestions(&mut keyboard, 0, 4, None, true);
+        assert!(service.failed);
+    }
+
     #[test]
     fn database_resolution_supports_transferred_bundles_and_unbundled_development() {
         let root = std::env::temp_dir().join(format!("switchify-resource-{}", std::process::id()));
