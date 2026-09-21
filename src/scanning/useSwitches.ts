@@ -126,6 +126,29 @@ export function useSwitches() {
     setSettings(next);
     save(next, m.revision);
   };
+  // Destructive saves keep the original assignment visible until persistence succeeds.
+  const remove = async (id: string) => {
+    const m = model.current;
+    if (m.pending || m.revision !== m.saved || m.state?.capture.active || !m.state?.supported) return false;
+    const next = { ...m.settings, bindings: m.settings.bindings.filter((binding) => binding.id !== id) };
+    m.pending++;
+    setPending(m.pending);
+    setError(null);
+    try {
+      const stamp = runtime.current;
+      const result = await invoke<SwitchState>("save_switches", { settings: next });
+      m.settings = result.settings;
+      setSettings(result.settings);
+      if (stamp === runtime.current) receive(result);
+      return true;
+    } catch (e) {
+      setError(String(e));
+      return false;
+    } finally {
+      m.pending--;
+      setPending(m.pending);
+    }
+  };
   const capture = async () => {
     const request = ++captureRequest.current;
     setCapturing(true);
@@ -195,6 +218,7 @@ export function useSwitches() {
     error,
     capturing,
     update,
+    remove,
     capture,
     cancelCapture,
     setKeyboardEntry,

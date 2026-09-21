@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Keyboard, Smartphone, Trash2, X } from "lucide-react";
 import { useRemoteSwitches, type RemoteSlot } from "../scanning/useRemoteSwitches";
 import {
@@ -350,6 +351,34 @@ function CaptureDialog({ name, onCancel }: { name: string; onCancel: () => void 
   );
 }
 
+function SwitchConfirmation({ title, action, busy, error, cancel, confirm }: { title: string; action: string; busy: boolean; error: string | null; cancel: () => void; confirm: () => void }) {
+  const ref = useRef<HTMLElement>(null);
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  useLayoutEffect(() => {
+    const background = [...document.body.children].filter((element) => !element.contains(ref.current));
+    const previous = background.map((element) => element.hasAttribute("inert"));
+    background.forEach((element) => element.setAttribute("inert", ""));
+    keepRef.current?.focus();
+    return () => background.forEach((element, index) => { if (!previous[index]) element.removeAttribute("inert"); });
+  }, []);
+  return createPortal(<div className="modal-backdrop"><section ref={ref} className="profile-dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={(event) => {
+    event.stopPropagation();
+    if (event.key === "Escape") { event.preventDefault(); if (!busy) cancel(); }
+    if (event.key === "Tab") {
+      const buttons = [...(ref.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
+      const first = buttons[0]; const last = buttons.at(-1);
+      if (!first) { event.preventDefault(); return; }
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+  }}>
+    <header><h2 id={titleId}>{title}</h2></header>
+    {error && <p role="alert">{error} Your switch is still available. Try again or keep it.</p>}
+    <footer><span /><button ref={keepRef} className="secondary" disabled={busy} onClick={cancel}>Keep switch</button><button className="primary danger" disabled={busy} onClick={confirm}>{busy ? "Saving…" : action}</button></footer>
+  </section></div>, document.body);
+}
+
 export function SwitchesSection({ controller, onDraftChange, suspended = false, androidConnected }: { controller: SwitchController; onDraftChange?: (draft: boolean) => void; suspended?: boolean; androidConnected?: boolean }) {
   const { settings, state, pending, unsaved } = controller;
   // A refused capture sets both the general error and the capture error; the
@@ -360,6 +389,16 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
       : null;
   const [draft, setDraft] = useState<Binding | null>(null);
   // A draft with a slot is a remote switch; it never learns a key.
+  const [confirmation, setConfirmation] = useState<{ kind: "local" | "remote" | "draft"; id: string; index?: number; name: string } | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const initialDraft = useRef<Binding | null>(null);
+  const requestRemoval = (kind: "local" | "remote" | "draft", binding: Binding, index?: number) => {
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setConfirmError(null);
+    setConfirmation({ kind, id: binding.id, index, name: binding.name || (kind === "remote" ? `Remote switch ${(index ?? 0) + 1}` : "this switch") });
+  };
   const [draftSlot, setDraftSlot] = useState<number | null>(null);
   useEffect(() => { onDraftChange?.(draft !== null); }, [draft, onDraftChange]);
   const remote = useRemoteSwitches();
@@ -446,7 +485,10 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
   const addRef = useRef<HTMLButtonElement>(null);
   const addRemoteRef = useRef<HTMLButtonElement>(null);
   const focusAfter = useRef<string | null>(null);
-  useEffect(() => {
+  // Consume the handoff only after its DOM commit. A pending passive effect
+  // from the previous render can otherwise focus an Add button just before it
+  // unmounts, consuming the handoff and leaving focus on the document body.
+  useLayoutEffect(() => {
     if (!focusAfter.current) return;
     const id = focusAfter.current;
     focusAfter.current = null;
@@ -516,15 +558,6 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
         b.id === binding.id ? binding : b,
       ),
     });
-  const remove = (id: string) => {
-    releaseEntry();
-    if (expanded === id) setExpanded(null);
-    focusAfter.current = newId;
-    controller.update({
-      ...settings,
-      bindings: settings.bindings.filter((b) => b.id !== id),
-    });
-  };
   const learn = (id: string) => {
     releaseEntry();
     setRowError(null);
@@ -533,7 +566,8 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
   };
   const startAdd = () => {
     setDraftSlot(null);
-    setDraft({ id: newId, name: "", key: "", pressAction: "select", holdActions: [] });
+    initialDraft.current = { id: newId, name: "", key: "", pressAction: "select", holdActions: [] };
+    setDraft(initialDraft.current);
     setExpanded(newId);
     learn(newId);
   };
@@ -541,7 +575,8 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
     const slot = freeSlots[0];
     if (slot === undefined) return;
     setDraftSlot(slot);
-    setDraft({ id: newId, name: "", key: `Remote ${slot + 1}`, pressAction: "select", holdActions: [] });
+    initialDraft.current = { id: newId, name: "", key: `Remote ${slot + 1}`, pressAction: "select", holdActions: [] };
+    setDraft(initialDraft.current);
     setExpanded(newId);
     // The Add buttons unmount while drafting; the name field takes focus.
     focusAfter.current = newId;
@@ -556,6 +591,26 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
       setTarget(null);
       void controller.cancelCapture();
     }
+  };
+  const cancelConfirmation = () => {
+    setConfirmation(null);
+    // The portal restores the background before focus returns to its opener.
+    requestAnimationFrame(() => { if (opener.current?.isConnected) opener.current.focus(); });
+  };
+  const confirmRemoval = async () => {
+    if (!confirmation || confirmBusy) return;
+    if (confirmation.kind === "draft") { setConfirmation(null); cancelAdd(); return; }
+    setConfirmBusy(true);
+    setConfirmError(null);
+    const removed = confirmation.kind === "local" ? await controller.remove(confirmation.id) : await remote.remove(confirmation.index!);
+    setConfirmBusy(false);
+    if (removed) {
+      releaseEntry();
+      if (expanded === confirmation.id) setExpanded(null);
+      setConfirmation(null);
+      focusAfter.current = newId;
+    }
+    else setConfirmError("Could not remove the switch.");
   };
   const add = () => {
     if (!draft) return;
@@ -603,6 +658,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
         Keyboard typing is on. Switch scanning is paused.
         <button type="button" className="secondary" disabled={entryPending} onClick={() => { void toggleEntry(false); }}>Resume switch control</button>
       </div>}
+      {confirmation && !suspended && <SwitchConfirmation title={confirmation.kind === "draft" ? "Discard this new switch?" : `Remove ${confirmation.name}?`} action={confirmation.kind === "draft" ? "Discard switch" : "Remove switch"} busy={confirmBusy} error={confirmError} cancel={cancelConfirmation} confirm={() => void confirmRemoval()} />}
       {capturing && target && !suspended && (
         <CaptureDialog
           name={captureName}
@@ -738,8 +794,8 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                       type="button"
                       className="icon-button danger-icon"
                       aria-label={`Remove ${name}`}
-                      disabled={disabled}
-                      onClick={() => remove(binding.id)}
+                      disabled={disabled || !!pending || unsaved}
+                      onClick={() => requestRemoval("local", binding)}
                     >
                       <Trash2 size={18} />
                     </button>
@@ -760,7 +816,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                         focusAfter.current = binding.id;
                         setExpanded(null);
                       }}
-                      onRemove={() => remove(binding.id)}
+                      onRemove={() => requestRemoval("local", binding)}
                       nameRef={nameRef}
                     />
                   )}
@@ -804,12 +860,8 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                       type="button"
                       className="icon-button danger-icon"
                       aria-label={`Remove ${name}`}
-                      onClick={() => {
-                        releaseEntry();
-                        if (expanded === binding.id) setExpanded(null);
-                        focusAfter.current = newId;
-                        setSlot(index, null);
-                      }}
+                      disabled={!!remote.pending || remote.unsaved}
+                      onClick={() => requestRemoval("remote", binding, index)}
                     >
                       <Trash2 size={18} />
                     </button>
@@ -830,12 +882,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                         focusAfter.current = binding.id;
                         setExpanded(null);
                       }}
-                      onRemove={() => {
-                        releaseEntry();
-                        if (expanded === binding.id) setExpanded(null);
-                        focusAfter.current = newId;
-                        setSlot(index, null);
-                      }}
+                      onRemove={() => requestRemoval("remote", binding, index)}
                       nameRef={nameRef}
                       remote={{ slot: index, free: freeSlots, onSlot: (to) => moveSlot(index, to) }}
                     />
@@ -869,7 +916,10 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                   onChange={setDraft}
                   onLearn={() => learn(newId)}
                   onDone={add}
-                  onRemove={cancelAdd}
+                  onRemove={() => {
+                    if (JSON.stringify(draft) === JSON.stringify(initialDraft.current)) cancelAdd();
+                    else requestRemoval("draft", draft);
+                  }}
                   nameRef={nameRef}
                   remote={
                     draftSlot === null
