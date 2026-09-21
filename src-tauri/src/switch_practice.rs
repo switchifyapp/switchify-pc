@@ -215,6 +215,12 @@ pub fn begin(app: &AppHandle, remote: bool) -> Result<View, String> {
     if switches.view().capture.active {
         return Err("Finish learning before testing switches.".into());
     }
+    if remote && !crate::remote_scan::active(app) {
+        return Err(
+            "No remote forwarding session. Connect Android and start switch forwarding first."
+                .into(),
+        );
+    }
     crate::point_scan_prepare(app)?;
     let config = app
         .state::<crate::point_scan_runtime::Controller>()

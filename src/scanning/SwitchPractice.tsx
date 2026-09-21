@@ -79,7 +79,7 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
       </svg>
       <p>{view?.label}</p>
       {error && <p role="alert">{error}</p>}
-      <div className="switch-practice-buttons"><button type="button" className="secondary" disabled={pending || view?.active} onClick={() => void begin()}>Start another test</button><button type="button" className="primary" disabled={pending} onClick={() => void close()}>Exit practice</button></div>
+      <div className="switch-practice-buttons"><button type="button" className="primary" disabled={pending} onClick={() => void close()}>Exit practice</button></div>
     </section></div>, document.body)}
   </div>;
 }
