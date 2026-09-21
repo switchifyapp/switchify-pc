@@ -17,6 +17,7 @@ pub struct View {
     pub settings: Settings,
     pub capture: CaptureState,
     pub supported: bool,
+    pub keyboard_entry: bool,
     pub error: Option<String>,
     pub escape_hold_ms: u64,
     pub unavailable_keys: Vec<String>,
@@ -25,6 +26,7 @@ struct Data {
     settings: Settings,
     capture: CaptureState,
     capture_generation: u64,
+    keyboard_entry: bool,
     error: Option<String>,
 }
 pub struct Controller {
@@ -91,6 +93,7 @@ impl Controller {
                 settings,
                 capture: CaptureState::default(),
                 capture_generation: 0,
+                keyboard_entry: false,
                 error,
             }),
             broker: Mutex::new(Capture::new()),
@@ -101,6 +104,7 @@ impl Controller {
         View {
             settings: d.settings.clone(),
             capture: d.capture.clone(),
+            keyboard_entry: d.keyboard_entry,
             supported: cfg!(any(target_os = "windows", target_os = "macos")),
             error: d.error.clone(),
             escape_hold_ms: d.settings.escape_ms(),
@@ -111,6 +115,31 @@ impl Controller {
                 .filter(|b| !crate::switch_input::supported_key(&b.key))
                 .map(|b| b.key.clone())
                 .collect(),
+        }
+    }
+    pub fn keyboard_entry(&self) -> bool {
+        self.data
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .keyboard_entry
+    }
+    pub fn set_keyboard_entry(&self, active: bool) -> Result<(), String> {
+        let mut d = self.data.lock().unwrap_or_else(|p| p.into_inner());
+        if active && d.capture.active {
+            return Err("Finish learning the switch before typing with the keyboard.".into());
+        }
+        d.keyboard_entry = active;
+        drop(d);
+        if active {
+            self.stop();
+        }
+        Ok(())
+    }
+    fn require_switch_control(&self) -> Result<(), String> {
+        if self.keyboard_entry() {
+            Err("Typing with the keyboard. Resume switch control in Switches when finished.".into())
+        } else {
+            Ok(())
         }
     }
     pub fn active_generation(&self, generation: u64) -> bool {
@@ -155,6 +184,7 @@ impl Controller {
         Ok(self.view())
     }
     pub fn enable_escape(&self) -> Result<(), String> {
+        self.require_switch_control()?;
         let mut broker = self.broker.lock().unwrap_or_else(|p| p.into_inner());
         broker.stop();
         broker.configure(&[], 4000).map_err(|e| e.to_string())?;
@@ -162,6 +192,7 @@ impl Controller {
         Ok(())
     }
     pub fn enable(&self, automatic: bool) -> Result<(), String> {
+        self.require_switch_control()?;
         let view = self.view();
         if let Some(e) = view.error {
             return Err(e);
@@ -184,6 +215,7 @@ impl Controller {
         Ok(())
     }
     pub fn begin_capture(&self, app: &AppHandle) -> Result<View, String> {
+        self.require_switch_control()?;
         if let Some(e) = self.view().error {
             return Err(e);
         }
@@ -312,6 +344,32 @@ pub fn install(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn keyboard_entry_excludes_capture_without_changing_bindings() {
+        // An off broker never installs a native adapter in this test.
+        let controller = Controller {
+            data: Mutex::new(Data {
+                settings: Settings::default(),
+                capture: CaptureState::default(),
+                capture_generation: 0,
+                keyboard_entry: false,
+                error: None,
+            }),
+            broker: Mutex::new(Capture::new()),
+        };
+        controller.set_keyboard_entry(true).unwrap();
+        assert!(controller.view().keyboard_entry);
+        assert!(controller
+            .enable(true)
+            .unwrap_err()
+            .contains("Resume switch control"));
+        assert!(controller.enable_escape().is_err());
+        controller.set_keyboard_entry(false).unwrap();
+        assert!(controller.require_switch_control().is_ok());
+        controller.data.lock().unwrap().capture.active = true;
+        assert!(controller.set_keyboard_entry(true).is_err());
+        assert!(!controller.keyboard_entry());
+    }
     struct Files(std::path::PathBuf);
     impl Files {
         fn new() -> Self {

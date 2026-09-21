@@ -26,6 +26,7 @@ export type SwitchState = {
   settings: SwitchSettings;
   capture: { active: boolean; key: string | null; error: string | null };
   supported: boolean;
+  keyboardEntry?: boolean;
   error: string | null;
   escapeHoldMs: number;
   unavailableKeys: string[];
@@ -166,6 +167,27 @@ export function useSwitches() {
       setError(String(e));
     }
   };
+  const setKeyboardEntry = (active: boolean): Promise<boolean> => {
+    if (!("__TAURI_INTERNALS__" in window)) return Promise.resolve(false);
+    const m = model.current;
+    m.pending++;
+    setPending(m.pending);
+    const operation = queue.current.then(async () => {
+      setError(null);
+      const stamp = runtime.current;
+      const result = await invoke<SwitchState>("set_switch_keyboard_entry", { active });
+      if (stamp === runtime.current) receive(result);
+      return true;
+    }).catch((reason) => {
+      setError(String(reason));
+      return false;
+    }).finally(() => {
+      m.pending--;
+      setPending(m.pending);
+    });
+    queue.current = operation.then(() => {});
+    return operation;
+  };
   return {
     state,
     settings,
@@ -175,6 +197,7 @@ export function useSwitches() {
     update,
     capture,
     cancelCapture,
+    setKeyboardEntry,
     retry: () => save(model.current.settings, model.current.revision),
     unsaved: model.current.revision !== model.current.saved,
   };

@@ -78,6 +78,9 @@ beforeEach(() => {
   mocks.listen.mockReset().mockResolvedValue(vi.fn());
   mocks.invoke.mockReset().mockImplementation(async (command, args) => {
     switch (command) {
+      case "set_switch_keyboard_entry":
+        current = { ...current, keyboardEntry: args.active };
+        return current;
       case "get_switches":
         return current;
       case "save_switches":
@@ -399,4 +402,72 @@ it("removes a remote switch and surfaces a failed remote save with retry", async
   fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
   await waitFor(() => expect(remote.slots[0].pressAction).toBeNull());
   expect(screen.queryByRole("heading", { name: "Remote switch 1" })).toBeNull();
+});
+
+
+it("pauses capture only by explicit choice, saves mapped characters and resumes after Done", async () => {
+  render(<Shell />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Head switch" }));
+  const name = screen.getByRole("textbox", { name: "Name for Space" });
+  name.focus();
+  expect(mocks.invoke).not.toHaveBeenCalledWith("set_switch_keyboard_entry", expect.anything());
+  fireEvent.click(screen.getByRole("button", { name: "Type with keyboard" }));
+  await screen.findByText("Keyboard typing is on. Assigned keys type normally; switch scanning is paused.");
+  expect(name).toHaveFocus();
+  expect(screen.getByRole("button", { name: "Learn another key for Head switch" })).toBeDisabled();
+  fireEvent.change(name, { target: { value: "Big blue switch" } });
+  await waitFor(() => expect(current.settings.bindings[0].name).toBe("Big blue switch"));
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  await waitFor(() => expect(current.keyboardEntry).toBe(false));
+});
+
+it("releases keyboard entry when navigating away, even while entry is pending", async () => {
+  let finish: (() => void) | undefined;
+  const invoke = mocks.invoke.getMockImplementation()!;
+  mocks.invoke.mockImplementation((command, args) => command === "set_switch_keyboard_entry" && args.active
+    ? new Promise((resolve) => { finish = () => { current = { ...current, keyboardEntry: true }; resolve(current); }; })
+    : invoke(command, args));
+  const view = render(<Shell />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Head switch" }));
+  fireEvent.click(screen.getByRole("button", { name: "Type with keyboard" }));
+  await waitFor(() => expect(finish).toBeDefined());
+  view.rerender(<Shell visible={false} />);
+  await act(async () => finish!());
+  await waitFor(() => expect(current.keyboardEntry).toBe(false));
+  expect(mocks.invoke).toHaveBeenCalledWith("set_switch_keyboard_entry", { active: false });
+});
+
+it("keeps the name draft and normal switch control if keyboard entry is refused", async () => {
+  const invoke = mocks.invoke.getMockImplementation()!;
+  mocks.invoke.mockImplementation((command, args) => command === "set_switch_keyboard_entry" && args.active
+    ? Promise.reject("Stop forwarding on Remote before typing with the keyboard.") : invoke(command, args));
+  render(<Shell />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Head switch" }));
+  fireEvent.click(screen.getByRole("button", { name: "Type with keyboard" }));
+  await screen.findByText("Stop forwarding on Remote before typing with the keyboard.");
+  expect(screen.getByRole("textbox", { name: "Name for Space" })).toHaveValue("Head switch");
+  expect(screen.getByRole("button", { name: "Learn another key for Head switch" })).toBeEnabled();
+});
+
+
+it("preserves a newly learned key while typing and releases capture ownership on Cancel", async () => {
+  render(<Shell />);
+  fireEvent.click(await screen.findByRole("button", { name: "Add switch" }));
+  await screen.findByRole("button", { name: "Cancel capture" });
+  current = { ...current, capture: { active: false, key: "Enter", error: null } };
+  event(current);
+  fireEvent.click(await screen.findByRole("button", { name: "Type with keyboard" }));
+  await screen.findByRole("button", { name: "Resume switch control" });
+  fireEvent.change(screen.getByRole("textbox", { name: "New switch name" }), { target: { value: "Second switch" } });
+  expect(screen.getByText("Enter", { selector: "kbd" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
+  await waitFor(() => expect(current.keyboardEntry).toBe(false));
+  expect(current.settings.bindings).toHaveLength(1);
+});
+
+it("offers recovery when returning to Switches with keyboard typing still active", async () => {
+  current.keyboardEntry = true;
+  render(<Shell />);
+  fireEvent.click(await screen.findByRole("button", { name: "Resume switch control" }));
+  await waitFor(() => expect(current.keyboardEntry).toBe(false));
 });

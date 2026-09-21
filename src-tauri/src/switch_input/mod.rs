@@ -569,6 +569,24 @@ mod tests {
         c
     }
     #[test]
+    fn explicit_typing_pause_drains_held_switch_and_passes_mapped_keys() {
+        let mut c = core();
+        c.mappings.insert("Enter".into(), "enter".into());
+        assert!(c.key("Space", true, 1));
+        c.stop(StopReason::Disabled);
+        assert!(c.key("Space", false, 2));
+        c.events.clear();
+        for key in ["Space", "Enter"] {
+            assert!(!c.key(key, true, 3));
+            assert!(!c.key(key, false, 4));
+        }
+        assert!(c.events.is_empty());
+        c.begin(Mode::Active, 5);
+        assert!(c.key("Space", true, 6));
+        assert!(c.key("Space", false, 7));
+        assert_eq!(c.events.len(), 2);
+    }
+    #[test]
     fn repeat_and_unmatched_release_never_activate() {
         let mut c = core();
         assert!(!c.key("Space", false, 0));

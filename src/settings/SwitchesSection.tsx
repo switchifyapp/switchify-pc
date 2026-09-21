@@ -87,7 +87,13 @@ function SwitchEditor({
   onRemove,
   nameRef,
   remote,
+  keyboardEntry,
+  entryPending,
+  onKeyboardEntry,
 }: {
+  keyboardEntry: boolean;
+  entryPending: boolean;
+  onKeyboardEntry: (active: boolean) => void;
   id?: string;
   binding: Binding;
   isNew: boolean;
@@ -129,6 +135,20 @@ function SwitchEditor({
           onChange={(e) => onChange({ ...binding, name: e.target.value })}
         />
       </label>
+      <div className="field">
+        <p className="setting-note">
+          Keyboard switches share their assigned keys with every keyboard. To type
+          a name with those keys, choose Type with keyboard. Switch control pauses
+          until you resume or close this editor. You can use Tab and Enter to
+          reach and activate Resume switch control.
+        </p>
+        <p className="setting-note">If you rely on switches, keep switch control on and use the scanning keyboard from the point action menu to enter the name.</p>
+        <button type="button" className="secondary" disabled={entryPending}
+          aria-pressed={keyboardEntry} onClick={() => onKeyboardEntry(!keyboardEntry)}>
+          {keyboardEntry ? "Resume switch control" : "Type with keyboard"}
+        </button>
+        {keyboardEntry && <p role="status">Keyboard typing is on. Assigned keys type normally; switch scanning is paused.</p>}
+      </div>
       {remote ? (
         <label className="field">
           <span>Remote switch</span>
@@ -156,6 +176,7 @@ function SwitchEditor({
               className="secondary"
               aria-label={isNew ? "Learn switch key" : `Learn another key for ${name}`}
               aria-describedby={keyError || unavailable ? keyErrorId : undefined}
+              disabled={keyboardEntry || entryPending}
               onClick={onLearn}
             >
               {binding.key ? "Change key" : "Learn key"}
@@ -380,6 +401,38 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
     setExpanded(remoteId(to));
   };
   const [expanded, setExpanded] = useState<string | null>(null);
+  const entryOwner = useRef(false);
+  const setEntry = useRef(controller.setKeyboardEntry);
+  setEntry.current = controller.setKeyboardEntry;
+  const [entryPending, setEntryPending] = useState(false);
+  const releaseEntry = () => {
+    if (!entryOwner.current) return;
+    entryOwner.current = false;
+    void setEntry.current(false);
+  };
+  useEffect(() => () => {
+    if (entryOwner.current) {
+      entryOwner.current = false;
+      void setEntry.current(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (expanded === null || suspended) releaseEntry();
+  }, [expanded, suspended]);
+  const toggleEntry = async (active: boolean) => {
+    // Mark ownership before awaiting: navigation must queue a release even if
+    // the entry command is still in flight.
+    entryOwner.current = active;
+    setEntryPending(true);
+    const changed = await controller.setKeyboardEntry(active);
+    setEntryPending(false);
+    if (active && changed && entryOwner.current) nameRef.current?.focus();
+  };
+  const entryProps = {
+    keyboardEntry: !!state?.keyboardEntry,
+    entryPending,
+    onKeyboardEntry: (active: boolean) => { void toggleEntry(active); },
+  };
   const [target, setTarget] = useState<string | null>(null);
   // A key error belongs to the row that was learning when it happened, not to
   // whichever row is open later; the backend keeps its last capture error
@@ -464,6 +517,8 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
       ),
     });
   const remove = (id: string) => {
+    releaseEntry();
+    if (expanded === id) setExpanded(null);
     focusAfter.current = newId;
     controller.update({
       ...settings,
@@ -471,6 +526,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
     });
   };
   const learn = (id: string) => {
+    releaseEntry();
     setRowError(null);
     setTarget(id);
     void controller.capture();
@@ -543,6 +599,10 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
   const errorFor = (id: string) => (rowError?.id === id ? rowError.message : null);
   return (
     <>
+      {state?.keyboardEntry && !expanded && <div role="status" className="setting-note">
+        Keyboard typing is on. Switch scanning is paused.
+        <button type="button" className="secondary" disabled={entryPending} onClick={() => { void toggleEntry(false); }}>Resume switch control</button>
+      </div>}
       {capturing && target && !suspended && (
         <CaptureDialog
           name={captureName}
@@ -674,6 +734,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
                   </div>
                   {open && (
                     <SwitchEditor
+                  {...entryProps}
                       id={`${listId}-${binding.id}`}
                       binding={binding}
                       isNew={false}
@@ -740,6 +801,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
                   </div>
                   {open && (
                     <SwitchEditor
+                  {...entryProps}
                       id={`${listId}-${binding.id}`}
                       binding={binding}
                       isNew={false}
@@ -780,6 +842,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
                   </div>
                 </div>
                 <SwitchEditor
+                  {...entryProps}
                   binding={draft}
                   isNew
                   disabled={draftSlot === null && disabled}
