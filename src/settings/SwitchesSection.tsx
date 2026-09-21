@@ -565,7 +565,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
             ? "Android device connected. This does not confirm that remote assignments match your switches."
             : androidConnected === false
               ? "No Android device connected. Remote assignments are available for a future connection."
-              : "Android connection status is unavailable here."} Input reception is not tested on this page.</p>
+              : "Android connection status is unavailable here."} A connection alone does not verify a physical switch press.</p>
         </div>
         <SettingNote
           about="switches"

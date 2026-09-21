@@ -425,7 +425,7 @@ it("keeps source identity after renaming and separates connection from tested in
   const localRow = screen.getByRole("heading", { name: "Head switch" }).closest("article")!;
   expect(within(localRow).getByText("Local keyboard input")).toBeInTheDocument();
   view.rerender(<Shell androidConnected />);
-  expect(screen.getByText(/Android device connected. This does not confirm/)).toHaveTextContent("Input reception is not tested on this page.");
+  expect(screen.getByText(/Android device connected. This does not confirm/)).toHaveTextContent("A connection alone does not verify a physical switch press.");
   expect(screen.queryByText(/No Android device connected/)).not.toBeInTheDocument();
   view.rerender(<Shell />);
   expect(screen.getByText(/No Android device connected/)).toBeInTheDocument();
