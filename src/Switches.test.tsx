@@ -576,3 +576,27 @@ it("hands remote draft focus to the committed input before passive work can run"
   });
   expect(committedFocus[1]).toBe(screen.getByRole("button", { name: "Add switch" }));
 });
+
+it.each(["remove", "discard"])("restores usable focus after confirmed %s with browser inert behavior", async (operation) => {
+  const focus = HTMLElement.prototype.focus;
+  const spy = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement, options?: FocusOptions) {
+    // jsdom does not enforce inert; browsers refuse focus inside an inert root.
+    if (!this.closest("[inert]")) focus.call(this, options);
+  });
+  try {
+    render(<Shell />);
+    await screen.findByRole("heading", { name: "Remote switch 1" });
+    if (operation === "remove") {
+      fireEvent.click(screen.getByRole("button", { name: "Remove Head switch" }));
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: "Add remote switch" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "New switch name" }), { target: { value: "Foot" } });
+      fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
+    }
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByRole("button", { name: "Keep switch" })).toHaveFocus();
+    fireEvent.click(within(dialog).getByRole("button", { name: operation === "remove" ? "Remove switch" : "Discard switch" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Add switch" })).toHaveFocus();
+  } finally { spy.mockRestore(); }
+});

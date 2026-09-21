@@ -355,7 +355,7 @@ function SwitchConfirmation({ title, action, busy, error, cancel, confirm }: { t
   const ref = useRef<HTMLElement>(null);
   const keepRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
-  useEffect(() => {
+  useLayoutEffect(() => {
     const background = [...document.body.children].filter((element) => !element.contains(ref.current));
     const previous = background.map((element) => element.hasAttribute("inert"));
     background.forEach((element) => element.setAttribute("inert", ""));
