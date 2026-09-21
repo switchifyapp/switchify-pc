@@ -51,12 +51,12 @@ const scan = {
   message: "Scanning is off.",
   supported: true,
 };
-function Shell({ visible = true }: { visible?: boolean }) {
+function Shell({ visible = true, androidConnected = false }: { visible?: boolean; androidConnected?: boolean }) {
   const switches = useSwitches();
   const scanning = useScanning();
   return (
     <>
-      {visible && <SwitchesSection controller={switches} />}
+      {visible && <SwitchesSection controller={switches} androidConnected={androidConnected} />}
       <ScanningSection controller={scanning} />
     </>
   );
@@ -399,4 +399,34 @@ it("removes a remote switch and surfaces a failed remote save with retry", async
   fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
   await waitFor(() => expect(remote.slots[0].pressAction).toBeNull());
   expect(screen.queryByRole("heading", { name: "Remote switch 1" })).toBeNull();
+});
+
+it("separates an empty local configuration from the six remote presets", async () => {
+  current.settings.bindings = [];
+  remote.slots = ["select", "next", "back", "pause", "reverse", "stop", null, null]
+    .map((pressAction) => ({ pressAction, holdActions: [] }));
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Remote switch 6" });
+  expect(screen.getByText(/No local switches configured/)).toBeInTheDocument();
+  expect(screen.getByText(/not detected physical switches/)).toBeInTheDocument();
+  expect(screen.getByText(/No Android device connected/)).toBeInTheDocument();
+  expect(screen.getAllByText(/Remote forwarding slot/)).toHaveLength(6);
+  expect(mocks.invoke.mock.calls.some(([command]) => command.startsWith("save_"))).toBe(false);
+});
+it("keeps source identity after renaming and separates connection from tested input", async () => {
+  const view = render(<Shell />);
+  await screen.findByRole("heading", { name: "Remote switch 1" });
+  open("Remote switch 1");
+  fireEvent.change(screen.getByLabelText("Name for Remote 1"), { target: { value: "Chin" } });
+  await waitFor(() => expect(remote.slots[0].name).toBe("Chin"));
+  const row = screen.getByRole("heading", { name: "Chin" }).closest("article")!;
+  expect(within(row).getByText("Remote forwarding slot 1")).toBeInTheDocument();
+  expect(within(row).getByText("Remote 1")).toBeInTheDocument();
+  const localRow = screen.getByRole("heading", { name: "Head switch" }).closest("article")!;
+  expect(within(localRow).getByText("Local keyboard input")).toBeInTheDocument();
+  view.rerender(<Shell androidConnected />);
+  expect(screen.getByText(/Android device connected. This does not confirm/)).toHaveTextContent("A connection alone does not verify a physical switch press.");
+  expect(screen.queryByText(/No Android device connected/)).not.toBeInTheDocument();
+  view.rerender(<Shell />);
+  expect(screen.getByText(/No Android device connected/)).toBeInTheDocument();
 });
