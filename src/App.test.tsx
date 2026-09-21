@@ -155,6 +155,22 @@ describe("Switchify PC shell", () => {
     expect(within(footer as HTMLElement).queryByRole("button")).not.toBeInTheDocument();
   });
 
+  it("distinguishes the Android install QR from pairing for existing users", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Android connection" }));
+    expect(screen.getByRole("heading", { name: "Install Switchify for Android" })).toBeInTheDocument();
+    const qr = screen.getByRole("img", { name: "QR code for Switchify on Google Play" });
+    expect(qr.closest("figure")).toHaveTextContent("Scan to open Google Play and install Switchify.");
+    expect(screen.getByRole("link", { name: "Open Google Play" })).toHaveAttribute("href", expect.stringContaining("play.google.com"));
+    const pairing = screen.getByRole("heading", { name: "Already installed? Connect to this computer" }).closest("section")!;
+    expect(within(pairing).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "Open Switchify on your Android device and select this computer.",
+      "Compare the pairing codes shown in both apps.",
+      "Approve the pairing request on this computer only if the codes match.",
+    ]);
+  });
+
   it("shows when paired devices last connected", async () => {
     const connectedAt = Date.UTC(2026, 7, 22, 12, 30);
     browserState.pairedDevices = [
