@@ -1086,7 +1086,7 @@ mod tests {
         let start = std::time::Instant::now();
         let db = Database::open(
             &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("resources/WordData2017051601.db"),
+                .join("resources/word-predictions.lookup"),
         )
         .unwrap();
         let startup = start.elapsed().as_secs_f64() * 1000.0;

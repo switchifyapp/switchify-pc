@@ -32,6 +32,7 @@ jobs:
           cargo audit --file src-tauri/Cargo.lock
           cargo audit --file src-tauri/startup-launcher/Cargo.lock
           cargo audit --file tools/updater-signature-verifier/Cargo.lock
+          cargo audit --file tools/prediction-data/Cargo.lock
 
   frontend:
     runs-on: ubuntu-latest
@@ -115,6 +116,10 @@ jobs:
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - run: cargo fmt --manifest-path tools/prediction-data/Cargo.toml --check
+      - run: cargo clippy --locked --manifest-path tools/prediction-data/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path tools/prediction-data/Cargo.toml
+      - run: cargo run --release --locked --manifest-path tools/prediction-data/Cargo.toml -- --check src-tauri/resources/WordData2017051601.db src-tauri/resources/word-predictions.lookup
       - run: cargo fmt --manifest-path tools/updater-signature-verifier/Cargo.toml --check
       - run: cargo clippy --locked --manifest-path tools/updater-signature-verifier/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --locked --manifest-path tools/updater-signature-verifier/Cargo.toml
