@@ -31,7 +31,7 @@ describe("Switchify PC shell", () => {
 
   function localSwitches(): switchHooks.SwitchController {
     const settings: switchHooks.SwitchSettings = { schemaVersion: 1, holdIntervalMs: 1000, bindings: [{ id: "space", name: "Space switch", key: "Space", pressAction: "select", holdActions: [] }] };
-    return { settings, state: { settings, capture: { active: false, key: null, error: null }, supported: true, error: null, escapeHoldMs: 4000, unavailableKeys: [] }, pending: 0, error: null, capturing: false, unsaved: false, update: vi.fn(), capture: vi.fn(), cancelCapture: vi.fn().mockResolvedValue(undefined), retry: vi.fn() };
+    return { settings, state: { settings, capture: { active: false, key: null, error: null }, supported: true, error: null, escapeHoldMs: 4000, unavailableKeys: [] }, pending: 0, error: null, capturing: false, unsaved: false, update: vi.fn(), capture: vi.fn(), cancelCapture: vi.fn().mockResolvedValue(undefined), setKeyboardEntry: vi.fn().mockResolvedValue(true), retry: vi.fn() };
   }
 
   it("shows local readiness without Bluetooth and explains Android suspension", async () => {

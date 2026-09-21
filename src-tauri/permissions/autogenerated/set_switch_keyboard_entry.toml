@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-switch-keyboard-entry"
+description = "Enables the set_switch_keyboard_entry command without any pre-configured scope."
+commands.allow = ["set_switch_keyboard_entry"]
+
+[[permission]]
+identifier = "deny-set-switch-keyboard-entry"
+description = "Denies the set_switch_keyboard_entry command without any pre-configured scope."
+commands.deny = ["set_switch_keyboard_entry"]

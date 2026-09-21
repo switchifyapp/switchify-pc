@@ -1323,6 +1323,31 @@ fn cancel_switch_capture(
 }
 
 #[tauri::command]
+fn set_switch_keyboard_entry(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    active: bool,
+) -> Result<switch_runtime::View, String> {
+    require_main(&window)?;
+    let switches = app.state::<switch_runtime::Controller>();
+    if active {
+        if !main_window_focused(&window)? {
+            return Err("Focus Switchify PC before typing with the keyboard.".into());
+        }
+        if remote_scan::active(&app) {
+            return Err("Stop forwarding on Remote before typing with the keyboard.".into());
+        }
+    }
+    switches.set_keyboard_entry(active)?;
+    if active {
+        point_scan_runtime::interrupt(&app);
+    }
+    let view = switches.view();
+    let _ = app.emit("switches-changed", &view);
+    Ok(view)
+}
+
+#[tauri::command]
 fn get_point_scan(
     controller: State<'_, point_scan_runtime::Controller>,
 ) -> point_scan_runtime::View {
@@ -1346,6 +1371,11 @@ async fn configure_point_scan(
 
 /// Pure environment check, safe to call every tick while scanning is off.
 fn point_scan_ready(app: &AppHandle) -> Result<(), String> {
+    if app.state::<switch_runtime::Controller>().keyboard_entry() {
+        return Err(
+            "Typing with the keyboard. Resume switch control in Switches when finished.".into(),
+        );
+    }
     let state = app.state::<AppModel>().snapshot();
     if state.bluetooth == state::BluetoothState::Connected && !remote_scan::active(app) {
         return Err("Local scanning pauses while Android is connected.".into());
@@ -1507,6 +1537,7 @@ pub fn run() {
             save_switches,
             begin_switch_capture,
             cancel_switch_capture,
+            set_switch_keyboard_entry,
             get_point_scan,
             configure_point_scan,
             get_app_state,

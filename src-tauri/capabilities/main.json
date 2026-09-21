@@ -12,6 +12,7 @@
     "allow-save-switches",
     "allow-begin-switch-capture",
     "allow-cancel-switch-capture",
+    "allow-set-switch-keyboard-entry",
     "allow-get-point-scan",
     "allow-configure-point-scan",
     "allow-check-accessibility",

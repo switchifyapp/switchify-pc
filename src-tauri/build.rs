@@ -11,6 +11,7 @@ fn main() {
         "save_switches",
         "begin_switch_capture",
         "cancel_switch_capture",
+        "set_switch_keyboard_entry",
         "get_point_scan",
         "configure_point_scan",
         "check_accessibility",
