@@ -70,7 +70,7 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
       <p>Press Escape, use Stop scanning, or hold any switch through its emergency stop to finish. The practice window closes when testing stops, including on loss of focus, disconnect, or after two minutes. Remote forwarding stops when practice ends.</p>
       <p role="status" aria-live="polite">{view?.message ?? "Starting practice…"}</p>
       <p>{view?.source} · {view?.input ? `Last input: ${view.input}` : "No input received yet"}{view?.action && ` · ${actions[view.action]}`} · Completed: {view?.completed ?? 0}</p>
-      <svg className="switch-practice-preview" viewBox="0 0 1280 720" role="img" aria-label={view?.label || "Practice scanning area"}>
+      <svg className="switch-practice-area" viewBox="0 0 1280 720" role="img" aria-label={view?.label || "Practice scanning area"}>
         <rect width="1280" height="720" fill="#18202c" />
         {!view?.tiles.length && <><circle cx="640" cy="360" r="45" fill="#45546a" /><text x="640" y="450" textAnchor="middle" fill="white" fontSize="24">Choose any point to practise</text></>}
         {view?.rectangles.map(([x,y,width,height],i) => <rect key={i} x={x} y={y} width={width} height={height} fill="#64a6ff" opacity="0.65" />)}

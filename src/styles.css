@@ -446,7 +446,7 @@ button:disabled { cursor: default; opacity: 0.55; }
 .switch-practice-entry p { width: 100%; }
 .switch-practice-entry label { display: flex; align-items: center; gap: 8px; }
 .switch-practice-dialog { background: var(--surface); color: var(--text); border-radius: 12px; padding: 24px; width: min(900px, 95vw); max-height: 92vh; overflow-y: auto; }
-.switch-practice-preview { display: block; width: 100%; max-height: 45vh; }
+.switch-practice-area { display: block; width: 100%; max-height: 45vh; }
 .switch-practice-buttons { display: flex; gap: 12px; justify-content: flex-end; }
 
 .switch-practice-menu { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; font-size: 15px; }

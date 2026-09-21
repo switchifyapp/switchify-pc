@@ -79,7 +79,7 @@ describe("safe switch practice", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(invoke.mock.calls.filter(c => c[0] === "end_switch_practice")).toHaveLength(1);
   });
-  it("exposes readable menu labels outside the scaled preview", async () => {
+  it("exposes readable menu labels outside the scaled scan area", async () => {
     invoke.mockResolvedValue({ ...view, label: "Choose an action", tiles: [ { rect: [0,0,100,50], text: "Left click", selected: true }, { rect: [100,0,100,50], text: "Right click", selected: false } ] });
     render(<SwitchPractice />); fireEvent.click(screen.getByRole("button", { name: "Test switches" }));
     await screen.findByRole("dialog");
