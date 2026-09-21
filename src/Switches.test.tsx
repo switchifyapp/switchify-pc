@@ -1,3 +1,4 @@
+import { useLayoutEffect, type ReactNode } from "react";
 import {
   act,
   fireEvent,
@@ -549,4 +550,29 @@ it("retains a local assignment when deletion fails and allows keeping it", async
   fireEvent.click(screen.getByRole("button", { name: "Keep switch" }));
   expect(screen.getByRole("heading", { name: "Head switch" })).toBeInTheDocument();
   expect(current.settings.bindings[0]).toEqual(initial.settings.bindings[0]);
+});
+
+it("hands remote draft focus to the committed input before passive work can run", async () => {
+  const committedFocus: (Element | null)[] = [];
+  function CommitProbe({ children, revision }: { children: ReactNode; revision: number }) {
+    useLayoutEffect(() => { if (revision) committedFocus.push(document.activeElement); }, [revision]);
+    return children;
+  }
+  const view = render(<CommitProbe revision={0}><Shell /></CommitProbe>);
+  await screen.findByRole("heading", { name: "Remote switch 1" });
+  const add = screen.getByRole("button", { name: "Add remote switch" });
+  add.focus();
+  act(() => {
+    fireEvent.click(add);
+    // A parent update can commit alongside asynchronous backend state. Observe
+    // focus at that commit, before any pending passive effects get a turn.
+    view.rerender(<CommitProbe revision={1}><Shell /></CommitProbe>);
+  });
+  const name = screen.getByRole("textbox", { name: "New switch name" });
+  expect(committedFocus).toEqual([name]);
+  act(() => {
+    fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
+    view.rerender(<CommitProbe revision={2}><Shell /></CommitProbe>);
+  });
+  expect(committedFocus[1]).toBe(screen.getByRole("button", { name: "Add switch" }));
 });

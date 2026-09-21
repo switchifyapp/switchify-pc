@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Keyboard, Smartphone, Trash2, X } from "lucide-react";
 import { useRemoteSwitches, type RemoteSlot } from "../scanning/useRemoteSwitches";
 import {
@@ -485,7 +485,10 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
   const addRef = useRef<HTMLButtonElement>(null);
   const addRemoteRef = useRef<HTMLButtonElement>(null);
   const focusAfter = useRef<string | null>(null);
-  useEffect(() => {
+  // Consume the handoff only after its DOM commit. A pending passive effect
+  // from the previous render can otherwise focus an Add button just before it
+  // unmounts, consuming the handoff and leaving focus on the document body.
+  useLayoutEffect(() => {
     if (!focusAfter.current) return;
     const id = focusAfter.current;
     focusAfter.current = null;
