@@ -471,3 +471,15 @@ it("offers recovery when returning to Switches with keyboard typing still active
   fireEvent.click(await screen.findByRole("button", { name: "Resume switch control" }));
   await waitFor(() => expect(current.keyboardEntry).toBe(false));
 });
+
+
+it.each([0, 1])("releases keyboard entry when the edited remote switch is removed using control %s", async (index) => {
+  render(<Shell />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Remote switch 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Type with keyboard" }));
+  await screen.findByRole("button", { name: "Resume switch control" });
+  fireEvent.click(screen.getAllByRole("button", { name: "Remove Remote switch 1" })[index]);
+  await waitFor(() => expect(current.keyboardEntry).toBe(false));
+  expect(mocks.invoke).toHaveBeenCalledWith("set_switch_keyboard_entry", { active: false });
+  expect(screen.queryByRole("heading", { name: "Remote switch 1" })).not.toBeInTheDocument();
+});

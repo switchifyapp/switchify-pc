@@ -734,7 +734,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
                   </div>
                   {open && (
                     <SwitchEditor
-                  {...entryProps}
+                      {...entryProps}
                       id={`${listId}-${binding.id}`}
                       binding={binding}
                       isNew={false}
@@ -792,6 +792,8 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
                       className="icon-button danger-icon"
                       aria-label={`Remove ${name}`}
                       onClick={() => {
+                        releaseEntry();
+                        if (expanded === binding.id) setExpanded(null);
                         focusAfter.current = newId;
                         setSlot(index, null);
                       }}
@@ -801,7 +803,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
                   </div>
                   {open && (
                     <SwitchEditor
-                  {...entryProps}
+                      {...entryProps}
                       id={`${listId}-${binding.id}`}
                       binding={binding}
                       isNew={false}
@@ -816,6 +818,8 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
                         setExpanded(null);
                       }}
                       onRemove={() => {
+                        releaseEntry();
+                        if (expanded === binding.id) setExpanded(null);
                         focusAfter.current = newId;
                         setSlot(index, null);
                       }}
