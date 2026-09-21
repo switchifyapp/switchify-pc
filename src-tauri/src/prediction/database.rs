@@ -1,114 +1,17 @@
-use super::context::Context;
-use rusqlite::{Connection, OpenFlags};
-use std::{
-    collections::{HashMap, HashSet},
-    path::Path,
-};
+use super::{context::Context, lookup::Lookup};
+use std::path::Path;
 
-pub struct Database {
-    connection: Connection,
-    words: Vec<(i64, String, String)>,
-    ids: HashMap<String, i64>,
-}
+pub struct Database(Lookup);
 impl Database {
-    #[cfg(test)]
-    pub fn fixture() -> Self {
-        let c = Connection::open_in_memory().unwrap();
-        c.execute_batch("CREATE TABLE WORDS(ID INTEGER,WORD TEXT,BASE_FREQUENCY INTEGER); INSERT INTO WORDS VALUES(1,'water',9),(2,'walk',8),(3,'want',7),(4,'I',6),(5,'like',5); CREATE TABLE BIGRAMS(ID1 INTEGER,ID2 INTEGER,BASE_FREQUENCY INTEGER); CREATE TABLE TRIGRAMS(ID1 INTEGER,ID2 INTEGER,ID3 INTEGER,BASE_FREQUENCY INTEGER); CREATE TABLE QUADGRAMS(ID1 INTEGER,ID2 INTEGER,ID3 INTEGER,ID4 INTEGER,BASE_FREQUENCY INTEGER);").unwrap();
-        Self::from_connection(c).unwrap()
-    }
     pub fn open(path: &Path) -> Result<Self, ()> {
-        let connection = Connection::open_with_flags(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .map_err(|_| ())?;
-        Self::from_connection(connection)
-    }
-    fn from_connection(connection: Connection) -> Result<Self, ()> {
-        connection
-            .execute_batch("PRAGMA query_only=ON; PRAGMA cache_size=-8192;")
-            .map_err(|_| ())?;
-        let words = {
-            let mut q = connection
-                .prepare("SELECT ID, WORD FROM WORDS ORDER BY BASE_FREQUENCY DESC, ID ASC")
-                .map_err(|_| ())?;
-            let result = q
-                .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
-                .map_err(|_| ())?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|_| ())?;
-            result
-        };
-        let words: Vec<_> = words
-            .into_iter()
-            .map(|(id, word)| {
-                let folded = word.to_lowercase();
-                (id, word, folded)
-            })
-            .collect();
-        let mut ids = HashMap::new();
-        for (id, _, folded) in &words {
-            ids.entry(folded.clone()).or_insert(*id);
-        }
-        Ok(Self {
-            connection,
-            words,
-            ids,
-        })
+        Lookup::open(path).map(Self)
     }
     pub fn predict(&self, context: &Context) -> Result<Vec<String>, ()> {
-        let prefix = context.prefix.to_lowercase();
-        let mut result = Vec::new();
-        let mut seen = HashSet::new();
-        let mut push = |word: String| {
-            let folded = word.to_lowercase();
-            if result.len() < 5
-                && word.chars().count() <= 48
-                && !word.chars().any(char::is_whitespace)
-                && folded.starts_with(&prefix)
-                && seen.insert(folded)
-            {
-                result.push(word);
-            }
-            result.len() == 5
-        };
-        for count in (1..=context.words.len().min(3)).rev() {
-            let ids: Option<Vec<i64>> = context.words[context.words.len() - count..]
-                .iter()
-                .map(|w| self.ids.get(&w.to_lowercase()).copied())
-                .collect();
-            let Some(ids) = ids else {
-                continue;
-            };
-            let table = ["", "BIGRAMS", "TRIGRAMS", "QUADGRAMS"][count];
-            let conditions = (1..=count)
-                .map(|i| format!("g.ID{i}=?{i}"))
-                .collect::<Vec<_>>()
-                .join(" AND ");
-            let sql = format!("SELECT w.WORD FROM {table} g JOIN WORDS w ON w.ID=g.ID{} WHERE {conditions} ORDER BY g.BASE_FREQUENCY DESC, w.ID ASC", count+1);
-            let mut statement = self.connection.prepare_cached(&sql).map_err(|_| ())?;
-            let mut rows = statement
-                .query(rusqlite::params_from_iter(ids))
-                .map_err(|_| ())?;
-            // Context indexes bound this candidate set; the entire query is also
-            // contained by the parent process's two-second deadline.
-            while let Some(row) = rows.next().map_err(|_| ())? {
-                if push(row.get(0).map_err(|_| ())?) {
-                    break;
-                }
-            }
-        }
-        for (_, word, _) in self
-            .words
-            .iter()
-            .filter(|(_, _, folded)| folded.starts_with(&prefix))
-        {
-            if push(word.clone()) {
-                break;
-            }
-        }
-        Ok(result)
+        Ok(self.0.predict(&context.words, &context.prefix))
+    }
+    #[cfg(test)]
+    pub fn fixture() -> Self {
+        Self(Lookup::fixture())
     }
 }
 
@@ -116,14 +19,93 @@ impl Database {
 mod tests {
     use super::*;
     #[test]
-    fn longest_context_wins_and_backoff_deduplicates() {
-        let c = Connection::open_in_memory().unwrap();
-        c.execute_batch("CREATE TABLE WORDS(ID INTEGER,WORD TEXT,BASE_FREQUENCY INTEGER); INSERT INTO WORDS VALUES(1,'I',9),(2,'would',8),(3,'like',7),(4,'water',1),(5,'wine',20),(6,'walk',30); CREATE TABLE BIGRAMS(ID1 INTEGER,ID2 INTEGER,BASE_FREQUENCY INTEGER); INSERT INTO BIGRAMS VALUES(3,5,9); CREATE TABLE TRIGRAMS(ID1 INTEGER,ID2 INTEGER,ID3 INTEGER,BASE_FREQUENCY INTEGER); CREATE TABLE QUADGRAMS(ID1 INTEGER,ID2 INTEGER,ID3 INTEGER,ID4 INTEGER,BASE_FREQUENCY INTEGER); INSERT INTO QUADGRAMS VALUES(1,2,3,4,1);").unwrap();
-        let db = Database::from_connection(c).unwrap();
-        let result = db
-            .predict(&super::super::context::extract("I would like w", false))
-            .unwrap();
-        assert_eq!(&result[..3], ["water", "wine", "walk"]);
-        assert!(db.connection.execute("DELETE FROM WORDS", []).is_err());
+    fn bundled_lookup_matches_sqlite_corpus_and_expanded_samples() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let source = root.join("WordData2017051601.db");
+        let reference = super::super::database_reference::Database::open(&source).unwrap();
+        let lookup = Database::open(&root.join("word-predictions.lookup")).unwrap();
+        let c = rusqlite::Connection::open_with_flags(
+            source,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let mut texts: Vec<String> = [
+            "",
+            "a",
+            "w",
+            "wa",
+            "water",
+            "zzzzzz",
+            "I ",
+            "I would ",
+            "I would like ",
+            "I would like wa",
+            "the ",
+            "the a",
+            "unknownword wa",
+            "café",
+            "cafe\u{301}",
+            "İ",
+            "你好",
+            "I can’t find ",
+            "Done! ",
+            "hello\nwa",
+            "W",
+            "WATER",
+            "🙂 ",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let ids: std::collections::HashMap<u32, String> = c
+            .prepare("SELECT ID,WORD FROM WORDS")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        for offset in [0, 499] {
+            for (n, table) in [(2, "BIGRAMS"), (3, "TRIGRAMS"), (4, "QUADGRAMS")] {
+                let fields = (1..=n)
+                    .map(|i| format!("ID{i}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let mut q = c
+                    .prepare(&format!(
+                        "SELECT {fields} FROM {table} WHERE ID%997={offset} ORDER BY ID LIMIT 80"
+                    ))
+                    .unwrap();
+                let rows = q
+                    .query_map([], |r| {
+                        (0..n)
+                            .map(|i| r.get::<_, u32>(i))
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .unwrap();
+                for row in rows {
+                    let row = row.unwrap();
+                    let context = row[..n - 1]
+                        .iter()
+                        .map(|id| ids[id].as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    for size in [0, 1, 3] {
+                        texts.push(format!(
+                            "{context} {}",
+                            ids[&row[n - 1]].chars().take(size).collect::<String>()
+                        ));
+                    }
+                }
+            }
+        }
+        assert_eq!(texts.len(), 1463);
+        for (i, text) in texts.iter().enumerate() {
+            let context = super::super::context::extract(text, i % 17 == 0);
+            assert_eq!(
+                lookup.predict(&context),
+                reference.predict(&context),
+                "case {i}"
+            );
+        }
     }
 }

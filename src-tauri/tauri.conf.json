@@ -34,7 +34,7 @@
     }
   },
   "bundle": {
-    "resources": ["resources/WordData2017051601.db"],
+    "resources": ["resources/word-predictions.lookup"],
     "active": true,
     "targets": "all",
     "icon": [

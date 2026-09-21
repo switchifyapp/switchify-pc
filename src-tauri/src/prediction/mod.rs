@@ -1,6 +1,9 @@
 mod activity;
 mod context;
 mod database;
+#[cfg(test)]
+mod database_reference;
+mod lookup;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "windows")]
@@ -262,12 +265,12 @@ fn resource(app: &AppHandle) -> Result<std::path::PathBuf, ()> {
     let bundled = app
         .path()
         .resolve(
-            "resources/WordData2017051601.db",
+            "resources/word-predictions.lookup",
             tauri::path::BaseDirectory::Resource,
         )
         .map_err(|_| ());
     let development = cfg!(debug_assertions)
-        .then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/WordData2017051601.db"));
+        .then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/word-predictions.lookup"));
     database_resource(bundled, development)
 }
 

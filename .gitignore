@@ -15,3 +15,4 @@ Thumbs.db
 src-tauri/icons/android/
 src-tauri/icons/ios/
 src-tauri/tauri.release*.generated.json
+tools/prediction-data/target/
