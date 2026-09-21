@@ -27,10 +27,10 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
     const timer = window.setInterval(() => {
       if (polling) return;
       polling = true;
-      void invoke<View>("get_switch_practice").then(v => { if (alive) { setView(v); if (!v.active) { window.clearInterval(timer); void close(); } } }).catch(e => {
+      void invoke<View>("get_switch_practice").then(async v => { if (alive) { setView(v); if (!v.active) { await close(); } } }).catch(async e => {
         if (alive) {
-          window.clearInterval(timer);
-          setError(`Practice feedback is unavailable. Use Exit practice before retrying. ${String(e)}`);
+          setError(`Practice feedback is unavailable. Ending the test safely. ${String(e)}`);
+          await close();
         }
       }).finally(() => { polling = false; });
     }, 100);
@@ -47,10 +47,10 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
     finally { if (id === request.current) setPending(false); }
   };
   const close = async () => {
-    request.current++; setPending(true);
-    try { await invoke("end_switch_practice"); restoreFocus.current = true; setOpen(false); setView(null); }
-    catch (e) { setError(String(e)); }
-    finally { setPending(false); }
+    const id = ++request.current; setPending(true);
+    try { await invoke("end_switch_practice"); if (id === request.current) { restoreFocus.current = true; setOpen(false); setView(null); } }
+    catch (e) { if (id === request.current) setError(String(e)); }
+    finally { if (id === request.current) setPending(false); }
   };
   return <div className="switch-practice-entry">
     <p>Test your saved switches safely. Select starts a scan; Next and Previous move an active scan, not Tab or Shift+Tab focus. Automatic scanning moves for you; auto-selection can choose a point after a delay. Adjust these in Scanning.</p>

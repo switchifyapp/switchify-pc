@@ -52,19 +52,16 @@ describe("safe switch practice", () => {
     expect(invoke).toHaveBeenCalledWith("end_switch_practice");
     expect(screen.getByRole("button", { name: "Test switches" })).toHaveFocus();
   });
-  it("retains safe ownership when a feedback poll fails until explicit exit", async () => {
+  it("closes after confirmed end when feedback fails, without requiring mouse assistance", async () => {
     invoke.mockImplementation(async (command: string) => {
       if (command === "get_switch_practice") throw new Error("Feedback failed");
       return command === "end_switch_practice" ? undefined : view;
     });
     render(<SwitchPractice />); fireEvent.click(screen.getByRole("button", { name: "Test switches" }));
     await screen.findByRole("dialog");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Use Exit practice");
-    expect(invoke).not.toHaveBeenCalledWith("end_switch_practice");
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Exit practice" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(invoke).toHaveBeenCalledWith("end_switch_practice");
+    expect(screen.getByRole("button", { name: "Test switches" })).toHaveFocus();
   });
   it("ignores a stale failed poll after exit and reopening", async () => {
     let reject!: (reason: Error) => void;
