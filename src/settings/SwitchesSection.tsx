@@ -1,3 +1,4 @@
+import { SwitchPractice } from "../scanning/SwitchPractice";
 import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Keyboard, Smartphone, Trash2, X } from "lucide-react";
 import { useRemoteSwitches, type RemoteSlot } from "../scanning/useRemoteSwitches";
@@ -616,6 +617,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
         title="Switches"
         description="Add keyboard switches or switches forwarded from Switchify Remote, and choose what each one does."
       >
+        <SwitchPractice disabled={!!state?.keyboardEntry || entryPending || capturing || !!pending || unsaved || !!remote.pending || remote.unsaved || !!draft || suspended} />
         <SettingNote
           about="switches"
           summary="Press and release a switch to run its action. Hold it to step through its hold actions instead."

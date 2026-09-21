@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-switch-practice"
+description = "Enables the get_switch_practice command without any pre-configured scope."
+commands.allow = ["get_switch_practice"]
+
+[[permission]]
+identifier = "deny-get-switch-practice"
+description = "Denies the get_switch_practice command without any pre-configured scope."
+commands.deny = ["get_switch_practice"]

@@ -378,6 +378,9 @@ pub fn input_available(session_active: bool, cleanup_required: bool) -> bool {
     !session_active && !cleanup_required
 }
 pub fn allow_direct(app: &AppHandle) -> Result<(), String> {
+    if crate::switch_practice::active(app) {
+        return Err("Finish switch practice before using other PC controls.".into());
+    }
     let c = app.state::<Controller>();
     let d = c.data.lock().unwrap_or_else(|p| p.into_inner());
     if !input_available(d.session.is_some(), d.cleanup_required) {
@@ -418,6 +421,11 @@ pub fn route(
     command: &str,
     payload: &Value,
 ) -> Option<Result<(), String>> {
+    if command == "switch.session.start" && crate::switch_practice::active(app) {
+        return Some(Err(
+            "Exit switch practice before starting forwarding.".into()
+        ));
+    }
     let scanning_start = command == "switch.session.start" && payload["profileId"] == PROFILE_ID;
     if command == "switch.session.start" {
         crate::point_scan_runtime::pause(app);

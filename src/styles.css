@@ -441,3 +441,10 @@ button:disabled { cursor: default; opacity: 0.55; }
 .scan-rate-stepper { display: flex; align-items: center; gap: 8px; }
 .scan-rate-stepper button { min-width: 44px; min-height: 44px; font-size: 22px; }
 .scan-rate-stepper output { min-width: 72px; text-align: center; font-variant-numeric: tabular-nums; }
+
+.switch-practice-entry { padding: 12px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.switch-practice-entry p { width: 100%; }
+.switch-practice-entry label { display: flex; align-items: center; gap: 8px; }
+.switch-practice-dialog { background: var(--surface); color: var(--text); border-radius: 12px; padding: 24px; width: min(900px, 95vw); max-height: 92vh; overflow-y: auto; }
+.switch-practice-preview { display: block; width: 100%; max-height: 45vh; }
+.switch-practice-buttons { display: flex; gap: 12px; justify-content: flex-end; }

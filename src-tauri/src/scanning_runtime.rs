@@ -621,6 +621,9 @@ fn render<A: Adapter>(
     Ok(())
 }
 fn tick<A: Adapter>(app: &AppHandle) {
+    if crate::switch_practice::tick(app) {
+        return;
+    }
     let c = app.state::<Controller<A>>();
     let remote = crate::remote_scan::poll(app);
     let (mut events, local_now, _) = app.state::<switch_runtime::Controller>().poll(app);
