@@ -446,5 +446,15 @@ button:disabled { cursor: default; opacity: 0.55; }
 .scan-rate-stepper button { min-width: 44px; min-height: 44px; font-size: 22px; }
 .scan-rate-stepper output { min-width: 72px; text-align: center; font-variant-numeric: tabular-nums; }
 
+.switch-practice-entry { padding: 12px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.switch-practice-entry p { width: 100%; }
+.switch-practice-entry label { display: flex; align-items: center; gap: 8px; }
+.switch-practice-dialog { background: var(--surface); color: var(--text); border-radius: 12px; padding: 24px; width: min(900px, 95vw); max-height: 92vh; overflow-y: auto; }
+.switch-practice-area { display: block; width: 100%; max-height: 45vh; }
+.switch-practice-buttons { display: flex; gap: 12px; justify-content: flex-end; }
+
+.switch-practice-menu { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; font-size: 15px; }
+.switch-practice-menu li { padding: 8px; border: 1px solid var(--border); border-radius: 6px; }
+.switch-practice-menu li[data-selected="true"] { background: var(--segment-selected); color: var(--on-brand-container); font-weight: 700; border-color: var(--brand); }
 .setup-navigation-guidance { flex: 0 0 auto; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .setup-navigation-guidance:not(:empty) { padding-bottom: 16px; }

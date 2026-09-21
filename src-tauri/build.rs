@@ -6,6 +6,9 @@ fn main() {
     let app_manifest = tauri_build::AppManifest::new().commands(&[
         "get_app_state",
         "get_switches",
+        "begin_switch_practice",
+        "get_switch_practice",
+        "end_switch_practice",
         "get_remote_switches",
         "save_remote_switches",
         "save_switches",

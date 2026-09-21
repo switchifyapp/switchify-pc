@@ -37,6 +37,7 @@ mod state;
 mod storage;
 mod switch_gestures;
 mod switch_input;
+mod switch_practice;
 mod switch_runtime;
 mod switches;
 mod telemetry;
@@ -1272,8 +1273,38 @@ fn save_remote_switches(
     config: remote_scan::Config,
 ) -> Result<remote_scan::Config, String> {
     require_main(&window)?;
+    if switch_practice::active(&app) {
+        return Err("Finish practice before changing switches.".into());
+    }
     remote_scan::save(&app, config)
 }
+#[tauri::command]
+fn begin_switch_practice(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    remote: bool,
+) -> Result<switch_practice::View, String> {
+    require_main(&window)?;
+    if !main_window_focused(&window)? {
+        return Err("Focus Switchify before testing switches.".into());
+    }
+    switch_practice::begin(&app, remote)
+}
+#[tauri::command]
+fn get_switch_practice(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+) -> Result<switch_practice::View, String> {
+    require_main(&window)?;
+    Ok(switch_practice::view(&app))
+}
+#[tauri::command]
+fn end_switch_practice(window: tauri::WebviewWindow, app: AppHandle) -> Result<(), String> {
+    require_main(&window)?;
+    switch_practice::end(&app);
+    Ok(())
+}
+
 #[tauri::command]
 fn get_switches(
     window: tauri::WebviewWindow,
@@ -1289,6 +1320,9 @@ fn save_switches(
     settings: switches::Settings,
 ) -> Result<switch_runtime::View, String> {
     require_main(&window)?;
+    if switch_practice::active(&app) {
+        return Err("Finish practice before changing switches.".into());
+    }
     // Sync commands run on the main thread, which pausing the overlay needs.
     point_scan_runtime::pause(&app);
     let view = app
@@ -1331,6 +1365,9 @@ fn set_switch_keyboard_entry(
     require_main(&window)?;
     let switches = app.state::<switch_runtime::Controller>();
     if active {
+        if switch_practice::active(&app) {
+            return Err("Finish practice before typing with the keyboard.".into());
+        }
         if !main_window_focused(&window)? {
             return Err("Focus Switchify PC before typing with the keyboard.".into());
         }
@@ -1362,7 +1399,12 @@ async fn configure_point_scan(
     let (tx, rx) = tokio::sync::oneshot::channel();
     let handle = app.clone();
     app.run_on_main_thread(move || {
-        let _ = tx.send(point_scan_runtime::configure(&handle, config));
+        let result = if switch_practice::active(&handle) {
+            Err("Finish practice before changing scanning settings.".into())
+        } else {
+            point_scan_runtime::configure(&handle, config)
+        };
+        let _ = tx.send(result);
     })
     .map_err(|e| e.to_string())?;
     rx.await
@@ -1375,6 +1417,9 @@ fn point_scan_ready(app: &AppHandle) -> Result<(), String> {
         return Err(
             "Typing with the keyboard. Resume switch control in Switches when finished.".into(),
         );
+    }
+    if switch_practice::active(app) {
+        return Err("Finish switch practice before scanning or editing switches.".into());
     }
     let state = app.state::<AppModel>().snapshot();
     if state.bluetooth == state::BluetoothState::Connected && !remote_scan::active(app) {
@@ -1439,6 +1484,7 @@ pub fn run() {
         .manage(PendingProfileExit::default())
         .manage(PendingNavigation::default())
         .setup(move |app| {
+            app.manage(switch_practice::Controller::default());
             switch_runtime::install(app.handle());
             remote_scan::install(app.handle());
             point_scan_runtime::install(app.handle());
@@ -1526,12 +1572,16 @@ pub fn run() {
                 }
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                switch_practice::end(window.app_handle());
                 api.prevent_close();
                 request_profile_exit(window.app_handle(), ProfileExitAction::Hide);
             }
         })
         .invoke_handler(tauri::generate_handler![
             get_switches,
+            begin_switch_practice,
+            get_switch_practice,
+            end_switch_practice,
             get_remote_switches,
             save_remote_switches,
             save_switches,

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-end-switch-practice"
+description = "Enables the end_switch_practice command without any pre-configured scope."
+commands.allow = ["end_switch_practice"]
+
+[[permission]]
+identifier = "deny-end-switch-practice"
+description = "Denies the end_switch_practice command without any pre-configured scope."
+commands.deny = ["end_switch_practice"]

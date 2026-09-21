@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-begin-switch-practice"
+description = "Enables the begin_switch_practice command without any pre-configured scope."
+commands.allow = ["begin_switch_practice"]
+
+[[permission]]
+identifier = "deny-begin-switch-practice"
+description = "Denies the begin_switch_practice command without any pre-configured scope."
+commands.deny = ["begin_switch_practice"]

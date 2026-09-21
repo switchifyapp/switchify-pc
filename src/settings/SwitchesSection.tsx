@@ -1,3 +1,4 @@
+import { SwitchPractice } from "../scanning/SwitchPractice";
 import { createPortal } from "react-dom";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Keyboard, Smartphone, Trash2, X } from "lucide-react";
@@ -672,6 +673,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
         title="Switches"
         description="Add keyboard switches or switches forwarded from Switchify Remote, and choose what each one does."
       >
+        <SwitchPractice disabled={!!state?.keyboardEntry || entryPending || capturing || !!pending || unsaved || !!remote.pending || remote.unsaved || !!draft || suspended} />
         <div className="switch-source-summary">
           <p className="setting-note">{!state ? "Loading local switch configuration..." : settings.bindings.length === 0
             ? "No local switches configured. Use Add switch to learn a keyboard key."
