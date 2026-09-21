@@ -228,11 +228,7 @@ impl<A: Adapter> Engine<A> {
             self.clear();
             return None;
         }
-        let changed_revision = revision != self.revision;
         self.revision = revision;
-        if changed_revision {
-            self.pending_seed = None;
-        }
         let target = match self.target() {
             Ok(t) => t,
             Err(_) => {
@@ -617,6 +613,20 @@ mod tests {
         assert_eq!(e.accept(recovered.token, 0), Some("ter ".into()));
     }
     #[test]
+    fn newer_typing_cannot_erase_a_native_mismatch_when_context_becomes_unavailable() {
+        let mut e = engine();
+        let old = e.query(None, false, false, false).unwrap();
+        e.adapter.raw.before = "I like he".into();
+        assert!(e.query_revision(vec![], 0, false, false).is_none());
+        e.adapter.unsupported = true;
+        assert!(e
+            .query_revision(vec![Edit::Append("t".into())], 1, false, false)
+            .is_none());
+        assert!(e.buffer.is_empty());
+        assert!(e.accept(old.token, 0).is_none());
+    }
+
+    #[test]
     fn selection_and_provider_loss_cannot_confirm_uncertain_context() {
         for selected in [false, true] {
             let mut e = engine();
@@ -752,9 +762,9 @@ mod tests {
             assert!(!service.reset);
             assert!(e
                 .query_revision(service.take_edits(), service.edit_revision, false, false)
-                .is_some());
-            assert_eq!(e.buffer, if deletion { "I like w" } else { "I like wat" });
-            assert!(e.boundary);
+                .is_none());
+            assert!(e.buffer.is_empty());
+            assert!(!e.boundary);
             assert!(e
                 .query_edits(vec![Edit::Append(" wa".into())], false, false)
                 .is_some());
