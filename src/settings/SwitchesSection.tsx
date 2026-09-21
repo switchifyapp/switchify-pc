@@ -351,7 +351,7 @@ function CaptureDialog({ name, onCancel }: { name: string; onCancel: () => void 
   );
 }
 
-export function SwitchesSection({ controller, onDraftChange, suspended = false }: { controller: SwitchController; onDraftChange?: (draft: boolean) => void; suspended?: boolean }) {
+export function SwitchesSection({ controller, onDraftChange, suspended = false, androidConnected }: { controller: SwitchController; onDraftChange?: (draft: boolean) => void; suspended?: boolean; androidConnected?: boolean }) {
   const { settings, state, pending, unsaved } = controller;
   // A refused capture sets both the general error and the capture error; the
   // key field already shows the latter, so the band only carries save errors.
@@ -618,6 +618,17 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
         description="Add keyboard switches or switches forwarded from Switchify Remote, and choose what each one does."
       >
         <SwitchPractice disabled={!!state?.keyboardEntry || entryPending || capturing || !!pending || unsaved || !!remote.pending || remote.unsaved || !!draft || suspended} />
+        <div className="switch-source-summary">
+          <p className="setting-note">{!state ? "Loading local switch configuration..." : settings.bindings.length === 0
+            ? "No local switches configured. Use Add switch to learn a keyboard key."
+            : `${settings.bindings.length} local keyboard ${settings.bindings.length === 1 ? "switch configured" : "switches configured"}.`}</p>
+          <p className="setting-note">Remote assignments are numbered forwarding slots in Switchify Remote, not detected physical switches. The supplied presets can be changed or removed.</p>
+          <p className="setting-note" role="status">{androidConnected === true
+            ? "Android device connected. This does not confirm that remote assignments match your switches."
+            : androidConnected === false
+              ? "No Android device connected. Remote assignments are available for a future connection."
+              : "Android connection status is unavailable here."} A connection alone does not verify a physical switch press.</p>
+        </div>
         <SettingNote
           about="switches"
           summary="Press and release a switch to run its action. Hold it to step through its hold actions instead."
@@ -703,6 +714,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
                     <Keyboard size={20} aria-hidden="true" />
                     <div>
                       <h3>{name}</h3>
+                      <p>Local keyboard input</p>
                       <p>{summary(binding)}</p>
                     </div>
                     <KeyBadge value={binding.key} unavailable={unavailable} />
@@ -771,6 +783,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false }
                     <Smartphone size={20} aria-hidden="true" />
                     <div>
                       <h3>{name}</h3>
+                      <p>Remote forwarding slot {index + 1}</p>
                       <p>{summary(binding)}</p>
                     </div>
                     <KeyBadge value={binding.key} unavailable={false} />

@@ -187,6 +187,10 @@ button:disabled { cursor: default; opacity: 0.55; }
 .setup-statuses article { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; min-height: 92px; border-bottom: 1px solid var(--border); padding: 14px 4px; }
 .setup-statuses h3 { font-size: 14px; }
 .android-download { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 36px; }
+.android-download figure { margin: 0; max-width: 210px; }
+.android-download figcaption { margin-top: 8px; color: var(--muted); font-size: 13px; }
+.android-pairing { margin-top: 28px; }
+.android-pairing ol { padding-left: 24px; color: var(--muted); line-height: 1.6; }
 .android-download a { width: max-content; margin-top: 22px; text-decoration: none; }
 .android-download img { width: 190px; height: 190px; border: 1px solid var(--border); border-radius: 9px; padding: 10px; background: white; image-rendering: crisp-edges; }
 .setup-pairings { margin-top: 20px; border-top: 1px solid var(--border); }
@@ -452,3 +456,5 @@ button:disabled { cursor: default; opacity: 0.55; }
 .switch-practice-menu { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; font-size: 15px; }
 .switch-practice-menu li { padding: 8px; border: 1px solid var(--border); border-radius: 6px; }
 .switch-practice-menu li[data-selected="true"] { background: var(--segment-selected); color: var(--on-brand-container); font-weight: 700; border-color: var(--brand); }
+.setup-navigation-guidance { flex: 0 0 auto; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.setup-navigation-guidance:not(:empty) { padding-bottom: 16px; }

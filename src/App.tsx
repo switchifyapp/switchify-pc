@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Accessibility, Bluetooth, ChevronRight, CircleHelp, Download,
   Copy, Home, Keyboard, Plus, Power, RefreshCw, Save, Settings,
@@ -87,7 +87,11 @@ function AndroidConnection({ state, onDisconnect }: { state: AppState; onDisconn
       {state.bluetooth === "connected" && <button className="secondary" onClick={onDisconnect}>Disconnect</button>}
     </section>
     <p>Android connection is optional. Bluetooth advertises automatically; local switches do not need an Android device. Connecting an Android device pauses local scanning until it disconnects.</p>
-    <div className="android-download"><div><h2>Connect Switchify for Android</h2><p>Install Switchify, select this computer, then approve the pairing request only if the codes match in both apps.</p><a className="secondary" href={androidDownloadUrl} target="_blank" rel="noreferrer">Open Google Play</a></div><img src={androidQrUrl} alt="QR code for Switchify on Google Play" /></div>
+    <div className="android-download">
+      <div><h2>Install Switchify for Android</h2><p>Need the Android app? Scan the QR code or open Google Play to install Switchify.</p><a className="secondary" href={androidDownloadUrl} target="_blank" rel="noreferrer">Open Google Play</a></div>
+      <figure><img src={androidQrUrl} alt="QR code for Switchify on Google Play" /><figcaption>Scan to open Google Play and install Switchify.</figcaption></figure>
+    </div>
+    <section className="android-pairing"><h2>Already installed? Connect to this computer</h2><ol><li>Open Switchify on your Android device and select this computer.</li><li>Compare the pairing codes shown in both apps.</li><li>Approve the pairing request on this computer only if the codes match.</li></ol></section>
   </section>;
 }
 
@@ -361,6 +365,24 @@ function SetupGuide({ state, switches, suspended, busy, error, skip, finish, acc
   const switchBusy = capturing || !!switches.pending || switches.unsaved || switchDraft;
   const titles = ["Input access", "Add your switch", "Scanning basics", "Start with system", "Anonymous diagnostics"];
   const canContinue = step === 1 ? !switchBusy && !!switches.state?.settings.bindings.length : step === 3 ? startupChoice !== null : step === 4 ? diagnosticsChoice !== null : true;
+  const guidanceId = useId();
+  const navigationGuidance = capturing
+    ? "Finish capturing a switch or cancel capture before continuing."
+    : switches.pending
+      ? "Wait for your switch changes to finish saving before continuing."
+      : switches.unsaved
+        ? "Your switch changes have not saved. Retry saving before continuing."
+        : switchDraft
+          ? "Save or cancel the new switch before continuing."
+          : busy
+            ? "Please wait while setup saves your changes."
+            : step === 1 && !switches.state?.settings.bindings.length
+              ? "Add and save a local keyboard switch to enable Next. If you use only remote switches or want to configure switches later, choose Skip switch configuration to continue setup. Remote presets alone do not confirm a connected switch."
+              : step === 3 && startupChoice === null
+                ? "Choose Start with system or Start manually to enable Next."
+                : step === 4 && diagnosticsChoice === null
+                  ? "Choose whether to share diagnostics to enable Finish."
+                  : null;
 
   useEffect(() => { if (!suspended && !capturing) dialogRef.current?.focus(); }, [step, suspended]);
 
@@ -382,12 +404,13 @@ function SetupGuide({ state, switches, suspended, busy, error, skip, finish, acc
       {step === 0 && <div className="setup-statuses">
         <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /></div>{state.accessibility === "required" && <button className="secondary" disabled={busy} onClick={() => void accessibility()}>Open Accessibility Settings</button>}</article>
       </div>}
-      {step === 1 && <SwitchesSection controller={switches} onDraftChange={setSwitchDraft} suspended={suspended} />}
+      {step === 1 && <SwitchesSection androidConnected={state.bluetooth === "connected"} controller={switches} onDraftChange={setSwitchDraft} suspended={suspended} />}
       {step === 2 && <div><h3>Use your switches</h3><p>Focus the application you want to use, then press and release Select to start scanning. Select chooses a point and opens the action menu.</p><p>Automatic scanning moves the highlight for you. Use Auto scan rate for grid and menu timing, and Line speed for scanning lines. Holding a switch freezes movement; release runs the action shown.</p><p>Escape disables switch control. Assign Stop scanning or Pause / resume in Switches. Holding any switch for {switches.state ? switches.state.escapeHoldMs / 1000 : 4}s disables switch control.</p><p>Open Scanning after setup to adjust movement. Android connection is optional.</p></div>}
       {step === 3 && <div><h3>Choose startup behavior</h3><p>Switchify can start quietly when you sign in, ready for your switches.</p><div className="setup-choices" role="group" aria-label="Start with system choice"><button className="secondary" aria-pressed={startupChoice === true} onClick={() => setStartupChoice(true)}>Start with system</button><button className="secondary" aria-pressed={startupChoice === false} onClick={() => setStartupChoice(false)}>Start manually</button></div></div>}
       {step === 4 && <div><h3>Choose whether to share diagnostics</h3><p>Optional anonymous app health and sanitized errors help improve Switchify. Typed text, commands, pairing secrets, device names, and full paths are never included.</p><div className="setup-choices" role="group" aria-label="Anonymous diagnostics choice"><button className="secondary" disabled={!state.telemetry.available} aria-pressed={diagnosticsChoice === true} onClick={() => setDiagnosticsChoice(true)}>Share diagnostics</button><button className="secondary" aria-pressed={diagnosticsChoice === false} onClick={() => setDiagnosticsChoice(false)}>Don’t share</button></div><a className="setup-privacy" href="https://switchifyapp.com/privacy" target="_blank" rel="noreferrer">Privacy policy</a></div>}
     </div>
-    <footer>{step === 1 && <button className="secondary" disabled={busy || switchBusy} onClick={() => setStep(2)}>Skip switch configuration</button>}<button className="text-button" disabled={busy || switchBusy} onClick={() => void skip()}>Skip for now</button><span /><button className="secondary" disabled={busy || switchBusy || step === 0} onClick={() => setStep((current) => current - 1)}>Back</button><button className="primary" disabled={busy || switchBusy || !canContinue} onClick={() => step === 4 ? void finish(startupChoice!, diagnosticsChoice!) : setStep((current) => current + 1)}>{step === 4 ? "Finish" : "Next"}</button></footer>
+    <p id={guidanceId} className="setup-navigation-guidance" role="status">{navigationGuidance}</p>
+    <footer><button className="text-button" disabled={busy || switchBusy} onClick={() => void skip()}>Skip setup for now</button>{step === 1 && <button className="secondary" disabled={busy || switchBusy} onClick={() => setStep(2)}>Skip switch configuration</button>}<span /><button className="secondary" disabled={busy || switchBusy || step === 0} onClick={() => setStep((current) => current - 1)}>Back</button><button className="primary" aria-describedby={navigationGuidance ? guidanceId : undefined} disabled={busy || switchBusy || !canContinue} onClick={() => step === 4 ? void finish(startupChoice!, diagnosticsChoice!) : setStep((current) => current + 1)}>{step === 4 ? "Finish" : "Next"}</button></footer>
   </section></div>;
 }
 
@@ -752,7 +775,7 @@ export function App() {
       <UpdateBanner update={state.updater} openUpdates={openUpdates} />
       <p id="settings-updates-notice" className="sr-only" aria-live={updateFailure ? updateLiveness(updateFailure.status) : "polite"} aria-atomic="true">{updateNotice}</p>
       {view === "home" && <HomeView state={state} switches={switches} scanning={scanning} navigate={selectView} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} />}
-      {view === "switches" && <div className="view"><header className="page-header"><h1>Switches</h1></header><SwitchesSection controller={switches} suspended={pairingOpen} /></div>}
+      {view === "switches" && <div className="view"><header className="page-header"><h1>Switches</h1></header><SwitchesSection androidConnected={state.bluetooth === "connected"} controller={switches} suspended={pairingOpen} /></div>}
       {view === "scanning" && <div className="view"><header className="page-header"><h1>Scanning</h1></header><ScanningSection controller={scanning} /></div>}
       {(view === "android" || view === "devices" || view === "profiles") && <div className="view"><header className="page-header"><div><h1>Android connection</h1><p>Optional Android control and switch forwarding</p></div></header><Tabs name="android" label="Android connection sections" active={view} onSelect={selectView} tabs={[{id: "android", label: "Connection"}, {id: "devices", label: "Paired devices"}, {id: "profiles", label: "Switch Forwarding"}]} /><TabPanel name="android" id={view}>
       {view === "android" && <AndroidConnection state={state} onDisconnect={() => void perform(api.disconnectAll)} />}
