@@ -268,7 +268,7 @@ it("holds focus in a modal and swallows keys while learning", async () => {
     name: "Press and release your switch",
   });
   expect(document.activeElement).toBe(dialog);
-  expect(screen.getByText(/Learning the key for Head switch/)).toBeTruthy();
+  expect(screen.getByText(/Learning your switch for Head switch/)).toBeTruthy();
   const up = new KeyboardEvent("keyup", { key: " ", bubbles: true, cancelable: true });
   screen.getByRole("button", { name: "Cancel capture" }).dispatchEvent(up);
   expect(up.defaultPrevented).toBe(true);
@@ -622,7 +622,7 @@ it("keeps source identity after renaming and separates connection from tested in
   expect(within(row).getByText("Remote forwarding slot 1")).toBeInTheDocument();
   expect(within(row).getByText("Remote 1")).toBeInTheDocument();
   const localRow = screen.getByRole("heading", { name: "Head switch" }).closest("article")!;
-  expect(within(localRow).getByText("Local keyboard input")).toBeInTheDocument();
+  expect(within(localRow).getByText("On this computer")).toBeInTheDocument();
   view.rerender(<Shell androidConnected />);
   expect(screen.getByText(/Android device connected. This does not confirm/)).toHaveTextContent("A connection alone does not verify a physical switch press.");
   expect(screen.queryByText(/No Android device connected/)).not.toBeInTheDocument();

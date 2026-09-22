@@ -56,8 +56,8 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
   };
   const highlighted = view?.blocks.filter(block => block.selected).map(block => block.label).join(", ");
   return <div className="switch-practice-entry">
-    <p>Test your saved switches safely with a simple set of practice blocks. Select starts a scan; Next and Previous move the highlight, not Tab or Shift+Tab focus.</p>
-    <label>Test input <select aria-label="Test input" value={remote ? "remote" : "local"} disabled={open || pending || disabled} onChange={e => setRemote(e.target.value === "remote")}><option value="local">Local keyboard switches</option><option value="remote">Remote forwarding switches</option></select></label>
+    <p>Test your saved switches safely with a simple set of practice blocks. Select starts a scan; Next and Previous move the highlight.</p>
+    <label>Test source <select aria-label="Test source" value={remote ? "remote" : "local"} disabled={open || pending || disabled} onChange={e => setRemote(e.target.value === "remote")}><option value="local">Switches on this computer</option><option value="remote">Switches from Switchify Remote</option></select></label>
     <button ref={trigger} type="button" className="secondary" disabled={pending || disabled || !("__TAURI_INTERNALS__" in window)} onClick={() => void begin()}>Test switches</button>
     {!open && error && <p role="alert">{error}</p>}
     {open && createPortal(<div className="modal-backdrop"><section ref={dialog} className="switch-practice-dialog" role="dialog" aria-modal="true" aria-labelledby="practice-title" tabIndex={-1} onKeyDown={e => {
@@ -69,14 +69,14 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
       }
     }}>
       <h2 id="practice-title">Safe switch practice</h2>
-      <p>Press Select to start, use Next/Previous to move among the blocks, then Select to choose one. Nothing here clicks, types, or changes settings.</p>
+      <p>Use Select to start, Next and Previous to move among the blocks, then Select to choose one. Nothing here clicks, types, or changes settings.</p>
       <p>Press Escape, use Stop scanning, or hold any switch through its emergency stop to finish. The practice window closes when testing stops, including on loss of focus, disconnect, or after two minutes. Remote forwarding stops when practice ends.</p>
       <p role="status" aria-live="polite">{view?.message ?? "Starting practice…"}</p>
       <p>{view?.source} · {view?.input ? `Last input: ${view.input}` : "No input received yet"}{view?.action && ` · ${actions[view.action]}`} · Completed: {view?.completed ?? 0}</p>
       <ul className="switch-practice-blocks" aria-label="Practice blocks">
         {(view?.blocks ?? []).map(block => <li key={block.id} data-selected={block.selected}>{block.label}</li>)}
       </ul>
-      <p aria-live="polite">Highlighted: {highlighted || "None — press Select to start"}</p>
+      <p aria-live="polite">Highlighted: {highlighted || "None — use Select to start"}</p>
       {error && <p role="alert">{error}</p>}
       <div className="switch-practice-buttons"><button type="button" className="primary" disabled={pending} onClick={() => void close()}>Exit practice</button></div>
     </section></div>, document.body)}

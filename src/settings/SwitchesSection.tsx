@@ -139,10 +139,10 @@ function SwitchEditor({
       </label>
       <div className="field">
         <p className="setting-note">
-          Keyboard switches share their assigned keys with every keyboard. To type
-          a name with those keys, choose Type with keyboard. Switch control pauses
-          until you resume or close this editor. You can use Tab and Enter to
-          reach and activate Resume switch control.
+          Switches on this computer can appear as keys to other apps. To type a
+          name with the computer keyboard, choose Type with keyboard. Switch
+          control pauses until you resume or close this editor. You can use Tab
+          and Enter to reach and activate Resume switch control.
         </p>
         <p className="setting-note">If you rely on switches, keep switch control on and use the scanning keyboard from the point action menu to enter the name.</p>
         <button type="button" className="secondary" disabled={entryPending}
@@ -340,9 +340,9 @@ function CaptureDialog({ name, onCancel }: { name: string; onCancel: () => void 
         <Keyboard size={40} aria-hidden="true" />
         <h2 id={titleId}>Press and release your switch</h2>
         <p id={bodyId}>
-          Learning the key for {name}. Nothing else responds until a key is
-          learned. Press Escape to cancel, or click Cancel capture with the
-          mouse.
+          Learning your switch for {name}. Nothing else responds until a switch
+          press is learned. Press Escape to cancel, or click Cancel capture with
+          the mouse.
         </p>
         <button type="button" className="secondary" tabIndex={-1} onClick={onCancel}>
           Cancel capture
@@ -671,13 +671,13 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
       )}
       <SettingGroup
         title="Switches"
-        description="Add keyboard switches or switches forwarded from Switchify Remote, and choose what each one does."
+        description="Add switches on this computer or switches forwarded from Switchify Remote, and choose what each one does."
       >
         <SwitchPractice disabled={!!state?.keyboardEntry || entryPending || capturing || !!pending || unsaved || !!remote.pending || remote.unsaved || !!draft || suspended} />
         <div className="switch-source-summary">
           <p className="setting-note">{!state ? "Loading local switch configuration..." : settings.bindings.length === 0
-            ? "No local switches configured. Use Add switch to learn a keyboard key."
-            : `${settings.bindings.length} local keyboard ${settings.bindings.length === 1 ? "switch configured" : "switches configured"}.`}</p>
+            ? "No local switches configured. Use Add switch to learn a switch."
+            : `${settings.bindings.length} local ${settings.bindings.length === 1 ? "switch configured" : "switches configured"}.`}</p>
           <p className="setting-note">Remote assignments are numbered forwarding slots in Switchify Remote, not detected physical switches. The supplied presets can be changed or removed.</p>
           <p className="setting-note" role="status">{androidConnected === true
             ? "Android device connected. This does not confirm that remote assignments match your switches."
@@ -770,7 +770,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                     <Keyboard size={20} aria-hidden="true" />
                     <div>
                       <h3>{name}</h3>
-                      <p>Local keyboard input</p>
+                      <p>On this computer</p>
                       <p>{summary(binding)}</p>
                     </div>
                     <KeyBadge value={binding.key} unavailable={unavailable} />

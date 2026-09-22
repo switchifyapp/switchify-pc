@@ -110,12 +110,12 @@ impl Practice {
             view: View {
                 active: true,
                 source: if remote {
-                    "Remote"
+                    "Switchify Remote"
                 } else {
-                    "Local keyboard"
+                    "This computer"
                 }
                 .into(),
-                message: "Press and release Select to start. Next/Previous move an active scan, not keyboard focus.".into(),
+                message: "Use Select to start. Next and Previous move an active scan among the practice blocks.".into(),
                 ..View::default()
             },
             engine: Session::new(Blocks::new(), false),
