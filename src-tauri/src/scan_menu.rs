@@ -197,8 +197,11 @@ impl Menu {
         frame.label = Some(FrameLabel {
             text: text.into(),
             rect: Rect {
+                // Keep the opaque title inside the rounded panel silhouette.
+                x: panel.x + 14.0 * scale,
+                y: panel.y + 4.0 * scale,
+                width: panel.width - 28.0 * scale,
                 height: 48.0 * scale,
-                ..panel
             },
             scale: scale * 0.75,
             hud: None,
@@ -718,6 +721,33 @@ mod tests {
         assert_eq!(pixels.data()[3], 0);
         let center = ((pixels.height() / 2 * pixels.width() + pixels.width() / 2) * 4 + 3) as usize;
         assert_eq!(pixels.data()[center], 255);
+    }
+    #[test]
+    fn menu_header_stays_inside_rounded_panel_and_above_buttons() {
+        let screen = Rect {
+            x: -1280.0,
+            y: -100.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        for scale in [1.0, 1.5, 2.0] {
+            for kind in [Kind::Actions, Kind::Scroll, Kind::ConfirmDrag] {
+                let frame = Menu::new(kind, 250).frame((-100, 100), screen, scale);
+                let panel = &frame.tiles[0];
+                let label = frame.label.as_ref().unwrap().rect;
+                let pixels = crate::scan_tile::bitmap(panel).unwrap();
+                for x in [label.x, label.x + label.width - 1.0] {
+                    for y in [label.y, label.y + label.height - 1.0] {
+                        let px = (x - panel.rect.x).round() as u32;
+                        let py = (y - panel.rect.y).round() as u32;
+                        assert_eq!(pixels.pixel(px, py).unwrap().alpha(), 255);
+                    }
+                }
+                assert!(label.y > panel.rect.y);
+                assert!(label.y + label.height < frame.tiles[1].rect.y);
+                assert_eq!(label.x, frame.tiles[1].rect.x);
+            }
+        }
     }
     #[test]
     fn action_grid_has_equal_horizontal_panel_margins() {
