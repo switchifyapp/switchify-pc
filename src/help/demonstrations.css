@@ -4,6 +4,7 @@
 .teaching-art { width: 100%; margin: 12px 0; }
 .teaching-art svg { display: block; width: 100%; height: auto; font-family: inherit; }
 .teaching-art svg text { fill: var(--text); }
+.teaching-art .prototype-artwork text { fill: #1c1b1f; }
 .teaching-art svg text[fill="#fff"] { fill: #fff; }
 .teaching-art svg g, .teaching-art svg circle, .teaching-art svg rect { transition: transform 500ms ease, opacity 500ms ease, cy 500ms ease, cx 500ms ease, fill 500ms ease; }
 .teaching-caption { line-height: 1.5; }

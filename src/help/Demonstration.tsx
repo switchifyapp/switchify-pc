@@ -71,7 +71,7 @@ function Player({ kind }: { kind: DemonstrationKind }) {
     </div>
     <p className="teaching-caption">{step + 1} / {steps.length}: {steps[step]}</p>
     <div className="teaching-controls">
-      {!reduced && <><button type="button" className="secondary" disabled={suspended || (!playing && step === steps.length - 1)} onClick={() => setPlaying(!playing)} aria-label={`${playing ? "Pause" : "Play"} ${title}`}>{playing ? "Pause" : "Play"}</button><button type="button" className="secondary" disabled={suspended} onClick={() => { elapsed.current = 0; setProgress(0); setStep(0); setPlaying(true); }} aria-label={`Replay ${title}`}>Replay</button></>}
+      {!reduced && <><button type="button" className="secondary" disabled={suspended || (!playing && step === steps.length - 1 && progress >= 1)} onClick={() => setPlaying(!playing)} aria-label={`${playing ? "Pause" : "Play"} ${title}`}>{playing ? "Pause" : "Play"}</button><button type="button" className="secondary" disabled={suspended} onClick={() => { elapsed.current = 0; setProgress(0); setStep(0); setPlaying(true); }} aria-label={`Replay ${title}`}>Replay</button></>}
       {reduced && <><button type="button" className="secondary" disabled={step === 0 || suspended} onClick={() => setStep(step - 1)} aria-label={`Previous illustration: ${title}`}>Previous illustration</button><button type="button" className="secondary" disabled={step === steps.length - 1 || suspended} onClick={() => setStep(step + 1)} aria-label={`Next illustration: ${title}`}>Next illustration</button></>}
     </div>
     {reduced && <p className="setting-note">Reduced motion: use the buttons to view each still illustration.</p>}

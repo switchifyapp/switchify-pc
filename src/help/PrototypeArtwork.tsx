@@ -5,7 +5,7 @@ import type { DemonstrationKind, DemoPlatform } from "./demonstrations";
 export function PrototypeArtwork({ kind, step, platform }: { kind: DemonstrationKind; step: number; platform: DemoPlatform }) {
   const prefix = useId();
   if (kind === "jack") return (
-<svg viewBox="0 0 720 405" aria-hidden="true" focusable="false">
+<svg className="prototype-artwork" viewBox="0 0 720 405" aria-hidden="true" focusable="false">
           <defs>
             <linearGradient id={`${prefix}-j-body`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#efedf4" /><stop offset="100%" stopColor="#d5d2dc" />
@@ -55,7 +55,7 @@ export function PrototypeArtwork({ kind, step, platform }: { kind: Demonstration
         </svg>
   );
   if (kind === "usb") return (
-<svg viewBox="0 0 720 405" aria-hidden="true" focusable="false">
+<svg className="prototype-artwork" viewBox="0 0 720 405" aria-hidden="true" focusable="false">
           <rect width="720" height="405" fill="#f7f6fa" />
 
           <rect x="420" y="100" width="220" height="140" rx="10" fill="#d8d6de" stroke="#a9a5b2" />
@@ -78,7 +78,7 @@ export function PrototypeArtwork({ kind, step, platform }: { kind: Demonstration
         </svg>
   );
   if (kind === "learn") return (
-<svg viewBox="0 0 720 405" aria-hidden="true" focusable="false">
+<svg className="prototype-artwork" viewBox="0 0 720 405" aria-hidden="true" focusable="false">
           <rect width="720" height="405" fill="#f7f6fa" />
 
           <g transform="translate(200,70)">
@@ -105,7 +105,7 @@ export function PrototypeArtwork({ kind, step, platform }: { kind: Demonstration
         </svg>
   );
   if (kind === "select") return (
-<svg viewBox="0 0 720 405" aria-hidden="true" focusable="false">
+<svg className="prototype-artwork" viewBox="0 0 720 405" aria-hidden="true" focusable="false">
           <rect width="720" height="405" fill="#f7f6fa" />
           <rect x="140" y="48" width="440" height="300" rx="10" fill="#fff" stroke="#e2e0e8" />
           <text x="164" y="84" fontSize="14" fontWeight="700">Head switch</text>
@@ -130,7 +130,7 @@ export function PrototypeArtwork({ kind, step, platform }: { kind: Demonstration
         </svg>
   );
   if (kind === "access") return (
-<svg viewBox="0 0 720 405" aria-hidden="true" focusable="false">
+<svg className="prototype-artwork" viewBox="0 0 720 405" aria-hidden="true" focusable="false">
           <rect width="720" height="405" fill="#e8e6ee" />
           <rect x="60" y="40" width="600" height="320" rx="12" fill="#fff" stroke="#c8c5cf" />
           <rect x="60" y="40" width="180" height="320" rx="12" fill="#f3f2f6" />
@@ -159,7 +159,7 @@ export function PrototypeArtwork({ kind, step, platform }: { kind: Demonstration
         </svg>
   );
   if (kind === "pair") return (
-<svg viewBox="0 0 720 405" aria-hidden="true" focusable="false">
+<svg className="prototype-artwork" viewBox="0 0 720 405" aria-hidden="true" focusable="false">
           <rect width="720" height="405" fill="#f7f6fa" />
 
           <g transform="translate(80,50)">
@@ -185,7 +185,7 @@ export function PrototypeArtwork({ kind, step, platform }: { kind: Demonstration
         </svg>
   );
   if (kind === "startup") return (
-<svg viewBox="0 0 720 405" aria-hidden="true" focusable="false">
+<svg className="prototype-artwork" viewBox="0 0 720 405" aria-hidden="true" focusable="false">
           <rect width="720" height="405" fill="#f7f6fa" />
           <g transform="translate(40,60)">
             <text fontSize="13" fontWeight="700" fill="#49454f">START WITH SYSTEM</text>

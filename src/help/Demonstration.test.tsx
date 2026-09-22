@@ -29,7 +29,11 @@ describe("teaching demonstrations", () => {
     fireEvent.click(screen.getByRole("button", { name: "Play Learn a switch key" }));
     advance(2200);
     expect(caption()).toMatch(/^2 \/ 3/);
-    advance(); advance();
+    advance();
+    fireEvent.click(screen.getByRole("button", { name: "Pause Learn a switch key" }));
+    expect(screen.getByRole("button", { name: "Play Learn a switch key" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Play Learn a switch key" }));
+    advance();
     expect(caption()).toMatch(/^3 \/ 3/);
     expect(screen.getByRole("button", { name: "Play Learn a switch key" })).toBeDisabled();
     expect(vi.getTimerCount()).toBe(0);
