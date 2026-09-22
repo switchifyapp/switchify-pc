@@ -404,3 +404,18 @@ it.each([100, 250, 750, 10000])("adjusts and persists the shared interval from %
     config: expect.objectContaining({ blockIntervalMs: next })
   }));
 });
+
+it("keeps method and speed visible while advanced choices stay collapsed", async () => {
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  expect(screen.getByRole("group", { name: "Method" })).toBeVisible();
+  expect(screen.getByRole("group", { name: "Line speed" })).toBeVisible();
+  expect(screen.getByRole("checkbox", { name: "Automatic scanning" })).toBeVisible();
+  expect(screen.queryByRole("radio", { name: "Blue" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Customise keyboard" })).toBeNull();
+  more();
+  expect(screen.getByRole("radio", { name: "Blue" })).toBeChecked();
+  expect(screen.getByRole("button", { name: "Customise keyboard" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "More options" }));
+  expect(mocks.invoke.mock.calls.some(([command]) => command === "configure_point_scan")).toBe(false);
+});

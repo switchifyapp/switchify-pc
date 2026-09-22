@@ -4,6 +4,7 @@
   "description": "Application capability for the main Switchify PC window",
   "windows": ["main"],
   "permissions": [
+    "core:webview:allow-set-webview-zoom",
     "core:default",
     "allow-get-app-state",
     "allow-get-switches",

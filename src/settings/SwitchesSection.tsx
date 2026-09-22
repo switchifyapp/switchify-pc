@@ -735,19 +735,6 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
           </div>
         ) : (
           <div className="switch-list" id={listId}>
-            {!draft && (
-              <div className="switch-list-actions">
-                <Button
-                  type="button"
-                  className="secondary"
-                  ref={addRemoteRef}
-                  disabled={!remote.config || !freeSlots.length}
-                  onClick={startAddRemote}
-                >
-                  Add remote switch
-                </Button>
-              </div>
-            )}
             {settings.bindings.map((binding) => {
               const open = expanded === binding.id;
               const name = binding.name || "Unnamed switch";
@@ -818,6 +805,19 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
               );
             })}
             <MoreOptions label="Mobile switches" attention={!!remote.error || remote.unsaved || expanded?.startsWith("remote-") === true}>
+            {!draft && (
+              <div className="switch-list-actions">
+                <Button
+                  type="button"
+                  className="secondary"
+                  ref={addRemoteRef}
+                  disabled={!remote.config || !freeSlots.length}
+                  onClick={startAddRemote}
+                >
+                  Add remote switch
+                </Button>
+              </div>
+            )}
             {remoteRows.map(({ slot, index }) => {
               const binding = remoteBinding(slot, index);
               const open = expanded === binding.id;

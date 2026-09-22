@@ -645,3 +645,16 @@ it("keeps source identity after renaming and separates connection from tested in
   view.rerender(<Shell />);
   expect(screen.getByText(/No mobile device connected/)).toBeInTheDocument();
 });
+
+it("keeps saved local switches and testing visible before mobile assignments", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Head switch" });
+  expect(screen.getByRole("button", { name: "Add switch" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Test switches" })).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "Remote switch 1" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Add remote switch" })).toBeNull();
+  await revealMobile();
+  expect(screen.getByRole("heading", { name: "Remote switch 1" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Add remote switch" })).toBeVisible();
+  expect(mocks.invoke.mock.calls.some(([command]) => command.startsWith("save_"))).toBe(false);
+});
