@@ -1,3 +1,4 @@
+import { Demonstration } from "../help/Demonstration";
 import { type ScanningController, validSwitches } from "../scanning/useScanning";
 import { ScannerPreferences } from "./ScannerPreferences";
 
@@ -35,6 +36,7 @@ export function ScanningSection({ controller }: { controller: ScanningController
       <p>Assigned keys stay reserved while Switchify runs. Escape resets the scan. Mobile connections pause local scanning until they end.</p>
       <p>On Windows, assigned keys remain switches with Shift, Ctrl, Alt or Windows held, even in the background. Other keys and Switchify-generated shortcuts still work normally.</p>
     </details>
+    <Demonstration kind="grid" /><Demonstration kind="line" /><Demonstration kind="hold" />
     <ScannerPreferences controller={controller} />
   </div>;
 }

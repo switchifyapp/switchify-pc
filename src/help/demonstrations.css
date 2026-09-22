@@ -1,0 +1,15 @@
+.teaching-disclosure { margin: 12px 0; }
+.teaching-disclosure > button { text-align: left; white-space: normal; }
+.teaching-demo { margin-top: 12px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); max-width: 760px; }
+.teaching-art { width: 100%; margin: 12px 0; }
+.teaching-art svg { display: block; width: 100%; height: auto; font-family: inherit; }
+.teaching-art svg text { fill: var(--text); }
+.teaching-art svg text[fill="#fff"] { fill: #fff; }
+.teaching-art svg g, .teaching-art svg circle, .teaching-art svg rect { transition: transform 500ms ease, opacity 500ms ease, cy 500ms ease, cx 500ms ease, fill 500ms ease; }
+.teaching-caption { line-height: 1.5; }
+.teaching-controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.teaching-steps { padding-left: 24px; font-size: 13px; line-height: 1.6; }
+.teaching-steps li { margin: 8px 0; }
+.teaching-steps li[aria-current="step"] { font-weight: 600; }
+.teaching-demo[data-moving="false"] svg *, .teaching-demo[data-reduced="true"] svg * { transition: none; }
+@media (prefers-reduced-motion: reduce) { .teaching-art svg * { transition: none; } }

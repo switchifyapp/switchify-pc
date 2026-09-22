@@ -1,3 +1,4 @@
+import { Demonstration, SwitchDemonstrations } from "../help/Demonstration";
 import { SwitchPractice } from "../scanning/SwitchPractice";
 import { createPortal } from "react-dom";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -126,6 +127,7 @@ function SwitchEditor({
   };
   return (
     <fieldset id={id} className="switch-editor" disabled={disabled}>
+      {!remote && <Demonstration kind="learn" />}<Demonstration kind="select" />
       <label className="field">
         <span>Name</span>
         <input
@@ -673,6 +675,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
         title="Switches"
         description="Add switches on this computer or switches forwarded from Switchify Remote, and choose what each one does."
       >
+        <SwitchDemonstrations />
         <SwitchPractice disabled={!!state?.keyboardEntry || entryPending || capturing || !!pending || unsaved || !!remote.pending || remote.unsaved || !!draft || suspended} />
         <div className="switch-source-summary">
           <p className="setting-note">{!state ? "Loading local switch configuration..." : settings.bindings.length === 0

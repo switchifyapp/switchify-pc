@@ -34,6 +34,24 @@ describe("Switchify PC shell", () => {
     return { settings, state: { settings, capture: { active: false, key: null, error: null }, supported: true, error: null, escapeHoldMs: 4000, unavailableKeys: [] }, pending: 0, error: null, capturing: false, unsaved: false, update: vi.fn(), remove: vi.fn(), capture: vi.fn(), cancelCapture: vi.fn().mockResolvedValue(undefined), setKeyboardEntry: vi.fn().mockResolvedValue(true), retry: vi.fn() };
   }
 
+  it("offers contextual demonstrations without changing app settings", async () => {
+    const setSettings = vi.spyOn(api, "saveSettings");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Mobile connection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show demonstration: Pair a mobile device" }));
+    expect(screen.getByRole("button", { name: "Pause Pair a mobile device" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Scanning" }));
+    expect(screen.queryByRole("button", { name: "Pause Pair a mobile device" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show demonstration: Automatic grid then line scanning" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show demonstration: Automatic line-only scanning" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Switches" }));
+    expect(screen.getByRole("button", { name: "Show demonstration: Connect a jack switch" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("button", { name: "Show demonstration: Understand startup behavior" })).toBeInTheDocument();
+    expect(setSettings).not.toHaveBeenCalled();
+  });
+
   it("shows local readiness without Bluetooth and explains Mobile suspension", async () => {
     browserState.accessibility = "granted";
     browserState.bluetooth = "unsupported";
