@@ -29,6 +29,8 @@
   .segmented, .segmented.compact, .segmented.compact.three, .segmented.compact.four, .segmented.compact.five { @apply grid gap-3 border-0 bg-transparent p-0; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
   .segmented button { border: 1px solid var(--border); background: var(--surface); }
   .segmented button[aria-pressed="true"], .segmented button[aria-selected="true"] { border: 2px solid var(--brand); background: var(--brand-container); color: var(--on-brand-container); }
+  .update-controls, .update-controls > div, .privacy-choice, .pairing-actions, .profile-dialog > header, .profile-dialog > footer, .binding-row, .update-banner { @apply gap-3; }
+  .privacy-choice, .pairing-actions, .setup-dialog > header { flex-wrap: wrap; }
   .tab-bar { @apply mb-6; }
   .exact-speed { @apply flex flex-wrap items-center gap-3 text-base; }
   .exact-speed > select, .exact-speed > input { max-width: 240px; }
