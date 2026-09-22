@@ -36,7 +36,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body, #root { width: 100%; min-width: 320px; min-height: 100%; margin: 0; }
+html, body, #root { width: 100%; min-width: 0; min-height: 100%; margin: 0; }
 button, input, select { font: inherit; }
 button { letter-spacing: 0; }
 h1, h2, h3, p { margin: 0; letter-spacing: 0; }
