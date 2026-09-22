@@ -1,8 +1,8 @@
+import { Button, MoreOptions } from "../ui/controls";
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { demonstration, type DemonstrationKind, type DemoPlatform } from "./demonstrations";
 import { PrototypeArtwork } from "./PrototypeArtwork";
 import { TeachingArtwork } from "./TeachingArtwork";
-import "./demonstrations.css";
 
 const DemoContext = createContext<{ suspended: boolean; platform: DemoPlatform }>({ suspended: false, platform: "windows" });
 
@@ -25,7 +25,7 @@ function useReducedMotion() {
 
 function Player({ kind }: { kind: DemonstrationKind }) {
   const { suspended, platform } = useContext(DemoContext);
-  const { title, steps } = demonstration(kind, platform);
+  const { title, steps, captions } = demonstration(kind, platform);
   const reduced = useReducedMotion();
   const [step, setStep] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -69,13 +69,13 @@ function Player({ kind }: { kind: DemonstrationKind }) {
     <div className="teaching-art" aria-describedby={`${id}-example`}>
       {kind === "grid" || kind === "line" || kind === "hold" ? <TeachingArtwork kind={kind} step={step} progress={reduced ? 1 : progress} /> : <PrototypeArtwork kind={kind} step={step} platform={platform} />}
     </div>
-    <p className="teaching-caption">{step + 1} / {steps.length}: {steps[step]}</p>
+    <p className="teaching-caption">{step + 1} / {steps.length}: {captions[step]}</p>
     <div className="teaching-controls">
-      {!reduced && <><button type="button" className="secondary" disabled={suspended || (!playing && step === steps.length - 1 && progress >= 1)} onClick={() => setPlaying(!playing)} aria-label={`${playing ? "Pause" : "Play"} ${title}`}>{playing ? "Pause" : "Play"}</button><button type="button" className="secondary" disabled={suspended} onClick={() => { elapsed.current = 0; setProgress(0); setStep(0); setPlaying(true); }} aria-label={`Replay ${title}`}>Replay</button></>}
-      {reduced && <><button type="button" className="secondary" disabled={step === 0 || suspended} onClick={() => setStep(step - 1)} aria-label={`Previous illustration: ${title}`}>Previous illustration</button><button type="button" className="secondary" disabled={step === steps.length - 1 || suspended} onClick={() => setStep(step + 1)} aria-label={`Next illustration: ${title}`}>Next illustration</button></>}
+      {!reduced && <><Button type="button" className="secondary" disabled={suspended || (!playing && step === steps.length - 1 && progress >= 1)} onClick={() => setPlaying(!playing)} aria-label={`${playing ? "Pause" : "Play"} ${title}`}>{playing ? "Pause" : "Play"}</Button><Button type="button" className="secondary" disabled={suspended} onClick={() => { elapsed.current = 0; setProgress(0); setStep(0); setPlaying(true); }} aria-label={`Replay ${title}`}>Replay</Button></>}
+      {reduced && <><Button type="button" className="secondary" disabled={step === 0 || suspended} onClick={() => setStep(step - 1)} aria-label={`Previous illustration: ${title}`}>Previous illustration</Button><Button type="button" className="secondary" disabled={step === steps.length - 1 || suspended} onClick={() => setStep(step + 1)} aria-label={`Next illustration: ${title}`}>Next illustration</Button></>}
     </div>
     {reduced && <p className="setting-note">Reduced motion: use the buttons to view each still illustration.</p>}
-    <ol className="teaching-steps" aria-label={`${title} instructions`}>{steps.map((text, index) => <li key={text} aria-current={index === step ? "step" : undefined}>{text}</li>)}</ol>
+    <MoreOptions label="Read steps" accessibleLabel={`Read steps: ${title}`}><ol className="teaching-steps" aria-label={`${title} instructions`}>{steps.map((text, index) => <li key={text} aria-current={index === step ? "step" : undefined}>{text}</li>)}</ol></MoreOptions>
   </div>;
 }
 
@@ -86,7 +86,7 @@ export function Demonstration({ kind }: { kind: DemonstrationKind }) {
   if (kind === "access" && platform !== "macos") return null;
   const { title } = demonstration(kind, platform);
   return <div className="teaching-disclosure">
-    <button type="button" className="disclosure" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)}>{open ? "Hide" : "Show"} demonstration: {title}</button>
+    <Button type="button" className="disclosure" aria-expanded={open} aria-controls={open ? id : undefined} aria-label={`${open ? "Hide" : "Show me how"}: ${title}`} onClick={() => setOpen(!open)}><span>{title}</span><span>{open ? "Hide" : "Show me how"}</span></Button>
     {open && <div id={id}><Player kind={kind} /></div>}
   </div>;
 }

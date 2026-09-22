@@ -19,6 +19,7 @@
         "minWidth": 620,
         "minHeight": 520,
         "resizable": true,
+        "zoomHotkeysEnabled": true,
         "fullscreen": false
       }
     ],
@@ -51,7 +52,7 @@
     },
     "macOS": {
       "hardenedRuntime": true,
-      "minimumSystemVersion": "13.0",
+      "minimumSystemVersion": "13.3",
       "infoPlist": "Info.plist"
     }
   }

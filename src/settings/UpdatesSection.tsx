@@ -1,3 +1,4 @@
+import { Button } from "../ui/controls";
 import { Download, RefreshCw, X } from "lucide-react";
 import type { Ref } from "react";
 import type { AppState, UpdateState, UpdateStatus } from "../types";
@@ -64,7 +65,7 @@ export function UpdateControls({ update, run, cancel }: { update: UpdateState; r
       <progress aria-label="Update download progress" value={update.downloadedBytes} max={update.totalBytes ?? undefined} />
       <span>{updateProgress(update)}</span>
     </>}
-    <div>{action && <button className="secondary" type="button" onClick={() => run(action)}>{action === "download" && <Download size={16} />}{action === "check" && <RefreshCw size={16} />}{label}</button>}{update.status === "downloading" && <button className="secondary" type="button" onClick={cancel}><X size={16} />Cancel</button>}{(update.status === "checking" || update.status === "applying") && <button className="secondary" type="button" disabled><RefreshCw className="spin" size={16} />{update.status === "checking" ? "Checking" : "Installing"}</button>}</div>
+    <div>{action && <Button className="secondary" type="button" onClick={() => run(action)}>{action === "download" && <Download size={16} />}{action === "check" && <RefreshCw size={16} />}{label}</Button>}{update.status === "downloading" && <Button className="secondary" type="button" onClick={cancel}><X size={16} />Cancel</Button>}{(update.status === "checking" || update.status === "applying") && <Button className="secondary" type="button" disabled><RefreshCw className="spin" size={16} />{update.status === "checking" ? "Checking" : "Installing"}</Button>}</div>
   </div>;
 }
 

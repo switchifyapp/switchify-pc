@@ -15,5 +15,17 @@ export function demonstration(kind: DemonstrationKind, platform: DemoPlatform) {
     pair: { title: "Pair a mobile device", steps: ["Open Switchify on your mobile device and choose this computer while it is advertising.", "Compare the six-digit codes in both apps. These are example codes, not a live pairing request.", "Approve on this computer only if the codes match. If they differ or you did not request pairing, reject the request.", "A successful pairing trusts the mobile device. Check the real connection status in the app."] },
     startup: { title: "Understand startup behavior", steps: ["Start with system is optional. Choose whether Switchify should launch when you sign in.", `When enabled, Switchify starts quietly in the ${location}.`, `Open Switchify from the ${location} when you need its window. Start manually means opening the app yourself.`] },
   };
-  return examples[kind];
+  const captions: Record<DemonstrationKind, string[]> = {
+    jack: ["Check the connector.", "Plug in your switch.", "Connect the interface. Then add your switch."],
+    usb: ["Your switch sends a key.", "Plug it into your computer.", "Add your switch and learn its key."],
+    learn: ["Choose Add switch, then Learn key.", "Press and release your switch.", "Check the key shown."],
+    select: ["Open Press and release.", "Choose Select.", "Save your switch."],
+    grid: ["Press Select to start.", "Select a row.", "Select a cell.", "Select the horizontal position.", "Select the vertical position.", "Auto select: wait to click, or press for actions.", "Without Auto select: choose an action."],
+    line: ["Press Select to start.", "Select the horizontal position.", "Select the vertical position.", "Auto select: wait to click, or press for actions.", "Without Auto select: choose an action."],
+    hold: ["Press to freeze movement.", "Release to choose.", "Hold to see more actions.", "Wait for the action you want.", "Release to run it."],
+    access: ["Open Accessibility Settings.", "Find Switchify PC.", "Turn it on, then return here."],
+    pair: ["Choose this computer on your mobile.", "Compare the codes in both apps.", "Approve only if the codes match.", "Check the connection status."],
+    startup: ["Choose whether to start at sign-in.", `Switchify starts in the ${location}.`, `Open its window from the ${location}.`],
+  };
+  return { ...examples[kind], captions: captions[kind] };
 }

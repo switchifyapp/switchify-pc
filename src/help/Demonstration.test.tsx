@@ -6,7 +6,7 @@ import { demonstration, type DemonstrationKind } from "./demonstrations";
 let reduced = false;
 let mediaChange: (() => void) | undefined;
 const advance = (ms = 3050) => act(() => { vi.advanceTimersByTime(ms); });
-const open = (title: string) => fireEvent.click(screen.getByRole("button", { name: `Show demonstration: ${title}` }));
+const open = (title: string) => fireEvent.click(screen.getByRole("button", { name: `Show me how: ${title}` }));
 const caption = () => document.querySelector(".teaching-caption")!.textContent;
 
 beforeEach(() => {
@@ -39,7 +39,7 @@ describe("teaching demonstrations", () => {
     expect(vi.getTimerCount()).toBe(0);
     fireEvent.click(screen.getByRole("button", { name: "Replay Learn a switch key" }));
     expect(caption()).toMatch(/^1 \/ 3/);
-    fireEvent.click(screen.getByRole("button", { name: "Hide demonstration: Learn a switch key" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hide: Learn a switch key" }));
     expect(document.querySelector("svg")).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -51,7 +51,7 @@ describe("teaching demonstrations", () => {
     expect(vi.getTimerCount()).toBe(0);
     expect(screen.queryByRole("button", { name: /^Pause/ })).toBeNull();
     for (let i = 0; i < 4; i++) fireEvent.click(screen.getByRole("button", { name: /Next illustration/ }));
-    expect(caption()).toContain("Release to execute");
+    expect(caption()).toContain("Release to run it.");
     expect(screen.getByRole("button", { name: /Next illustration/ })).toBeDisabled();
     act(() => { reduced = false; mediaChange?.(); });
     fireEvent.click(screen.getByRole("button", { name: /Replay/ }));
@@ -98,7 +98,7 @@ describe("teaching demonstrations", () => {
 
   it("keeps SVG definition IDs unique when the same artwork appears twice", () => {
     render(<><Demonstration kind="jack" /><Demonstration kind="jack" /></>);
-    for (const button of screen.getAllByRole("button", { name: /Show demonstration/ })) fireEvent.click(button);
+    for (const button of screen.getAllByRole("button", { name: /Show me how/ })) fireEvent.click(button);
     const ids = [...document.querySelectorAll("svg [id]")].map(el => el.id);
     expect(ids.length).toBeGreaterThan(0);
     expect(new Set(ids).size).toBe(ids.length);
@@ -110,17 +110,18 @@ describe("teaching demonstrations", () => {
     const view = render(content("windows"));
     expect(screen.queryByRole("button")).toBeNull();
     view.rerender(content("macos")); open("Allow Accessibility on macOS");
+    fireEvent.click(screen.getByRole("button", { name: "Read steps: Allow Accessibility on macOS" }));
     expect(screen.getByRole("list")).toHaveTextContent("return to the app");
   });
 
   it.each(["jack", "usb", "learn", "select", "grid", "line", "hold", "access", "pair", "startup"] as DemonstrationKind[])("renders every illustrated step for %s", kind => {
     reduced = true;
     render(<DemonstrationProvider platform="macos" suspended={false}><Demonstration kind={kind} /></DemonstrationProvider>);
-    const { title, steps } = demonstration(kind, "macos");
+    const { title, steps, captions } = demonstration(kind, "macos");
     open(title);
     for (let i = 0; i < steps.length; i++) {
       expect(document.querySelector("svg")).not.toBeNull();
-      expect(caption()).toContain(steps[i]);
+      expect(caption()).toContain(captions[i]);
       if (i < steps.length - 1) fireEvent.click(screen.getByRole("button", { name: /Next illustration/ }));
     }
     if (kind === "pair") expect(document.querySelectorAll(".pair-code-phone, .pair-code-pc")).toHaveLength(2);

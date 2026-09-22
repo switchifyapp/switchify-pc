@@ -1,3 +1,4 @@
+import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { Demonstration, SwitchDemonstrations } from "../help/Demonstration";
 import { SwitchPractice } from "../scanning/SwitchPractice";
 import { createPortal } from "react-dom";
@@ -51,7 +52,7 @@ function ActionSelect({
   onChange: (value: SwitchAction) => void;
 }) {
   return (
-    <select
+    <Select
       aria-label={label}
       value={value}
       onChange={(e) => onChange(e.target.value as SwitchAction)}
@@ -61,7 +62,7 @@ function ActionSelect({
           {label}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }
 
@@ -130,7 +131,7 @@ function SwitchEditor({
       {!remote && <Demonstration kind="learn" />}<Demonstration kind="select" />
       <label className="field">
         <span>Name</span>
-        <input
+        <Input
           ref={nameRef}
           aria-label={isNew ? "New switch name" : `Name for ${binding.key}`}
           value={binding.name}
@@ -147,16 +148,16 @@ function SwitchEditor({
           and Enter to reach and activate Resume switch control.
         </p>
         <p className="setting-note">If you rely on switches, keep switch control on and use the scanning keyboard from the point action menu to enter the name.</p>
-        <button type="button" className="secondary" disabled={entryPending}
+        <Button type="button" className="secondary" disabled={entryPending}
           aria-pressed={keyboardEntry} onClick={() => onKeyboardEntry(!keyboardEntry)}>
           {keyboardEntry ? "Resume switch control" : "Type with keyboard"}
-        </button>
+        </Button>
         {keyboardEntry && <p role="status">Keyboard typing is on. Assigned keys type normally; switch scanning is paused.</p>}
       </div>
       {remote ? (
         <label className="field">
           <span>Remote switch</span>
-          <select
+          <Select
             aria-label={`Remote switch number for ${name}`}
             value={remote.slot}
             onChange={(e) => remote.onSlot(Number(e.target.value))}
@@ -168,14 +169,14 @@ function SwitchEditor({
                   Switch {slot + 1} on the Forwarding screen
                 </option>
               ))}
-          </select>
+          </Select>
         </label>
       ) : (
         <div className="field">
           <span>Key</span>
           <div className="key-row">
             <KeyBadge value={binding.key} unavailable={unavailable} />
-            <button
+            <Button
               type="button"
               className="secondary"
               aria-label={isNew ? "Learn switch key" : `Learn another key for ${name}`}
@@ -184,7 +185,7 @@ function SwitchEditor({
               onClick={onLearn}
             >
               {binding.key ? "Change key" : "Learn key"}
-            </button>
+            </Button>
           </div>
           {(keyError || unavailable) && (
             <span className="field-error" id={keyErrorId} role="alert">
@@ -223,7 +224,7 @@ function SwitchEditor({
                     })
                   }
                 />
-                <button
+                <Button
                   type="button"
                   className="icon-button"
                   disabled={index === 0}
@@ -231,8 +232,8 @@ function SwitchEditor({
                   onClick={() => move(index, -1)}
                 >
                   <ChevronUp size={18} />
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="icon-button"
                   disabled={index === binding.holdActions.length - 1}
@@ -240,8 +241,8 @@ function SwitchEditor({
                   onClick={() => move(index, 1)}
                 >
                   <ChevronDown size={18} />
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="icon-button danger-icon"
                   aria-label={`Remove hold action ${index + 1}`}
@@ -255,7 +256,7 @@ function SwitchEditor({
                   }
                 >
                   <X size={18} />
-                </button>
+                </Button>
               </li>
             ))}
           </ol>
@@ -267,7 +268,7 @@ function SwitchEditor({
                 .join(", ")}. Release to run the action shown.`
             : "Holding only freezes movement. Add actions to offer them one by one while held."}
         </p>
-        <button
+        <Button
           type="button"
           className="disclosure"
           disabled={binding.holdActions.length >= 32}
@@ -277,25 +278,25 @@ function SwitchEditor({
           }
         >
           Add hold action
-        </button>
+        </Button>
       </div>
       <div className="switch-editor-footer">
-        <button
+        <Button
           type="button"
           className={isNew ? "primary" : "secondary"}
           disabled={!canSave}
           onClick={onDone}
         >
           {isNew ? "Save switch" : "Done"}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="secondary danger"
           aria-label={isNew ? "Cancel new switch" : `Remove ${name}`}
           onClick={onRemove}
         >
           {isNew ? "Cancel" : "Remove"}
-        </button>
+        </Button>
       </div>
     </fieldset>
   );
@@ -346,9 +347,9 @@ function CaptureDialog({ name, onCancel }: { name: string; onCancel: () => void 
           press is learned. Press Escape to cancel, or click Cancel capture with
           the mouse.
         </p>
-        <button type="button" className="secondary" tabIndex={-1} onClick={onCancel}>
+        <Button type="button" className="secondary" tabIndex={-1} onClick={onCancel}>
           Cancel capture
-        </button>
+        </Button>
       </section>
     </div>
   );
@@ -378,7 +379,7 @@ function SwitchConfirmation({ title, action, busy, error, cancel, confirm }: { t
   }}>
     <header><h2 id={titleId}>{title}</h2></header>
     {error && <p role="alert">{error} Your switch is still available. Try again or keep it.</p>}
-    <footer><span /><button ref={keepRef} className="secondary" disabled={busy} onClick={cancel}>Keep switch</button><button className="primary danger" disabled={busy} onClick={confirm}>{busy ? "Saving…" : action}</button></footer>
+    <footer><span /><Button ref={keepRef} className="secondary" disabled={busy} onClick={cancel}>Keep switch</Button><Button className="primary danger" disabled={busy} onClick={confirm}>{busy ? "Saving…" : action}</Button></footer>
   </section></div>, document.body);
 }
 
@@ -659,7 +660,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
     <>
       {state?.keyboardEntry && !expanded && <div role="status" className="setting-note">
         Keyboard typing is on. Switch scanning is paused.
-        <button type="button" className="secondary" disabled={entryPending} onClick={() => { void toggleEntry(false); }}>Resume switch control</button>
+        <Button type="button" className="secondary" disabled={entryPending} onClick={() => { void toggleEntry(false); }}>Resume switch control</Button>
       </div>}
       {confirmation && !suspended && <SwitchConfirmation title={confirmation.kind === "draft" ? "Discard this new switch?" : `Remove ${confirmation.name}?`} action={confirmation.kind === "draft" ? "Discard switch" : "Remove switch"} busy={confirmBusy} error={confirmError} cancel={cancelConfirmation} confirm={() => void confirmRemoval()} />}
       {capturing && target && !suspended && (
@@ -673,58 +674,42 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
       )}
       <SettingGroup
         title="Switches"
-        description="Add switches on this computer or switches forwarded from Switchify Remote, and choose what each one does."
+        description=""
       >
-        <SwitchDemonstrations />
+        {!draft && <Button className="primary" ref={addRef} disabled={disabled || settings.bindings.length >= 128} onClick={startAdd}>Add switch</Button>}
         <SwitchPractice disabled={!!state?.keyboardEntry || entryPending || capturing || !!pending || unsaved || !!remote.pending || remote.unsaved || !!draft || suspended} />
-        <div className="switch-source-summary">
-          <p className="setting-note">{!state ? "Loading local switch configuration..." : settings.bindings.length === 0
-            ? "No local switches configured. Use Add switch to learn a switch."
-            : `${settings.bindings.length} local ${settings.bindings.length === 1 ? "switch configured" : "switches configured"}.`}</p>
-          <p className="setting-note">Remote assignments are numbered forwarding slots in Switchify Remote, not detected physical switches. The supplied presets can be changed or removed.</p>
-          <p className="setting-note" role="status">{mobileConnected === true
-            ? "Mobile device connected. This does not confirm that remote assignments match your switches."
-            : mobileConnected === false
-              ? "No mobile device connected. Remote assignments are available for a future connection."
-              : "Mobile connection status is unavailable here."} A connection alone does not verify a physical switch press.</p>
-        </div>
-        <SettingNote
-          about="switches"
-          summary="Press and release a switch to run its action. Hold it to step through its hold actions instead."
-          detail={`Movement freezes while a switch is held, and each hold action is offered on screen in turn. Escape resets the scan. Holding any switch for ${seconds(escapeMs)} also resets it. Remote switches are numbered as they appear on the Forwarding screen in Switchify Remote and share the hold timing below.`}
-        />
         <p className="setting-note switch-status" role="status">
           {pending || remote.pending
             ? "Saving switches..."
             : unsaved || remote.unsaved
               ? "Switch assignments have unsaved changes."
-              : "Changes save automatically and apply straight away."}
+              : "Saved automatically."}
         </p>
         {remote.error && (
           <div className="dialog-error switch-error" role="alert">
             <span>{remote.error}</span>
-            <button
+            <Button
               type="button"
               className="secondary"
               disabled={!!remote.pending}
               onClick={remote.retry}
             >
               Retry save
-            </button>
+            </Button>
           </div>
         )}
         {(error || state?.error) && (
           <div className="dialog-error switch-error" role="alert">
             <span>{error || state?.error}</span>
             {error && unsaved && (
-              <button
+              <Button
                 type="button"
                 className="secondary"
                 disabled={disabled || !!pending}
                 onClick={controller.retry}
               >
                 Retry save
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -737,16 +722,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
               needs Next and Previous.
             </p>
             <div className="switch-list-actions">
-              <button
-                type="button"
-                className="primary"
-                ref={addRef}
-                disabled={disabled}
-                onClick={startAdd}
-              >
-                Add switch
-              </button>
-              <button
+              <Button
                 type="button"
                 className="secondary"
                 ref={addRemoteRef}
@@ -754,7 +730,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                 onClick={startAddRemote}
               >
                 Add remote switch
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
@@ -777,7 +753,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                       <p>{summary(binding)}</p>
                     </div>
                     <KeyBadge value={binding.key} unavailable={unavailable} />
-                    <button
+                    <Button
                       type="button"
                       className="secondary"
                       ref={(el) => {
@@ -794,8 +770,8 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                       }}
                     >
                       {open ? "Close" : "Edit"}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
                       className="icon-button danger-icon"
                       aria-label={`Remove ${name}`}
@@ -803,7 +779,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                       onClick={() => requestRemoval("local", binding)}
                     >
                       <Trash2 size={18} />
-                    </button>
+                    </Button>
                   </div>
                   {open && (
                     <SwitchEditor
@@ -828,6 +804,20 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                 </article>
               );
             })}
+            <MoreOptions label="Mobile switches" attention={!!remote.error || remote.unsaved || expanded?.startsWith("remote-") === true}>
+            {!draft && (
+              <div className="switch-list-actions">
+                <Button
+                  type="button"
+                  className="secondary"
+                  ref={addRemoteRef}
+                  disabled={!remote.config || !freeSlots.length}
+                  onClick={startAddRemote}
+                >
+                  Add remote switch
+                </Button>
+              </div>
+            )}
             {remoteRows.map(({ slot, index }) => {
               const binding = remoteBinding(slot, index);
               const open = expanded === binding.id;
@@ -846,7 +836,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                       <p>{summary(binding)}</p>
                     </div>
                     <KeyBadge value={binding.key} unavailable={false} />
-                    <button
+                    <Button
                       type="button"
                       className="secondary"
                       ref={(el) => {
@@ -860,8 +850,8 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                       onClick={() => setExpanded(open ? null : binding.id)}
                     >
                       {open ? "Close" : "Edit"}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
                       className="icon-button danger-icon"
                       aria-label={`Remove ${name}`}
@@ -869,7 +859,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                       onClick={() => requestRemoval("remote", binding, index)}
                     >
                       <Trash2 size={18} />
-                    </button>
+                    </Button>
                   </div>
                   {open && (
                     <SwitchEditor
@@ -895,6 +885,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                 </article>
               );
             })}
+            </MoreOptions>
             {draft && (
               <article className="switch-row" data-open>
                 <div className="switch-row-summary">
@@ -941,31 +932,11 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                 />
               </article>
             )}
-            {!draft && (
-              <div className="switch-list-actions">
-                <button
-                  type="button"
-                  className="secondary"
-                  ref={addRef}
-                  disabled={disabled || settings.bindings.length >= 128}
-                  onClick={startAdd}
-                >
-                  Add switch
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  ref={addRemoteRef}
-                  disabled={!remote.config || !freeSlots.length}
-                  onClick={startAddRemote}
-                >
-                  Add remote switch
-                </button>
-              </div>
-            )}
+
           </div>
         )}
       </SettingGroup>
+      <MoreOptions label="More options">
       <SettingGroup
         title="Hold timing"
         description="How long a switch is held before each hold action is offered."
@@ -989,7 +960,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
           >
             <label className="exact-speed" id={exactId}>
               <span>Exact interval</span>
-              <select
+              <Select
                 aria-label="Exact hold action interval"
                 disabled={disabled}
                 value={settings.holdIntervalMs}
@@ -1005,7 +976,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                     {seconds(value)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           </Disclosure>
           <p className="setting-note">
@@ -1015,6 +986,24 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
           </p>
         </div>
       </SettingGroup>
+      <MoreOptions label="Switch help">        <div className="switch-source-summary">
+          <p className="setting-note">{!state ? "Loading local switch configuration..." : settings.bindings.length === 0
+            ? "No local switches configured. Use Add switch to learn a switch."
+            : `${settings.bindings.length} local ${settings.bindings.length === 1 ? "switch configured" : "switches configured"}.`}</p>
+          <p className="setting-note">Remote assignments are numbered forwarding slots in Switchify Remote, not detected physical switches. The supplied presets can be changed or removed.</p>
+          <p className="setting-note" role="status">{mobileConnected === true
+            ? "Mobile device connected. This does not confirm that remote assignments match your switches."
+            : mobileConnected === false
+              ? "No mobile device connected. Remote assignments are available for a future connection."
+              : "Mobile connection status is unavailable here."} A connection alone does not verify a physical switch press.</p>
+        </div>
+        <SettingNote
+          about="switches"
+          summary="Press and release a switch to run its action. Hold it to step through its hold actions instead."
+          detail={`Movement freezes while a switch is held, and each hold action is offered on screen in turn. Escape resets the scan. Holding any switch for ${seconds(escapeMs)} also resets it. Remote switches are numbered as they appear on the Forwarding screen in Switchify Remote and share the hold timing below.`}
+        />
+<SwitchDemonstrations /></MoreOptions>
+      </MoreOptions>
     </>
   );
 }

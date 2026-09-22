@@ -38,7 +38,8 @@ describe("Switchify PC settings", () => {
     expect(screen.queryByRole("button",{name:"Point scan"})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button",{name:"Scanning"}));
     expect(screen.getByRole("heading", { name: "Scanning", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("heading",{name:"Shared defaults"})).toBeInTheDocument();
+    expect(screen.getByRole("heading",{name:"Scanning", level:2})).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
     expect(screen.getByRole("button",{name:"Customise point scanning"})).toBeInTheDocument();
   });
 
@@ -120,6 +121,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     selectTab("Controls");
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
 
     const toggle = screen.getByRole("checkbox", { name: "Repeat held keys" });
     expect(toggle).toBeChecked();
@@ -154,6 +156,7 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("checkbox", { name: "Start with system" })).toBeInTheDocument();
 
     selectTab("Controls");
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
     expect(screen.getByRole("button", { name: "100% pointer speed" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("checkbox", { name: "Repeat mouse movement" })).toBeChecked();
     expect(screen.getByRole("group", { name: "Movement acceleration" })).not.toBeDisabled();
@@ -178,11 +181,11 @@ describe("Switchify PC settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     selectTab("Controls");
 
-    const dwell = screen.getByRole("checkbox", { name: "Dwell to click" });
+    const dwell = screen.getByRole("checkbox", { name: "Click when I stop" });
     expect(dwell).not.toBeChecked();
-    expect(screen.getByRole("group", { name: "Dwell delay" })).toBeDisabled();
+    expect(screen.getByRole("group", { name: "Wait before clicking" })).toBeDisabled();
     fireEvent.click(dwell);
-    const dwellDelay = screen.getByRole("group", { name: "Dwell delay" });
+    const dwellDelay = screen.getByRole("group", { name: "Wait before clicking" });
     expect(dwellDelay).not.toBeDisabled();
     expect(within(dwellDelay).getAllByRole("button")).toHaveLength(10);
     for (const label of ["0.5s", "1s", "1.5s", "2s", "3s", "4s", "5s", "6s", "7s", "8s"]) {
@@ -236,9 +239,9 @@ describe("Switchify PC settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     selectTab("Controls");
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Dwell to click" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Click when I stop" }));
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 1000 })));
-    const dwellDelay = screen.getByRole("group", { name: "Dwell delay" });
+    const dwellDelay = screen.getByRole("group", { name: "Wait before clicking" });
     fireEvent.click(within(dwellDelay).getByRole("button", { name: "8s" }));
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 8000 })));
     expect(within(dwellDelay).getByRole("button", { name: "8s" })).toHaveAttribute("aria-pressed", "true");
@@ -250,11 +253,11 @@ describe("Switchify PC settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     selectTab("Controls");
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Dwell to click" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Click when I stop" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Settings storage unavailable");
-    expect(screen.getByRole("checkbox", { name: "Dwell to click" })).not.toBeChecked();
-    expect(screen.getByRole("group", { name: "Dwell delay" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Click when I stop" })).not.toBeChecked();
+    expect(screen.getByRole("group", { name: "Wait before clicking" })).toBeDisabled();
   });
 
   it("explains telemetry consent and links to the privacy policy", async () => {
@@ -638,6 +641,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     selectTab("Controls");
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
 
     expect(screen.getByText("Held navigation keys repeat, like on a keyboard.")).toBeInTheDocument();
     expect(screen.queryByText(/Applies to the arrow keys/)).not.toBeInTheDocument();
@@ -686,6 +690,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     selectTab("Controls");
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
     const pointerNames = screen.getAllByRole("button", { name: /More about/ }).map((button) => button.textContent);
     expect(pointerNames).toEqual(["More about key repeat"]);
     selectTab("Cursor appearance");
@@ -699,6 +704,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     selectTab("Controls");
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
 
     // The group is described by the always-visible summary.
     const summary = screen.getByText("Held navigation keys repeat, like on a keyboard.");
@@ -782,7 +788,7 @@ describe("Switchify PC settings", () => {
   it("opens straight to Updates without a notice when the failure is what brought the user there", async () => {
     browserState.updater = failedUpdater("Download failed");
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Support" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
     fireEvent.click(screen.getByRole("tab", { name: "Troubleshooting" }));
     fireEvent.click(screen.getByRole("button", { name: "View updates" }));
 

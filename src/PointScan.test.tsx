@@ -12,6 +12,10 @@ import {
   type PointScanState,
 } from "./scanning/useScanning";
 import { ScanningSection } from "./settings/ScanningSection";
+function more() {
+  const button = screen.getByRole("button", { name: "More options" });
+  if (button.getAttribute("aria-expanded") !== "true") fireEvent.click(button);
+}
 function PointScan() {
   const controller = useScanning();
   return <ScanningSection controller={controller} />;
@@ -48,6 +52,7 @@ afterEach(() => {
 it("shows the backend's reason while scanning is off and offers no toggle", async () => {
   render(<PointScan />);
   await screen.findByText("Scanning starts once a switch has the Select action.");
+  more();
   fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
   expect(screen.getByRole("button", { name: "Line only" })).toBeEnabled();
 });
@@ -60,6 +65,7 @@ it("saves settings without an enabled flag and keeps them editable while scannin
   );
   render(<PointScan />);
   await screen.findByText("Ready to begin.");
+  more();
   fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
   fireEvent.click(screen.getByRole("button", { name: "Grid then line" }));
   await waitFor(() =>
@@ -92,6 +98,7 @@ it("keeps newer edits across old events", async () => {
         resolveSave = resolve;
       }),
   );
+  more();
   fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
   fireEvent.click(screen.getByRole("button", { name: "Grid then line" }));
   await waitFor(() => expect(resolveSave).toBeTypeOf("function"));
@@ -109,13 +116,14 @@ it("keeps newer edits across old events", async () => {
       config: { ...initial.config, mode: "grid", gridSize: 7 },
     }),
   );
-  await screen.findByText("Scanning settings save automatically.");
+  await screen.findByText("Saved automatically.");
 });
 
 it("retains failed edits and offers a retry", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);
   mocks.invoke.mockRejectedValueOnce("Disk is full.");
+  more();
   fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
   fireEvent.click(screen.getByRole("button", { name: "Grid then line" }));
   await screen.findByText("Disk is full.");
@@ -124,7 +132,7 @@ it("retains failed edits and offers a retry", async () => {
   ).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByText("Scanning settings have unsaved changes.")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
-  await screen.findByText("Scanning settings save automatically.");
+  await screen.findByText("Saved automatically.");
 });
 
 it("keeps pending saves when its settings panel unmounts", async () => {
@@ -145,6 +153,7 @@ it("keeps pending saves when its settings panel unmounts", async () => {
         resolveSave = resolve;
       }),
   );
+  more();
   fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
   fireEvent.click(screen.getByRole("button", { name: "Grid then line" }));
   await waitFor(() => expect(resolveSave).toBeTypeOf("function"));
@@ -153,6 +162,7 @@ it("keeps pending saves when its settings panel unmounts", async () => {
     resolveSave({ ...initial, config: { ...initial.config, mode: "grid" } }),
   );
   view.rerender(<Shell visible />);
+  more();
   fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
   expect(
     screen.getByRole("button", { name: "Grid then line" }),
@@ -169,6 +179,7 @@ it("keeps a newer runtime event when an older save response arrives", async () =
         resolveSave = resolve;
       }),
   );
+  more();
   fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
   fireEvent.click(screen.getByRole("button", { name: "Grid then line" }));
   await waitFor(() => expect(resolveSave).toBeTypeOf("function"));
@@ -213,7 +224,9 @@ it.each([
 it("saves scanner colour and updates the sample", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);
+  more();
   expect(screen.getByRole("radio", { name: "Blue" })).toBeChecked();
+  more();
   fireEvent.click(screen.getByRole("radio", { name: "Green" }));
   expect(screen.getByRole("img", { name: "green scanner highlight sample" })).toBeInTheDocument();
   await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
@@ -225,6 +238,7 @@ it("retains a failed colour selection for retry", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);
   mocks.invoke.mockRejectedValueOnce(new Error("Cannot save colour"));
+  more();
   fireEvent.click(screen.getByRole("radio", { name: "White" }));
   expect(await screen.findByRole("button", { name: "Retry save" })).toBeEnabled();
   expect(screen.getByRole("radio", { name: "White" })).toBeChecked();
@@ -237,8 +251,10 @@ it("retains a failed colour selection for retry", async () => {
 it("saves auto selection separately from scan movement and validates its delay", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);
+  more();
   fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
   expect(screen.queryByRole("spinbutton", { name: "Auto select delay (seconds)" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Click options" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Auto select" }));
   const delay = screen.getByRole("spinbutton", { name: "Auto select delay (seconds)" });
   expect(delay).toHaveValue(1);
@@ -255,6 +271,7 @@ it("saves auto selection separately from scan movement and validates its delay",
 it("customises individual settings, restores defaults and returns focus without saving on navigation", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);
+  more();
   fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
   expect(mocks.invoke).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("heading", { name: "Keyboard" })).toHaveFocus();
@@ -269,6 +286,7 @@ it("customises individual settings, restores defaults and returns focus without 
   fireEvent.click(screen.getByRole("button", { name: "Back to scanning settings" }));
   expect(screen.getByRole("button", { name: "Customise keyboard" })).toHaveFocus();
   fireEvent.click(screen.getByRole("button", { name: "Reverse" }));
+  more();
   fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
   expect(screen.getByRole("button", { name: "Reverse" })).toHaveAttribute("aria-pressed", "true");
   expect(screen.queryByRole("button", { name: "Use default for initial direction" })).not.toBeInTheDocument();
@@ -277,6 +295,7 @@ it("customises individual settings, restores defaults and returns focus without 
 it("keeps rate values in manual mode and preserves keyboard settings when resetting overrides", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);
+  more();
   fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Word prediction" }));
   fireEvent.click(screen.getByRole("button", { name: "Decrease auto scan interval by 0.1 seconds" }));
@@ -300,10 +319,12 @@ it("restores overview scroll and leaves point-specific values intact on override
   render(<PointScan />);
   await screen.findByText(initial.message);
   document.documentElement.scrollTop = 380;
+  more();
   fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
   expect(screen.queryByRole("button", { name: "One item at a time" })).not.toBeInTheDocument();
   expect(screen.queryByRole("checkbox", { name: "Word prediction" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Grid then line" }));
+  fireEvent.click(screen.getByRole("button", { name: "Click options" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Auto select" }));
   fireEvent.click(screen.getByRole("button", { name: "Reverse" }));
   fireEvent.click(screen.getByRole("button", { name: "Reset scanning overrides" }));
@@ -330,7 +351,8 @@ it("brings the area header into view with help expanded and restores the overvie
     fireEvent.click(screen.getByText("How scanning works"));
     expect(screen.getByText("How scanning works").closest("details")).toHaveAttribute("open");
     document.documentElement.scrollTop = 640;
-    fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
+    more();
+  fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
     const heading = screen.getByRole("heading", { name: "Keyboard" });
     expect(heading).toHaveFocus();
     expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "start", behavior: "instant" });
@@ -353,6 +375,7 @@ it("saves the keyboard after-typing choice and preserves it while manual", async
   render(<PointScan />);
   await screen.findByText(initial.message);
   expect(screen.queryByText("After typing")).not.toBeInTheDocument();
+  more();
   fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
   expect(screen.getByRole("button", { name: "Continue scanning" })).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(screen.getByRole("button", { name: "Wait for Select" }));
@@ -380,4 +403,19 @@ it.each([100, 250, 750, 10000])("adjusts and persists the shared interval from %
   await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
     config: expect.objectContaining({ blockIntervalMs: next })
   }));
+});
+
+it("keeps method and speed visible while advanced choices stay collapsed", async () => {
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  expect(screen.getByRole("group", { name: "Method" })).toBeVisible();
+  expect(screen.getByRole("group", { name: "Line speed" })).toBeVisible();
+  expect(screen.getByRole("checkbox", { name: "Automatic scanning" })).toBeVisible();
+  expect(screen.queryByRole("radio", { name: "Blue" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Customise keyboard" })).toBeNull();
+  more();
+  expect(screen.getByRole("radio", { name: "Blue" })).toBeChecked();
+  expect(screen.getByRole("button", { name: "Customise keyboard" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "More options" }));
+  expect(mocks.invoke.mock.calls.some(([command]) => command === "configure_point_scan")).toBe(false);
 });

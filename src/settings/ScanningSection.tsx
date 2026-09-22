@@ -1,3 +1,4 @@
+import { Button } from "../ui/controls";
 import { Demonstration } from "../help/Demonstration";
 import { type ScanningController, validSwitches } from "../scanning/useScanning";
 import { ScannerPreferences } from "./ScannerPreferences";
@@ -25,11 +26,12 @@ export function ScanningSection({ controller }: { controller: ScanningController
   return <div className="scanner-settings">
     <div className="scanner-status">
       <p role="status">{state?.enabled ? `${state.paused ? "Paused. " : ""}${phases[state.phase]}.` : (state?.message ?? "Loading point scan...")}</p>
-      <p role="status" className="setting-note">{pending ? "Saving scanning settings..." : unsaved ? "Scanning settings have unsaved changes." : "Scanning settings save automatically."}</p>
+      <p role="status" className="setting-note">{pending ? "Saving scanning settings..." : unsaved ? "Scanning settings have unsaved changes." : "Saved automatically."}</p>
       {error && <p role="alert">{error}</p>}
-      {error && unsaved && <button type="button" className="secondary" disabled={!!pending || !validSwitches(config)} onClick={retry}>Retry save</button>}
+      {error && unsaved && <Button type="button" className="secondary" disabled={!!pending || !validSwitches(config)} onClick={retry}>Retry save</Button>}
       {!validSwitches(config) && <p role="alert">Each switch action needs a different key. Escape is reserved for cancel.</p>}
     </div>
+    <ScannerPreferences controller={controller} />
     <details className="scanner-help"><summary>How scanning works</summary>
       <p>Focus the application you want to use, then press Select to scan the display under the pointer. Choose a point, then use the action menu for clicks, scrolling and dragging.</p>
       <p>Assign switch actions in the Switches page. Actions run on release; holding a switch freezes movement. Manual scanning needs Select, Next and Previous. After clicking or reaching the pass limit, use Select to start again.</p>
@@ -37,6 +39,5 @@ export function ScanningSection({ controller }: { controller: ScanningController
       <p>On Windows, assigned keys remain switches with Shift, Ctrl, Alt or Windows held, even in the background. Other keys and Switchify-generated shortcuts still work normally.</p>
     </details>
     <Demonstration kind="grid" /><Demonstration kind="line" /><Demonstration kind="hold" />
-    <ScannerPreferences controller={controller} />
   </div>;
 }

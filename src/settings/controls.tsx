@@ -1,8 +1,9 @@
+import { Button, Input } from "../ui/controls";
 import type { AppSettings } from "../types";
 import { useId, useState, type ReactNode, type Ref } from "react";
 
 export function Toggle({ checked, disabled = false, label, onChange }: { checked: boolean; disabled?: boolean; label: string; onChange: (next: boolean) => void }) {
-  return <label className="toggle-row" data-disabled={disabled}><span>{label}</span><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span className="toggle" aria-hidden="true" /></label>;
+  return <label className="toggle-row" data-disabled={disabled}><span>{label}</span><Input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span className="toggle" aria-hidden="true" /></label>;
 }
 
 export function SettingGroup({ title, description, children, id, sectionRef, focusable = false }: { title: string; description: string; children: ReactNode; id?: string; sectionRef?: Ref<HTMLElement>; focusable?: boolean }) {
@@ -48,7 +49,7 @@ export function OptionGroup<T extends string | number>({ legend, options, value,
 }) {
   const noteId = useId();
   const group = <fieldset disabled={disabled} aria-describedby={note ? noteId : undefined}><legend>{legend}</legend><div className={columns ? `segmented compact ${columns}` : "segmented compact"}>
-    {options.map((option) => <button type="button" key={option.value} aria-pressed={value === option.value} onClick={() => onChange(option.value)}>{option.label}</button>)}
+    {options.map((option) => <Button type="button" key={option.value} aria-pressed={value === option.value} onClick={() => onChange(option.value)}>{option.label}</Button>)}
   </div></fieldset>;
   return note ? <div className="option-with-note">{group}<SettingNote id={noteId} {...note} /></div> : group;
 }
@@ -68,7 +69,7 @@ export const overlaySizeOptions = (["small", "medium", "large"] as const)
 export type SettingsUpdate = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
 
 export function DisclosureButton({ label, expanded, onToggle, controls }: { label: string; expanded: boolean; onToggle: () => void; controls?: string }) {
-  return <button type="button" className="disclosure" aria-expanded={expanded} aria-controls={controls} onClick={onToggle}>{label}</button>;
+  return <Button type="button" className="disclosure" aria-expanded={expanded} aria-controls={controls} onClick={onToggle}>{label}</Button>;
 }
 
 // Reveals content that is unmounted while collapsed, so the button only claims

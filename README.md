@@ -9,7 +9,7 @@ The application uses the shipping product identity `Switchify PC` and bundle ide
 - Node.js 24
 - Rust 1.97.1 through rustup, including `rustfmt` and `clippy`
 - Windows: Visual Studio Build Tools with the Desktop development with C++ workload
-- macOS: Xcode Command Line Tools and macOS 13 or later
+- macOS: Xcode Command Line Tools and macOS 13.3 or later
 
 ## Run
 

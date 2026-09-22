@@ -1,3 +1,4 @@
+import { Button, Select, MoreOptions } from "../ui/controls";
 import { useEffect, useId, useState } from "react";
 import type { AppSettings } from "../types";
 import {
@@ -14,20 +15,27 @@ export function PointerSection({ settings, update }: { settings: AppSettings; up
   const [showExact, setShowExact] = useState(!isPreset);
   useEffect(() => { if (!isPreset) setShowExact(true); }, [isPreset]);
   const exactSpeedId = useId();
-  return <SettingGroup title="Controls" description="Pointer movement, scrolling, key repeat, and dwell clicking.">
+  return <SettingGroup title="Controls" description="">
       <fieldset className="pointer-speed"><legend>Pointer speed <strong>{settings.pointerScalePercent}%</strong></legend><div className="segmented compact five">
-        {pointerSpeedOptions.map((value) => <button type="button" key={value} aria-label={`${value}% pointer speed`} aria-pressed={settings.pointerScalePercent === value} onClick={() => update("pointerScalePercent", value)}>{value}%</button>)}
+        {pointerSpeedOptions.map((value) => <Button type="button" key={value} aria-label={`${value}% pointer speed`} aria-pressed={settings.pointerScalePercent === value} onClick={() => update("pointerScalePercent", value)}>{value}%</Button>)}
       </div><Disclosure label={showExact ? "Hide exact speed" : "Set an exact speed"} expanded={showExact} onToggle={() => setShowExact(!showExact)} controls={exactSpeedId}>
         <div id={exactSpeedId}>
-          <label className="exact-speed"><span>Exact speed</span><select aria-label="Exact pointer speed" value={settings.pointerScalePercent} onChange={(event) => update("pointerScalePercent", Number(event.target.value))}>
+          <label className="exact-speed"><span>Exact speed</span><Select aria-label="Exact pointer speed" value={settings.pointerScalePercent} onChange={(event) => update("pointerScalePercent", Number(event.target.value))}>
             {pointerSpeedValues.map((value) => <option key={value} value={value}>{value}%</option>)}
-          </select></label>
+          </Select></label>
           <div className="movement-values" aria-label="Pointer movement values">
             {([{"label":"Small","base":4.5},{"label":"Medium","base":12},{"label":"Large","base":26}] as const).map(({ label, base }) => <div key={label}><span>{label}</span><strong>{movementValue(base, settings.pointerScalePercent)}</strong></div>)}
           </div>
         </div>
       </Disclosure></fieldset>
-      <div className="repeat-settings">
+      <div className="repeat-settings dwell-settings">
+        <Toggle label="Click when I stop" checked={settings.dwellClickEnabled} onChange={(value) => update("dwellClickEnabled", value)} />
+        <div className="repeat-options">
+          <OptionGroup<number> legend="Wait before clicking" columns="five" disabled={!settings.dwellClickEnabled} options={secondsOptions(dwellDelayOptions)} value={settings.dwellClickDelayMs} onChange={(next) => update("dwellClickDelayMs", next)}
+            note={{ summary: "After mobile pointer movement stops, a countdown appears and performs one left click. Move again to rearm it." }} />
+        </div>
+      </div>
+      <MoreOptions>      <div className="repeat-settings">
         <Toggle label="Repeat mouse movement" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
         <div className="repeat-options">
           <OptionGroup<number> legend="Movement interval" columns="four" disabled={!settings.mouseRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.moveRepeatIntervalMs} onChange={(next) => update("moveRepeatIntervalMs", next)} />
@@ -43,12 +51,6 @@ export function PointerSection({ settings, update }: { settings: AppSettings; up
             note={{ about: "key repeat", summary: "Held navigation keys repeat, like on a keyboard.", detail: "Applies to the arrow keys, Tab, Backspace, Delete, Page Up, and Page Down." }} />
         </div>
       </div>
-      <div className="repeat-settings dwell-settings">
-        <Toggle label="Dwell to click" checked={settings.dwellClickEnabled} onChange={(value) => update("dwellClickEnabled", value)} />
-        <div className="repeat-options">
-          <OptionGroup<number> legend="Dwell delay" columns="five" disabled={!settings.dwellClickEnabled} options={secondsOptions(dwellDelayOptions)} value={settings.dwellClickDelayMs} onChange={(next) => update("dwellClickDelayMs", next)}
-            note={{ summary: "After mobile pointer movement stops, a countdown appears and performs one left click. Move again to rearm it." }} />
-        </div>
-      </div>
+</MoreOptions>
   </SettingGroup>;
 }

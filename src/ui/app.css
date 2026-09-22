@@ -1,0 +1,115 @@
+@layer components {
+  /* Main-window and portalled-dialog styles only. No global Preflight. */
+  :where(.app-shell, .modal-backdrop, .capture-backdrop) { @apply text-lg leading-relaxed; }
+  :where(.app-shell, .modal-backdrop, .capture-backdrop) [hidden] { display: none !important; }
+  :where(.app-shell, .modal-backdrop, .capture-backdrop) :where(p, small, legend, label, .setting-note, .field-error, .key-error, .sidebar-footer, .teaching-steps, .teaching-caption) { font-size: 1rem; line-height: 1.5; }
+  :where(.app-shell, .modal-backdrop, .capture-backdrop) :where(h2, h3) { @apply text-xl font-semibold; }
+  :where(.app-shell, .modal-backdrop, .capture-backdrop) :where(button, a[href], input:not([type="checkbox"]):not([type="radio"]), select, summary) { min-height: 64px; min-width: 64px; font-size: 18px; }
+  :where(.app-shell, .modal-backdrop, .capture-backdrop) a[href] { @apply inline-flex items-center rounded-xl px-3 py-3; }
+  :where(.app-shell, .modal-backdrop, .capture-backdrop) :where(button, a, input, select, summary):focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+  :where(.app-shell, .modal-backdrop, .capture-backdrop) summary { @apply flex cursor-pointer items-center rounded-xl px-4 py-3 font-semibold; }
+  .app-shell { grid-template-columns: 240px minmax(0, 1fr); }
+  .app-shell aside { @apply gap-3; overflow-y: auto; }
+  .app-shell nav { @apply gap-3; }
+  .app-shell .nav-button { @apply justify-start text-left; }
+  .view { width: min(100%, 1100px); @apply px-8 py-8; }
+  .page-header { @apply mb-6; }
+  .page-header h1 { @apply text-3xl; }
+  .page-header p { @apply text-base; }
+  .setting-group { @apply grid grid-cols-1 gap-4 py-6; }
+  .setting-controls, .repeat-options, .repeat-settings, .overlay-options { @apply gap-4; }
+  .setting-group header:has(p:empty) p { display: none; }
+  .more-options { @apply my-4 min-w-0; }
+  .more-options-content { @apply pt-4; }
+  .toggle-row > span:first-child { font-size: 18px; }
+  .toggle-row { @apply min-h-16 rounded-xl border px-4 py-3 text-lg; border-color: var(--border); background: var(--surface); }
+  .toggle { width: 52px; height: 30px; }
+  .toggle::after { width: 24px; height: 24px; }
+  .toggle-row input:checked + .toggle::after { transform: translateX(22px); }
+  .segmented, .segmented.compact, .segmented.compact.three, .segmented.compact.four, .segmented.compact.five { @apply grid gap-3 border-0 bg-transparent p-0; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .segmented button { border: 1px solid var(--border); background: var(--surface); }
+  .segmented button[aria-pressed="true"], .segmented button[aria-selected="true"] { border: 2px solid var(--brand); background: var(--brand-container); color: var(--on-brand-container); }
+  .update-controls, .update-controls > div, .privacy-choice, .pairing-actions, .profile-dialog > header, .profile-dialog > footer, .binding-row, .update-banner { @apply gap-3; }
+  .privacy-choice, .pairing-actions, .setup-dialog > header { flex-wrap: wrap; }
+  .tab-bar { @apply mb-6; }
+  .exact-speed { @apply flex flex-wrap items-center gap-3 text-base; }
+  .exact-speed > select, .exact-speed > input { max-width: 240px; }
+  .scan-rate-stepper { @apply flex items-center gap-3; }
+  .scan-rate-stepper output { @apply min-w-20 text-center text-lg; }
+  .scanner-area-cards { @apply grid grid-cols-1 gap-3; }
+  .scanner-area-card { @apply items-start p-5 text-left; }
+  .scanner-colours, .color-options { @apply flex flex-wrap gap-3; }
+  .scanner-colours label, .color-options label { @apply min-h-16 min-w-16 items-center justify-center rounded-xl px-4 py-3 text-lg; }
+  .switch-row-summary { @apply grid items-center gap-3 p-4; grid-template-columns: auto minmax(0, 1fr) auto auto; }
+  .switch-row-summary > .key-badge { grid-column: 2; justify-self: start; font-size: 16px; }
+  .switch-row-summary > button { grid-row: 1; }
+  .switch-row-summary > button:first-of-type { grid-column: 3; }
+  .switch-row-summary > button:last-of-type { grid-column: 4; }
+  .switch-row-summary p { white-space: normal; overflow-wrap: anywhere; }
+  .hold-list, .hold-list li, .key-row, .switch-editor-footer { gap: 12px; }
+  .hold-list li { grid-template-columns: 24px minmax(0, 1fr) repeat(3, 64px); }
+  .key-row, .switch-editor-footer { flex-wrap: wrap; }
+  .scanner-area-card strong { font-size: 18px; }
+  .scanner-area-card > span, .scanner-inheritance { font-size: 16px; }
+  .profile-dialog > header, .pairing-dialog > header { flex-wrap: wrap; }
+  .teaching-disclosure > button > span { min-width: 0; overflow-wrap: anywhere; }
+  .more-options button, .app-shell button { white-space: normal; }
+  .switch-list { @apply grid gap-4; }
+  .switch-list-actions, .switch-editor-actions, .setup-choices, .teaching-controls, .dialog-actions { @apply flex flex-wrap gap-3; }
+  .switch-editor { @apply grid gap-4 p-4; }
+  .switch-editor .field, .field { @apply min-w-0; }
+  .switch-practice-entry { @apply grid gap-3; }
+  .switch-practice-entry > p:first-child { @apply text-base; }
+  .switch-practice-entry label { @apply flex flex-wrap items-center gap-3; }
+  .switch-practice-entry select { width: auto; max-width: 100%; }
+  .connection-band { @apply grid gap-4 rounded-xl p-5; grid-template-columns: auto minmax(0, 1fr); }
+  .connection-band > button { grid-column: 1 / -1; }
+  .status-list article, .task-list article { @apply grid gap-4 py-4; grid-template-columns: auto minmax(0, 1fr); }
+  .status-list article > button, .task-list article > button { grid-column: 1 / -1; justify-self: start; }
+  .profile-row, .device-list article { @apply gap-3 py-4; }
+  .profile-row { @apply text-left; }
+  .modal-backdrop { @apply p-3; }
+  .setup-dialog { width: min(100%, 920px); height: min(900px, calc(100dvh - 24px)); max-height: calc(100dvh - 24px); @apply p-5; }
+  .setup-dialog[data-switch-step="true"] { height: min(900px, calc(100dvh - 24px)); }
+  .setup-content, .setup-dialog[data-switch-step="true"] .setup-content { @apply px-1 py-4; }
+  .setup-dialog > footer { @apply flex-wrap gap-3 pt-3; }
+  .setup-dialog > header h2 { @apply text-2xl; }
+  .setup-dialog > header span, .setup-dialog > header strong { @apply text-base; }
+  .pairing-dialog, .profile-dialog, .switch-confirm-dialog, .switch-practice-dialog { width: min(100%, 900px); max-height: calc(100dvh - 24px); @apply overflow-auto p-5; }
+  .pairing-row, .pairing-list article { @apply flex flex-wrap gap-4; }
+  .mobile-download { @apply gap-5; }
+  .teaching-disclosure { @apply my-4; }
+  .teaching-disclosure > button { @apply w-full flex-wrap justify-between border text-left; border-color: var(--border); }
+  .teaching-demo { @apply max-w-full p-4; }
+  .teaching-caption { @apply text-lg; }
+  .home-actions { @apply mt-6 grid gap-4; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .home-actions > button { @apply min-h-24 text-xl; }
+  @media (max-width: 800px) {
+    .app-shell { grid-template-columns: 1fr; }
+    .app-shell aside { position: static; height: auto; @apply p-3; }
+    .app-shell aside .brand, .app-shell .sidebar-footer { display: none; }
+    .app-shell nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .app-shell .nav-button { @apply justify-center; flex-direction: column; }
+    .app-shell .nav-button span { display: block; }
+    .view { @apply p-4; }
+    .switch-row-summary { grid-template-columns: auto minmax(0, 1fr); }
+    .switch-row-summary > button:first-of-type, .switch-row-summary > button:last-of-type { width: 100%; grid-row: auto; grid-column: auto; }
+    .hold-list li { grid-template-columns: repeat(3, minmax(64px, 1fr)); }
+    .hold-list li > select { grid-column: 2 / -1; }
+    .mobile-download { grid-template-columns: 1fr; }
+    .mobile-download figure { justify-self: start; }
+    .profile-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+    .profile-row > span:not(:last-child) { display: none; }
+  }
+  @media (max-width: 480px) {
+    .app-shell nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .view { padding: 12px; }
+    .connection-band { grid-template-columns: minmax(0, 1fr); }
+    .profile-row { display: flex; flex-wrap: wrap; }
+  }
+  @media (max-height: 600px) {
+    .setup-dialog { overflow-y: auto; }
+    .setup-dialog > * { flex-shrink: 0; }
+    .setup-dialog .setup-content { overflow: visible; }
+  }
+}
