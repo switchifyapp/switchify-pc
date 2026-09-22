@@ -193,7 +193,7 @@ describe("Switchify PC settings", () => {
     expect(within(dwellDelay).getByRole("button", { name: "1.5s" })).toHaveAttribute("aria-pressed", "true");
     // Dwell's whole explanation fits one note, so it gets no disclosure, and
     // the group is described by it.
-    const dwellNote = screen.getByText(/After Android pointer movement stops/);
+    const dwellNote = screen.getByText(/After mobile pointer movement stops/);
     expect(screen.queryByRole("button", { name: /about dwell/ })).not.toBeInTheDocument();
     expect(dwellDelay).toHaveAttribute("aria-describedby", dwellNote.id);
   });

@@ -59,7 +59,7 @@ thread_local! {static COUNTDOWN: RefCell<(Option<Host>, Option<crate::scanning::
 /// Scanning has no on/off switch. It is armed whenever the saved switches can
 /// drive the current mode and the environment allows it, and the tick loop
 /// re-arms it after anything that stopped it: a save, key learning, Escape, an
-/// Android session or a failed key reservation. Failed attempts back off by this
+/// Mobile session or a failed key reservation. Failed attempts back off by this
 /// much so a key held by another application is not hammered every tick.
 const RETRY_MS: u64 = 2000;
 pub struct Controller<A: Adapter> {
@@ -784,7 +784,7 @@ fn tick<A: Adapter>(app: &AppHandle) {
         == crate::state::BluetoothState::Connected
         && !crate::remote_scan::active(app)
     {
-        disable::<A>(app, "Android connected. Local scanning stopped.");
+        disable::<A>(app, "Mobile device connected. Local scanning stopped.");
         return;
     }
     let result = (|| -> Result<(), String> {

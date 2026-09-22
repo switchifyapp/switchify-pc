@@ -1,7 +1,7 @@
 [package]
 name = "switchify-pc"
 version = "1.0.0-rc.14"
-description = "Switchify desktop companion for Android control"
+description = "Switchify desktop companion for mobile control"
 authors = ["Enabo Apps"]
 edition = "2021"
 rust-version = "1.97.1"

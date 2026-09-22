@@ -47,7 +47,7 @@ export function PointerSection({ settings, update }: { settings: AppSettings; up
         <Toggle label="Dwell to click" checked={settings.dwellClickEnabled} onChange={(value) => update("dwellClickEnabled", value)} />
         <div className="repeat-options">
           <OptionGroup<number> legend="Dwell delay" columns="five" disabled={!settings.dwellClickEnabled} options={secondsOptions(dwellDelayOptions)} value={settings.dwellClickDelayMs} onChange={(next) => update("dwellClickDelayMs", next)}
-            note={{ summary: "After Android pointer movement stops, a countdown appears and performs one left click. Move again to rearm it." }} />
+            note={{ summary: "After mobile pointer movement stops, a countdown appears and performs one left click. Move again to rearm it." }} />
         </div>
       </div>
   </SettingGroup>;

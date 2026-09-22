@@ -277,7 +277,7 @@ pub fn begin(app: &AppHandle, remote: bool) -> Result<View, String> {
     }
     if remote && !crate::remote_scan::active(app) {
         return Err(
-            "No remote forwarding session. Connect Android and start switch forwarding first."
+            "No remote forwarding session. Connect your mobile device and start switch forwarding first."
                 .into(),
         );
     }
@@ -287,7 +287,7 @@ pub fn begin(app: &AppHandle, remote: bool) -> Result<View, String> {
     let (settings, generation) = if remote {
         let Some((g, s, _, _)) = remote_state else {
             return Err(
-                "No remote forwarding session. Connect Android and start switch forwarding first."
+                "No remote forwarding session. Connect your mobile device and start switch forwarding first."
                     .into(),
             );
         };

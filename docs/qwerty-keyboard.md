@@ -1,6 +1,6 @@
 # QWERTY scanning keyboard
 
-Switchify has its own UK English keyboard on Windows and macOS. It uses the saved local switches or the existing Android remote scanning actions. It does not use the operating system's on-screen keyboard.
+Switchify has its own UK English keyboard on Windows and macOS. It uses the saved local switches or the existing mobile remote scanning actions. It does not use the operating system's on-screen keyboard.
 
 Select **Keyboard** in the action menu, or assign **Open keyboard** to a switch press or hold action in Settings → Switches. The switch opens the keyboard from idle, point scanning, menus, pauses and drags. Opening releases owned input and preserves the existing foreground focus without clicking. The keyboard does not take focus or accept mouse clicks.
 

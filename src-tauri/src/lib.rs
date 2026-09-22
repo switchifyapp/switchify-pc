@@ -1423,7 +1423,7 @@ fn point_scan_ready(app: &AppHandle) -> Result<(), String> {
     }
     let state = app.state::<AppModel>().snapshot();
     if state.bluetooth == state::BluetoothState::Connected && !remote_scan::active(app) {
-        return Err("Local scanning pauses while Android is connected.".into());
+        return Err("Local scanning pauses while a mobile device is connected.".into());
     }
     if state.accessibility != state::AccessibilityState::Granted {
         return Err("Grant input access before using point scan.".into());

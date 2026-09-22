@@ -34,7 +34,7 @@ describe("Switchify PC shell", () => {
     return { settings, state: { settings, capture: { active: false, key: null, error: null }, supported: true, error: null, escapeHoldMs: 4000, unavailableKeys: [] }, pending: 0, error: null, capturing: false, unsaved: false, update: vi.fn(), remove: vi.fn(), capture: vi.fn(), cancelCapture: vi.fn().mockResolvedValue(undefined), setKeyboardEntry: vi.fn().mockResolvedValue(true), retry: vi.fn() };
   }
 
-  it("shows local readiness without Bluetooth and explains Android suspension", async () => {
+  it("shows local readiness without Bluetooth and explains Mobile suspension", async () => {
     browserState.accessibility = "granted";
     browserState.bluetooth = "unsupported";
     vi.spyOn(switchHooks, "useSwitches").mockReturnValue(localSwitches());
@@ -48,7 +48,7 @@ describe("Switchify PC shell", () => {
     expect(screen.getByText("Manual scanning · Line only")).toBeInTheDocument();
     scanning.state = { ...scanning.state!, paused: true };
     act(() => receive?.({ ...structuredClone(browserState), bluetooth: "connected" }));
-    expect(screen.getByText("Local scanning is paused while an Android device is connected.")).toBeInTheDocument();
+    expect(screen.getByText("Local scanning is paused while a mobile device is connected.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
   });
 
@@ -181,17 +181,17 @@ describe("Switchify PC shell", () => {
     expect(within(footer as HTMLElement).queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("distinguishes the Android install QR from pairing for existing users", async () => {
+  it("distinguishes the Mobile install QR from pairing for existing users", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
-    fireEvent.click(screen.getByRole("button", { name: "Android connection" }));
-    expect(screen.getByRole("heading", { name: "Install Switchify for Android" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mobile connection" }));
+    expect(screen.getByRole("heading", { name: "Install Switchify for mobile" })).toBeInTheDocument();
     const qr = screen.getByRole("img", { name: "QR code for Switchify on Google Play" });
     expect(qr.closest("figure")).toHaveTextContent("Scan to open Google Play and install Switchify.");
     expect(screen.getByRole("link", { name: "Open Google Play" })).toHaveAttribute("href", expect.stringContaining("play.google.com"));
     const pairing = screen.getByRole("heading", { name: "Already installed? Connect to this computer" }).closest("section")!;
     expect(within(pairing).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "Open Switchify on your Android device and select this computer.",
+      "Open Switchify on your mobile device and select this computer.",
       "Compare the pairing codes shown in both apps.",
       "Approve the pairing request on this computer only if the codes match.",
     ]);
@@ -206,7 +206,7 @@ describe("Switchify PC shell", () => {
 
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
-    fireEvent.click(screen.getByRole("button", { name: "Android connection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mobile connection" }));
     fireEvent.click(screen.getByRole("tab", { name: "Paired devices" }));
 
     expect(screen.getByText(`Last connected ${new Date(connectedAt).toLocaleString()}`)).toBeInTheDocument();
@@ -239,15 +239,15 @@ describe("Switchify PC shell", () => {
 
   it.each([
     ["initializing", "Stale tablet", "Preparing this computer for nearby devices."],
-    ["advertising", "Stale tablet", "Waiting for a nearby Android device."],
-    ["connected", null, "Android device connected."],
+    ["advertising", "Stale tablet", "Waiting for a nearby mobile device."],
+    ["connected", null, "Mobile device connected."],
     ["connected", "Pixel Tablet", "Pixel Tablet"],
-    ["poweredOff", "Stale tablet", "Turn on Bluetooth to connect an Android device."],
+    ["poweredOff", "Stale tablet", "Turn on Bluetooth to connect a mobile device."],
     ["unauthorized", "Stale tablet", "Allow Bluetooth access in System Settings to connect."],
     ["conflict", "Stale tablet", "Quit the other Switchify PC instance, then reopen this app."],
     ["unsupported", "Stale tablet", "This computer does not support the required Bluetooth features."],
     ["error", "Stale tablet", "Bluetooth could not start. Try restarting Switchify PC."],
-  ] satisfies Array<[BluetoothState, string | null, string]>)('uses recovery-appropriate Android connection copy for Bluetooth state "%s"', async (bluetooth, deviceName, description) => {
+  ] satisfies Array<[BluetoothState, string | null, string]>)('uses recovery-appropriate Mobile connection copy for Bluetooth state "%s"', async (bluetooth, deviceName, description) => {
     browserState.bluetooth = bluetooth;
     browserState.connectedDeviceName = deviceName;
     browserState.lastActivity = { kind: "error", message: "Internal runtime activity" };
@@ -255,7 +255,7 @@ describe("Switchify PC shell", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Switchify PC" });
-    fireEvent.click(screen.getByRole("button", { name: "Android connection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mobile connection" }));
     expect(screen.getByText(description)).toBeInTheDocument();
     if (bluetooth !== "connected") expect(screen.queryByText("Stale tablet")).not.toBeInTheDocument();
     expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
@@ -385,7 +385,7 @@ describe("Switchify PC shell", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("completes switch setup without Android or Bluetooth and requires explicit choices", async () => {
+  it("completes switch setup without Mobile or Bluetooth and requires explicit choices", async () => {
     browserState.pairedDevices = [];
     browserState.bluetooth = "unsupported";
     const complete = vi.spyOn(api, "completeSetup").mockImplementation(async (startWithSystem, shareDiagnostics) => ({
@@ -490,7 +490,7 @@ describe("Switchify PC shell", () => {
       return [profile];
     });
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Android connection" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile connection" }));
     fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     const newProfile = await screen.findByRole("button", { name: "New profile" });
     expect(newProfile).toHaveClass("primary");
@@ -511,7 +511,7 @@ describe("Switchify PC shell", () => {
     };
     vi.spyOn(api, "listProfiles").mockResolvedValue([source, { ...source, id: crypto.randomUUID(), name: "Generic keyboard copy", builtIn: false }]);
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Android connection" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile connection" }));
     fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: /Generic keyboard.*Built in/ }));
     expect(screen.getByRole("textbox", { name: "Profile name" })).toBeDisabled();
@@ -526,7 +526,7 @@ describe("Switchify PC shell", () => {
 
   it("identifies duplicate names and bindings at their fields", async () => {
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Android connection" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile connection" }));
     fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Generic keyboard" } });
@@ -545,7 +545,7 @@ describe("Switchify PC shell", () => {
 
   it("confirms dirty editor dismissal and restores focus", async () => {
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Android connection" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile connection" }));
     fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     const opener = await screen.findByRole("button", { name: "New profile" });
     fireEvent.click(opener);
@@ -560,7 +560,7 @@ describe("Switchify PC shell", () => {
 
   it("closes pristine new and duplicated profiles without a discard prompt", async () => {
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Android connection" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile connection" }));
     fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     const newProfile = await screen.findByRole("button", { name: "New profile" });
     fireEvent.click(newProfile);
@@ -578,7 +578,7 @@ describe("Switchify PC shell", () => {
   it("prevents navigation from discarding a modified profile", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Android connection" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile connection" }));
     fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Modified controls" } });
@@ -601,7 +601,7 @@ describe("Switchify PC shell", () => {
       return () => undefined;
     });
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Android connection" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile connection" }));
     fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Unsaved controls" } });
@@ -627,7 +627,7 @@ describe("Switchify PC shell", () => {
     vi.spyOn(api, "listProfiles").mockResolvedValue([custom]);
     vi.spyOn(api, "deleteProfile").mockResolvedValue([]);
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Android connection" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile connection" }));
     fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: /Scanning controls.*Custom/ }));
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Changed controls" } });
@@ -642,7 +642,7 @@ describe("Switchify PC shell", () => {
   it("keeps the editor open and focused when saving fails", async () => {
     vi.spyOn(api, "saveProfile").mockRejectedValue(new Error("Profile storage unavailable"));
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Android connection" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile connection" }));
     fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
     fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
