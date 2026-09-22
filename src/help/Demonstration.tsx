@@ -3,7 +3,6 @@ import { createContext, useContext, useEffect, useId, useRef, useState, type Rea
 import { demonstration, type DemonstrationKind, type DemoPlatform } from "./demonstrations";
 import { PrototypeArtwork } from "./PrototypeArtwork";
 import { TeachingArtwork } from "./TeachingArtwork";
-import "./demonstrations.css";
 
 const DemoContext = createContext<{ suspended: boolean; platform: DemoPlatform }>({ suspended: false, platform: "windows" });
 
