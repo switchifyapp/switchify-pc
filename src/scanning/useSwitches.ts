@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 export const actions = {
   select: "Select",
+  openKeyboard: "Open keyboard",
   next: "Next",
   back: "Previous",
   reverse: "Reverse direction",

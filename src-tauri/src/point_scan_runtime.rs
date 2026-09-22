@@ -12,25 +12,6 @@ pub struct Environment {
     display: Display,
     foreground: usize,
     keyboard_area: Rect,
-    handoff: Option<FocusHandoff>,
-}
-#[derive(Clone)]
-struct FocusHandoff {
-    target: usize,
-    ready_at: std::time::Instant,
-}
-impl FocusHandoff {
-    fn verify(&self, now: std::time::Instant, foreground: usize) -> Result<bool, String> {
-        if now < self.ready_at {
-            return Ok(false);
-        }
-        if foreground != self.target {
-            return Err(
-                "The selected target did not receive focus. Please select it again.".into(),
-            );
-        }
-        Ok(true)
-    }
 }
 pub struct PointScan;
 pub type Controller = scanning_runtime::Controller<PointScan>;
@@ -86,22 +67,14 @@ impl Adapter for PointScan {
                 return crate::prediction::select(token, index).map(|()| None)
             }
             Request::Keyboard(stroke) => {
+                let scope = crate::prediction::InputScope::capture();
                 let result = crate::scan_executor::activate(request);
-                crate::prediction::record(stroke, result.is_ok());
+                crate::prediction::record(stroke, result.is_ok(), scope);
                 return result.map(|()| None);
             }
-            Request::OpenKeyboard { point: Some(point) } => {
-                let target = crate::scan_host::target_at(point)?;
-                crate::scan_executor::activate(request)?;
-                let (_, mut environment) =
-                    new_engine(app, app.state::<Controller>().view().config)?;
-                // Allow the one requested click to establish focus before accepting
-                // any key. No typing or scan advancement occurs during this handoff.
-                environment.handoff = Some(FocusHandoff {
-                    target,
-                    ready_at: std::time::Instant::now() + std::time::Duration::from_millis(150),
-                });
-                return Ok(Some(environment));
+            Request::OpenKeyboard => {
+                crate::prediction::stop();
+                crate::scan_executor::activate(request)
             }
             Request::Setting(setting) => scanning_runtime::update_point_setting(app, setting),
             Request::Display(next) => scanning_runtime::restart_point_on_display(app, next),
@@ -112,15 +85,18 @@ impl Adapter for PointScan {
     fn settle_environment(
         app: &AppHandle,
         environment: Option<&mut Environment>,
+        technique: Option<&mut Workflow>,
     ) -> Result<bool, String> {
-        if let Some(environment) = environment {
-            if let Some(handoff) = &environment.handoff {
+        if let (Some(environment), Some(technique)) = (environment, technique) {
+            if technique.keyboard_open() {
                 crate::point_scan_ready(app)?;
-                if !handoff.verify(std::time::Instant::now(), crate::scan_host::foreground()?)? {
-                    return Ok(false);
+                let foreground = crate::scan_host::foreground()?;
+                if environment.foreground != foreground {
+                    crate::scan_executor::cleanup()?;
+                    crate::prediction::reset();
+                    technique.foreground_changed();
+                    environment.foreground = foreground;
                 }
-                environment.foreground = handoff.target;
-                environment.handoff = None;
             }
         }
         Ok(true)
@@ -173,7 +149,6 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
             display,
             foreground: crate::scan_host::foreground()?,
             keyboard_area,
-            handoff: None,
         },
     ))
 }
@@ -221,24 +196,7 @@ mod tests {
         assert!(!PointScan::preserve_visuals(
             &crate::point_workflow::default_click((10, 20))
         ));
-        assert!(!PointScan::preserve_visuals(&Request::OpenKeyboard {
-            point: Some((10, 20))
-        }));
+        assert!(!PointScan::preserve_visuals(&Request::OpenKeyboard));
         assert!(!PointScan::preserve_visuals(&Request::DragStart((10, 20))));
-    }
-
-    #[test]
-    fn focus_handoff_waits_and_only_accepts_the_clicked_target() {
-        let start = std::time::Instant::now();
-        let handoff = FocusHandoff {
-            target: 42,
-            ready_at: start + std::time::Duration::from_millis(150),
-        };
-        assert_eq!(handoff.verify(start, 7), Ok(false));
-        assert_eq!(handoff.verify(start, 42), Ok(false));
-        assert_eq!(handoff.verify(handoff.ready_at, 42), Ok(true));
-        // A failed activation and an unrelated app stealing focus both fail closed.
-        assert!(handoff.verify(handoff.ready_at, 7).is_err());
-        assert!(handoff.verify(handoff.ready_at, 99).is_err());
     }
 }

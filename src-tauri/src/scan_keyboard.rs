@@ -394,6 +394,13 @@ impl Keyboard {
             }
         }
     }
+    pub fn reset_context(&mut self) {
+        self.modifiers = [Modifier::Off; 4];
+        self.caps = false;
+        self.activation = None;
+        self.predictions(None, false);
+        self.restart();
+    }
     pub fn failed(&mut self) {
         self.modifiers = [Modifier::Off; 4];
         self.caps = false;

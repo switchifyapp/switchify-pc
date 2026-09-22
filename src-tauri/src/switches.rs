@@ -122,6 +122,25 @@ impl Settings {
 mod tests {
     use super::*;
     #[test]
+    fn version_one_assignments_round_trip_with_additive_keyboard_action() {
+        let legacy = serde_json::json!({
+            "schemaVersion": 1, "holdIntervalMs": 1000,
+            "bindings": [{ "id": "one", "name": "One", "key": "Space",
+                           "pressAction": "select", "holdActions": ["next", "back", "pause", "reverse", "stop"] }]
+        });
+        let mut settings: Settings = serde_json::from_value(legacy.clone()).unwrap();
+        settings.validate_actions(false).unwrap();
+        assert_eq!(serde_json::to_value(&settings).unwrap(), legacy);
+        settings.bindings[0].hold_actions.push(Action::OpenKeyboard);
+        settings.validate_actions(false).unwrap();
+        let updated = serde_json::to_value(&settings).unwrap();
+        assert_eq!(updated["bindings"][0]["holdActions"][5], "openKeyboard");
+        assert_eq!(
+            serde_json::from_value::<Settings>(updated).unwrap(),
+            settings
+        );
+    }
+    #[test]
     fn legacy_bindings_migrate_without_losing_keys() {
         let c = crate::point_scan::Config::default();
         let s = Settings::migrate(&c);

@@ -39,6 +39,7 @@ pub trait Adapter: Send + Sync + 'static {
     fn settle_environment(
         app: &AppHandle,
         environment: Option<&mut Self::Environment>,
+        technique: Option<&mut Self::Technique>,
     ) -> Result<bool, String>;
 }
 
@@ -410,13 +411,22 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
     hide_prompt();
     let result = (|| -> Result<(), String> {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
-        if d.engine.as_ref().is_none_or(|e| !e.active()) && action == Action::Select {
+        if action == Action::OpenKeyboard
+            || (d.engine.as_ref().is_none_or(|e| !e.active()) && action == Action::Select)
+        {
             let (engine, display) = A::create(app, d.config.clone())?;
             d.engine = Some(Session::new(engine, A::switches(&d.config).automatic));
             d.display = Some(display);
             A::prepare(app)?;
         }
-        if !A::settle_environment(app, d.display.as_mut())? {
+        let Data {
+            display, engine, ..
+        } = &mut *d;
+        if !A::settle_environment(
+            app,
+            display.as_mut(),
+            engine.as_mut().map(|e| &mut e.technique),
+        )? {
             return Ok(());
         }
         A::validate_environment(app, d.display.as_ref())?;
@@ -779,7 +789,14 @@ fn tick<A: Adapter>(app: &AppHandle) {
     }
     let result = (|| -> Result<(), String> {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
-        if !A::settle_environment(app, d.display.as_mut())? {
+        let Data {
+            display, engine, ..
+        } = &mut *d;
+        if !A::settle_environment(
+            app,
+            display.as_mut(),
+            engine.as_mut().map(|e| &mut e.technique),
+        )? {
             d.last_tick = Instant::now();
             return Ok(());
         }

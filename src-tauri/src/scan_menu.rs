@@ -5,7 +5,6 @@ use crate::{
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
-    TypeHere,
     Keyboard,
     KeyboardKey,
     More,
@@ -34,7 +33,6 @@ pub enum Item {
 impl Item {
     pub fn label(self) -> &'static str {
         match self {
-            Self::TypeHere => "Type here",
             Self::Keyboard => "Keyboard",
             Self::KeyboardKey => "Key",
             Self::More => "More",
@@ -436,7 +434,7 @@ impl Kind {
                 return vec![
                     vec![LeftClick, RightClick, DoubleClick],
                     vec![Scroll, Drag, More],
-                    vec![TypeHere],
+                    vec![Keyboard],
                     vec![NewPoint, Cancel],
                 ]
             }
