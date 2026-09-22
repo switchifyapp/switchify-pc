@@ -846,7 +846,7 @@ mod title_tests {
     }
 
     #[test]
-    fn titles_follow_tile_edges_without_changing_header_spacing() {
+    fn titles_follow_tile_edges_with_clear_header_spacing() {
         for screen in [
             Rect {
                 x: 0.0,
@@ -882,7 +882,7 @@ mod title_tests {
                     assert!((rect.x + rect.width - last.x - last.width).abs() < 0.001);
                     assert_eq!(rect.y, label.rect.y);
                     assert_eq!(rect.height, label.rect.height);
-                    assert!((actions[0].rect.y - rect.y - rect.height - 8.0 * scale).abs() < 0.001);
+                    assert!((actions[0].rect.y - rect.y - rect.height - 4.0 * scale).abs() < 0.001);
                     assert!(rect.x >= screen.x && rect.x + rect.width <= screen.x + screen.width);
                     assert!(rect.y >= screen.y && rect.y + rect.height <= screen.y + screen.height);
                     if paused {
