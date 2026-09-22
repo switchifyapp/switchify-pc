@@ -44,8 +44,8 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "shortDescription": "Android control for Windows and macOS",
-    "longDescription": "Cross-platform Switchify desktop companion for Android control.",
+    "shortDescription": "Mobile control for Windows and macOS",
+    "longDescription": "Cross-platform Switchify desktop companion for mobile control.",
     "windows": {
       "nsis": { "installMode": "perMachine" }
     },

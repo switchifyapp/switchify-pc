@@ -1,4 +1,4 @@
-//! Pure Android-style release/hold selection. Cancellation never becomes an action.
+//! Pure Mobile-style release/hold selection. Cancellation never becomes an action.
 use crate::{
     scanning::Action,
     switches::{Binding, Settings},
@@ -168,7 +168,7 @@ mod tests {
         assert_eq!(gestures.released("two", 30), None);
     }
     #[test]
-    fn boundary_and_last_action_match_android() {
+    fn boundary_and_last_action_match_mobile() {
         for (duration, expected) in [
             (999, Action::Select),
             (1000, Action::Next),

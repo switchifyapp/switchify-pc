@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
   <key>NSBluetoothAlwaysUsageDescription</key>
-  <string>Switchify uses Bluetooth to receive authenticated control commands from your Android device.</string>
+  <string>Switchify uses Bluetooth to receive authenticated control commands from your mobile device.</string>
 </dict>
 </plist>

@@ -32,7 +32,7 @@ export function ScanningSection({ controller }: { controller: ScanningController
     <details className="scanner-help"><summary>How scanning works</summary>
       <p>Focus the application you want to use, then press Select to scan the display under the pointer. Choose a point, then use the action menu for clicks, scrolling and dragging.</p>
       <p>Assign switch actions in the Switches page. Actions run on release; holding a switch freezes movement. Manual scanning needs Select, Next and Previous. After clicking or reaching the pass limit, use Select to start again.</p>
-      <p>Assigned keys stay reserved while Switchify runs. Escape resets the scan. Android connections pause local scanning until they end.</p>
+      <p>Assigned keys stay reserved while Switchify runs. Escape resets the scan. Mobile connections pause local scanning until they end.</p>
       <p>On Windows, assigned keys remain switches with Shift, Ctrl, Alt or Windows held, even in the background. Other keys and Switchify-generated shortcuts still work normally.</p>
     </details>
     <ScannerPreferences controller={controller} />

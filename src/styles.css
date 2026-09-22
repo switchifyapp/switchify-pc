@@ -186,13 +186,13 @@ button:disabled { cursor: default; opacity: 0.55; }
 .setup-statuses { border-top: 1px solid var(--border); }
 .setup-statuses article { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; min-height: 92px; border-bottom: 1px solid var(--border); padding: 14px 4px; }
 .setup-statuses h3 { font-size: 14px; }
-.android-download { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 36px; }
-.android-download figure { margin: 0; max-width: 210px; }
-.android-download figcaption { margin-top: 8px; color: var(--muted); font-size: 13px; }
-.android-pairing { margin-top: 28px; }
-.android-pairing ol { padding-left: 24px; color: var(--muted); line-height: 1.6; }
-.android-download a { width: max-content; margin-top: 22px; text-decoration: none; }
-.android-download img { width: 190px; height: 190px; border: 1px solid var(--border); border-radius: 9px; padding: 10px; background: white; image-rendering: crisp-edges; }
+.mobile-download { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 36px; }
+.mobile-download figure { margin: 0; max-width: 210px; }
+.mobile-download figcaption { margin-top: 8px; color: var(--muted); font-size: 13px; }
+.mobile-pairing { margin-top: 28px; }
+.mobile-pairing ol { padding-left: 24px; color: var(--muted); line-height: 1.6; }
+.mobile-download a { width: max-content; margin-top: 22px; text-decoration: none; }
+.mobile-download img { width: 190px; height: 190px; border: 1px solid var(--border); border-radius: 9px; padding: 10px; background: white; image-rendering: crisp-edges; }
 .setup-pairings { margin-top: 20px; border-top: 1px solid var(--border); }
 .setup-pairings article { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 16px; min-height: 82px; border-bottom: 1px solid var(--border); }
 .setup-pairings article > div:first-child { display: grid; gap: 4px; }
@@ -266,8 +266,8 @@ button:disabled { cursor: default; opacity: 0.55; }
   .task-list article > button { grid-column: 1 / -1; }
   .setup-dialog { min-height: 0; padding: 20px; }
   .setup-content { padding: 28px 0 20px; }
-  .android-download { grid-template-columns: 1fr; }
-  .android-download img { width: 150px; height: 150px; }
+  .mobile-download { grid-template-columns: 1fr; }
+  .mobile-download img { width: 150px; height: 150px; }
   .setup-statuses article, .setup-pairings article { grid-template-columns: auto 1fr; }
   .setup-statuses article > button, .setup-pairings article > div:last-child { grid-column: 1 / -1; }
 }

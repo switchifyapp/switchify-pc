@@ -52,12 +52,12 @@ const scan = {
   message: "Scanning is off.",
   supported: true,
 };
-function Shell({ visible = true, androidConnected = false }: { visible?: boolean; androidConnected?: boolean }) {
+function Shell({ visible = true, mobileConnected = false }: { visible?: boolean; mobileConnected?: boolean }) {
   const switches = useSwitches();
   const scanning = useScanning();
   return (
     <>
-      {visible && <SwitchesSection controller={switches} androidConnected={androidConnected} />}
+      {visible && <SwitchesSection controller={switches} mobileConnected={mobileConnected} />}
       <ScanningSection controller={scanning} />
     </>
   );
@@ -608,7 +608,7 @@ it("separates an empty local configuration from the six remote presets", async (
   await screen.findByRole("heading", { name: "Remote switch 6" });
   expect(screen.getByText(/No local switches configured/)).toBeInTheDocument();
   expect(screen.getByText(/not detected physical switches/)).toBeInTheDocument();
-  expect(screen.getByText(/No Android device connected/)).toBeInTheDocument();
+  expect(screen.getByText(/No mobile device connected/)).toBeInTheDocument();
   expect(screen.getAllByText(/Remote forwarding slot/)).toHaveLength(6);
   expect(mocks.invoke.mock.calls.some(([command]) => command.startsWith("save_"))).toBe(false);
 });
@@ -623,9 +623,9 @@ it("keeps source identity after renaming and separates connection from tested in
   expect(within(row).getByText("Remote 1")).toBeInTheDocument();
   const localRow = screen.getByRole("heading", { name: "Head switch" }).closest("article")!;
   expect(within(localRow).getByText("On this computer")).toBeInTheDocument();
-  view.rerender(<Shell androidConnected />);
-  expect(screen.getByText(/Android device connected. This does not confirm/)).toHaveTextContent("A connection alone does not verify a physical switch press.");
-  expect(screen.queryByText(/No Android device connected/)).not.toBeInTheDocument();
+  view.rerender(<Shell mobileConnected />);
+  expect(screen.getByText(/Mobile device connected. This does not confirm/)).toHaveTextContent("A connection alone does not verify a physical switch press.");
+  expect(screen.queryByText(/No mobile device connected/)).not.toBeInTheDocument();
   view.rerender(<Shell />);
-  expect(screen.getByText(/No Android device connected/)).toBeInTheDocument();
+  expect(screen.getByText(/No mobile device connected/)).toBeInTheDocument();
 });

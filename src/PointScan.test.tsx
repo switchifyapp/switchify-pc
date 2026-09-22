@@ -176,7 +176,7 @@ it("keeps a newer runtime event when an older save response arrives", async () =
     mocks.listen.mock.calls[0][1]({
       payload: {
         ...initial,
-        message: "Android connected. Local scanning stopped.",
+        message: "Mobile device connected. Local scanning stopped.",
       },
     }),
   );
@@ -184,7 +184,7 @@ it("keeps a newer runtime event when an older save response arrives", async () =
     resolveSave({ ...initial, enabled: true, message: "Ready." }),
   );
   expect(
-    screen.getByText("Android connected. Local scanning stopped."),
+    screen.getByText("Mobile device connected. Local scanning stopped."),
   ).toBeInTheDocument();
 });
 

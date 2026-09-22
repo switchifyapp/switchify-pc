@@ -411,7 +411,7 @@ impl AppModel {
                         discarded_legacy_pairing.then(|| Activity {
                             kind: ActivityKind::Info,
                             message:
-                                "Pair Android again once to finish the secure-storage upgrade."
+                                "Pair your mobile device again once to finish the secure-storage upgrade."
                                     .into(),
                         })
                     }),

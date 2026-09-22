@@ -20,8 +20,8 @@ use crate::ble_lifecycle::{RecoveryCoordinator, RECOVERY_DELAYS};
 use crate::display_navigation::{self, NavigationError};
 use crate::dwell::DwellController;
 use crate::input::{
-    execute_desktop_command, execute_dwell_click, AndroidTypingRoute, DesktopCommandOutcome,
-    DesktopInput, PointerFeedback,
+    execute_desktop_command, execute_dwell_click, DesktopCommandOutcome, DesktopInput,
+    MobileTypingRoute, PointerFeedback,
 };
 use crate::modifier_overlay::ModifierOverlay;
 use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERVAL_MS};
@@ -891,7 +891,7 @@ impl MacRuntime {
             set_activity(
                 &self.shared,
                 ActivityKind::Info,
-                "Advertising to nearby Switchify Android devices.",
+                "Advertising to nearby Switchify mobile devices.",
             );
         } else {
             self.reset_gatt();
@@ -920,7 +920,7 @@ impl MacRuntime {
                 &self.shared,
                 ActivityKind::Info,
                 format!(
-                    "Android connected. Notification limit: {maximum_notification_bytes} bytes."
+                    "Mobile device connected. Notification limit: {maximum_notification_bytes} bytes."
                 ),
             );
             self.flush_outbound()?;
@@ -1227,7 +1227,7 @@ impl MacRuntime {
     }
 
     fn handle_text(&mut self, command: TextCommand) {
-        let typing_route = AndroidTypingRoute::for_text(&command.text);
+        let typing_route = MobileTypingRoute::for_text(&command.text);
         let app = self.app.clone();
         typing_route.prepare(
             || app.state::<DwellController>().cancel(&app),
@@ -1337,7 +1337,7 @@ impl MacRuntime {
         ) {
             self.app.state::<DwellController>().cancel(&self.app);
         }
-        let typing_route = AndroidTypingRoute::for_command(&command.command_type);
+        let typing_route = MobileTypingRoute::for_command(&command.command_type);
         let profiles = self
             .shared
             .lock()
@@ -2001,7 +2001,7 @@ impl MacRuntime {
             .values()
             .copied()
             .min()
-            .ok_or_else(|| "No Android device is subscribed for notifications.".to_string())?;
+            .ok_or_else(|| "No mobile device is subscribed for notifications.".to_string())?;
         self.outbound.push_notification_message(
             message,
             MAX_QUEUED_NOTIFICATIONS,
@@ -2241,7 +2241,7 @@ mod tests {
     #[test]
     fn mac_typing_route_orders_cleanup_before_successful_overlay_hiding() {
         let events = Mutex::new(Vec::new());
-        let route = AndroidTypingRoute::for_text("Hello");
+        let route = MobileTypingRoute::for_text("Hello");
         route.prepare(
             || events.lock().unwrap().push("cancel dwell"),
             || events.lock().unwrap().push("stop repeats"),
@@ -2253,7 +2253,7 @@ mod tests {
         );
 
         let events = Mutex::new(Vec::new());
-        let failed = AndroidTypingRoute::for_text("Hello");
+        let failed = MobileTypingRoute::for_text("Hello");
         failed.prepare(
             || events.lock().unwrap().push("cancel dwell"),
             || events.lock().unwrap().push("stop repeats"),
@@ -2262,7 +2262,7 @@ mod tests {
         assert_eq!(*events.lock().unwrap(), ["cancel dwell", "stop repeats"]);
 
         let events = Mutex::new(Vec::new());
-        let empty = AndroidTypingRoute::for_text("");
+        let empty = MobileTypingRoute::for_text("");
         empty.prepare(
             || events.lock().unwrap().push("cancel dwell"),
             || events.lock().unwrap().push("stop repeats"),

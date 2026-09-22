@@ -6,7 +6,7 @@ The normal action runs on release. Hold actions are offered in their configured 
 
 Stop resets the scan and leaves the keys reserved. Select starts again. Pause preserves position. Reverse changes direction without stepping. Automatic scanning requires Select; manual scanning also requires Next and Previous. Hold assignments count toward those requirements.
 
-Escape and the emergency hold reset the scan and release the keys; the runtime re-arms them on its next tick. The emergency hold timeout is at least 4 seconds and extends to (longest hold list + 2) × interval when hold actions exist. Settings shows the resulting duration. Heartbeat loss, capture failure, overflow, Android connection and shutdown cancel gestures without executing release actions.
+Escape and the emergency hold reset the scan and release the keys; the runtime re-arms them on its next tick. The emergency hold timeout is at least 4 seconds and extends to (longest hold list + 2) × interval when hold actions exist. Settings shows the resulting duration. Heartbeat loss, capture failure, overflow, mobile connection and shutdown cancel gestures without executing release actions.
 
 ## Storage and integration
 

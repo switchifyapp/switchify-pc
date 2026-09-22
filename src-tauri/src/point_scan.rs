@@ -1,4 +1,4 @@
-//! Android point scanning, with desktop coordinates and no OS input in the engine.
+//! Mobile point scanning, with desktop coordinates and no OS input in the engine.
 use crate::scan_tree::{Navigator, Node, Selection};
 use crate::scanning::{
     Action, Frame, FrameLabel, Interval, Rect, SwitchSettings, Technique, TICK_MS,

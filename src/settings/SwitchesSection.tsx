@@ -380,7 +380,7 @@ function SwitchConfirmation({ title, action, busy, error, cancel, confirm }: { t
   </section></div>, document.body);
 }
 
-export function SwitchesSection({ controller, onDraftChange, suspended = false, androidConnected }: { controller: SwitchController; onDraftChange?: (draft: boolean) => void; suspended?: boolean; androidConnected?: boolean }) {
+export function SwitchesSection({ controller, onDraftChange, suspended = false, mobileConnected }: { controller: SwitchController; onDraftChange?: (draft: boolean) => void; suspended?: boolean; mobileConnected?: boolean }) {
   const { settings, state, pending, unsaved } = controller;
   // A refused capture sets both the general error and the capture error; the
   // key field already shows the latter, so the band only carries save errors.
@@ -679,11 +679,11 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
             ? "No local switches configured. Use Add switch to learn a switch."
             : `${settings.bindings.length} local ${settings.bindings.length === 1 ? "switch configured" : "switches configured"}.`}</p>
           <p className="setting-note">Remote assignments are numbered forwarding slots in Switchify Remote, not detected physical switches. The supplied presets can be changed or removed.</p>
-          <p className="setting-note" role="status">{androidConnected === true
-            ? "Android device connected. This does not confirm that remote assignments match your switches."
-            : androidConnected === false
-              ? "No Android device connected. Remote assignments are available for a future connection."
-              : "Android connection status is unavailable here."} A connection alone does not verify a physical switch press.</p>
+          <p className="setting-note" role="status">{mobileConnected === true
+            ? "Mobile device connected. This does not confirm that remote assignments match your switches."
+            : mobileConnected === false
+              ? "No mobile device connected. Remote assignments are available for a future connection."
+              : "Mobile connection status is unavailable here."} A connection alone does not verify a physical switch press.</p>
         </div>
         <SettingNote
           about="switches"

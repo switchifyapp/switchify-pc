@@ -1,6 +1,6 @@
 # Switchify PC
 
-Switchify PC is the Rust/Tauri desktop companion for controlling Windows and macOS from the Switchify Android app. The React/TypeScript interface and Rust backend now live at the repository root. Platform adapters provide Bluetooth LE peripheral support, authenticated pairing, input injection, overlays, profiles, startup and tray behavior, diagnostics, and update checks.
+Switchify PC is the Rust/Tauri desktop companion for controlling Windows and macOS from the Switchify mobile app. The React/TypeScript interface and Rust backend now live at the repository root. Platform adapters provide Bluetooth LE peripheral support, authenticated pairing, input injection, overlays, profiles, startup and tray behavior, diagnostics, and update checks.
 
 The application uses the shipping product identity `Switchify PC` and bundle identifier `com.enaboapps.switchify.pc`. Only one application may advertise the Switchify Bluetooth service at a time.
 
@@ -29,9 +29,9 @@ The command idempotently creates a machine-local, ten-year code-signing identity
 
 The first time, choose **Open Accessibility Settings**, enable **Switchify PC**, and return to the app. It silently updates to Ready when the window regains focus. If the row is already enabled but access remains required, select the stale row, click Remove, return to Switchify, reopen Accessibility Settings, and enable the newly added entry. The setup never resets TCC.
 
-The signed macOS application stores Android pairing tokens in `pairing-tokens.json` in its application-data directory. The file is written atomically with user-only `0600` permissions, and its parent directory is restricted to `0700`. Windows uses its native credential store.
+The signed macOS application stores mobile pairing tokens in `pairing-tokens.json` in its application-data directory. The file is written atomically with user-only `0600` permissions, and its parent directory is restricted to `0700`. Windows uses its native credential store.
 
-The promoted identity starts with new settings, a new desktop ID, and no paired devices. Data, credentials, Accessibility approval, and certificates from earlier development builds are not migrated or removed. Recognized Switchify startup entries are migrated to the signed launcher without changing their enabled state; pair Android again after upgrading.
+The promoted identity starts with new settings, a new desktop ID, and no paired devices. Data, credentials, Accessibility approval, and certificates from earlier development builds are not migrated or removed. Recognized Switchify startup entries are migrated to the signed launcher without changing their enabled state; pair your mobile device again after upgrading.
 
 On a fresh unpaired installation, Switchify opens a five-step setup guide once. It checks Bluetooth and input access, links to Switchify on Google Play with a QR code, presents live secure-pairing approvals, and records explicit startup and anonymous-diagnostics choices. **Skip for now** dismisses the automatic prompt without marking setup complete; reopen it at any time from Home or Support. Existing paired users are never forced into the guide.
 

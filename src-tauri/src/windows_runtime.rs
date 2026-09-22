@@ -24,8 +24,8 @@ use crate::ble_lifecycle::{RecoveryCoordinator, RECOVERY_DELAYS};
 use crate::display_navigation::{self, NavigationError};
 use crate::dwell::DwellController;
 use crate::input::{
-    execute_desktop_command, execute_dwell_click, AndroidTypingRoute, DesktopCommandOutcome,
-    DesktopInput, PointerFeedback,
+    execute_desktop_command, execute_dwell_click, DesktopCommandOutcome, DesktopInput,
+    MobileTypingRoute, PointerFeedback,
 };
 use crate::modifier_overlay::ModifierOverlay;
 use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERVAL_MS};
@@ -155,7 +155,7 @@ impl NotificationDispatcher {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             if !state.subscribed {
-                return Err("No Android device is subscribed for notifications.".into());
+                return Err("No mobile device is subscribed for notifications.".into());
             }
             (state.generation, state.maximum_encoded_bytes)
         };
@@ -179,7 +179,7 @@ impl NotificationDispatcher {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if !state.subscribed {
-            return Err("No Android device is subscribed for notifications.".into());
+            return Err("No mobile device is subscribed for notifications.".into());
         }
         if expected_delivery.is_some_and(|(generation, maximum_encoded_bytes)| {
             state.generation != generation || state.maximum_encoded_bytes != maximum_encoded_bytes
@@ -937,9 +937,9 @@ async fn start_gatt(
                 if cancelled > 0 {
                     "Pairing request cancelled."
                 } else if connected {
-                    "Android device connected."
+                    "Mobile device connected."
                 } else {
-                    "Android device disconnected."
+                    "Mobile device disconnected."
                 },
             );
             if !connected {
@@ -1263,7 +1263,7 @@ fn update_advertisement_status(
         (
             BluetoothState::Advertising,
             ActivityKind::Info,
-            "Advertising to nearby Switchify Android devices.".to_string(),
+            "Advertising to nearby Switchify mobile devices.".to_string(),
         )
     } else if status == GattServiceProviderAdvertisementStatus::StartedWithoutAllAdvertisementData {
         (
@@ -1560,7 +1560,7 @@ fn complete_mouse_click(
         )
 }
 fn complete_text(app: &AppHandle, shared: &SharedModel, command: TextCommand) -> Option<String> {
-    let typing_route = AndroidTypingRoute::for_text(&command.text);
+    let typing_route = MobileTypingRoute::for_text(&command.text);
     typing_route.prepare(
         || app.state::<DwellController>().cancel(app),
         || stop_all_repeats(app),
@@ -1636,7 +1636,7 @@ fn complete_desktop(
     ) {
         app.state::<DwellController>().cancel(app);
     }
-    let typing_route = AndroidTypingRoute::for_command(&command.command_type);
+    let typing_route = MobileTypingRoute::for_command(&command.command_type);
     let profiles = shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -2341,7 +2341,7 @@ mod tests {
         NOTIFICATION_BYTES, NOTIFICATION_DELIVERY_ERROR,
     };
     use crate::display_navigation::Display;
-    use crate::input::AndroidTypingRoute;
+    use crate::input::MobileTypingRoute;
     use crate::protocol::{
         create_notification_frames, pointer_profile_response, BluetoothFrame, EngineEvent,
         FrameReassembler, PointerProfile, ProtocolEngine,
@@ -2398,7 +2398,7 @@ mod tests {
     #[test]
     fn windows_typing_route_orders_cleanup_before_successful_overlay_hiding() {
         let events = Mutex::new(Vec::new());
-        let route = AndroidTypingRoute::for_text("Hello");
+        let route = MobileTypingRoute::for_text("Hello");
         route.prepare(
             || events.lock().unwrap().push("cancel dwell"),
             || events.lock().unwrap().push("stop repeats"),
@@ -2410,7 +2410,7 @@ mod tests {
         );
 
         let events = Mutex::new(Vec::new());
-        let failed = AndroidTypingRoute::for_text("Hello");
+        let failed = MobileTypingRoute::for_text("Hello");
         failed.prepare(
             || events.lock().unwrap().push("cancel dwell"),
             || events.lock().unwrap().push("stop repeats"),
@@ -2419,7 +2419,7 @@ mod tests {
         assert_eq!(*events.lock().unwrap(), ["cancel dwell", "stop repeats"]);
 
         let events = Mutex::new(Vec::new());
-        let empty = AndroidTypingRoute::for_text("");
+        let empty = MobileTypingRoute::for_text("");
         empty.prepare(
             || events.lock().unwrap().push("cancel dwell"),
             || events.lock().unwrap().push("stop repeats"),
@@ -2547,7 +2547,7 @@ mod tests {
         let dispatcher = NotificationDispatcher::default();
         assert_eq!(
             dispatcher.enqueue("response"),
-            Err("No Android device is subscribed for notifications.".into())
+            Err("No mobile device is subscribed for notifications.".into())
         );
     }
 

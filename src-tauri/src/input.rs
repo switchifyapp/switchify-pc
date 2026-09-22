@@ -41,11 +41,11 @@ pub struct DesktopCommandOutcome {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AndroidTypingRoute {
+pub struct MobileTypingRoute {
     eligible: bool,
 }
 
-impl AndroidTypingRoute {
+impl MobileTypingRoute {
     pub fn for_text(text: &str) -> Self {
         Self {
             eligible: !text.is_empty(),
@@ -1991,7 +1991,7 @@ mod tests {
     }
 
     #[test]
-    fn android_typing_commands_report_only_actual_keyboard_injection() {
+    fn mobile_typing_commands_report_only_actual_keyboard_injection() {
         let mut input = DesktopInput::new(FakeInjector::default());
 
         for (command_type, payload) in [
@@ -2068,7 +2068,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_android_typing_does_not_report_injection() {
+    fn failed_mobile_typing_does_not_report_injection() {
         let mut input = DesktopInput::new(FakeInjector {
             fail_key_down: true,
             ..FakeInjector::default()
@@ -2094,7 +2094,7 @@ mod tests {
             "keyboard.textStream.key",
         ] {
             assert!(
-                AndroidTypingRoute::for_command(command_type).is_eligible(),
+                MobileTypingRoute::for_command(command_type).is_eligible(),
                 "{command_type}"
             );
         }
@@ -2107,18 +2107,18 @@ mod tests {
             "window.control",
         ] {
             assert!(
-                !AndroidTypingRoute::for_command(command_type).is_eligible(),
+                !MobileTypingRoute::for_command(command_type).is_eligible(),
                 "{command_type}"
             );
         }
-        assert!(AndroidTypingRoute::for_text("a").is_eligible());
-        assert!(!AndroidTypingRoute::for_text("").is_eligible());
+        assert!(MobileTypingRoute::for_text("a").is_eligible());
+        assert!(!MobileTypingRoute::for_text("").is_eligible());
     }
 
     #[test]
     fn typing_route_orders_prepare_and_successful_hide_effects() {
         let events = Mutex::new(Vec::new());
-        let route = AndroidTypingRoute::for_text("Hello");
+        let route = MobileTypingRoute::for_text("Hello");
         route.prepare(
             || events.lock().unwrap().push("cancel dwell"),
             || events.lock().unwrap().push("stop repeats"),
@@ -2130,13 +2130,13 @@ mod tests {
         );
 
         let events = Mutex::new(Vec::new());
-        AndroidTypingRoute::for_text("").prepare(
+        MobileTypingRoute::for_text("").prepare(
             || events.lock().unwrap().push("cancel dwell"),
             || events.lock().unwrap().push("stop repeats"),
         );
-        AndroidTypingRoute::for_text("")
+        MobileTypingRoute::for_text("")
             .finish(true, || events.lock().unwrap().push("hide overlay"));
-        AndroidTypingRoute::for_text("Hello")
+        MobileTypingRoute::for_text("Hello")
             .finish(false, || events.lock().unwrap().push("hide overlay"));
         assert!(events.lock().unwrap().is_empty());
     }
@@ -2268,7 +2268,7 @@ mod tests {
     }
 
     #[test]
-    fn android_pointer_speed_changes_persist_and_restore() {
+    fn mobile_pointer_speed_changes_persist_and_restore() {
         let root =
             std::env::temp_dir().join(format!("switchify-pointer-speed-{}", uuid::Uuid::new_v4()));
         let state_path = root.join("state.json");
