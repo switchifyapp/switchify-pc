@@ -3,7 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SwitchPractice } from "./SwitchPractice";
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
-const view = { active: true, source: "Local keyboard", message: "Press Select", input: "", action: null, completed: 0, rectangles: [], tiles: [], label: "" };
+const view = {
+  active: true,
+  source: "Local keyboard",
+  message: "Press Select",
+  input: "",
+  action: null,
+  completed: 0,
+  blocks: [
+    { id: "0", label: "Block 1", selected: false },
+    { id: "1", label: "Block 2", selected: true },
+    { id: "2", label: "Block 3", selected: false },
+  ],
+};
 beforeEach(() => {
   Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
   invoke.mockReset(); invoke.mockImplementation(async (command: string) => command === "end_switch_practice" ? undefined : view);
@@ -79,13 +91,12 @@ describe("safe switch practice", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(invoke.mock.calls.filter(c => c[0] === "end_switch_practice")).toHaveLength(1);
   });
-  it("exposes readable menu labels outside the scaled scan area", async () => {
-    invoke.mockResolvedValue({ ...view, label: "Choose an action", tiles: [ { rect: [0,0,100,50], text: "Left click", selected: true }, { rect: [100,0,100,50], text: "Right click", selected: false } ] });
+  it("shows practice blocks and the highlighted label", async () => {
     render(<SwitchPractice />); fireEvent.click(screen.getByRole("button", { name: "Test switches" }));
     await screen.findByRole("dialog");
-    expect(screen.getByRole("list", { name: "Practice action menu" })).toHaveTextContent("Left clickRight click");
-    expect(screen.getByText("Highlighted: Left click")).toBeInTheDocument();
-    expect(screen.queryByText("Choose any point to practise")).not.toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Practice blocks" })).toHaveTextContent("Block 1Block 2Block 3");
+    expect(screen.getByText("Highlighted: Block 2")).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /Practice scanning area/i })).not.toBeInTheDocument();
   });
   it("does not allow starting with unsaved settings or without a native backend", () => {
     const { rerender } = render(<SwitchPractice disabled />);
