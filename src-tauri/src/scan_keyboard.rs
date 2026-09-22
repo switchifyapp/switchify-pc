@@ -2,7 +2,7 @@
 use crate::{
     scan_items::{ItemScanner, Policy},
     scan_menu::Item,
-    scanning::{Action, Frame, FrameTile, KeyboardRole, KeyboardTileStyle, Rect, ScannerColor},
+    scanning::{Action, Frame, FrameTile, Rect, ScannerColor, TileRole, TileStyle},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -480,12 +480,12 @@ impl Keyboard {
             _ => 1.0,
         }
     }
-    fn style(&self, key: Key, row_scan: bool) -> KeyboardTileStyle {
-        KeyboardTileStyle {
+    fn style(&self, key: Key, row_scan: bool) -> TileStyle {
+        TileStyle {
             role: match key {
-                Key::Character(..) => KeyboardRole::Character,
-                Key::Page(_) | Key::Dock | Key::Close => KeyboardRole::Toolbar,
-                _ => KeyboardRole::Utility,
+                Key::Character(..) => TileRole::Character,
+                Key::Page(_) | Key::Dock | Key::Close => TileRole::Toolbar,
+                _ => TileRole::Utility,
             },
             active: match key {
                 Key::Modifier(i) => self.modifiers[i] != Modifier::Off,
@@ -540,7 +540,7 @@ impl Keyboard {
                     color,
                     text: self.label(*key),
                     icon: Item::KeyboardKey,
-                    keyboard: Some(self.style(*key, row_scan)),
+                    style: Some(self.style(*key, row_scan)),
                     rect: Rect {
                         x: left,
                         y: y + header_height + r as f64 * row_height,
@@ -589,8 +589,8 @@ impl Keyboard {
             color,
             text,
             icon: Item::KeyboardKey,
-            keyboard: Some(KeyboardTileStyle {
-                role: KeyboardRole::Status,
+            style: Some(TileStyle {
+                role: TileRole::Status,
                 active: false,
                 row_scan: false,
             }),
@@ -941,7 +941,7 @@ mod tests {
             .iter()
             .find(|t| t.text.starts_with("Shift"))
             .unwrap();
-        assert!(shift.keyboard.unwrap().active);
+        assert!(shift.style.unwrap().active);
         assert!(!shift.selected);
         k.handle(Action::Select);
         let keys = k.frame(screen, 1.0, ScannerColor::default());

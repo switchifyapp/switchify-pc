@@ -171,7 +171,7 @@ impl Menu {
                 let selected = r == active_row && active_column.is_none_or(|column| column == c);
                 frame.tiles.push(FrameTile {
                     thickness: Default::default(),
-                    keyboard: None,
+                    style: None,
                     color: Default::default(),
                     text: item.label().into(),
                     rect,

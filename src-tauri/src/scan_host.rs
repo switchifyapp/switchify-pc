@@ -420,7 +420,8 @@ mod platform {
             artwork.setImage(Some(&image));
             view.addSubview(&artwork);
             let label = NSTextField::wrappingLabelWithString(&NSString::from_str(&tile.text), mtm);
-            let key = tile.icon == crate::scan_menu::Item::KeyboardKey;
+            let key =
+                !tile.is_panel_background() && tile.icon == crate::scan_menu::Item::KeyboardKey;
             label.setFont(Some(&NSFont::boldSystemFontOfSize(
                 if key {
                     crate::scan_tile::keyboard_font_size(tile)

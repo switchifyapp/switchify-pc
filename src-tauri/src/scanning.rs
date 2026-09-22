@@ -245,16 +245,16 @@ pub struct UpdateContext {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeyboardRole {
-    Background,
+pub enum TileRole {
+    Panel,
     Character,
     Utility,
     Toolbar,
     Status,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct KeyboardTileStyle {
-    pub role: KeyboardRole,
+pub struct TileStyle {
+    pub role: TileRole,
     pub active: bool,
     pub row_scan: bool,
 }
@@ -266,7 +266,7 @@ pub struct FrameTile {
     pub rect: Rect,
     pub scale: f64,
     pub icon: crate::scan_menu::Item,
-    pub keyboard: Option<KeyboardTileStyle>,
+    pub style: Option<TileStyle>,
     pub selected: bool,
 }
 impl FrameTile {
@@ -277,8 +277,8 @@ impl FrameTile {
             color,
             text: String::new(),
             icon: crate::scan_menu::Item::KeyboardKey,
-            keyboard: Some(KeyboardTileStyle {
-                role: KeyboardRole::Background,
+            style: Some(TileStyle {
+                role: TileRole::Panel,
                 active: false,
                 row_scan: false,
             }),
@@ -288,8 +288,8 @@ impl FrameTile {
         }
     }
     pub fn is_panel_background(&self) -> bool {
-        self.keyboard
-            .is_some_and(|style| style.role == KeyboardRole::Background)
+        self.style
+            .is_some_and(|style| style.role == TileRole::Panel)
     }
 }
 #[derive(Debug, Clone, PartialEq)]

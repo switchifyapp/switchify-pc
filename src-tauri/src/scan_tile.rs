@@ -5,35 +5,40 @@ use tiny_skia::{
 };
 
 pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
+    use crate::scanning::TileRole;
+    let style = tile.style;
+    if tile.is_panel_background() {
+        let mut bitmap = Pixmap::new(
+            tile.rect.width.round().max(1.0) as u32,
+            tile.rect.height.round().max(1.0) as u32,
+        )
+        .ok_or("Cannot allocate panel background")?;
+        let mut paint = Paint::default();
+        paint.set_color_rgba8(20, 24, 32, 255);
+        let path = key_outline(
+            bitmap.width() as f32,
+            bitmap.height() as f32,
+            0.0,
+            (18.0 * tile.scale) as f32,
+        );
+        bitmap.fill_path(
+            &path,
+            &paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+        return Ok(bitmap);
+    }
     if tile.icon == Item::KeyboardKey {
         let mut bitmap = Pixmap::new(
             tile.rect.width.round().max(1.0) as u32,
             tile.rect.height.round().max(1.0) as u32,
         )
         .ok_or("Cannot allocate keyboard key")?;
-        use crate::scanning::KeyboardRole;
-        let style = tile.keyboard;
-        if style.is_some_and(|s| s.role == KeyboardRole::Background) {
-            let mut paint = Paint::default();
-            paint.set_color_rgba8(20, 24, 32, 255);
-            let path = key_outline(
-                bitmap.width() as f32,
-                bitmap.height() as f32,
-                0.0,
-                (18.0 * tile.scale) as f32,
-            );
-            bitmap.fill_path(
-                &path,
-                &paint,
-                FillRule::Winding,
-                Transform::identity(),
-                None,
-            );
-            return Ok(bitmap);
-        }
         let base = match style.map(|s| s.role) {
-            Some(KeyboardRole::Character) => [43, 51, 66],
-            Some(KeyboardRole::Utility) => [34, 41, 54],
+            Some(TileRole::Character) => [43, 51, 66],
+            Some(TileRole::Utility) => [34, 41, 54],
             _ => [25, 30, 40],
         };
         bitmap.fill(Color::from_rgba8(20, 24, 32, 255));
@@ -244,9 +249,9 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
 }
 
 pub fn keyboard_font_size(tile: &FrameTile) -> f64 {
-    match tile.keyboard.map(|s| s.role) {
-        Some(crate::scanning::KeyboardRole::Character) if tile.text.chars().count() == 1 => 24.0,
-        Some(crate::scanning::KeyboardRole::Status) => 17.0,
+    match tile.style.map(|s| s.role) {
+        Some(crate::scanning::TileRole::Character) if tile.text.chars().count() == 1 => 24.0,
+        Some(crate::scanning::TileRole::Status) => 17.0,
         _ => 16.0,
     }
 }
@@ -714,7 +719,7 @@ mod tests {
         for color in [Red, Green, Blue, Yellow, White] {
             let mut tile = FrameTile {
                 thickness: Default::default(),
-                keyboard: None,
+                style: None,
                 color,
                 text: "Click".into(),
                 rect: Rect {
@@ -816,7 +821,7 @@ mod tests {
         ] {
             let mut tile = FrameTile {
                 thickness: Default::default(),
-                keyboard: None,
+                style: None,
                 color: Default::default(),
                 text: icon.label().into(),
                 rect: crate::scanning::Rect {
