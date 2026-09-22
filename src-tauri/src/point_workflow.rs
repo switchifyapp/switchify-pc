@@ -708,9 +708,13 @@ mod tests {
                 s.technique.elapsed = 123;
                 s.technique.pending = Some(default_click((10, 20)));
                 let tiles = s.frame().tiles;
+                let first = tiles
+                    .iter()
+                    .find(|tile| !tile.is_panel_background())
+                    .expect("menu actions");
                 let rows = tiles
                     .iter()
-                    .filter(|tile| tile.rect.x == tiles[0].rect.x)
+                    .filter(|tile| !tile.is_panel_background() && tile.rect.x == first.rect.x)
                     .count();
                 assert_eq!(choose(&mut s, rows - 1, 1), None, "{kind:?}");
                 assert!(!s.active());
@@ -965,7 +969,7 @@ mod tests {
         for (column, right, count) in [(0, false, 1), (1, true, 1), (2, false, 2)] {
             let mut s = session(false);
             open(&mut s);
-            assert_eq!(s.frame().tiles.len(), 9);
+            assert_eq!(s.frame().tiles.len(), 10);
             assert_eq!(
                 choose(&mut s, 0, column),
                 Some(Request::Click {

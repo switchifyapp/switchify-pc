@@ -245,16 +245,16 @@ pub struct UpdateContext {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeyboardRole {
-    Background,
+pub enum TileRole {
+    Panel,
     Character,
     Utility,
     Toolbar,
     Status,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct KeyboardTileStyle {
-    pub role: KeyboardRole,
+pub struct TileStyle {
+    pub role: TileRole,
     pub active: bool,
     pub row_scan: bool,
 }
@@ -266,8 +266,31 @@ pub struct FrameTile {
     pub rect: Rect,
     pub scale: f64,
     pub icon: crate::scan_menu::Item,
-    pub keyboard: Option<KeyboardTileStyle>,
+    pub style: Option<TileStyle>,
     pub selected: bool,
+}
+impl FrameTile {
+    /// Dark rounded panel behind keyboard keys or menu action tiles.
+    pub fn panel_background(rect: Rect, scale: f64, color: ScannerColor) -> Self {
+        Self {
+            thickness: Default::default(),
+            color,
+            text: String::new(),
+            icon: crate::scan_menu::Item::KeyboardKey,
+            style: Some(TileStyle {
+                role: TileRole::Panel,
+                active: false,
+                row_scan: false,
+            }),
+            rect,
+            scale,
+            selected: false,
+        }
+    }
+    pub fn is_panel_background(&self) -> bool {
+        self.style
+            .is_some_and(|style| style.role == TileRole::Panel)
+    }
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct HudPresentation {

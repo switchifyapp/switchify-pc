@@ -2,7 +2,7 @@
 use crate::{
     scan_items::{ItemScanner, Policy},
     scan_menu::Item,
-    scanning::{Action, Frame, FrameTile, KeyboardRole, KeyboardTileStyle, Rect, ScannerColor},
+    scanning::{Action, Frame, FrameTile, Rect, ScannerColor, TileRole, TileStyle},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -480,12 +480,12 @@ impl Keyboard {
             _ => 1.0,
         }
     }
-    fn style(&self, key: Key, row_scan: bool) -> KeyboardTileStyle {
-        KeyboardTileStyle {
+    fn style(&self, key: Key, row_scan: bool) -> TileStyle {
+        TileStyle {
             role: match key {
-                Key::Character(..) => KeyboardRole::Character,
-                Key::Page(_) | Key::Dock | Key::Close => KeyboardRole::Toolbar,
-                _ => KeyboardRole::Utility,
+                Key::Character(..) => TileRole::Character,
+                Key::Page(_) | Key::Dock | Key::Close => TileRole::Toolbar,
+                _ => TileRole::Utility,
             },
             active: match key {
                 Key::Modifier(i) => self.modifiers[i] != Modifier::Off,
@@ -514,25 +514,16 @@ impl Keyboard {
         let gap = (6.0 * scale).min(row_height / 8.0);
         let header_height = row_height * 0.9;
         let mut frame = Frame::default();
-        frame.tiles.push(FrameTile {
-            thickness: Default::default(),
-            color,
-            text: String::new(),
-            icon: Item::KeyboardKey,
-            keyboard: Some(KeyboardTileStyle {
-                role: KeyboardRole::Background,
-                active: false,
-                row_scan: false,
-            }),
-            rect: Rect {
+        frame.tiles.push(FrameTile::panel_background(
+            Rect {
                 x,
                 y,
                 width,
                 height,
             },
-            scale: outer_scale,
-            selected: false,
-        });
+            outer_scale,
+            color,
+        ));
         let x = x + padding;
         let y = y + padding;
         let width = content_width;
@@ -549,7 +540,7 @@ impl Keyboard {
                     color,
                     text: self.label(*key),
                     icon: Item::KeyboardKey,
-                    keyboard: Some(self.style(*key, row_scan)),
+                    style: Some(self.style(*key, row_scan)),
                     rect: Rect {
                         x: left,
                         y: y + header_height + r as f64 * row_height,
@@ -598,8 +589,8 @@ impl Keyboard {
             color,
             text,
             icon: Item::KeyboardKey,
-            keyboard: Some(KeyboardTileStyle {
-                role: KeyboardRole::Status,
+            style: Some(TileStyle {
+                role: TileRole::Status,
                 active: false,
                 row_scan: false,
             }),
@@ -890,7 +881,7 @@ mod tests {
             ScannerColor::default(),
         );
         let panel = &frame.tiles[0];
-        assert_eq!(panel.keyboard.unwrap().role, KeyboardRole::Background);
+        assert!(panel.is_panel_background());
         for key in &frame.tiles[1..] {
             assert!(key.rect.x > panel.rect.x);
             assert!(key.rect.y > panel.rect.y);
@@ -950,7 +941,7 @@ mod tests {
             .iter()
             .find(|t| t.text.starts_with("Shift"))
             .unwrap();
-        assert!(shift.keyboard.unwrap().active);
+        assert!(shift.style.unwrap().active);
         assert!(!shift.selected);
         k.handle(Action::Select);
         let keys = k.frame(screen, 1.0, ScannerColor::default());

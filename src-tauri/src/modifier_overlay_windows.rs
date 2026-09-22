@@ -613,7 +613,7 @@ pub(crate) fn present_scan_tile(
     tile: &crate::scanning::FrameTile,
 ) -> Result<(), String> {
     let pixmap = crate::scan_tile::bitmap(tile)?;
-    if tile.icon == crate::scan_menu::Item::KeyboardKey {
+    if tile.is_panel_background() || tile.icon == crate::scan_menu::Item::KeyboardKey {
         let width = pixmap.width() as i32;
         let height = pixmap.height() as i32;
         let horizontal_padding = (8.0 * tile.scale).round().max(1.0) as i32;

@@ -1,7 +1,7 @@
 //! Menu rows and navigation are independent of native windows and input.
 use crate::{
     scan_items::{ItemScanner, Policy},
-    scanning::{Action, Frame, FrameLabel, FrameTile, Rect},
+    scanning::{Action, Frame, FrameLabel, FrameTile, Rect, ScannerColor},
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
@@ -153,12 +153,18 @@ impl Menu {
         let height = logical_height * scale;
         let panel = place(point, screen, width, height, 20.0 * scale);
         let mut frame = Frame::default();
+        frame.tiles.push(FrameTile::panel_background(
+            panel,
+            scale,
+            ScannerColor::default(),
+        ));
         let (active_row, active_column) = self.scan.position(&self.rows);
         for (r, row) in self.rows.iter().enumerate() {
             let tile_width = 180.0 * scale;
             for (c, item) in row.iter().enumerate() {
                 let rect = Rect {
-                    x: panel.x + 8.0 * scale + c as f64 * tile_width,
+                    // Center the grid, excluding the unused trailing cell gap.
+                    x: panel.x + 14.0 * scale + c as f64 * tile_width,
                     y: panel.y + (56.0 + 180.0 * r as f64) * scale,
                     width: 168.0 * scale,
                     height: 168.0 * scale,
@@ -166,7 +172,7 @@ impl Menu {
                 let selected = r == active_row && active_column.is_none_or(|column| column == c);
                 frame.tiles.push(FrameTile {
                     thickness: Default::default(),
-                    keyboard: None,
+                    style: None,
                     color: Default::default(),
                     text: item.label().into(),
                     rect,
@@ -191,8 +197,11 @@ impl Menu {
         frame.label = Some(FrameLabel {
             text: text.into(),
             rect: Rect {
+                // Keep the opaque title inside the rounded panel silhouette.
+                x: panel.x + 14.0 * scale,
+                y: panel.y + 4.0 * scale,
+                width: panel.width - 28.0 * scale,
                 height: 48.0 * scale,
-                ..panel
             },
             scale: scale * 0.75,
             hud: None,
@@ -665,16 +674,105 @@ mod tests {
         };
         let mut menu = Menu::new(Kind::Actions, 250);
         let row = menu.frame((10, 10), screen, 2.0);
-        assert_eq!(row.tiles.iter().filter(|t| t.selected).count(), 3);
-        assert_eq!(row.tiles[0].rect.x, row.tiles[3].rect.x);
-        assert_eq!(row.tiles[1].rect.x, row.tiles[4].rect.x);
-        for tile in &row.tiles {
+        let actions: Vec<_> = row
+            .tiles
+            .iter()
+            .filter(|tile| !tile.is_panel_background())
+            .collect();
+        assert!(row.tiles[0].is_panel_background());
+        assert_eq!(actions.iter().filter(|t| t.selected).count(), 3);
+        assert_eq!(actions[0].rect.x, actions[3].rect.x);
+        assert_eq!(actions[1].rect.x, actions[4].rect.x);
+        for tile in &actions {
             assert_eq!(tile.rect.width, tile.rect.height);
         }
         menu.handle(Action::Select);
         let item = menu.frame((10, 10), screen, 2.0);
-        assert_eq!(item.tiles.iter().filter(|t| t.selected).count(), 1);
-        assert!(item.tiles[0].selected);
+        let actions: Vec<_> = item
+            .tiles
+            .iter()
+            .filter(|tile| !tile.is_panel_background())
+            .collect();
+        assert_eq!(actions.iter().filter(|t| t.selected).count(), 1);
+        assert!(actions[0].selected);
+    }
+    #[test]
+    fn rounded_panel_has_clear_corners_and_insets_all_actions() {
+        let screen = Rect {
+            x: -1280.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let frame = Menu::new(Kind::Actions, 250).frame((0, 0), screen, 1.0);
+        let panel = &frame.tiles[0];
+        assert!(panel.is_panel_background());
+        for tile in frame
+            .tiles
+            .iter()
+            .filter(|tile| !tile.is_panel_background())
+        {
+            assert!(tile.rect.x > panel.rect.x);
+            assert!(tile.rect.y > panel.rect.y);
+            assert!(tile.rect.x + tile.rect.width < panel.rect.x + panel.rect.width);
+            assert!(tile.rect.y + tile.rect.height < panel.rect.y + panel.rect.height);
+        }
+        let pixels = crate::scan_tile::bitmap(panel).unwrap();
+        assert_eq!(pixels.data()[3], 0);
+        let center = ((pixels.height() / 2 * pixels.width() + pixels.width() / 2) * 4 + 3) as usize;
+        assert_eq!(pixels.data()[center], 255);
+    }
+    #[test]
+    fn menu_header_stays_inside_rounded_panel_and_above_buttons() {
+        let screen = Rect {
+            x: -1280.0,
+            y: -100.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        for scale in [1.0, 1.5, 2.0] {
+            for kind in [Kind::Actions, Kind::Scroll, Kind::ConfirmDrag] {
+                let frame = Menu::new(kind, 250).frame((-100, 100), screen, scale);
+                let panel = &frame.tiles[0];
+                let label = frame.label.as_ref().unwrap().rect;
+                let pixels = crate::scan_tile::bitmap(panel).unwrap();
+                for x in [label.x, label.x + label.width - 1.0] {
+                    for y in [label.y, label.y + label.height - 1.0] {
+                        let px = (x - panel.rect.x).round() as u32;
+                        let py = (y - panel.rect.y).round() as u32;
+                        assert_eq!(pixels.pixel(px, py).unwrap().alpha(), 255);
+                    }
+                }
+                assert!(label.y > panel.rect.y);
+                assert!(label.y + label.height < frame.tiles[1].rect.y);
+                assert_eq!(label.x, frame.tiles[1].rect.x);
+            }
+        }
+    }
+    #[test]
+    fn action_grid_has_equal_horizontal_panel_margins() {
+        let screen = Rect {
+            x: -1280.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        for kind in [Kind::Actions, Kind::Scroll, Kind::ConfirmDrag] {
+            for scale in [1.0, 1.5, 2.0] {
+                let frame = Menu::new(kind, 250).frame((-100, 100), screen, scale);
+                let panel = frame.tiles[0].rect;
+                let actions = &frame.tiles[1..];
+                let left = actions
+                    .iter()
+                    .map(|t| t.rect.x)
+                    .fold(f64::INFINITY, f64::min);
+                let right = actions
+                    .iter()
+                    .map(|t| t.rect.x + t.rect.width)
+                    .fold(f64::NEG_INFINITY, f64::max);
+                assert!(((left - panel.x) - (panel.x + panel.width - right)).abs() < 0.001);
+            }
+        }
     }
     #[test]
     fn layouts_fit_edges_negative_coordinates_and_scaling() {
