@@ -2,7 +2,7 @@
 
 Switchify has its own UK English keyboard on Windows and macOS. It uses the saved local switches or the existing Android remote scanning actions. It does not use the operating system's on-screen keyboard.
 
-Choose a point and select **Type here** to click that point once and open the keyboard. To keep the existing input focus without clicking, select **More → Keyboard**. The keyboard does not take focus or accept mouse clicks.
+Select **Keyboard** in the action menu, or assign **Open keyboard** to a switch press or hold action in Settings → Switches. The switch opens the keyboard from idle, point scanning, menus, pauses and drags. Opening releases owned input and preserves the existing foreground focus without clicking. The keyboard does not take focus or accept mouse clicks.
 
 Scan a row, select it, then scan and select a key. The escape slot returns to rows. After typing, scanning starts again at the first row. Existing automatic/manual movement, speed, pause, reverse and inactivity suspension apply. The keyboard stays open after Space, Backspace, Enter and Tab. **Close** returns to point scanning.
 
@@ -16,17 +16,17 @@ The bottom control row starts with Close keyboard, followed by Letters, Navigati
 
 Modifier keys are pressed only around each emitted shortcut and immediately released. Selecting a locked modifier does not hold that operating-system key while the scanner runs. Ordinary characters use text injection; command combinations and navigation use native key events. Native shortcuts retain the operating system's layout semantics.
 
-The keyboard closes when the foreground target or display environment changes, or its scan session ends. Failed input clears keyboard modifiers and requires Select to resume. Stop, disconnect and application exit use the shared deterministic input cleanup. Word prediction can be enabled in Scanning settings. Five suggestions appear on the Letters page. Selecting a suggestion inserts its missing suffix and a space. Prediction uses local, read-only data; no personal vocabulary is saved. See [word prediction](word-prediction.md) for context availability and validation.
+The keyboard remains open when the foreground application changes, clears its modifiers and prediction buffer, and sends subsequent keys to the new foreground application. It closes when the display environment changes or its scan session ends. Failed input clears keyboard modifiers and requires Select to resume. Stop, disconnect and application exit use the shared deterministic input cleanup. Word prediction can be enabled in Scanning settings. Five suggestions appear on the Letters page. Selecting a suggestion inserts its missing suffix and a space. Prediction uses local, read-only data; no personal vocabulary is saved. See [word prediction](word-prediction.md) for context availability and validation.
 
 ## Manual validation
 
 Use synthetic text in Notepad and a browser on Windows, and TextEdit and a browser on macOS. Launch macOS through `npm run macos:run` to retain its Accessibility identity.
 
-1. Use Type here and verify exactly one click focuses the intended field. Use More → Keyboard and verify no click or focus change occurs.
+1. Open Keyboard from the menu and an assigned switch while idle, scanning, paused and dragging. Verify no click or focus change occurs and owned input is released.
 2. Type lowercase letters, uppercase letters with Shift/Caps, and UK punctuation including £, @ and double quotes. Test Space, Backspace, Enter and Tab.
 3. Test Ctrl+A/C/V on Windows and Command+A/C/V on macOS. Cycle once/locked/off, including Shift with another modifier, and confirm no modifier remains physically held between selections.
 4. Visit every page. Verify row/key highlighting, reverse movement, row escape, suspension/resume, returning to the first row after a key and Close.
 5. Move the keyboard between the top and bottom. Check a scaled display and a secondary display, including negative coordinates. Verify the keyboard fits the work area and never activates its native windows.
-6. Switch foreground apps, disconnect remote scanning, change display configuration and close Switchify. Verify overlays disappear and owned input is released.
+6. Switch foreground apps and verify the keyboard remains open with cleared modifiers and predictions. Disconnect remote scanning, change display configuration and close Switchify; verify overlays disappear and owned input is released.
 
 Automated tests use fake input adapters only. Native manual results must be recorded separately; compilation and unit tests do not establish live application compatibility.

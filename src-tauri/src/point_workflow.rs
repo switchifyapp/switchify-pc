@@ -12,9 +12,7 @@ pub enum Request {
         token: u64,
         index: usize,
     },
-    OpenKeyboard {
-        point: Option<Point>,
-    },
+    OpenKeyboard,
     Keyboard(crate::scan_keyboard::Stroke),
     Click {
         point: Point,
@@ -155,6 +153,12 @@ impl Workflow {
             None
         }
     }
+    pub fn keyboard_open(&self) -> bool {
+        matches!(self.stage, Stage::Keyboard | Stage::KeyboardOpening)
+    }
+    pub fn foreground_changed(&mut self) {
+        self.keyboard.reset_context();
+    }
     pub fn prediction_enabled(&self) -> bool {
         self.point.config.word_prediction
     }
@@ -176,16 +180,18 @@ impl Workflow {
     }
     fn selected(&mut self, item: Item) -> Option<Request> {
         match item {
-            Item::TypeHere | Item::Keyboard => {
+            Item::Keyboard => {
                 self.stage = Stage::KeyboardOpening;
                 self.keyboard = crate::scan_keyboard::Keyboard::configured(
                     cfg!(target_os = "macos"),
                     self.point.config.keyboard_scan,
                 )
                 .with_wait_after_typing(self.point.config.keyboard_wait_after_typing);
-                return Some(Request::OpenKeyboard {
-                    point: (item == Item::TypeHere).then_some(self.source),
-                });
+                self.pending = None;
+                self.parent_menu.clear();
+                self.elapsed = 0;
+                self.error = None;
+                return Some(Request::OpenKeyboard);
             }
             Item::KeyboardKey => {}
             Item::More | Item::Group(_) => {
@@ -327,6 +333,12 @@ impl Technique for Workflow {
         self.stage != Stage::Executing
     }
     fn handle(&mut self, action: Action) -> Option<Request> {
+        if action == Action::OpenKeyboard {
+            if self.keyboard_open() {
+                return None;
+            }
+            return self.selected(Item::Keyboard);
+        }
         match self.stage {
             Stage::Keyboard => match self.keyboard.handle(action) {
                 Some(crate::scan_keyboard::Output::Stroke(stroke)) => {
@@ -574,25 +586,73 @@ mod tests {
         )
     }
     #[test]
-    fn keyboard_opening_waits_for_click_success_and_failure_stays_in_menu() {
+    fn direct_keyboard_opens_from_every_workflow_and_cancels_pending_actions() {
+        for stage in [
+            Stage::Idle,
+            Stage::Point,
+            Stage::Menu,
+            Stage::Countdown,
+            Stage::Destination,
+            Stage::Executing,
+        ] {
+            let mut s = session(false);
+            s.action(Action::Select);
+            s.action(Action::Pause);
+            s.technique.stage = stage;
+            s.technique.pending = Some(default_click((10, 20)));
+            assert_eq!(s.action(Action::OpenKeyboard), Some(Request::OpenKeyboard));
+            assert!(s.active());
+            assert!(!s.paused());
+            assert!(s.take_selection().is_none());
+            s.technique.execution_succeeded();
+            assert_eq!(
+                s.technique.phase(),
+                Phase::Workflow(WorkflowPhase::Keyboard)
+            );
+        }
+        let mut idle = session(false);
+        assert_eq!(
+            idle.action(Action::OpenKeyboard),
+            Some(Request::OpenKeyboard)
+        );
+        assert!(idle.active());
+    }
+    #[test]
+    fn foreground_change_keeps_keyboard_layout_but_clears_context_and_modifiers() {
+        let mut s = session(false);
+        s.action(Action::OpenKeyboard);
+        s.technique.execution_succeeded();
+        let keyboard = &mut s.technique.keyboard;
+        keyboard.modifiers[1] = crate::scan_keyboard::Modifier::Locked;
+        keyboard.caps = true;
+        keyboard.predictions(
+            Some(crate::prediction::worker::Batch {
+                token: 7,
+                words: vec!["water".into()],
+            }),
+            false,
+        );
+        s.technique.foreground_changed();
+        assert!(s.technique.keyboard_open());
+        assert_eq!(
+            s.technique.keyboard.modifiers,
+            [crate::scan_keyboard::Modifier::Off; 4]
+        );
+        assert!(!s.technique.keyboard.caps);
+        assert!(!s.frame().tiles.iter().any(|t| t.text == "water"));
+    }
+    #[test]
+    fn keyboard_opening_waits_for_cleanup_and_failure_stays_in_menu() {
         let mut s = session(false);
         let w = &mut s.technique;
         w.source = (120, 230);
-        assert_eq!(
-            w.selected(Item::TypeHere),
-            Some(Request::OpenKeyboard {
-                point: Some((120, 230))
-            })
-        );
+        assert_eq!(w.selected(Item::Keyboard), Some(Request::OpenKeyboard));
         assert_eq!(w.phase(), Phase::Workflow(WorkflowPhase::KeyboardOpening));
         assert!(w.handle(Action::Select).is_none());
-        w.execution_failed("Click failed".into());
+        w.execution_failed("Cleanup failed".into());
         assert_eq!(w.phase(), Phase::Workflow(WorkflowPhase::MenuSuspended));
         w.error = None;
-        assert_eq!(
-            w.selected(Item::Keyboard),
-            Some(Request::OpenKeyboard { point: None })
-        );
+        assert_eq!(w.selected(Item::Keyboard), Some(Request::OpenKeyboard));
         w.execution_succeeded();
         assert_eq!(w.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
         w.keyboard.modifiers[0] = crate::scan_keyboard::Modifier::Locked;
@@ -839,7 +899,7 @@ mod tests {
         let mut session = auto_session(crate::point_scan::Mode::Line, false);
         advance_auto(&mut session, 1000, false);
         assert!(session.take_selection().is_some());
-        session.execution_failed("Click failed".into());
+        session.execution_failed("Cleanup failed".into());
         assert!(session
             .frame()
             .label

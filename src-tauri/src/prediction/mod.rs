@@ -4,10 +4,6 @@ mod database;
 #[cfg(test)]
 mod database_reference;
 mod lookup;
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(target_os = "windows")]
-mod windows;
 pub mod worker;
 
 use crate::scan_keyboard::{Key, Keyboard, Modifier, Page, Stroke};
@@ -147,7 +143,7 @@ struct Service {
     generation: u64,
     outstanding: Option<Instant>,
     last: Option<Instant>,
-    edit: Vec<Edit>,
+    edit: Vec<worker::RecordedEdit>,
     edit_revision: u64,
     acknowledged_revision: u64,
     reset: bool,
@@ -156,20 +152,57 @@ struct Service {
     case: Option<(bool, bool, bool)>,
     tracking: bool,
 }
+#[derive(Clone, Copy)]
+pub struct InputScope {
+    foreground: usize,
+    time: u64,
+}
+impl InputScope {
+    pub fn capture() -> Self {
+        #[cfg(not(test))]
+        let foreground = crate::scan_host::foreground().unwrap_or(0);
+        #[cfg(test)]
+        let foreground = 1;
+        Self {
+            foreground,
+            time: activity::now(),
+        }
+    }
+    fn unchanged(self) -> bool {
+        self.foreground != 0 && Self::capture().foreground == self.foreground
+    }
+    fn record(self, edit: Edit) -> worker::RecordedEdit {
+        worker::RecordedEdit {
+            edit,
+            foreground: self.foreground,
+            time: self.time,
+        }
+    }
+}
+pub fn reset() {
+    SERVICE.with(|s| {
+        let mut s = s.borrow_mut();
+        s.generation = s.generation.wrapping_add(1);
+        s.edit.clear();
+        s.reset = true;
+        s.last = None;
+        s.accept = None;
+    });
+}
 impl Service {
-    fn queue_edit(&mut self, edit: Edit) {
+    fn queue_edit(&mut self, edit: Edit, scope: InputScope) {
         self.edit_revision = self.edit_revision.wrapping_add(1);
         if self.edit.len() >= 512 {
             self.edit.clear();
             self.reset = true;
         }
-        self.edit.push(edit);
+        self.edit.push(scope.record(edit));
     }
-    fn take_edits(&mut self) -> Vec<Edit> {
+    fn take_edits(&mut self) -> Vec<worker::RecordedEdit> {
         let mut edits = std::mem::take(&mut self.edit);
         if std::mem::take(&mut self.reset) {
             self.edit_revision = self.edit_revision.wrapping_add(1);
-            edits.insert(0, Edit::Reset);
+            edits.insert(0, InputScope::capture().record(Edit::Reset));
         }
         edits
     }
@@ -229,12 +262,12 @@ thread_local! { static SERVICE: RefCell<Service> = RefCell::new(Service::default
 pub fn stop() {
     SERVICE.with(|s| *s.borrow_mut() = Service::default());
 }
-pub fn record(stroke: Stroke, success: bool) {
+pub fn record(stroke: Stroke, success: bool, scope: InputScope) {
     SERVICE.with(|s| {
         let mut s = s.borrow_mut();
         s.generation = s.generation.wrapping_add(1);
         s.last = None;
-        if success && !stroke.shortcut() && s.tracking {
+        if success && scope.unchanged() && !stroke.shortcut() {
             let edit = stroke
                 .character()
                 .map(|c| Edit::Append(c.to_string()))
@@ -243,7 +276,7 @@ pub fn record(stroke: Stroke, success: bool) {
                         .then_some(Edit::Backspace)
                 });
             if let Some(edit) = edit {
-                s.queue_edit(edit);
+                s.queue_edit(edit, scope);
                 return;
             }
         }
@@ -345,13 +378,24 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                     } => {
                         s.received_suggestions(keyboard, generation, revision, batch, tracking);
                     }
-                    Response::Insert { generation, text } => {
+                    Response::Insert {
+                        generation,
+                        text,
+                        foreground,
+                    } => {
                         s.accepting = false;
                         let result = if generation == s.generation {
                             text.ok_or(()).and_then(|text| {
                                 crate::point_scan_ready(app).map_err(|_| ())?;
+                                let scope = InputScope::capture();
+                                if Some(scope.foreground) != foreground || !scope.unchanged() {
+                                    return Err(());
+                                }
                                 crate::scan_executor::prediction_text(&text).map_err(|_| ())?;
-                                s.queue_edit(Edit::Append(text));
+                                if !scope.unchanged() {
+                                    return Err(());
+                                }
+                                s.queue_edit(Edit::Append(text), scope);
                                 Ok(())
                             })
                         } else {
@@ -363,6 +407,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                         if result.is_ok() {
                             keyboard.succeeded();
                         } else {
+                            s.edit.clear();
                             s.reset = true;
                             let _ = crate::scan_executor::cleanup();
                             keyboard.failed();
@@ -416,24 +461,23 @@ mod tests {
     #[test]
     fn only_successful_supported_edits_enter_the_buffer() {
         stop();
-        SERVICE.with(|s| s.borrow_mut().tracking = true);
         let stroke = Stroke {
             key: Key::Character('a', 'A'),
             modifiers: [false; 4],
             caps: false,
         };
-        record(stroke, true);
+        record(stroke, true, InputScope::capture());
         SERVICE.with(|s| {
             let s = s.borrow();
             assert_eq!(s.edit_revision, 1);
-            assert!(matches!(&s.edit[0], Edit::Append(text) if text == "a"));
+            assert!(matches!(&s.edit[0].edit, Edit::Append(text) if text == "a"));
         });
-        record(stroke, false);
+        record(stroke, false, InputScope::capture());
         SERVICE.with(|s| {
             let mut s = s.borrow_mut();
             assert!(s.edit.is_empty());
             assert!(s.reset);
-            assert!(matches!(s.take_edits()[0], Edit::Reset));
+            assert!(matches!(s.take_edits()[0].edit, Edit::Reset));
         });
         record(
             Stroke {
@@ -441,6 +485,7 @@ mod tests {
                 ..stroke
             },
             true,
+            InputScope::capture(),
         );
         SERVICE.with(|s| assert!(s.borrow().reset));
         stop();

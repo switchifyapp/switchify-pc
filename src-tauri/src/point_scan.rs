@@ -269,7 +269,7 @@ impl Engine {
                 self.step(TICK_MS);
             }
             Action::Reverse => self.direction = -self.direction,
-            Action::Pause | Action::Stop | Action::Cancel => {}
+            Action::Pause | Action::Stop | Action::Cancel | Action::OpenKeyboard => {}
         }
         None
     }

@@ -181,8 +181,7 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
             lines(&[(62., 46.), (106., 90.)]);
             lines(&[(106., 46.), (62., 90.)]);
         }
-        TypeHere | Keyboard | More | Group(_) | Command(_) | Setting(_) | Display(_) | Pause
-        | Reverse => {
+        Keyboard | More | Group(_) | Command(_) | Setting(_) | Display(_) | Pause | Reverse => {
             artwork(&mut path, tile.icon);
         }
         DragHere => {
@@ -358,7 +357,7 @@ fn return_arrow(path: &mut PathBuilder, forward: bool) {
 fn artwork(path: &mut PathBuilder, item: Item) {
     use crate::scan_menu::{Command as C, Kind as K, Setting as S};
     match item {
-        Item::TypeHere | Item::Keyboard => {
+        Item::Keyboard => {
             rect(path, 46., 44., 76., 48.);
             for y in [55., 67.] {
                 for x in [58., 74., 90., 106.] {
@@ -366,10 +365,6 @@ fn artwork(path: &mut PathBuilder, item: Item) {
                 }
             }
             line(path, &[(66., 81.), (102., 81.)]);
-            if item == Item::TypeHere {
-                line(path, &[(84., 100.), (84., 114.)]);
-                line(path, &[(77., 107.), (91., 107.)]);
-            }
         }
         Item::More => {
             for x in [60., 84., 108.] {

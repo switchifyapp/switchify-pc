@@ -16,15 +16,7 @@ pub fn execute<I: InputInjector>(
     }
     match request {
         Request::Prediction { .. } => Err("Prediction requires the scan controller.".into()),
-        Request::OpenKeyboard { point } => {
-            if input.has_active_drag() {
-                return Err("End the active drag before typing.".into());
-            }
-            match point {
-                Some(point) => input.click_pointer_at(point, MouseButton::Left, 1, &[]),
-                None => Ok(()),
-            }
-        }
+        Request::OpenKeyboard => input.release_all(),
         Request::Keyboard(stroke) => {
             if input.has_active_drag() {
                 return Err("End the active drag before typing.".into());
@@ -353,10 +345,27 @@ mod tests {
         }
     }
     #[test]
+    fn opening_keyboard_releases_a_drag_without_clicking_or_typing() {
+        let mut input = DesktopInput::new(Fake::default());
+        execute(&mut input, Request::DragStart((10, 20)), true).unwrap();
+        assert!(input.has_active_drag());
+        input.injector.events.clear();
+        execute(&mut input, Request::OpenKeyboard, true).unwrap();
+        assert!(!input.has_active_drag());
+        assert_eq!(input.injector.events, ["button Left false"]);
+        assert!(input.injector.target_clicks.is_empty());
+        execute(&mut input, Request::DragStart((10, 20)), true).unwrap();
+        input.injector.fail_release = true;
+        assert!(execute(&mut input, Request::OpenKeyboard, true).is_err());
+        input.injector.fail_release = false;
+        input.release_all().unwrap();
+        assert!(!input.has_active_drag());
+    }
+    #[test]
     fn keyboard_text_chords_and_current_focus_use_fake_input() {
         use crate::scan_keyboard::{Key, Stroke};
         let mut input = DesktopInput::new(Fake::default());
-        execute(&mut input, Request::OpenKeyboard { point: None }, true).unwrap();
+        execute(&mut input, Request::OpenKeyboard, true).unwrap();
         assert!(input.injector.events.is_empty());
         execute(
             &mut input,
@@ -455,30 +464,6 @@ mod tests {
         input.injector.events.clear();
         assert!(execute(&mut input, request, false).is_err());
         assert!(input.injector.events.is_empty());
-    }
-    #[test]
-    fn type_here_clicks_exactly_once_and_propagates_failure() {
-        let mut input = DesktopInput::new(Fake::default());
-        execute(
-            &mut input,
-            Request::OpenKeyboard {
-                point: Some((42, 70)),
-            },
-            true,
-        )
-        .unwrap();
-        assert_eq!(input.injector.target_clicks.len(), 1);
-        assert_eq!(input.injector.target_clicks[0].0, (42, 70));
-        input.injector.fail_click = true;
-        assert!(execute(
-            &mut input,
-            Request::OpenKeyboard {
-                point: Some((42, 70))
-            },
-            true
-        )
-        .is_err());
-        assert_eq!(input.injector.target_clicks.len(), 1);
     }
     #[test]
     fn every_scan_click_uses_target_even_while_cursor_readback_is_stale() {

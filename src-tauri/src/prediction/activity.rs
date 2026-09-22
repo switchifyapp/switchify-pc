@@ -9,7 +9,17 @@ fn unavailable() {
     HEALTHY.store(false, Ordering::SeqCst);
     changed();
 }
+static LAST_CHANGE: AtomicU64 = AtomicU64::new(0);
+pub fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_micros().min(u64::MAX as u128) as u64)
+}
+pub fn last_change() -> u64 {
+    LAST_CHANGE.load(Ordering::SeqCst)
+}
 fn changed() {
+    LAST_CHANGE.store(now(), Ordering::SeqCst);
     EPOCH.fetch_add(1, Ordering::SeqCst);
 }
 

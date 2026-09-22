@@ -1,23 +1,5 @@
 use unicode_segmentation::UnicodeSegmentation;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Status {
-    NoFocus,
-    Protected,
-    Unsupported,
-    AmbiguousSelection,
-    ProviderError,
-}
-
-// Text-bearing types deliberately have no Debug implementation.
-#[derive(Clone, PartialEq, Eq)]
-pub struct RawContext {
-    pub before: String,
-    pub after: String,
-    pub clipped_start: bool,
-    pub has_selection: bool,
-    pub position: i64,
-}
 pub struct Context {
     pub words: Vec<String>,
     pub prefix: String,
@@ -51,37 +33,6 @@ pub fn extract(text: &str, clipped: bool) -> Context {
         prefix,
     }
 }
-pub fn eligible(raw: &RawContext) -> bool {
-    !raw.has_selection
-        && raw.after.chars().next().is_none_or(|c| {
-            c.is_whitespace()
-                || matches!(
-                    c,
-                    '.' | ','
-                        | '!'
-                        | '?'
-                        | ':'
-                        | ';'
-                        | ')'
-                        | ']'
-                        | '}'
-                        | '"'
-                        | '/'
-                        | '\\'
-                        | '-'
-                        | '…'
-                )
-        })
-}
-pub trait Adapter {
-    type Target;
-    fn focused(&mut self) -> Result<Self::Target, Status>;
-    fn protected(&mut self, target: &Self::Target) -> Result<bool, Status>;
-    fn editable(&mut self, target: &Self::Target) -> bool;
-    fn same(&mut self, a: &Self::Target, b: &Self::Target) -> Result<bool, Status>;
-    fn read(&mut self, target: &Self::Target) -> Result<RawContext, Status>;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

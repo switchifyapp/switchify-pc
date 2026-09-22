@@ -14,10 +14,12 @@ pub enum Action {
     Reverse,
     Stop,
     Cancel,
+    OpenKeyboard,
 }
 impl Action {
     pub fn label(self) -> &'static str {
         match self {
+            Self::OpenKeyboard => "Open keyboard",
             Self::Select => "Select",
             Self::Next => "Next",
             Self::Back => "Previous",
@@ -377,6 +379,14 @@ impl<T: Technique> Session<T> {
         if matches!(action, Action::Cancel | Action::Stop) {
             self.reset();
             return None;
+        }
+        if action == Action::OpenKeyboard {
+            let selection = self.technique.handle(action);
+            if selection.is_some() {
+                self.active = true;
+                self.paused = false;
+            }
+            return selection;
         }
         if !self.active {
             if action == Action::Select {
