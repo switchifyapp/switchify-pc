@@ -535,11 +535,10 @@ fn update_tiles(
     host_count: usize,
     mut present: impl FnMut(usize, Option<&crate::scanning::FrameTile>) -> Result<(), String>,
 ) -> Result<(), String> {
-    let background_changed = tiles.iter().enumerate().any(|(index, tile)| {
-        tile.keyboard
-            .is_some_and(|s| s.role == crate::scanning::KeyboardRole::Background)
-            && previous.get(index) != Some(tile)
-    });
+    let background_changed = tiles
+        .iter()
+        .enumerate()
+        .any(|(index, tile)| tile.is_panel_background() && previous.get(index) != Some(tile));
     for index in 0..host_count {
         let tile = tiles.get(index);
         if !background_changed && previous.get(index) == tile {

@@ -269,6 +269,29 @@ pub struct FrameTile {
     pub keyboard: Option<KeyboardTileStyle>,
     pub selected: bool,
 }
+impl FrameTile {
+    /// Dark rounded panel behind keyboard keys or menu action tiles.
+    pub fn panel_background(rect: Rect, scale: f64, color: ScannerColor) -> Self {
+        Self {
+            thickness: Default::default(),
+            color,
+            text: String::new(),
+            icon: crate::scan_menu::Item::KeyboardKey,
+            keyboard: Some(KeyboardTileStyle {
+                role: KeyboardRole::Background,
+                active: false,
+                row_scan: false,
+            }),
+            rect,
+            scale,
+            selected: false,
+        }
+    }
+    pub fn is_panel_background(&self) -> bool {
+        self.keyboard
+            .is_some_and(|style| style.role == KeyboardRole::Background)
+    }
+}
 #[derive(Debug, Clone, PartialEq)]
 pub struct HudPresentation {
     pub screen: Rect,

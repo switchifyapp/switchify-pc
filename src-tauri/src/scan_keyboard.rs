@@ -514,25 +514,16 @@ impl Keyboard {
         let gap = (6.0 * scale).min(row_height / 8.0);
         let header_height = row_height * 0.9;
         let mut frame = Frame::default();
-        frame.tiles.push(FrameTile {
-            thickness: Default::default(),
-            color,
-            text: String::new(),
-            icon: Item::KeyboardKey,
-            keyboard: Some(KeyboardTileStyle {
-                role: KeyboardRole::Background,
-                active: false,
-                row_scan: false,
-            }),
-            rect: Rect {
+        frame.tiles.push(FrameTile::panel_background(
+            Rect {
                 x,
                 y,
                 width,
                 height,
             },
-            scale: outer_scale,
-            selected: false,
-        });
+            outer_scale,
+            color,
+        ));
         let x = x + padding;
         let y = y + padding;
         let width = content_width;
@@ -890,7 +881,7 @@ mod tests {
             ScannerColor::default(),
         );
         let panel = &frame.tiles[0];
-        assert_eq!(panel.keyboard.unwrap().role, KeyboardRole::Background);
+        assert!(panel.is_panel_background());
         for key in &frame.tiles[1..] {
             assert!(key.rect.x > panel.rect.x);
             assert!(key.rect.y > panel.rect.y);

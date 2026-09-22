@@ -408,10 +408,7 @@ mod platform {
                 opacity: 255,
                 role: crate::scanning::VisualRole::Accent,
             }])?;
-            if tile
-                .keyboard
-                .is_some_and(|s| s.role == crate::scanning::KeyboardRole::Background)
-            {
+            if tile.is_panel_background() {
                 self.panels[0].setBackgroundColor(Some(&NSColor::clearColor()));
             }
             let bounds = NSRect::new(
@@ -694,12 +691,16 @@ pub fn menu_title_geometry(
     label: &crate::scanning::FrameLabel,
     tiles: &[crate::scanning::FrameTile],
 ) -> Option<MenuTitle> {
-    let first = tiles.first()?;
-    let left = tiles
+    let content: Vec<_> = tiles
+        .iter()
+        .filter(|tile| !tile.is_panel_background())
+        .collect();
+    let first = content.first()?;
+    let left = content
         .iter()
         .map(|tile| tile.rect.x)
         .fold(f64::INFINITY, f64::min);
-    let right = tiles
+    let right = content
         .iter()
         .map(|tile| tile.rect.x + tile.rect.width)
         .fold(f64::NEG_INFINITY, f64::max);
@@ -806,20 +807,25 @@ mod title_tests {
                     let label = frame.label.as_ref().unwrap();
                     let MenuTitle { rect, scale } =
                         menu_title_geometry(label, &frame.tiles).unwrap();
-                    assert_eq!(rect.x, frame.tiles[0].rect.x);
-                    let last = &frame.tiles[2].rect;
+                    let actions: Vec<_> = frame
+                        .tiles
+                        .iter()
+                        .filter(|tile| !tile.is_panel_background())
+                        .collect();
+                    assert!(frame.tiles[0].is_panel_background());
+                    assert_eq!(rect.x, actions[0].rect.x);
+                    let last = actions[2].rect;
                     assert!((rect.x + rect.width - last.x - last.width).abs() < 0.001);
                     assert_eq!(rect.y, label.rect.y);
                     assert_eq!(rect.height, label.rect.height);
-                    assert!(
-                        (frame.tiles[0].rect.y - rect.y - rect.height - 8.0 * scale).abs() < 0.001
-                    );
+                    assert!((actions[0].rect.y - rect.y - rect.height - 8.0 * scale).abs() < 0.001);
                     assert!(rect.x >= screen.x && rect.x + rect.width <= screen.x + screen.width);
                     assert!(rect.y >= screen.y && rect.y + rect.height <= screen.y + screen.height);
                     if paused {
                         assert_eq!(label.text, "Select to resume");
                     }
                     assert!(menu_title_geometry(label, &[]).is_none());
+                    assert!(menu_title_geometry(label, &frame.tiles[..1]).is_none());
                 }
             }
         }
