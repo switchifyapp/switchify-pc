@@ -377,7 +377,7 @@ function SetupGuide({ state, switches, suspended, busy, error, skip, finish, acc
           : busy
             ? "Please wait while setup saves your changes."
             : step === 1 && !switches.state?.settings.bindings.length
-              ? "Add and save a local keyboard switch to enable Next. If you use only remote switches or want to configure switches later, choose Skip switch configuration to continue setup. Remote presets alone do not confirm a connected switch."
+              ? "Add and save a local switch to enable Next. If you use only remote switches or want to configure switches later, choose Skip switch configuration to continue setup. Remote presets alone do not confirm a connected switch."
               : step === 3 && startupChoice === null
                 ? "Choose Start with system or Start manually to enable Next."
                 : step === 4 && diagnosticsChoice === null

@@ -5,7 +5,7 @@ const invoke = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 const view = {
   active: true,
-  source: "Local keyboard",
+  source: "This computer",
   message: "Press Select",
   input: "",
   action: null,
@@ -35,7 +35,7 @@ describe("safe switch practice", () => {
   });
   it("shows disconnected remote errors rather than reporting successful input", async () => {
     invoke.mockRejectedValueOnce(new Error("No remote forwarding session"));
-    render(<SwitchPractice />); fireEvent.change(screen.getByLabelText("Test input"), { target: { value: "remote" } });
+    render(<SwitchPractice />); fireEvent.change(screen.getByLabelText("Test source"), { target: { value: "remote" } });
     fireEvent.click(screen.getByRole("button", { name: "Test switches" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("No remote forwarding session");
     expect(invoke).toHaveBeenCalledWith("begin_switch_practice", { remote: true });
