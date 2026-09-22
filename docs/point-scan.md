@@ -50,7 +50,7 @@ Drag retains the source and scans a destination on the same display without hold
 
 The desktop view adds menu, menuSuspended, dragDestination, dragConfirmation and executing phases. Existing point phases, saved settings and Bluetooth commands retain their shapes. Foreground changes, display changes, Android connections, switch editing/learning and shutdown cancel the workflow. Targets and foreground identity remain in memory and are never logged or emitted. Automated action tests use fake input only; physical Windows/macOS focus, scaling, target, scrolling and drag checks remain required for hardware qualification.
 
-The action menu uses a fixed grid of square icon tiles with labels beneath the artwork, on the same dark rounded panel chrome as the scanning keyboard (`TileRole::Panel`). A yellow border and amber background identify the current row or item. The same artwork is drawn on Windows and macOS.
+The action menu uses a fixed grid of square icon tiles with labels beneath the artwork, on the same dark rounded panel chrome as the scanning keyboard (`TileRole::Panel`). A yellow border and amber background identify the current row or item. The same artwork is drawn on Windows and macOS. Menu titles stay above the shared panel when a scan opens a menu or changes submenus, without taking keyboard focus.
 
 ## Remote scanning
 

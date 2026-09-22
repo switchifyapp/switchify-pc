@@ -162,7 +162,21 @@ mod platform {
                 rect.y as i32,
                 rect.width as i32,
                 scale,
-            )
+            )?;
+            // The label host can predate the menu panel. Showing an already
+            // visible window does not put it above newly created tile hosts.
+            unsafe {
+                SetWindowPos(
+                    self.windows[0],
+                    Some(HWND_TOPMOST),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                )
+                .map_err(|error| error.to_string())
+            }
         }
         pub fn countdown(&mut self, countdown: &crate::scanning::Countdown) -> Result<(), String> {
             self.ensure_windows(1)?;
@@ -195,6 +209,50 @@ mod platform {
             for window in &self.windows {
                 unsafe {
                     let _ = DestroyWindow(*window);
+                }
+            }
+        }
+    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn reused_menu_title_stays_above_panel_without_taking_focus() {
+            let rect = Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 200.0,
+                height: 48.0,
+            };
+            let foreground = unsafe { GetForegroundWindow() };
+            let mut title = Host::new().unwrap();
+            title.prompt("Choose an action", rect, 1.0).unwrap();
+            let mut panel = Host::new().unwrap();
+            panel
+                .tile(&crate::scanning::FrameTile::panel_background(
+                    Rect {
+                        height: 240.0,
+                        ..rect
+                    },
+                    1.0,
+                    Default::default(),
+                ))
+                .unwrap();
+            // Reuse the title created before the opaque panel, including an
+            // unchanged title on the next scan tick and a submenu transition.
+            for text in ["Choose an action", "Choose an action", "Confirm drag"] {
+                title.prompt(text, rect, 1.0).unwrap();
+                unsafe {
+                    let mut above = GetWindow(panel.windows[0], GW_HWNDPREV).unwrap();
+                    while above != title.windows[0] && !above.is_invalid() {
+                        above = GetWindow(above, GW_HWNDPREV).unwrap_or_default();
+                    }
+                    assert_eq!(above, title.windows[0], "title must be above panel");
+                    assert_eq!(GetForegroundWindow(), foreground);
+                    let styles = GetWindowLongPtrW(title.windows[0], GWL_EXSTYLE) as u32;
+                    assert_ne!(styles & WS_EX_NOACTIVATE.0, 0);
+                    assert_ne!(styles & WS_EX_TRANSPARENT.0, 0);
                 }
             }
         }
@@ -286,6 +344,11 @@ mod platform {
                         && *old_screen == screen
                 },
             ) {
+                // Tile windows may have been raised since this title was
+                // painted, even when its text and geometry are unchanged.
+                if let Some(panel) = self.panels.first() {
+                    panel.orderFrontRegardless();
+                }
                 return Ok(());
             }
             let mtm = MainThreadMarker::new().ok_or("Menu title requires the main thread.")?;
