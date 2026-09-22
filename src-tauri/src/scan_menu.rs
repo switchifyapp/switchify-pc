@@ -163,7 +163,8 @@ impl Menu {
             let tile_width = 180.0 * scale;
             for (c, item) in row.iter().enumerate() {
                 let rect = Rect {
-                    x: panel.x + 8.0 * scale + c as f64 * tile_width,
+                    // Center the grid, excluding the unused trailing cell gap.
+                    x: panel.x + 14.0 * scale + c as f64 * tile_width,
                     y: panel.y + (56.0 + 180.0 * r as f64) * scale,
                     width: 168.0 * scale,
                     height: 168.0 * scale,
@@ -717,6 +718,31 @@ mod tests {
         assert_eq!(pixels.data()[3], 0);
         let center = ((pixels.height() / 2 * pixels.width() + pixels.width() / 2) * 4 + 3) as usize;
         assert_eq!(pixels.data()[center], 255);
+    }
+    #[test]
+    fn action_grid_has_equal_horizontal_panel_margins() {
+        let screen = Rect {
+            x: -1280.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        for kind in [Kind::Actions, Kind::Scroll, Kind::ConfirmDrag] {
+            for scale in [1.0, 1.5, 2.0] {
+                let frame = Menu::new(kind, 250).frame((-100, 100), screen, scale);
+                let panel = frame.tiles[0].rect;
+                let actions = &frame.tiles[1..];
+                let left = actions
+                    .iter()
+                    .map(|t| t.rect.x)
+                    .fold(f64::INFINITY, f64::min);
+                let right = actions
+                    .iter()
+                    .map(|t| t.rect.x + t.rect.width)
+                    .fold(f64::NEG_INFINITY, f64::max);
+                assert!(((left - panel.x) - (panel.x + panel.width - right)).abs() < 0.001);
+            }
+        }
     }
     #[test]
     fn layouts_fit_edges_negative_coordinates_and_scaling() {
