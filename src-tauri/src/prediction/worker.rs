@@ -374,6 +374,19 @@ mod tests {
         assert_eq!(e.buffer, "wa");
     }
     #[test]
+    fn delayed_observer_start_discards_unobserved_edits() {
+        let mut e = engine();
+        // A Switchify edit at 10 and external activity at 11 both precede
+        // observer startup at 12. Only typing after startup is trustworthy.
+        e.last_activity = || 12;
+        e.query(vec![append("wa")], 1, false, false);
+        assert!(e.buffer.is_empty());
+        let mut fresh = append("w");
+        fresh.time = 13;
+        assert!(e.query(vec![fresh], 2, false, false).is_some());
+        assert_eq!(e.buffer, "w");
+    }
+    #[test]
     fn queued_edits_are_scoped_to_window_and_external_activity() {
         let mut e = engine();
         let b = e.query(vec![append("wa")], 1, false, false).unwrap();

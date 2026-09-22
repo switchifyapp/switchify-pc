@@ -69,6 +69,8 @@ pub fn start(ignored: Vec<u32>) -> bool {
             0,
         );
         let ok = !k.is_null() && !m.is_null();
+        // Never trust edits queued before observation was established.
+        changed();
         HEALTHY.store(ok, Ordering::SeqCst);
         let _ = tx.send(ok);
         if ok {
@@ -126,6 +128,7 @@ pub fn start(ignored: Vec<u32>) -> bool {
                 CallbackResult::Keep
             },
             || {
+                changed();
                 HEALTHY.store(true, Ordering::SeqCst);
                 let _ = ready.send(true);
                 core_foundation::runloop::CFRunLoop::run_current();

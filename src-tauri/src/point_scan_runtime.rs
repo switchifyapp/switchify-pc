@@ -73,7 +73,7 @@ impl Adapter for PointScan {
                 return result.map(|()| None);
             }
             Request::OpenKeyboard => {
-                crate::prediction::reset();
+                crate::prediction::stop();
                 crate::scan_executor::activate(request)
             }
             Request::Setting(setting) => scanning_runtime::update_point_setting(app, setting),

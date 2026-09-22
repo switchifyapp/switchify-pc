@@ -459,6 +459,30 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
 mod tests {
     use super::*;
     #[test]
+    fn reopening_discards_failed_workers_and_pending_acceptance() {
+        for failed in [false, true] {
+            SERVICE.with(|slot| {
+                *slot.borrow_mut() = Service {
+                    failed,
+                    outstanding: Some(Instant::now()),
+                    accepting: true,
+                    accept: Some((1, 0)),
+                    ..Default::default()
+                };
+            });
+            // The OpenKeyboard request starts a fresh service through stop().
+            stop();
+            SERVICE.with(|slot| {
+                let s = slot.borrow();
+                assert!(!s.failed);
+                assert!(!s.accepting);
+                assert!(s.accept.is_none());
+                assert!(s.outstanding.is_none());
+                assert!(s.client.is_none());
+            });
+        }
+    }
+    #[test]
     fn only_successful_supported_edits_enter_the_buffer() {
         stop();
         let stroke = Stroke {
