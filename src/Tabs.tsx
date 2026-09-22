@@ -1,3 +1,4 @@
+import { Button } from "./ui/controls";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 // `attention` is the reason a tab needs it. It adds a visual marker without
@@ -39,7 +40,7 @@ export function Tabs<T extends string>({ name, tabs, active, onSelect, label }: 
 
   return <>
     <div className="segmented tab-bar" role="tablist" aria-label={label} ref={listRef} style={{ ["--tab-count" as string]: tabs.length }}>
-      {tabs.map((tab, index) => <button
+      {tabs.map((tab, index) => <Button
         key={tab.id}
         type="button"
         role="tab"
@@ -53,7 +54,7 @@ export function Tabs<T extends string>({ name, tabs, active, onSelect, label }: 
         onFocus={() => setFocused(tab.id)}
         onKeyDown={(event) => onKeyDown(event, index)}
         onClick={() => onSelect(tab.id)}
-      >{tab.label}{tab.attention && <span className="tab-attention" aria-hidden="true" />}</button>)}
+      >{tab.label}{tab.attention && <span className="tab-attention" aria-hidden="true" />}</Button>)}
     </div>
     {/* Outside the tablist so the reason never becomes part of a tab's name. */}
     {tabs.filter((tab) => tab.attention).map((tab) => <span key={tab.id} id={descriptionId(name, tab.id)} className="sr-only">{tab.attention}</span>)}

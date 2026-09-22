@@ -112,6 +112,10 @@ beforeEach(() => {
   });
 });
 afterEach(() => Reflect.deleteProperty(window, "__TAURI_INTERNALS__"));
+const revealMobile = async () => {
+  const button = await screen.findByRole("button", { name: "Mobile switches" });
+  if (button.getAttribute("aria-expanded") !== "true") fireEvent.click(button);
+};
 const open = (name: string) =>
   fireEvent.click(screen.getByRole("button", { name: `Edit ${name}` }));
 it("shows each switch as a summary row and expands one to edit", async () => {
@@ -210,6 +214,7 @@ it("shows hold timing computed from the interval", async () => {
   expect(
     screen.getByText("Hold 1s for Next, 2s for Stop scanning. Release to run the action shown."),
   ).toBeTruthy();
+  fireEvent.click(screen.getAllByRole("button", { name: "More options" })[0]);
   fireEvent.click(within(screen.getByRole("group", { name: "Hold action interval" })).getByRole("button", { name: "2s" }));
   await screen.findByText("Hold 2s for Next, 4s for Stop scanning. Release to run the action shown.");
   await screen.findByText(/Holding any switch for 8s resets the scan/);
@@ -353,6 +358,7 @@ it("keeps focus in the draft when another switch is removed while adding", async
 });
 it("lists remote switches with local ones and edits them in place", async () => {
   render(<Shell />);
+  await revealMobile();
   await screen.findByRole("heading", { name: "Remote switch 1" });
   expect(screen.getByText("Remote 1")).toBeTruthy();
   open("Remote switch 1");
@@ -368,6 +374,7 @@ it("lists remote switches with local ones and edits them in place", async () => 
 });
 it("adds a remote switch into the next free slot and can move it", async () => {
   render(<Shell />);
+  await revealMobile();
   await screen.findByRole("heading", { name: "Remote switch 1" });
   fireEvent.click(screen.getByRole("button", { name: "Add remote switch" }));
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -387,6 +394,7 @@ it("adds a remote switch into the next free slot and can move it", async () => {
 });
 it("moves focus into the remote draft and back to a usable Add button", async () => {
   render(<Shell />);
+  await revealMobile();
   await screen.findByRole("heading", { name: "Remote switch 1" });
   fireEvent.click(screen.getByRole("button", { name: "Add remote switch" }));
   expect(document.activeElement).toBe(screen.getByLabelText("New switch name"));
@@ -395,6 +403,7 @@ it("moves focus into the remote draft and back to a usable Add button", async ()
 });
 it("removes a remote switch and surfaces a failed remote save with retry", async () => {
   render(<Shell />);
+  await revealMobile();
   await screen.findByRole("heading", { name: "Remote switch 1" });
   mocks.invoke.mockImplementationOnce(async () => {
     throw "Remote save failed";
@@ -481,6 +490,7 @@ it("offers recovery when returning to Switches with keyboard typing still active
 
 it.each([["Remote switch 1", 0], ["Remote switch 1", 1], ["Head switch", 0], ["Head switch", 1]] as const)("releases keyboard entry when %s is removed using control %s", async (name, index) => {
   render(<Shell />);
+  if (name.startsWith("Remote")) await revealMobile();
   fireEvent.click(await screen.findByRole("button", { name: `Edit ${name}` }));
   fireEvent.click(screen.getByRole("button", { name: "Type with keyboard" }));
   await screen.findByRole("button", { name: "Resume switch control" });
@@ -512,6 +522,7 @@ it("keeps an edited local draft and restores focus after cancelling discard", as
 });
 it("requires discard after changing a remote draft action, while untouched cancellation is immediate", async () => {
   render(<Shell />);
+  await revealMobile();
   await screen.findByRole("heading", { name: "Remote switch 1" });
   fireEvent.click(screen.getByRole("button", { name: "Add remote switch" }));
   fireEvent.change(screen.getByLabelText("New switch action"), { target: { value: "next" } });
@@ -526,6 +537,7 @@ it("requires discard after changing a remote draft action, while untouched cance
 });
 it.each(["Head switch", "Remote switch 1"])("protects both removal controls for %s", async (name) => {
   render(<Shell />);
+  if (name.startsWith("Remote")) await revealMobile();
   await screen.findByRole("heading", { name });
   const remove = screen.getByRole("button", { name: `Remove ${name}` });
   remove.focus();
@@ -558,6 +570,7 @@ it("hands remote draft focus to the committed input before passive work can run"
     return children;
   }
   const view = render(<CommitProbe revision={0}><Shell /></CommitProbe>);
+  await revealMobile();
   await screen.findByRole("heading", { name: "Remote switch 1" });
   const add = screen.getByRole("button", { name: "Add remote switch" });
   add.focus();
@@ -584,6 +597,7 @@ it.each(["remove", "discard"])("restores usable focus after confirmed %s with br
   });
   try {
     render(<Shell />);
+    await revealMobile();
     await screen.findByRole("heading", { name: "Remote switch 1" });
     if (operation === "remove") {
       fireEvent.click(screen.getByRole("button", { name: "Remove Head switch" }));
@@ -605,6 +619,7 @@ it("separates an empty local configuration from the six remote presets", async (
   remote.slots = ["select", "next", "back", "pause", "reverse", "stop", null, null]
     .map((pressAction) => ({ pressAction, holdActions: [] }));
   render(<Shell />);
+  await revealMobile();
   await screen.findByRole("heading", { name: "Remote switch 6" });
   expect(screen.getByText(/No local switches configured/)).toBeInTheDocument();
   expect(screen.getByText(/not detected physical switches/)).toBeInTheDocument();
@@ -614,6 +629,7 @@ it("separates an empty local configuration from the six remote presets", async (
 });
 it("keeps source identity after renaming and separates connection from tested input", async () => {
   const view = render(<Shell />);
+  await revealMobile();
   await screen.findByRole("heading", { name: "Remote switch 1" });
   open("Remote switch 1");
   fireEvent.change(screen.getByLabelText("Name for Remote 1"), { target: { value: "Chin" } });

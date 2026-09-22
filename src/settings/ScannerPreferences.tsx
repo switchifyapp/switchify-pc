@@ -1,3 +1,4 @@
+import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ScanningController, ScannerColor, PointScanConfig } from '../scanning/useScanning';
 import { areaOptions, sharedOptions, defaultScanPreferences, type ScanArea, type ScanOptions } from '../scanning/preferences';
@@ -50,37 +51,23 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     const custom = area !== 'shared' && settings[area][key] != null;
     return <div className="scanner-preference" key={key} tabIndex={-1} role="group" aria-label={`${label} setting`}>
       {area !== 'shared' && <div className="scanner-inheritance"><span className={custom ? 'custom' : ''}>{custom ? 'Custom' : 'Default'}</span>
-        {custom && <button type="button" className="text-button" disabled={disabled} aria-label={`Use default for ${label.toLowerCase()}`} onClick={event => { const field = event.currentTarget.closest<HTMLElement>('.scanner-preference'); change(key, undefined); requestAnimationFrame(() => (field?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), button:not(:disabled)') ?? field)?.focus()); }}>Use default</button>}
+        {custom && <Button type="button" className="text-button" disabled={disabled} aria-label={`Use default for ${label.toLowerCase()}`} onClick={event => { const field = event.currentTarget.closest<HTMLElement>('.scanner-preference'); change(key, undefined); requestAnimationFrame(() => (field?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), button:not(:disabled)') ?? field)?.focus()); }}>Use default</Button>}
       </div>}
       {children(disabled)}
     </div>;
   };
   return <div ref={container} className="scanner-preferences">
-    {area === 'shared' && <section className="scanner-areas" aria-labelledby="scanner-areas-title">
-      <header><h2 id="scanner-areas-title">Customise an area</h2><p>Give an area different settings, or keep using your defaults.</p></header>
-      <div className="scanner-area-cards">{(['point', 'menu', 'keyboard'] as const).map(key => {
-        const options = areaOptions(config, key);
-        const count = Object.entries(settings[key]).filter(([name, value]) => value != null && !(key === 'point' && name === 'pattern')).length;
-        return <button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}>
-          <strong>{names[key]} <span aria-hidden="true">→</span></strong>
-          <span>{options.automatic ? `Automatic · ${options.intervalMs / 1000}s` : 'Manual'} · {options.direction === 'forward' ? 'Forward' : 'Reverse'}</span>
-          <span>{key === 'point' ? (config.mode === 'grid' ? 'Grid then line' : 'Line only') : (options.pattern === 'grouped' ? 'Groups, then items' : 'One item at a time')}</span>
-          <span className="scanner-area-appearance"><i className={`color-swatch ${options.color}`} aria-hidden="true" />{options.color} · {options.thickness}</span>
-          <span className="scanner-area-badge">{count ? `${count} custom ${count === 1 ? 'setting' : 'settings'}` : 'Using defaults'}</span>
-        </button>;
-      })}</div>
-    </section>}
-    {area === 'shared' ? <header className="scanner-panel-heading"><h2>Shared defaults</h2><p>Start here. Each scanning area follows these settings unless you customise it.</p></header> : <header className="scanner-panel-heading">
-      <button type="button" className="text-button" onClick={() => setArea('shared')}><span aria-hidden="true">←</span> Back to scanning settings</button>
+    {area === 'shared' ? <header className="scanner-panel-heading"><h2>Scanning</h2></header> : <header className="scanner-panel-heading">
+      <Button type="button" className="text-button" onClick={() => setArea('shared')}><span aria-hidden="true">←</span> Back to scanning settings</Button>
       <h2 ref={heading} tabIndex={-1}>{names[area]}</h2><p>Change any value to customise it. Other settings keep following your defaults.</p>
     </header>}
-    {area === 'point' && <>
+    {(area === 'point' || area === 'shared') && <>
       <SettingGroup
         title="Point scan"
-        description="Choose how the scanning lines find a point. Changes apply straight away."
+        description=""
       >
         <OptionGroup<PointScanConfig["mode"]>
-          legend="Mode"
+          legend="Method"
           disabled={disabled}
           value={config.mode}
           onChange={(value) => update("mode", value)}
@@ -105,7 +92,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
           <>
             <label className="exact-speed">
               <span>Grid size</span>
-              <select
+              <Select
                 disabled={disabled}
                 value={config.gridSize}
                 onChange={(event) =>
@@ -117,27 +104,27 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
                     {n} × {n}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           </>
         )}
 
         
       </SettingGroup>
-      <SettingGroup title="Auto selection" description="Automatically left-click the chosen point after a delay. Press a switch again during the delay to open the action menu.">
+      <MoreOptions label="Click options"><SettingGroup title="Auto selection" description="Automatically left-click the chosen point after a delay. Press a switch again during the delay to open the action menu.">
         <Toggle label="Auto select" checked={config.autoSelectEnabled} disabled={disabled} onChange={(value) => update("autoSelectEnabled", value)} />
         {config.autoSelectEnabled && <label className="exact-speed">
           <span>Auto select delay (seconds)</span>
-          <input type="number" min="0.1" max="100" step="0.1" disabled={disabled} value={config.autoSelectDelayMs / 1000}
+          <Input type="number" min="0.1" max="100" step="0.1" disabled={disabled} value={config.autoSelectDelayMs / 1000}
             onChange={(event) => { if (event.currentTarget.validity.valid && event.currentTarget.value !== "") update("autoSelectDelayMs", Math.round(event.currentTarget.valueAsNumber * 1000)); }} />
         </label>}
-      </SettingGroup>
+      </SettingGroup></MoreOptions>
 
     </>}
     {area === 'keyboard' && <SettingGroup title="Suggestions" description="Show word suggestions while typing with the scanning keyboard.">
       <Toggle label="Word prediction" checked={config.wordPrediction} disabled={disabled} onChange={value => update('wordPrediction', value)} />
     </SettingGroup>}
-    <SettingGroup title="Movement" description="Choose how scanning advances and when it waits for you.">
+    <SettingGroup title="Movement" description="">
     {field('automatic', 'Automatic scanning', locked => <Toggle label="Automatic scanning" checked={effective.automatic} disabled={locked} onChange={value => change('automatic', value)} />)}
     {area === 'keyboard' && <OptionGroup<'continue' | 'wait'> legend="After typing" disabled={disabled || !effective.automatic} value={config.keyboardWaitAfterTyping ? 'wait' : 'continue'}
       options={[{ value: 'continue', label: 'Continue scanning' }, { value: 'wait', label: 'Wait for Select' }]}
@@ -145,28 +132,45 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
       note={{ summary: effective.automatic ? 'After typing a key or suggestion, wait for Select before scanning again.' : 'Used in automatic keyboard scanning. Your choice is kept while scanning manually.' }} />}
     {field('intervalMs', 'Auto scan rate', locked => <>
       <div className="exact-speed"><span>Auto scan rate</span><div className="scan-rate-stepper">
-        <button type="button" aria-label="Decrease auto scan interval by 0.1 seconds" disabled={locked || !effective.automatic || effective.intervalMs <= 100} onClick={() => change('intervalMs', Math.max(100, effective.intervalMs - 100))}>−</button>
+        <Button type="button" aria-label="Decrease auto scan interval by 0.1 seconds" disabled={locked || !effective.automatic || effective.intervalMs <= 100} onClick={() => change('intervalMs', Math.max(100, effective.intervalMs - 100))}>−</Button>
         <output aria-label="Auto scan rate" aria-live="polite">{effective.intervalMs / 1000} s</output>
-        <button type="button" aria-label="Increase auto scan interval by 0.1 seconds" disabled={locked || !effective.automatic || effective.intervalMs >= 10000} onClick={() => change('intervalMs', Math.min(10000, effective.intervalMs + 100))}>+</button>
+        <Button type="button" aria-label="Increase auto scan interval by 0.1 seconds" disabled={locked || !effective.automatic || effective.intervalMs >= 10000} onClick={() => change('intervalMs', Math.min(10000, effective.intervalMs + 100))}>+</Button>
       </div></div>
-      <p className="setting-note">{effective.automatic ? 'Time each row or item stays highlighted. Lower values scan faster. Line speed is separate.' : 'Used in automatic scanning. Your rate is kept while scanning manually.'}</p>
+      <p className="setting-note">{effective.automatic ? 'Seconds per highlight. Less time means faster scanning.' : 'Used in automatic scanning. Your rate is kept while scanning manually.'}</p>
     </>)}
+    </SettingGroup>
+    <MoreOptions>
     {field('direction', 'Initial direction', locked => <OptionGroup<ScanOptions['direction']> legend="Initial direction" disabled={locked} value={effective.direction} options={[{ value: 'forward', label: 'Forward' }, { value: 'reverse', label: 'Reverse' }]} onChange={value => change('direction', value)} />)}
     {field('passLimit', 'Pass limit', locked => <OptionGroup<number> legend="Pass limit" disabled={locked} value={effective.passLimit} options={[1, 2, 3, 5, 0].map(value => ({ value, label: value ? `${value} ${value === 1 ? 'pass' : 'passes'}` : 'Unlimited' }))} onChange={value => change('passLimit', value)}
       note={{ summary: 'After this many automatic passes, scanning waits for Select. Unlimited keeps scanning until you pause or stop.' }} />)}
     {area !== 'point' && field('pattern', 'Item scanning', locked => <OptionGroup<ScanOptions['pattern']> legend="Item scanning" disabled={locked} value={effective.pattern} options={[{ value: 'grouped', label: 'Groups, then items' }, { value: 'linear', label: 'One item at a time' }]} onChange={value => change('pattern', value)}
       note={{ summary: 'Grouped scanning chooses a row or group before an item. Linear scanning visits each item directly. Point scanning uses its own line and grid modes.' }} />)}
-    </SettingGroup>
+
     <SettingGroup title="Appearance" description="Choose a highlight that is easy to see.">
     {field('color', 'Scanner colour', locked => <fieldset disabled={locked}><legend>Scanner colour</legend><div className="scanner-colours">
-      {(['red', 'green', 'blue', 'yellow', 'white'] as const).map(colour => <label key={colour}><input type="radio" name="scanner-colour" value={colour} checked={effective.color === colour} onChange={() => change('color', colour)} /><span className={`color-swatch ${colour}`} aria-hidden="true" /><span>{colour[0].toUpperCase() + colour.slice(1)}</span></label>)}
+      {(['red', 'green', 'blue', 'yellow', 'white'] as const).map(colour => <label key={colour}><Input type="radio" name="scanner-colour" value={colour} checked={effective.color === colour} onChange={() => change('color', colour)} /><span className={`color-swatch ${colour}`} aria-hidden="true" /><span>{colour[0].toUpperCase() + colour.slice(1)}</span></label>)}
     </div></fieldset>)}
     {field('thickness', 'Highlight thickness', locked => <OptionGroup<ScanOptions['thickness']> legend="Highlight thickness" disabled={locked} value={effective.thickness} options={(['thin', 'standard', 'thick'] as const).map(value => ({ value, label: value[0].toUpperCase() + value.slice(1) }))} onChange={value => change('thickness', value)} />)}
     <div className={`scanner-sample ${effective.color}`} role="img" aria-label={`${effective.color} scanner highlight sample`}>
       <span className={`scanner-sample-selection ${effective.thickness}`}>Selected area</span>
     </div>
     </SettingGroup>
-    {area !== 'shared' && <button type="button" className="secondary" disabled={disabled || Object.values(settings[area]).every(value => value == null)} onClick={() => update('scanPreferences', { ...settings, [area]: {} })}>Reset scanning overrides</button>}
-    <p className="setting-note scanner-save-note">Changes save automatically, cancel the current scan and wait for Select.</p>
+    {area === 'shared' && <section className="scanner-areas" aria-labelledby="scanner-areas-title">
+      <header><h2 id="scanner-areas-title">Customise an area</h2><p>Give an area different settings, or keep using your defaults.</p></header>
+      <div className="scanner-area-cards">{(['point', 'menu', 'keyboard'] as const).map(key => {
+        const options = areaOptions(config, key);
+        const count = Object.entries(settings[key]).filter(([name, value]) => value != null && !(key === 'point' && name === 'pattern')).length;
+        return <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}>
+          <strong>{names[key]} <span aria-hidden="true">→</span></strong>
+          <span>{options.automatic ? `Automatic · ${options.intervalMs / 1000}s` : 'Manual'} · {options.direction === 'forward' ? 'Forward' : 'Reverse'}</span>
+          <span>{key === 'point' ? (config.mode === 'grid' ? 'Grid then line' : 'Line only') : (options.pattern === 'grouped' ? 'Groups, then items' : 'One item at a time')}</span>
+          <span className="scanner-area-appearance"><i className={`color-swatch ${options.color}`} aria-hidden="true" />{options.color} · {options.thickness}</span>
+          <span className="scanner-area-badge">{count ? `${count} custom ${count === 1 ? 'setting' : 'settings'}` : 'Using defaults'}</span>
+        </Button>;
+      })}</div>
+    </section>}
+    </MoreOptions>
+    {area !== 'shared' && <Button type="button" className="secondary" disabled={disabled || Object.values(settings[area]).every(value => value == null)} onClick={() => update('scanPreferences', { ...settings, [area]: {} })}>Reset scanning overrides</Button>}
+    <p className="setting-note scanner-save-note">Saved automatically. Press Select to scan again.</p>
   </div>;
 }

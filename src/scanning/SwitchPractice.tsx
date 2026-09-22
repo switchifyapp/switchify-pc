@@ -1,3 +1,4 @@
+import { Button, Select } from "../ui/controls";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -56,9 +57,9 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
   };
   const highlighted = view?.blocks.filter(block => block.selected).map(block => block.label).join(", ");
   return <div className="switch-practice-entry">
-    <p>Test your saved switches safely with a simple set of practice blocks. Select starts a scan; Next and Previous move the highlight.</p>
-    <label>Test source <select aria-label="Test source" value={remote ? "remote" : "local"} disabled={open || pending || disabled} onChange={e => setRemote(e.target.value === "remote")}><option value="local">Switches on this computer</option><option value="remote">Switches from Switchify Remote</option></select></label>
-    <button ref={trigger} type="button" className="secondary" disabled={pending || disabled || !("__TAURI_INTERNALS__" in window)} onClick={() => void begin()}>Test switches</button>
+    <p>Try your saved switches safely.</p>
+    <label>Test source <Select aria-label="Test source" value={remote ? "remote" : "local"} disabled={open || pending || disabled} onChange={e => setRemote(e.target.value === "remote")}><option value="local">Switches on this computer</option><option value="remote">Switches from Switchify Remote</option></Select></label>
+    <Button ref={trigger} type="button" className="secondary" disabled={pending || disabled || !("__TAURI_INTERNALS__" in window)} onClick={() => void begin()}>Test switches</Button>
     {!open && error && <p role="alert">{error}</p>}
     {open && createPortal(<div className="modal-backdrop"><section ref={dialog} className="switch-practice-dialog" role="dialog" aria-modal="true" aria-labelledby="practice-title" tabIndex={-1} onKeyDown={e => {
       e.stopPropagation();
@@ -78,7 +79,7 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
       </ul>
       <p aria-live="polite">Highlighted: {highlighted || "None — use Select to start"}</p>
       {error && <p role="alert">{error}</p>}
-      <div className="switch-practice-buttons"><button type="button" className="primary" disabled={pending} onClick={() => void close()}>Exit practice</button></div>
+      <div className="switch-practice-buttons"><Button type="button" className="primary" disabled={pending} onClick={() => void close()}>Exit practice</Button></div>
     </section></div>, document.body)}
   </div>;
 }
