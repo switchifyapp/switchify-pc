@@ -37,6 +37,7 @@ pub enum Area {
     Point,
     Menu,
     Keyboard,
+    Mouse,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -59,6 +60,7 @@ pub struct Preferences {
     pub point: Overrides,
     pub menu: Overrides,
     pub keyboard: Overrides,
+    pub mouse: Overrides,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -70,6 +72,7 @@ impl Default for Preferences {
             point: Default::default(),
             menu: Default::default(),
             keyboard: Default::default(),
+            mouse: Default::default(),
         }
     }
 }
@@ -108,6 +111,7 @@ impl Preferences {
             Area::Point => self.point,
             Area::Menu => self.menu,
             Area::Keyboard => self.keyboard,
+            Area::Mouse => self.mouse,
         };
         Resolved {
             automatic: local.automatic.unwrap_or(automatic),
@@ -145,6 +149,7 @@ pub fn deserialize_preferences<'de, D: serde::Deserializer<'de>>(
         &mut preferences.point,
         &mut preferences.menu,
         &mut preferences.keyboard,
+        &mut preferences.mouse,
     ] {
         local.interval_ms = local.interval_ms.filter(|v| (100..=10000).contains(v));
         local.pass_limit = local.pass_limit.filter(|v| valid_passes(*v));

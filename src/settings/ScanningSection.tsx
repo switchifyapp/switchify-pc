@@ -7,6 +7,9 @@ const phases = {
   keyboard: "Choose a keyboard row, then a key",
   keyboardSuspended: "Select to resume the keyboard",
   keyboardOpening: "Opening the keyboard",
+  mouse: "Choose a mouse control",
+  mouseSuspended: "Select to resume the mouse",
+  mouseMoving: "Moving pointer. Press any switch to stop",
   idle: "Ready to begin",
   autoSelecting: "Waiting to click. Press a switch for the action menu",
   menu: "Choose an action at the selected point",
@@ -34,6 +37,7 @@ export function ScanningSection({ controller }: { controller: ScanningController
     <ScannerPreferences controller={controller} />
     <details className="scanner-help"><summary>How scanning works</summary>
       <p>Focus the application you want to use, then press Select to scan the display under the pointer. Choose a point, then use the action menu for clicks, scrolling and dragging.</p>
+      <p>Choose Mouse from the action menu, or assign Open mouse to a switch. The pointer ring stays visible while Mouse is open. Select a direction to move with the saved Remote repeat settings; press any switch to stop repeating and scan the mouse panel again. If repeat is off, each selection moves one step. The panel also offers clicks, dragging, scrolling, speed, monitor navigation and Keyboard.</p>
       <p>Assign switch actions in the Switches page. Actions run on release; holding a switch freezes movement. Manual scanning needs Select, Next and Previous. After clicking or reaching the pass limit, use Select to start again.</p>
       <p>Assigned keys stay reserved while Switchify runs. Escape resets the scan. Mobile connections pause local scanning until they end.</p>
       <p>On Windows, assigned keys remain switches with Shift, Ctrl, Alt or Windows held, even in the background. Other keys and Switchify-generated shortcuts still work normally.</p>

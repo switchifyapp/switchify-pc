@@ -41,6 +41,25 @@ impl Adapter for PointScan {
     type Environment = Environment;
     const EVENT: &'static str = "point-scan-changed";
     const FILE: &'static str = "point-scan.json";
+    fn cursor_feedback(technique: &Workflow) -> Option<crate::input::PointerFeedback> {
+        technique.mouse_feedback()
+    }
+    fn cursor_action_feedback(request: &Request) -> Option<crate::input::PointerFeedback> {
+        use crate::input::PointerFeedback;
+        use crate::protocol::MouseButton;
+        match *request {
+            Request::MouseClick { right, count } => Some(PointerFeedback::Click {
+                button: if right {
+                    MouseButton::Right
+                } else {
+                    MouseButton::Left
+                },
+                count,
+            }),
+            Request::MouseScroll { dy } => Some(PointerFeedback::Scroll { dx: 0, dy }),
+            _ => None,
+        }
+    }
     fn validate(config: &Config) -> Result<(), String> {
         config.validate()
     }
@@ -72,9 +91,54 @@ impl Adapter for PointScan {
                 crate::prediction::record(stroke, result.is_ok(), scope);
                 return result.map(|()| None);
             }
-            Request::OpenKeyboard => {
+            Request::OpenKeyboard | Request::OpenMouse => {
                 crate::prediction::stop();
                 crate::scan_executor::activate(request)
+            }
+            Request::MouseDrag => {
+                let (position, _) = display_navigation::displays(app).map_err(|e| e.message)?;
+                return crate::scan_executor::toggle_mouse_drag((
+                    position.0.round() as i32,
+                    position.1.round() as i32,
+                ))
+                .map(|()| None);
+            }
+            Request::MouseMove { dx, dy } if cfg!(target_os = "macos") => {
+                let (cursor, displays) =
+                    display_navigation::displays(app).map_err(|e| e.message)?;
+                let target = display_navigation::clamped_pointer_target(cursor, dx, dy, &displays)
+                    .ok_or("No active display could be resolved.")?;
+                return crate::scan_executor::activate(Request::MouseMoveAbsolute {
+                    x: target.0,
+                    y: target.1,
+                })
+                .map(|()| None);
+            }
+            Request::MouseSpeed(direction) => {
+                let model = app.state::<crate::state::AppModel>();
+                let old = model.snapshot().settings.pointer_scale_percent;
+                let next = (i16::from(old) + i16::from(direction) * 5).clamp(5, 225) as u8;
+                model.apply_pointer_scale_percent(next)?;
+                crate::state::emit_state(app, &model.shared);
+                return Ok(None);
+            }
+            Request::MouseMonitor(dx, dy) => {
+                let (cursor, displays) =
+                    display_navigation::displays(app).map_err(|e| e.message)?;
+                let source = display_navigation::current_display(cursor, &displays)
+                    .ok_or("No scanning display is available.")?;
+                let direction = match (dx, dy) {
+                    (-1, 0) => "left",
+                    (1, 0) => "right",
+                    (0, -1) => "up",
+                    (0, 1) => "down",
+                    _ => return Err("Invalid monitor direction.".into()),
+                };
+                let target = display_navigation::target_center(source, &displays, direction)
+                    .map_err(|e| e.message)?;
+                crate::scan_executor::move_to(target)?;
+                let (_, environment) = new_engine(app, app.state::<Controller>().view().config)?;
+                return Ok(Some(environment));
             }
             Request::Setting(setting) => scanning_runtime::update_point_setting(app, setting),
             Request::Display(next) => scanning_runtime::restart_point_on_display(app, next),
@@ -88,7 +152,40 @@ impl Adapter for PointScan {
         technique: Option<&mut Workflow>,
     ) -> Result<bool, String> {
         if let (Some(environment), Some(technique)) = (environment, technique) {
-            if technique.keyboard_open() {
+            if technique.mouse_open() {
+                let (cursor, displays) =
+                    display_navigation::displays(app).map_err(|e| e.message)?;
+                let current = display_navigation::current_display(cursor, &displays)
+                    .ok_or("No scanning display is available.")?
+                    .clone();
+                let rect = Rect {
+                    x: current.x.into(),
+                    y: current.y.into(),
+                    width: current.width.into(),
+                    height: current.height.into(),
+                };
+                let area = crate::scan_host::work_area(rect)?;
+                environment.display = current;
+                environment.keyboard_area = area;
+                environment.foreground = crate::scan_host::foreground()?;
+                technique.set_mouse_area(
+                    area,
+                    rect,
+                    if cfg!(target_os = "windows") {
+                        environment.display.scale_factor
+                    } else {
+                        1.0
+                    },
+                    displays.len(),
+                );
+                let settings = app.state::<crate::state::AppModel>().snapshot().settings;
+                technique.set_mouse_settings(
+                    settings.pointer_scale_percent,
+                    settings.mouse_repeat_acceleration_duration_ms,
+                    settings.move_repeat_interval_ms,
+                    settings.mouse_repeat_enabled,
+                );
+            } else if technique.keyboard_open() {
                 crate::point_scan_ready(app)?;
                 let foreground = crate::scan_host::foreground()?;
                 if environment.foreground != foreground {
@@ -102,7 +199,13 @@ impl Adapter for PointScan {
         Ok(true)
     }
     fn preserve_visuals(request: &Request) -> bool {
-        matches!(request, Request::Keyboard(_) | Request::Prediction { .. })
+        matches!(
+            request,
+            Request::Keyboard(_)
+                | Request::Prediction { .. }
+                | Request::MouseMove { .. }
+                | Request::MouseMoveAbsolute { .. }
+        )
     }
     fn deferred(request: &Request) -> bool {
         matches!(request, Request::Prediction { .. })

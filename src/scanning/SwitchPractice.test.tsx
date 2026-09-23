@@ -26,7 +26,7 @@ describe("safe switch practice", () => {
     render(<SwitchPractice />); fireEvent.click(screen.getByRole("button", { name: "Test switches" }));
     const dialog = await screen.findByRole("dialog", { name: "Safe switch practice" });
     expect(invoke).toHaveBeenCalledWith("begin_switch_practice", { remote: false });
-    expect(dialog).toHaveFocus();
+    await waitFor(() => expect(dialog).toHaveFocus());
     expect(screen.queryByRole("button", { name: "Start another test" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Exit practice" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

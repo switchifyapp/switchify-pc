@@ -16,7 +16,33 @@ pub fn execute<I: InputInjector>(
     }
     match request {
         Request::Prediction { .. } => Err("Prediction requires the scan controller.".into()),
-        Request::OpenKeyboard => input.release_all(),
+        Request::OpenKeyboard | Request::OpenMouse | Request::CloseMouse => input.release_all(),
+        Request::MouseMove { dx, dy } => input.move_pointer_pixels(dx, dy).map(|_| ()),
+        Request::MouseMoveAbsolute { x, y } => input.move_pointer_pixels_absolute(x, y).map(|_| ()),
+        Request::MouseClick { right, count } => {
+            if input.has_active_drag() {
+                return Err("End the drag before clicking.".into());
+            }
+            input.click_pointer(
+                if right {
+                    MouseButton::Right
+                } else {
+                    MouseButton::Left
+                },
+                count,
+            )
+        }
+        Request::MouseScroll { dy } => input.execute_repeat_scroll(0, dy).map(|_| ()),
+        Request::MouseDrag => {
+            if input.has_active_drag() {
+                input.release_all()
+            } else {
+                Err("Mouse drag requires the scan controller.".into())
+            }
+        }
+        Request::MouseSpeed(_) | Request::MouseMonitor(..) => {
+            Err("Mouse action requires the scan controller.".into())
+        }
         Request::Keyboard(stroke) => {
             if input.has_active_drag() {
                 return Err("End the active drag before typing.".into());
@@ -97,6 +123,33 @@ pub fn activate(request: Request) -> Result<(), String> {
         }
         let input = input.as_mut().unwrap();
         let result = execute(input, request, crate::scan_host::modifiers_released());
+        if result.is_err() {
+            let _ = input.release_all();
+        }
+        result
+    })
+}
+pub fn toggle_mouse_drag(point: (i32, i32)) -> Result<(), String> {
+    if !crate::scan_host::modifiers_released() {
+        return Err("Release modifiers before dragging.".into());
+    }
+    INPUT.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.is_none() {
+            *slot = Some(DesktopInput::new(
+                enigo::Enigo::new(&crate::input::injection_settings())
+                    .map_err(|_| "Scan input could not be initialized.")?,
+            ));
+        }
+        let input = slot.as_mut().unwrap();
+        if input.has_active_switch_session() {
+            return Err("End switch forwarding before dragging.".into());
+        }
+        let result = if input.has_active_drag() {
+            input.release_all()
+        } else {
+            input.start_scan_drag(point)
+        };
         if result.is_err() {
             let _ = input.release_all();
         }
@@ -273,8 +326,9 @@ mod tests {
             self.events.push(format!("text {text}"));
             Ok(())
         }
-        fn move_pointer(&mut self, _: i32, _: i32) -> Result<(), String> {
-            panic!("No relative movement")
+        fn move_pointer(&mut self, dx: i32, dy: i32) -> Result<(), String> {
+            self.events.push(format!("relative {dx} {dy}"));
+            Ok(())
         }
         fn move_pointer_absolute(&mut self, x: i32, y: i32) -> Result<(), String> {
             self.events.push(format!("move {x} {y}"));
@@ -360,6 +414,34 @@ mod tests {
         input.injector.fail_release = false;
         input.release_all().unwrap();
         assert!(!input.has_active_drag());
+    }
+    #[test]
+    fn mouse_actions_use_fake_input_and_close_releases_drag() {
+        let mut input = DesktopInput::new(Fake::default());
+        execute(&mut input, Request::MouseMove { dx: 4, dy: -2 }, true).unwrap();
+        execute(
+            &mut input,
+            Request::MouseMoveAbsolute { x: 40, y: 50 },
+            true,
+        )
+        .unwrap();
+        execute(
+            &mut input,
+            Request::MouseClick {
+                right: false,
+                count: 2,
+            },
+            true,
+        )
+        .unwrap();
+        execute(&mut input, Request::MouseScroll { dy: 5 }, true).unwrap();
+        execute(&mut input, Request::DragStart((10, 20)), true).unwrap();
+        execute(&mut input, Request::CloseMouse, true).unwrap();
+        assert!(!input.has_active_drag());
+        assert!(input.injector.events.contains(&"relative 4 -2".into()));
+        assert!(input.injector.events.contains(&"move 40 50".into()));
+        assert!(input.injector.events.contains(&"scroll 0 5".into()));
+        assert!(input.injector.events.contains(&"button Left false".into()));
     }
     #[test]
     fn keyboard_text_chords_and_current_focus_use_fake_input() {
