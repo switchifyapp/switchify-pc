@@ -909,6 +909,12 @@ mod tests {
             }
         }
         assert!(moved);
+        let frame = session.technique.frame();
+        assert!(frame.tiles.iter().all(|tile| !tile.selected));
+        assert_eq!(
+            frame.tiles.last().unwrap().text,
+            "Moving pointer · Press any switch to stop"
+        );
         assert!(session.technique.switch_pressed());
         assert!(!session.technique.switch_pressed());
         assert_eq!(

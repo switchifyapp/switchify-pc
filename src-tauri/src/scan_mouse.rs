@@ -142,8 +142,8 @@ impl MousePanel {
             .into(),
             Scroll(1) => "Scroll up".into(),
             Scroll(_) => "Scroll down".into(),
-            Speed(-1) => format!("Slower · {}%", self.speed_percent),
-            Speed(_) => format!("Faster · {}%", self.speed_percent),
+            Speed(-1) => format!("Slower\n{}%", self.speed_percent),
+            Speed(_) => format!("Faster\n{}%", self.speed_percent),
             Monitor(-1, 0) => "Monitor left".into(),
             Monitor(0, -1) => "Monitor up".into(),
             Monitor(0, 1) => "Monitor down".into(),
@@ -277,6 +277,12 @@ mod tests {
         panel.handle(Action::Select);
         let status = panel.frame(screen, 1.0, color, false).tiles.pop().unwrap();
         assert_eq!(status.text, "Movement · Select ↖");
+
+        panel.choose(Key::More);
+        panel.handle(Action::Next);
+        panel.handle(Action::Select);
+        let status = panel.frame(screen, 1.0, color, false).tiles.pop().unwrap();
+        assert_eq!(status.text, "More controls · Select Slower 100%");
 
         let moving = panel.frame(screen, 1.0, color, true);
         assert!(moving.tiles.iter().all(|tile| !tile.selected));
