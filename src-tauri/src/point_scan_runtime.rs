@@ -49,6 +49,9 @@ impl Adapter for PointScan {
         config.control_mode = next;
         true
     }
+    fn keep_runtime_config(next: &mut Config, current: &Config) {
+        next.control_mode = current.control_mode;
+    }
     fn cursor_feedback(technique: &Workflow) -> Option<crate::input::PointerFeedback> {
         technique.mouse_feedback()
     }
@@ -312,6 +315,21 @@ mod tests {
             serde_json::from_slice(&serde_json::to_vec(&config).unwrap()).unwrap();
         assert_eq!(restored.control_mode, crate::point_scan::ControlMode::Mouse);
         assert_eq!(restored.speed, 4);
+    }
+
+    #[test]
+    fn settings_saves_keep_the_runtime_mode() {
+        let current = Config {
+            control_mode: crate::point_scan::ControlMode::Mouse,
+            ..Config::default()
+        };
+        let mut next = Config {
+            speed: 5,
+            ..Config::default()
+        };
+        PointScan::keep_runtime_config(&mut next, &current);
+        assert_eq!(next.control_mode, crate::point_scan::ControlMode::Mouse);
+        assert_eq!(next.speed, 5);
     }
 
     #[test]
