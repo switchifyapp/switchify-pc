@@ -409,7 +409,7 @@ it("shows both modes before their settings and keeps advanced panels collapsed",
   render(<PointScan />);
   await screen.findByText(initial.message);
   expect(screen.getByRole("button", { name: "Customise point scanning" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Customise mouse" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Customise mouse scanning" })).toBeVisible();
   expect(screen.queryByRole("group", { name: "Method" })).toBeNull();
   expect(screen.getByRole("checkbox", { name: "Automatic scanning" })).toBeVisible();
   expect(screen.queryByRole("radio", { name: "Blue" })).toBeNull();
@@ -428,12 +428,12 @@ it("explains the saved Mouse mode and keeps mode cards keyboard accessible", asy
   mocks.invoke.mockImplementation((command) => command === "get_point_scan" ? Promise.resolve({ ...initial, config: { ...defaultPointScanConfig, controlMode: "mouse" } }) : Promise.resolve(initial));
   render(<PointScan />);
   await screen.findByText(initial.message);
-  expect(screen.getByText("Mouse scanning", { selector: "strong" })).toBeInTheDocument();
-  const mouse = screen.getByRole("button", { name: "Customise mouse" });
+  expect(screen.getAllByText("Mouse scanning", { selector: "strong" })).toHaveLength(2);
+  const mouse = screen.getByRole("button", { name: "Customise mouse scanning" });
   mouse.focus();
   fireEvent.keyDown(mouse, { key: "Enter" });
   fireEvent.click(mouse);
-  expect(screen.getByRole("heading", { name: "Mouse", level: 2 })).toHaveFocus();
+  expect(screen.getByRole("heading", { name: "Mouse scanning", level: 2 })).toHaveFocus();
   fireEvent.click(screen.getByRole("button", { name: "Back to scanning settings" }));
-  expect(screen.getByRole("button", { name: "Customise mouse" })).toHaveFocus();
+  expect(screen.getByRole("button", { name: "Customise mouse scanning" })).toHaveFocus();
 });

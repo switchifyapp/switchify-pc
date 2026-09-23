@@ -998,9 +998,20 @@ mod tests {
         workflow.keyboard_closed();
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
         assert_eq!(
+            workflow.control_mode(),
+            crate::point_scan::ControlMode::Mouse
+        );
+        assert_eq!(
             workflow.mouse_feedback(),
             Some(crate::input::PointerFeedback::Move)
         );
+        workflow.reset();
+        assert_eq!(
+            workflow.control_mode(),
+            crate::point_scan::ControlMode::Mouse
+        );
+        workflow.start();
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
     }
 
     #[test]

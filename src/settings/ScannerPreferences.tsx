@@ -33,7 +33,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     changedView.current = true;
     setArea(next);
   };
-  const names = { point: 'Point scanning', menu: 'Menus', keyboard: 'Keyboard', mouse: 'Mouse' };
+  const names = { point: 'Point scanning', menu: 'Menus', keyboard: 'Keyboard', mouse: 'Mouse scanning' };
   const descriptions = {
     point: 'Choose a place on the screen with a moving line or grid, then choose what to do there.',
     mouse: 'Move the pointer with direction controls and a visible ring. Click, drag, scroll, or open the keyboard from the mouse panel.',
