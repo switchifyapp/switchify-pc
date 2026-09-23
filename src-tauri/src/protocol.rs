@@ -1456,7 +1456,7 @@ pub fn pointer_profile_response(
                     "setSupported": true,
                     "scalePercent": settings.pointer_scale_percent,
                     "minScalePercent": 5,
-                    "maxScalePercent": 225,
+                    "maxScalePercent": 1350,
                     "stepPercent": 5,
                     "baseMoveDelta": 128,
                     "effectiveMoveDelta": (128.0 * f64::from(settings.pointer_scale_percent) / 100.0).round() as u32
@@ -2625,6 +2625,10 @@ mod tests {
         assert_eq!(response["payload"]["maxDelta"], 500);
         assert_eq!(response["payload"]["recommendedDeltas"]["medium"], 130);
         assert_eq!(response["payload"]["capabilities"]["noAckMouseMove"], true);
+        assert_eq!(
+            response["payload"]["capabilities"]["pointerSpeed"]["maxScalePercent"],
+            1350
+        );
         assert_eq!(
             response["payload"]["capabilities"]["mouseRepeat"]["supported"],
             true

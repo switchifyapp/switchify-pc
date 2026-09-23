@@ -124,10 +124,11 @@ button:disabled { cursor: default; opacity: 0.55; }
 .pointer-speed legend, .repeat-options legend { width: 100%; margin-bottom: 8px; color: var(--muted); }
 .pointer-speed legend strong { float: right; color: inherit; }
 .segmented.compact.five { grid-template-columns: repeat(5, 1fr); }
+.segmented.compact.speed-presets { grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); }
 .segmented.compact.four { grid-template-columns: repeat(4, 1fr); }
-.segmented.compact.five button, .segmented.compact.four button { min-width: 0; padding: 0 6px; }
+.segmented.compact.five button, .segmented.compact.four button, .segmented.compact.speed-presets button { min-width: 0; padding: 0 6px; }
 .exact-speed { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; color: var(--muted); }
-.exact-speed select { min-width: 92px; min-height: 32px; border: 1px solid var(--border); border-radius: 5px; padding: 4px 8px; color: inherit; background: var(--surface); }
+.exact-speed input { min-width: 92px; min-height: 32px; border: 1px solid var(--border); border-radius: 5px; padding: 4px 8px; color: inherit; background: var(--surface); }
 .movement-values { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 10px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .movement-values div { display: grid; gap: 3px; padding: 10px 8px; text-align: center; }
 .movement-values div + div { border-left: 1px solid var(--border); }

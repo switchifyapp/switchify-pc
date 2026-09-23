@@ -569,8 +569,8 @@ impl<I: InputInjector> DesktopInput<I> {
             (dy as f64 * scale).round() as i32,
         )
     }
-    pub fn set_pointer_scale_percent(&mut self, scale_percent: u8) {
-        self.pointer_scale_percent = u32::from(scale_percent.clamp(5, 225));
+    pub fn set_pointer_scale_percent(&mut self, scale_percent: u16) {
+        self.pointer_scale_percent = u32::from(scale_percent.clamp(5, 1350));
     }
     #[cfg_attr(
         target_os = "macos",
@@ -2265,6 +2265,14 @@ mod tests {
             PointerFeedback::Move
         );
         assert_eq!(input.injector.moves, vec![(1, -1)]);
+    }
+
+    #[test]
+    fn direct_pointer_movement_uses_the_extended_speed() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        input.set_pointer_scale_percent(1350);
+        input.move_pointer(12, -12).unwrap();
+        assert_eq!(input.injector.moves, vec![(162, -162)]);
     }
 
     #[test]

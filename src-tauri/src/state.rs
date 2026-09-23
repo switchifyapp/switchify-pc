@@ -58,7 +58,7 @@ pub struct Activity {
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub start_with_system: bool,
-    pub pointer_scale_percent: u8,
+    pub pointer_scale_percent: u16,
     pub mouse_repeat_enabled: bool,
     pub move_repeat_interval_ms: u32,
     pub scroll_repeat_interval_ms: u32,
@@ -109,10 +109,10 @@ impl Default for AppSettings {
 
 impl AppSettings {
     pub fn normalized(mut self) -> Result<Self, String> {
-        if !(5..=225).contains(&self.pointer_scale_percent)
+        if !(5..=1350).contains(&self.pointer_scale_percent)
             || !self.pointer_scale_percent.is_multiple_of(5)
         {
-            return Err("Pointer speed must be between 5 and 225 in steps of 5.".into());
+            return Err("Pointer speed must be between 5 and 1350 in steps of 5.".into());
         }
         if ![100, 250, 500, 1000].contains(&self.move_repeat_interval_ms)
             || ![100, 250, 500, 1000].contains(&self.scroll_repeat_interval_ms)
@@ -146,11 +146,11 @@ impl AppSettings {
     }
 }
 
-pub fn normalize_pointer_scale_percent(scale_percent: f64) -> Result<u8, String> {
+pub fn normalize_pointer_scale_percent(scale_percent: f64) -> Result<u16, String> {
     if !scale_percent.is_finite() || scale_percent <= 0.0 {
         return Err("Pointer speed is invalid.".into());
     }
-    Ok(((scale_percent / 5.0).round() * 5.0).clamp(5.0, 225.0) as u8)
+    Ok(((scale_percent / 5.0).round() * 5.0).clamp(5.0, 1350.0) as u16)
 }
 
 fn default_cursor_overlay_visibility() -> String {
@@ -541,7 +541,7 @@ impl AppModel {
         self.storage
             .save(&self.persisted_state(Some(settings), consent, None))
     }
-    pub fn apply_pointer_scale_percent(&self, scale_percent: u8) -> Result<(), String> {
+    pub fn apply_pointer_scale_percent(&self, scale_percent: u16) -> Result<(), String> {
         let _transaction = self
             .persistence_lock
             .lock()
@@ -1214,9 +1214,22 @@ mod tests {
         assert_eq!(normalize_pointer_scale_percent(1.0), Ok(5));
         assert_eq!(normalize_pointer_scale_percent(122.0), Ok(120));
         assert_eq!(normalize_pointer_scale_percent(123.0), Ok(125));
-        assert_eq!(normalize_pointer_scale_percent(500.0), Ok(225));
+        assert_eq!(normalize_pointer_scale_percent(500.0), Ok(500));
+        assert_eq!(normalize_pointer_scale_percent(2000.0), Ok(1350));
         assert!(normalize_pointer_scale_percent(0.0).is_err());
         assert!(normalize_pointer_scale_percent(f64::NAN).is_err());
+    }
+    #[test]
+    fn pointer_speed_settings_keep_old_values_and_round_trip_the_new_maximum() {
+        for speed in [5, 100, 225, 1350] {
+            let settings = AppSettings {
+                pointer_scale_percent: speed,
+                ..AppSettings::default()
+            };
+            let restored: AppSettings =
+                serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+            assert_eq!(restored.normalized().unwrap().pointer_scale_percent, speed);
+        }
     }
     #[test]
     fn pointer_speed_transaction_preserves_a_serialized_settings_change() {
