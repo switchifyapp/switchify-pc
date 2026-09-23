@@ -124,16 +124,16 @@ button:disabled { cursor: default; opacity: 0.55; }
 .pointer-speed legend, .repeat-options legend { width: 100%; margin-bottom: 8px; color: var(--muted); }
 .pointer-speed legend strong { float: right; color: inherit; }
 .segmented.compact.five { grid-template-columns: repeat(5, 1fr); }
-.segmented.compact.speed-presets { grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); }
 .segmented.compact.four { grid-template-columns: repeat(4, 1fr); }
-.segmented.compact.five button, .segmented.compact.four button, .segmented.compact.speed-presets button { min-width: 0; padding: 0 6px; }
+.segmented.compact.five button, .segmented.compact.four button { min-width: 0; padding: 0 6px; }
+.pointer-speed .pointer-speed-slider { width: 100%; padding: 0; accent-color: var(--brand); cursor: pointer; }
+.pointer-speed-ends, .pointer-speed-steps { display: flex; justify-content: space-between; gap: 12px; }
+.pointer-speed-ends { color: var(--muted); }
+.pointer-speed-fine-tune { display: grid; gap: 12px; }
+.pointer-speed-fine-tune p { margin: 0; }
+.pointer-speed-steps button { flex: 1; }
 .exact-speed { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; color: var(--muted); }
 .exact-speed input { min-width: 92px; min-height: 32px; border: 1px solid var(--border); border-radius: 5px; padding: 4px 8px; color: inherit; background: var(--surface); }
-.movement-values { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 10px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-.movement-values div { display: grid; gap: 3px; padding: 10px 8px; text-align: center; }
-.movement-values div + div { border-left: 1px solid var(--border); }
-.movement-values span { color: var(--muted); }
-.movement-values strong { font-weight: 650; }
 .repeat-settings { display: grid; gap: 17px; border-top: 1px solid var(--border); padding-top: 17px; }
 .repeat-options { display: grid; gap: 17px; }
 /* A disabled group dims itself and the prose of the note beside it, never a

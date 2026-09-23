@@ -1,42 +1,44 @@
 import { Button, Input, MoreOptions } from "../ui/controls";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import type { AppSettings } from "../types";
 import {
-  Disclosure, OptionGroup, SettingGroup, Toggle, accelerationOptions,
-  movementValue, pointerSpeedOptions, repeatIntervalOptions, secondsOptions,
-  type SettingsUpdate,
+  OptionGroup, SettingGroup, Toggle, accelerationOptions, repeatIntervalOptions,
+  secondsOptions, type SettingsUpdate,
 } from "./controls";
+import { speedLevel, speedLevelLabel, speedPercent } from "./pointerSpeedScale";
 
 export function PointerSection({ settings, update }: { settings: AppSettings; update: SettingsUpdate }) {
-  // Keep a draft so the user can type a multi-digit speed without saving each
-  // intermediate value or losing focus to a backend state update.
-  const isPreset = (pointerSpeedOptions as readonly number[]).includes(settings.pointerScalePercent);
-  const [showExact, setShowExact] = useState(!isPreset);
-  const [speedDraft, setSpeedDraft] = useState(String(settings.pointerScalePercent));
-  useEffect(() => { setSpeedDraft(String(settings.pointerScalePercent)); }, [settings.pointerScalePercent]);
-  useEffect(() => { if (!isPreset) setShowExact(true); }, [isPreset]);
-  const exactSpeedId = useId();
-  const saveExactSpeed = () => {
-    const entered = Number(speedDraft);
-    if (!Number.isFinite(entered) || entered <= 0) {
-      setSpeedDraft(String(settings.pointerScalePercent));
-      return;
-    }
-    const next = Math.min(1350, Math.max(5, Math.round(entered / 5) * 5));
-    setSpeedDraft(String(next));
-    if (next !== settings.pointerScalePercent) update("pointerScalePercent", next);
+  const percent = settings.pointerScalePercent;
+  const level = speedLevelLabel(percent);
+  const [sliderLevel, setSliderLevel] = useState(level);
+  useEffect(() => { setSliderLevel(level); }, [level, percent]);
+  const changeSpeed = (next: number) => {
+    if (next !== percent) update("pointerScalePercent", next);
   };
   return <SettingGroup title="Movement" description="">
-      <fieldset className="pointer-speed"><legend>Pointer speed <strong>{settings.pointerScalePercent}%</strong></legend><p>100% is the original speed. Higher speeds help cross the screen faster in Mouse and Remote.</p><div className="segmented compact speed-presets">
-        {pointerSpeedOptions.map((value) => <Button type="button" key={value} aria-label={`${value}% pointer speed`} aria-pressed={settings.pointerScalePercent === value} onClick={() => update("pointerScalePercent", value)}>{value}%</Button>)}
-      </div><Disclosure label={showExact ? "Hide exact speed" : "Set an exact speed"} expanded={showExact} onToggle={() => setShowExact(!showExact)} controls={exactSpeedId}>
-        <div id={exactSpeedId}>
-          <label className="exact-speed"><span>Exact speed (%)</span><Input type="number" aria-label="Exact pointer speed" min={5} max={1350} step={5} value={speedDraft} onChange={(event) => setSpeedDraft(event.target.value)} onBlur={saveExactSpeed} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label>
-          <div className="movement-values" aria-label="Pointer movement values">
-            {([{"label":"Small","base":4.5},{"label":"Medium","base":12},{"label":"Large","base":26}] as const).map(({ label, base }) => <div key={label}><span>{label}</span><strong>{movementValue(base, settings.pointerScalePercent)}</strong></div>)}
+      <fieldset className="pointer-speed"><legend>Pointer speed <strong>Level {level} of 10</strong></legend>
+        <p>Move the slider toward Fast to cover more distance with each step in Mouse scanning and Remote.</p>
+        <Input type="range" className="pointer-speed-slider" aria-label="Pointer speed" aria-valuetext={`Level ${speedLevel(percent).toFixed(3)} of 10`} min={1} max={10} step={0.1} value={sliderLevel} onChange={(event) => {
+          setSliderLevel(event.target.value);
+          changeSpeed(speedPercent(Number(event.target.value)));
+        }} onKeyDown={(event) => {
+          const delta = event.key === "ArrowRight" || event.key === "ArrowUp" ? 5 : event.key === "ArrowLeft" || event.key === "ArrowDown" ? -5 : 0;
+          if (!delta && event.key !== "Home" && event.key !== "End") return;
+          event.preventDefault();
+          const next = event.key === "Home" ? 5 : event.key === "End" ? 1350 : Math.min(1350, Math.max(5, percent + delta));
+          setSliderLevel(speedLevelLabel(next));
+          changeSpeed(next);
+        }} />
+        <div className="pointer-speed-ends" aria-hidden="true"><span>Slow</span><span>Fast</span></div>
+        <MoreOptions label="Fine tune speed"><div className="pointer-speed-fine-tune">
+          <p>Adjust the speed in small steps.</p>
+          <p role="status" aria-live="polite">Fine-tuned level {speedLevel(percent).toFixed(3)} of 10</p>
+          <div className="pointer-speed-steps">
+            <Button className="secondary" disabled={percent <= 5} onClick={() => update("pointerScalePercent", percent - 5)}>Slower</Button>
+            <Button className="secondary" disabled={percent >= 1350} onClick={() => update("pointerScalePercent", percent + 5)}>Faster</Button>
           </div>
-        </div>
-      </Disclosure></fieldset>
+        </div></MoreOptions>
+      </fieldset>
       <div className="repeat-settings">
         <Toggle label="Repeat mouse movement" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
         <MoreOptions label="Repeat timing"><div className="repeat-options">
