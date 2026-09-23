@@ -190,7 +190,7 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("4.1");
     fireEvent.click(screen.getByRole("button", { name: "Fine tune speed" }));
     fireEvent.click(screen.getByRole("button", { name: "Faster" }));
-    expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveAttribute("aria-valuetext", "Level 4.2 of 10");
+    expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveAttribute("aria-valuetext", `Level ${speedLevel(55).toFixed(3)} of 10`);
     fireEvent.click(screen.getByRole("checkbox", { name: "Repeat mouse movement" }));
     expect(screen.getByRole("group", { name: "Movement acceleration" })).toBeDisabled();
   });
@@ -614,7 +614,7 @@ describe("Switchify PC settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
     const slider = screen.getByRole("slider", { name: "Pointer speed" });
     expect(slider).toHaveValue("5.0");
-    expect(slider).toHaveAttribute("aria-valuetext", "Level 5.0 of 10");
+    expect(slider).toHaveAttribute("aria-valuetext", "Level 5.000 of 10");
     expect(screen.getByRole("group", { name: /Pointer speed/ })).toHaveTextContent("Level 5.0 of 10");
     expect(screen.getByText("Slow")).toBeInTheDocument();
     expect(screen.getByText("Fast")).toBeInTheDocument();
@@ -637,6 +637,32 @@ describe("Switchify PC settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fine tune speed" }));
     fireEvent.click(screen.getByRole("button", { name: "Faster" }));
     await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ pointerScalePercent: 155 })));
+  });
+
+  it("advances from the slow endpoint with the keyboard and retains a drag position on a rounding plateau", async () => {
+    const save = vi.spyOn(api, "saveSettings");
+    browserState.settings = { ...structuredClone(defaultBrowserSettings), pointerScalePercent: 5 };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
+    const slider = screen.getByRole("slider", { name: "Pointer speed" });
+    fireEvent.change(slider, { target: { value: "1.1" } });
+    expect(slider).toHaveValue("1.1");
+    expect(save).not.toHaveBeenCalled();
+    fireEvent.keyDown(slider, { key: "ArrowRight" });
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ pointerScalePercent: 10 })));
+    expect(slider).toHaveAttribute("aria-valuetext", `Level ${speedLevel(10).toFixed(3)} of 10`);
+  });
+
+  it("announces every fine tuning step even when the rounded main level stays the same", async () => {
+    browserState.settings = { ...structuredClone(defaultBrowserSettings), pointerScalePercent: 1300 };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fine tune speed" }));
+    const before = screen.getByText(`Fine-tuned level ${speedLevel(1300).toFixed(3)} of 10`).textContent;
+    fireEvent.click(screen.getByRole("button", { name: "Faster" }));
+    expect(screen.getByText(`Fine-tuned level ${speedLevel(1305).toFixed(3)} of 10`)).toBeInTheDocument();
+    expect(screen.getByText(`Fine-tuned level ${speedLevel(1305).toFixed(3)} of 10`).textContent).not.toBe(before);
+    expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveAttribute("aria-valuetext", `Level ${speedLevel(1305).toFixed(3)} of 10`);
   });
 
   it("maps both slider endpoints and stops fine tuning at the limits", async () => {
