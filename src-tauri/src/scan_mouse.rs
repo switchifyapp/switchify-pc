@@ -1,9 +1,9 @@
 //! Switch-owned mouse panel. Native input stays in the scanning adapter.
 use crate::{
     scan_items::{ItemScanner, Policy},
-    scan_menu::Item,
+    scan_panel::{Panel, PanelKey},
     scan_preferences::Resolved,
-    scanning::{Action, Frame, FrameLabel, FrameTile, Rect, ScannerColor, TileRole, TileStyle},
+    scanning::{Action, Frame, Rect, ScannerColor, TileRole},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,83 +156,61 @@ impl MousePanel {
             Close => "Switch to Point".into(),
         }
     }
-    pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor) -> Frame {
-        let columns = self.rows.iter().map(Vec::len).max().unwrap_or(1) as f64;
-        let width = (columns * 160.0 + 32.0)
-            .min(screen.width / units.max(0.1) - 8.0)
-            .max(1.0)
-            * units;
-        let height = (self.rows.len() as f64 * 98.0 + 52.0)
-            .min(screen.height / units.max(0.1) * 0.65)
-            .max(1.0)
-            * units;
-        let x = screen.x + (screen.width - width) / 2.0;
-        let y = if self.top {
-            screen.y
-        } else {
-            screen.y + screen.height - height
-        };
-        let scale = units
-            .min(width / (columns * 160.0 + 32.0))
-            .min(height / (self.rows.len() as f64 * 98.0 + 52.0));
-        let mut frame = Frame::default();
-        frame.tiles.push(FrameTile::panel_background(
-            Rect {
-                x,
-                y,
-                width,
-                height,
-            },
-            scale,
-            color,
-        ));
-        let (active_row, active_column) = self.scan.position(&self.rows);
-        let row_height = (height - 52.0 * scale) / self.rows.len() as f64;
-        for (r, row) in self.rows.iter().enumerate() {
-            let cell_width = (width - 24.0 * scale) / row.len() as f64;
-            for (c, key) in row.iter().enumerate() {
-                frame.tiles.push(FrameTile {
-                    thickness: self.scan.options.thickness,
-                    color,
-                    text: self.label(*key),
-                    rect: Rect {
-                        x: x + 12.0 * scale + c as f64 * cell_width,
-                        y: y + 44.0 * scale + r as f64 * row_height,
-                        width: (cell_width - 6.0 * scale).max(1.0),
-                        height: (row_height - 6.0 * scale).max(1.0),
-                    },
-                    scale,
-                    icon: Item::KeyboardKey,
-                    style: Some(TileStyle {
-                        role: TileRole::Utility,
-                        active: *key == Key::Drag && self.dragging,
-                        row_scan: self.scan.row_scan(),
-                    }),
-                    selected: !self.scan.suspended
-                        && !self.scan.nav.escaping()
-                        && active_row == r
-                        && active_column.is_none_or(|column| column == c),
-                });
-            }
+    fn role(key: Key) -> TileRole {
+        match key {
+            Key::Move(..) => TileRole::Character,
+            Key::More | Key::Movement | Key::Keyboard | Key::Dock | Key::Close => TileRole::Toolbar,
+            _ => TileRole::Utility,
         }
-        frame.label = Some(FrameLabel {
-            text: if self.error {
-                "Mouse action failed · Select to resume".into()
-            } else if self.more {
-                "Mouse · More controls".into()
-            } else {
-                "Mouse · Movement".into()
-            },
-            rect: Rect {
-                x: x + 12.0 * scale,
-                y: y + 4.0 * scale,
-                width: width - 24.0 * scale,
-                height: 38.0 * scale,
-            },
-            scale: scale * 0.8,
-            hud: None,
-        });
-        frame
+    }
+    /// `moving` shows the repeat-movement prompt and highlights nothing.
+    pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor, moving: bool) -> Frame {
+        let row_scan = self.scan.row_scan();
+        let (active_row, active_column) = self.scan.position(&self.rows);
+        let escaping = self.scan.nav.escaping();
+        let status = if moving {
+            "Moving pointer · Press any switch to stop".to_owned()
+        } else if self.error {
+            "Mouse action failed · Select to resume".to_owned()
+        } else if self.scan.suspended {
+            "Mouse paused · Select to resume".to_owned()
+        } else if escaping {
+            crate::scan_panel::BACK_TO_ROWS.to_owned()
+        } else {
+            crate::scan_panel::scanning_status(
+                if self.more {
+                    "More controls"
+                } else {
+                    "Movement"
+                },
+                row_scan,
+                &self.label(self.rows[active_row][active_column.unwrap_or(0)]),
+            )
+        };
+        let scanning = !moving && !self.scan.suspended;
+        Panel {
+            rows: self
+                .rows
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|&key| PanelKey {
+                            text: self.label(key),
+                            weight: 1.0,
+                            role: Self::role(key),
+                            active: key == Key::Drag && self.dragging,
+                        })
+                        .collect()
+                })
+                .collect(),
+            status,
+            top: self.top,
+            selected: (scanning && !escaping).then_some((active_row, active_column)),
+            status_selected: scanning && escaping,
+            row_scan,
+            thickness: self.scan.options.thickness,
+        }
+        .frame(screen, units, color)
     }
 }
 
@@ -266,11 +244,53 @@ mod tests {
             width: 1280.0,
             height: 720.0,
         };
-        let frame = panel.frame(screen, 1.0, ScannerColor::default());
+        let frame = panel.frame(screen, 1.0, ScannerColor::default(), false);
         assert!(frame.tiles.iter().any(|tile| tile.selected));
         assert!(frame
             .tiles
             .iter()
             .all(|tile| tile.rect.x >= screen.x && tile.rect.y >= screen.y));
+    }
+
+    #[test]
+    fn panel_matches_keyboard_geometry_and_reports_its_state() {
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let color = ScannerColor::default();
+        let mut panel = MousePanel::new(Resolved::default(), 1, 100);
+        let frame = panel.frame(screen, 1.0, color, false);
+        let keyboard = crate::scan_keyboard::Keyboard::new(false).frame(screen, 1.0, color);
+        assert_eq!(frame.tiles[0].rect, keyboard.tiles[0].rect);
+        assert!(frame.label.is_none());
+        let status = frame.tiles.last().unwrap();
+        assert_eq!(status.style.unwrap().role, TileRole::Status);
+        assert_eq!(status.text, "Movement · Select a row");
+        assert_eq!(status.rect.x, keyboard.tiles.last().unwrap().rect.x);
+        let close = &frame.tiles[frame.tiles.len() - 2];
+        assert_eq!(close.text, "Switch to Point");
+        assert_eq!(close.style.unwrap().role, TileRole::Toolbar);
+
+        panel.handle(Action::Select);
+        let status = panel.frame(screen, 1.0, color, false).tiles.pop().unwrap();
+        assert_eq!(status.text, "Movement · Select ↖");
+
+        let moving = panel.frame(screen, 1.0, color, true);
+        assert!(moving.tiles.iter().all(|tile| !tile.selected));
+        assert_eq!(
+            moving.tiles.last().unwrap().text,
+            "Moving pointer · Press any switch to stop"
+        );
+
+        panel.failed();
+        let failed = panel.frame(screen, 1.0, color, false);
+        assert!(failed.tiles.iter().all(|tile| !tile.selected));
+        assert_eq!(
+            failed.tiles.last().unwrap().text,
+            "Mouse action failed · Select to resume"
+        );
     }
 }
