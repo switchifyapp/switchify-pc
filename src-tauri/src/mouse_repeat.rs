@@ -174,7 +174,7 @@ impl ScanMoveRepeat {
         &mut self,
         elapsed_ms: u64,
         move_interval_ms: u32,
-        pointer_scale_percent: u8,
+        pointer_scale_percent: u16,
         acceleration_duration_ms: u32,
     ) -> (i32, i32) {
         let mut remaining = elapsed_ms.min(64);
@@ -231,7 +231,7 @@ impl MoveRepeatState {
         dx: i32,
         dy: i32,
         move_interval_ms: u32,
-        pointer_scale_percent: u8,
+        pointer_scale_percent: u16,
         acceleration_duration_ms: u32,
     ) -> (i32, i32) {
         let elapsed_ms = now
@@ -366,7 +366,7 @@ impl MouseRepeatController {
         generation: u64,
         now: Instant,
         move_interval_ms: u32,
-        pointer_scale_percent: u8,
+        pointer_scale_percent: u16,
     ) -> Option<(i32, i32)> {
         let active = self.active.get_mut(device_id)?;
         if active.generation != generation {
@@ -658,38 +658,50 @@ mod tests {
     fn scanning_motion_matches_remote_repeat_ticks() {
         for direction in [(12, 0), (-12, 12), (0, -12)] {
             for acceleration in [0, 1000] {
-                let now = Instant::now();
-                let mut scan = ScanMoveRepeat::new(direction.0, direction.1, now);
-                let mut remote = MouseRepeatController::default();
-                let active = remote.start(
-                    "remote".into(),
-                    RepeatCommand::Move {
-                        dx: direction.0,
-                        dy: direction.1,
-                    },
-                    acceleration,
-                    now,
-                );
-                assert_eq!(
-                    scan.initial_move(),
-                    remote.initial_move("remote", active.generation).unwrap()
-                );
-                let mut time = now;
-                for _ in 0..40 {
-                    let scanned = scan.advance(32, 250, 100, acceleration);
-                    let mut expected = (0, 0);
-                    for _ in 0..4 {
-                        time += Duration::from_millis(8);
-                        let delta = remote
-                            .advance_move("remote", active.generation, time, 250, 100)
-                            .unwrap();
-                        expected.0 += delta.0;
-                        expected.1 += delta.1;
+                for speed in [100, 225, 1350] {
+                    let now = Instant::now();
+                    let mut scan = ScanMoveRepeat::new(direction.0, direction.1, now);
+                    let mut remote = MouseRepeatController::default();
+                    let active = remote.start(
+                        "remote".into(),
+                        RepeatCommand::Move {
+                            dx: direction.0,
+                            dy: direction.1,
+                        },
+                        acceleration,
+                        now,
+                    );
+                    assert_eq!(
+                        scan.initial_move(),
+                        remote.initial_move("remote", active.generation).unwrap()
+                    );
+                    let mut time = now;
+                    for _ in 0..40 {
+                        let scanned = scan.advance(32, 250, speed, acceleration);
+                        let mut expected = (0, 0);
+                        for _ in 0..4 {
+                            time += Duration::from_millis(8);
+                            let delta = remote
+                                .advance_move("remote", active.generation, time, 250, speed)
+                                .unwrap();
+                            expected.0 += delta.0;
+                            expected.1 += delta.1;
+                        }
+                        assert_eq!(scanned, expected);
                     }
-                    assert_eq!(scanned, expected);
                 }
             }
         }
+    }
+
+    #[test]
+    fn maximum_speed_covers_a_display_in_about_three_seconds() {
+        let mut scan = ScanMoveRepeat::new(12, 0, Instant::now());
+        let mut distance = scan.initial_move().0;
+        for _ in 0..125 {
+            distance += scan.advance(8, 250, 1350, 0).0;
+        }
+        assert!((647..=649).contains(&distance));
     }
 
     #[test]

@@ -27,7 +27,7 @@ pub struct MousePanel {
     pub more: bool,
     pub top: bool,
     pub dragging: bool,
-    pub speed_percent: u8,
+    pub speed_percent: u16,
     pub error: bool,
     displays: usize,
     rows: Vec<Vec<Key>>,
@@ -35,7 +35,7 @@ pub struct MousePanel {
 }
 
 impl MousePanel {
-    pub fn new(options: Resolved, displays: usize, speed_percent: u8) -> Self {
+    pub fn new(options: Resolved, displays: usize, speed_percent: u16) -> Self {
         let rows = Self::rows(false, displays);
         let scan = ItemScanner::configured_rows(&rows, Policy::KEYBOARD, options);
         Self {

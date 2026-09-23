@@ -164,12 +164,13 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("button", { name: "50% pointer speed" })).toHaveAttribute("aria-pressed", "true");
 
     // Exact speed and the movement readout sit behind a disclosure by default.
-    expect(screen.queryByRole("combobox", { name: "Exact pointer speed" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("spinbutton", { name: "Exact pointer speed" })).not.toBeInTheDocument();
     expect(screen.queryByText("2.5")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Set an exact speed" }));
     expect(screen.getByText("2.5")).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("combobox", { name: "Exact pointer speed" }), { target: { value: "125" } });
-    expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("125");
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Exact pointer speed" }), { target: { value: "125" } });
+    fireEvent.blur(screen.getByRole("spinbutton", { name: "Exact pointer speed" }));
+    expect(screen.getByRole("spinbutton", { name: "Exact pointer speed" })).toHaveValue(125);
     expect(screen.getByText("5.5")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: "Repeat mouse movement" }));
     expect(screen.getByRole("group", { name: "Movement acceleration" })).toBeDisabled();
@@ -355,7 +356,7 @@ describe("Switchify PC settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
     act(() => stateHandler?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 150 })));
 
-    expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("150");
+    expect(screen.getByRole("spinbutton", { name: "Exact pointer speed" })).toHaveValue(150);
     selectTab("Privacy");
     expect(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" })).toBeChecked();
 
@@ -604,7 +605,7 @@ describe("Switchify PC settings", () => {
     fireEvent.click(toggle);
     const hide = screen.getByRole("button", { name: "Hide exact speed" });
     expect(hide).toHaveAttribute("aria-expanded", "true");
-    expect(document.getElementById(hide.getAttribute("aria-controls")!)).toContainElement(screen.getByRole("combobox", { name: "Exact pointer speed" }));
+    expect(document.getElementById(hide.getAttribute("aria-controls")!)).toContainElement(screen.getByRole("spinbutton", { name: "Exact pointer speed" }));
     expect(screen.getByLabelText("Pointer movement values")).toBeInTheDocument();
   });
 
@@ -615,7 +616,24 @@ describe("Switchify PC settings", () => {
     selectTab("Controls");
 
     expect(screen.getByRole("button", { name: "Hide exact speed" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("150");
+    expect(screen.getByRole("spinbutton", { name: "Exact pointer speed" })).toHaveValue(150);
+  });
+
+  it("offers fast presets and rounds exact speed to the supported five percent step", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    selectTab("Controls");
+    fireEvent.click(screen.getByRole("button", { name: "1350% pointer speed" }));
+    expect(screen.getByRole("button", { name: "1350% pointer speed" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Set an exact speed" }));
+    const exact = screen.getByRole("spinbutton", { name: "Exact pointer speed" });
+    expect(exact).toHaveAttribute("min", "5");
+    expect(exact).toHaveAttribute("max", "1350");
+    expect(exact).toHaveAttribute("step", "5");
+    fireEvent.change(exact, { target: { value: "1337" } });
+    fireEvent.blur(exact);
+    expect(exact).toHaveValue(1335);
+    expect(screen.getByRole("button", { name: "Hide exact speed" })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("expands the exact speed disclosure when the backend pushes a non-preset value", async () => {
@@ -632,7 +650,7 @@ describe("Switchify PC settings", () => {
     act(() => stateHandler?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 175 })));
 
     expect(screen.getByRole("button", { name: "Hide exact speed" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("combobox", { name: "Exact pointer speed" })).toHaveValue("175");
+    expect(screen.getByRole("spinbutton", { name: "Exact pointer speed" })).toHaveValue(175);
   });
 
 

@@ -11,8 +11,7 @@ export function SettingGroup({ title, description, children, id, sectionRef, foc
   return <section className="setting-group" id={id} ref={sectionRef} tabIndex={focusable ? -1 : undefined} aria-labelledby={headingId}><header><h2 id={headingId}>{title}</h2><p>{description}</p></header><div className="setting-controls">{children}</div></section>;
 }
 
-export const pointerSpeedOptions = [5, 25, 50, 75, 100] as const;
-export const pointerSpeedValues = Array.from({ length: 45 }, (_, index) => (index + 1) * 5);
+export const pointerSpeedOptions = [5, 25, 50, 75, 100, 500, 1350] as const;
 export const repeatIntervalOptions = [100, 250, 500, 1000] as const;
 export const keyRepeatDelayOptions = [
   { value: 0, label: "None" },
@@ -29,7 +28,7 @@ export const accelerationOptions = [
 export const dwellDelayOptions = [500, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000] as const;
 
 export function movementValue(base: number, scale: number) {
-  const value = Math.min(50, Math.max(1, Math.round((base * scale / 100) * 2) / 2));
+  const value = Math.max(1, Math.round((base * scale / 100) * 2) / 2);
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 

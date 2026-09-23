@@ -16,6 +16,34 @@ pub struct Environment {
 pub struct PointScan;
 pub type Controller = scanning_runtime::Controller<PointScan>;
 pub type View = scanning_runtime::View<Config, Phase>;
+fn next_pointer_speed(current: u16, direction: i8) -> u16 {
+    if direction > 0 {
+        let step = if current < 100 {
+            5
+        } else if current < 300 {
+            50
+        } else {
+            100
+        };
+        let next = current / step * step + step;
+        next.min(1350)
+    } else if direction < 0 {
+        if current > 1300 {
+            1300
+        } else {
+            let step = if current <= 100 {
+                5
+            } else if current <= 300 {
+                50
+            } else {
+                100
+            };
+            ((current.saturating_sub(1)) / step * step).max(5)
+        }
+    } else {
+        current
+    }
+}
 pub fn configure(app: &AppHandle, config: Config) -> Result<View, String> {
     let previous = app.state::<Controller>().view().config;
     if config.switches().keys() != previous.switches().keys() {
@@ -128,7 +156,7 @@ impl Adapter for PointScan {
             Request::MouseSpeed(direction) => {
                 let model = app.state::<crate::state::AppModel>();
                 let old = model.snapshot().settings.pointer_scale_percent;
-                let next = (i16::from(old) + i16::from(direction) * 5).clamp(5, 225) as u8;
+                let next = next_pointer_speed(old, direction);
                 model.apply_pointer_scale_percent(next)?;
                 crate::state::emit_state(app, &model.shared);
                 return Ok(None);
@@ -294,6 +322,20 @@ fn validate_display(app: &AppHandle, display: Option<&Environment>) -> Result<()
 mod tests {
     use super::*;
     use crate::scanning::Technique;
+
+    #[test]
+    fn mouse_speed_tiles_cover_precision_and_fast_range() {
+        assert_eq!(next_pointer_speed(5, -1), 5);
+        assert_eq!(next_pointer_speed(95, 1), 100);
+        assert_eq!(next_pointer_speed(100, 1), 150);
+        assert_eq!(next_pointer_speed(225, 1), 250);
+        assert_eq!(next_pointer_speed(225, -1), 200);
+        assert_eq!(next_pointer_speed(300, 1), 400);
+        assert_eq!(next_pointer_speed(400, -1), 300);
+        assert_eq!(next_pointer_speed(1300, 1), 1350);
+        assert_eq!(next_pointer_speed(1350, 1), 1350);
+        assert_eq!(next_pointer_speed(1350, -1), 1300);
+    }
 
     #[test]
     fn saving_mode_change_keeps_other_settings_and_reloads() {

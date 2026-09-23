@@ -218,7 +218,7 @@ impl Workflow {
     }
     pub fn set_mouse_settings(
         &mut self,
-        speed: u8,
+        speed: u16,
         acceleration_ms: u32,
         move_interval_ms: u32,
         repeat_enabled: bool,
