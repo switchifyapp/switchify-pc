@@ -38,8 +38,7 @@ describe("Switchify PC settings", () => {
     expect(screen.queryByRole("button",{name:"Point scan"})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button",{name:"Scanning"}));
     expect(screen.getByRole("heading", { name: "Scanning", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("heading",{name:"Scanning", level:2})).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    expect(screen.getByRole("heading",{name:"Two ways to control your PC", level:2})).toBeInTheDocument();
     expect(screen.getByRole("button",{name:"Customise point scanning"})).toBeInTheDocument();
   });
 

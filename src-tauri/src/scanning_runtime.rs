@@ -19,6 +19,9 @@ pub trait Adapter: Send + Sync + 'static {
     fn cursor_feedback(_technique: &Self::Technique) -> Option<crate::input::PointerFeedback> {
         None
     }
+    fn sync_mode(_config: &mut Self::Config, _technique: &Self::Technique) -> bool {
+        false
+    }
     fn cursor_action_feedback(
         _request: &<Self::Technique as Technique>::Selection,
     ) -> Option<crate::input::PointerFeedback> {
@@ -426,8 +429,10 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
     hide_prompt();
     let result = (|| -> Result<(), String> {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
-        if matches!(action, Action::OpenKeyboard | Action::OpenMouse)
-            || (d.engine.as_ref().is_none_or(|e| !e.active()) && action == Action::Select)
+        if matches!(
+            action,
+            Action::OpenKeyboard | Action::OpenPoint | Action::OpenMouse
+        ) || (d.engine.as_ref().is_none_or(|e| !e.active()) && action == Action::Select)
         {
             let (engine, display) = A::create(app, d.config.clone())?;
             d.engine = Some(Session::new(engine, A::switches(&d.config).automatic));
@@ -446,6 +451,21 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
         }
         A::validate_environment(app, d.display.as_ref())?;
         let point = d.engine.as_mut().and_then(|e| e.action(action));
+        if let Some(mode) = d.engine.as_ref().map(|e| &e.technique) {
+            let mut config = d.config.clone();
+            if A::sync_mode(&mut config, mode) {
+                let path = config_path::<A>(app)?;
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+                std::fs::write(
+                    &path,
+                    serde_json::to_vec_pretty(&config).map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())?;
+                d.config = config;
+            }
+        }
         d.last_tick = Instant::now();
         let display = d.display.clone();
         drop(d);

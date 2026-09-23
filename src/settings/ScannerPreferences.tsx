@@ -34,6 +34,12 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     setArea(next);
   };
   const names = { point: 'Point scanning', menu: 'Menus', keyboard: 'Keyboard', mouse: 'Mouse' };
+  const descriptions = {
+    point: 'Choose a place on the screen with a moving line or grid, then choose what to do there.',
+    mouse: 'Move the pointer with direction controls and a visible ring. Click, drag, scroll, or open the keyboard from the mouse panel.',
+    menu: 'Choose actions after selecting a point.',
+    keyboard: 'Choose keys and word suggestions when the scanning keyboard is open.',
+  };
   const disabled = !state?.supported;
   const settings = config.scanPreferences ?? defaultScanPreferences;
   const shared = sharedOptions(config);
@@ -57,11 +63,13 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     </div>;
   };
   return <div ref={container} className="scanner-preferences">
-    {area === 'shared' ? <header className="scanner-panel-heading"><h2>Scanning</h2></header> : <header className="scanner-panel-heading">
+    {area === 'shared' ? <header className="scanner-panel-heading"><h2>Two ways to control your PC</h2><p>Select starts the last mode you used: <strong>{config.controlMode === 'mouse' ? 'Mouse scanning' : 'Point scanning'}</strong>. Use Open Point or Open Mouse on a switch to change modes. You can also switch from a scanned panel.</p></header> : <header className="scanner-panel-heading">
       <Button type="button" className="text-button" onClick={() => setArea('shared')}><span aria-hidden="true">←</span> Back to scanning settings</Button>
-      <h2 ref={heading} tabIndex={-1}>{names[area]}</h2><p>Change any value to customise it. Other settings keep following your defaults.</p>
+      <h2 ref={heading} tabIndex={-1}>{names[area]}</h2><p>{descriptions[area]} Change any value to customise it; other settings follow the shared defaults.</p>
     </header>}
-    {(area === 'point' || area === 'shared') && <>
+    {area === 'shared' && <section className="scanner-areas" aria-label="Scanning modes"><div className="scanner-area-cards">{(['point', 'mouse'] as const).map(key => <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}><strong>{names[key]} <span aria-hidden="true">→</span></strong><span>{descriptions[key]}</span><span>{key === config.controlMode ? 'Select starts here' : 'Open with a switch or scanned control'}</span></Button>)}</div></section>}
+    {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move; with Repeat mouse movement on, the next switch press stops movement. Pointer speed and repeat controls are in Settings → Controls. Switch to Point returns to screen selection.</p>}
+    {area === 'point' && <>
       <SettingGroup
         title="Point scan"
         description=""
@@ -156,14 +164,14 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     </div>
     </SettingGroup>
     {area === 'shared' && <section className="scanner-areas" aria-labelledby="scanner-areas-title">
-      <header><h2 id="scanner-areas-title">Customise an area</h2><p>Give an area different settings, or keep using your defaults.</p></header>
-      <div className="scanner-area-cards">{(['point', 'menu', 'keyboard', 'mouse'] as const).map(key => {
+      <header><h2 id="scanner-areas-title">Advanced panel settings</h2><p>Menus and Keyboard can use different scan settings from the shared defaults.</p></header>
+      <div className="scanner-area-cards">{(['menu', 'keyboard'] as const).map(key => {
         const options = areaOptions(config, key);
-        const count = Object.entries(settings[key] ?? {}).filter(([name, value]) => value != null && !(key === 'point' && name === 'pattern')).length;
+        const count = Object.values(settings[key] ?? {}).filter(value => value != null).length;
         return <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}>
           <strong>{names[key]} <span aria-hidden="true">→</span></strong>
           <span>{options.automatic ? `Automatic · ${options.intervalMs / 1000}s` : 'Manual'} · {options.direction === 'forward' ? 'Forward' : 'Reverse'}</span>
-          <span>{key === 'point' ? (config.mode === 'grid' ? 'Grid then line' : 'Line only') : (options.pattern === 'grouped' ? 'Groups, then items' : 'One item at a time')}</span>
+          <span>{options.pattern === 'grouped' ? 'Groups, then items' : 'One item at a time'}</span>
           <span className="scanner-area-appearance"><i className={`color-swatch ${options.color}`} aria-hidden="true" />{options.color} · {options.thickness}</span>
           <span className="scanner-area-badge">{count ? `${count} custom ${count === 1 ? 'setting' : 'settings'}` : 'Using defaults'}</span>
         </Button>;

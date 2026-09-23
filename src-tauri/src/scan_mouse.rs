@@ -153,7 +153,7 @@ impl MousePanel {
             Movement => "Movement".into(),
             Keyboard => "Keyboard".into(),
             Dock => if self.top { "Dock bottom" } else { "Dock top" }.into(),
-            Close => "Close mouse".into(),
+            Close => "Switch to Point".into(),
         }
     }
     pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor) -> Frame {

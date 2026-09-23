@@ -405,11 +405,12 @@ it.each([100, 250, 750, 10000])("adjusts and persists the shared interval from %
   }));
 });
 
-it("keeps method and speed visible while advanced choices stay collapsed", async () => {
+it("shows both modes before their settings and keeps advanced panels collapsed", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);
-  expect(screen.getByRole("group", { name: "Method" })).toBeVisible();
-  expect(screen.getByRole("group", { name: "Line speed" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Customise point scanning" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Customise mouse" })).toBeVisible();
+  expect(screen.queryByRole("group", { name: "Method" })).toBeNull();
   expect(screen.getByRole("checkbox", { name: "Automatic scanning" })).toBeVisible();
   expect(screen.queryByRole("radio", { name: "Blue" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Customise keyboard" })).toBeNull();
@@ -417,5 +418,22 @@ it("keeps method and speed visible while advanced choices stay collapsed", async
   expect(screen.getByRole("radio", { name: "Blue" })).toBeChecked();
   expect(screen.getByRole("button", { name: "Customise keyboard" })).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "More options" }));
+  fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
+  expect(screen.getByRole("group", { name: "Method" })).toBeVisible();
+  expect(screen.getByRole("group", { name: "Line speed" })).toBeVisible();
   expect(mocks.invoke.mock.calls.some(([command]) => command === "configure_point_scan")).toBe(false);
+});
+
+it("explains the saved Mouse mode and keeps mode cards keyboard accessible", async () => {
+  mocks.invoke.mockImplementation((command) => command === "get_point_scan" ? Promise.resolve({ ...initial, config: { ...defaultPointScanConfig, controlMode: "mouse" } }) : Promise.resolve(initial));
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  expect(screen.getByText("Mouse scanning", { selector: "strong" })).toBeInTheDocument();
+  const mouse = screen.getByRole("button", { name: "Customise mouse" });
+  mouse.focus();
+  fireEvent.keyDown(mouse, { key: "Enter" });
+  fireEvent.click(mouse);
+  expect(screen.getByRole("heading", { name: "Mouse", level: 2 })).toHaveFocus();
+  fireEvent.click(screen.getByRole("button", { name: "Back to scanning settings" }));
+  expect(screen.getByRole("button", { name: "Customise mouse" })).toHaveFocus();
 });

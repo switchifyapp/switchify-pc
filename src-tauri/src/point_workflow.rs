@@ -14,7 +14,7 @@ pub enum Request {
     },
     OpenKeyboard,
     OpenMouse,
-    CloseMouse,
+    OpenPoint,
     Keyboard(crate::scan_keyboard::Stroke),
     MouseMove {
         dx: i32,
@@ -207,6 +207,9 @@ impl Workflow {
     pub fn mouse_open(&self) -> bool {
         matches!(self.stage, Stage::Mouse | Stage::MouseMoving)
     }
+    pub fn control_mode(&self) -> crate::point_scan::ControlMode {
+        self.point.config.control_mode
+    }
     pub fn set_mouse_area(&mut self, area: Rect, screen: Rect, scale: f64, displays: usize) {
         self.mouse_area = area;
         self.point.screen = screen;
@@ -272,6 +275,7 @@ impl Workflow {
         }
     }
     fn open_mouse(&mut self) -> Option<Request> {
+        self.point.config.control_mode = crate::point_scan::ControlMode::Mouse;
         self.stage = Stage::Mouse;
         self.move_repeat = None;
         self.mouse = crate::scan_mouse::MousePanel::new(
@@ -285,6 +289,13 @@ impl Workflow {
         self.error = None;
         self.return_to_mouse = false;
         Some(Request::OpenMouse)
+    }
+    fn open_point(&mut self) -> Option<Request> {
+        self.point.config.control_mode = crate::point_scan::ControlMode::Point;
+        self.reset();
+        self.stage = Stage::Point;
+        self.point.start();
+        Some(Request::OpenPoint)
     }
     fn mouse_key(&mut self, key: crate::scan_mouse::Key) -> Option<Request> {
         use crate::scan_mouse::Key;
@@ -345,10 +356,7 @@ impl Workflow {
                 .with_wait_after_typing(self.point.config.keyboard_wait_after_typing);
                 Some(Request::OpenKeyboard)
             }
-            Key::Close => {
-                self.reset();
-                Some(Request::CloseMouse)
-            }
+            Key::Close => self.open_point(),
             Key::More | Key::Movement | Key::Dock => None,
         }
     }
@@ -495,9 +503,14 @@ impl Technique for Workflow {
         }
     }
     fn start(&mut self) {
+        let mode = self.point.config.control_mode;
         self.reset();
-        self.stage = Stage::Point;
-        self.point.start();
+        if mode == crate::point_scan::ControlMode::Mouse {
+            let _ = self.open_mouse();
+        } else {
+            self.stage = Stage::Point;
+            self.point.start();
+        }
     }
     fn reset(&mut self) {
         self.keyboard = crate::scan_keyboard::Keyboard::configured(
@@ -547,6 +560,9 @@ impl Technique for Workflow {
         self.stage != Stage::Executing
     }
     fn handle(&mut self, action: Action) -> Option<Request> {
+        if action == Action::OpenPoint {
+            return self.open_point();
+        }
         if action == Action::OpenMouse {
             if self.mouse_open() {
                 return None;
@@ -827,6 +843,48 @@ impl Technique for Workflow {
 mod tests {
     use super::*;
     use crate::{point_scan::Config, scanning::Session};
+
+    #[test]
+    fn select_resumes_saved_mode_and_switching_updates_it() {
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let config = Config {
+            control_mode: crate::point_scan::ControlMode::Mouse,
+            ..Config::default()
+        };
+        let mut session = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
+        assert_eq!(session.action(Action::Select), None);
+        assert_eq!(
+            session.technique.phase(),
+            Phase::Workflow(WorkflowPhase::Mouse)
+        );
+        assert_eq!(
+            session.technique.control_mode(),
+            crate::point_scan::ControlMode::Mouse
+        );
+        assert_eq!(session.action(Action::OpenPoint), Some(Request::OpenPoint));
+        assert_eq!(
+            session.technique.control_mode(),
+            crate::point_scan::ControlMode::Point
+        );
+        assert!(matches!(session.technique.phase(), Phase::Point(_)));
+        assert_eq!(session.action(Action::OpenMouse), Some(Request::OpenMouse));
+        assert_eq!(
+            session.technique.mouse_key(crate::scan_mouse::Key::Close),
+            Some(Request::OpenPoint)
+        );
+        assert_eq!(
+            session.technique.control_mode(),
+            crate::point_scan::ControlMode::Point
+        );
+        assert_eq!(session.action(Action::Stop), None);
+        assert_eq!(session.action(Action::Select), None);
+        assert!(matches!(session.technique.phase(), Phase::Point(_)));
+    }
 
     #[test]
     fn mouse_motion_stops_on_press_and_returns_to_first_row() {

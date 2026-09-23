@@ -34,6 +34,7 @@ impl Gestures {
             let mut binding = binding.clone();
             if countdown
                 && !binding.hold_actions.contains(&Action::OpenKeyboard)
+                && !binding.hold_actions.contains(&Action::OpenPoint)
                 && !binding.hold_actions.contains(&Action::OpenMouse)
                 && !matches!(
                     binding.press_action,
@@ -41,6 +42,7 @@ impl Gestures {
                         | Action::Pause
                         | Action::Cancel
                         | Action::OpenKeyboard
+                        | Action::OpenPoint
                         | Action::OpenMouse
                 )
             {

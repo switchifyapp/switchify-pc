@@ -133,10 +133,12 @@ mod tests {
         assert_eq!(serde_json::to_value(&settings).unwrap(), legacy);
         settings.bindings[0].hold_actions.push(Action::OpenKeyboard);
         settings.bindings[0].hold_actions.push(Action::OpenMouse);
+        settings.bindings[0].hold_actions.push(Action::OpenPoint);
         settings.validate_actions(false).unwrap();
         let updated = serde_json::to_value(&settings).unwrap();
         assert_eq!(updated["bindings"][0]["holdActions"][5], "openKeyboard");
         assert_eq!(updated["bindings"][0]["holdActions"][6], "openMouse");
+        assert_eq!(updated["bindings"][0]["holdActions"][7], "openPoint");
         assert_eq!(
             serde_json::from_value::<Settings>(updated).unwrap(),
             settings

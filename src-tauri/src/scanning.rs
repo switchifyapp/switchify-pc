@@ -15,12 +15,14 @@ pub enum Action {
     Stop,
     Cancel,
     OpenKeyboard,
+    OpenPoint,
     OpenMouse,
 }
 impl Action {
     pub fn label(self) -> &'static str {
         match self {
             Self::OpenKeyboard => "Open keyboard",
+            Self::OpenPoint => "Open point",
             Self::OpenMouse => "Open mouse",
             Self::Select => "Select",
             Self::Next => "Next",
@@ -386,7 +388,10 @@ impl<T: Technique> Session<T> {
             self.reset();
             return None;
         }
-        if matches!(action, Action::OpenKeyboard | Action::OpenMouse) {
+        if matches!(
+            action,
+            Action::OpenKeyboard | Action::OpenPoint | Action::OpenMouse
+        ) {
             let selection = self.technique.handle(action);
             if selection.is_some() {
                 self.active = true;
