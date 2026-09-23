@@ -41,6 +41,25 @@ impl Adapter for PointScan {
     type Environment = Environment;
     const EVENT: &'static str = "point-scan-changed";
     const FILE: &'static str = "point-scan.json";
+    fn cursor_feedback(technique: &Workflow) -> Option<crate::input::PointerFeedback> {
+        technique.mouse_feedback()
+    }
+    fn cursor_action_feedback(request: &Request) -> Option<crate::input::PointerFeedback> {
+        use crate::input::PointerFeedback;
+        use crate::protocol::MouseButton;
+        match *request {
+            Request::MouseClick { right, count } => Some(PointerFeedback::Click {
+                button: if right {
+                    MouseButton::Right
+                } else {
+                    MouseButton::Left
+                },
+                count,
+            }),
+            Request::MouseScroll { dy } => Some(PointerFeedback::Scroll { dx: 0, dy }),
+            _ => None,
+        }
+    }
     fn validate(config: &Config) -> Result<(), String> {
         config.validate()
     }
@@ -163,6 +182,8 @@ impl Adapter for PointScan {
                 technique.set_mouse_settings(
                     settings.pointer_scale_percent,
                     settings.mouse_repeat_acceleration_duration_ms,
+                    settings.move_repeat_interval_ms,
+                    settings.mouse_repeat_enabled,
                 );
             } else if technique.keyboard_open() {
                 crate::point_scan_ready(app)?;

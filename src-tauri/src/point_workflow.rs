@@ -110,9 +110,9 @@ pub struct Workflow {
     mouse: crate::scan_mouse::MousePanel,
     mouse_area: Rect,
     return_to_mouse: bool,
-    move_direction: (i8, i8),
-    move_elapsed: u64,
-    move_residual: (f64, f64),
+    move_repeat: Option<crate::mouse_repeat::ScanMoveRepeat>,
+    mouse_repeat_enabled: bool,
+    mouse_move_interval_ms: u32,
     mouse_acceleration_ms: u32,
     point: Engine,
     stage: Stage,
@@ -139,9 +139,9 @@ impl Workflow {
             mouse: crate::scan_mouse::MousePanel::new(mouse_options, 1, 100),
             mouse_area: screen,
             return_to_mouse: false,
-            move_direction: (0, 0),
-            move_elapsed: 0,
-            move_residual: (0.0, 0.0),
+            move_repeat: None,
+            mouse_repeat_enabled: true,
+            mouse_move_interval_ms: 250,
             mouse_acceleration_ms: 1000,
             point: Engine::new(config, screen, scale)?,
             stage: Stage::Idle,
@@ -186,6 +186,7 @@ impl Workflow {
                 self.mouse.speed_percent,
             );
             self.return_to_mouse = false;
+            self.move_repeat = None;
             self.parent_menu.clear();
             self.stage = Stage::Point;
             self.point.start();
@@ -212,9 +213,41 @@ impl Workflow {
         self.point.units_per_logical_pixel = scale;
         self.mouse.set_displays(displays);
     }
-    pub fn set_mouse_settings(&mut self, speed: u8, acceleration_ms: u32) {
+    pub fn set_mouse_settings(
+        &mut self,
+        speed: u8,
+        acceleration_ms: u32,
+        move_interval_ms: u32,
+        repeat_enabled: bool,
+    ) {
         self.mouse.speed_percent = speed;
         self.mouse_acceleration_ms = acceleration_ms;
+        self.mouse_move_interval_ms = move_interval_ms;
+        self.mouse_repeat_enabled = repeat_enabled;
+        if !repeat_enabled && self.stage == Stage::MouseMoving {
+            self.stage = Stage::Mouse;
+            self.move_repeat = None;
+            self.pending = None;
+            self.mouse.restart();
+        }
+    }
+    pub fn mouse_feedback(&self) -> Option<crate::input::PointerFeedback> {
+        use crate::input::PointerFeedback;
+        if self.mouse.error {
+            return None;
+        }
+        match self.stage {
+            Stage::MouseMoving => Some(PointerFeedback::RepeatMove {
+                accelerated: self.mouse_acceleration_ms > 0,
+                dragging: self.mouse.dragging,
+            }),
+            Stage::Mouse => Some(if self.mouse.dragging {
+                PointerFeedback::Drag
+            } else {
+                PointerFeedback::Move
+            }),
+            _ => None,
+        }
     }
     pub fn foreground_changed(&mut self) {
         self.keyboard.reset_context();
@@ -240,6 +273,7 @@ impl Workflow {
     }
     fn open_mouse(&mut self) -> Option<Request> {
         self.stage = Stage::Mouse;
+        self.move_repeat = None;
         self.mouse = crate::scan_mouse::MousePanel::new(
             self.point.config.mouse_scan,
             1,
@@ -257,11 +291,27 @@ impl Workflow {
         self.mouse.choose(key);
         match key {
             Key::Move(dx, dy) => {
-                self.move_direction = (dx, dy);
-                self.move_elapsed = 0;
-                self.move_residual = (0.0, 0.0);
-                self.stage = Stage::MouseMoving;
-                None
+                let delta = (i32::from(dx) * 12, i32::from(dy) * 12);
+                if self.mouse_repeat_enabled {
+                    let mut repeat = crate::mouse_repeat::ScanMoveRepeat::new(
+                        delta.0,
+                        delta.1,
+                        std::time::Instant::now(),
+                    );
+                    let initial = repeat.initial_move();
+                    self.move_repeat = Some(repeat);
+                    self.stage = Stage::MouseMoving;
+                    Some(Request::MouseMove {
+                        dx: initial.0,
+                        dy: initial.1,
+                    })
+                } else {
+                    let scale = f64::from(self.mouse.speed_percent) / 100.0;
+                    Some(Request::MouseMove {
+                        dx: (f64::from(delta.0) * scale).round() as i32,
+                        dy: (f64::from(delta.1) * scale).round() as i32,
+                    })
+                }
             }
             Key::Click => Some(Request::MouseClick {
                 right: false,
@@ -423,6 +473,7 @@ impl Technique for Workflow {
         }
         if self.mouse_open() {
             self.stage = Stage::Mouse;
+            self.move_repeat = None;
             self.mouse.dragging = false;
             self.mouse.failed();
             self.error = None;
@@ -460,8 +511,7 @@ impl Technique for Workflow {
             self.mouse.speed_percent,
         );
         self.return_to_mouse = false;
-        self.move_direction = (0, 0);
-        self.move_residual = (0.0, 0.0);
+        self.move_repeat = None;
         self.stage = Stage::Idle;
         self.parent_menu.clear();
         self.pending = None;
@@ -485,8 +535,8 @@ impl Technique for Workflow {
             return false;
         }
         self.stage = Stage::Mouse;
-        self.move_direction = (0, 0);
-        self.move_residual = (0.0, 0.0);
+        self.move_repeat = None;
+        self.pending = None;
         self.mouse.restart();
         true
     }
@@ -590,28 +640,14 @@ impl Technique for Workflow {
     }
     fn update(&mut self, ms: u64, context: UpdateContext) {
         if self.stage == Stage::MouseMoving {
-            let before = self.move_elapsed;
-            self.move_elapsed = self.move_elapsed.saturating_add(ms);
-            let acceleration = u64::from(self.mouse_acceleration_ms);
-            let ramp = if acceleration == 0 {
-                1.0
-            } else {
-                (self.move_elapsed.min(acceleration) as f64 / acceleration as f64)
-                    .mul_add(0.75, 0.25)
-            };
-            let seconds = self.move_elapsed.saturating_sub(before) as f64 / 1000.0;
-            let speed = 240.0 * f64::from(self.mouse.speed_percent) / 100.0 * ramp;
-            let diagonal = if self.move_direction.0 != 0 && self.move_direction.1 != 0 {
-                std::f64::consts::FRAC_1_SQRT_2
-            } else {
-                1.0
-            };
-            self.move_residual.0 += f64::from(self.move_direction.0) * speed * seconds * diagonal;
-            self.move_residual.1 += f64::from(self.move_direction.1) * speed * seconds * diagonal;
-            let dx = self.move_residual.0.trunc() as i32;
-            let dy = self.move_residual.1.trunc() as i32;
-            self.move_residual.0 -= f64::from(dx);
-            self.move_residual.1 -= f64::from(dy);
+            let (dx, dy) = self.move_repeat.as_mut().map_or((0, 0), |repeat| {
+                repeat.advance(
+                    ms,
+                    self.mouse_move_interval_ms,
+                    self.mouse.speed_percent,
+                    self.mouse_acceleration_ms,
+                )
+            });
             if dx != 0 || dy != 0 {
                 self.pending = Some(Request::MouseMove { dx, dy });
             }
@@ -809,13 +845,22 @@ mod tests {
             session.technique.phase(),
             Phase::Workflow(WorkflowPhase::Mouse)
         );
-        session
-            .technique
-            .mouse_key(crate::scan_mouse::Key::Move(1, 0));
-        session.tick(250, false);
-        assert!(
-            matches!(session.take_selection(), Some(Request::MouseMove { dx, dy: 0 }) if dx > 0)
+        assert_eq!(
+            session
+                .technique
+                .mouse_key(crate::scan_mouse::Key::Move(1, 0)),
+            Some(Request::MouseMove { dx: 1, dy: 0 })
         );
+        let mut moved = false;
+        for _ in 0..20 {
+            session.tick(33, false);
+            if matches!(session.take_selection(), Some(Request::MouseMove { dx, dy: 0 }) if dx > 0)
+            {
+                moved = true;
+                break;
+            }
+        }
+        assert!(moved);
         assert!(session.technique.switch_pressed());
         assert!(!session.technique.switch_pressed());
         assert_eq!(
@@ -830,6 +875,38 @@ mod tests {
             .iter()
             .skip(1)
             .any(|tile| tile.selected));
+    }
+
+    #[test]
+    fn mouse_without_repeat_moves_once_and_keeps_scanning() {
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(Config::default().point(), screen, 1.0).unwrap();
+        workflow.open_mouse();
+        workflow.set_mouse_settings(50, 1000, 250, false);
+        assert_eq!(
+            workflow.mouse_key(crate::scan_mouse::Key::Move(-1, 1)),
+            Some(Request::MouseMove { dx: -6, dy: 6 })
+        );
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert_eq!(
+            workflow.mouse_feedback(),
+            Some(crate::input::PointerFeedback::Move)
+        );
+        workflow.update(
+            1000,
+            UpdateContext {
+                movement_enabled: true,
+                paused: false,
+                switch_held: false,
+            },
+        );
+        assert!(workflow.take_selection().is_none());
+        assert!(!workflow.switch_pressed());
     }
 
     #[test]
@@ -848,15 +925,43 @@ mod tests {
         );
         assert!(workflow.mouse.dragging);
         assert_eq!(
+            workflow.mouse_feedback(),
+            Some(crate::input::PointerFeedback::Drag)
+        );
+        assert_eq!(
             workflow.mouse_key(crate::scan_mouse::Key::Keyboard),
             Some(Request::OpenKeyboard)
         );
         assert!(!workflow.mouse.dragging);
+        assert_eq!(workflow.mouse_feedback(), None);
         workflow.execution_succeeded();
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
         assert!(workflow.return_to_mouse);
         workflow.keyboard_closed();
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert_eq!(
+            workflow.mouse_feedback(),
+            Some(crate::input::PointerFeedback::Move)
+        );
+    }
+
+    #[test]
+    fn mouse_input_failure_clears_repeat_and_ring_until_resumed() {
+        let mut workflow = session(false).technique;
+        workflow.open_mouse();
+        workflow.mouse_key(crate::scan_mouse::Key::Move(1, 0));
+        assert!(matches!(
+            workflow.mouse_feedback(),
+            Some(crate::input::PointerFeedback::RepeatMove { .. })
+        ));
+        workflow.execution_failed("input failed".into());
+        assert_eq!(workflow.mouse_feedback(), None);
+        assert!(!workflow.switch_pressed());
+        workflow.handle(Action::Select);
+        assert_eq!(
+            workflow.mouse_feedback(),
+            Some(crate::input::PointerFeedback::Move)
+        );
     }
     fn session(automatic: bool) -> Session<Workflow> {
         Session::new(

@@ -16,6 +16,14 @@ pub trait Adapter: Send + Sync + 'static {
     fn preserve_visuals(_request: &<Self::Technique as Technique>::Selection) -> bool {
         false
     }
+    fn cursor_feedback(_technique: &Self::Technique) -> Option<crate::input::PointerFeedback> {
+        None
+    }
+    fn cursor_action_feedback(
+        _request: &<Self::Technique as Technique>::Selection,
+    ) -> Option<crate::input::PointerFeedback> {
+        None
+    }
     fn poll(_app: &AppHandle, _technique: &mut Self::Technique, _captured_keys: &[String]) {}
     fn cleanup(app: &AppHandle) -> Result<(), String>;
     fn validate(config: &Self::Config) -> Result<(), String>;
@@ -70,6 +78,7 @@ pub struct Controller<A: Adapter> {
 }
 struct Data<A: Adapter> {
     cursor_suppression: Option<(u64, Instant)>,
+    cursor_mouse: Option<(crate::input::PointerFeedback, crate::state::AppSettings)>,
     config: A::Config,
     engine: Option<Session<A::Technique>>,
     display: Option<A::Environment>,
@@ -107,6 +116,7 @@ impl<A: Adapter> Controller<A> {
             generation: AtomicU64::new(0),
             data: Mutex::new(Data {
                 cursor_suppression: None,
+                cursor_mouse: None,
                 config,
                 engine: None,
                 display: None,
@@ -221,6 +231,7 @@ fn reset_scanner_for_capture<A: Adapter>(app: &AppHandle, message: &str, recover
         app.state::<switch_runtime::Controller>().stop();
     }
     hide_scan_visuals();
+    let cursor = app.state::<crate::overlay::CursorOverlay>();
     let token = c
         .data
         .lock()
@@ -228,9 +239,13 @@ fn reset_scanner_for_capture<A: Adapter>(app: &AppHandle, message: &str, recover
         .cursor_suppression
         .take();
     if let Some((token, _)) = token {
-        app.state::<crate::overlay::CursorOverlay>()
-            .release_scan(token);
+        cursor.end_scan_mouse(token);
+        cursor.release_scan(token);
     }
+    c.data
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .cursor_mouse = None;
     publish::<A>(app);
 }
 /// Pauses scanning so settings can be saved. Must run on the main thread, as
@@ -461,6 +476,7 @@ fn dispatch<A: Adapter>(
         hide_scan_visuals();
     }
     let deferred = A::deferred(&request);
+    let pointer_feedback = A::cursor_action_feedback(&request);
     match A::activate(app, request) {
         Ok(environment) => {
             let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
@@ -471,6 +487,16 @@ fn dispatch<A: Adapter>(
                 if !deferred {
                     engine.technique.execution_succeeded();
                 }
+            }
+            let mouse_token = d
+                .cursor_suppression
+                .map(|(token, _)| token)
+                .filter(|_| d.cursor_mouse.is_some());
+            drop(d);
+            if let (Some(token), Some(feedback)) = (mouse_token, pointer_feedback) {
+                let settings = app.state::<crate::state::AppModel>().snapshot().settings;
+                app.state::<crate::overlay::CursorOverlay>()
+                    .show_scan_mouse(token, feedback, settings)?;
             }
         }
         Err(error) => {
@@ -591,8 +617,10 @@ fn render<A: Adapter>(
     if !active {
         hide_scan_visuals();
         if let Some((token, _)) = d.cursor_suppression.take() {
+            cursor.end_scan_mouse(token);
             cursor.release_scan(token);
         }
+        d.cursor_mouse = None;
         return Ok(());
     }
     if active {
@@ -601,6 +629,7 @@ fn render<A: Adapter>(
             None => {
                 let lease = (cursor.suppress_for_scan()?, Instant::now());
                 d.cursor_suppression = Some(lease);
+                d.cursor_mouse = None;
                 lease
             }
         };
@@ -610,6 +639,22 @@ fn render<A: Adapter>(
             }
             d.last_tick = Instant::now();
             return Ok(());
+        }
+    }
+    if let Some((token, _)) = d.cursor_suppression {
+        let feedback = d
+            .engine
+            .as_ref()
+            .and_then(|engine| A::cursor_feedback(&engine.technique));
+        if let Some(feedback) = feedback {
+            let settings = app.state::<crate::state::AppModel>().snapshot().settings;
+            let next = (feedback, settings);
+            if d.cursor_mouse.as_ref() != Some(&next) {
+                cursor.show_scan_mouse(token, feedback, next.1.clone())?;
+                d.cursor_mouse = Some(next);
+            }
+        } else if d.cursor_mouse.take().is_some() {
+            cursor.end_scan_mouse(token);
         }
     }
     let frame = d

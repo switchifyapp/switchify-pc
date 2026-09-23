@@ -77,6 +77,7 @@ struct Visibility {
     epoch: u64,
     suppressed: bool,
     hidden: bool,
+    mouse: bool,
 }
 impl VisibilityGate {
     pub(crate) fn present(
@@ -85,7 +86,7 @@ impl VisibilityGate {
         render: impl FnOnce() -> Result<(), String>,
     ) -> Result<(), String> {
         let state = self.0.lock().unwrap_or_else(|p| p.into_inner());
-        if state.epoch == epoch && !state.suppressed {
+        if state.epoch == epoch && (!state.suppressed || state.mouse) {
             render()
         } else {
             Ok(())
@@ -120,6 +121,7 @@ impl CursorOverlay {
         state.epoch += 1;
         state.suppressed = true;
         state.hidden = false;
+        state.mouse = false;
         self.sender
             .send(Command::Suppress(state.epoch))
             .map_err(|_| "Cursor overlay is unavailable.".to_string())?;
@@ -131,6 +133,32 @@ impl CursorOverlay {
         state.epoch == epoch && state.suppressed && state.hidden
     }
 
+    /// Feedback from the current scanning mouse is the only feedback allowed
+    /// to render while the scan owns the overlay.
+    pub(crate) fn show_scan_mouse(
+        &self,
+        epoch: u64,
+        feedback: PointerFeedback,
+        settings: AppSettings,
+    ) -> Result<(), String> {
+        let mut state = self.gate.0.lock().unwrap_or_else(|p| p.into_inner());
+        if state.epoch != epoch || !state.suppressed || !state.hidden {
+            return Err("Mouse overlay scan token is no longer active.".into());
+        }
+        state.mouse = true;
+        self.sender
+            .send(Command::ScanMouse(epoch, feedback, settings))
+            .map_err(|_| "Cursor overlay is unavailable.".to_string())
+    }
+
+    pub(crate) fn end_scan_mouse(&self, epoch: u64) {
+        let mut state = self.gate.0.lock().unwrap_or_else(|p| p.into_inner());
+        if state.epoch == epoch && state.suppressed && state.mouse {
+            state.mouse = false;
+            let _ = self.sender.send(Command::EndScanMouse(epoch));
+        }
+    }
+
     /// Called only after all scanner windows have been hidden.
     pub(crate) fn release_scan(&self, epoch: u64) {
         let mut state = self.gate.0.lock().unwrap_or_else(|p| p.into_inner());
@@ -140,6 +168,7 @@ impl CursorOverlay {
         state.epoch += 1;
         state.suppressed = false;
         state.hidden = false;
+        state.mouse = false;
         let _ = self.sender.send(Command::Resume(state.epoch));
     }
 
@@ -197,6 +226,8 @@ pub(crate) enum Command {
     Scoped(u64, Box<Command>),
     Suppress(u64),
     Resume(u64),
+    ScanMouse(u64, PointerFeedback, AppSettings),
+    EndScanMouse(u64),
     Show(PointerFeedback, AppSettings),
     MarkControlActive(AppSettings),
     ApplySettings(AppSettings),
@@ -234,6 +265,7 @@ pub(crate) struct OverlayEngine {
     next_follow: Instant,
     visible: bool,
     typing_suppressed: bool,
+    scan_mouse: bool,
 }
 
 impl OverlayEngine {
@@ -266,12 +298,42 @@ impl OverlayEngine {
             next_follow: now,
             visible: false,
             typing_suppressed: false,
+            scan_mouse: false,
         }
+    }
+
+    fn show_scan_mouse(
+        &mut self,
+        feedback: PointerFeedback,
+        mut settings: AppSettings,
+        now: Instant,
+    ) -> Update {
+        let dragging = self.scan_mouse && self.drag_active;
+        self.scan_mouse = true;
+        settings.cursor_overlay_enabled = true;
+        settings.cursor_overlay_visibility = "whileControlling".into();
+        let update = self.handle(Command::Show(feedback, settings), now);
+        if dragging && matches!(feedback, PointerFeedback::Scroll { .. }) {
+            self.drag_active = true;
+        }
+        if matches!(feedback, PointerFeedback::RepeatMove { .. }) {
+            self.deadline = None;
+        }
+        update
+    }
+
+    fn end_scan_mouse(&mut self, now: Instant) -> Update {
+        self.scan_mouse = false;
+        self.handle(Command::EndSession, now)
     }
 
     pub(crate) fn handle(&mut self, command: Command, now: Instant) -> Update {
         match command {
-            Command::Scoped(_, _) | Command::Suppress(_) | Command::Resume(_) => {
+            Command::Scoped(_, _)
+            | Command::Suppress(_)
+            | Command::Resume(_)
+            | Command::ScanMouse(..)
+            | Command::EndScanMouse(_) => {
                 unreachable!("handled by overlay worker")
             }
             Command::Show(feedback, settings) => {
@@ -281,7 +343,10 @@ impl OverlayEngine {
                     return self.hide();
                 }
                 self.control_active = true;
-                self.drag_active = matches!(feedback, PointerFeedback::Drag);
+                self.drag_active = matches!(
+                    feedback,
+                    PointerFeedback::Drag | PointerFeedback::RepeatMove { dragging: true, .. }
+                );
                 self.deadline = deadline_for(feedback, self.persistent(), now);
                 self.feedback = Some(feedback);
                 self.next_follow = now + FOLLOW_INTERVAL;
@@ -826,13 +891,14 @@ pub(crate) fn run_loop(
             break;
         }
         let command = receiver.recv_timeout(Duration::from_millis(25));
-        let (epoch, suppressed) = {
+        let (epoch, suppressed, mouse) = {
             let state = gate.0.lock().unwrap_or_else(|p| p.into_inner());
-            (state.epoch, state.suppressed)
+            (state.epoch, state.suppressed, state.mouse)
         };
         let update = match command {
             Ok(Command::Suppress(token)) => {
                 engine.clear_scan_feedback();
+                engine.scan_mouse = false;
                 hide(Some(token));
                 continue;
             }
@@ -840,22 +906,44 @@ pub(crate) fn run_loop(
                 if token != epoch || suppressed {
                     continue;
                 }
-                engine.resume_after_scan(Instant::now())
+                if engine.scan_mouse {
+                    engine.end_scan_mouse(Instant::now())
+                } else {
+                    engine.resume_after_scan(Instant::now())
+                }
             }
             Ok(Command::Scoped(token, command)) => {
-                let update = engine.handle(*command, Instant::now());
-                if suppressed || token != epoch {
+                if suppressed && mouse {
+                    Update::None
+                } else if suppressed || token != epoch {
+                    let _ = engine.handle(*command, Instant::now());
                     engine.clear_scan_feedback();
                     Update::None
                 } else {
-                    update
+                    engine.handle(*command, Instant::now())
+                }
+            }
+            Ok(Command::ScanMouse(token, feedback, settings)) => {
+                if token == epoch && suppressed && mouse {
+                    engine.show_scan_mouse(feedback, settings, Instant::now())
+                } else {
+                    Update::None
+                }
+            }
+            Ok(Command::EndScanMouse(token)) => {
+                if (token == epoch && suppressed)
+                    || (token.checked_add(1) == Some(epoch) && !suppressed)
+                {
+                    engine.end_scan_mouse(Instant::now())
+                } else {
+                    Update::None
                 }
             }
             Ok(command) => engine.handle(command, Instant::now()),
             Err(mpsc::RecvTimeoutError::Timeout) => engine.tick(Instant::now()),
             Err(mpsc::RecvTimeoutError::Disconnected) => Update::Shutdown,
         };
-        let update = if suppressed && matches!(update, Update::Render(_)) {
+        let update = if suppressed && !mouse && matches!(update, Update::Render(_)) {
             engine.clear_scan_feedback();
             Update::None
         } else {
@@ -933,6 +1021,106 @@ mod tests {
             })
             .unwrap();
         assert!(!visible.get());
+    }
+
+    #[test]
+    fn only_the_current_mouse_scan_can_render_through_suppression() {
+        let (overlay, _receiver) = test_overlay();
+        let first = overlay.suppress_for_scan().unwrap();
+        overlay.gate.hide(Some(first), || {});
+        assert!(overlay
+            .show_scan_mouse(first, PointerFeedback::Move, AppSettings::default())
+            .is_ok());
+        let visible = std::cell::Cell::new(false);
+        overlay
+            .gate
+            .present(first, || {
+                visible.set(true);
+                Ok(())
+            })
+            .unwrap();
+        assert!(visible.get());
+        overlay.end_scan_mouse(first);
+        visible.set(false);
+        overlay
+            .gate
+            .present(first, || {
+                visible.set(true);
+                Ok(())
+            })
+            .unwrap();
+        assert!(!visible.get());
+        overlay.release_scan(first);
+        let second = overlay.suppress_for_scan().unwrap();
+        overlay.gate.hide(Some(second), || {});
+        assert!(overlay
+            .show_scan_mouse(first, PointerFeedback::Move, AppSettings::default())
+            .is_err());
+        assert!(overlay
+            .show_scan_mouse(second, PointerFeedback::Move, AppSettings::default())
+            .is_ok());
+    }
+
+    #[test]
+    fn mouse_scan_forces_persistent_remote_ring_and_cleans_up() {
+        let now = Instant::now();
+        let mut engine = OverlayEngine::new(now);
+        let settings = AppSettings {
+            cursor_overlay_enabled: false,
+            cursor_overlay_visibility: "onInput".into(),
+            cursor_overlay_size: "large".into(),
+            cursor_overlay_color: "blue".into(),
+            cursor_crosshairs: true,
+            ..Default::default()
+        };
+        let Update::Render(frame) =
+            engine.show_scan_mouse(PointerFeedback::Move, settings.clone(), now)
+        else {
+            panic!("mouse ring did not appear");
+        };
+        assert_eq!(frame.logical_size, 176);
+        assert_eq!(frame.color, color_for("blue"));
+        assert!(frame.crosshairs);
+        assert!(matches!(
+            engine.tick(now + DEFAULT_DURATION),
+            Update::Render(_)
+        ));
+        engine.show_scan_mouse(
+            PointerFeedback::RepeatMove {
+                accelerated: true,
+                dragging: true,
+            },
+            settings.clone(),
+            now,
+        );
+        assert_eq!(engine.deadline, None);
+        engine.show_scan_mouse(PointerFeedback::Drag, settings, now);
+        assert!(matches!(engine.end_scan_mouse(now), Update::Hide));
+        assert!(!engine.visible);
+        assert!(!engine.control_active);
+    }
+
+    #[test]
+    fn queued_mouse_close_cannot_restore_ring_after_scan_release() {
+        let (overlay, receiver) = test_overlay();
+        overlay.mark_control_active(AppSettings::default());
+        let token = overlay.suppress_for_scan().unwrap();
+        overlay.gate.hide(Some(token), || {});
+        overlay
+            .show_scan_mouse(token, PointerFeedback::Move, AppSettings::default())
+            .unwrap();
+        overlay.end_scan_mouse(token);
+        overlay.release_scan(token);
+        let gate = overlay.gate.clone();
+        let hide_gate = gate.clone();
+        drop(overlay);
+        run_loop(
+            |_, _| panic!("mouse ring was restored after closing"),
+            |epoch| hide_gate.hide(epoch, || {}),
+            || true,
+            receiver,
+            gate,
+        );
     }
 
     #[test]

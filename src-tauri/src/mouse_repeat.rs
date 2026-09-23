@@ -147,6 +147,57 @@ struct MoveRepeatState {
     initial_emitted: bool,
 }
 
+/// Drives a scanned direction with the same movement integral as a remote
+/// repeat. Scanner ticks are slower than remote ticks, so split their elapsed
+/// time into remote-sized slices before asking the shared motion state.
+pub struct ScanMoveRepeat {
+    direction: (i32, i32),
+    now: Instant,
+    movement: MoveRepeatState,
+}
+
+impl ScanMoveRepeat {
+    pub fn new(dx: i32, dy: i32, now: Instant) -> Self {
+        Self {
+            direction: (dx, dy),
+            now,
+            movement: MoveRepeatState::new(now),
+        }
+    }
+
+    pub fn initial_move(&mut self) -> (i32, i32) {
+        self.movement
+            .initial_delta(self.direction.0, self.direction.1)
+    }
+
+    pub fn advance(
+        &mut self,
+        elapsed_ms: u64,
+        move_interval_ms: u32,
+        pointer_scale_percent: u8,
+        acceleration_duration_ms: u32,
+    ) -> (i32, i32) {
+        let mut remaining = elapsed_ms.min(64);
+        let mut result = (0, 0);
+        while remaining > 0 {
+            let step = remaining.min(MOVE_TICK_INTERVAL_MS);
+            self.now += std::time::Duration::from_millis(step);
+            let delta = self.movement.advance(
+                self.now,
+                self.direction.0,
+                self.direction.1,
+                move_interval_ms,
+                pointer_scale_percent,
+                acceleration_duration_ms,
+            );
+            result.0 += delta.0;
+            result.1 += delta.1;
+            remaining -= step;
+        }
+        result
+    }
+}
+
 impl MoveRepeatState {
     fn new(now: Instant) -> Self {
         Self {
@@ -601,6 +652,44 @@ mod tests {
             controller.advance_move("device", key.generation, Instant::now(), 250, 100),
             None
         );
+    }
+
+    #[test]
+    fn scanning_motion_matches_remote_repeat_ticks() {
+        for direction in [(12, 0), (-12, 12), (0, -12)] {
+            for acceleration in [0, 1000] {
+                let now = Instant::now();
+                let mut scan = ScanMoveRepeat::new(direction.0, direction.1, now);
+                let mut remote = MouseRepeatController::default();
+                let active = remote.start(
+                    "remote".into(),
+                    RepeatCommand::Move {
+                        dx: direction.0,
+                        dy: direction.1,
+                    },
+                    acceleration,
+                    now,
+                );
+                assert_eq!(
+                    scan.initial_move(),
+                    remote.initial_move("remote", active.generation).unwrap()
+                );
+                let mut time = now;
+                for _ in 0..40 {
+                    let scanned = scan.advance(32, 250, 100, acceleration);
+                    let mut expected = (0, 0);
+                    for _ in 0..4 {
+                        time += Duration::from_millis(8);
+                        let delta = remote
+                            .advance_move("remote", active.generation, time, 250, 100)
+                            .unwrap();
+                        expected.0 += delta.0;
+                        expected.1 += delta.1;
+                    }
+                    assert_eq!(scanned, expected);
+                }
+            }
+        }
     }
 
     #[test]
