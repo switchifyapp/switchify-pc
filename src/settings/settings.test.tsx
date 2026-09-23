@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { api, browserState } from "../api";
 import type { AppSettings } from "../types";
+import { speedLevel, speedPercent } from "./pointerSpeedScale";
 
 const defaultBrowserSettings = structuredClone(browserState.settings);
 const defaultCapabilities = structuredClone(browserState.capabilities);
@@ -12,6 +13,7 @@ function stateWithSettings(settings: AppSettings) {
 }
 
 const selectTab = (name: string) => fireEvent.click(screen.getByRole("tab", { name }));
+const setPointerSpeed = (percent: number) => fireEvent.change(screen.getByRole("slider", { name: "Pointer speed" }), { target: { value: speedLevel(percent).toFixed(1) } });
 
 describe("Switchify PC settings", () => {
   beforeEach(() => {
@@ -180,22 +182,15 @@ describe("Switchify PC settings", () => {
     expect(screen.queryByRole("checkbox", { name: "Click when I stop" })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Repeat mouse movement" })).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Repeat timing" }));
-    expect(screen.getByRole("button", { name: "100% pointer speed" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("5.0");
     expect(screen.getByRole("checkbox", { name: "Repeat mouse movement" })).toBeChecked();
     expect(screen.getByRole("group", { name: "Movement acceleration" })).not.toBeDisabled();
     expect(screen.getAllByRole("button", { name: "Medium" })[0]).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
-    expect(screen.getByRole("button", { name: "50% pointer speed" })).toHaveAttribute("aria-pressed", "true");
-
-    // Exact speed and the movement readout sit behind a disclosure by default.
-    expect(screen.queryByRole("spinbutton", { name: "Exact pointer speed" })).not.toBeInTheDocument();
-    expect(screen.queryByText("2.5")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Set an exact speed" }));
-    expect(screen.getByText("2.5")).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Exact pointer speed" }), { target: { value: "125" } });
-    fireEvent.blur(screen.getByRole("spinbutton", { name: "Exact pointer speed" }));
-    expect(screen.getByRole("spinbutton", { name: "Exact pointer speed" })).toHaveValue(125);
-    expect(screen.getByText("5.5")).toBeInTheDocument();
+    setPointerSpeed(50);
+    expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("4.1");
+    fireEvent.click(screen.getByRole("button", { name: "Fine tune speed" }));
+    fireEvent.click(screen.getByRole("button", { name: "Faster" }));
+    expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveAttribute("aria-valuetext", "Level 4.2 of 10");
     fireEvent.click(screen.getByRole("checkbox", { name: "Repeat mouse movement" }));
     expect(screen.getByRole("group", { name: "Movement acceleration" })).toBeDisabled();
   });
@@ -312,18 +307,18 @@ describe("Switchify PC settings", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
-    fireEvent.click(screen.getByRole("button", { name: "75% pointer speed" }));
+    setPointerSpeed(50);
+    setPointerSpeed(75);
 
     expect(saves).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "75% pointer speed" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("4.6");
 
     await act(async () => {
       saves[0].resolve(stateWithSettings(saves[0].settings));
     });
     await waitFor(() => expect(saves).toHaveLength(2));
     expect(saves[1].settings.pointerScalePercent).toBe(75);
-    expect(screen.getByRole("button", { name: "75% pointer speed" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("4.6");
 
     await act(async () => {
       saves[1].resolve(stateWithSettings(saves[1].settings));
@@ -343,7 +338,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
+    setPointerSpeed(50);
     const runtimeState = {
       ...structuredClone(browserState),
       bluetooth: "connected" as const,
@@ -375,10 +370,10 @@ describe("Switchify PC settings", () => {
     selectTab("Privacy");
     fireEvent.click(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" }));
     fireEvent.click(screen.getByRole("button", { name: "Mouse" }));
-    fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
+    setPointerSpeed(50);
     act(() => stateHandler?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 150 })));
 
-    expect(screen.getByRole("spinbutton", { name: "Exact pointer speed" })).toHaveValue(150);
+    expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("5.8");
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     selectTab("Privacy");
     expect(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" })).toBeChecked();
@@ -514,12 +509,12 @@ describe("Switchify PC settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Mouse" }));
-    fireEvent.click(screen.getByRole("button", { name: "50% pointer speed" }));
+    setPointerSpeed(50);
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     selectTab("Privacy");
     fireEvent.click(screen.getByRole("button", { name: "Mouse" }));
 
-    expect(screen.getByRole("button", { name: "50% pointer speed" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("4.1");
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ pointerScalePercent: 50 })));
   });
 
@@ -614,50 +609,50 @@ describe("Switchify PC settings", () => {
     expect(panel).toHaveFocus();
   });
 
-  it("keeps the exact speed disclosure collapsed for a preset value", async () => {
+  it("shows an accessible Slow–Fast scale and keeps fine tuning collapsed", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
-
-    const toggle = screen.getByRole("button", { name: "Set an exact speed" });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    // The active value stays legible in the legend even while collapsed.
-    expect(screen.getByRole("group", { name: /Pointer speed/ })).toHaveTextContent("100%");
-
-    // Collapsed, the target is unmounted, so the button must not point at it.
-    expect(toggle).not.toHaveAttribute("aria-controls");
-    fireEvent.click(toggle);
-    const hide = screen.getByRole("button", { name: "Hide exact speed" });
-    expect(hide).toHaveAttribute("aria-expanded", "true");
-    expect(document.getElementById(hide.getAttribute("aria-controls")!)).toContainElement(screen.getByRole("spinbutton", { name: "Exact pointer speed" }));
-    expect(screen.getByLabelText("Pointer movement values")).toBeInTheDocument();
+    const slider = screen.getByRole("slider", { name: "Pointer speed" });
+    expect(slider).toHaveValue("5.0");
+    expect(slider).toHaveAttribute("aria-valuetext", "Level 5.0 of 10");
+    expect(screen.getByRole("group", { name: /Pointer speed/ })).toHaveTextContent("Level 5.0 of 10");
+    expect(screen.getByText("Slow")).toBeInTheDocument();
+    expect(screen.getByText("Fast")).toBeInTheDocument();
+    expect(screen.queryByText(/100%/)).not.toBeInTheDocument();
+    const disclosure = screen.getByRole("button", { name: "Fine tune speed" });
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(disclosure);
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Slower" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Faster" })).toBeEnabled();
   });
 
-  it("expands the exact speed disclosure for a value the presets cannot reach", async () => {
+  it("preserves older saved speeds until the user changes them", async () => {
+    const save = vi.spyOn(api, "saveSettings");
     browserState.settings = { ...structuredClone(defaultBrowserSettings), pointerScalePercent: 150 };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
-
-    expect(screen.getByRole("button", { name: "Hide exact speed" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("spinbutton", { name: "Exact pointer speed" })).toHaveValue(150);
+    expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("5.8");
+    expect(save).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Fine tune speed" }));
+    fireEvent.click(screen.getByRole("button", { name: "Faster" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ pointerScalePercent: 155 })));
   });
 
-  it("offers fast presets and rounds exact speed to the supported five percent step", async () => {
+  it("maps both slider endpoints and stops fine tuning at the limits", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
-    fireEvent.click(screen.getByRole("button", { name: "1350% pointer speed" }));
-    expect(screen.getByRole("button", { name: "1350% pointer speed" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Set an exact speed" }));
-    const exact = screen.getByRole("spinbutton", { name: "Exact pointer speed" });
-    expect(exact).toHaveAttribute("min", "5");
-    expect(exact).toHaveAttribute("max", "1350");
-    expect(exact).toHaveAttribute("step", "5");
-    fireEvent.change(exact, { target: { value: "1337" } });
-    fireEvent.blur(exact);
-    expect(exact).toHaveValue(1335);
-    expect(screen.getByRole("button", { name: "Hide exact speed" })).toHaveAttribute("aria-expanded", "true");
+    const slider = screen.getByRole("slider", { name: "Pointer speed" });
+    fireEvent.change(slider, { target: { value: "1" } });
+    expect(slider).toHaveValue("1.0");
+    fireEvent.click(screen.getByRole("button", { name: "Fine tune speed" }));
+    expect(screen.getByRole("button", { name: "Slower" })).toBeDisabled();
+    fireEvent.change(slider, { target: { value: "10" } });
+    expect(slider).toHaveValue("10.0");
+    expect(screen.getByRole("button", { name: "Faster" })).toBeDisabled();
   });
 
-  it("expands the exact speed disclosure when the backend pushes a non-preset value", async () => {
+  it("reflects a backend speed change without overwriting it", async () => {
     let stateHandler: ((state: typeof browserState) => void) | undefined;
     vi.spyOn(api, "onState").mockImplementation(async (handler) => {
       stateHandler = handler;
@@ -665,14 +660,23 @@ describe("Switchify PC settings", () => {
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
-    expect(screen.getByRole("button", { name: "Set an exact speed" })).toBeInTheDocument();
-
     act(() => stateHandler?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 175 })));
-
-    expect(screen.getByRole("button", { name: "Hide exact speed" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("spinbutton", { name: "Exact pointer speed" })).toHaveValue(175);
+    expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("6.1");
   });
 
+  it("maps speed levels monotonically to valid saved values", () => {
+    expect(speedPercent(1)).toBe(5);
+    expect(speedPercent(5)).toBe(100);
+    expect(speedPercent(10)).toBe(1350);
+    expect(speedLevel(100)).toBe(5);
+    let previous = 0;
+    for (let tenth = 10; tenth <= 100; tenth++) {
+      const percent = speedPercent(tenth / 10);
+      expect(percent).toBeGreaterThanOrEqual(previous);
+      expect(percent % 5).toBe(0);
+      previous = percent;
+    }
+  });
 
   it("keeps the key repeat explanation behind a disclosure", async () => {
     render(<App />);
