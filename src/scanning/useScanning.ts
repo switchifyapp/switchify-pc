@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 export type ScannerColor = "red" | "green" | "blue" | "yellow" | "white";
 export type PointScanConfig = {
+  controlMode: "point" | "mouse";
   scanPreferences?: import("./preferences").ScanPreferences;
   wordPrediction: boolean;
   keyboardWaitAfterTyping: boolean;
@@ -29,6 +30,7 @@ export type PointScanState = {
   supported: boolean;
 };
 export const defaultPointScanConfig: PointScanConfig = {
+  controlMode: "point",
   wordPrediction: true,
   keyboardWaitAfterTyping: false,
   scannerColor: "blue",

@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 export const actions = {
   select: "Select",
   openKeyboard: "Open keyboard",
+  openPoint: "Open point",
   openMouse: "Open mouse",
   next: "Next",
   back: "Previous",

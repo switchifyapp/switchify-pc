@@ -19,6 +19,11 @@ pub trait Adapter: Send + Sync + 'static {
     fn cursor_feedback(_technique: &Self::Technique) -> Option<crate::input::PointerFeedback> {
         None
     }
+    fn sync_mode(_config: &mut Self::Config, _technique: &Self::Technique) -> bool {
+        false
+    }
+    /// Carries state the runtime owns, such as the saved mode, into settings saved by the UI.
+    fn keep_runtime_config(_next: &mut Self::Config, _current: &Self::Config) {}
     fn cursor_action_feedback(
         _request: &<Self::Technique as Technique>::Selection,
     ) -> Option<crate::input::PointerFeedback> {
@@ -153,6 +158,26 @@ fn config_path<A: Adapter>(app: &AppHandle) -> Result<std::path::PathBuf, String
         .map(|p| p.join(A::FILE))
         .map_err(|e| e.to_string())
 }
+/// Replaces the settings file whole so an interrupted save never leaves it truncated.
+fn write_config(path: &std::path::Path, config: &impl Serialize) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|_| "Cannot save scanning settings.")?;
+    }
+    let bytes =
+        serde_json::to_vec_pretty(config).map_err(|_| "Cannot encode scanning settings.")?;
+    let temp = path.with_extension("json.tmp");
+    let saved = (|| {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&temp, path)
+    })();
+    if saved.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    saved.map_err(|_| "Cannot save scanning settings.".to_string())
+}
 fn publish<A: Adapter>(app: &AppHandle) {
     let _ = app.emit(A::EVENT, app.state::<Controller<A>>().view());
 }
@@ -265,28 +290,20 @@ pub fn interrupt<A: Adapter>(app: &AppHandle) {
 /// scanning is off, and the tick loop keeps trying.
 pub fn configure<A: Adapter>(
     app: &AppHandle,
-    config: A::Config,
+    mut config: A::Config,
 ) -> Result<View<A::Config, <A::Technique as Technique>::Phase>, String> {
     A::validate(&config)?;
     let path = config_path::<A>(app)?;
     reset_scanner::<A>(app, "Applying scanning settings...");
-    let save = || -> Result<(), String> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(
-            &path,
-            serde_json::to_vec_pretty(&config).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())
-    };
-    if let Err(error) = save() {
-        disable::<A>(app, "Scanning settings could not be saved.");
-        return Err(error);
-    }
     let c = app.state::<Controller<A>>();
     {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+        A::keep_runtime_config(&mut config, &d.config);
+        if let Err(error) = write_config(&path, &config) {
+            drop(d);
+            disable::<A>(app, "Scanning settings could not be saved.");
+            return Err(error);
+        }
         d.config = config;
         d.next_attempt = None;
     }
@@ -426,8 +443,10 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
     hide_prompt();
     let result = (|| -> Result<(), String> {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
-        if matches!(action, Action::OpenKeyboard | Action::OpenMouse)
-            || (d.engine.as_ref().is_none_or(|e| !e.active()) && action == Action::Select)
+        if matches!(
+            action,
+            Action::OpenKeyboard | Action::OpenPoint | Action::OpenMouse
+        ) || (d.engine.as_ref().is_none_or(|e| !e.active()) && action == Action::Select)
         {
             let (engine, display) = A::create(app, d.config.clone())?;
             d.engine = Some(Session::new(engine, A::switches(&d.config).automatic));
@@ -446,6 +465,20 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
         }
         A::validate_environment(app, d.display.as_ref())?;
         let point = d.engine.as_mut().and_then(|e| e.action(action));
+        if let Some(mode) = d.engine.as_ref().map(|e| &e.technique) {
+            let mut config = d.config.clone();
+            if A::sync_mode(&mut config, mode) {
+                // The mode is a preference: keep it in memory and let the action run
+                // even if the file cannot be written; the next save persists it.
+                if config_path::<A>(app)
+                    .and_then(|path| write_config(&path, &config))
+                    .is_err()
+                {
+                    eprintln!("Switchify could not save the scanning mode.");
+                }
+                d.config = config;
+            }
+        }
         d.last_tick = Instant::now();
         let display = d.display.clone();
         drop(d);
@@ -1027,20 +1060,7 @@ pub fn update_point_setting(
     let mut config = data.config.clone();
     setting.apply(&mut config);
     config.validate()?;
-    let path = config_path::<PointScan>(app)?;
-    let save = || -> Result<(), String> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|_| "Cannot save scanning settings.")?;
-        }
-        let temp = path.with_extension("json.tmp");
-        std::fs::write(
-            &temp,
-            serde_json::to_vec_pretty(&config).map_err(|_| "Cannot encode scanning settings.")?,
-        )
-        .map_err(|_| "Cannot save scanning settings.")?;
-        std::fs::rename(&temp, &path).map_err(|_| "Cannot save scanning settings.".to_string())
-    };
-    save()?;
+    write_config(&config_path::<PointScan>(app)?, &config)?;
     if let Some(engine) = data.engine.as_mut() {
         engine.technique.apply_config(
             config.point(),
@@ -1069,6 +1089,30 @@ pub fn restart_point_on_display(app: &AppHandle, next: bool) -> Result<(), Strin
     data.display = Some(environment);
     data.last_tick = Instant::now();
     Ok(())
+}
+
+#[cfg(test)]
+mod config_file_tests {
+    #[test]
+    fn saving_replaces_the_file_without_leaving_a_temporary_copy() {
+        let dir = std::env::temp_dir().join(format!(
+            "switchify-scan-config-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let path = dir.join("point-scan.json");
+        super::write_config(
+            &path,
+            &serde_json::json!({ "speed": 1, "extra": "long value" }),
+        )
+        .unwrap();
+        super::write_config(&path, &serde_json::json!({ "speed": 2 })).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved, serde_json::json!({ "speed": 2 }));
+        assert!(!path.with_extension("json.tmp").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
 
 #[cfg(test)]

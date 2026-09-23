@@ -41,6 +41,17 @@ impl Adapter for PointScan {
     type Environment = Environment;
     const EVENT: &'static str = "point-scan-changed";
     const FILE: &'static str = "point-scan.json";
+    fn sync_mode(config: &mut Config, technique: &Workflow) -> bool {
+        let next = technique.control_mode();
+        if config.control_mode == next {
+            return false;
+        }
+        config.control_mode = next;
+        true
+    }
+    fn keep_runtime_config(next: &mut Config, current: &Config) {
+        next.control_mode = current.control_mode;
+    }
     fn cursor_feedback(technique: &Workflow) -> Option<crate::input::PointerFeedback> {
         technique.mouse_feedback()
     }
@@ -91,7 +102,7 @@ impl Adapter for PointScan {
                 crate::prediction::record(stroke, result.is_ok(), scope);
                 return result.map(|()| None);
             }
-            Request::OpenKeyboard | Request::OpenMouse => {
+            Request::OpenKeyboard | Request::OpenMouse | Request::OpenPoint => {
                 crate::prediction::stop();
                 crate::scan_executor::activate(request)
             }
@@ -282,6 +293,44 @@ fn validate_display(app: &AppHandle, display: Option<&Environment>) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scanning::Technique;
+
+    #[test]
+    fn saving_mode_change_keeps_other_settings_and_reloads() {
+        let mut config = Config {
+            speed: 4,
+            ..Config::default()
+        };
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(config.point(), screen, 1.0).unwrap();
+        workflow.handle(crate::scanning::Action::OpenMouse);
+        assert!(PointScan::sync_mode(&mut config, &workflow));
+        assert!(!PointScan::sync_mode(&mut config, &workflow));
+        let restored: Config =
+            serde_json::from_slice(&serde_json::to_vec(&config).unwrap()).unwrap();
+        assert_eq!(restored.control_mode, crate::point_scan::ControlMode::Mouse);
+        assert_eq!(restored.speed, 4);
+    }
+
+    #[test]
+    fn settings_saves_keep_the_runtime_mode() {
+        let current = Config {
+            control_mode: crate::point_scan::ControlMode::Mouse,
+            ..Config::default()
+        };
+        let mut next = Config {
+            speed: 5,
+            ..Config::default()
+        };
+        PointScan::keep_runtime_config(&mut next, &current);
+        assert_eq!(next.control_mode, crate::point_scan::ControlMode::Mouse);
+        assert_eq!(next.speed, 5);
+    }
 
     #[test]
     fn typing_preserves_visuals_but_pointer_execution_hides_them() {

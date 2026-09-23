@@ -65,7 +65,7 @@ describe("Switchify PC shell", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Ready" });
     expect(screen.getByText("1 saved · Select assigned")).toBeInTheDocument();
-    expect(screen.getByText("Manual scanning · Line only")).toBeInTheDocument();
+    expect(screen.getByText("Select starts Point scanning · Manual")).toBeInTheDocument();
     scanning.state = { ...scanning.state!, paused: true };
     act(() => receive?.({ ...structuredClone(browserState), bluetooth: "connected" }));
     expect(screen.getByText("Local scanning is paused while a mobile device is connected.")).toBeInTheDocument();

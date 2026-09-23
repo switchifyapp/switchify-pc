@@ -11,10 +11,18 @@ pub enum Mode {
     Line,
     Grid,
 }
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ControlMode {
+    #[default]
+    Point,
+    Mouse,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
+    pub control_mode: ControlMode,
     #[serde(deserialize_with = "crate::scan_preferences::deserialize_preferences")]
     pub scan_preferences: crate::scan_preferences::Preferences,
     pub word_prediction: bool,
@@ -35,6 +43,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            control_mode: ControlMode::Point,
             scan_preferences: Default::default(),
             word_prediction: true,
             keyboard_wait_after_typing: false,
@@ -91,6 +100,7 @@ impl Config {
     }
     pub fn point(&self) -> PointSettings {
         PointSettings {
+            control_mode: self.control_mode,
             scan: self.resolved(crate::scan_preferences::Area::Point),
             menu_scan: self.resolved(crate::scan_preferences::Area::Menu),
             keyboard_scan: self.resolved(crate::scan_preferences::Area::Keyboard),
@@ -115,6 +125,7 @@ impl Config {
 }
 #[derive(Clone)]
 pub struct PointSettings {
+    pub control_mode: ControlMode,
     pub scan: crate::scan_preferences::Resolved,
     pub menu_scan: crate::scan_preferences::Resolved,
     pub keyboard_scan: crate::scan_preferences::Resolved,
@@ -284,6 +295,7 @@ impl Engine {
             | Action::Stop
             | Action::Cancel
             | Action::OpenKeyboard
+            | Action::OpenPoint
             | Action::OpenMouse => {}
         }
         None
@@ -1006,6 +1018,7 @@ mod tests {
         json["autoSelectEnabled"] = serde_json::json!(false);
         json["autoSelectDelayMs"] = serde_json::json!(1000);
         json["scannerColor"] = serde_json::json!("blue");
+        json["controlMode"] = serde_json::json!("point");
         json["wordPrediction"] = serde_json::json!(true);
         json["keyboardWaitAfterTyping"] = serde_json::json!(false);
         json["scanPreferences"] =
@@ -1031,6 +1044,7 @@ mod tests {
     fn legacy_empty_config_and_validation() {
         let c: Config = serde_json::from_str("{}").unwrap();
         assert_eq!(c, Config::default());
+        assert_eq!(c.control_mode, ControlMode::Point);
         assert!(Config {
             select_key: "Escape".into(),
             ..c.clone()
