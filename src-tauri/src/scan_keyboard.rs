@@ -1,8 +1,7 @@
 //! Switch-owned keyboard state and geometry. No native input or captured text.
 use crate::{
     scan_items::{ItemScanner, Policy},
-    scan_menu::Item,
-    scanning::{Action, Frame, FrameTile, Rect, ScannerColor, TileRole, TileStyle},
+    scanning::{Action, Frame, Rect, ScannerColor, TileRole, TileStyle},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -504,113 +503,59 @@ impl Keyboard {
         }
     }
     pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor) -> Frame {
-        let width = (1180.0 * units).min((screen.width - 24.0 * units).max(1.0));
-        let height = (460.0 * units).min(screen.height * 0.55).max(1.0);
-        let x = screen.x + (screen.width - width) / 2.0;
-        let y = if self.top {
-            screen.y
-        } else {
-            screen.y + screen.height - height
-        };
-        let outer_scale = units.min(height / 460.0).min(width / 1180.0);
-        let padding = 16.0 * outer_scale;
-        let content_width = (width - padding * 2.0).max(1.0);
-        let content_height = (height - padding * 2.0).max(1.0);
-        let row_height = content_height / (self.rows.len() as f64 + 0.9);
-        let scale = units.min(row_height / 60.0).min(content_width / 1040.0);
-        let gap = (6.0 * scale).min(row_height / 8.0);
-        let header_height = row_height * 0.9;
-        let mut frame = Frame::default();
-        frame.tiles.push(FrameTile::panel_background(
-            Rect {
-                x,
-                y,
-                width,
-                height,
-            },
-            outer_scale,
-            color,
-        ));
-        let x = x + padding;
-        let y = y + padding;
-        let width = content_width;
         let row_scan = self.scan.row_scan();
         let (active_row, active_column) = self.scan.position(&self.rows);
-        for (r, row) in self.rows.iter().enumerate() {
-            let total_weight: f64 = row.iter().copied().map(Self::weight).sum();
-            let cell_unit = (width - gap * (row.len() - 1) as f64).max(1.0) / total_weight;
-            let mut left = x;
-            for (c, key) in row.iter().enumerate() {
-                let key_width = cell_unit * Self::weight(*key);
-                frame.tiles.push(FrameTile {
-                    thickness: Default::default(),
-                    color,
-                    text: self.label(*key),
-                    icon: Item::KeyboardKey,
-                    style: Some(self.style(*key, row_scan)),
-                    rect: Rect {
-                        x: left,
-                        y: y + header_height + r as f64 * row_height,
-                        width: key_width,
-                        height: (row_height - gap).max(1.0),
-                    },
-                    scale,
-                    selected: !self.scan.suspended
-                        && !self.disabled()
-                        && !self.scan.nav.escaping()
-                        && r == active_row
-                        && active_column.is_none_or(|column| c == column),
-                });
-                left += key_width + gap;
-            }
-        }
         let page = match self.page {
             Page::Letters => "Letters",
             Page::Functions => "Navigation",
             Page::Numbers => "Numbers",
         };
-        let text = if self.error {
+        let status = if self.error {
             "Input failed · Select to try again".to_owned()
         } else if self.waiting_after_typing {
             "Press Select to continue typing.".to_owned()
         } else if self.scan.suspended {
             "Keyboard paused · Select to resume".to_owned()
         } else if self.scan.nav.escaping() {
-            "Back to rows · Select to return".to_owned()
+            crate::scan_panel::BACK_TO_ROWS.to_owned()
         } else if self.disabled() {
             "Suggestions updating · Select to continue".to_owned()
         } else if self.prediction_failed {
             "Predictions unavailable · Keyboard ready".to_owned()
-        } else if row_scan {
-            format!("{} · Select a row", page)
         } else {
-            format!(
-                "{} · Select {}",
+            crate::scan_panel::scanning_status(
                 page,
-                self.label(self.rows[active_row][active_column.unwrap_or(0)])
-                    .replace('\n', " ")
+                row_scan,
+                &self.label(self.rows[active_row][active_column.unwrap_or(0)]),
             )
         };
-        frame.tiles.push(FrameTile {
+        crate::scan_panel::Panel {
+            rows: self
+                .rows
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|&key| {
+                            let style = self.style(key, row_scan);
+                            crate::scan_panel::PanelKey {
+                                text: self.label(key),
+                                weight: Self::weight(key),
+                                role: style.role,
+                                active: style.active,
+                            }
+                        })
+                        .collect()
+                })
+                .collect(),
+            status,
+            top: self.top,
+            selected: (!self.scan.suspended && !self.disabled() && !self.scan.nav.escaping())
+                .then_some((active_row, active_column)),
+            status_selected: !self.scan.suspended && self.scan.nav.escaping(),
+            row_scan,
             thickness: Default::default(),
-            color,
-            text,
-            icon: Item::KeyboardKey,
-            style: Some(TileStyle {
-                role: TileRole::Status,
-                active: false,
-                row_scan: false,
-            }),
-            rect: Rect {
-                x,
-                y,
-                width,
-                height: (header_height - gap).max(1.0),
-            },
-            scale,
-            selected: !self.scan.suspended && self.scan.nav.escaping(),
-        });
-        frame
+        }
+        .frame(screen, units, color)
     }
 }
 

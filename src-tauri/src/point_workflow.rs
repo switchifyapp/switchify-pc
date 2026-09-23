@@ -735,22 +735,12 @@ impl Technique for Workflow {
                 self.point.units_per_logical_pixel,
                 self.point.config.scanner_color,
             ),
-            Stage::Mouse | Stage::MouseMoving => {
-                let mut frame = self.mouse.frame(
-                    self.mouse_area,
-                    self.point.units_per_logical_pixel,
-                    self.point.config.mouse_scan.color,
-                );
-                if self.stage == Stage::MouseMoving {
-                    if let Some(label) = frame.label.as_mut() {
-                        label.text = "Moving pointer · Press any switch to stop".into();
-                    }
-                    for tile in &mut frame.tiles {
-                        tile.selected = false;
-                    }
-                }
-                frame
-            }
+            Stage::Mouse | Stage::MouseMoving => self.mouse.frame(
+                self.mouse_area,
+                self.point.units_per_logical_pixel,
+                self.point.config.mouse_scan.color,
+                self.stage == Stage::MouseMoving,
+            ),
             Stage::Countdown => {
                 let scale = self.point.units_per_logical_pixel;
                 let screen = self.point.screen;
@@ -919,6 +909,12 @@ mod tests {
             }
         }
         assert!(moved);
+        let frame = session.technique.frame();
+        assert!(frame.tiles.iter().all(|tile| !tile.selected));
+        assert_eq!(
+            frame.tiles.last().unwrap().text,
+            "Moving pointer · Press any switch to stop"
+        );
         assert!(session.technique.switch_pressed());
         assert!(!session.technique.switch_pressed());
         assert_eq!(
@@ -928,7 +924,7 @@ mod tests {
         assert!(session
             .technique
             .mouse
-            .frame(screen, 1.0, Default::default())
+            .frame(screen, 1.0, Default::default(), false)
             .tiles
             .iter()
             .skip(1)
