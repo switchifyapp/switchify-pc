@@ -11,7 +11,7 @@
   .app-shell { grid-template-columns: 240px minmax(0, 1fr); }
   .app-shell aside { @apply gap-3; overflow-y: auto; }
   .app-shell nav { @apply gap-3; }
-  .app-shell .nav-button { @apply justify-start text-left; }
+  .app-shell .nav-button { @apply text-left; }
   .view { width: min(100%, 1100px); @apply px-8 py-8; }
   .page-header { @apply mb-6; }
   .page-header h1 { @apply text-3xl; }
