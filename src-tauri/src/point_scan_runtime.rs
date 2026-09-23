@@ -84,6 +84,17 @@ impl Adapter for PointScan {
                 ))
                 .map(|()| None);
             }
+            Request::MouseMove { dx, dy } if cfg!(target_os = "macos") => {
+                let (cursor, displays) =
+                    display_navigation::displays(app).map_err(|e| e.message)?;
+                let target = display_navigation::clamped_pointer_target(cursor, dx, dy, &displays)
+                    .ok_or("No active display could be resolved.")?;
+                return crate::scan_executor::activate(Request::MouseMoveAbsolute {
+                    x: target.0,
+                    y: target.1,
+                })
+                .map(|()| None);
+            }
             Request::MouseSpeed(direction) => {
                 let model = app.state::<crate::state::AppModel>();
                 let old = model.snapshot().settings.pointer_scale_percent;
@@ -138,7 +149,16 @@ impl Adapter for PointScan {
                 environment.display = current;
                 environment.keyboard_area = area;
                 environment.foreground = crate::scan_host::foreground()?;
-                technique.set_mouse_area(area, displays.len());
+                technique.set_mouse_area(
+                    area,
+                    rect,
+                    if cfg!(target_os = "windows") {
+                        environment.display.scale_factor
+                    } else {
+                        1.0
+                    },
+                    displays.len(),
+                );
                 let settings = app.state::<crate::state::AppModel>().snapshot().settings;
                 technique.set_mouse_settings(
                     settings.pointer_scale_percent,
@@ -160,7 +180,10 @@ impl Adapter for PointScan {
     fn preserve_visuals(request: &Request) -> bool {
         matches!(
             request,
-            Request::Keyboard(_) | Request::Prediction { .. } | Request::MouseMove { .. }
+            Request::Keyboard(_)
+                | Request::Prediction { .. }
+                | Request::MouseMove { .. }
+                | Request::MouseMoveAbsolute { .. }
         )
     }
     fn deferred(request: &Request) -> bool {

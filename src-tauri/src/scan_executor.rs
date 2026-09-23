@@ -18,6 +18,7 @@ pub fn execute<I: InputInjector>(
         Request::Prediction { .. } => Err("Prediction requires the scan controller.".into()),
         Request::OpenKeyboard | Request::OpenMouse | Request::CloseMouse => input.release_all(),
         Request::MouseMove { dx, dy } => input.move_pointer_pixels(dx, dy).map(|_| ()),
+        Request::MouseMoveAbsolute { x, y } => input.move_pointer_pixels_absolute(x, y).map(|_| ()),
         Request::MouseClick { right, count } => {
             if input.has_active_drag() {
                 return Err("End the drag before clicking.".into());
@@ -420,6 +421,12 @@ mod tests {
         execute(&mut input, Request::MouseMove { dx: 4, dy: -2 }, true).unwrap();
         execute(
             &mut input,
+            Request::MouseMoveAbsolute { x: 40, y: 50 },
+            true,
+        )
+        .unwrap();
+        execute(
+            &mut input,
             Request::MouseClick {
                 right: false,
                 count: 2,
@@ -432,6 +439,7 @@ mod tests {
         execute(&mut input, Request::CloseMouse, true).unwrap();
         assert!(!input.has_active_drag());
         assert!(input.injector.events.contains(&"relative 4 -2".into()));
+        assert!(input.injector.events.contains(&"move 40 50".into()));
         assert!(input.injector.events.contains(&"scroll 0 5".into()));
         assert!(input.injector.events.contains(&"button Left false".into()));
     }

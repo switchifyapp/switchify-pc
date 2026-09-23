@@ -689,6 +689,9 @@ fn tick<A: Adapter>(app: &AppHandle) {
                             .is_some_and(|engine| engine.technique.switch_pressed())
                         {
                             d.pressed.cancel();
+                            d.last_tick = Instant::now();
+                            drop(d);
+                            publish::<A>(app);
                             continue;
                         }
                         if !d.pressed.held() {
@@ -767,6 +770,9 @@ fn tick<A: Adapter>(app: &AppHandle) {
                             .is_some_and(|engine| engine.technique.switch_pressed())
                         {
                             d.pressed.cancel();
+                            d.last_tick = Instant::now();
+                            drop(d);
+                            publish::<A>(app);
                             continue;
                         }
                         let settings = d.switches.clone();

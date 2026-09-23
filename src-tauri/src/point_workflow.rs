@@ -20,6 +20,10 @@ pub enum Request {
         dx: i32,
         dy: i32,
     },
+    MouseMoveAbsolute {
+        x: i32,
+        y: i32,
+    },
     MouseClick {
         right: bool,
         count: u8,
@@ -202,8 +206,10 @@ impl Workflow {
     pub fn mouse_open(&self) -> bool {
         matches!(self.stage, Stage::Mouse | Stage::MouseMoving)
     }
-    pub fn set_mouse_area(&mut self, area: Rect, displays: usize) {
+    pub fn set_mouse_area(&mut self, area: Rect, screen: Rect, scale: f64, displays: usize) {
         self.mouse_area = area;
+        self.point.screen = screen;
+        self.point.units_per_logical_pixel = scale;
         self.mouse.set_displays(displays);
     }
     pub fn set_mouse_settings(&mut self, speed: u8, acceleration_ms: u32) {
