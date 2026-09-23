@@ -411,7 +411,7 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
     hide_prompt();
     let result = (|| -> Result<(), String> {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
-        if action == Action::OpenKeyboard
+        if matches!(action, Action::OpenKeyboard | Action::OpenMouse)
             || (d.engine.as_ref().is_none_or(|e| !e.active()) && action == Action::Select)
         {
             let (engine, display) = A::create(app, d.config.clone())?;
@@ -684,6 +684,13 @@ fn tick<A: Adapter>(app: &AppHandle) {
                 match edge {
                     crate::remote_scan::Edge::Reset => unreachable!(),
                     crate::remote_scan::Edge::Down(id) => {
+                        if d.engine
+                            .as_mut()
+                            .is_some_and(|engine| engine.technique.switch_pressed())
+                        {
+                            d.pressed.cancel();
+                            continue;
+                        }
                         if !d.pressed.held() {
                             d.remote_hold_started = Some(now_ms);
                         }
@@ -755,6 +762,13 @@ fn tick<A: Adapter>(app: &AppHandle) {
                         continue;
                     }
                     if action == crate::switch_input::Action::Pressed {
+                        if d.engine
+                            .as_mut()
+                            .is_some_and(|engine| engine.technique.switch_pressed())
+                        {
+                            d.pressed.cancel();
+                            continue;
+                        }
                         let settings = d.switches.clone();
                         let countdown = d
                             .engine

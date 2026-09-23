@@ -6,6 +6,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
     Keyboard,
+    MousePanel,
     KeyboardKey,
     More,
     Group(Kind),
@@ -34,6 +35,7 @@ impl Item {
     pub fn label(self) -> &'static str {
         match self {
             Self::Keyboard => "Keyboard",
+            Self::MousePanel => "Mouse",
             Self::KeyboardKey => "Key",
             Self::More => "More",
             Self::Group(kind) => kind.label(),
@@ -434,7 +436,7 @@ impl Kind {
                 return vec![
                     vec![LeftClick, RightClick, DoubleClick],
                     vec![Scroll, Drag, More],
-                    vec![Keyboard],
+                    vec![Keyboard, MousePanel],
                     vec![NewPoint, Cancel],
                 ]
             }
@@ -444,6 +446,7 @@ impl Kind {
             }
             Self::More => vec![
                 Keyboard,
+                MousePanel,
                 Group(Self::Mouse),
                 Group(Self::Editing),
                 Group(Self::Windows),

@@ -60,6 +60,7 @@ impl Config {
                 crate::scan_preferences::Area::Point,
                 crate::scan_preferences::Area::Menu,
                 crate::scan_preferences::Area::Keyboard,
+                crate::scan_preferences::Area::Mouse,
             ]
             .into_iter()
             .all(|area| self.resolved(area).automatic),
@@ -73,18 +74,27 @@ impl Config {
         &self,
         area: crate::scan_preferences::Area,
     ) -> crate::scan_preferences::Resolved {
-        self.scan_preferences.resolve(
+        let mut resolved = self.scan_preferences.resolve(
             area,
             self.automatic,
             self.block_interval_ms,
             self.scanner_color,
-        )
+        );
+        if area == crate::scan_preferences::Area::Mouse
+            && self.scan_preferences.mouse.automatic.is_none()
+        {
+            resolved.automatic = self
+                .resolved(crate::scan_preferences::Area::Keyboard)
+                .automatic;
+        }
+        resolved
     }
     pub fn point(&self) -> PointSettings {
         PointSettings {
             scan: self.resolved(crate::scan_preferences::Area::Point),
             menu_scan: self.resolved(crate::scan_preferences::Area::Menu),
             keyboard_scan: self.resolved(crate::scan_preferences::Area::Keyboard),
+            mouse_scan: self.resolved(crate::scan_preferences::Area::Mouse),
             word_prediction: self.word_prediction,
             keyboard_wait_after_typing: self.keyboard_wait_after_typing,
             scanner_color: self.resolved(crate::scan_preferences::Area::Point).color,
@@ -108,6 +118,7 @@ pub struct PointSettings {
     pub scan: crate::scan_preferences::Resolved,
     pub menu_scan: crate::scan_preferences::Resolved,
     pub keyboard_scan: crate::scan_preferences::Resolved,
+    pub mouse_scan: crate::scan_preferences::Resolved,
     pub word_prediction: bool,
     pub keyboard_wait_after_typing: bool,
     pub scanner_color: crate::scanning::ScannerColor,
@@ -269,7 +280,11 @@ impl Engine {
                 self.step(TICK_MS);
             }
             Action::Reverse => self.direction = -self.direction,
-            Action::Pause | Action::Stop | Action::Cancel | Action::OpenKeyboard => {}
+            Action::Pause
+            | Action::Stop
+            | Action::Cancel
+            | Action::OpenKeyboard
+            | Action::OpenMouse => {}
         }
         None
     }

@@ -33,14 +33,14 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     changedView.current = true;
     setArea(next);
   };
-  const names = { point: 'Point scanning', menu: 'Menus', keyboard: 'Keyboard' };
+  const names = { point: 'Point scanning', menu: 'Menus', keyboard: 'Keyboard', mouse: 'Mouse' };
   const disabled = !state?.supported;
   const settings = config.scanPreferences ?? defaultScanPreferences;
   const shared = sharedOptions(config);
   const effective = area === 'shared' ? shared : areaOptions(config, area);
   const change = <K extends keyof ScanOptions>(key: K, value: ScanOptions[K] | undefined) => {
     if (area !== 'shared') {
-      const overrides = { ...settings[area], [key]: value };
+      const overrides = { ...(settings[area] ?? {}), [key]: value };
       update('scanPreferences', { ...settings, [area]: overrides });
     } else if (key === 'automatic') update('automatic', value as boolean);
     else if (key === 'intervalMs') update('blockIntervalMs', value as number);
@@ -48,7 +48,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     else update('scanPreferences', { ...settings, [key]: value });
   };
   const field = (key: keyof ScanOptions, label: string, children: (locked: boolean) => ReactNode) => {
-    const custom = area !== 'shared' && settings[area][key] != null;
+    const custom = area !== 'shared' && settings[area]?.[key] != null;
     return <div className="scanner-preference" key={key} tabIndex={-1} role="group" aria-label={`${label} setting`}>
       {area !== 'shared' && <div className="scanner-inheritance"><span className={custom ? 'custom' : ''}>{custom ? 'Custom' : 'Default'}</span>
         {custom && <Button type="button" className="text-button" disabled={disabled} aria-label={`Use default for ${label.toLowerCase()}`} onClick={event => { const field = event.currentTarget.closest<HTMLElement>('.scanner-preference'); change(key, undefined); requestAnimationFrame(() => (field?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), button:not(:disabled)') ?? field)?.focus()); }}>Use default</Button>}
@@ -157,9 +157,9 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     </SettingGroup>
     {area === 'shared' && <section className="scanner-areas" aria-labelledby="scanner-areas-title">
       <header><h2 id="scanner-areas-title">Customise an area</h2><p>Give an area different settings, or keep using your defaults.</p></header>
-      <div className="scanner-area-cards">{(['point', 'menu', 'keyboard'] as const).map(key => {
+      <div className="scanner-area-cards">{(['point', 'menu', 'keyboard', 'mouse'] as const).map(key => {
         const options = areaOptions(config, key);
-        const count = Object.entries(settings[key]).filter(([name, value]) => value != null && !(key === 'point' && name === 'pattern')).length;
+        const count = Object.entries(settings[key] ?? {}).filter(([name, value]) => value != null && !(key === 'point' && name === 'pattern')).length;
         return <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}>
           <strong>{names[key]} <span aria-hidden="true">→</span></strong>
           <span>{options.automatic ? `Automatic · ${options.intervalMs / 1000}s` : 'Manual'} · {options.direction === 'forward' ? 'Forward' : 'Reverse'}</span>
@@ -170,7 +170,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
       })}</div>
     </section>}
     </MoreOptions>
-    {area !== 'shared' && <Button type="button" className="secondary" disabled={disabled || Object.values(settings[area]).every(value => value == null)} onClick={() => update('scanPreferences', { ...settings, [area]: {} })}>Reset scanning overrides</Button>}
+    {area !== 'shared' && <Button type="button" className="secondary" disabled={disabled || Object.values(settings[area] ?? {}).every(value => value == null)} onClick={() => update('scanPreferences', { ...settings, [area]: {} })}>Reset scanning overrides</Button>}
     <p className="setting-note scanner-save-note">Saved automatically. Press Select to scan again.</p>
   </div>;
 }

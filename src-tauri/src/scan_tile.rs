@@ -181,7 +181,8 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
             lines(&[(62., 46.), (106., 90.)]);
             lines(&[(106., 46.), (62., 90.)]);
         }
-        Keyboard | More | Group(_) | Command(_) | Setting(_) | Display(_) | Pause | Reverse => {
+        Keyboard | MousePanel | More | Group(_) | Command(_) | Setting(_) | Display(_) | Pause
+        | Reverse => {
             artwork(&mut path, tile.icon);
         }
         DragHere => {
@@ -366,6 +367,7 @@ fn artwork(path: &mut PathBuilder, item: Item) {
             }
             line(path, &[(66., 81.), (102., 81.)]);
         }
+        Item::MousePanel => mouse(path, 65.),
         Item::More => {
             for x in [60., 84., 108.] {
                 path.push_circle(x, 68., 5.);

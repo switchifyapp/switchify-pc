@@ -1,5 +1,5 @@
 import type { PointScanConfig, ScannerColor } from './useScanning';
-export type ScanArea = 'point' | 'menu' | 'keyboard';
+export type ScanArea = 'point' | 'menu' | 'keyboard' | 'mouse';
 export type ScanOptions = {
   automatic: boolean;
   intervalMs: number;
@@ -12,7 +12,7 @@ export type ScanOptions = {
 export type ScanPreferences = Pick<ScanOptions, 'direction' | 'passLimit' | 'pattern' | 'thickness'> & Record<ScanArea, Partial<ScanOptions>>;
 export const defaultScanPreferences: ScanPreferences = {
   direction: 'forward', passLimit: 3, pattern: 'grouped', thickness: 'standard',
-  point: {}, menu: {}, keyboard: {},
+  point: {}, menu: {}, keyboard: {}, mouse: {},
 };
 export function sharedOptions(config: PointScanConfig): ScanOptions {
   const settings = config.scanPreferences ?? defaultScanPreferences;
@@ -21,7 +21,8 @@ export function sharedOptions(config: PointScanConfig): ScanOptions {
 }
 export function areaOptions(config: PointScanConfig, area: ScanArea): ScanOptions {
   const shared = sharedOptions(config);
-  const overrides = (config.scanPreferences ?? defaultScanPreferences)[area];
-  return { ...shared, ...Object.fromEntries(Object.entries(overrides).filter(([, value]) => value != null)),
+  const overrides = (config.scanPreferences ?? defaultScanPreferences)[area] ?? {};
+  return { ...shared, ...(area === 'mouse' && overrides.automatic == null ? { automatic: areaOptions(config, 'keyboard').automatic } : {}),
+    ...Object.fromEntries(Object.entries(overrides).filter(([, value]) => value != null)),
     ...(area === 'point' ? { pattern: 'grouped' as const } : {}) };
 }

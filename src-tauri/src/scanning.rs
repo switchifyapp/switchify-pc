@@ -15,11 +15,13 @@ pub enum Action {
     Stop,
     Cancel,
     OpenKeyboard,
+    OpenMouse,
 }
 impl Action {
     pub fn label(self) -> &'static str {
         match self {
             Self::OpenKeyboard => "Open keyboard",
+            Self::OpenMouse => "Open mouse",
             Self::Select => "Select",
             Self::Next => "Next",
             Self::Back => "Previous",
@@ -317,6 +319,10 @@ pub trait Technique {
     fn auto_selecting(&self) -> bool {
         false
     }
+    /// Consumes the next physical press while a technique is moving the pointer.
+    fn switch_pressed(&mut self) -> bool {
+        false
+    }
     fn execution_failed(&mut self, _message: String) {}
     fn execution_succeeded(&mut self) {}
     fn start(&mut self);
@@ -380,7 +386,7 @@ impl<T: Technique> Session<T> {
             self.reset();
             return None;
         }
-        if action == Action::OpenKeyboard {
+        if matches!(action, Action::OpenKeyboard | Action::OpenMouse) {
             let selection = self.technique.handle(action);
             if selection.is_some() {
                 self.active = true;

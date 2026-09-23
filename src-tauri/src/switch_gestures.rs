@@ -34,9 +34,14 @@ impl Gestures {
             let mut binding = binding.clone();
             if countdown
                 && !binding.hold_actions.contains(&Action::OpenKeyboard)
+                && !binding.hold_actions.contains(&Action::OpenMouse)
                 && !matches!(
                     binding.press_action,
-                    Action::Stop | Action::Pause | Action::Cancel | Action::OpenKeyboard
+                    Action::Stop
+                        | Action::Pause
+                        | Action::Cancel
+                        | Action::OpenKeyboard
+                        | Action::OpenMouse
                 )
             {
                 binding.press_action = Action::Select;
@@ -108,7 +113,7 @@ mod tests {
         }
     }
     #[test]
-    fn countdown_preserves_direct_and_held_keyboard_actions() {
+    fn countdown_preserves_direct_and_held_panel_actions() {
         let mut settings = Settings {
             bindings: vec![Binding {
                 id: "keyboard".into(),
@@ -132,6 +137,10 @@ mod tests {
             gestures.released("keyboard", 2100),
             Some(Action::OpenKeyboard)
         );
+        settings.bindings[0].press_action = Action::OpenMouse;
+        settings.bindings[0].hold_actions.clear();
+        gestures.pressed_for_scan("keyboard", 3000, &settings, true);
+        assert_eq!(gestures.released("keyboard", 3100), Some(Action::OpenMouse));
     }
     #[test]
     fn countdown_press_overrides_normal_actions_and_holds_once() {
