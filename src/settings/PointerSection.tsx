@@ -26,7 +26,7 @@ export function PointerSection({ settings, update }: { settings: AppSettings; up
     setSpeedDraft(String(next));
     if (next !== settings.pointerScalePercent) update("pointerScalePercent", next);
   };
-  return <SettingGroup title="Mouse movement" description="Speed and repeat apply to Mouse scanning and Remote. Scanning mode and panel scan timing are set under Scanning.">
+  return <SettingGroup title="Movement" description="">
       <fieldset className="pointer-speed"><legend>Pointer speed <strong>{settings.pointerScalePercent}%</strong></legend><p>100% is the original speed. Higher speeds help cross the screen faster in Mouse and Remote.</p><div className="segmented compact speed-presets">
         {pointerSpeedOptions.map((value) => <Button type="button" key={value} aria-label={`${value}% pointer speed`} aria-pressed={settings.pointerScalePercent === value} onClick={() => update("pointerScalePercent", value)}>{value}%</Button>)}
       </div><Disclosure label={showExact ? "Hide exact speed" : "Set an exact speed"} expanded={showExact} onToggle={() => setShowExact(!showExact)} controls={exactSpeedId}>
@@ -37,14 +37,13 @@ export function PointerSection({ settings, update }: { settings: AppSettings; up
           </div>
         </div>
       </Disclosure></fieldset>
-      <MoreOptions><div className="repeat-settings">
+      <div className="repeat-settings">
         <Toggle label="Repeat mouse movement" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
-        <div className="repeat-options">
+        <MoreOptions label="Repeat timing"><div className="repeat-options">
           <OptionGroup<number> legend="Movement interval" columns="four" disabled={!settings.mouseRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.moveRepeatIntervalMs} onChange={(next) => update("moveRepeatIntervalMs", next)} />
           <OptionGroup<number> legend="Movement acceleration" columns="four" disabled={!settings.mouseRepeatEnabled} options={accelerationOptions} value={settings.mouseRepeatAccelerationDurationMs} onChange={(next) => update("mouseRepeatAccelerationDurationMs", next)} />
           <OptionGroup<number> legend="Scroll interval" columns="four" disabled={!settings.mouseRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.scrollRepeatIntervalMs} onChange={(next) => update("scrollRepeatIntervalMs", next)} />
-        </div>
+        </div></MoreOptions>
       </div>
-</MoreOptions>
   </SettingGroup>;
 }

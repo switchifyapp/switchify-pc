@@ -176,9 +176,10 @@ describe("Switchify PC settings", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Mouse" }));
     expect(screen.getByRole("heading", { name: "Mouse", level: 1 })).toBeInTheDocument();
-    expect(screen.getByText(/Adjust pointer movement for Mouse scanning and Remote/)).toBeInTheDocument();
+    expect(screen.getByText(/Pointer speed and repeat for Mouse scanning and Remote/)).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Click when I stop" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    expect(screen.getByRole("checkbox", { name: "Repeat mouse movement" })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Repeat timing" }));
     expect(screen.getByRole("button", { name: "100% pointer speed" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("checkbox", { name: "Repeat mouse movement" })).toBeChecked();
     expect(screen.getByRole("group", { name: "Movement acceleration" })).not.toBeDisabled();
