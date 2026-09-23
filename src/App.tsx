@@ -3,13 +3,14 @@ import { Demonstration, DemonstrationProvider } from "./help/Demonstration";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Accessibility, Bluetooth, ChevronRight, CircleHelp, Download,
-  Copy, Home, Keyboard, Plus, Power, RefreshCw, Save, Settings,
+  Copy, Home, Keyboard, MousePointer2, Plus, Power, RefreshCw, Save, Settings,
   SlidersHorizontal, Smartphone, Trash2, Wrench, X,
 } from "lucide-react";
 import { api, type ProfileExitAction } from "./api";
 import type { AppSettings, AppState, PendingPairing, SwitchProfile, UpdateState } from "./types";
 import { applyLocalSettings, changedSettingKeys } from "./settings/diff";
 import { SettingsView } from "./settings/SettingsView";
+import { MouseSettingsView } from "./settings/MouseSettingsView";
 import { updateDescription, updateInFlight, updateLiveness, updateProgress, updateStanding, type UpdateAction } from "./settings/UpdatesSection";
 import { TabPanel, Tabs } from "./Tabs";
 import { useSwitches, type SwitchController } from "./scanning/useSwitches";
@@ -19,7 +20,7 @@ import { areaOptions } from "./scanning/preferences";
 import { SwitchesSection } from "./settings/SwitchesSection";
 import { ScanningSection } from "./settings/ScanningSection";
 
-type View = "switches" | "scanning" | "mobile" | "home" | "devices" | "profiles" | "settings" | "support";
+type View = "switches" | "scanning" | "mouse" | "mobile" | "home" | "devices" | "profiles" | "settings" | "support";
 
 const brandIconUrl = new URL("../src-tauri/icons/icon.png", import.meta.url).href;
 const mobileQrUrl = new URL("./assets/mobile-download-qr.png", import.meta.url).href;
@@ -722,7 +723,7 @@ export function App() {
 
   useEffect(() => { if (view === "profiles") void api.listProfiles().then(setProfiles).catch((reason) => setError(String(reason))); }, [view]);
   const nav = useMemo(() => [
-    ["home", "Home", <Home size={19} />], ["switches", "Switches", <Keyboard size={19} />], ["scanning", "Scanning", <SlidersHorizontal size={19} />], ["mobile", "Mobile", <Smartphone size={19} />], ["settings", "Settings", <Settings size={19} />],
+    ["home", "Home", <Home size={19} />], ["switches", "Switches", <Keyboard size={19} />], ["scanning", "Scanning", <SlidersHorizontal size={19} />], ["mouse", "Mouse", <MousePointer2 size={19} />], ["mobile", "Mobile", <Smartphone size={19} />], ["settings", "Settings", <Settings size={19} />],
     ["support", "Help", <CircleHelp size={19} />],
   ] as const, []);
 
@@ -779,6 +780,7 @@ export function App() {
       {view === "home" && <HomeView state={state} switches={switches} scanning={scanning} navigate={selectView} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} />}
       {view === "switches" && <div className="view"><header className="page-header"><h1>Switches</h1></header><SwitchesSection mobileConnected={state.bluetooth === "connected"} controller={switches} suspended={pairingOpen} /></div>}
       {view === "scanning" && <div className="view"><header className="page-header"><h1>Scanning</h1><p>Choose how your switches control the pointer.</p></header><ScanningSection controller={scanning} /></div>}
+      {view === "mouse" && <MouseSettingsView settings={settings} onChange={changeSettings} />}
       {(view === "mobile" || view === "devices" || view === "profiles") && <div className="view"><header className="page-header"><div><h1>Mobile</h1></div></header><Tabs name="mobile" label="Mobile connection sections" active={view} onSelect={selectView} tabs={[{id: "mobile", label: "Connection"}, {id: "devices", label: "Paired devices"}, {id: "profiles", label: "Switch Forwarding"}]} /><TabPanel name="mobile" id={view}>
       {view === "mobile" && <MobileConnection state={state} onDisconnect={() => void perform(api.disconnectAll)} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}

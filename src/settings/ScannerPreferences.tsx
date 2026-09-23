@@ -68,7 +68,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
       <h2 ref={heading} tabIndex={-1}>{names[area]}</h2><p>{descriptions[area]} Change any value to customise it; other settings follow the shared defaults.</p>
     </header>}
     {area === 'shared' && <section className="scanner-areas" aria-label="Scanning modes"><div className="scanner-area-cards">{(['point', 'mouse'] as const).map(key => <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}><strong>{names[key]} <span aria-hidden="true">→</span></strong><span>{descriptions[key]}</span><span>{key === config.controlMode ? 'Select starts here' : 'Open with a switch or scanned control'}</span></Button>)}</div></section>}
-    {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move; with Repeat mouse movement on, the next switch press stops movement. Pointer speed and repeat controls are in Settings → Controls. Switch to Point returns to screen selection.</p>}
+    {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move; with Repeat mouse movement on, the next switch press stops movement. Pointer speed and repeat controls are under Mouse in the sidebar. Switch to Point returns to screen selection.</p>}
     {area === 'point' && <>
       <SettingGroup
         title="Point scan"

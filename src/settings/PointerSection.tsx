@@ -2,7 +2,7 @@ import { Button, Input, MoreOptions } from "../ui/controls";
 import { useEffect, useId, useState } from "react";
 import type { AppSettings } from "../types";
 import {
-  Disclosure, OptionGroup, SettingGroup, Toggle, accelerationOptions, dwellDelayOptions, keyRepeatDelayOptions,
+  Disclosure, OptionGroup, SettingGroup, Toggle, accelerationOptions,
   movementValue, pointerSpeedOptions, repeatIntervalOptions, secondsOptions,
   type SettingsUpdate,
 } from "./controls";
@@ -26,7 +26,7 @@ export function PointerSection({ settings, update }: { settings: AppSettings; up
     setSpeedDraft(String(next));
     if (next !== settings.pointerScalePercent) update("pointerScalePercent", next);
   };
-  return <SettingGroup title="Controls" description="">
+  return <SettingGroup title="Mouse movement" description="Speed and repeat apply to Mouse scanning and Remote. Scanning mode and panel scan timing are set under Scanning.">
       <fieldset className="pointer-speed"><legend>Pointer speed <strong>{settings.pointerScalePercent}%</strong></legend><p>100% is the original speed. Higher speeds help cross the screen faster in Mouse and Remote.</p><div className="segmented compact speed-presets">
         {pointerSpeedOptions.map((value) => <Button type="button" key={value} aria-label={`${value}% pointer speed`} aria-pressed={settings.pointerScalePercent === value} onClick={() => update("pointerScalePercent", value)}>{value}%</Button>)}
       </div><Disclosure label={showExact ? "Hide exact speed" : "Set an exact speed"} expanded={showExact} onToggle={() => setShowExact(!showExact)} controls={exactSpeedId}>
@@ -37,27 +37,12 @@ export function PointerSection({ settings, update }: { settings: AppSettings; up
           </div>
         </div>
       </Disclosure></fieldset>
-      <div className="repeat-settings dwell-settings">
-        <Toggle label="Click when I stop" checked={settings.dwellClickEnabled} onChange={(value) => update("dwellClickEnabled", value)} />
-        <div className="repeat-options">
-          <OptionGroup<number> legend="Wait before clicking" columns="five" disabled={!settings.dwellClickEnabled} options={secondsOptions(dwellDelayOptions)} value={settings.dwellClickDelayMs} onChange={(next) => update("dwellClickDelayMs", next)}
-            note={{ summary: "After mobile pointer movement stops, a countdown appears and performs one left click. Move again to rearm it." }} />
-        </div>
-      </div>
-      <MoreOptions>      <div className="repeat-settings">
+      <MoreOptions><div className="repeat-settings">
         <Toggle label="Repeat mouse movement" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
         <div className="repeat-options">
           <OptionGroup<number> legend="Movement interval" columns="four" disabled={!settings.mouseRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.moveRepeatIntervalMs} onChange={(next) => update("moveRepeatIntervalMs", next)} />
           <OptionGroup<number> legend="Movement acceleration" columns="four" disabled={!settings.mouseRepeatEnabled} options={accelerationOptions} value={settings.mouseRepeatAccelerationDurationMs} onChange={(next) => update("mouseRepeatAccelerationDurationMs", next)} />
           <OptionGroup<number> legend="Scroll interval" columns="four" disabled={!settings.mouseRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.scrollRepeatIntervalMs} onChange={(next) => update("scrollRepeatIntervalMs", next)} />
-        </div>
-      </div>
-      <div className="repeat-settings">
-        <Toggle label="Repeat held keys" checked={settings.keyRepeatEnabled} onChange={(value) => update("keyRepeatEnabled", value)} />
-        <div className="repeat-options">
-          <OptionGroup<number> legend="Delay before repeating" columns="four" disabled={!settings.keyRepeatEnabled} options={keyRepeatDelayOptions} value={settings.keyRepeatInitialDelayMs} onChange={(next) => update("keyRepeatInitialDelayMs", next)} />
-          <OptionGroup<number> legend="Key interval" columns="four" disabled={!settings.keyRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.keyRepeatIntervalMs} onChange={(next) => update("keyRepeatIntervalMs", next)}
-            note={{ about: "key repeat", summary: "Held navigation keys repeat, like on a keyboard.", detail: "Applies to the arrow keys, Tab, Backspace, Delete, Page Up, and Page Down." }} />
         </div>
       </div>
 </MoreOptions>
