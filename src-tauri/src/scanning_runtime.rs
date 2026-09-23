@@ -163,13 +163,20 @@ fn write_config(path: &std::path::Path, config: &impl Serialize) -> Result<(), S
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|_| "Cannot save scanning settings.")?;
     }
+    let bytes =
+        serde_json::to_vec_pretty(config).map_err(|_| "Cannot encode scanning settings.")?;
     let temp = path.with_extension("json.tmp");
-    std::fs::write(
-        &temp,
-        serde_json::to_vec_pretty(config).map_err(|_| "Cannot encode scanning settings.")?,
-    )
-    .map_err(|_| "Cannot save scanning settings.")?;
-    std::fs::rename(&temp, path).map_err(|_| "Cannot save scanning settings.".to_string())
+    let saved = (|| {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&temp, path)
+    })();
+    if saved.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    saved.map_err(|_| "Cannot save scanning settings.".to_string())
 }
 fn publish<A: Adapter>(app: &AppHandle) {
     let _ = app.emit(A::EVENT, app.state::<Controller<A>>().view());
