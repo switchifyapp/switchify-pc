@@ -31,7 +31,7 @@ describe("safe switch practice", () => {
     fireEvent.click(screen.getByRole("button", { name: "Exit practice" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(invoke).toHaveBeenCalledWith("end_switch_practice");
-    expect(screen.getByRole("button", { name: "Test switches" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Test switches" })).toHaveFocus());
   });
   it("shows disconnected remote errors rather than reporting successful input", async () => {
     invoke.mockRejectedValueOnce(new Error("No remote forwarding session"));
@@ -62,7 +62,7 @@ describe("safe switch practice", () => {
     await screen.findByRole("dialog");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(invoke).toHaveBeenCalledWith("end_switch_practice");
-    expect(screen.getByRole("button", { name: "Test switches" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Test switches" })).toHaveFocus());
   });
   it("closes after confirmed end when feedback fails, without requiring mouse assistance", async () => {
     invoke.mockImplementation(async (command: string) => {
