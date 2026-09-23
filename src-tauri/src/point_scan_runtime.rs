@@ -88,7 +88,9 @@ impl Adapter for PointScan {
                 let model = app.state::<crate::state::AppModel>();
                 let old = model.snapshot().settings.pointer_scale_percent;
                 let next = (i16::from(old) + i16::from(direction) * 5).clamp(5, 225) as u8;
-                return model.apply_pointer_scale_percent(next).map(|()| None);
+                model.apply_pointer_scale_percent(next)?;
+                crate::state::emit_state(app, &model.shared);
+                return Ok(None);
             }
             Request::MouseMonitor(dx, dy) => {
                 let (cursor, displays) =
