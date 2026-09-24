@@ -16,6 +16,7 @@ pub enum Request {
     OpenMouse,
     OpenPoint,
     Keyboard(crate::scan_keyboard::Stroke),
+    KeyboardPunctuation(crate::scan_keyboard::Punctuation),
     MouseMove {
         dx: i32,
         dy: i32,
@@ -543,7 +544,8 @@ impl Technique for Workflow {
         if self.stage == Stage::KeyboardOpening {
             self.stage = Stage::Keyboard;
         } else if self.stage == Stage::Keyboard {
-            self.keyboard.succeeded();
+            self.keyboard
+                .succeeded_with_context(crate::prediction::keyboard_input_context());
         }
     }
     fn start(&mut self) {
@@ -615,11 +617,16 @@ impl Technique for Workflow {
         }
         match self.stage {
             Stage::Keyboard => {
-                let output = self.keyboard.handle(action);
+                let output = self
+                    .keyboard
+                    .handle_with_context(action, crate::prediction::keyboard_input_context());
                 self.set_dock(self.keyboard.dock);
                 match output {
                     Some(crate::scan_keyboard::Output::Stroke(stroke)) => {
                         return Some(Request::Keyboard(stroke))
+                    }
+                    Some(crate::scan_keyboard::Output::Punctuation(punctuation)) => {
+                        return Some(Request::KeyboardPunctuation(punctuation))
                     }
                     Some(crate::scan_keyboard::Output::Prediction { token, index }) => {
                         return Some(Request::Prediction { token, index })

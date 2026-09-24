@@ -129,6 +129,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
       </SettingGroup></MoreOptions>
 
     </>}
+    {area === 'keyboard' && <p className="setting-note">The scanning keyboard spaces punctuation for you. Period, question mark, and exclamation mark capitalize the next letter. The Numbers page period stays a decimal point.</p>}
     {area === 'keyboard' && <SettingGroup title="Suggestions" description="Show word suggestions while typing with the scanning keyboard.">
       <Toggle label="Word prediction" checked={config.wordPrediction} disabled={disabled} onChange={value => update('wordPrediction', value)} />
     </SettingGroup>}

@@ -1,7 +1,37 @@
 //! A content-free input epoch. Never suppresses or records external input.
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{OnceLock, RwLock};
 static EPOCH: AtomicU64 = AtomicU64::new(0);
 static HEALTHY: AtomicBool = AtomicBool::new(false);
+static IGNORED: OnceLock<RwLock<Vec<u32>>> = OnceLock::new();
+fn ignored() -> &'static RwLock<Vec<u32>> {
+    IGNORED.get_or_init(|| RwLock::new(Vec::new()))
+}
+pub fn set_ignored(mut keys: Vec<u32>) {
+    keys.sort_unstable();
+    keys.dedup();
+    let mut current = ignored().write().unwrap_or_else(|error| error.into_inner());
+    if *current != keys {
+        *current = keys;
+        // An assignment change makes earlier ownership claims unsafe.
+        changed();
+    }
+}
+fn ignored_key(code: u32) -> bool {
+    ignored()
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .binary_search(&code)
+        .is_ok()
+}
+#[cfg(any(target_os = "macos", test))]
+fn first_disable(flag: &AtomicBool) -> bool {
+    !flag.swap(true, Ordering::SeqCst)
+}
+#[cfg(any(target_os = "macos", test))]
+fn needs_exit_invalidation(flag: &AtomicBool) -> bool {
+    !flag.load(Ordering::SeqCst)
+}
 pub fn snapshot() -> (u64, bool) {
     (EPOCH.load(Ordering::SeqCst), HEALTHY.load(Ordering::SeqCst))
 }
@@ -24,16 +54,12 @@ fn changed() {
 }
 
 #[cfg(target_os = "windows")]
-pub fn start(ignored: Vec<u32>) -> bool {
-    use std::cell::RefCell;
+pub fn start() -> bool {
     use windows_sys::Win32::{System::LibraryLoader::GetModuleHandleW, UI::WindowsAndMessaging::*};
-    thread_local! { static IGNORE: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) }; }
     unsafe extern "system" fn keyboard(code: i32, wp: usize, lp: isize) -> isize {
         if code >= 0 && matches!(wp as u32, WM_KEYDOWN | WM_SYSKEYDOWN) {
             let key = unsafe { &*(lp as *const KBDLLHOOKSTRUCT) };
-            if !crate::input::own_input(key.dwExtraInfo as i64)
-                && !IGNORE.with(|i| i.borrow().contains(&key.vkCode))
-            {
+            if !crate::input::own_input(key.dwExtraInfo as i64) && !ignored_key(key.vkCode) {
                 changed();
             }
         }
@@ -55,7 +81,6 @@ pub fn start(ignored: Vec<u32>) -> bool {
     }
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     std::thread::spawn(move || unsafe {
-        IGNORE.with(|i| *i.borrow_mut() = ignored);
         let k = SetWindowsHookExW(
             WH_KEYBOARD_LL,
             Some(keyboard),
@@ -92,11 +117,13 @@ pub fn start(ignored: Vec<u32>) -> bool {
         .unwrap_or(false)
 }
 #[cfg(target_os = "macos")]
-pub fn start(ignored: Vec<u32>) -> bool {
+pub fn start() -> bool {
     use core_graphics::event::{
         CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement, CGEventType,
         CallbackResult,
     };
+    let disabled = std::sync::Arc::new(AtomicBool::new(false));
+    let callback_disabled = disabled.clone();
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let ready = tx.clone();
@@ -116,12 +143,16 @@ pub fn start(ignored: Vec<u32>) -> bool {
                     kind,
                     CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput
                 ) {
-                    unavailable();
+                    if first_disable(&callback_disabled) {
+                        unavailable();
+                    }
+                    // Returning from the run loop drops this tap before a retry.
+                    core_foundation::runloop::CFRunLoop::get_current().stop();
                     return CallbackResult::Keep;
                 }
                 if !crate::input::own_input(event.get_integer_value_field(42))
                     && (!matches!(kind, CGEventType::KeyDown)
-                        || !ignored.contains(&(event.get_integer_value_field(9) as u32)))
+                        || !ignored_key(event.get_integer_value_field(9) as u32))
                 {
                     changed();
                 }
@@ -135,12 +166,40 @@ pub fn start(ignored: Vec<u32>) -> bool {
             },
         );
         let _ = tx.send(false);
-        unavailable();
+        if needs_exit_invalidation(&disabled) {
+            unavailable();
+        }
     });
     rx.recv_timeout(std::time::Duration::from_millis(500))
         .unwrap_or(false)
 }
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-pub fn start(_: Vec<u32>) -> bool {
+pub fn start() -> bool {
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reassignment_updates_ignored_keys_and_invalidates_old_context() {
+        set_ignored(vec![32]);
+        assert!(ignored_key(32));
+        let before = snapshot().0;
+        set_ignored(vec![120]);
+        assert!(snapshot().0 > before);
+        assert!(!ignored_key(32));
+        assert!(ignored_key(120));
+        set_ignored(Vec::new());
+    }
+
+    #[test]
+    fn disabled_tap_invalidates_once_before_its_run_loop_exits() {
+        let disabled = AtomicBool::new(false);
+        assert!(needs_exit_invalidation(&disabled));
+        assert!(first_disable(&disabled));
+        assert!(!first_disable(&disabled));
+        assert!(!needs_exit_invalidation(&disabled));
+    }
 }
