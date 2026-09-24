@@ -1273,7 +1273,7 @@ mod tests {
         assert_eq!(workflow.moved, Some(Dock::default()));
         workflow.keyboard_closed();
         workflow.open_point();
-        workflow.set_pointer(None);
+        workflow.set_pointer(Some((640.0, area.y + 10.0)));
         assert_eq!(workflow.moved, None);
     }
     #[test]
