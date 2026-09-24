@@ -921,14 +921,19 @@ mod tests {
             session.technique.phase(),
             Phase::Workflow(WorkflowPhase::Mouse)
         );
-        assert!(session
+        let selected: Vec<_> = session
             .technique
             .mouse
             .frame(screen, 1.0, Default::default(), false)
             .tiles
-            .iter()
-            .skip(1)
-            .any(|tile| tile.selected));
+            .into_iter()
+            .filter(|tile| tile.selected)
+            .map(|tile| tile.text)
+            .collect();
+        assert_eq!(
+            selected,
+            ["Left click", "Right click", "Double click", "Start drag"]
+        );
     }
 
     #[test]

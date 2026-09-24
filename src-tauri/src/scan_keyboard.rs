@@ -542,6 +542,7 @@ impl Keyboard {
                                 weight: Self::weight(key),
                                 role: style.role,
                                 active: style.active,
+                                blank: false,
                             }
                         })
                         .collect()

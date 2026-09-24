@@ -11,6 +11,20 @@ pub struct PanelKey {
     pub weight: f64,
     pub role: TileRole,
     pub active: bool,
+    /// Reserves a cell without drawing it or counting it as a scanner column.
+    pub blank: bool,
+}
+
+impl PanelKey {
+    pub fn blank() -> Self {
+        Self {
+            text: String::new(),
+            weight: 1.0,
+            role: TileRole::Utility,
+            active: false,
+            blank: true,
+        }
+    }
 }
 
 pub struct Panel {
@@ -61,8 +75,13 @@ impl Panel {
             let total_weight: f64 = row.iter().map(|key| key.weight).sum();
             let cell_unit = (width - gap * (row.len() - 1) as f64).max(1.0) / total_weight;
             let mut left = x;
-            for (c, key) in row.iter().enumerate() {
+            let mut c = 0;
+            for key in row {
                 let key_width = cell_unit * key.weight;
+                if key.blank {
+                    left += key_width + gap;
+                    continue;
+                }
                 frame.tiles.push(FrameTile {
                     thickness: self.thickness,
                     color,
@@ -85,6 +104,7 @@ impl Panel {
                     }),
                 });
                 left += key_width + gap;
+                c += 1;
             }
         }
         frame.tiles.push(FrameTile {
@@ -130,6 +150,7 @@ mod tests {
             weight,
             role: TileRole::Utility,
             active: false,
+            blank: false,
         }
     }
 

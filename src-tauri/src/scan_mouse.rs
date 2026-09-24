@@ -194,11 +194,17 @@ impl MousePanel {
                 .iter()
                 .map(|row| {
                     row.iter()
-                        .map(|&key| PanelKey {
-                            text: self.label(key),
-                            weight: 1.0,
-                            role: Self::role(key),
-                            active: key == Key::Drag && self.dragging,
+                        .flat_map(|&key| {
+                            let tile = PanelKey {
+                                text: self.label(key),
+                                weight: 1.0,
+                                role: Self::role(key),
+                                active: key == Key::Drag && self.dragging,
+                                blank: false,
+                            };
+                            // Keep ← and → under the diagonal arrows.
+                            let blank = matches!(key, Key::Move(_, 0)).then(PanelKey::blank);
+                            std::iter::once(tile).chain(blank)
                         })
                         .collect()
                 })
@@ -221,12 +227,17 @@ mod tests {
     #[test]
     fn pages_and_monitor_controls_follow_available_displays() {
         let mut panel = MousePanel::new(Resolved::default(), 1, 100);
+        use Key::*;
         assert_eq!(
-            panel.rows[0],
-            [Key::Click, Key::RightClick, Key::DoubleClick, Key::Drag]
+            panel.rows,
+            [
+                vec![Click, RightClick, DoubleClick, Drag],
+                vec![Move(-1, -1), Move(0, -1), Move(1, -1), Scroll(1)],
+                vec![Move(-1, 0), Move(1, 0)],
+                vec![Move(-1, 1), Move(0, 1), Move(1, 1), Scroll(-1)],
+                vec![More, Keyboard, Dock, Close],
+            ]
         );
-        assert_eq!(panel.rows[1][3], Key::Scroll(1));
-        assert_eq!(panel.rows[3][3], Key::Scroll(-1));
         panel.choose(Key::More);
         assert!(!panel
             .rows
@@ -254,6 +265,41 @@ mod tests {
             .tiles
             .iter()
             .all(|tile| tile.rect.x >= screen.x && tile.rect.y >= screen.y));
+    }
+
+    #[test]
+    fn horizontal_arrows_align_with_the_diagonals_and_stay_selectable() {
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let mut panel = MousePanel::new(Resolved::default(), 1, 100);
+        let tile = |frame: &Frame, text: &str| {
+            frame
+                .tiles
+                .iter()
+                .find(|tile| tile.text == text)
+                .unwrap()
+                .rect
+        };
+        let frame = panel.frame(screen, 1.0, ScannerColor::default(), false);
+        assert_eq!(tile(&frame, "←").x, tile(&frame, "↖").x);
+        assert_eq!(tile(&frame, "←").width, tile(&frame, "↖").width);
+        assert_eq!(tile(&frame, "→").x, tile(&frame, "↗").x);
+        assert_eq!(tile(&frame, "→").width, tile(&frame, "↗").width);
+        assert_eq!(frame.tiles.len(), 1 + 18 + 1, "spacers draw no tiles");
+
+        panel.handle(Action::Next);
+        panel.handle(Action::Next);
+        panel.handle(Action::Select);
+        panel.handle(Action::Next);
+        let frame = panel.frame(screen, 1.0, ScannerColor::default(), false);
+        let selected: Vec<_> = frame.tiles.iter().filter(|tile| tile.selected).collect();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].text, "→");
+        assert_eq!(panel.handle(Action::Select), Some(Key::Move(1, 0)));
     }
 
     #[test]
