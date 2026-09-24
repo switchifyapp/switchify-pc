@@ -313,10 +313,18 @@ impl OverlayEngine {
         settings.cursor_overlay_enabled = true;
         settings.cursor_overlay_visibility = "whileControlling".into();
         let update = self.handle(Command::Show(feedback, settings), now);
-        if dragging && matches!(feedback, PointerFeedback::Scroll { .. }) {
+        if dragging
+            && matches!(
+                feedback,
+                PointerFeedback::Scroll { .. } | PointerFeedback::RepeatScroll { .. }
+            )
+        {
             self.drag_active = true;
         }
-        if matches!(feedback, PointerFeedback::RepeatMove { .. }) {
+        if matches!(
+            feedback,
+            PointerFeedback::RepeatMove { .. } | PointerFeedback::RepeatScroll { .. }
+        ) {
             self.deadline = None;
         }
         update
@@ -1094,6 +1102,13 @@ mod tests {
             now,
         );
         assert_eq!(engine.deadline, None);
+        engine.show_scan_mouse(
+            PointerFeedback::RepeatScroll { dx: 0, dy: 5 },
+            settings.clone(),
+            now,
+        );
+        assert_eq!(engine.deadline, None);
+        assert!(engine.drag_active);
         engine.show_scan_mouse(PointerFeedback::Drag, settings, now);
         assert!(matches!(engine.end_scan_mouse(now), Update::Hide));
         assert!(!engine.visible);

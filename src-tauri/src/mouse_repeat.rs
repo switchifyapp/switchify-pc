@@ -156,6 +156,37 @@ pub struct ScanMoveRepeat {
     movement: MoveRepeatState,
 }
 
+/// The scanned scroll control uses Remote's immediate first step followed by
+/// one step per configured interval. A delayed scanner tick never bursts
+/// multiple scroll events into the foreground app.
+pub struct ScanScrollRepeat {
+    direction: i8,
+    elapsed_ms: u64,
+}
+
+impl ScanScrollRepeat {
+    pub fn new(direction: i8) -> Self {
+        Self {
+            direction,
+            elapsed_ms: 0,
+        }
+    }
+
+    pub fn dy(&self) -> i32 {
+        i32::from(self.direction) * 5
+    }
+
+    pub fn advance(&mut self, elapsed_ms: u64, interval_ms: u32) -> bool {
+        let interval = u64::from(interval_ms.max(1));
+        self.elapsed_ms = self.elapsed_ms.saturating_add(elapsed_ms);
+        if self.elapsed_ms < interval {
+            return false;
+        }
+        self.elapsed_ms %= interval;
+        true
+    }
+}
+
 impl ScanMoveRepeat {
     pub fn new(dx: i32, dy: i32, now: Instant) -> Self {
         Self {
@@ -702,6 +733,19 @@ mod tests {
             distance += scan.advance(8, 250, 1350, 0).0;
         }
         assert!((647..=649).contains(&distance));
+    }
+
+    #[test]
+    fn scanned_scroll_uses_remote_step_and_interval_without_bursting() {
+        let mut repeat = ScanScrollRepeat::new(-1);
+        assert_eq!(repeat.dy(), -5);
+        assert!(!repeat.advance(79, 80));
+        assert!(repeat.advance(1, 80));
+        assert!(!repeat.advance(40, 80));
+        assert!(repeat.advance(40, 80));
+        assert!(repeat.advance(250, 80));
+        assert!(!repeat.advance(69, 80));
+        assert!(repeat.advance(1, 80));
     }
 
     #[test]
