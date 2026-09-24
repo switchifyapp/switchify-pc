@@ -53,6 +53,52 @@ impl Dock {
     fn place(slot: u8, start: f64, length: f64, size: f64) -> f64 {
         start + (length - size) * f64::from(slot.min(2)) / 2.0
     }
+    /// Outer rectangle of a panel docked here.
+    pub fn rect(self, screen: Rect, units: f64) -> Rect {
+        let width = (1180.0 * units).min((screen.width - 24.0 * units).max(1.0));
+        let height = (460.0 * units).min(screen.height * 0.55).max(1.0);
+        Rect {
+            x: Self::place(self.column, screen.x, screen.width, width),
+            y: Self::place(self.row, screen.y, screen.height, height),
+            width,
+            height,
+        }
+    }
+    /// Where to draw a panel docked here while the pointer may be over it. The panel moves to
+    /// the other end of the screen until the pointer leaves this dock; `moved` keeps the
+    /// previous choice so a middle panel does not flip while the pointer crosses it.
+    pub fn avoiding(
+        self,
+        pointer: (f64, f64),
+        screen: Rect,
+        units: f64,
+        moved: Option<Dock>,
+    ) -> Option<Dock> {
+        let rect = self.rect(screen, units);
+        let (x, y) = pointer;
+        if x < rect.x || x >= rect.x + rect.width || y < rect.y || y >= rect.y + rect.height {
+            return None;
+        }
+        let row = match self.row {
+            0 => 2,
+            2 => 0,
+            _ => match moved {
+                Some(moved) if moved.column == self.column && moved.row != 1 => moved.row,
+                _ if y < rect.y + rect.height / 2.0 => 2,
+                _ => 0,
+            },
+        };
+        Some(Dock { row, ..self })
+    }
+}
+
+/// Shifts a panel frame drawn at `from` so it is drawn at `to` instead.
+pub fn move_frame(frame: &mut Frame, from: Dock, to: Dock, screen: Rect, units: f64) {
+    let (from, to) = (from.rect(screen, units), to.rect(screen, units));
+    for tile in &mut frame.tiles {
+        tile.rect.x += to.x - from.x;
+        tile.rect.y += to.y - from.y;
+    }
 }
 
 /// Position page shared by panels: the nine docks as a 3×3 grid, then a back key.
@@ -90,10 +136,12 @@ pub struct Panel {
 
 impl Panel {
     pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor) -> Frame {
-        let width = (1180.0 * units).min((screen.width - 24.0 * units).max(1.0));
-        let height = (460.0 * units).min(screen.height * 0.55).max(1.0);
-        let x = Dock::place(self.dock.column, screen.x, screen.width, width);
-        let y = Dock::place(self.dock.row, screen.y, screen.height, height);
+        let Rect {
+            x,
+            y,
+            width,
+            height,
+        } = self.dock.rect(screen, units);
         let outer_scale = units.min(height / 460.0).min(width / 1180.0);
         let padding = 16.0 * outer_scale;
         let content_width = (width - padding * 2.0).max(1.0);
@@ -273,6 +321,63 @@ mod tests {
             scanning_status("Movement", true, "x"),
             "Movement · Select a row"
         );
+    }
+
+    #[test]
+    fn avoiding_the_pointer_moves_to_the_other_end_until_it_leaves_the_dock() {
+        let screen = Rect {
+            x: -1920.0,
+            y: 40.0,
+            width: 1920.0,
+            height: 1040.0,
+        };
+        let dock = |column, row| Dock { column, row };
+        for column in 0..3 {
+            let bottom = dock(column, 2).rect(screen, 1.0);
+            let inside = (bottom.x + 1.0, bottom.y + bottom.height - 1.0);
+            let outside = (bottom.x + 1.0, bottom.y - 1.0);
+            assert_eq!(
+                dock(column, 2).avoiding(inside, screen, 1.0, None),
+                Some(dock(column, 0))
+            );
+            assert_eq!(dock(column, 2).avoiding(outside, screen, 1.0, None), None);
+            let top = dock(column, 0).rect(screen, 1.0);
+            assert_eq!(
+                dock(column, 0).avoiding((top.x, top.y), screen, 1.0, None),
+                Some(dock(column, 2))
+            );
+        }
+        let middle = dock(1, 1).rect(screen, 1.0);
+        let upper = (middle.x + 10.0, middle.y + 10.0);
+        let lower = (middle.x + 10.0, middle.y + middle.height - 10.0);
+        assert_eq!(
+            dock(1, 1).avoiding(upper, screen, 1.0, None),
+            Some(dock(1, 2))
+        );
+        assert_eq!(
+            dock(1, 1).avoiding(lower, screen, 1.0, None),
+            Some(dock(1, 0))
+        );
+        assert_eq!(
+            dock(1, 1).avoiding(lower, screen, 1.0, Some(dock(1, 2))),
+            Some(dock(1, 2)),
+            "a moved middle panel stays put while the pointer crosses it"
+        );
+
+        let mut frame = Panel {
+            rows: vec![vec![key("a", 1.0)]],
+            status: String::new(),
+            dock: Dock::default(),
+            selected: None,
+            status_selected: false,
+            row_scan: false,
+            thickness: Thickness::default(),
+        }
+        .frame(screen, 1.0, ScannerColor::default());
+        let key_offset = frame.tiles[1].rect.y - frame.tiles[0].rect.y;
+        move_frame(&mut frame, Dock::default(), dock(1, 0), screen, 1.0);
+        assert_eq!(frame.tiles[0].rect, dock(1, 0).rect(screen, 1.0));
+        assert_eq!(frame.tiles[1].rect.y - frame.tiles[0].rect.y, key_offset);
     }
 
     #[test]

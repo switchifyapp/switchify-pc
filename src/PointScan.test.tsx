@@ -371,6 +371,21 @@ it("brings the area header into view with help expanded and restores the overvie
   }
 });
 
+it("saves the shared panel pointer-avoidance choice from the mouse and keyboard pages", async () => {
+  mocks.invoke.mockImplementation(async (command, args) => command === "get_point_scan" ? initial : { ...initial, config: args.config });
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  expect(screen.queryByRole("checkbox", { name: "Move away from the pointer" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Customise mouse scanning" }));
+  expect(screen.getByRole("checkbox", { name: "Move away from the pointer" })).not.toBeChecked();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Move away from the pointer" }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", { config: { ...defaultPointScanConfig, panelAvoidsPointer: true } }));
+  fireEvent.click(screen.getByRole("button", { name: /Back to scanning settings/ }));
+  more();
+  fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
+  expect(screen.getByRole("checkbox", { name: "Move away from the pointer" })).toBeChecked();
+});
+
 it("saves the keyboard after-typing choice and preserves it while manual", async () => {
   mocks.invoke.mockImplementation(async (command, args) => command === "get_point_scan" ? initial : { ...initial, config: args.config });
   render(<PointScan />);

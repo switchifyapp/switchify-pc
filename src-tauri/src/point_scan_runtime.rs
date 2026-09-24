@@ -233,6 +233,7 @@ impl Adapter for PointScan {
                     },
                     displays.len(),
                 );
+                technique.set_pointer(Some(cursor));
                 let settings = app.state::<crate::state::AppModel>().snapshot().settings;
                 technique.set_mouse_settings(
                     settings.pointer_scale_percent,
@@ -250,6 +251,11 @@ impl Adapter for PointScan {
                     technique.foreground_changed();
                     environment.foreground = foreground;
                 }
+                technique.set_pointer(if technique.panel_avoids_pointer() {
+                    Some(display_navigation::displays(app).map_err(|e| e.message)?.0)
+                } else {
+                    None
+                });
             }
         }
         Ok(true)

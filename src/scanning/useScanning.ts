@@ -7,6 +7,7 @@ export type PointScanConfig = {
   scanPreferences?: import("./preferences").ScanPreferences;
   wordPrediction: boolean;
   keyboardWaitAfterTyping: boolean;
+  panelAvoidsPointer: boolean;
   scannerColor: ScannerColor;
   mode: "line" | "grid";
   automatic: boolean;
@@ -33,6 +34,7 @@ export const defaultPointScanConfig: PointScanConfig = {
   controlMode: "point",
   wordPrediction: true,
   keyboardWaitAfterTyping: false,
+  panelAvoidsPointer: false,
   scannerColor: "blue",
   mode: "line",
   automatic: true,
