@@ -11,8 +11,8 @@ use std::{
     cell::RefCell,
     path::Path,
     process::{Child, ChildStdin, Command, Stdio},
+    sync::atomic::{AtomicU8, Ordering},
     sync::mpsc,
-    sync::OnceLock,
     thread::JoinHandle,
     time::{Duration, Instant},
 };
@@ -260,7 +260,18 @@ impl Service {
     }
 }
 thread_local! { static SERVICE: RefCell<Service> = RefCell::new(Service::default()); }
-static KEYBOARD_ACTIVITY: OnceLock<()> = OnceLock::new();
+// 0 = idle, 1 = starting, 2 = running. A failed or disabled hook can retry.
+static KEYBOARD_ACTIVITY: AtomicU8 = AtomicU8::new(0);
+
+fn claim_keyboard_activity_start(state: &AtomicU8, healthy: bool) -> bool {
+    if healthy {
+        return false;
+    }
+    let _ = state.compare_exchange(2, 0, Ordering::SeqCst, Ordering::SeqCst);
+    state
+        .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+}
 
 pub fn start_keyboard_activity(ignored: &[String]) {
     activity::set_ignored(
@@ -269,11 +280,16 @@ pub fn start_keyboard_activity(ignored: &[String]) {
             .filter_map(|name| crate::switch_input::prediction_key_code(name))
             .collect(),
     );
-    KEYBOARD_ACTIVITY.get_or_init(|| {
+    if claim_keyboard_activity_start(&KEYBOARD_ACTIVITY, activity::snapshot().1) {
         std::thread::spawn(move || {
-            let _ = activity::start();
+            let started = activity::start();
+            if !started {
+                // Avoid a busy retry loop while native input access is unavailable.
+                std::thread::sleep(Duration::from_secs(1));
+            }
+            KEYBOARD_ACTIVITY.store(if started { 2 } else { 0 }, Ordering::SeqCst);
         });
-    });
+    }
 }
 
 pub fn keyboard_input_context() -> Option<crate::scan_keyboard::TypingContext> {
@@ -510,6 +526,17 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn activity_observer_retries_after_failure_or_lost_hook() {
+        let state = AtomicU8::new(0);
+        assert!(claim_keyboard_activity_start(&state, false));
+        assert!(!claim_keyboard_activity_start(&state, false));
+        state.store(0, Ordering::SeqCst); // first hook attempt failed
+        assert!(claim_keyboard_activity_start(&state, false));
+        state.store(2, Ordering::SeqCst); // second hook started
+        assert!(!claim_keyboard_activity_start(&state, true));
+        assert!(claim_keyboard_activity_start(&state, false)); // hook later stopped
+    }
     #[test]
     fn punctuation_records_the_backspace_and_insert_as_one_successful_edit() {
         stop();
