@@ -1,17 +1,32 @@
-use super::{context::Context, lookup::Lookup, model::Model};
-use std::{path::Path, sync::mpsc};
+use super::{
+    context::Context,
+    lookup::Lookup,
+    model::{Model, Predict},
+};
+use std::{
+    path::Path,
+    sync::mpsc,
+    time::{Duration, Instant},
+};
+
+/// The model stops exploring new words after this long.
+const SEARCH_BUDGET: Duration = Duration::from_millis(400);
+/// A model call slower than this switches the worker to the lookup for good,
+/// keeping replies well inside the main process's two-second deadline.
+const SLOW_CALL: Duration = Duration::from_millis(1000);
 
 enum Enhanced {
     Loading(mpsc::Receiver<Result<Model, ()>>),
-    Ready(Box<Model>),
+    Ready(Box<dyn Predict>),
     Unavailable,
 }
 
 // The lookup answers until the optional model has loaded in the background,
-// and whenever the model fails, so a slow or broken model never delays typing.
+// and whenever the model fails or runs slowly, so it never delays typing.
 pub struct Database {
     lookup: Lookup,
     enhanced: Enhanced,
+    slow_call: Duration,
 }
 impl Database {
     pub fn open(path: &Path, enhanced: bool) -> Result<Self, ()> {
@@ -28,7 +43,11 @@ impl Database {
             }
             None => Enhanced::Unavailable,
         };
-        Ok(Self { lookup, enhanced })
+        Ok(Self {
+            lookup,
+            enhanced,
+            slow_call: SLOW_CALL,
+        })
     }
     pub fn predict(&mut self, context: &Context) -> Result<Vec<String>, ()> {
         let base = self.lookup.predict(&context.words, &context.prefix);
@@ -42,10 +61,22 @@ impl Database {
         let Enhanced::Ready(model) = &mut self.enhanced else {
             return Ok(base);
         };
+        if context.partial {
+            return Ok(base);
+        }
         let lookup = &self.lookup;
-        match model.predict(&context.before, &context.prefix, |w| {
-            lookup.spelling(w).map(str::to_owned)
-        }) {
+        let known = |w: &str| lookup.spelling(w).map(str::to_owned);
+        let start = Instant::now();
+        let result = model.predict(
+            &context.before,
+            &context.prefix,
+            &known,
+            start + SEARCH_BUDGET,
+        );
+        if start.elapsed() > self.slow_call {
+            self.enhanced = Enhanced::Unavailable;
+        }
+        match result {
             Ok(mut words) => {
                 for word in base {
                     if words.len() < 5
@@ -56,6 +87,7 @@ impl Database {
                         words.push(word);
                     }
                 }
+                words.truncate(5);
                 Ok(words)
             }
             Err(()) => Ok(base),
@@ -66,6 +98,7 @@ impl Database {
         Self {
             lookup: Lookup::fixture(),
             enhanced: Enhanced::Unavailable,
+            slow_call: SLOW_CALL,
         }
     }
 }
@@ -73,6 +106,59 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    struct Fake(Result<Vec<&'static str>, ()>, Duration);
+    impl Predict for Fake {
+        fn predict(
+            &mut self,
+            _before: &str,
+            _prefix: &str,
+            _known: &dyn Fn(&str) -> Option<String>,
+            _deadline: Instant,
+        ) -> Result<Vec<String>, ()> {
+            std::thread::sleep(self.1);
+            self.0
+                .clone()
+                .map(|w| w.into_iter().map(String::from).collect())
+        }
+    }
+    fn ready(db: &mut Database, words: Result<Vec<&'static str>, ()>, delay: Duration) {
+        db.enhanced = Enhanced::Ready(Box::new(Fake(words, delay)));
+    }
+    #[test]
+    fn model_words_lead_and_the_lookup_fills_without_duplicates() {
+        let ctx = super::super::context::extract("I would like wa", false);
+        let mut db = Database::fixture();
+        let lookup = db.predict(&ctx).unwrap();
+        assert!(lookup.len() >= 2);
+        ready(&mut db, Ok(vec!["WhatsApp", "WATER"]), Duration::ZERO);
+        let words = db.predict(&ctx).unwrap();
+        assert_eq!(words[..2], ["WhatsApp", "WATER"]);
+        assert!(!words[2..].iter().any(|w| w.eq_ignore_ascii_case("water")));
+        assert!(words.len() <= 5);
+        ready(
+            &mut db,
+            Ok(vec!["a", "b", "c", "d", "e", "f"]),
+            Duration::ZERO,
+        );
+        assert_eq!(db.predict(&ctx).unwrap(), ["a", "b", "c", "d", "e"]);
+        ready(&mut db, Err(()), Duration::ZERO);
+        assert_eq!(db.predict(&ctx).unwrap(), lookup);
+        assert!(matches!(db.enhanced, Enhanced::Ready(_)));
+    }
+    #[test]
+    fn slow_models_and_clipped_fragments_use_the_lookup() {
+        let mut db = Database::fixture();
+        let clipped = super::super::context::extract("agmentwa", true);
+        let lookup = db.predict(&clipped).unwrap();
+        ready(&mut db, Ok(vec!["model"]), Duration::ZERO);
+        assert_eq!(db.predict(&clipped).unwrap(), lookup);
+        let ctx = super::super::context::extract("I would like wa", false);
+        db.slow_call = Duration::from_millis(20);
+        ready(&mut db, Ok(vec!["model"]), Duration::from_millis(40));
+        assert_eq!(db.predict(&ctx).unwrap()[0], "model");
+        assert!(matches!(db.enhanced, Enhanced::Unavailable));
+        assert_ne!(db.predict(&ctx).unwrap()[0], "model");
+    }
     #[test]
     fn lookup_answers_while_the_model_loads_or_after_it_fails() {
         let ctx = super::super::context::extract("I would like wa", false);

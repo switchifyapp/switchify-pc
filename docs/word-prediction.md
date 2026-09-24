@@ -23,6 +23,8 @@ Enhanced word prediction is off by default. When it is on, a small language mode
   - words the lookup does not know must reach a minimum probability.
 - **Spelling:** words the lookup knows take its usual spelling. Unknown words keep the model's spelling, except that a capital coming only from sentence position is removed.
 - **Merging:** lookup suggestions fill any remaining positions.
+- **Time limits:** the model stops exploring new words after 400 ms. If one call ever takes longer than 1 s, the worker uses the lookup for the rest of its life, so replies stay well inside the two-second deadline.
+- **Clipped buffers:** when clipping leaves no complete earlier word, the lookup answers.
 - **Cost:** predictions take roughly 40–80 ms on a recent laptop, and the worker needs about 300–450 MB more memory.
 
 The model files are too large to commit. `npm run prediction-model` downloads them from a pinned upstream revision and verifies their SHA-256. The Tauri dev and build commands and CI run it automatically. Run it once before `cargo test` or `cargo clippy` in a fresh checkout.
@@ -41,10 +43,10 @@ Automated tests use fixture databases, fake foreground/activity sources, fake in
 cargo test --manifest-path src-tauri/Cargo.toml bundled_database_benchmark -- --ignored --nocapture
 ```
 
-The language model check uses synthetic text and prints its suggestions and timings:
+`cargo test` also runs the language model against the fetched files with synthetic text. For release-build suggestions and timings:
 
 ```powershell
-cargo test --release --manifest-path src-tauri/Cargo.toml bundled_model_suggests_current_words -- --ignored --nocapture
+cargo test --release --manifest-path src-tauri/Cargo.toml bundled_model_suggests_current_words -- --nocapture
 ```
 
 For native validation, use disposable synthetic text in Notepad and a browser on Windows, and TextEdit and a browser on macOS. Launch macOS with `npm run macos:run` to retain its signed Accessibility identity.

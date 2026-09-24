@@ -402,6 +402,9 @@ pub fn poll(
         let mut s = slot.borrow_mut();
         if s.enhanced != enhanced {
             // Changing the engine restarts the worker, like reopening the keyboard.
+            if s.accepting || s.accept.is_some() {
+                keyboard.failed();
+            }
             *s = Service {
                 enhanced,
                 ..Service::default()

@@ -47,6 +47,7 @@ async function download(file) {
     } catch (error) {
       await rm(pending, { force: true });
       if (attempt === 3) throw new Error(`Could not fetch ${file.name}: ${error.message}`);
+      await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
     }
   }
 }

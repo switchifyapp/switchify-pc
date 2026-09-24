@@ -14,6 +14,7 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     path::Path,
+    time::Instant,
 };
 use tokenizers::Tokenizer;
 
@@ -53,7 +54,7 @@ impl Vocabulary {
                 .map(|p| {
                     !p.chars()
                         .next()
-                        .is_some_and(|c| c.is_alphanumeric() || c == '\'')
+                        .is_some_and(|c| c.is_alphanumeric() || c == '\'' || c == '’')
                 })
                 .collect(),
             continues: pieces.iter().map(|p| wordy(p)).collect(),
@@ -69,13 +70,16 @@ fn normalize(word: &str) -> String {
 
 /// Up to five words for `prefix` after `before`, most probable first.
 /// `known` returns the lookup's spelling of a word it contains.
+/// Expansion stops at `deadline`, returning the words finished so far.
 pub fn spell(
     scorer: &mut impl Scorer,
     vocabulary: &Vocabulary,
     before: &str,
     prefix: &str,
     known: impl Fn(&str) -> Option<String>,
+    deadline: Instant,
 ) -> Result<Vec<String>, ()> {
+    let typed = prefix;
     let prefix = normalize(prefix);
     let text = before.trim_end();
     // A word after the last one needs a leading space; at the very start of
@@ -89,6 +93,9 @@ pub fn spell(
         w.starts_with(&prefix) || prefix.starts_with(&w)
     };
     let next = scorer.context(text)?;
+    if next.len() != vocabulary.pieces.len() {
+        return Err(());
+    }
     let mut beam: Vec<(f32, Vec<i64>, String)> = Vec::new();
     for (id, piece) in vocabulary.pieces.iter().enumerate() {
         let word = if start {
@@ -118,11 +125,19 @@ pub fn spell(
     // Probability mass per normalized word, plus its most probable spelling.
     let mut finished: HashMap<String, (f32, f32, String)> = HashMap::new();
     let fifth = |finished: &HashMap<String, (f32, f32, String)>| {
-        let mut p: Vec<f32> = finished.values().map(|f| f.0).collect();
+        // Only words that can survive the final filter may prune the beam.
+        let mut p: Vec<f32> = finished
+            .iter()
+            .filter(|(key, f)| f.0.ln() >= UNKNOWN_MIN || known(key).is_some())
+            .map(|(_, f)| f.0)
+            .collect();
         p.sort_by(|a, b| b.total_cmp(a));
         p.get(4).map_or(f32::NEG_INFINITY, |p| p.ln())
     };
     for _ in 0..MAX_PIECES {
+        if Instant::now() >= deadline {
+            break;
+        }
         beam.sort_by(|a, b| b.0.total_cmp(&a.0));
         let bound = fifth(&finished);
         beam.retain(|b| b.0 > bound);
@@ -185,10 +200,16 @@ pub fn spell(
         .take(5)
         .map(|(_, key, spelling)| {
             // Capitals on unknown words at a sentence start come from position.
-            if known(&key).is_none() && (start || text.ends_with(['.', '!', '?'])) {
+            let word = if known(&key).is_none() && (start || text.ends_with(['.', '!', '?'])) {
                 key
             } else {
                 spelling.replace('’', "'")
+            };
+            // Match the typed apostrophe so the completion still extends the prefix.
+            if typed.contains('’') {
+                word.replace('\'', "’")
+            } else {
+                word
             }
         })
         .collect())
@@ -218,6 +239,8 @@ fn log_softmax(logits: &[f32]) -> Vec<f32> {
 
 impl Onnx {
     fn open(dir: &Path) -> Result<Self, ()> {
+        // Typed text must never leave the worker, so ONNX Runtime telemetry stays off.
+        ort::init().with_telemetry(false).commit();
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(4));
         let builder = Session::builder().map_err(|_| ())?;
         let builder = builder
@@ -391,13 +414,35 @@ impl Model {
             vocabulary: Vocabulary::new(pieces, blocked),
         })
     }
-    pub fn predict(
+}
+
+/// The enhanced predictor behind `Database`, so tests can substitute a fake.
+pub trait Predict: Send {
+    fn predict(
         &mut self,
         before: &str,
         prefix: &str,
-        known: impl Fn(&str) -> Option<String>,
+        known: &dyn Fn(&str) -> Option<String>,
+        deadline: Instant,
+    ) -> Result<Vec<String>, ()>;
+}
+
+impl Predict for Model {
+    fn predict(
+        &mut self,
+        before: &str,
+        prefix: &str,
+        known: &dyn Fn(&str) -> Option<String>,
+        deadline: Instant,
     ) -> Result<Vec<String>, ()> {
-        spell(&mut self.onnx, &self.vocabulary, before, prefix, known)
+        spell(
+            &mut self.onnx,
+            &self.vocabulary,
+            before,
+            prefix,
+            known,
+            deadline,
+        )
     }
 }
 
@@ -450,94 +495,111 @@ mod tests {
         }
     }
 
+    fn run(
+        s: &mut Fake,
+        before: &str,
+        prefix: &str,
+        known: impl Fn(&str) -> Option<String>,
+    ) -> Result<Vec<String>, ()> {
+        let deadline = Instant::now() + std::time::Duration::from_secs(60);
+        spell(s, &vocabulary(), before, prefix, known, deadline)
+    }
+    fn lower(w: &str) -> Option<String> {
+        Some(w.to_owned())
+    }
+
     #[test]
     fn spells_multi_piece_words_merges_case_and_applies_prefix() {
         let mut s = fake(&[(1, 0.2), (2, 0.3), (6, 0.4), (9, 0.1)]);
-        let words = spell(&mut s, &vocabulary(), "I would like ", "wa", |w| {
-            Some(w.to_owned())
-        })
-        .unwrap();
         // water = 0.4 + 0.5 * 0.6; waffle = 0.5 * 0.3; bare "wa" = 0.5 * 0.1.
+        let words = run(&mut s, "I would like ", "wa", lower).unwrap();
         assert_eq!(words, ["water", "waffle", "wa"]);
-        let words = spell(&mut s, &vocabulary(), "I would like ", "waf", |w| {
-            Some(w.to_owned())
-        })
-        .unwrap();
-        assert_eq!(words, ["waffle"]);
+        assert_eq!(
+            run(&mut s, "I would like ", "waf", lower).unwrap(),
+            ["waffle"]
+        );
     }
 
     #[test]
     fn blocked_single_letter_and_improbable_unknown_words_are_removed() {
         let mut s = fake(&[(9, 0.6), (10, 0.3), (6, 0.1)]);
-        let words = spell(&mut s, &vocabulary(), "Say ", "", |_| None).unwrap();
-        assert_eq!(words, ["water"]);
+        assert_eq!(run(&mut s, "Say ", "", |_| None).unwrap(), ["water"]);
         let mut s = fake(&[(6, 1e-5)]);
-        assert!(spell(&mut s, &vocabulary(), "Say ", "", |_| None)
-            .unwrap()
-            .is_empty());
-        assert_eq!(
-            spell(&mut s, &vocabulary(), "Say ", "", |w| Some(w.to_owned())).unwrap(),
-            ["water"]
-        );
+        assert!(run(&mut s, "Say ", "", |_| None).unwrap().is_empty());
+        assert_eq!(run(&mut s, "Say ", "", lower).unwrap(), ["water"]);
     }
 
     #[test]
     fn casing_comes_from_the_lookup_or_the_model_but_not_sentence_position() {
         let mut s = fake(&[(1, 0.9)]);
-        let lower = |w: &str| Some(w.to_owned());
+        let lowered = ["water", "waffle", "wa"];
+        assert_eq!(run(&mut s, "Send ", "", lower).unwrap(), lowered);
         assert_eq!(
-            spell(&mut s, &vocabulary(), "Send ", "", lower).unwrap(),
-            ["water", "waffle", "wa"]
-        );
-        assert_eq!(
-            spell(&mut s, &vocabulary(), "Send ", "", |_| None).unwrap(),
+            run(&mut s, "Send ", "", |_| None).unwrap(),
             ["Water", "Waffle", "Wa"]
         );
-        assert_eq!(
-            spell(&mut s, &vocabulary(), "Done. ", "", |_| None).unwrap(),
-            ["water", "waffle", "wa"]
-        );
+        assert_eq!(run(&mut s, "Done. ", "", |_| None).unwrap(), lowered);
     }
 
     #[test]
     fn text_start_needs_capital_and_attached_prefixes_fall_back() {
         let mut s = fake(&[(7, 0.5), (8, 0.5)]);
-        let words = spell(&mut s, &vocabulary(), "", "", |w| Some(w.to_owned())).unwrap();
-        assert_eq!(words, ["water", "waffle", "wa"]);
-        assert!(spell(&mut s, &vocabulary(), "hello-", "wa", |w| Some(
-            w.to_owned()
-        ))
-        .is_err());
+        assert_eq!(
+            run(&mut s, "", "", lower).unwrap(),
+            ["water", "waffle", "wa"]
+        );
+        assert!(run(&mut s, "hello-", "wa", lower).is_err());
         assert_eq!(s.contexts, 1);
     }
 
     #[test]
-    #[ignore = "Needs the fetched model: npm run prediction-model"]
+    fn an_expired_deadline_stops_expansion_and_bad_vocabularies_fail() {
+        let mut s = fake(&[(6, 0.9)]);
+        let expired = spell(&mut s, &vocabulary(), "Say ", "", lower, Instant::now());
+        assert!(expired.unwrap().is_empty());
+        s.next.pop();
+        assert!(run(&mut s, "Say ", "", lower).is_err());
+    }
+
+    #[test]
+    fn apostrophes_continue_words_rather_than_ending_them() {
+        let pieces = [" don", "’t", "'s", "’", " .", ","]
+            .map(String::from)
+            .to_vec();
+        let v = Vocabulary::new(pieces, HashSet::new());
+        assert_eq!(v.boundary, [true, false, false, false, true, true]);
+        assert_eq!(v.continues, [false, true, true, true, false, false]);
+    }
+
+    #[test]
     fn bundled_model_suggests_current_words() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         let mut model = Model::open(
             &root.join("prediction-model"),
             &root.join("prediction-blocklist.txt"),
         )
-        .unwrap();
+        .expect("run `npm run prediction-model` to fetch the model");
         println!("model startup_ms={}", start.elapsed().as_millis());
         let lookup =
             super::super::lookup::Lookup::open(&root.join("word-predictions.lookup")).unwrap();
+        let known = |w: &str| lookup.spelling(w).map(str::to_owned);
         let mut times = Vec::new();
         for (before, prefix, expected) in [
-            ("Can you send a ", "wh", "whatsapp"),
-            ("I would like a cup of ", "", "tea"),
-            ("Please put the ", "ket", "kettle"),
-            ("I want to ", "fa", "facetime"),
+            ("I would like a cup of ", "", Some("tea")),
+            ("Please put the ", "ket", Some("kettle")),
+            ("Can you send a ", "wh", None),
+            ("I want to ", "fa", None),
         ] {
-            let t = std::time::Instant::now();
-            let words = model
-                .predict(before, prefix, |w| lookup.spelling(w).map(str::to_owned))
-                .unwrap();
+            let t = Instant::now();
+            let deadline = t + std::time::Duration::from_secs(60);
+            let words = model.predict(before, prefix, &known, deadline).unwrap();
             times.push(t.elapsed().as_secs_f64() * 1000.0);
-            println!("{before:?}+{prefix:?} -> {words:?} (hoped for {expected})");
+            println!("{before:?}+{prefix:?} -> {words:?}");
             assert!(words.iter().all(|w| normalize(w).starts_with(prefix)));
+            if let Some(expected) = expected {
+                assert!(words.iter().any(|w| w == expected), "{words:?}");
+            }
         }
         println!("model predict_ms={times:.1?}");
     }
