@@ -1152,6 +1152,13 @@ mod tests {
             Some(Request::OpenKeyboard)
         );
         assert_eq!(workflow.keyboard.dock, dock);
+        workflow.execution_succeeded();
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+        let dock = Dock { column: 0, row: 0 };
+        workflow.keyboard.dock = dock;
+        workflow.handle(Action::Next);
+        workflow.keyboard_closed();
+        assert_eq!(workflow.mouse.dock, dock, "keyboard choices move the mouse");
         workflow.reset();
         workflow.open_mouse();
         assert_eq!((workflow.keyboard.dock, workflow.mouse.dock), (dock, dock));
