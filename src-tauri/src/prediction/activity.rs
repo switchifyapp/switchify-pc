@@ -24,6 +24,14 @@ fn ignored_key(code: u32) -> bool {
         .binary_search(&code)
         .is_ok()
 }
+#[cfg(any(target_os = "macos", test))]
+fn first_disable(flag: &AtomicBool) -> bool {
+    !flag.swap(true, Ordering::SeqCst)
+}
+#[cfg(any(target_os = "macos", test))]
+fn needs_exit_invalidation(flag: &AtomicBool) -> bool {
+    !flag.load(Ordering::SeqCst)
+}
 pub fn snapshot() -> (u64, bool) {
     (EPOCH.load(Ordering::SeqCst), HEALTHY.load(Ordering::SeqCst))
 }
@@ -114,6 +122,8 @@ pub fn start() -> bool {
         CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement, CGEventType,
         CallbackResult,
     };
+    let disabled = std::sync::Arc::new(AtomicBool::new(false));
+    let callback_disabled = disabled.clone();
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let ready = tx.clone();
@@ -133,7 +143,11 @@ pub fn start() -> bool {
                     kind,
                     CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput
                 ) {
-                    unavailable();
+                    if first_disable(&callback_disabled) {
+                        unavailable();
+                    }
+                    // Returning from the run loop drops this tap before a retry.
+                    core_foundation::runloop::CFRunLoop::get_current().stop();
                     return CallbackResult::Keep;
                 }
                 if !crate::input::own_input(event.get_integer_value_field(42))
@@ -152,7 +166,9 @@ pub fn start() -> bool {
             },
         );
         let _ = tx.send(false);
-        unavailable();
+        if needs_exit_invalidation(&disabled) {
+            unavailable();
+        }
     });
     rx.recv_timeout(std::time::Duration::from_millis(500))
         .unwrap_or(false)
@@ -176,5 +192,14 @@ mod tests {
         assert!(!ignored_key(32));
         assert!(ignored_key(120));
         set_ignored(Vec::new());
+    }
+
+    #[test]
+    fn disabled_tap_invalidates_once_before_its_run_loop_exits() {
+        let disabled = AtomicBool::new(false);
+        assert!(needs_exit_invalidation(&disabled));
+        assert!(first_disable(&disabled));
+        assert!(!first_disable(&disabled));
+        assert!(!needs_exit_invalidation(&disabled));
     }
 }
