@@ -20,6 +20,7 @@ directories = "6.0.0"
 enigo = "=0.6.1"
 hmac = "0.12"
 keyring = "4.1.6"
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "download-binaries", "tls-rustls", "api-27"] }
 rand = "0.8"
 unicode-segmentation = "1.12"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
@@ -31,6 +32,7 @@ tauri-plugin-autostart = "2.5.1"
 tauri-plugin-single-instance = "2.4.3"
 tauri-plugin-updater = "2.10.1"
 tiny-skia = "0.11.4"
+tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 

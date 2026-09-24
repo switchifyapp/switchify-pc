@@ -4,8 +4,23 @@ pub struct Context {
     pub words: Vec<String>,
     pub prefix: String,
     pub sentence_start: bool,
+    /// Buffered text before `prefix`, without a clipped leading fragment.
+    pub before: String,
 }
 pub fn extract(text: &str, clipped: bool) -> Context {
+    let context = extract_words(text, clipped);
+    let mut before = &text[..text.len() - context.prefix.len()];
+    if clipped {
+        before = before
+            .find(char::is_whitespace)
+            .map_or("", |i| &before[i..]);
+    }
+    Context {
+        before: before.to_owned(),
+        ..context
+    }
+}
+fn extract_words(text: &str, clipped: bool) -> Context {
     let boundary = text.rfind(['.', '!', '?', '\n', '\r', '。', '！', '？']);
     let start = boundary.map_or(0, |i| i + text[i..].chars().next().unwrap().len_utf8());
     let tail = &text[start..];
@@ -31,6 +46,7 @@ pub fn extract(text: &str, clipped: bool) -> Context {
             .map(|(_, w)| (*w).to_owned())
             .collect(),
         prefix,
+        before: String::new(),
     }
 }
 #[cfg(test)]
@@ -43,5 +59,11 @@ mod tests {
         assert_eq!(c.prefix, "cafe\u{301}");
         assert_eq!(extract("agment whole pa", true).words, ["whole"]);
         assert!(extract("Done! ", false).sentence_start);
+        assert_eq!(
+            extract("Hi. I would like wa", false).before,
+            "Hi. I would like "
+        );
+        assert_eq!(extract("agment whole pa", true).before, " whole ");
+        assert_eq!(extract("agment", true).before, "");
     }
 }

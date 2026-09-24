@@ -164,6 +164,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Fetch prediction model
+        run: npm run prediction-model
+
       - name: Validate Rust at release tag
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml --check
@@ -339,6 +342,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Fetch prediction model
+        run: npm run prediction-model
 
       - name: Validate Rust at release tag
         shell: powershell

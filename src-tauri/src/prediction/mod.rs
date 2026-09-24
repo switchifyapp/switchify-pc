@@ -4,6 +4,7 @@ mod database;
 #[cfg(test)]
 mod database_reference;
 mod lookup;
+mod model;
 pub mod worker;
 
 use crate::scan_keyboard::{Key, Keyboard, Modifier, Page, Stroke};
@@ -65,12 +66,13 @@ struct Client {
     _job: Job,
 }
 impl Client {
-    fn start(path: &Path, ignored: Vec<u32>) -> Result<Self, ()> {
+    fn start(path: &Path, ignored: Vec<u32>, enhanced: bool) -> Result<Self, ()> {
         let mut command = Command::new(std::env::current_exe().map_err(|_| ())?);
         command
             .arg(worker::ARG)
             .arg(path)
             .arg(serde_json::to_string(&ignored).map_err(|_| ())?)
+            .arg(serde_json::to_string(&enhanced).map_err(|_| ())?)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -152,6 +154,8 @@ struct Service {
     accepting: bool,
     case: Option<(bool, bool, bool)>,
     tracking: bool,
+    /// Whether the running worker was started with the language model.
+    enhanced: bool,
 }
 #[derive(Clone, Copy)]
 pub struct InputScope {
@@ -378,7 +382,13 @@ fn database_resource(
         .ok_or(())
 }
 
-pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ignored: &[String]) {
+pub fn poll(
+    app: &AppHandle,
+    keyboard: Option<&mut Keyboard>,
+    enabled: bool,
+    enhanced: bool,
+    ignored: &[String],
+) {
     let Some(keyboard) = keyboard else {
         stop();
         return;
@@ -390,6 +400,14 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
     }
     SERVICE.with(|slot| {
         let mut s = slot.borrow_mut();
+        if s.enhanced != enhanced {
+            // Changing the engine restarts the worker, like reopening the keyboard.
+            *s = Service {
+                enhanced,
+                ..Service::default()
+            };
+            keyboard.predictions(None, false);
+        }
         let case = (
             keyboard.prediction_shift(),
             keyboard.caps,
@@ -411,7 +429,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 .filter_map(|name| crate::switch_input::prediction_key_code(name))
                 .collect();
             s.client = resource(app)
-                .and_then(|path| Client::start(&path, ignored))
+                .and_then(|path| Client::start(&path, ignored, enhanced))
                 .ok();
             if s.client.is_none() {
                 s.failed = true;

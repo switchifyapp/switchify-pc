@@ -302,11 +302,12 @@ pub fn run_from_args() -> bool {
         return false;
     }
     let work = || -> Result<(), ()> {
-        if args.len() != 4 {
+        if args.len() != 5 {
             return Err(());
         }
         let path = PathBuf::from(&args[2]);
         let ignored: Vec<u32> = serde_json::from_str(&args[3].to_string_lossy()).map_err(|_| ())?;
+        let enhanced: bool = serde_json::from_str(&args[4].to_string_lossy()).map_err(|_| ())?;
         if ignored.len() > 129 {
             return Err(());
         }
@@ -324,7 +325,7 @@ pub fn run_from_args() -> bool {
         let tracked = activity::start();
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
-            let database = Database::open(&path)?;
+            let database = Database::open(&path, enhanced)?;
             let mut engine = Engine::new(database, tracked);
             let mut input = std::io::stdin().lock();
             let mut output = std::io::stdout().lock();
@@ -481,9 +482,10 @@ mod tests {
     #[ignore = "Manual database performance measurement; no desktop input"]
     fn bundled_database_benchmark() {
         let start = std::time::Instant::now();
-        let db = Database::open(
+        let mut db = Database::open(
             &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("resources/word-predictions.lookup"),
+            false,
         )
         .unwrap();
         let startup = start.elapsed().as_secs_f64() * 1000.0;

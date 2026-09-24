@@ -226,6 +226,11 @@ impl Lookup {
         }
         result
     }
+    /// The most frequent spelling of `word`, compared case-insensitively.
+    pub fn spelling(&self, word: &str) -> Option<&str> {
+        let rank = *self.ids.get(&word.to_lowercase())?;
+        Some(&self.words[rank as usize].text)
+    }
     fn push(&self, rank: u32, prefix: &str, result: &mut Vec<String>, seen: &mut HashSet<String>) {
         let word = &self.words[rank as usize];
         if result.len() < 5
@@ -245,6 +250,9 @@ fn usable(word: &str) -> bool {
 impl Lookup {
     pub fn fixture() -> Self {
         Self::read(&tests::fixture_bytes()[..]).unwrap()
+    }
+    pub fn fixture_bytes() -> Vec<u8> {
+        tests::fixture_bytes()
     }
 }
 #[cfg(test)]
