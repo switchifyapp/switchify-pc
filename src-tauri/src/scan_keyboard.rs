@@ -297,6 +297,7 @@ impl Keyboard {
         } else {
             self.predictions = batch;
             if self.prefer_predictions
+                && !self.positioning
                 && self.scan.options.direction == crate::scan_preferences::Direction::Forward
                 && self
                     .predictions
