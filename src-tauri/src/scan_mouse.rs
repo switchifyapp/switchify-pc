@@ -53,14 +53,14 @@ impl MousePanel {
         use Key::*;
         if !more {
             vec![
-                vec![Move(-1, -1), Move(0, -1), Move(1, -1)],
-                vec![Move(-1, 0), Click, Move(1, 0)],
-                vec![Move(-1, 1), Move(0, 1), Move(1, 1)],
-                vec![RightClick, DoubleClick, Drag],
+                vec![Click, RightClick, DoubleClick, Drag],
+                vec![Move(-1, -1), Move(0, -1), Move(1, -1), Scroll(1)],
+                vec![Move(-1, 0), Move(1, 0)],
+                vec![Move(-1, 1), Move(0, 1), Move(1, 1), Scroll(-1)],
                 vec![More, Keyboard, Dock, Close],
             ]
         } else {
-            let mut rows = vec![vec![Scroll(1), Scroll(-1)], vec![Speed(-1), Speed(1)]];
+            let mut rows = vec![vec![Speed(-1), Speed(1)]];
             if displays > 1 {
                 rows.push(vec![
                     Monitor(-1, 0),
@@ -221,18 +221,22 @@ mod tests {
     #[test]
     fn pages_and_monitor_controls_follow_available_displays() {
         let mut panel = MousePanel::new(Resolved::default(), 1, 100);
-        assert_eq!(panel.rows[1][1], Key::Click);
-        assert_eq!(panel.rows[0].len(), 3);
+        assert_eq!(
+            panel.rows[0],
+            [Key::Click, Key::RightClick, Key::DoubleClick, Key::Drag]
+        );
+        assert_eq!(panel.rows[1][3], Key::Scroll(1));
+        assert_eq!(panel.rows[3][3], Key::Scroll(-1));
         panel.choose(Key::More);
         assert!(!panel
             .rows
             .iter()
             .flatten()
-            .any(|key| matches!(key, Key::Monitor(..))));
+            .any(|key| matches!(key, Key::Monitor(..) | Key::Scroll(..))));
         panel.set_displays(2);
-        assert_eq!(panel.rows[2].len(), 4);
+        assert_eq!(panel.rows[1].len(), 4);
         panel.choose(Key::Movement);
-        assert_eq!(panel.rows[1][1], Key::Click);
+        assert_eq!(panel.rows[0][0], Key::Click);
     }
 
     #[test]
@@ -276,10 +280,9 @@ mod tests {
 
         panel.handle(Action::Select);
         let status = panel.frame(screen, 1.0, color, false).tiles.pop().unwrap();
-        assert_eq!(status.text, "Movement · Select ↖");
+        assert_eq!(status.text, "Movement · Select Left click");
 
         panel.choose(Key::More);
-        panel.handle(Action::Next);
         panel.handle(Action::Select);
         let status = panel.frame(screen, 1.0, color, false).tiles.pop().unwrap();
         assert_eq!(status.text, "More controls · Select Slower 100%");
