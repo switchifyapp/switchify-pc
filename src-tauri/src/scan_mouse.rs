@@ -1,7 +1,7 @@
 //! Switch-owned mouse panel. Native input stays in the scanning adapter.
 use crate::{
     scan_items::{ItemScanner, Policy},
-    scan_panel::{Panel, PanelKey},
+    scan_panel::{Dock, Panel, PanelKey},
     scan_preferences::Resolved,
     scanning::{Action, Frame, Rect, ScannerColor, TileRole},
 };
@@ -20,6 +20,8 @@ pub enum Key {
     Movement,
     Keyboard,
     Dock,
+    Position(Dock),
+    Back,
     Close,
 }
 
@@ -31,10 +33,11 @@ pub enum RepeatPrompt {
 
 pub struct MousePanel {
     pub more: bool,
-    pub top: bool,
+    pub dock: Dock,
     pub dragging: bool,
     pub speed_percent: u16,
     pub error: bool,
+    positioning: bool,
     displays: usize,
     rows: Vec<Vec<Key>>,
     scan: ItemScanner<Key>,
@@ -42,22 +45,25 @@ pub struct MousePanel {
 
 impl MousePanel {
     pub fn new(options: Resolved, displays: usize, speed_percent: u16) -> Self {
-        let rows = Self::rows(false, displays);
+        let rows = Self::rows(false, false, displays);
         let scan = ItemScanner::configured_rows(&rows, Policy::KEYBOARD, options);
         Self {
             more: false,
-            top: false,
+            dock: Dock::default(),
             dragging: false,
             speed_percent,
             error: false,
+            positioning: false,
             displays,
             rows,
             scan,
         }
     }
-    fn rows(more: bool, displays: usize) -> Vec<Vec<Key>> {
+    fn rows(more: bool, positioning: bool, displays: usize) -> Vec<Vec<Key>> {
         use Key::*;
-        if !more {
+        if positioning {
+            crate::scan_panel::position_rows(Position, Back)
+        } else if !more {
             vec![
                 vec![Click, RightClick, DoubleClick, Drag],
                 vec![Move(-1, -1), Move(0, -1), Move(1, -1), Scroll(1)],
@@ -83,16 +89,23 @@ impl MousePanel {
         match key {
             Key::More | Key::Movement => {
                 self.more = key == Key::More;
-                self.rows = Self::rows(self.more, self.displays);
-                self.scan =
-                    ItemScanner::configured_rows(&self.rows, Policy::KEYBOARD, self.scan.options);
+                self.rebuild_rows();
             }
-            Key::Dock => {
-                self.top = !self.top;
-                self.scan.restart();
+            Key::Dock | Key::Back => {
+                self.positioning = key == Key::Dock;
+                self.rebuild_rows();
+            }
+            Key::Position(dock) => {
+                self.dock = dock;
+                self.positioning = false;
+                self.rebuild_rows();
             }
             _ => self.scan.restart(),
         }
+    }
+    fn rebuild_rows(&mut self) {
+        self.rows = Self::rows(self.more, self.positioning, self.displays);
+        self.scan = ItemScanner::configured_rows(&self.rows, Policy::KEYBOARD, self.scan.options);
     }
     pub fn handle(&mut self, action: Action) -> Option<Key> {
         if self.scan.suspended {
@@ -120,9 +133,9 @@ impl MousePanel {
     pub fn set_displays(&mut self, displays: usize) {
         if self.displays != displays {
             self.displays = displays;
-            self.rows = Self::rows(self.more, displays);
-            self.scan =
-                ItemScanner::configured_rows(&self.rows, Policy::KEYBOARD, self.scan.options);
+            if !self.positioning {
+                self.rebuild_rows();
+            }
         }
     }
     fn label(&self, key: Key) -> String {
@@ -158,14 +171,18 @@ impl MousePanel {
             More => "More controls".into(),
             Movement => "Movement".into(),
             Keyboard => "Keyboard".into(),
-            Dock => if self.top { "Dock bottom" } else { "Dock top" }.into(),
+            Dock => crate::scan_panel::POSITION_PAGE.into(),
+            Position(dock) => crate::scan_panel::position_label(dock, self.dock),
+            Back => "Back".into(),
             Close => "Switch to Point".into(),
         }
     }
     fn role(key: Key) -> TileRole {
         match key {
             Key::Move(..) => TileRole::Character,
-            Key::More | Key::Movement | Key::Keyboard | Key::Dock | Key::Close => TileRole::Toolbar,
+            Key::More | Key::Movement | Key::Keyboard | Key::Dock | Key::Back | Key::Close => {
+                TileRole::Toolbar
+            }
             _ => TileRole::Utility,
         }
     }
@@ -195,7 +212,9 @@ impl MousePanel {
             crate::scan_panel::BACK_TO_ROWS.to_owned()
         } else {
             crate::scan_panel::scanning_status(
-                if self.more {
+                if self.positioning {
+                    crate::scan_panel::POSITION_PAGE
+                } else if self.more {
                     "More controls"
                 } else {
                     "Movement"
@@ -216,7 +235,11 @@ impl MousePanel {
                                 text: self.label(key),
                                 weight: 1.0,
                                 role: Self::role(key),
-                                active: key == Key::Drag && self.dragging,
+                                active: match key {
+                                    Key::Drag => self.dragging,
+                                    Key::Position(dock) => dock == self.dock,
+                                    _ => false,
+                                },
                                 blank: false,
                             };
                             // Keep ← and → under the diagonal arrows.
@@ -227,7 +250,7 @@ impl MousePanel {
                 })
                 .collect(),
             status,
-            top: self.top,
+            dock: self.dock,
             selected: (scanning && !escaping).then_some((active_row, active_column)),
             status_selected: scanning && escaping,
             row_scan,
@@ -265,6 +288,42 @@ mod tests {
         assert_eq!(panel.rows[1].len(), 4);
         panel.choose(Key::Movement);
         assert_eq!(panel.rows[0][0], Key::Click);
+    }
+
+    #[test]
+    fn position_page_docks_the_panel_and_returns_to_the_previous_page() {
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let color = ScannerColor::default();
+        let mut panel = MousePanel::new(Resolved::default(), 1, 100);
+        panel.choose(Key::More);
+        panel.choose(Key::Dock);
+        assert_eq!(panel.rows[0][0], Key::Position(Dock { column: 0, row: 0 }));
+        assert_eq!(panel.rows[3], [Key::Back]);
+        panel.set_displays(2);
+        assert_eq!(panel.rows[3], [Key::Back], "position page ignores displays");
+        let frame = panel.frame(screen, 1.0, color, None);
+        let current = frame.tiles.iter().find(|tile| tile.text == "Bottom •");
+        assert!(current.is_some_and(|tile| tile.style.unwrap().active));
+        assert_eq!(frame.tiles.last().unwrap().text, "Position · Select a row");
+
+        panel.choose(Key::Back);
+        assert!(panel.more && panel.rows[0][0] == Key::Speed(-1));
+        assert_eq!(panel.dock, Dock::default());
+
+        panel.choose(Key::Dock);
+        panel.choose(Key::Position(Dock { column: 2, row: 0 }));
+        assert_eq!(panel.dock, Dock { column: 2, row: 0 });
+        assert_eq!(panel.rows[0][0], Key::Speed(-1));
+        let background = panel.frame(screen, 1.0, color, None).tiles[0].rect;
+        assert_eq!(
+            (background.x + background.width, background.y),
+            (1920.0, 0.0)
+        );
     }
 
     #[test]
