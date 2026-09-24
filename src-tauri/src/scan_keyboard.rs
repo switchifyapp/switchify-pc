@@ -486,7 +486,11 @@ impl Keyboard {
                     self.capitalize_next = false;
                     self.capital_context = None;
                 }
-                Some(PendingTyped::Other) => self.owned_space = None,
+                Some(PendingTyped::Other) => {
+                    self.owned_space = None;
+                    self.capitalize_next = false;
+                    self.capital_context = None;
+                }
                 Some(PendingTyped::Prediction) | None => {}
             }
             for modifier in &mut self.modifiers {
@@ -800,7 +804,7 @@ mod tests {
     }
 
     #[test]
-    fn automatic_capital_does_not_toggle_manual_caps_or_consume_shortcuts() {
+    fn automatic_capital_does_not_toggle_manual_caps_or_change_shortcuts() {
         let mut keyboard = Keyboard::new(false);
         keyboard.choose_with_context(Key::Character('.', '>'), context(1));
         keyboard.succeeded_with_context(context(1));
@@ -808,6 +812,9 @@ mod tests {
         assert!(
             matches!(keyboard.choose_with_context(Key::Character('a', 'A'), context(1)), Some(Output::Stroke(stroke)) if stroke.shortcut())
         );
+        keyboard.succeeded_with_context(context(1));
+        assert!(!keyboard.capitalize_next);
+        keyboard.choose_with_context(Key::Character('.', '>'), context(1));
         keyboard.succeeded_with_context(context(1));
         assert!(keyboard.capitalize_next);
         keyboard.choose_with_context(Key::Caps, context(1));
