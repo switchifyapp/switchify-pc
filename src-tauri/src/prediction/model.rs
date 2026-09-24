@@ -24,6 +24,8 @@ const MAX_PIECES: usize = 5;
 const PRUNE: f32 = -12.0;
 /// Minimum log-probability for words the lookup does not contain.
 const UNKNOWN_MIN: f32 = -10.0;
+/// Most recent buffered characters the model reads.
+const CONTEXT_CHARS: usize = 256;
 
 pub trait Scorer {
     /// Next-piece log-probabilities after `text`, which becomes the base for `extend`.
@@ -438,12 +440,25 @@ impl Predict for Model {
         spell(
             &mut self.onnx,
             &self.vocabulary,
-            before,
+            recent(before).ok_or(())?,
             prefix,
             known,
             deadline,
         )
     }
+}
+
+/// At most the last `CONTEXT_CHARS` characters of `before`, starting at a
+/// word boundary. This bounds the one model pass that has no deadline.
+/// `None` when the kept text holds no complete word.
+fn recent(before: &str) -> Option<&str> {
+    let Some((cut, _)) = before.char_indices().rev().nth(CONTEXT_CHARS - 1) else {
+        return Some(before);
+    };
+    let tail = &before[cut..];
+    let start = tail.find(char::is_whitespace)?;
+    let kept = tail[start..].trim_start();
+    (!kept.is_empty()).then_some(kept)
 }
 
 #[cfg(test)]
@@ -559,6 +574,18 @@ mod tests {
         assert!(expired.unwrap().is_empty());
         s.next.pop();
         assert!(run(&mut s, "Say ", "", lower).is_err());
+    }
+
+    #[test]
+    fn model_context_keeps_recent_whole_words_only() {
+        assert_eq!(recent("I would like "), Some("I would like "));
+        let long = format!("{} tea please ", "x".repeat(300));
+        assert_eq!(recent(&long), Some("tea please "));
+        let words = "word ".repeat(100);
+        let kept = recent(&words).unwrap();
+        assert!(kept.chars().count() < CONTEXT_CHARS && kept.starts_with("word"));
+        assert_eq!(recent(&"é".repeat(300)), None);
+        assert_eq!(recent(&format!("{} ", "x".repeat(300))), None);
     }
 
     #[test]

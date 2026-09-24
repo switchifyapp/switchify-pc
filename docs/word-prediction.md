@@ -12,7 +12,7 @@ The bundled English lookup database works offline. Ranking backs off from the lo
 
 ## Enhanced word prediction
 
-Enhanced word prediction is off by default. When it is on, a small language model (SmolLM2-135M, int8 ONNX, run with ONNX Runtime on the CPU) spells suggestions from subword pieces, so it can suggest words the lookup lacks, such as WhatsApp. It sees only the buffer described above, including earlier sentences still in the buffer. It runs offline in the prediction worker, never learns, and nothing it reads is logged or stored.
+Enhanced word prediction is off by default. When it is on, a small language model (SmolLM2-135M, int8 ONNX, run with ONNX Runtime on the CPU) spells suggestions from subword pieces, so it can suggest words the lookup lacks, such as WhatsApp. It sees only the buffer described above: at most its last 256 characters, starting at a word boundary, including earlier sentences still in the buffer. It runs offline in the prediction worker, never learns, and nothing it reads is logged or stored.
 
 - **Loading and fallback:** the model loads in the background when the worker starts, taking about 0.7 s. Until it is ready, and whenever it fails, the lookup answers as before. Turning the setting on or off restarts the worker.
 - **Filters:**
