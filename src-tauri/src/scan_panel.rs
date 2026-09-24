@@ -27,10 +27,59 @@ impl PanelKey {
     }
 }
 
+/// One of nine screen positions. `column` and `row` are 0 (start), 1 (middle) or 2 (end).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Dock {
+    pub column: u8,
+    pub row: u8,
+}
+
+impl Default for Dock {
+    fn default() -> Self {
+        Self { column: 1, row: 2 }
+    }
+}
+
+impl Dock {
+    pub fn label(self) -> &'static str {
+        const LABELS: [[&str; 3]; 3] = [
+            ["Top left", "Top", "Top right"],
+            ["Left", "Middle", "Right"],
+            ["Bottom left", "Bottom", "Bottom right"],
+        ];
+        LABELS[usize::from(self.row.min(2))][usize::from(self.column.min(2))]
+    }
+    /// Start of a `size` span placed at `slot` within `length` from `start`.
+    fn place(slot: u8, start: f64, length: f64, size: f64) -> f64 {
+        start + (length - size) * f64::from(slot.min(2)) / 2.0
+    }
+}
+
+/// Position page shared by panels: the nine docks as a 3×3 grid, then a back key.
+pub const POSITION_PAGE: &str = "Position";
+pub fn position_rows<K>(position: impl Fn(Dock) -> K, back: K) -> Vec<Vec<K>> {
+    let mut rows: Vec<Vec<K>> = (0..3)
+        .map(|row| {
+            (0..3)
+                .map(|column| position(Dock { column, row }))
+                .collect()
+        })
+        .collect();
+    rows.push(vec![back]);
+    rows
+}
+pub fn position_label(dock: Dock, current: Dock) -> String {
+    format!(
+        "{}{}",
+        dock.label(),
+        if dock == current { " •" } else { "" }
+    )
+}
+
 pub struct Panel {
     pub rows: Vec<Vec<PanelKey>>,
     pub status: String,
-    pub top: bool,
+    pub dock: Dock,
     /// Scanner position to highlight, or `None` when no key may be chosen.
     pub selected: Option<(usize, Option<usize>)>,
     /// Highlights the status tile, used while the scan offers to go back to rows.
@@ -43,12 +92,8 @@ impl Panel {
     pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor) -> Frame {
         let width = (1180.0 * units).min((screen.width - 24.0 * units).max(1.0));
         let height = (460.0 * units).min(screen.height * 0.55).max(1.0);
-        let x = screen.x + (screen.width - width) / 2.0;
-        let y = if self.top {
-            screen.y
-        } else {
-            screen.y + screen.height - height
-        };
+        let x = Dock::place(self.dock.column, screen.x, screen.width, width);
+        let y = Dock::place(self.dock.row, screen.y, screen.height, height);
         let outer_scale = units.min(height / 460.0).min(width / 1180.0);
         let padding = 16.0 * outer_scale;
         let content_width = (width - padding * 2.0).max(1.0);
@@ -159,7 +204,7 @@ mod tests {
         let panel = Panel {
             rows: vec![vec![key("a", 1.0), key("b", 2.0)], vec![key("c", 1.0)]],
             status: "Page · Select a row".into(),
-            top: false,
+            dock: Dock::default(),
             selected: Some((1, None)),
             status_selected: false,
             row_scan: true,
@@ -203,7 +248,7 @@ mod tests {
         let panel = Panel {
             rows: vec![vec![key("a", 1.0)]],
             status: BACK_TO_ROWS.into(),
-            top: true,
+            dock: Dock { column: 1, row: 0 },
             selected: None,
             status_selected: true,
             row_scan: false,
@@ -227,6 +272,48 @@ mod tests {
         assert_eq!(
             scanning_status("Movement", true, "x"),
             "Movement · Select a row"
+        );
+    }
+
+    #[test]
+    fn every_dock_anchors_the_panel_to_its_screen_position() {
+        let screen = Rect {
+            x: -1920.0,
+            y: 40.0,
+            width: 1920.0,
+            height: 1040.0,
+        };
+        let rows = position_rows(|dock| dock, Dock::default());
+        assert_eq!(rows.iter().map(Vec::len).collect::<Vec<_>>(), [3, 3, 3, 1]);
+        let mut labels = std::collections::HashSet::new();
+        for dock in rows[..3].iter().flatten().copied() {
+            assert!(labels.insert(dock.label()));
+            let panel = Panel {
+                rows: vec![vec![key("a", 1.0)]],
+                status: String::new(),
+                dock,
+                selected: None,
+                status_selected: false,
+                row_scan: false,
+                thickness: Thickness::default(),
+            };
+            let rect = panel.frame(screen, 1.0, ScannerColor::default()).tiles[0].rect;
+            let left = rect.x - screen.x;
+            let right = screen.x + screen.width - (rect.x + rect.width);
+            let above = rect.y - screen.y;
+            let below = screen.y + screen.height - (rect.y + rect.height);
+            let expect = |slot: u8, before: f64, after: f64| match slot {
+                0 => assert_eq!(before, 0.0),
+                1 => assert!((before - after).abs() < 1e-9 && before > 0.0),
+                _ => assert!(after.abs() < 1e-9),
+            };
+            expect(dock.column, left, right);
+            expect(dock.row, above, below);
+        }
+        assert_eq!(position_label(Dock::default(), Dock::default()), "Bottom •");
+        assert_eq!(
+            position_label(Dock { column: 0, row: 0 }, Dock::default()),
+            "Top left"
         );
     }
 }

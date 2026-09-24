@@ -42,6 +42,8 @@ pub enum Key {
     Caps,
     Page(Page),
     Dock,
+    Position(crate::scan_panel::Dock),
+    Back,
     Close,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,8 +174,9 @@ pub struct Keyboard {
     pub page: Page,
     pub modifiers: [Modifier; 4],
     pub caps: bool,
-    pub top: bool,
+    pub dock: crate::scan_panel::Dock,
     pub error: bool,
+    positioning: bool,
     mac: bool,
     rows: Vec<Vec<Key>>,
     scan: ItemScanner<Key>,
@@ -198,8 +201,9 @@ impl Keyboard {
             page: Page::Letters,
             modifiers: [Modifier::Off; 4],
             caps: false,
-            top: false,
+            dock: Default::default(),
             error: false,
+            positioning: false,
             mac,
             rows,
             scan,
@@ -225,8 +229,12 @@ impl Keyboard {
         self.rebuild_rows();
     }
     fn rebuild_rows(&mut self) {
-        self.rows = rows(self.page, self.mac);
-        if self.prediction_enabled && self.page == Page::Letters {
+        self.rows = if self.positioning {
+            crate::scan_panel::position_rows(Key::Position, Key::Back)
+        } else {
+            rows(self.page, self.mac)
+        };
+        if self.prediction_enabled && self.page == Page::Letters && !self.positioning {
             self.rows.insert(0, (0..5).map(Key::Prediction).collect());
         }
         self.scan.replace(ItemScanner::nodes(&self.rows));
@@ -237,6 +245,7 @@ impl Keyboard {
     fn prediction_row_active(&self) -> bool {
         self.prediction_enabled
             && self.page == Page::Letters
+            && !self.positioning
             && self.scan.position(&self.rows).0 == 0
     }
     pub fn predictions(&mut self, batch: Option<crate::prediction::worker::Batch>, failed: bool) {
@@ -352,9 +361,17 @@ impl Keyboard {
             }
             Key::Modifier(i) => self.modifiers[i] = self.modifiers[i].next(),
             Key::Caps => self.caps = !self.caps,
-            Key::Dock => self.top = !self.top,
             Key::Page(page) => {
                 self.page = page;
+                self.rebuild_rows();
+            }
+            Key::Dock | Key::Back => {
+                self.positioning = key == Key::Dock;
+                self.rebuild_rows();
+            }
+            Key::Position(dock) => {
+                self.dock = dock;
+                self.positioning = false;
                 self.rebuild_rows();
             }
             Key::Close => return Some(Output::Close),
@@ -473,7 +490,9 @@ impl Keyboard {
                 },
                 if page == self.page { " •" } else { "" }
             ),
-            Key::Dock => if self.top { "Dock bottom" } else { "Dock top" }.into(),
+            Key::Dock => crate::scan_panel::POSITION_PAGE.into(),
+            Key::Position(dock) => crate::scan_panel::position_label(dock, self.dock),
+            Key::Back => "Back".into(),
             Key::Close => "Close keyboard".into(),
         }
     }
@@ -490,13 +509,14 @@ impl Keyboard {
         TileStyle {
             role: match key {
                 Key::Character(..) => TileRole::Character,
-                Key::Page(_) | Key::Dock | Key::Close => TileRole::Toolbar,
+                Key::Page(_) | Key::Dock | Key::Back | Key::Close => TileRole::Toolbar,
                 _ => TileRole::Utility,
             },
             active: match key {
                 Key::Modifier(i) => self.modifiers[i] != Modifier::Off,
                 Key::Caps => self.caps,
                 Key::Page(page) => self.page == page,
+                Key::Position(dock) => self.dock == dock,
                 _ => false,
             },
             row_scan,
@@ -506,6 +526,7 @@ impl Keyboard {
         let row_scan = self.scan.row_scan();
         let (active_row, active_column) = self.scan.position(&self.rows);
         let page = match self.page {
+            _ if self.positioning => crate::scan_panel::POSITION_PAGE,
             Page::Letters => "Letters",
             Page::Functions => "Navigation",
             Page::Numbers => "Numbers",
@@ -549,7 +570,7 @@ impl Keyboard {
                 })
                 .collect(),
             status,
-            top: self.top,
+            dock: self.dock,
             selected: (!self.scan.suspended && !self.disabled() && !self.scan.nav.escaping())
                 .then_some((active_row, active_column)),
             status_selected: !self.scan.suspended && self.scan.nav.escaping(),
@@ -941,6 +962,7 @@ mod tests {
         k.choose(Key::Modifier(1));
         k.choose(Key::Page(Page::Numbers));
         k.choose(Key::Dock);
+        k.choose(Key::Position(crate::scan_panel::Dock { column: 0, row: 1 }));
         assert_eq!(
             k.modifiers,
             [
@@ -999,13 +1021,14 @@ mod tests {
         assert!(!k.suspended());
     }
     #[test]
-    fn geometry_fits_work_area_at_both_docks_and_scales() {
+    fn geometry_fits_work_area_at_every_dock_and_scale() {
+        let docks = crate::scan_panel::position_rows(|dock| dock, Default::default());
         for units in [0.75, 1.0, 1.5, 2.0, 3.0] {
-            for top in [false, true] {
+            for &dock in docks.iter().flatten() {
                 for page in [Page::Letters, Page::Functions, Page::Numbers] {
                     let mut k = Keyboard::new(false);
                     k.choose(Key::Page(page));
-                    k.top = top;
+                    k.dock = dock;
                     let screen = Rect {
                         x: -1600.0,
                         y: -200.0,
@@ -1020,6 +1043,38 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn position_page_replaces_predictions_and_returns_to_the_page() {
+        use crate::scan_panel::Dock;
+        let mut k = Keyboard::new(false);
+        k.enable_predictions(true);
+        k.choose(Key::Page(Page::Numbers));
+        k.choose(Key::Page(Page::Letters));
+        k.choose(Key::Dock);
+        assert_eq!(k.rows.len(), 4);
+        assert_eq!(k.rows[1][1], Key::Position(Dock { column: 1, row: 1 }));
+        assert!(!k.prediction_row_active());
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let frame = k.frame(screen, 1.0, ScannerColor::default());
+        assert_eq!(frame.tiles.last().unwrap().text, "Position · Select a row");
+        assert!(frame.tiles.iter().any(|tile| tile.text == "Bottom •"));
+
+        k.choose(Key::Back);
+        assert_eq!(k.rows[0][0], Key::Prediction(0));
+        assert_eq!(k.dock, Dock::default());
+
+        k.choose(Key::Dock);
+        k.choose(Key::Position(Dock { column: 0, row: 1 }));
+        assert_eq!(k.rows[0][0], Key::Prediction(0));
+        let background = k.frame(screen, 1.0, ScannerColor::default()).tiles[0].rect;
+        assert_eq!(background.x, 0.0);
+        assert!(background.y > 0.0 && background.y + background.height < 1080.0);
     }
     #[test]
     fn reverse_scanning_counts_passes_across_empty_prediction_slots() {

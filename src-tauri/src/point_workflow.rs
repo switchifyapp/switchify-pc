@@ -111,6 +111,8 @@ pub struct Workflow {
     keyboard_area: Rect,
     mouse: crate::scan_mouse::MousePanel,
     mouse_area: Rect,
+    /// Shared by the keyboard and mouse panels and kept when either is rebuilt.
+    dock: crate::scan_panel::Dock,
     return_to_mouse: bool,
     move_repeat: Option<crate::mouse_repeat::ScanMoveRepeat>,
     scroll_repeat: Option<crate::mouse_repeat::ScanScrollRepeat>,
@@ -142,6 +144,7 @@ impl Workflow {
             keyboard_area: screen,
             mouse: crate::scan_mouse::MousePanel::new(mouse_options, 1, 100),
             mouse_area: screen,
+            dock: Default::default(),
             return_to_mouse: false,
             move_repeat: None,
             scroll_repeat: None,
@@ -159,6 +162,29 @@ impl Workflow {
             pending: None,
             error: None,
         })
+    }
+    fn new_keyboard(&self) -> crate::scan_keyboard::Keyboard {
+        let mut keyboard = crate::scan_keyboard::Keyboard::configured(
+            cfg!(target_os = "macos"),
+            self.point.config.keyboard_scan,
+        )
+        .with_wait_after_typing(self.point.config.keyboard_wait_after_typing);
+        keyboard.dock = self.dock;
+        keyboard
+    }
+    fn new_mouse(&self) -> crate::scan_mouse::MousePanel {
+        let mut mouse = crate::scan_mouse::MousePanel::new(
+            self.point.config.mouse_scan,
+            1,
+            self.mouse.speed_percent,
+        );
+        mouse.dock = self.dock;
+        mouse
+    }
+    fn set_dock(&mut self, dock: crate::scan_panel::Dock) {
+        self.dock = dock;
+        self.keyboard.dock = dock;
+        self.mouse.dock = dock;
     }
     fn active_preferences(&self) -> crate::scan_preferences::Resolved {
         match self.stage {
@@ -183,16 +209,8 @@ impl Workflow {
             menu.set_period(self.point.config.menu_scan.interval_ms);
         }
         if restart {
-            self.keyboard = crate::scan_keyboard::Keyboard::configured(
-                cfg!(target_os = "macos"),
-                self.point.config.keyboard_scan,
-            )
-            .with_wait_after_typing(self.point.config.keyboard_wait_after_typing);
-            self.mouse = crate::scan_mouse::MousePanel::new(
-                self.point.config.mouse_scan,
-                1,
-                self.mouse.speed_percent,
-            );
+            self.keyboard = self.new_keyboard();
+            self.mouse = self.new_mouse();
             self.return_to_mouse = false;
             self.move_repeat = None;
             self.scroll_repeat = None;
@@ -304,11 +322,7 @@ impl Workflow {
         self.stage = Stage::Mouse;
         self.move_repeat = None;
         self.scroll_repeat = None;
-        self.mouse = crate::scan_mouse::MousePanel::new(
-            self.point.config.mouse_scan,
-            1,
-            self.mouse.speed_percent,
-        );
+        self.mouse = self.new_mouse();
         self.pending = None;
         self.parent_menu.clear();
         self.elapsed = 0;
@@ -326,6 +340,7 @@ impl Workflow {
     fn mouse_key(&mut self, key: crate::scan_mouse::Key) -> Option<Request> {
         use crate::scan_mouse::Key;
         self.mouse.choose(key);
+        self.set_dock(self.mouse.dock);
         match key {
             Key::Move(dx, dy) => {
                 let delta = (i32::from(dx) * 12, i32::from(dy) * 12);
@@ -385,15 +400,11 @@ impl Workflow {
                 self.return_to_mouse = true;
                 self.mouse.dragging = false;
                 self.stage = Stage::KeyboardOpening;
-                self.keyboard = crate::scan_keyboard::Keyboard::configured(
-                    cfg!(target_os = "macos"),
-                    self.point.config.keyboard_scan,
-                )
-                .with_wait_after_typing(self.point.config.keyboard_wait_after_typing);
+                self.keyboard = self.new_keyboard();
                 Some(Request::OpenKeyboard)
             }
             Key::Close => self.open_point(),
-            Key::More | Key::Movement | Key::Dock => None,
+            Key::More | Key::Movement | Key::Dock | Key::Position(_) | Key::Back => None,
         }
     }
     fn keyboard_closed(&mut self) {
@@ -413,11 +424,7 @@ impl Workflow {
                     self.mouse.dragging = false;
                 }
                 self.stage = Stage::KeyboardOpening;
-                self.keyboard = crate::scan_keyboard::Keyboard::configured(
-                    cfg!(target_os = "macos"),
-                    self.point.config.keyboard_scan,
-                )
-                .with_wait_after_typing(self.point.config.keyboard_wait_after_typing);
+                self.keyboard = self.new_keyboard();
                 self.pending = None;
                 self.parent_menu.clear();
                 self.elapsed = 0;
@@ -550,16 +557,8 @@ impl Technique for Workflow {
         }
     }
     fn reset(&mut self) {
-        self.keyboard = crate::scan_keyboard::Keyboard::configured(
-            cfg!(target_os = "macos"),
-            self.point.config.keyboard_scan,
-        )
-        .with_wait_after_typing(self.point.config.keyboard_wait_after_typing);
-        self.mouse = crate::scan_mouse::MousePanel::new(
-            self.point.config.mouse_scan,
-            1,
-            self.mouse.speed_percent,
-        );
+        self.keyboard = self.new_keyboard();
+        self.mouse = self.new_mouse();
         self.return_to_mouse = false;
         self.move_repeat = None;
         self.scroll_repeat = None;
@@ -615,16 +614,20 @@ impl Technique for Workflow {
             return self.selected(Item::Keyboard);
         }
         match self.stage {
-            Stage::Keyboard => match self.keyboard.handle(action) {
-                Some(crate::scan_keyboard::Output::Stroke(stroke)) => {
-                    return Some(Request::Keyboard(stroke))
+            Stage::Keyboard => {
+                let output = self.keyboard.handle(action);
+                self.set_dock(self.keyboard.dock);
+                match output {
+                    Some(crate::scan_keyboard::Output::Stroke(stroke)) => {
+                        return Some(Request::Keyboard(stroke))
+                    }
+                    Some(crate::scan_keyboard::Output::Prediction { token, index }) => {
+                        return Some(Request::Prediction { token, index })
+                    }
+                    Some(crate::scan_keyboard::Output::Close) => self.keyboard_closed(),
+                    None => {}
                 }
-                Some(crate::scan_keyboard::Output::Prediction { token, index }) => {
-                    return Some(Request::Prediction { token, index })
-                }
-                Some(crate::scan_keyboard::Output::Close) => self.keyboard_closed(),
-                None => {}
-            },
+            }
             Stage::KeyboardOpening => {}
             Stage::Mouse => {
                 if let Some(key) = self.mouse.handle(action) {
@@ -1129,6 +1132,30 @@ mod tests {
         assert_eq!(workflow.mouse_feedback(), None);
     }
 
+    #[test]
+    fn panel_position_is_shared_and_survives_rebuilding_panels() {
+        use crate::{scan_mouse::Key, scan_panel::Dock};
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(Config::default().point(), screen, 1.0).unwrap();
+        workflow.open_mouse();
+        let dock = Dock { column: 2, row: 1 };
+        assert_eq!(workflow.mouse_key(Key::Dock), None);
+        assert_eq!(workflow.mouse_key(Key::Position(dock)), None);
+        assert_eq!(workflow.mouse.dock, dock);
+        assert_eq!(
+            workflow.mouse_key(Key::Keyboard),
+            Some(Request::OpenKeyboard)
+        );
+        assert_eq!(workflow.keyboard.dock, dock);
+        workflow.reset();
+        workflow.open_mouse();
+        assert_eq!((workflow.keyboard.dock, workflow.mouse.dock), (dock, dock));
+    }
     #[test]
     fn mouse_keyboard_return_and_drag_state() {
         let screen = Rect {
