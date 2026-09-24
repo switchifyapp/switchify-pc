@@ -11,6 +11,7 @@ use std::{
     cell::RefCell,
     path::Path,
     process::{Child, ChildStdin, Command, Stdio},
+    sync::atomic::{AtomicU8, Ordering},
     sync::mpsc,
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -259,6 +260,49 @@ impl Service {
     }
 }
 thread_local! { static SERVICE: RefCell<Service> = RefCell::new(Service::default()); }
+// 0 = idle, 1 = starting, 2 = running. A failed or disabled hook can retry.
+static KEYBOARD_ACTIVITY: AtomicU8 = AtomicU8::new(0);
+
+fn claim_keyboard_activity_start(state: &AtomicU8, healthy: bool) -> bool {
+    if healthy {
+        return false;
+    }
+    let _ = state.compare_exchange(2, 0, Ordering::SeqCst, Ordering::SeqCst);
+    state
+        .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+}
+
+pub fn start_keyboard_activity(ignored: &[String]) {
+    activity::set_ignored(
+        ignored
+            .iter()
+            .filter_map(|name| crate::switch_input::prediction_key_code(name))
+            .collect(),
+    );
+    if claim_keyboard_activity_start(&KEYBOARD_ACTIVITY, activity::snapshot().1) {
+        std::thread::spawn(move || {
+            let started = activity::start();
+            if !started {
+                // Avoid a busy retry loop while native input access is unavailable.
+                std::thread::sleep(Duration::from_secs(1));
+            }
+            KEYBOARD_ACTIVITY.store(if started { 2 } else { 0 }, Ordering::SeqCst);
+        });
+    }
+}
+
+pub fn keyboard_input_context() -> Option<crate::scan_keyboard::TypingContext> {
+    let (epoch, healthy) = activity::snapshot();
+    if !healthy {
+        return None;
+    }
+    let foreground = crate::scan_host::foreground().ok()?;
+    (foreground != 0).then_some(crate::scan_keyboard::TypingContext {
+        foreground,
+        activity: epoch,
+    })
+}
 pub fn stop() {
     SERVICE.with(|s| *s.borrow_mut() = Service::default());
 }
@@ -282,6 +326,22 @@ pub fn record(stroke: Stroke, success: bool, scope: InputScope) {
         }
         s.edit.clear();
         s.reset = true;
+    });
+}
+pub fn record_punctuation(mark: char, removed_space: bool, success: bool, scope: InputScope) {
+    SERVICE.with(|s| {
+        let mut s = s.borrow_mut();
+        s.generation = s.generation.wrapping_add(1);
+        s.last = None;
+        if success && scope.unchanged() {
+            if removed_space {
+                s.queue_edit(Edit::Backspace, scope);
+            }
+            s.queue_edit(Edit::Append(format!("{mark} ")), scope);
+        } else {
+            s.edit.clear();
+            s.reset = true;
+        }
     });
 }
 pub fn select(token: u64, index: usize) -> Result<(), String> {
@@ -331,7 +391,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
     SERVICE.with(|slot| {
         let mut s = slot.borrow_mut();
         let case = (
-            keyboard.modifiers[0] != Modifier::Off,
+            keyboard.prediction_shift(),
             keyboard.caps,
             keyboard.modifiers[1..].iter().any(|m| *m != Modifier::Off),
         );
@@ -395,8 +455,10 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                 if !scope.unchanged() {
                                     return Err(());
                                 }
+                                let trailing_space = text.ends_with(' ');
+                                let contains_letter = text.chars().any(char::is_alphabetic);
                                 s.queue_edit(Edit::Append(text), scope);
-                                Ok(())
+                                Ok((trailing_space, contains_letter))
                             })
                         } else {
                             Err(())
@@ -404,8 +466,14 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                         s.generation = s.generation.wrapping_add(1);
                         s.last = None;
                         keyboard.predictions(None, false);
-                        if result.is_ok() {
-                            keyboard.succeeded();
+                        if let Ok((trailing_space, contains_letter)) = result {
+                            if keyboard.succeeded() {
+                                keyboard.prediction_inserted(
+                                    trailing_space,
+                                    contains_letter,
+                                    keyboard_input_context(),
+                                );
+                            }
                         } else {
                             s.edit.clear();
                             s.reset = true;
@@ -442,7 +510,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 generation: s.generation,
                 edits: s.take_edits(),
                 revision: s.edit_revision,
-                shift: keyboard.modifiers[0] != Modifier::Off,
+                shift: keyboard.prediction_shift(),
                 caps: keyboard.caps,
             }
         };
@@ -458,6 +526,35 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn activity_observer_retries_after_failure_or_lost_hook() {
+        let state = AtomicU8::new(0);
+        assert!(claim_keyboard_activity_start(&state, false));
+        assert!(!claim_keyboard_activity_start(&state, false));
+        state.store(0, Ordering::SeqCst); // first hook attempt failed
+        assert!(claim_keyboard_activity_start(&state, false));
+        state.store(2, Ordering::SeqCst); // second hook started
+        assert!(!claim_keyboard_activity_start(&state, true));
+        assert!(claim_keyboard_activity_start(&state, false)); // hook later stopped
+    }
+    #[test]
+    fn punctuation_records_the_backspace_and_insert_as_one_successful_edit() {
+        stop();
+        record_punctuation('.', true, true, InputScope::capture());
+        SERVICE.with(|slot| {
+            let service = slot.borrow();
+            assert_eq!(service.edit.len(), 2);
+            assert!(matches!(service.edit[0].edit, Edit::Backspace));
+            assert!(matches!(service.edit[1].edit, Edit::Append(ref text) if text == ". "));
+        });
+        record_punctuation('?', true, false, InputScope::capture());
+        SERVICE.with(|slot| {
+            let service = slot.borrow();
+            assert!(service.edit.is_empty());
+            assert!(service.reset);
+        });
+        stop();
+    }
     #[test]
     fn reopening_discards_failed_workers_and_pending_acceptance() {
         for failed in [false, true] {

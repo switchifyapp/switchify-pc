@@ -130,6 +130,22 @@ impl Adapter for PointScan {
                 crate::prediction::record(stroke, result.is_ok(), scope);
                 return result.map(|()| None);
             }
+            Request::KeyboardPunctuation(mut punctuation) => {
+                let scope = crate::prediction::InputScope::capture();
+                if punctuation.owned_space != crate::prediction::keyboard_input_context() {
+                    punctuation.owned_space = None;
+                }
+                let removed_space = punctuation.owned_space.is_some();
+                let result =
+                    crate::scan_executor::activate(Request::KeyboardPunctuation(punctuation));
+                crate::prediction::record_punctuation(
+                    punctuation.mark,
+                    removed_space,
+                    result.is_ok(),
+                    scope,
+                );
+                return result.map(|()| None);
+            }
             Request::OpenKeyboard | Request::OpenMouse | Request::OpenPoint => {
                 crate::prediction::stop();
                 crate::scan_executor::activate(request)
@@ -246,12 +262,16 @@ impl Adapter for PointScan {
                 | Request::MouseMove { .. }
                 | Request::MouseMoveAbsolute { .. }
                 | Request::MouseScroll { .. }
+                | Request::KeyboardPunctuation(_)
         )
     }
     fn deferred(request: &Request) -> bool {
         matches!(request, Request::Prediction { .. })
     }
     fn poll(app: &AppHandle, technique: &mut Workflow, captured_keys: &[String]) {
+        if technique.keyboard_open() {
+            crate::prediction::start_keyboard_activity(captured_keys);
+        }
         let enabled = technique.prediction_enabled();
         crate::prediction::poll(app, technique.prediction_keyboard(), enabled, captured_keys);
     }

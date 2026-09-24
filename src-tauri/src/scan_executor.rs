@@ -75,6 +75,16 @@ pub fn execute<I: InputInjector>(
             keys.push(&name);
             input.scan_chord(&keys, None)
         }
+        Request::KeyboardPunctuation(punctuation) => {
+            if input.has_active_drag() {
+                return Err("End the active drag before typing.".into());
+            }
+            input.release_all()?;
+            if punctuation.owned_space.is_some() {
+                input.scan_chord(&["Backspace"], None)?;
+            }
+            input.type_text(&format!("{} ", punctuation.mark))
+        }
         Request::Command { command, point } => execute_command(input, command, point),
         Request::Setting(_) | Request::Display(_) => {
             Err("Scanning action requires the scan controller.".into())
@@ -317,6 +327,7 @@ mod tests {
         fail_release: bool,
         fail_click: bool,
         fail_move: bool,
+        fail_text: bool,
         cursor: (i32, i32),
         target_clicks: Vec<TargetClick>,
         legacy_clicks: usize,
@@ -324,7 +335,11 @@ mod tests {
     impl InputInjector for Fake {
         fn inject_text(&mut self, text: &str) -> Result<(), String> {
             self.events.push(format!("text {text}"));
-            Ok(())
+            if self.fail_text {
+                Err("text failed".into())
+            } else {
+                Ok(())
+            }
         }
         fn move_pointer(&mut self, dx: i32, dy: i32) -> Result<(), String> {
             self.events.push(format!("relative {dx} {dy}"));
@@ -495,6 +510,56 @@ mod tests {
             input.injector.events,
             ["key Escape true", "key Escape false"]
         );
+    }
+    #[test]
+    fn smart_punctuation_edits_only_an_owned_space_and_cleans_up_failures() {
+        use crate::scan_keyboard::{Punctuation, TypingContext};
+        let owned = Some(TypingContext {
+            foreground: 1,
+            activity: 2,
+        });
+        let mut input = DesktopInput::new(Fake::default());
+        execute(
+            &mut input,
+            Request::KeyboardPunctuation(Punctuation {
+                mark: '.',
+                owned_space: owned,
+            }),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            input.injector.events,
+            ["key Backspace true", "key Backspace false", "text . "]
+        );
+        input.injector.events.clear();
+        execute(
+            &mut input,
+            Request::KeyboardPunctuation(Punctuation {
+                mark: ',',
+                owned_space: None,
+            }),
+            true,
+        )
+        .unwrap();
+        assert_eq!(input.injector.events, ["text , "]);
+        input.injector.events.clear();
+        input.injector.fail_text = true;
+        assert!(execute(
+            &mut input,
+            Request::KeyboardPunctuation(Punctuation {
+                mark: '?',
+                owned_space: owned
+            }),
+            true
+        )
+        .is_err());
+        assert_eq!(
+            input.injector.events,
+            ["key Backspace true", "key Backspace false", "text ? "]
+        );
+        input.injector.fail_text = false;
+        input.release_all().unwrap();
     }
     #[test]
     fn numeric_operator_shortcuts_include_required_shift_and_release_every_key() {

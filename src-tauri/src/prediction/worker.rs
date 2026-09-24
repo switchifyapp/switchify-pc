@@ -320,7 +320,8 @@ pub fn run_from_args() -> bool {
                 }
             });
         }
-        let tracked = activity::start(ignored);
+        activity::set_ignored(ignored);
+        let tracked = activity::start();
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             let database = Database::open(&path)?;
@@ -455,6 +456,14 @@ mod tests {
         let upper = e.query(vec![], 1, false, true).unwrap();
         assert_eq!(upper.words[0], "WaTER");
         assert_ne!(upper.token, b.token);
+    }
+    #[test]
+    fn sentence_start_prediction_uses_title_case_without_manual_shift() {
+        let mut e = engine();
+        let suggestions = e.query(vec![append("Done! ")], 1, false, false).unwrap();
+        assert_eq!(suggestions.words[0], "Water");
+        let manual_shift = e.query(vec![], 1, true, false).unwrap();
+        assert_eq!(manual_shift.words[0], "WATER");
     }
     #[test]
     fn private_frames_are_bounded() {
