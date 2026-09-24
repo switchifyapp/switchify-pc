@@ -277,6 +277,7 @@ it("customises individual settings, restores defaults and returns focus without 
   expect(screen.getByRole("heading", { name: "Keyboard" })).toHaveFocus();
   expect(screen.queryByRole("checkbox", { name: "Auto select" })).not.toBeInTheDocument();
   expect(screen.getByRole("checkbox", { name: "Word prediction" })).toBeEnabled();
+  expect(screen.getByText(/The scanning keyboard spaces punctuation for you/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Reverse" }));
   await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
     config: expect.objectContaining({ scanPreferences: expect.objectContaining({ keyboard: { direction: "reverse" }, menu: {} }) })

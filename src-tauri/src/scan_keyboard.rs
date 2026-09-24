@@ -50,6 +50,23 @@ pub struct Stroke {
     pub modifiers: [bool; 4],
     pub caps: bool,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TypingContext {
+    pub foreground: usize,
+    pub activity: u64,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Punctuation {
+    pub mark: char,
+    pub owned_space: Option<TypingContext>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingTyped {
+    Character(char),
+    Punctuation(char),
+    Other,
+    Prediction,
+}
 impl Stroke {
     pub fn character(self) -> Option<char> {
         let Key::Character(base, shifted) = self.key else {
@@ -71,6 +88,7 @@ impl Stroke {
 pub enum Output {
     Prediction { token: u64, index: usize },
     Stroke(Stroke),
+    Punctuation(Punctuation),
     Close,
 }
 
@@ -185,6 +203,10 @@ pub struct Keyboard {
     prefer_predictions: bool,
     wait_after_typing: bool,
     waiting_after_typing: bool,
+    owned_space: Option<TypingContext>,
+    capitalize_next: bool,
+    capital_context: Option<TypingContext>,
+    pending_typed: Option<PendingTyped>,
 }
 impl Keyboard {
     #[cfg(test)]
@@ -211,6 +233,10 @@ impl Keyboard {
             prefer_predictions: true,
             wait_after_typing: false,
             waiting_after_typing: false,
+            owned_space: None,
+            capitalize_next: false,
+            capital_context: None,
+            pending_typed: None,
         }
     }
     pub fn with_wait_after_typing(mut self, enabled: bool) -> Self {
@@ -313,7 +339,16 @@ impl Keyboard {
             self.skip_disabled(true);
         }
     }
+    #[cfg(test)]
     pub fn handle(&mut self, action: Action) -> Option<Output> {
+        self.handle_with_context(action, None)
+    }
+    pub fn handle_with_context(
+        &mut self,
+        action: Action,
+        context: Option<TypingContext>,
+    ) -> Option<Output> {
+        self.discard_stale_context(context);
         if self.scan.pending() {
             return None;
         }
@@ -331,12 +366,40 @@ impl Keyboard {
             return None;
         }
         if let Some(key) = self.scan.handle(action) {
-            return self.choose(key);
+            return self.choose_with_context(key, context);
         }
         self.skip_disabled(false);
         None
     }
+    #[cfg(test)]
     fn choose(&mut self, key: Key) -> Option<Output> {
+        self.choose_with_context(key, None)
+    }
+    fn stroke(&self, key: Key) -> Stroke {
+        let modifiers = self.modifiers.map(|m| m != Modifier::Off);
+        let mut caps = self.caps;
+        if matches!(key, Key::Character(base, _) if base.is_ascii_alphabetic())
+            && self.capitalize_next
+            && !modifiers[1..].iter().any(|modifier| *modifier)
+        {
+            caps = !modifiers[0];
+        }
+        Stroke {
+            key,
+            modifiers,
+            caps,
+        }
+    }
+    fn smart_mark(&self, stroke: Stroke) -> Option<char> {
+        if stroke.shortcut() {
+            return None;
+        }
+        let mark = stroke.character()?;
+        let supported = matches!(mark, '.' | ',' | '!' | '?' | ':' | ';');
+        (supported && (self.page == Page::Letters || mark == '!')).then_some(mark)
+    }
+    fn choose_with_context(&mut self, key: Key, context: Option<TypingContext>) -> Option<Output> {
+        self.discard_stale_context(context);
         match key {
             Key::Prediction(index) => {
                 let batch = self.predictions.as_ref()?;
@@ -345,6 +408,7 @@ impl Keyboard {
                 }
                 self.activation = self.scan.begin_activation();
                 self.activation?;
+                self.pending_typed = Some(PendingTyped::Prediction);
                 return Some(Output::Prediction {
                     token: batch.token,
                     index,
@@ -359,26 +423,64 @@ impl Keyboard {
             }
             Key::Close => return Some(Output::Close),
             Key::Character(..) | Key::Named(_) => {
+                let stroke = self.stroke(key);
+                if stroke.character() == Some(' ')
+                    && self.owned_space.is_some()
+                    && self.owned_space == context
+                {
+                    self.restart();
+                    return None;
+                }
                 self.predictions = None;
                 self.queued_predictions = None;
                 self.activation = self.scan.begin_activation();
                 self.activation?;
-                return Some(Output::Stroke(Stroke {
-                    key,
-                    modifiers: self.modifiers.map(|m| m != Modifier::Off),
-                    caps: self.caps,
-                }));
+                if let Some(mark) = self.smart_mark(stroke) {
+                    self.pending_typed = Some(PendingTyped::Punctuation(mark));
+                    return Some(Output::Punctuation(Punctuation {
+                        mark,
+                        owned_space: self.owned_space.filter(|saved| Some(*saved) == context),
+                    }));
+                }
+                self.pending_typed = Some(
+                    stroke
+                        .character()
+                        .filter(|_| !stroke.shortcut())
+                        .map_or(PendingTyped::Other, PendingTyped::Character),
+                );
+                return Some(Output::Stroke(stroke));
             }
         }
         self.restart();
         None
     }
-    pub fn succeeded(&mut self) {
-        if self
+    pub fn succeeded(&mut self) -> bool {
+        self.succeeded_with_context(None)
+    }
+    pub fn succeeded_with_context(&mut self, context: Option<TypingContext>) -> bool {
+        let completed = self
             .activation
             .take()
-            .is_some_and(|revision| self.scan.complete_activation(revision))
-        {
+            .is_some_and(|revision| self.scan.complete_activation(revision));
+        if completed {
+            match self.pending_typed.take() {
+                Some(PendingTyped::Character(character)) => {
+                    self.owned_space = if character == ' ' { context } else { None };
+                    if character.is_alphabetic() {
+                        self.capitalize_next = false;
+                        self.capital_context = None;
+                    }
+                }
+                Some(PendingTyped::Punctuation(mark)) => {
+                    self.owned_space = context;
+                    if matches!(mark, '.' | '!' | '?') {
+                        self.capitalize_next = true;
+                        self.capital_context = context;
+                    }
+                }
+                Some(PendingTyped::Other) => self.owned_space = None,
+                Some(PendingTyped::Prediction) | None => {}
+            }
             for modifier in &mut self.modifiers {
                 if *modifier == Modifier::Once {
                     *modifier = Modifier::Off;
@@ -392,11 +494,37 @@ impl Keyboard {
                 self.scan.suspended = true;
             }
         }
+        completed
+    }
+    pub fn prediction_inserted(
+        &mut self,
+        trailing_space: bool,
+        contains_letter: bool,
+        context: Option<TypingContext>,
+    ) {
+        self.owned_space = if trailing_space { context } else { None };
+        if contains_letter {
+            self.capitalize_next = false;
+            self.capital_context = None;
+        }
+    }
+    fn discard_stale_context(&mut self, context: Option<TypingContext>) {
+        if self.owned_space.is_some() && self.owned_space != context {
+            self.owned_space = None;
+        }
+        if self.capital_context.is_some() && self.capital_context != context {
+            self.capitalize_next = false;
+            self.capital_context = None;
+        }
     }
     pub fn reset_context(&mut self) {
         self.modifiers = [Modifier::Off; 4];
         self.caps = false;
         self.activation = None;
+        self.owned_space = None;
+        self.capitalize_next = false;
+        self.capital_context = None;
+        self.pending_typed = None;
         self.predictions(None, false);
         self.restart();
     }
@@ -404,6 +532,10 @@ impl Keyboard {
         self.modifiers = [Modifier::Off; 4];
         self.caps = false;
         self.activation = None;
+        self.owned_space = None;
+        self.capitalize_next = false;
+        self.capital_context = None;
+        self.pending_typed = None;
         self.restart();
         self.error = true;
         self.scan.suspended = true;
@@ -417,14 +549,7 @@ impl Keyboard {
                 .cloned()
                 .unwrap_or_default(),
             Key::Character(' ', _) => "Space".into(),
-            Key::Character(..) => Stroke {
-                key,
-                modifiers: self.modifiers.map(|m| m != Modifier::Off),
-                caps: self.caps,
-            }
-            .character()
-            .unwrap()
-            .to_string(),
+            Key::Character(..) => self.stroke(key).character().unwrap().to_string(),
             Key::Named(name) => match name {
                 "ArrowUp" => "↑",
                 "ArrowDown" => "↓",
@@ -563,6 +688,129 @@ impl Keyboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn context(epoch: u64) -> Option<TypingContext> {
+        Some(TypingContext {
+            foreground: 7,
+            activity: epoch,
+        })
+    }
+
+    #[test]
+    fn smart_punctuation_owns_spacing_and_capitalizes_one_letter() {
+        let mut keyboard = Keyboard::new(false);
+        let space = Key::Character(' ', ' ');
+        assert!(matches!(
+            keyboard.choose_with_context(space, context(1)),
+            Some(Output::Stroke(_))
+        ));
+        keyboard.succeeded_with_context(context(1));
+        assert_eq!(keyboard.choose_with_context(space, context(1)), None);
+        assert_eq!(
+            keyboard.choose_with_context(Key::Character('.', '>'), context(1)),
+            Some(Output::Punctuation(Punctuation {
+                mark: '.',
+                owned_space: context(1),
+            }))
+        );
+        keyboard.succeeded_with_context(context(1));
+        assert_eq!(keyboard.label(Key::Character('a', 'A')), "A");
+        assert_eq!(keyboard.choose_with_context(space, context(1)), None);
+        assert_eq!(
+            keyboard.choose_with_context(Key::Character('a', 'A'), context(1)),
+            Some(Output::Stroke(Stroke {
+                key: Key::Character('a', 'A'),
+                modifiers: [false; 4],
+                caps: true,
+            }))
+        );
+        keyboard.succeeded_with_context(context(1));
+        assert_eq!(keyboard.label(Key::Character('b', 'B')), "b");
+    }
+
+    #[test]
+    fn prose_marks_use_smart_spacing_but_numeric_period_is_literal() {
+        let mut keyboard = Keyboard::new(false);
+        for (key, mark) in [
+            (Key::Character(',', '<'), ','),
+            (Key::Character(';', ':'), ';'),
+            (Key::Character('.', '>'), '.'),
+        ] {
+            assert!(
+                matches!(keyboard.choose_with_context(key, context(1)), Some(Output::Punctuation(p)) if p.mark == mark)
+            );
+            keyboard.succeeded_with_context(context(1));
+        }
+        keyboard.choose_with_context(Key::Modifier(0), context(1));
+        for (key, mark) in [
+            (Key::Character('/', '?'), '?'),
+            (Key::Character(';', ':'), ':'),
+        ] {
+            assert!(
+                matches!(keyboard.choose_with_context(key, context(1)), Some(Output::Punctuation(p)) if p.mark == mark)
+            );
+            keyboard.succeeded_with_context(context(1));
+            keyboard.choose_with_context(Key::Modifier(0), context(1));
+        }
+        keyboard.choose_with_context(Key::Page(Page::Numbers), context(1));
+        assert!(matches!(
+            keyboard.choose_with_context(Key::Character('.', '.'), context(1)),
+            Some(Output::Stroke(_))
+        ));
+        keyboard.succeeded_with_context(context(1));
+        assert!(
+            matches!(keyboard.choose_with_context(Key::Character('!', '!'), context(1)), Some(Output::Punctuation(p)) if p.mark == '!')
+        );
+    }
+
+    #[test]
+    fn external_activity_and_failed_input_discard_owned_space() {
+        let mut keyboard = Keyboard::new(false);
+        keyboard.choose_with_context(Key::Character(' ', ' '), context(1));
+        keyboard.succeeded_with_context(context(1));
+        assert!(
+            matches!(keyboard.choose_with_context(Key::Character(',', '<'), context(2)), Some(Output::Punctuation(p)) if p.owned_space.is_none())
+        );
+        keyboard.failed();
+        assert!(!keyboard.capitalize_next);
+        assert_eq!(keyboard.owned_space, None);
+        keyboard.handle(Action::Select);
+        keyboard.choose_with_context(Key::Character('.', '>'), context(2));
+        keyboard.succeeded_with_context(context(2));
+        assert_eq!(keyboard.label(Key::Character('a', 'A')), "A");
+        assert!(
+            matches!(keyboard.choose_with_context(Key::Character('a', 'A'), context(3)), Some(Output::Stroke(stroke)) if stroke.character() == Some('a'))
+        );
+        keyboard.succeeded_with_context(context(3));
+        keyboard.choose_with_context(Key::Character('.', '>'), context(3));
+        keyboard.succeeded_with_context(context(3));
+        keyboard.prediction_inserted(true, true, context(3));
+        assert!(!keyboard.capitalize_next);
+        assert_eq!(keyboard.owned_space, context(3));
+        keyboard.reset_context();
+        assert_eq!(keyboard.owned_space, None);
+    }
+
+    #[test]
+    fn automatic_capital_does_not_toggle_manual_caps_or_consume_shortcuts() {
+        let mut keyboard = Keyboard::new(false);
+        keyboard.choose_with_context(Key::Character('.', '>'), context(1));
+        keyboard.succeeded_with_context(context(1));
+        keyboard.choose_with_context(Key::Modifier(1), context(1));
+        assert!(
+            matches!(keyboard.choose_with_context(Key::Character('a', 'A'), context(1)), Some(Output::Stroke(stroke)) if stroke.shortcut())
+        );
+        keyboard.succeeded_with_context(context(1));
+        assert!(keyboard.capitalize_next);
+        keyboard.choose_with_context(Key::Caps, context(1));
+        assert!(
+            matches!(keyboard.choose_with_context(Key::Character('a', 'A'), context(1)), Some(Output::Stroke(stroke)) if stroke.character() == Some('A'))
+        );
+        keyboard.succeeded_with_context(context(1));
+        assert!(!keyboard.capitalize_next);
+        assert!(keyboard.caps);
+        assert_eq!(keyboard.label(Key::Character('b', 'B')), "B");
+    }
     #[test]
     fn typing_wait_consumes_resume_and_restarts_a_full_interval() {
         use crate::scan_preferences::{Direction, Pattern, Resolved};
