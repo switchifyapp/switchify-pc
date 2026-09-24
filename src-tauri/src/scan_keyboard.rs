@@ -206,6 +206,7 @@ pub struct Keyboard {
     waiting_after_typing: bool,
     owned_space: Option<TypingContext>,
     capitalize_next: bool,
+    auto_shift: bool,
     capital_context: Option<TypingContext>,
     pending_typed: Option<PendingTyped>,
 }
@@ -236,6 +237,7 @@ impl Keyboard {
             waiting_after_typing: false,
             owned_space: None,
             capitalize_next: false,
+            auto_shift: false,
             capital_context: None,
             pending_typed: None,
         }
@@ -377,18 +379,35 @@ impl Keyboard {
         self.choose_with_context(key, None)
     }
     fn stroke(&self, key: Key) -> Stroke {
-        let modifiers = self.modifiers.map(|m| m != Modifier::Off);
-        let mut caps = self.caps;
-        if matches!(key, Key::Character(base, _) if base.is_ascii_alphabetic())
-            && self.capitalize_next
-            && !modifiers[1..].iter().any(|modifier| *modifier)
+        let mut modifiers = self.modifiers.map(|m| m != Modifier::Off);
+        if self.auto_shift
+            && (!matches!(key, Key::Character(base, _) if base.is_ascii_alphabetic())
+                || modifiers[1..].iter().any(|modifier| *modifier))
         {
-            caps = !modifiers[0];
+            modifiers[0] = false;
         }
         Stroke {
             key,
             modifiers,
-            caps,
+            caps: self.caps,
+        }
+    }
+    fn clear_auto_capital(&mut self) {
+        if self.auto_shift {
+            self.modifiers[0] = Modifier::Off;
+            self.auto_shift = false;
+        }
+        self.capitalize_next = false;
+        self.capital_context = None;
+    }
+    fn reconcile_auto_shift(&mut self) {
+        if self.auto_shift {
+            self.modifiers[0] = Modifier::Off;
+            self.auto_shift = false;
+        }
+        if self.capitalize_next && !self.caps && self.modifiers[0] == Modifier::Off {
+            self.modifiers[0] = Modifier::Once;
+            self.auto_shift = true;
         }
     }
     fn smart_mark(&self, stroke: Stroke) -> Option<char> {
@@ -415,8 +434,18 @@ impl Keyboard {
                     index,
                 });
             }
-            Key::Modifier(i) => self.modifiers[i] = self.modifiers[i].next(),
-            Key::Caps => self.caps = !self.caps,
+            Key::Modifier(i) => {
+                if i == 0 && self.capitalize_next {
+                    self.auto_shift = false;
+                    self.capitalize_next = false;
+                    self.capital_context = None;
+                }
+                self.modifiers[i] = self.modifiers[i].next();
+            }
+            Key::Caps => {
+                self.caps = !self.caps;
+                self.reconcile_auto_shift();
+            }
             Key::Dock => self.top = !self.top,
             Key::Page(page) => {
                 self.page = page;
@@ -466,12 +495,25 @@ impl Keyboard {
             .take()
             .is_some_and(|revision| self.scan.complete_activation(revision));
         if completed {
-            match self.pending_typed.take() {
+            let typed = self.pending_typed.take();
+            let retain_auto_shift = self.auto_shift
+                && (matches!(
+                    typed,
+                    Some(PendingTyped::Character(character)) if !character.is_alphabetic()
+                ) || matches!(
+                    typed,
+                    Some(PendingTyped::Punctuation(_) | PendingTyped::Prediction)
+                ));
+            for (index, modifier) in self.modifiers.iter_mut().enumerate() {
+                if *modifier == Modifier::Once && !(index == 0 && retain_auto_shift) {
+                    *modifier = Modifier::Off;
+                }
+            }
+            match typed {
                 Some(PendingTyped::Character(character)) => {
                     self.owned_space = if character == ' ' { context } else { None };
                     if character.is_alphabetic() {
-                        self.capitalize_next = false;
-                        self.capital_context = None;
+                        self.clear_auto_capital();
                     }
                 }
                 Some(PendingTyped::Punctuation(mark)) => {
@@ -479,24 +521,18 @@ impl Keyboard {
                     if matches!(mark, '.' | '!' | '?') {
                         self.capitalize_next = true;
                         self.capital_context = context;
+                        self.reconcile_auto_shift();
                     }
                 }
                 Some(PendingTyped::Navigation) => {
                     self.owned_space = None;
-                    self.capitalize_next = false;
-                    self.capital_context = None;
+                    self.clear_auto_capital();
                 }
                 Some(PendingTyped::Other) => {
                     self.owned_space = None;
-                    self.capitalize_next = false;
-                    self.capital_context = None;
+                    self.clear_auto_capital();
                 }
                 Some(PendingTyped::Prediction) | None => {}
-            }
-            for modifier in &mut self.modifiers {
-                if *modifier == Modifier::Once {
-                    *modifier = Modifier::Off;
-                }
             }
             self.activation = None;
             self.restart();
@@ -516,8 +552,7 @@ impl Keyboard {
     ) {
         self.owned_space = if trailing_space { context } else { None };
         if contains_letter {
-            self.capitalize_next = false;
-            self.capital_context = None;
+            self.clear_auto_capital();
         }
     }
     fn discard_stale_context(&mut self, context: Option<TypingContext>) {
@@ -525,8 +560,7 @@ impl Keyboard {
             self.owned_space = None;
         }
         if self.capital_context.is_some() && self.capital_context != context {
-            self.capitalize_next = false;
-            self.capital_context = None;
+            self.clear_auto_capital();
         }
     }
     pub fn reset_context(&mut self) {
@@ -535,6 +569,7 @@ impl Keyboard {
         self.activation = None;
         self.owned_space = None;
         self.capitalize_next = false;
+        self.auto_shift = false;
         self.capital_context = None;
         self.pending_typed = None;
         self.predictions(None, false);
@@ -546,6 +581,7 @@ impl Keyboard {
         self.activation = None;
         self.owned_space = None;
         self.capitalize_next = false;
+        self.auto_shift = false;
         self.capital_context = None;
         self.pending_typed = None;
         self.restart();
@@ -732,8 +768,8 @@ mod tests {
             keyboard.choose_with_context(Key::Character('a', 'A'), context(1)),
             Some(Output::Stroke(Stroke {
                 key: Key::Character('a', 'A'),
-                modifiers: [false; 4],
-                caps: true,
+                modifiers: [true, false, false, false],
+                caps: false,
             }))
         );
         keyboard.succeeded_with_context(context(1));
@@ -753,17 +789,18 @@ mod tests {
             );
             keyboard.succeeded_with_context(context(1));
         }
-        keyboard.choose_with_context(Key::Modifier(0), context(1));
         for (key, mark) in [
             (Key::Character('/', '?'), '?'),
             (Key::Character(';', ':'), ':'),
         ] {
+            keyboard.reset_context();
+            keyboard.choose_with_context(Key::Modifier(0), context(1));
             assert!(
                 matches!(keyboard.choose_with_context(key, context(1)), Some(Output::Punctuation(p)) if p.mark == mark)
             );
             keyboard.succeeded_with_context(context(1));
-            keyboard.choose_with_context(Key::Modifier(0), context(1));
         }
+        keyboard.reset_context();
         keyboard.choose_with_context(Key::Page(Page::Numbers), context(1));
         assert!(matches!(
             keyboard.choose_with_context(Key::Character('.', '.'), context(1)),
@@ -790,9 +827,11 @@ mod tests {
         keyboard.choose_with_context(Key::Character('.', '>'), context(2));
         keyboard.succeeded_with_context(context(2));
         assert_eq!(keyboard.label(Key::Character('a', 'A')), "A");
+        assert_eq!(keyboard.modifiers[0], Modifier::Once);
         assert!(
             matches!(keyboard.choose_with_context(Key::Character('a', 'A'), context(3)), Some(Output::Stroke(stroke)) if stroke.character() == Some('a'))
         );
+        assert_eq!(keyboard.modifiers[0], Modifier::Off);
         keyboard.succeeded_with_context(context(3));
         keyboard.choose_with_context(Key::Character('.', '>'), context(3));
         keyboard.succeeded_with_context(context(3));
@@ -808,23 +847,65 @@ mod tests {
         let mut keyboard = Keyboard::new(false);
         keyboard.choose_with_context(Key::Character('.', '>'), context(1));
         keyboard.succeeded_with_context(context(1));
+        assert_eq!(keyboard.modifiers[0], Modifier::Once);
         keyboard.choose_with_context(Key::Modifier(1), context(1));
         assert!(
-            matches!(keyboard.choose_with_context(Key::Character('a', 'A'), context(1)), Some(Output::Stroke(stroke)) if stroke.shortcut())
+            matches!(keyboard.choose_with_context(Key::Character('a', 'A'), context(1)), Some(Output::Stroke(stroke)) if stroke.shortcut() && !stroke.modifiers[0])
         );
         keyboard.succeeded_with_context(context(1));
         assert!(!keyboard.capitalize_next);
+        assert_eq!(keyboard.modifiers[0], Modifier::Off);
         keyboard.choose_with_context(Key::Character('.', '>'), context(1));
         keyboard.succeeded_with_context(context(1));
         assert!(keyboard.capitalize_next);
         keyboard.choose_with_context(Key::Caps, context(1));
+        assert_eq!(keyboard.modifiers[0], Modifier::Off);
         assert!(
-            matches!(keyboard.choose_with_context(Key::Character('a', 'A'), context(1)), Some(Output::Stroke(stroke)) if stroke.character() == Some('A'))
+            matches!(keyboard.choose_with_context(Key::Character('a', 'A'), context(1)), Some(Output::Stroke(stroke)) if stroke.character() == Some('A') && !stroke.modifiers[0])
         );
         keyboard.succeeded_with_context(context(1));
         assert!(!keyboard.capitalize_next);
         assert!(keyboard.caps);
         assert_eq!(keyboard.label(Key::Character('b', 'B')), "B");
+    }
+
+    #[test]
+    fn sentence_mark_sets_visible_one_use_shift_until_a_letter() {
+        let mut keyboard = Keyboard::new(false);
+        keyboard.choose_with_context(Key::Character('.', '>'), context(1));
+        keyboard.succeeded_with_context(context(1));
+        assert_eq!(keyboard.modifiers[0], Modifier::Once);
+        assert_eq!(keyboard.label(Key::Modifier(0)), "Shift\nNext key");
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+        assert!(
+            frame
+                .tiles
+                .iter()
+                .find(|tile| tile.text.starts_with("Shift"))
+                .unwrap()
+                .style
+                .unwrap()
+                .active
+        );
+        assert!(matches!(
+            keyboard.choose_with_context(Key::Character(',', '<'), context(1)),
+            Some(Output::Punctuation(punctuation)) if punctuation.mark == ','
+        ));
+        keyboard.succeeded_with_context(context(1));
+        assert_eq!(keyboard.modifiers[0], Modifier::Once);
+        assert!(matches!(
+            keyboard.choose_with_context(Key::Character('a', 'A'), context(1)),
+            Some(Output::Stroke(stroke)) if stroke.modifiers[0] && stroke.character() == Some('A')
+        ));
+        keyboard.succeeded_with_context(context(1));
+        assert_eq!(keyboard.modifiers[0], Modifier::Off);
+        assert!(!keyboard.capitalize_next);
     }
 
     #[test]
@@ -836,6 +917,7 @@ mod tests {
         keyboard.choose_with_context(Key::Named("Backspace"), context(1));
         keyboard.succeeded_with_context(context(1));
         assert!(!keyboard.capitalize_next);
+        assert_eq!(keyboard.modifiers[0], Modifier::Off);
         keyboard.choose_with_context(Key::Named("Backspace"), context(1));
         keyboard.succeeded_with_context(context(1));
         assert!(matches!(
