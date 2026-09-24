@@ -263,13 +263,15 @@ thread_local! { static SERVICE: RefCell<Service> = RefCell::new(Service::default
 static KEYBOARD_ACTIVITY: OnceLock<()> = OnceLock::new();
 
 pub fn start_keyboard_activity(ignored: &[String]) {
-    KEYBOARD_ACTIVITY.get_or_init(|| {
-        let ignored = ignored
+    activity::set_ignored(
+        ignored
             .iter()
             .filter_map(|name| crate::switch_input::prediction_key_code(name))
-            .collect();
+            .collect(),
+    );
+    KEYBOARD_ACTIVITY.get_or_init(|| {
         std::thread::spawn(move || {
-            let _ = activity::start(ignored);
+            let _ = activity::start();
         });
     });
 }

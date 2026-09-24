@@ -320,7 +320,8 @@ pub fn run_from_args() -> bool {
                 }
             });
         }
-        let tracked = activity::start(ignored);
+        activity::set_ignored(ignored);
+        let tracked = activity::start();
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             let database = Database::open(&path)?;

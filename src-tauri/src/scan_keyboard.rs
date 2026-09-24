@@ -64,6 +64,7 @@ pub struct Punctuation {
 enum PendingTyped {
     Character(char),
     Punctuation(char),
+    Navigation,
     Other,
     Prediction,
 }
@@ -442,12 +443,14 @@ impl Keyboard {
                         owned_space: self.owned_space.filter(|saved| Some(*saved) == context),
                     }));
                 }
-                self.pending_typed = Some(
+                self.pending_typed = Some(if matches!(stroke.key, Key::Named(_)) {
+                    PendingTyped::Navigation
+                } else {
                     stroke
                         .character()
                         .filter(|_| !stroke.shortcut())
-                        .map_or(PendingTyped::Other, PendingTyped::Character),
-                );
+                        .map_or(PendingTyped::Other, PendingTyped::Character)
+                });
                 return Some(Output::Stroke(stroke));
             }
         }
@@ -477,6 +480,11 @@ impl Keyboard {
                         self.capitalize_next = true;
                         self.capital_context = context;
                     }
+                }
+                Some(PendingTyped::Navigation) => {
+                    self.owned_space = None;
+                    self.capitalize_next = false;
+                    self.capital_context = None;
                 }
                 Some(PendingTyped::Other) => self.owned_space = None,
                 Some(PendingTyped::Prediction) | None => {}
@@ -810,6 +818,23 @@ mod tests {
         assert!(!keyboard.capitalize_next);
         assert!(keyboard.caps);
         assert_eq!(keyboard.label(Key::Character('b', 'B')), "B");
+    }
+
+    #[test]
+    fn deleting_a_sentence_boundary_clears_pending_capital() {
+        let mut keyboard = Keyboard::new(false);
+        keyboard.choose_with_context(Key::Character('.', '>'), context(1));
+        keyboard.succeeded_with_context(context(1));
+        assert!(keyboard.capitalize_next);
+        keyboard.choose_with_context(Key::Named("Backspace"), context(1));
+        keyboard.succeeded_with_context(context(1));
+        assert!(!keyboard.capitalize_next);
+        keyboard.choose_with_context(Key::Named("Backspace"), context(1));
+        keyboard.succeeded_with_context(context(1));
+        assert!(matches!(
+            keyboard.choose_with_context(Key::Character('a', 'A'), context(1)),
+            Some(Output::Stroke(stroke)) if stroke.character() == Some('a')
+        ));
     }
     #[test]
     fn typing_wait_consumes_resume_and_restarts_a_full_interval() {
