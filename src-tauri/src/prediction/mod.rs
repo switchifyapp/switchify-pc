@@ -391,7 +391,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
     SERVICE.with(|slot| {
         let mut s = slot.borrow_mut();
         let case = (
-            keyboard.modifiers[0] != Modifier::Off,
+            keyboard.prediction_shift(),
             keyboard.caps,
             keyboard.modifiers[1..].iter().any(|m| *m != Modifier::Off),
         );
@@ -510,7 +510,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 generation: s.generation,
                 edits: s.take_edits(),
                 revision: s.edit_revision,
-                shift: keyboard.modifiers[0] != Modifier::Off,
+                shift: keyboard.prediction_shift(),
                 caps: keyboard.caps,
             }
         };

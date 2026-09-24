@@ -392,6 +392,9 @@ impl Keyboard {
             caps: self.caps,
         }
     }
+    pub fn prediction_shift(&self) -> bool {
+        self.modifiers[0] != Modifier::Off && !self.auto_shift
+    }
     fn clear_auto_capital(&mut self) {
         if self.auto_shift {
             self.modifiers[0] = Modifier::Off;
@@ -436,11 +439,14 @@ impl Keyboard {
             }
             Key::Modifier(i) => {
                 if i == 0 && self.capitalize_next {
-                    self.auto_shift = false;
-                    self.capitalize_next = false;
-                    self.capital_context = None;
+                    let automatic = self.auto_shift;
+                    self.clear_auto_capital();
+                    if !automatic {
+                        self.modifiers[i] = self.modifiers[i].next();
+                    }
+                } else {
+                    self.modifiers[i] = self.modifiers[i].next();
                 }
-                self.modifiers[i] = self.modifiers[i].next();
             }
             Key::Caps => {
                 self.caps = !self.caps;
@@ -875,6 +881,7 @@ mod tests {
         keyboard.choose_with_context(Key::Character('.', '>'), context(1));
         keyboard.succeeded_with_context(context(1));
         assert_eq!(keyboard.modifiers[0], Modifier::Once);
+        assert!(!keyboard.prediction_shift());
         assert_eq!(keyboard.label(Key::Modifier(0)), "Shift\nNext key");
         let screen = Rect {
             x: 0.0,
@@ -906,6 +913,14 @@ mod tests {
         keyboard.succeeded_with_context(context(1));
         assert_eq!(keyboard.modifiers[0], Modifier::Off);
         assert!(!keyboard.capitalize_next);
+        keyboard.choose_with_context(Key::Character('.', '>'), context(1));
+        keyboard.succeeded_with_context(context(1));
+        keyboard.choose_with_context(Key::Modifier(0), context(1));
+        assert_eq!(keyboard.modifiers[0], Modifier::Off);
+        assert!(!keyboard.capitalize_next);
+        keyboard.choose_with_context(Key::Modifier(0), context(1));
+        assert_eq!(keyboard.modifiers[0], Modifier::Once);
+        assert!(keyboard.prediction_shift());
     }
 
     #[test]
