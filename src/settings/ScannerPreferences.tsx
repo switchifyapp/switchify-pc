@@ -130,6 +130,10 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
 
     </>}
     {area === 'keyboard' && <p className="setting-note">The scanning keyboard spaces punctuation for you. Period, question mark, and exclamation mark capitalize the next letter. The Numbers page period stays a decimal point.</p>}
+    {(area === 'keyboard' || area === 'mouse') && <SettingGroup title="Panel position" description="Choose where the keyboard and mouse panels sit from Position on either panel.">
+      <Toggle label="Move away from the pointer" checked={config.panelAvoidsPointer} disabled={disabled} onChange={value => update('panelAvoidsPointer', value)} />
+      <p className="setting-note">While the pointer is over the panel, it moves to the other side of the screen. It returns when the pointer moves away.</p>
+    </SettingGroup>}
     {area === 'keyboard' && <SettingGroup title="Suggestions" description="Show word suggestions while typing with the scanning keyboard.">
       <Toggle label="Word prediction" checked={config.wordPrediction} disabled={disabled} onChange={value => update('wordPrediction', value)} />
     </SettingGroup>}

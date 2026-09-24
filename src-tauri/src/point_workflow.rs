@@ -114,6 +114,10 @@ pub struct Workflow {
     mouse_area: Rect,
     /// Shared by the keyboard and mouse panels and kept when either is rebuilt.
     dock: crate::scan_panel::Dock,
+    /// Latest pointer position, used to move an open panel out of the pointer's way.
+    pointer: Option<(f64, f64)>,
+    /// Where the open panel is drawn while it avoids the pointer.
+    moved: Option<crate::scan_panel::Dock>,
     return_to_mouse: bool,
     move_repeat: Option<crate::mouse_repeat::ScanMoveRepeat>,
     scroll_repeat: Option<crate::mouse_repeat::ScanScrollRepeat>,
@@ -146,6 +150,8 @@ impl Workflow {
             mouse: crate::scan_mouse::MousePanel::new(mouse_options, 1, 100),
             mouse_area: screen,
             dock: Default::default(),
+            pointer: None,
+            moved: None,
             return_to_mouse: false,
             move_repeat: None,
             scroll_repeat: None,
@@ -304,6 +310,30 @@ impl Workflow {
     }
     pub fn set_keyboard_area(&mut self, area: Rect) {
         self.keyboard_area = area;
+    }
+    pub fn panel_avoids_pointer(&self) -> bool {
+        self.point.config.panel_avoids_pointer
+    }
+    pub fn set_pointer(&mut self, pointer: Option<(f64, f64)>) {
+        self.pointer = pointer;
+        self.moved = self.avoiding();
+    }
+    /// Dock to draw the open panel at instead of `dock`, while the pointer is over it.
+    fn avoiding(&self) -> Option<crate::scan_panel::Dock> {
+        let area = match self.stage {
+            Stage::Keyboard => self.keyboard_area,
+            Stage::Mouse | Stage::MouseMoving | Stage::MouseScrolling => self.mouse_area,
+            _ => return None,
+        };
+        if !self.point.config.panel_avoids_pointer {
+            return None;
+        }
+        self.dock.avoiding(
+            self.pointer?,
+            area,
+            self.point.units_per_logical_pixel,
+            self.moved,
+        )
     }
     fn open(&mut self, kind: Kind) {
         self.menu = Menu::configured(kind, self.point.config.menu_scan);
@@ -785,6 +815,10 @@ impl Technique for Workflow {
         }
     }
     fn frame(&self) -> Frame {
+        let panel_area = match self.stage {
+            Stage::Keyboard => self.keyboard_area,
+            _ => self.mouse_area,
+        };
         let mut frame = match self.stage {
             Stage::Keyboard => self.keyboard.frame(
                 self.keyboard_area,
@@ -843,6 +877,15 @@ impl Technique for Workflow {
             ),
             _ => Frame::default(),
         };
+        if let Some(moved) = self.avoiding() {
+            crate::scan_panel::move_frame(
+                &mut frame,
+                self.dock,
+                moved,
+                panel_area,
+                self.point.units_per_logical_pixel,
+            );
+        }
         if let Some(error) = &self.error {
             frame.tiles.clear();
             if let Some(label) = frame.label.as_mut() {
@@ -1169,6 +1212,69 @@ mod tests {
         workflow.reset();
         workflow.open_mouse();
         assert_eq!((workflow.keyboard.dock, workflow.mouse.dock), (dock, dock));
+    }
+
+    #[test]
+    fn open_panels_move_out_of_the_pointers_way_only_when_enabled() {
+        use crate::scan_panel::Dock;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let background = |workflow: &Workflow| workflow.frame().tiles[0].rect;
+        let bottom = Dock::default().rect(screen, 1.0);
+        let top = Dock { column: 1, row: 0 }.rect(screen, 1.0);
+        let over_bottom = Some((640.0, 700.0));
+        let mut workflow = Workflow::new(Config::default().point(), screen, 1.0).unwrap();
+        workflow.open_mouse();
+        workflow.set_pointer(over_bottom);
+        assert_eq!(background(&workflow), bottom, "off by default");
+
+        let config = Config {
+            panel_avoids_pointer: true,
+            ..Config::default()
+        };
+        workflow.apply_config(config.point(), false);
+        assert!(workflow.panel_avoids_pointer());
+        workflow.set_pointer(over_bottom);
+        let frame = workflow.frame();
+        assert_eq!(frame.tiles[0].rect, top);
+        assert!(frame
+            .tiles
+            .iter()
+            .all(|tile| tile.rect.y < top.y + top.height));
+        assert_eq!(
+            workflow.mouse.dock,
+            Dock::default(),
+            "the chosen dock is kept"
+        );
+        workflow.set_pointer(Some((640.0, 20.0)));
+        assert_eq!(
+            background(&workflow),
+            bottom,
+            "returns once the pointer leaves"
+        );
+
+        workflow.mouse_key(crate::scan_mouse::Key::Keyboard);
+        workflow.execution_succeeded();
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+        workflow.set_pointer(over_bottom);
+        assert_eq!(background(&workflow), top, "the keyboard also moves");
+        workflow.set_pointer(None);
+        assert_eq!(background(&workflow), bottom);
+
+        // A closed panel forgets where it moved, so a middle dock chooses afresh when reopened.
+        let middle = Dock { column: 1, row: 1 };
+        workflow.set_dock(middle);
+        let area = middle.rect(screen, 1.0);
+        workflow.set_pointer(Some((640.0, area.y + 10.0)));
+        assert_eq!(workflow.moved, Some(Dock::default()));
+        workflow.keyboard_closed();
+        workflow.open_point();
+        workflow.set_pointer(Some((640.0, area.y + 10.0)));
+        assert_eq!(workflow.moved, None);
     }
     #[test]
     fn mouse_keyboard_return_and_drag_state() {

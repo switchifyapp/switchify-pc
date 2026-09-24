@@ -233,6 +233,7 @@ impl Adapter for PointScan {
                     },
                     displays.len(),
                 );
+                technique.set_pointer(Some(cursor));
                 let settings = app.state::<crate::state::AppModel>().snapshot().settings;
                 technique.set_mouse_settings(
                     settings.pointer_scale_percent,
@@ -250,6 +251,14 @@ impl Adapter for PointScan {
                     technique.foreground_changed();
                     environment.foreground = foreground;
                 }
+                // An unreadable pointer only stops the panel moving; it never stops scanning.
+                technique.set_pointer(if technique.panel_avoids_pointer() {
+                    display_navigation::pointer(app).ok()
+                } else {
+                    None
+                });
+            } else {
+                technique.set_pointer(None);
             }
         }
         Ok(true)

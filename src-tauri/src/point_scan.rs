@@ -27,6 +27,8 @@ pub struct Config {
     pub scan_preferences: crate::scan_preferences::Preferences,
     pub word_prediction: bool,
     pub keyboard_wait_after_typing: bool,
+    /// Moves the keyboard or mouse panel away while the pointer is over it.
+    pub panel_avoids_pointer: bool,
     pub scanner_color: crate::scanning::ScannerColor,
     pub mode: Mode,
     pub automatic: bool,
@@ -47,6 +49,7 @@ impl Default for Config {
             scan_preferences: Default::default(),
             word_prediction: true,
             keyboard_wait_after_typing: false,
+            panel_avoids_pointer: false,
             scanner_color: Default::default(),
             mode: Mode::Line,
             automatic: true,
@@ -107,6 +110,7 @@ impl Config {
             mouse_scan: self.resolved(crate::scan_preferences::Area::Mouse),
             word_prediction: self.word_prediction,
             keyboard_wait_after_typing: self.keyboard_wait_after_typing,
+            panel_avoids_pointer: self.panel_avoids_pointer,
             scanner_color: self.resolved(crate::scan_preferences::Area::Point).color,
             mode: self.mode,
             speed: self.speed,
@@ -132,6 +136,7 @@ pub struct PointSettings {
     pub mouse_scan: crate::scan_preferences::Resolved,
     pub word_prediction: bool,
     pub keyboard_wait_after_typing: bool,
+    pub panel_avoids_pointer: bool,
     pub scanner_color: crate::scanning::ScannerColor,
     pub mode: Mode,
     pub speed: usize,
@@ -622,6 +627,21 @@ mod tests {
         }
     }
     #[test]
+    fn panel_pointer_avoidance_defaults_off_and_round_trips() {
+        let legacy: Config = serde_json::from_str("{}").unwrap();
+        assert!(!legacy.panel_avoids_pointer);
+        for enabled in [false, true] {
+            let config = Config {
+                panel_avoids_pointer: enabled,
+                ..Default::default()
+            };
+            let restored: Config =
+                serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
+            assert_eq!(restored.panel_avoids_pointer, enabled);
+            assert_eq!(restored.point().panel_avoids_pointer, enabled);
+        }
+    }
+    #[test]
     fn auto_select_delays_are_bounded_and_round_trip() {
         for delay in [100, 500, 1000, 100_000] {
             let config = Config {
@@ -1021,6 +1041,7 @@ mod tests {
         json["controlMode"] = serde_json::json!("point");
         json["wordPrediction"] = serde_json::json!(true);
         json["keyboardWaitAfterTyping"] = serde_json::json!(false);
+        json["panelAvoidsPointer"] = serde_json::json!(false);
         json["scanPreferences"] =
             serde_json::to_value(crate::scan_preferences::Preferences::default()).unwrap();
         assert_eq!(serde_json::to_value(&config).unwrap(), json);

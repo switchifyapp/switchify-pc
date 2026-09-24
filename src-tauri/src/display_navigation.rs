@@ -65,6 +65,21 @@ pub fn cursor_position() -> Result<(f64, f64), NavigationError> {
     Ok((cursor.x, cursor.y))
 }
 
+/// Pointer position in the same coordinates as `displays`, without reading the monitors.
+#[cfg(target_os = "macos")]
+pub fn pointer(app: &AppHandle) -> Result<(f64, f64), NavigationError> {
+    let _ = app;
+    cursor_position()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn pointer(app: &AppHandle) -> Result<(f64, f64), NavigationError> {
+    let cursor = app
+        .cursor_position()
+        .map_err(|_| NavigationError::adapter("The pointer position could not be read."))?;
+    Ok((cursor.x, cursor.y))
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn displays(app: &AppHandle) -> Result<((f64, f64), Vec<Display>), NavigationError> {
     let cursor = app
