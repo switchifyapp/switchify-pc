@@ -251,11 +251,14 @@ impl Adapter for PointScan {
                     technique.foreground_changed();
                     environment.foreground = foreground;
                 }
+                // An unreadable pointer only stops the panel moving; it never stops scanning.
                 technique.set_pointer(if technique.panel_avoids_pointer() {
-                    Some(display_navigation::displays(app).map_err(|e| e.message)?.0)
+                    display_navigation::pointer(app).ok()
                 } else {
                     None
                 });
+            } else {
+                technique.set_pointer(None);
             }
         }
         Ok(true)

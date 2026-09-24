@@ -1264,6 +1264,17 @@ mod tests {
         assert_eq!(background(&workflow), top, "the keyboard also moves");
         workflow.set_pointer(None);
         assert_eq!(background(&workflow), bottom);
+
+        // A closed panel forgets where it moved, so a middle dock chooses afresh when reopened.
+        let middle = Dock { column: 1, row: 1 };
+        workflow.set_dock(middle);
+        let area = middle.rect(screen, 1.0);
+        workflow.set_pointer(Some((640.0, area.y + 10.0)));
+        assert_eq!(workflow.moved, Some(Dock::default()));
+        workflow.keyboard_closed();
+        workflow.open_point();
+        workflow.set_pointer(None);
+        assert_eq!(workflow.moved, None);
     }
     #[test]
     fn mouse_keyboard_return_and_drag_state() {

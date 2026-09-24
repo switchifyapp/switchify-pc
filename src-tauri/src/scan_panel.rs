@@ -65,8 +65,9 @@ impl Dock {
         }
     }
     /// Where to draw a panel docked here while the pointer may be over it. The panel moves to
-    /// the other end of the screen until the pointer leaves this dock; `moved` keeps the
-    /// previous choice so a middle panel does not flip while the pointer crosses it.
+    /// an end of the screen the pointer is not over, until the pointer leaves this dock. A
+    /// middle panel keeps its previous end (`moved`) while that end stays clear of the pointer.
+    /// On short screens both ends can cover the pointer; the panel then stays put.
     pub fn avoiding(
         self,
         pointer: (f64, f64),
@@ -74,21 +75,31 @@ impl Dock {
         units: f64,
         moved: Option<Dock>,
     ) -> Option<Dock> {
-        let rect = self.rect(screen, units);
-        let (x, y) = pointer;
-        if x < rect.x || x >= rect.x + rect.width || y < rect.y || y >= rect.y + rect.height {
+        let covers = |dock: Dock| {
+            let rect = dock.rect(screen, units);
+            let (x, y) = pointer;
+            x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
+        };
+        if !covers(self) {
             return None;
         }
-        let row = match self.row {
-            0 => 2,
-            2 => 0,
-            _ => match moved {
-                Some(moved) if moved.column == self.column && moved.row != 1 => moved.row,
-                _ if y < rect.y + rect.height / 2.0 => 2,
-                _ => 0,
-            },
+        let rect = self.rect(screen, units);
+        let away = if pointer.1 < rect.y + rect.height / 2.0 {
+            2
+        } else {
+            0
         };
-        Some(Dock { row, ..self })
+        let rows = match (self.row, moved) {
+            (0, _) => [2, 2],
+            (2, _) => [0, 0],
+            (_, Some(moved)) if moved.column == self.column && moved.row != 1 => {
+                [moved.row, 2 - moved.row]
+            }
+            _ => [away, 2 - away],
+        };
+        rows.into_iter()
+            .map(|row| Dock { row, ..self })
+            .find(|&dock| !covers(dock))
     }
 }
 
@@ -358,10 +369,31 @@ mod tests {
             dock(1, 1).avoiding(lower, screen, 1.0, None),
             Some(dock(1, 0))
         );
+        let centre = (middle.x + 10.0, middle.y + middle.height / 2.0 + 1.0);
+        assert_eq!(
+            dock(1, 1).avoiding(centre, screen, 1.0, Some(dock(1, 2))),
+            Some(dock(1, 2)),
+            "a moved middle panel stays put while its end is clear of the pointer"
+        );
         assert_eq!(
             dock(1, 1).avoiding(lower, screen, 1.0, Some(dock(1, 2))),
-            Some(dock(1, 2)),
-            "a moved middle panel stays put while the pointer crosses it"
+            Some(dock(1, 0)),
+            "a moved middle panel leaves an end the pointer reaches"
+        );
+
+        // On a short work area the ends overlap; covering the pointer at both ends stays put.
+        let short = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 700.0,
+        };
+        let overlap = (640.0, 350.0);
+        assert_eq!(dock(1, 0).avoiding(overlap, short, 1.0, None), None);
+        assert_eq!(dock(1, 2).avoiding(overlap, short, 1.0, None), None);
+        assert_eq!(
+            dock(1, 2).avoiding((640.0, 690.0), short, 1.0, None),
+            Some(dock(1, 0))
         );
 
         let mut frame = Panel {
