@@ -84,6 +84,7 @@ pub enum WorkflowPhase {
     Mouse,
     MouseSuspended,
     MouseMoving,
+    MouseScrolling,
     Menu,
     MenuSuspended,
     AutoSelecting,
@@ -97,6 +98,7 @@ enum Stage {
     KeyboardOpening,
     Mouse,
     MouseMoving,
+    MouseScrolling,
     Idle,
     Countdown,
     Point,
@@ -111,8 +113,10 @@ pub struct Workflow {
     mouse_area: Rect,
     return_to_mouse: bool,
     move_repeat: Option<crate::mouse_repeat::ScanMoveRepeat>,
+    scroll_repeat: Option<crate::mouse_repeat::ScanScrollRepeat>,
     mouse_repeat_enabled: bool,
     mouse_move_interval_ms: u32,
+    mouse_scroll_interval_ms: u32,
     mouse_acceleration_ms: u32,
     point: Engine,
     stage: Stage,
@@ -140,8 +144,10 @@ impl Workflow {
             mouse_area: screen,
             return_to_mouse: false,
             move_repeat: None,
+            scroll_repeat: None,
             mouse_repeat_enabled: true,
             mouse_move_interval_ms: 250,
+            mouse_scroll_interval_ms: 250,
             mouse_acceleration_ms: 1000,
             point: Engine::new(config, screen, scale)?,
             stage: Stage::Idle,
@@ -157,7 +163,9 @@ impl Workflow {
     fn active_preferences(&self) -> crate::scan_preferences::Resolved {
         match self.stage {
             Stage::Keyboard | Stage::KeyboardOpening => self.point.config.keyboard_scan,
-            Stage::Mouse | Stage::MouseMoving => self.point.config.mouse_scan,
+            Stage::Mouse | Stage::MouseMoving | Stage::MouseScrolling => {
+                self.point.config.mouse_scan
+            }
             Stage::Menu => self.point.config.menu_scan,
             _ => self.point.config.scan,
         }
@@ -187,6 +195,7 @@ impl Workflow {
             );
             self.return_to_mouse = false;
             self.move_repeat = None;
+            self.scroll_repeat = None;
             self.parent_menu.clear();
             self.stage = Stage::Point;
             self.point.start();
@@ -205,12 +214,21 @@ impl Workflow {
         matches!(self.stage, Stage::Keyboard | Stage::KeyboardOpening)
     }
     pub fn mouse_open(&self) -> bool {
-        matches!(self.stage, Stage::Mouse | Stage::MouseMoving)
+        matches!(
+            self.stage,
+            Stage::Mouse | Stage::MouseMoving | Stage::MouseScrolling
+        )
     }
     pub fn control_mode(&self) -> crate::point_scan::ControlMode {
         self.point.config.control_mode
     }
     pub fn set_mouse_area(&mut self, area: Rect, screen: Rect, scale: f64, displays: usize) {
+        if self.point.screen != screen && self.stage == Stage::MouseScrolling {
+            self.stage = Stage::Mouse;
+            self.scroll_repeat = None;
+            self.pending = None;
+            self.mouse.restart();
+        }
         self.mouse_area = area;
         self.point.screen = screen;
         self.point.units_per_logical_pixel = scale;
@@ -221,15 +239,18 @@ impl Workflow {
         speed: u16,
         acceleration_ms: u32,
         move_interval_ms: u32,
+        scroll_interval_ms: u32,
         repeat_enabled: bool,
     ) {
         self.mouse.speed_percent = speed;
         self.mouse_acceleration_ms = acceleration_ms;
         self.mouse_move_interval_ms = move_interval_ms;
+        self.mouse_scroll_interval_ms = scroll_interval_ms;
         self.mouse_repeat_enabled = repeat_enabled;
-        if !repeat_enabled && self.stage == Stage::MouseMoving {
+        if !repeat_enabled && matches!(self.stage, Stage::MouseMoving | Stage::MouseScrolling) {
             self.stage = Stage::Mouse;
             self.move_repeat = None;
+            self.scroll_repeat = None;
             self.pending = None;
             self.mouse.restart();
         }
@@ -243,6 +264,10 @@ impl Workflow {
             Stage::MouseMoving => Some(PointerFeedback::RepeatMove {
                 accelerated: self.mouse_acceleration_ms > 0,
                 dragging: self.mouse.dragging,
+            }),
+            Stage::MouseScrolling => Some(PointerFeedback::RepeatScroll {
+                dx: 0,
+                dy: self.scroll_repeat.as_ref()?.dy(),
             }),
             Stage::Mouse => Some(if self.mouse.dragging {
                 PointerFeedback::Drag
@@ -278,6 +303,7 @@ impl Workflow {
         self.point.config.control_mode = crate::point_scan::ControlMode::Mouse;
         self.stage = Stage::Mouse;
         self.move_repeat = None;
+        self.scroll_repeat = None;
         self.mouse = crate::scan_mouse::MousePanel::new(
             self.point.config.mouse_scan,
             1,
@@ -340,9 +366,19 @@ impl Workflow {
                 self.mouse.dragging = !self.mouse.dragging;
                 Some(Request::MouseDrag)
             }
-            Key::Scroll(direction) => Some(Request::MouseScroll {
-                dy: i32::from(direction) * 5,
-            }),
+            Key::Scroll(direction) => {
+                if self.mouse_repeat_enabled {
+                    let repeat = crate::mouse_repeat::ScanScrollRepeat::new(direction);
+                    let dy = repeat.dy();
+                    self.scroll_repeat = Some(repeat);
+                    self.stage = Stage::MouseScrolling;
+                    Some(Request::MouseScroll { dy })
+                } else {
+                    Some(Request::MouseScroll {
+                        dy: i32::from(direction) * 5,
+                    })
+                }
+            }
             Key::Speed(direction) => Some(Request::MouseSpeed(direction)),
             Key::Monitor(dx, dy) => Some(Request::MouseMonitor(dx, dy)),
             Key::Keyboard => {
@@ -482,6 +518,7 @@ impl Technique for Workflow {
         if self.mouse_open() {
             self.stage = Stage::Mouse;
             self.move_repeat = None;
+            self.scroll_repeat = None;
             self.mouse.dragging = false;
             self.mouse.failed();
             self.error = None;
@@ -525,6 +562,7 @@ impl Technique for Workflow {
         );
         self.return_to_mouse = false;
         self.move_repeat = None;
+        self.scroll_repeat = None;
         self.stage = Stage::Idle;
         self.parent_menu.clear();
         self.pending = None;
@@ -544,11 +582,12 @@ impl Technique for Workflow {
         self.active_preferences().automatic
     }
     fn switch_pressed(&mut self) -> bool {
-        if self.stage != Stage::MouseMoving {
+        if !matches!(self.stage, Stage::MouseMoving | Stage::MouseScrolling) {
             return false;
         }
         self.stage = Stage::Mouse;
         self.move_repeat = None;
+        self.scroll_repeat = None;
         self.pending = None;
         self.mouse.restart();
         true
@@ -592,7 +631,7 @@ impl Technique for Workflow {
                     return self.mouse_key(key);
                 }
             }
-            Stage::MouseMoving => {}
+            Stage::MouseMoving | Stage::MouseScrolling => {}
             Stage::Point | Stage::Destination => {
                 if let Some(point) = self.point.handle(action) {
                     if self.stage == Stage::Destination {
@@ -667,6 +706,12 @@ impl Technique for Workflow {
             if dx != 0 || dy != 0 {
                 self.pending = Some(Request::MouseMove { dx, dy });
             }
+        } else if self.stage == Stage::MouseScrolling {
+            if let Some(repeat) = self.scroll_repeat.as_mut() {
+                if repeat.advance(ms, self.mouse_scroll_interval_ms) {
+                    self.pending = Some(Request::MouseScroll { dy: repeat.dy() });
+                }
+            }
         } else if self.stage == Stage::Countdown {
             if !context.paused && !context.switch_held {
                 self.elapsed = self
@@ -709,6 +754,7 @@ impl Technique for Workflow {
                 WorkflowPhase::Mouse
             }),
             Stage::MouseMoving => Phase::Workflow(WorkflowPhase::MouseMoving),
+            Stage::MouseScrolling => Phase::Workflow(WorkflowPhase::MouseScrolling),
             Stage::Keyboard => Phase::Workflow(if self.keyboard.suspended() {
                 WorkflowPhase::KeyboardSuspended
             } else {
@@ -735,11 +781,19 @@ impl Technique for Workflow {
                 self.point.units_per_logical_pixel,
                 self.point.config.scanner_color,
             ),
-            Stage::Mouse | Stage::MouseMoving => self.mouse.frame(
+            Stage::Mouse | Stage::MouseMoving | Stage::MouseScrolling => self.mouse.frame(
                 self.mouse_area,
                 self.point.units_per_logical_pixel,
                 self.point.config.mouse_scan.color,
-                self.stage == Stage::MouseMoving,
+                match self.stage {
+                    Stage::MouseMoving => Some(crate::scan_mouse::RepeatPrompt::Moving),
+                    Stage::MouseScrolling => Some(crate::scan_mouse::RepeatPrompt::Scrolling(
+                        self.scroll_repeat
+                            .as_ref()
+                            .map_or(1, |repeat| repeat.dy().signum()),
+                    )),
+                    _ => None,
+                },
             ),
             Stage::Countdown => {
                 let scale = self.point.units_per_logical_pixel;
@@ -924,7 +978,7 @@ mod tests {
         let selected: Vec<_> = session
             .technique
             .mouse
-            .frame(screen, 1.0, Default::default(), false)
+            .frame(screen, 1.0, Default::default(), None)
             .tiles
             .into_iter()
             .filter(|tile| tile.selected)
@@ -946,7 +1000,7 @@ mod tests {
         };
         let mut workflow = Workflow::new(Config::default().point(), screen, 1.0).unwrap();
         workflow.open_mouse();
-        workflow.set_mouse_settings(50, 1000, 250, false);
+        workflow.set_mouse_settings(50, 1000, 250, 250, false);
         assert_eq!(
             workflow.mouse_key(crate::scan_mouse::Key::Move(-1, 1)),
             Some(Request::MouseMove { dx: -6, dy: 6 })
@@ -966,6 +1020,113 @@ mod tests {
         );
         assert!(workflow.take_selection().is_none());
         assert!(!workflow.switch_pressed());
+    }
+
+    #[test]
+    fn scanned_scroll_repeats_at_saved_interval_and_stops_on_press() {
+        let mut workflow = session(false).technique;
+        workflow.open_mouse();
+        workflow.set_mouse_settings(100, 1000, 250, 120, true);
+        for (direction, dy) in [(1, 5), (-1, -5)] {
+            assert_eq!(
+                workflow.mouse_key(crate::scan_mouse::Key::Scroll(direction)),
+                Some(Request::MouseScroll { dy })
+            );
+            assert_eq!(
+                workflow.phase(),
+                Phase::Workflow(WorkflowPhase::MouseScrolling)
+            );
+            assert_eq!(
+                workflow.mouse_feedback(),
+                Some(crate::input::PointerFeedback::RepeatScroll { dx: 0, dy })
+            );
+            workflow.update(
+                119,
+                UpdateContext {
+                    movement_enabled: true,
+                    paused: false,
+                    switch_held: false,
+                },
+            );
+            assert_eq!(workflow.take_selection(), None);
+            workflow.update(
+                1,
+                UpdateContext {
+                    movement_enabled: true,
+                    paused: false,
+                    switch_held: false,
+                },
+            );
+            assert_eq!(workflow.take_selection(), Some(Request::MouseScroll { dy }));
+            workflow.update(
+                370,
+                UpdateContext {
+                    movement_enabled: true,
+                    paused: false,
+                    switch_held: false,
+                },
+            );
+            assert_eq!(workflow.take_selection(), Some(Request::MouseScroll { dy }));
+            assert!(workflow.switch_pressed());
+            assert!(!workflow.switch_pressed());
+            assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+            workflow.update(
+                120,
+                UpdateContext {
+                    movement_enabled: true,
+                    paused: false,
+                    switch_held: false,
+                },
+            );
+            assert_eq!(workflow.take_selection(), None);
+        }
+    }
+
+    #[test]
+    fn scanned_scroll_single_step_and_cleanup_paths() {
+        let mut workflow = session(false).technique;
+        workflow.open_mouse();
+        workflow.set_mouse_settings(100, 1000, 250, 80, false);
+        assert_eq!(
+            workflow.mouse_key(crate::scan_mouse::Key::Scroll(1)),
+            Some(Request::MouseScroll { dy: 5 })
+        );
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert!(!workflow.switch_pressed());
+        workflow.set_mouse_settings(100, 1000, 250, 80, true);
+        workflow.mouse_key(crate::scan_mouse::Key::Scroll(-1));
+        workflow.execution_failed("input failed".into());
+        assert_eq!(workflow.mouse_feedback(), None);
+        assert_eq!(
+            workflow.scroll_repeat.as_ref().map(|repeat| repeat.dy()),
+            None
+        );
+        workflow.handle(Action::Select);
+        workflow.mouse_key(crate::scan_mouse::Key::Scroll(1));
+        workflow.set_mouse_settings(100, 1000, 250, 80, false);
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert!(!workflow.switch_pressed());
+        workflow.set_mouse_settings(100, 1000, 250, 80, true);
+        workflow.mouse_key(crate::scan_mouse::Key::Scroll(1));
+        let next_screen = Rect {
+            x: 1000.0,
+            y: 20.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        workflow.set_mouse_area(next_screen, next_screen, 1.0, 2);
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert_eq!(
+            workflow.scroll_repeat.as_ref().map(|repeat| repeat.dy()),
+            None
+        );
+        workflow.mouse_key(crate::scan_mouse::Key::Scroll(1));
+        workflow.reset();
+        assert_eq!(
+            workflow.scroll_repeat.as_ref().map(|repeat| repeat.dy()),
+            None
+        );
+        assert_eq!(workflow.mouse_feedback(), None);
     }
 
     #[test]

@@ -521,6 +521,12 @@ fn dispatch<A: Adapter>(
                     engine.technique.execution_succeeded();
                 }
             }
+            let pointer_feedback = mouse_action_feedback(
+                pointer_feedback,
+                d.engine
+                    .as_ref()
+                    .and_then(|engine| A::cursor_feedback(&engine.technique)),
+            );
             let mouse_token = d
                 .cursor_suppression
                 .map(|(token, _)| token)
@@ -548,6 +554,19 @@ fn dispatch<A: Adapter>(
         }
     }
     Ok(())
+}
+
+fn mouse_action_feedback(
+    action: Option<crate::input::PointerFeedback>,
+    active: Option<crate::input::PointerFeedback>,
+) -> Option<crate::input::PointerFeedback> {
+    match (action, active) {
+        (
+            Some(crate::input::PointerFeedback::Scroll { .. }),
+            Some(repeat @ crate::input::PointerFeedback::RepeatScroll { .. }),
+        ) => Some(repeat),
+        (feedback, _) => feedback,
+    }
 }
 fn render_countdown(countdown: Option<&crate::scanning::Countdown>) -> Result<(), String> {
     COUNTDOWN.with(|slot| {
@@ -1117,6 +1136,19 @@ mod config_file_tests {
 
 #[cfg(test)]
 mod ownership_tests {
+    #[test]
+    fn repeat_scroll_feedback_stays_persistent_after_each_step() {
+        use crate::input::PointerFeedback;
+        let step = Some(PointerFeedback::Scroll { dx: 0, dy: 5 });
+        let repeating = Some(PointerFeedback::RepeatScroll { dx: 0, dy: 5 });
+        assert_eq!(super::mouse_action_feedback(step, repeating), repeating);
+        assert_eq!(
+            super::mouse_action_feedback(step, Some(PointerFeedback::Move)),
+            step
+        );
+        assert_eq!(super::mouse_action_feedback(step, None), step);
+    }
+
     #[test]
     fn keyboard_updates_preserve_unchanged_tiles_and_restore_background_order() {
         let keyboard = crate::scan_keyboard::Keyboard::new(false);

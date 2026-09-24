@@ -10,6 +10,7 @@ const phases = {
   mouse: "Choose a mouse control",
   mouseSuspended: "Select to resume the mouse",
   mouseMoving: "Moving pointer. Press any switch to stop",
+  mouseScrolling: "Scrolling. Press any switch to stop",
   idle: "Ready to begin",
   autoSelecting: "Waiting to click. Press a switch for the action menu",
   menu: "Choose an action at the selected point",

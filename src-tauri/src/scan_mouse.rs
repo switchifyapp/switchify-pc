@@ -23,6 +23,12 @@ pub enum Key {
     Close,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepeatPrompt {
+    Moving,
+    Scrolling(i32),
+}
+
 pub struct MousePanel {
     pub more: bool,
     pub top: bool,
@@ -163,13 +169,24 @@ impl MousePanel {
             _ => TileRole::Utility,
         }
     }
-    /// `moving` shows the repeat-movement prompt and highlights nothing.
-    pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor, moving: bool) -> Frame {
+    /// A repeating action shows its stop prompt and highlights nothing.
+    pub fn frame(
+        &self,
+        screen: Rect,
+        units: f64,
+        color: ScannerColor,
+        repeating: Option<RepeatPrompt>,
+    ) -> Frame {
         let row_scan = self.scan.row_scan();
         let (active_row, active_column) = self.scan.position(&self.rows);
         let escaping = self.scan.nav.escaping();
-        let status = if moving {
-            "Moving pointer · Press any switch to stop".to_owned()
+        let status = if let Some(repeating) = repeating {
+            match repeating {
+                RepeatPrompt::Moving => "Moving pointer · Press any switch to stop",
+                RepeatPrompt::Scrolling(dy) if dy > 0 => "Scrolling up · Press any switch to stop",
+                RepeatPrompt::Scrolling(_) => "Scrolling down · Press any switch to stop",
+            }
+            .to_owned()
         } else if self.error {
             "Mouse action failed · Select to resume".to_owned()
         } else if self.scan.suspended {
@@ -187,7 +204,7 @@ impl MousePanel {
                 &self.label(self.rows[active_row][active_column.unwrap_or(0)]),
             )
         };
-        let scanning = !moving && !self.scan.suspended;
+        let scanning = repeating.is_none() && !self.scan.suspended;
         Panel {
             rows: self
                 .rows
@@ -259,7 +276,7 @@ mod tests {
             width: 1280.0,
             height: 720.0,
         };
-        let frame = panel.frame(screen, 1.0, ScannerColor::default(), false);
+        let frame = panel.frame(screen, 1.0, ScannerColor::default(), None);
         assert!(frame.tiles.iter().any(|tile| tile.selected));
         assert!(frame
             .tiles
@@ -284,7 +301,7 @@ mod tests {
                 .unwrap()
                 .rect
         };
-        let frame = panel.frame(screen, 1.0, ScannerColor::default(), false);
+        let frame = panel.frame(screen, 1.0, ScannerColor::default(), None);
         assert_eq!(tile(&frame, "←").x, tile(&frame, "↖").x);
         assert_eq!(tile(&frame, "←").width, tile(&frame, "↖").width);
         assert_eq!(tile(&frame, "→").x, tile(&frame, "↗").x);
@@ -295,7 +312,7 @@ mod tests {
         panel.handle(Action::Next);
         panel.handle(Action::Select);
         panel.handle(Action::Next);
-        let frame = panel.frame(screen, 1.0, ScannerColor::default(), false);
+        let frame = panel.frame(screen, 1.0, ScannerColor::default(), None);
         let selected: Vec<_> = frame.tiles.iter().filter(|tile| tile.selected).collect();
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].text, "→");
@@ -312,7 +329,7 @@ mod tests {
         };
         let color = ScannerColor::default();
         let mut panel = MousePanel::new(Resolved::default(), 1, 100);
-        let frame = panel.frame(screen, 1.0, color, false);
+        let frame = panel.frame(screen, 1.0, color, None);
         let keyboard = crate::scan_keyboard::Keyboard::new(false).frame(screen, 1.0, color);
         assert_eq!(frame.tiles[0].rect, keyboard.tiles[0].rect);
         assert!(frame.label.is_none());
@@ -325,23 +342,32 @@ mod tests {
         assert_eq!(close.style.unwrap().role, TileRole::Toolbar);
 
         panel.handle(Action::Select);
-        let status = panel.frame(screen, 1.0, color, false).tiles.pop().unwrap();
+        let status = panel.frame(screen, 1.0, color, None).tiles.pop().unwrap();
         assert_eq!(status.text, "Movement · Select Left click");
 
         panel.choose(Key::More);
         panel.handle(Action::Select);
-        let status = panel.frame(screen, 1.0, color, false).tiles.pop().unwrap();
+        let status = panel.frame(screen, 1.0, color, None).tiles.pop().unwrap();
         assert_eq!(status.text, "More controls · Select Slower 100%");
 
-        let moving = panel.frame(screen, 1.0, color, true);
+        let moving = panel.frame(screen, 1.0, color, Some(RepeatPrompt::Moving));
         assert!(moving.tiles.iter().all(|tile| !tile.selected));
         assert_eq!(
             moving.tiles.last().unwrap().text,
             "Moving pointer · Press any switch to stop"
         );
+        for (direction, expected) in [
+            (1, "Scrolling up · Press any switch to stop"),
+            (-1, "Scrolling down · Press any switch to stop"),
+        ] {
+            let scrolling =
+                panel.frame(screen, 1.0, color, Some(RepeatPrompt::Scrolling(direction)));
+            assert!(scrolling.tiles.iter().all(|tile| !tile.selected));
+            assert_eq!(scrolling.tiles.last().unwrap().text, expected);
+        }
 
         panel.failed();
-        let failed = panel.frame(screen, 1.0, color, false);
+        let failed = panel.frame(screen, 1.0, color, None);
         assert!(failed.tiles.iter().all(|tile| !tile.selected));
         assert_eq!(
             failed.tiles.last().unwrap().text,

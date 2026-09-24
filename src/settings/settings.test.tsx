@@ -180,10 +180,10 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("heading", { name: "Mouse", level: 1 })).toBeInTheDocument();
     expect(screen.getByText(/Pointer speed and repeat for Mouse scanning and Remote/)).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Click when I stop" })).not.toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Repeat mouse movement" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Repeat mouse movement and scrolling" })).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Repeat timing" }));
     expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("5.0");
-    expect(screen.getByRole("checkbox", { name: "Repeat mouse movement" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Repeat mouse movement and scrolling" })).toBeChecked();
     expect(screen.getByRole("group", { name: "Movement acceleration" })).not.toBeDisabled();
     expect(screen.getAllByRole("button", { name: "Medium" })[0]).toHaveAttribute("aria-pressed", "true");
     setPointerSpeed(50);
@@ -191,7 +191,7 @@ describe("Switchify PC settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fine tune speed" }));
     fireEvent.click(screen.getByRole("button", { name: "Faster" }));
     expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveAttribute("aria-valuetext", `Level ${speedLevel(55).toFixed(3)} of 10`);
-    fireEvent.click(screen.getByRole("checkbox", { name: "Repeat mouse movement" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Repeat mouse movement and scrolling" }));
     expect(screen.getByRole("group", { name: "Movement acceleration" })).toBeDisabled();
   });
 

@@ -222,6 +222,7 @@ impl Adapter for PointScan {
                     settings.pointer_scale_percent,
                     settings.mouse_repeat_acceleration_duration_ms,
                     settings.move_repeat_interval_ms,
+                    settings.scroll_repeat_interval_ms,
                     settings.mouse_repeat_enabled,
                 );
             } else if technique.keyboard_open() {
@@ -244,6 +245,7 @@ impl Adapter for PointScan {
                 | Request::Prediction { .. }
                 | Request::MouseMove { .. }
                 | Request::MouseMoveAbsolute { .. }
+                | Request::MouseScroll { .. }
         )
     }
     fn deferred(request: &Request) -> bool {
@@ -387,6 +389,7 @@ mod tests {
             token: 1,
             index: 0
         }));
+        assert!(PointScan::preserve_visuals(&Request::MouseScroll { dy: 5 }));
         assert!(!PointScan::preserve_visuals(
             &crate::point_workflow::default_click((10, 20))
         ));
