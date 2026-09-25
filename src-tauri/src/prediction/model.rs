@@ -3,8 +3,9 @@
 //! The model spells candidate words from subword pieces, constrained to the
 //! typed prefix.
 //! A word scores log P(pieces | text) + log P(a word boundary follows), with
-//! case variants merged. Low probability and blocked words never
-//! appear. Runs only inside the prediction worker; text is never logged.
+//! case variants merged. Low probability words never appear. There is no
+//! vocabulary filter: the person typing chose the word. Runs only inside
+//! the prediction worker; text is never logged.
 use ort::{
     session::{builder::GraphOptimizationLevel, Session, SessionInputValue},
     value::Tensor,
@@ -39,11 +40,10 @@ pub struct Vocabulary {
     boundary: Vec<bool>,
     /// Pieces made only of ASCII letters and apostrophes.
     continues: Vec<bool>,
-    blocked: HashSet<String>,
 }
 
 impl Vocabulary {
-    pub fn new(pieces: Vec<String>, blocked: HashSet<String>) -> Self {
+    pub fn new(pieces: Vec<String>) -> Self {
         let wordy = |s: &str| {
             !s.is_empty()
                 && s.chars()
@@ -60,7 +60,6 @@ impl Vocabulary {
                 .collect(),
             continues: pieces.iter().map(|p| wordy(p)).collect(),
             pieces,
-            blocked,
         }
     }
 }
@@ -155,7 +154,7 @@ pub fn spell(
             }
             let key = normalize(word);
             let plausible = key.chars().count() > 1 || key == "a" || key == "i";
-            if plausible && key.starts_with(&prefix) && !vocabulary.blocked.contains(&key) {
+            if plausible && key.starts_with(&prefix) {
                 let boundary: f32 = row
                     .iter()
                     .zip(&vocabulary.boundary)
@@ -394,21 +393,15 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn open(dir: &Path, blocklist: &Path) -> Result<Self, ()> {
+    pub fn open(dir: &Path) -> Result<Self, ()> {
         let onnx = Onnx::open(dir)?;
         let size = onnx.tokenizer.get_vocab_size(true) as u32;
         let pieces = (0..size)
             .map(|id| onnx.tokenizer.decode(&[id], false).unwrap_or_default())
             .collect();
-        let blocked = std::fs::read_to_string(blocklist)
-            .map_err(|_| ())?
-            .lines()
-            .map(|l| normalize(l.trim()))
-            .filter(|l| !l.is_empty())
-            .collect();
         Ok(Self {
             onnx,
-            vocabulary: Vocabulary::new(pieces, blocked),
+            vocabulary: Vocabulary::new(pieces),
         })
     }
 }
@@ -491,7 +484,7 @@ mod tests {
         }
     }
     fn vocabulary() -> Vocabulary {
-        Vocabulary::new(pieces(), ["darn".to_owned()].into())
+        Vocabulary::new(pieces())
     }
     fn fake(pairs: &[(usize, f32)]) -> Fake {
         Fake {
@@ -515,9 +508,9 @@ mod tests {
     }
 
     #[test]
-    fn blocked_single_letter_and_improbable_unknown_words_are_removed() {
+    fn single_letter_and_improbable_unknown_words_are_removed_but_nothing_is_censored() {
         let mut s = fake(&[(9, 0.6), (10, 0.3), (6, 0.1)]);
-        assert_eq!(run(&mut s, "Say ", "").unwrap(), ["water"]);
+        assert_eq!(run(&mut s, "Say ", "").unwrap(), ["darn", "water"]);
         let mut s = fake(&[(6, 1e-8)]);
         assert!(run(&mut s, "Say ", "").unwrap().is_empty());
     }
@@ -564,7 +557,7 @@ mod tests {
         let pieces = [" don", "’t", "'s", "’", " .", ","]
             .map(String::from)
             .to_vec();
-        let v = Vocabulary::new(pieces, HashSet::new());
+        let v = Vocabulary::new(pieces);
         assert_eq!(v.boundary, [true, false, false, false, true, true]);
         assert_eq!(v.continues, [false, true, true, true, false, false]);
     }
@@ -573,11 +566,8 @@ mod tests {
     fn bundled_model_suggests_current_words() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
         let start = Instant::now();
-        let mut model = Model::open(
-            &root.join("prediction-model"),
-            &root.join("prediction-blocklist.txt"),
-        )
-        .expect("run `npm run prediction-model` to fetch the model");
+        let mut model = Model::open(&root.join("prediction-model"))
+            .expect("run `npm run prediction-model` to fetch the model");
         println!("model startup_ms={}", start.elapsed().as_millis());
         let mut times = Vec::new();
         for (before, prefix, expected) in [

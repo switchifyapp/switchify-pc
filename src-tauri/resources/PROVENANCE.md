@@ -8,10 +8,6 @@
 
 It is an int8 ONNX conversion of [HuggingFaceTB/SmolLM2-135M](https://huggingface.co/HuggingFaceTB/SmolLM2-135M), licensed Apache-2.0. The app bundles these files unchanged and only reads them.
 
-# Prediction blocklist
-
-`prediction-blocklist.txt` is the unchanged English list from [LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words) (`en` at commit `4638b970cb8d9d82789564fcba1f4a1eb508ff1a`, 403 lines, SHA-256 `af851ecef1d5f212caba17339b12ac39cc2fef7d78c74876f67237644fcee8bd`). It is licensed CC BY 4.0 by its contributors. Word prediction never suggests a listed word.
-
 # ONNX Runtime
 
 Word prediction statically links ONNX Runtime 1.28.0 through the `ort` crate (`=2.0.0-rc.13`, MIT/Apache-2.0). At build time, `ort-sys` downloads the prebuilt archive for the target from `cdn.pyke.io` and verifies it against a SHA-256 embedded in the crate. So every build, including signed releases, depends on that download. Only the CPU provider is used, and ONNX Runtime telemetry is disabled when the worker starts it.
