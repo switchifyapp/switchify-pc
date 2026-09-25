@@ -206,12 +206,31 @@ main { min-width: 0; }
 .update-banner .btn.text-button { color: var(--on-brand-container); }
 
 /* --- Status and lists ------------------------------------------------------- */
-.connection-band { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 16px; min-height: 94px; border: 1px solid var(--border); border-left: 4px solid var(--inactive); border-radius: var(--radius-card); padding: 20px; background: var(--surface); }
-.connection-band[data-connected="true"] { border-left-color: var(--status-ok); }
-.connection-band p { margin-top: 4px; color: var(--muted); }
-.connection-band > .btn { grid-column: 1 / -1; }
-.status-icon { display: grid; flex: none; place-items: center; width: 40px; height: 40px; border-radius: 50%; color: var(--muted); background: var(--surface-muted); }
+/* A status band names its state in words, tints its icon and marks its
+   leading edge; the tone is never carried by colour alone. */
+.connection-band { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px 20px; border: 1px solid var(--border); border-left: 6px solid var(--inactive); border-radius: var(--radius-card); padding: 20px 24px; background: var(--surface); }
+.connection-band[data-tone="ready"] { border-left-color: var(--status-ok); }
+.connection-band[data-tone="attention"] { border-left-color: var(--status-attention); }
+.connection-band p { max-width: 60ch; margin-top: 4px; color: var(--muted); }
+.status-hero { padding: 28px 24px; }
+.status-hero .status-icon { width: 56px; height: 56px; }
+.status-hero h2 { font-size: 26px; line-height: 1.25; font-weight: 700; }
+.status-hero p { font-size: 18px; }
+@container (max-width: 600px) {
+  .connection-band { grid-template-columns: auto minmax(0, 1fr); }
+  .connection-band > .btn { grid-column: 1 / -1; }
+}
+
+/* Status tiles: green with a tick when done, amber with a mark when
+   something needs doing, neutral when a row only names its subject. The
+   corner badge is a second, shape-based cue beside the colour. */
+.status-icon { position: relative; display: grid; flex: none; place-items: center; width: 40px; height: 40px; border-radius: 50%; color: var(--muted); background: var(--surface-muted); }
 .status-icon[data-ok="true"] { color: var(--status-ok); background: var(--status-ok-soft); }
+.status-icon[data-ok="false"] { color: var(--status-attention); background: var(--status-attention-soft); }
+.status-icon:is([data-ok="true"], [data-ok="false"])::after { position: absolute; right: -3px; bottom: -3px; display: grid; place-items: center; width: 18px; height: 18px; border: 2px solid var(--surface); border-radius: 50%; color: var(--surface); font: 800 11px/1 system-ui, sans-serif; }
+.status-icon[data-ok="true"]::after { background: var(--status-ok); content: "✓"; }
+.status-icon[data-ok="false"]::after { background: var(--status-attention); content: "!"; }
+.status-hero .status-icon::after { width: 22px; height: 22px; font-size: 13px; }
 
 /* Grouped rows: one card per list, hairlines between rows. A row is an icon,
    its text, then any actions on the right; when the list is narrow the
@@ -521,7 +540,6 @@ main { min-width: 0; }
 @media (max-width: 480px) {
   .app-shell nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .view { padding: 12px; }
-  .connection-band { grid-template-columns: minmax(0, 1fr); }
   .btn.profile-row { display: flex; flex-wrap: wrap; }
 }
 @media (max-width: 520px) {

@@ -49,7 +49,7 @@ function NavButton({ active, icon, children, onClick }: { active: boolean; icon:
 
 // `ok` omitted marks a row that has no state to report, only a subject.
 function StatusIcon({ ok, children }: { ok?: boolean; children: ReactNode }) {
-  return <span className="status-icon" data-ok={ok}>{children}</span>;
+  return <span className="status-icon" data-ok={ok} aria-hidden="true">{children}</span>;
 }
 
 function AccessibilityCopy({ state, detailed = false }: { state: AppState; detailed?: boolean }) {
@@ -67,27 +67,33 @@ function HomeView({ state, switches, scanning, navigate, onDisconnect, onAccessi
   const hasSelect = saved.some((binding) => binding.pressAction === "select" || binding.holdActions.includes("select"));
   const ready = state.accessibility === "granted" && hasSelect && !switches.error && !scanning.error && state.bluetooth !== "connected" && scanning.state?.supported && scanning.state.enabled && !scanning.state.paused;
   const message = switches.error ?? scanning.error ?? (state.accessibility !== "granted" ? "Allow input access to control this computer." : !scanning.state ? "Loading switch control..." : !scanning.state.supported ? scanning.state.message : scanning.state.remote ? "Remote controls scanning. Use the switches in Remote; PC Escape stops the session." : state.bluetooth === "connected" ? "Local scanning is paused while a mobile device is connected." : !hasSelect ? "Add a switch with the Select action to begin scanning." : scanning.state.paused ? "Scanning is paused. Use your Pause / resume switch to continue." : scanning.state.enabled ? "Focus the application you want to use, then press and release your Select switch." : scanning.state.message);
+  // The hero names the state in words, so its colour is never the only cue.
+  const failed = !!(switches.error ?? scanning.error);
+  const setupNeeded = state.accessibility !== "granted" || !hasSelect;
+  const tone = ready ? "ready" : failed || setupNeeded ? "attention" : "neutral";
+  const title = ready ? "Ready" : failed ? "Switch control needs attention" : setupNeeded ? "Finish setting up" : state.bluetooth === "connected" ? "Paused for mobile" : scanning.state?.paused ? "Paused" : "Switch control";
+  const mobileConnected = state.bluetooth === "connected";
   return <div className="view">
     <header className="page-header"><div><h1>Switchify PC</h1><p>Control your computer with switches.</p></div></header>
-    <section className="connection-band" data-connected={!!ready}>
-      <StatusIcon ok={!!ready}><Keyboard size={20} /></StatusIcon>
-      <div><h2>{ready ? "Ready" : "Switch control"}</h2><p role="status">{message}</p></div>
-      <Button className="primary" onClick={() => navigate("switches")}>{hasSelect ? "Edit switches" : "Set up switches"}</Button>
+    <section className="connection-band status-hero" data-tone={tone} aria-labelledby="home-status-title">
+      <StatusIcon ok={ready ? true : tone === "attention" ? false : undefined}><Keyboard size={26} /></StatusIcon>
+      <div><h2 id="home-status-title">{title}</h2><p role="status">{message}</p></div>
+      <Button className={ready ? "secondary" : "primary"} onClick={() => navigate("switches")}>{hasSelect ? "Edit switches" : "Set up switches"}</Button>
     </section>
     <section className="status-list" aria-label="Switch control status">
       <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} /></div>{state.accessibility === "required" && <Button className="text-button" onClick={onAccessibility}>Open Accessibility Settings</Button>}</article>
       <article><StatusIcon ok={hasSelect}><Keyboard size={19} /></StatusIcon><div><h3>Saved switches</h3><p>{saved.length} saved · {hasSelect ? "Select assigned" : "Select action needed"}</p></div></article>
       <article><StatusIcon><SlidersHorizontal size={19} /></StatusIcon><div><h3>Scanning</h3><p>Select starts {scanning.config.controlMode === "mouse" ? "Mouse scanning" : "Point scanning"} · {areaOptions(scanning.config, scanning.config.controlMode).automatic ? "Automatic" : "Manual"}</p></div><Button className="text-button" onClick={() => navigate("scanning")}>Change scanning</Button></article>
+      <article><StatusIcon ok={mobileConnected || undefined}><Smartphone size={19} /></StatusIcon><div><h3>Mobile connection</h3><p>{mobileConnected ? state.connectedDeviceName ?? bluetoothLabels.connected : `Optional. ${bluetoothLabels[state.bluetooth]}`}</p></div>{mobileConnected ? <Button className="secondary" onClick={onDisconnect}>Disconnect</Button> : <Button className="text-button" onClick={() => navigate("mobile")}>Connect mobile</Button>}</article>
     </section>
-    <section className="status-list" aria-label="Optional mobile connection"><article><StatusIcon><Smartphone size={19} /></StatusIcon><div><h3>Mobile connection</h3><p>{state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothLabels.connected : bluetoothLabels[state.bluetooth]}</p></div><Button className="text-button" onClick={() => navigate("mobile")}>Connect mobile</Button>{state.bluetooth === "connected" && <Button className="secondary" onClick={onDisconnect}>Disconnect</Button>}</article></section>
   </div>;
 }
 
 function MobileConnection({ state, onDisconnect }: { state: AppState; onDisconnect: () => void }) {
   const bluetoothOk = state.bluetooth === "advertising" || state.bluetooth === "connected";
   return <section>
-    <section className="connection-band" data-connected={state.bluetooth === "connected"}>
-      <StatusIcon ok={bluetoothOk}><Bluetooth size={20} /></StatusIcon><div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothDescriptions.connected : bluetoothDescriptions[state.bluetooth]}</p></div>
+    <section className="connection-band" data-tone={state.bluetooth === "connected" ? "ready" : bluetoothOk || state.bluetooth === "initializing" ? "neutral" : "attention"}>
+      <StatusIcon ok={bluetoothOk || (state.bluetooth === "initializing" ? undefined : false)}><Bluetooth size={20} /></StatusIcon><div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothDescriptions.connected : bluetoothDescriptions[state.bluetooth]}</p></div>
       {state.bluetooth === "connected" && <Button className="secondary" onClick={onDisconnect}>Disconnect</Button>}
     </section>
     <p>Optional. Connecting a mobile device pauses local scanning.</p>
