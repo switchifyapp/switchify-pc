@@ -163,7 +163,7 @@ h1, h2, h3, p { margin: 0; letter-spacing: 0; }
 }
 .field-control[type="range"] { border: 0; padding: 12px 0; background: transparent; accent-color: var(--brand); cursor: pointer; }
 .field-control[aria-invalid="true"] { border-color: var(--status-error); }
-.field-control:disabled { color: var(--ink-disabled); background: var(--surface-disabled); }
+.field-control:disabled:not(fieldset:disabled *) { color: var(--ink-disabled); background: var(--surface-disabled); }
 .field-control[type="range"]:disabled { background: transparent; }
 .field { display: grid; gap: 6px; min-width: 0; margin-top: 20px; color: var(--muted); }
 .field-error { color: var(--status-error); line-height: 1.35; }
