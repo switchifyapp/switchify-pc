@@ -374,6 +374,9 @@ main { min-width: 0; }
 .color-options input, .scanner-colours input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
 .color-options label:has(input:checked), .scanner-colours label:has(input:checked) { border: 2px solid var(--brand); padding: 11px 15px; background: var(--brand-container); color: var(--on-brand-container); font-weight: 700; }
 .color-options label:has(input:focus-visible), .scanner-colours label:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 3px; }
+/* Inside a disabled group the chips are inert, so they stop inviting a click. */
+fieldset:disabled :is(.color-options, .scanner-colours) label { cursor: default; }
+fieldset:disabled :is(.color-options, .scanner-colours) label:hover { background: var(--surface); }
 .color-swatch { flex: none; width: 24px; height: 24px; border: 1px solid rgba(20, 30, 25, 0.26); border-radius: 50%; }
 .color-swatch.red { background: #d32f2f; }
 .color-swatch.green { background: #84ff91; }
@@ -480,6 +483,9 @@ main { min-width: 0; }
 .scan-rate-stepper .btn:hover { background: var(--surface-hover); }
 .scan-rate-stepper .btn:focus-visible { outline-offset: -3px; }
 .scan-rate-stepper .btn:disabled:not(fieldset:disabled *) { background: transparent; }
+/* With both steps unavailable (manual scanning) the whole control goes quiet. */
+.scan-rate-stepper:not(:has(.btn:enabled)) { border-color: var(--border); }
+.scan-rate-stepper:not(:has(.btn:enabled)) output { color: var(--ink-disabled); }
 .scan-rate-stepper output { display: grid; place-items: center; min-width: 96px; border-inline: 1px solid var(--border); color: var(--text); font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .exact-speed > span:first-child { color: var(--text); font-size: 18px; }
 
