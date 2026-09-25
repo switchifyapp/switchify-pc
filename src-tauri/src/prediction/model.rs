@@ -209,9 +209,12 @@ fn ranked(finished: HashMap<String, Finished>, limit: usize) -> Vec<(String, Fin
 
 /// How a finished word is shown. Sentence position and all-caps tokens
 /// should not force uppercase onto ordinary completions; mixed-case names
-/// keep the model's casing, and the typed apostrophe style is kept.
+/// keep the model's casing, the pronoun I is always capital, and the typed
+/// apostrophe style is kept.
 fn display(key: &str, spelling: &str, typed: &str) -> String {
-    let word = if spelling.chars().skip(1).any(|c| c.is_ascii_uppercase())
+    let word = if key == "i" {
+        "I".to_owned()
+    } else if spelling.chars().skip(1).any(|c| c.is_ascii_uppercase())
         && !spelling.chars().all(|c| c.is_ascii_uppercase())
     {
         spelling.replace('’', "'")
@@ -285,7 +288,7 @@ pub fn complete(
                 format!(
                     "{} {}",
                     display(&words[lead].0, &words[lead].1.spelling, typed),
-                    display(second_key, second, "")
+                    display(second_key, second, typed)
                 )
             })
             .collect(),
@@ -296,10 +299,12 @@ pub fn complete(
 const PHRASE_LEADS: usize = 3;
 const PHRASES: usize = 2;
 
-/// The likeliest next word after each of the top `PHRASE_LEADS` words, as
-/// `(lead index, "lead second" key, finished phrase)`, ranked by the joint
-/// probability of the pair. One beam spells every lead's continuation at
-/// once, from the same cached context.
+/// The likeliest next words after the top `PHRASE_LEADS` words, as
+/// `(lead index, "lead second" key, finished phrase)`. One beam spells every
+/// lead's continuation at once from the same cached context, scored by the
+/// probability of the second word given its lead so that no lead crowds the
+/// others out. Pairs are then ranked by joint probability, preferring one
+/// phrase per lead so the row shows different words.
 fn follow(
     scorer: &mut impl Scorer,
     vocabulary: &Vocabulary,
@@ -329,33 +334,36 @@ fn follow(
                 if row[id] > PRUNE {
                     let mut pieces = lead.pieces.clone();
                     pieces.push(id as i64);
-                    beam.push((
-                        lead.logp + row[id],
-                        pieces,
-                        format!("{} {word}", lead.spelling),
-                    ));
+                    beam.push((row[id], pieces, format!("{} {word}", lead.spelling)));
                 }
             }
         }
     }
     let finished = grow(scorer, vocabulary, beam, "", deadline)?;
-    let mut phrases = Vec::new();
-    for (key, f) in ranked(finished, usize::MAX) {
-        let Some((first, second)) = key.split_once(' ') else {
-            continue;
-        };
-        // The second word obeys the single-letter rule on its own.
-        if !(second.chars().count() > 1 || second == "a" || second == "i") {
-            continue;
-        }
-        let Some(lead) = leads.iter().position(|(k, _)| k == first) else {
-            continue;
-        };
-        phrases.push((lead, key, f));
-        if phrases.len() == PHRASES {
-            break;
+    let mut candidates: Vec<(f32, usize, String, Finished)> = finished
+        .into_iter()
+        .filter_map(|(key, f)| {
+            let (first, second) = key.split_once(' ')?;
+            // The second word obeys the single-letter rule on its own.
+            if !(second.chars().count() > 1 || second == "a" || second == "i") {
+                return None;
+            }
+            let lead = leads.iter().position(|(k, _)| k == first)?;
+            let joint = leads[lead].1.logp + f.mass.ln();
+            (joint >= UNKNOWN_MIN).then_some((joint, lead, key, f))
+        })
+        .collect();
+    candidates.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
+    let mut phrases: Vec<(usize, String, Finished)> = Vec::new();
+    let mut rest = Vec::new();
+    for (_, lead, key, f) in candidates {
+        if phrases.len() < PHRASES && !phrases.iter().any(|(l, _, _)| *l == lead) {
+            phrases.push((lead, key, f));
+        } else {
+            rest.push((lead, key, f));
         }
     }
+    phrases.extend(rest.into_iter().take(PHRASES - phrases.len().min(PHRASES)));
     Ok(phrases)
 }
 
@@ -610,8 +618,9 @@ mod tests {
     use super::*;
 
     /// Pieces: 0 "<s>", 1 " Wa", 2 " wa", 3 "ter", 4 "ffle", 5 " .", 6 " water",
-    /// 7 "Wa", 8 "zz", 9 " darn", 10 " x", 11 " is". After " water" the next
-    /// word is " is" half the time; everything else after a word is a boundary.
+    /// 7 "Wa", 8 "zz", 9 " darn", 10 " x", 11 " is", 12 " i". After " water"
+    /// the next word is " is" or " i"; after "ffle" it is " is" less often.
+    /// Everything else after a word is a boundary.
     struct Fake {
         next: Vec<f32>,
         contexts: usize,
@@ -619,12 +628,13 @@ mod tests {
     fn pieces() -> Vec<String> {
         [
             "<s>", " Wa", " wa", "ter", "ffle", " .", " water", "Wa", "zz", " darn", " x", " is",
+            " i",
         ]
         .map(String::from)
         .to_vec()
     }
     fn dist(pairs: &[(usize, f32)]) -> Vec<f32> {
-        let mut d = vec![-30.0; 12];
+        let mut d = vec![-30.0; 13];
         for &(i, p) in pairs {
             d[i] = p.ln();
         }
@@ -640,7 +650,8 @@ mod tests {
                 .iter()
                 .map(|c| match c.last() {
                     Some(1) | Some(2) | Some(7) => dist(&[(3, 0.6), (4, 0.3), (5, 0.1)]),
-                    Some(6) => dist(&[(11, 0.5), (5, 0.5)]),
+                    Some(6) => dist(&[(11, 0.5), (12, 0.3), (5, 0.2)]),
+                    Some(4) => dist(&[(11, 0.4), (5, 0.6)]),
                     _ => dist(&[(5, 1.0)]),
                 })
                 .collect())
@@ -671,12 +682,16 @@ mod tests {
     }
 
     #[test]
-    fn phrases_follow_the_likeliest_words_within_their_own_deadline() {
+    fn phrases_prefer_different_leads_capitalise_i_and_keep_their_deadline() {
         let mut s = fake(&[(1, 0.2), (2, 0.3), (6, 0.4), (9, 0.1)]);
         let far = Instant::now() + std::time::Duration::from_secs(60);
+        // "water i" (0.4 * 0.3) outranks "waffle is" (0.09 * 0.4), but the
+        // second slot prefers a phrase from a different lead.
         let p = complete(&mut s, &vocabulary(), "I would like ", "wa", far, far).unwrap();
         assert_eq!(p.words, ["water", "waffle", "wa"]);
-        assert_eq!(p.phrases, ["water is"]);
+        assert_eq!(p.phrases, ["water is", "waffle is"]);
+        let p = complete(&mut s, &vocabulary(), "I would like ", "wat", far, far).unwrap();
+        assert_eq!(p.phrases, ["water is", "water I"]);
         let p = complete(
             &mut s,
             &vocabulary(),
@@ -689,7 +704,7 @@ mod tests {
         assert_eq!(p.words, ["water", "waffle", "wa"]);
         assert!(p.phrases.is_empty());
         let p = complete(&mut s, &vocabulary(), "I would like ", "waf", far, far).unwrap();
-        assert!(p.phrases.is_empty());
+        assert_eq!(p.phrases, ["waffle is"]);
     }
 
     #[test]

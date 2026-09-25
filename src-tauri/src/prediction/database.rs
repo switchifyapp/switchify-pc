@@ -11,7 +11,9 @@ use std::{
 const SEARCH_BUDGET: Duration = Duration::from_millis(400);
 /// Extra time after the word search for two-word phrases.
 const PHRASE_BUDGET: Duration = Duration::from_millis(200);
-const SLOW_CALL: Duration = Duration::from_millis(1000);
+/// Well under the parent's two-second reply deadline, with room for the
+/// budgets above plus the beam step that may overrun each of them.
+const SLOW_CALL: Duration = Duration::from_millis(1500);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Status {
