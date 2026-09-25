@@ -44,7 +44,7 @@ const bluetoothDescriptions: Record<AppState["bluetooth"], string> = {
 };
 
 function NavButton({ active, icon, children, onClick }: { active: boolean; icon: ReactNode; children: ReactNode; onClick: () => void }) {
-  return <Button className="nav-button [@media(width>800px)]:justify-start" data-active={active} onClick={onClick}>{icon}<span>{children}</span></Button>;
+  return <Button className="nav-button" data-active={active} onClick={onClick}>{icon}<span>{children}</span></Button>;
 }
 
 function StatusIcon({ ok, children }: { ok: boolean; children: ReactNode }) {
