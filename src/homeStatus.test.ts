@@ -14,6 +14,7 @@ describe("homeStatus", () => {
     ["scanning still loading", { scanning: null }, "Switch control", "neutral"],
     ["switches still loading", { switchesLoaded: false, hasSelect: false }, "Switch control", "neutral"],
     ["scanning unsupported", { scanning: { ...scanning, supported: false, message: "Unsupported." }, hasSelect: false }, "Switch control unavailable", "neutral"],
+    ["Remote in control when otherwise ready", { scanning: { ...scanning, remote: true } }, "Remote in control", "neutral"],
     ["Remote in control without a local Select", { scanning: { ...scanning, remote: true }, bluetooth: "connected", hasSelect: false }, "Remote in control", "neutral"],
     ["a mobile connection without a local Select", { bluetooth: "connected", hasSelect: false }, "Paused for mobile", "neutral"],
     ["no Select switch", { hasSelect: false }, "Finish setting up", "attention"],
