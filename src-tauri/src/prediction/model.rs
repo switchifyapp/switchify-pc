@@ -1,10 +1,9 @@
-//! Optional on-device language model for word prediction.
+//! On-device language model for word prediction.
 //!
 //! The model spells candidate words from subword pieces, constrained to the
-//! typed prefix, so suggestions are not limited to the bundled lookup's words.
+//! typed prefix.
 //! A word scores log P(pieces | text) + log P(a word boundary follows), with
-//! case variants merged. Words the lookup does not know must reach a minimum
-//! probability, which keeps rare invented words out; blocked words never
+//! case variants merged. Low probability and blocked words never
 //! appear. Runs only inside the prediction worker; text is never logged.
 use ort::{
     session::{builder::GraphOptimizationLevel, Session, SessionInputValue},
@@ -18,12 +17,12 @@ use std::{
 };
 use tokenizers::Tokenizer;
 
-const BEAM: usize = 8;
+const BEAM: usize = 16;
 const MAX_PIECES: usize = 5;
 /// Pieces below this log-probability are never explored.
-const PRUNE: f32 = -12.0;
-/// Minimum log-probability for words the lookup does not contain.
-const UNKNOWN_MIN: f32 = -10.0;
+const PRUNE: f32 = -18.0;
+/// Minimum log-probability for a candidate word.
+const UNKNOWN_MIN: f32 = -16.0;
 /// Most recent buffered characters the model reads.
 const CONTEXT_CHARS: usize = 256;
 
@@ -71,14 +70,12 @@ fn normalize(word: &str) -> String {
 }
 
 /// Up to five words for `prefix` after `before`, most probable first.
-/// `known` returns the lookup's spelling of a word it contains.
 /// Expansion stops at `deadline`, returning the words finished so far.
 pub fn spell(
     scorer: &mut impl Scorer,
     vocabulary: &Vocabulary,
     before: &str,
     prefix: &str,
-    known: impl Fn(&str) -> Option<String>,
     deadline: Instant,
 ) -> Result<Vec<String>, ()> {
     let typed = prefix;
@@ -88,7 +85,7 @@ pub fn spell(
     // text a capital marks a word start, since fragments are never capitalised.
     let start = text.is_empty();
     if !start && text.len() == before.len() {
-        return Err(());
+        return Ok(Vec::new());
     }
     let compatible = |word: &str| {
         let w = normalize(word);
@@ -130,7 +127,7 @@ pub fn spell(
         // Only words that can survive the final filter may prune the beam.
         let mut p: Vec<f32> = finished
             .iter()
-            .filter(|(key, f)| f.0.ln() >= UNKNOWN_MIN || known(key).is_some())
+            .filter(|(_, f)| f.0.ln() >= UNKNOWN_MIN)
             .map(|(_, f)| f.0)
             .collect();
         p.sort_by(|a, b| b.total_cmp(a));
@@ -157,7 +154,7 @@ pub fn spell(
                 return Err(());
             }
             let key = normalize(word);
-            let plausible = key.chars().count() > 1 || known(&key).is_some();
+            let plausible = key.chars().count() > 1 || key == "a" || key == "i";
             if plausible && key.starts_with(&prefix) && !vocabulary.blocked.contains(&key) {
                 let boundary: f32 = row
                     .iter()
@@ -190,24 +187,22 @@ pub fn spell(
     }
     let mut words: Vec<(f32, String, String)> = finished
         .into_iter()
-        .filter_map(|(key, (p, _, spelling))| match known(&key) {
-            // Known words keep the lookup's usual spelling, so "who" is not "WHO".
-            Some(known) => Some((p, key, known)),
-            None => (p.ln() >= UNKNOWN_MIN).then_some((p, key, spelling)),
-        })
+        .filter_map(|(key, (p, _, spelling))| (p.ln() >= UNKNOWN_MIN).then_some((p, key, spelling)))
         .collect();
     words.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
     Ok(words
         .into_iter()
         .take(5)
         .map(|(_, key, spelling)| {
-            // Capitals on unknown words at a sentence start come from position.
-            let word = if known(&key).is_none() && (start || text.ends_with(['.', '!', '?'])) {
-                key
-            } else {
+            // Sentence position and all-caps tokens should not force uppercase
+            // onto ordinary completions. Keep mixed case names from the model.
+            let word = if spelling.chars().skip(1).any(|c| c.is_ascii_uppercase())
+                && !spelling.chars().all(|c| c.is_ascii_uppercase())
+            {
                 spelling.replace('’', "'")
+            } else {
+                key
             };
-            // Match the typed apostrophe so the completion still extends the prefix.
             if typed.contains('’') {
                 word.replace('\'', "’")
             } else {
@@ -418,15 +413,10 @@ impl Model {
     }
 }
 
-/// The enhanced predictor behind `Database`, so tests can substitute a fake.
+/// Predictor behind `Database`, so tests can substitute a fake.
 pub trait Predict: Send {
-    fn predict(
-        &mut self,
-        before: &str,
-        prefix: &str,
-        known: &dyn Fn(&str) -> Option<String>,
-        deadline: Instant,
-    ) -> Result<Vec<String>, ()>;
+    fn predict(&mut self, before: &str, prefix: &str, deadline: Instant)
+        -> Result<Vec<String>, ()>;
 }
 
 impl Predict for Model {
@@ -434,17 +424,17 @@ impl Predict for Model {
         &mut self,
         before: &str,
         prefix: &str,
-        known: &dyn Fn(&str) -> Option<String>,
         deadline: Instant,
     ) -> Result<Vec<String>, ()> {
-        spell(
-            &mut self.onnx,
-            &self.vocabulary,
-            recent(before).ok_or(())?,
-            prefix,
-            known,
-            deadline,
-        )
+        // The model's beginning-of-document distribution favors site names.
+        // A fixed, local context yields useful initial completions without
+        // reading any additional user text.
+        let context = match recent(before) {
+            Some("") if !prefix.is_empty() => "I ",
+            Some(text) => text,
+            None => return Ok(Vec::new()),
+        };
+        spell(&mut self.onnx, &self.vocabulary, context, prefix, deadline)
     }
 }
 
@@ -510,70 +500,51 @@ mod tests {
         }
     }
 
-    fn run(
-        s: &mut Fake,
-        before: &str,
-        prefix: &str,
-        known: impl Fn(&str) -> Option<String>,
-    ) -> Result<Vec<String>, ()> {
+    fn run(s: &mut Fake, before: &str, prefix: &str) -> Result<Vec<String>, ()> {
         let deadline = Instant::now() + std::time::Duration::from_secs(60);
-        spell(s, &vocabulary(), before, prefix, known, deadline)
-    }
-    fn lower(w: &str) -> Option<String> {
-        Some(w.to_owned())
+        spell(s, &vocabulary(), before, prefix, deadline)
     }
 
     #[test]
     fn spells_multi_piece_words_merges_case_and_applies_prefix() {
         let mut s = fake(&[(1, 0.2), (2, 0.3), (6, 0.4), (9, 0.1)]);
         // water = 0.4 + 0.5 * 0.6; waffle = 0.5 * 0.3; bare "wa" = 0.5 * 0.1.
-        let words = run(&mut s, "I would like ", "wa", lower).unwrap();
+        let words = run(&mut s, "I would like ", "wa").unwrap();
         assert_eq!(words, ["water", "waffle", "wa"]);
-        assert_eq!(
-            run(&mut s, "I would like ", "waf", lower).unwrap(),
-            ["waffle"]
-        );
+        assert_eq!(run(&mut s, "I would like ", "waf").unwrap(), ["waffle"]);
     }
 
     #[test]
     fn blocked_single_letter_and_improbable_unknown_words_are_removed() {
         let mut s = fake(&[(9, 0.6), (10, 0.3), (6, 0.1)]);
-        assert_eq!(run(&mut s, "Say ", "", |_| None).unwrap(), ["water"]);
-        let mut s = fake(&[(6, 1e-5)]);
-        assert!(run(&mut s, "Say ", "", |_| None).unwrap().is_empty());
-        assert_eq!(run(&mut s, "Say ", "", lower).unwrap(), ["water"]);
+        assert_eq!(run(&mut s, "Say ", "").unwrap(), ["water"]);
+        let mut s = fake(&[(6, 1e-8)]);
+        assert!(run(&mut s, "Say ", "").unwrap().is_empty());
     }
 
     #[test]
-    fn casing_comes_from_the_lookup_or_the_model_but_not_sentence_position() {
+    fn casing_comes_from_model_except_sentence_position() {
         let mut s = fake(&[(1, 0.9)]);
         let lowered = ["water", "waffle", "wa"];
-        assert_eq!(run(&mut s, "Send ", "", lower).unwrap(), lowered);
-        assert_eq!(
-            run(&mut s, "Send ", "", |_| None).unwrap(),
-            ["Water", "Waffle", "Wa"]
-        );
-        assert_eq!(run(&mut s, "Done. ", "", |_| None).unwrap(), lowered);
+        assert_eq!(run(&mut s, "Send ", "").unwrap(), lowered);
+        assert_eq!(run(&mut s, "Done. ", "").unwrap(), lowered);
     }
 
     #[test]
     fn text_start_needs_capital_and_attached_prefixes_fall_back() {
         let mut s = fake(&[(7, 0.5), (8, 0.5)]);
-        assert_eq!(
-            run(&mut s, "", "", lower).unwrap(),
-            ["water", "waffle", "wa"]
-        );
-        assert!(run(&mut s, "hello-", "wa", lower).is_err());
+        assert_eq!(run(&mut s, "", "").unwrap(), ["water", "waffle", "wa"]);
+        assert!(run(&mut s, "hello-", "wa").unwrap().is_empty());
         assert_eq!(s.contexts, 1);
     }
 
     #[test]
     fn an_expired_deadline_stops_expansion_and_bad_vocabularies_fail() {
         let mut s = fake(&[(6, 0.9)]);
-        let expired = spell(&mut s, &vocabulary(), "Say ", "", lower, Instant::now());
+        let expired = spell(&mut s, &vocabulary(), "Say ", "", Instant::now());
         assert!(expired.unwrap().is_empty());
         s.next.pop();
-        assert!(run(&mut s, "Say ", "", lower).is_err());
+        assert!(run(&mut s, "Say ", "").is_err());
     }
 
     #[test]
@@ -608,11 +579,10 @@ mod tests {
         )
         .expect("run `npm run prediction-model` to fetch the model");
         println!("model startup_ms={}", start.elapsed().as_millis());
-        let lookup =
-            super::super::lookup::Lookup::open(&root.join("word-predictions.lookup")).unwrap();
-        let known = |w: &str| lookup.spelling(w).map(str::to_owned);
         let mut times = Vec::new();
         for (before, prefix, expected) in [
+            ("", "w", Some("want")),
+            ("I would like ", "wa", None),
             ("I would like a cup of ", "", Some("tea")),
             ("Please put the ", "ket", Some("kettle")),
             ("Can you send a ", "wh", None),
@@ -620,7 +590,7 @@ mod tests {
         ] {
             let t = Instant::now();
             let deadline = t + std::time::Duration::from_secs(60);
-            let words = model.predict(before, prefix, &known, deadline).unwrap();
+            let words = model.predict(before, prefix, deadline).unwrap();
             times.push(t.elapsed().as_secs_f64() * 1000.0);
             println!("{before:?}+{prefix:?} -> {words:?}");
             assert!(words.iter().all(|w| normalize(w).starts_with(prefix)));

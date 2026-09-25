@@ -12,6 +12,7 @@ pub enum Request {
         token: u64,
         index: usize,
     },
+    PredictionRetry,
     OpenKeyboard,
     OpenMouse,
     OpenPoint,
@@ -308,9 +309,7 @@ impl Workflow {
     pub fn prediction_enabled(&self) -> bool {
         self.point.config.word_prediction
     }
-    pub fn prediction_enhanced(&self) -> bool {
-        self.point.config.enhanced_word_prediction
-    }
+
     pub fn set_keyboard_area(&mut self, area: Rect) {
         self.keyboard_area = area;
     }
@@ -663,6 +662,9 @@ impl Technique for Workflow {
                     }
                     Some(crate::scan_keyboard::Output::Prediction { token, index }) => {
                         return Some(Request::Prediction { token, index })
+                    }
+                    Some(crate::scan_keyboard::Output::RetryPrediction) => {
+                        return Some(Request::PredictionRetry)
                     }
                     Some(crate::scan_keyboard::Output::Close) => self.keyboard_closed(),
                     None => {}

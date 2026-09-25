@@ -277,14 +277,9 @@ it("customises individual settings, restores defaults and returns focus without 
   expect(screen.getByRole("heading", { name: "Keyboard" })).toHaveFocus();
   expect(screen.queryByRole("checkbox", { name: "Auto select" })).not.toBeInTheDocument();
   expect(screen.getByRole("checkbox", { name: "Word prediction" })).toBeEnabled();
-  expect(screen.getByRole("checkbox", { name: "Enhanced word prediction" })).not.toBeChecked();
+  expect(screen.queryByRole("checkbox", { name: "Enhanced word prediction" })).not.toBeInTheDocument();
   expect(screen.getByText(/Your typing never leaves this computer/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("checkbox", { name: "Enhanced word prediction" }));
-  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
-    config: expect.objectContaining({ enhancedWordPrediction: true })
-  }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Word prediction" }));
-  expect(screen.getByRole("checkbox", { name: "Enhanced word prediction" })).toBeDisabled();
   fireEvent.click(screen.getByRole("checkbox", { name: "Word prediction" }));
   mocks.invoke.mockClear();
   expect(screen.getByText(/The scanning keyboard spaces punctuation for you/)).toBeInTheDocument();

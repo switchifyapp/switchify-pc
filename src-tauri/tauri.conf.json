@@ -36,7 +36,6 @@
   },
   "bundle": {
     "resources": [
-      "resources/word-predictions.lookup",
       "resources/prediction-blocklist.txt",
       "resources/prediction-model/model.onnx",
       "resources/prediction-model/tokenizer.json",

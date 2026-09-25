@@ -1,9 +1,6 @@
 mod activity;
 mod context;
 mod database;
-#[cfg(test)]
-mod database_reference;
-mod lookup;
 mod model;
 pub mod worker;
 
@@ -66,13 +63,12 @@ struct Client {
     _job: Job,
 }
 impl Client {
-    fn start(path: &Path, ignored: Vec<u32>, enhanced: bool) -> Result<Self, ()> {
+    fn start(path: &Path, ignored: Vec<u32>) -> Result<Self, ()> {
         let mut command = Command::new(std::env::current_exe().map_err(|_| ())?);
         command
             .arg(worker::ARG)
             .arg(path)
             .arg(serde_json::to_string(&ignored).map_err(|_| ())?)
-            .arg(serde_json::to_string(&enhanced).map_err(|_| ())?)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -143,7 +139,6 @@ impl Drop for Client {
 struct Service {
     client: Option<Client>,
     failed: bool,
-    received_reply: bool,
     generation: u64,
     outstanding: Option<Instant>,
     last: Option<Instant>,
@@ -155,8 +150,6 @@ struct Service {
     accepting: bool,
     case: Option<(bool, bool, bool)>,
     tracking: bool,
-    /// Whether the running worker was started with the language model.
-    enhanced: bool,
 }
 #[derive(Clone, Copy)]
 pub struct InputScope {
@@ -197,13 +190,8 @@ pub fn reset() {
 }
 impl Service {
     fn response_timed_out(&self, now: Instant) -> bool {
-        // The worker validates and loads the bundled lookup before its first
-        // reply. On slower Windows machines that takes longer than a query.
-        let deadline = if self.received_reply {
-            Duration::from_secs(2)
-        } else {
-            Duration::from_secs(30)
-        };
+        // Model loading is asynchronous; only inference uses the query deadline.
+        let deadline = Duration::from_secs(2);
         self.outstanding
             .is_some_and(|sent| now.duration_since(sent) >= deadline)
     }
@@ -232,6 +220,7 @@ impl Service {
         revision: u64,
         batch: Option<worker::Batch>,
         tracking: bool,
+        status: database::Status,
     ) {
         if revision < self.acknowledged_revision || revision > self.edit_revision {
             self.fail(keyboard);
@@ -239,7 +228,7 @@ impl Service {
         }
         self.acknowledged_revision = revision;
         if generation == self.generation && revision == self.edit_revision {
-            self.suggestions(keyboard, batch, tracking);
+            self.suggestions(keyboard, batch, tracking, status);
         } else {
             self.tracking = tracking;
             if !tracking {
@@ -253,6 +242,7 @@ impl Service {
         keyboard: &mut Keyboard,
         batch: Option<worker::Batch>,
         tracking: bool,
+        status: database::Status,
     ) {
         self.tracking = tracking;
         if !tracking {
@@ -260,7 +250,12 @@ impl Service {
         }
         let visible = keyboard.page == Page::Letters
             && !keyboard.modifiers[1..].iter().any(|m| *m != Modifier::Off);
-        keyboard.predictions(if visible { batch } else { None }, false);
+        keyboard.predictions(
+            if visible { batch } else { None },
+            status == database::Status::Unavailable,
+        );
+        keyboard.prediction_loading = status == database::Status::Loading;
+        keyboard.prediction_tracking(tracking);
     }
     fn fail(&mut self, keyboard: &mut Keyboard) {
         self.client = None;
@@ -323,6 +318,11 @@ pub fn keyboard_input_context() -> Option<crate::scan_keyboard::TypingContext> {
 pub fn stop() {
     SERVICE.with(|s| *s.borrow_mut() = Service::default());
 }
+/// Restart only prediction. The keyboard and its scan session remain open,
+/// while the old worker and its private text context are discarded.
+pub fn retry() {
+    stop();
+}
 pub fn record(stroke: Stroke, success: bool, scope: InputScope) {
     SERVICE.with(|s| {
         let mut s = s.borrow_mut();
@@ -375,16 +375,16 @@ fn resource(app: &AppHandle) -> Result<std::path::PathBuf, ()> {
     let bundled = app
         .path()
         .resolve(
-            "resources/word-predictions.lookup",
+            "resources/prediction-blocklist.txt",
             tauri::path::BaseDirectory::Resource,
         )
         .map_err(|_| ());
     let development = cfg!(debug_assertions)
-        .then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/word-predictions.lookup"));
-    database_resource(bundled, development)
+        .then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/prediction-blocklist.txt"));
+    model_resource(bundled, development)
 }
 
-fn database_resource(
+fn model_resource(
     bundled: Result<std::path::PathBuf, ()>,
     development: Option<std::path::PathBuf>,
 ) -> Result<std::path::PathBuf, ()> {
@@ -395,13 +395,7 @@ fn database_resource(
         .ok_or(())
 }
 
-pub fn poll(
-    app: &AppHandle,
-    keyboard: Option<&mut Keyboard>,
-    enabled: bool,
-    enhanced: bool,
-    ignored: &[String],
-) {
+pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ignored: &[String]) {
     let Some(keyboard) = keyboard else {
         stop();
         return;
@@ -413,17 +407,6 @@ pub fn poll(
     }
     SERVICE.with(|slot| {
         let mut s = slot.borrow_mut();
-        if s.enhanced != enhanced {
-            // Changing the engine restarts the worker, like reopening the keyboard.
-            if s.accepting || s.accept.is_some() {
-                keyboard.failed();
-            }
-            *s = Service {
-                enhanced,
-                ..Service::default()
-            };
-            keyboard.predictions(None, false);
-        }
         let case = (
             keyboard.prediction_shift(),
             keyboard.caps,
@@ -433,7 +416,7 @@ pub fn poll(
             s.case = Some(case);
             s.generation = s.generation.wrapping_add(1);
             s.last = None;
-            keyboard.predictions(None, false);
+            keyboard.predictions(None, s.failed);
         }
         if s.failed {
             keyboard.predictions(None, true);
@@ -445,13 +428,14 @@ pub fn poll(
                 .filter_map(|name| crate::switch_input::prediction_key_code(name))
                 .collect();
             s.client = resource(app)
-                .and_then(|path| Client::start(&path, ignored, enhanced))
+                .and_then(|path| Client::start(path.parent().ok_or(())?, ignored))
                 .ok();
             if s.client.is_none() {
                 s.failed = true;
                 keyboard.predictions(None, true);
                 return;
             }
+            keyboard.prediction_loading = true;
         }
         if s.response_timed_out(Instant::now()) {
             s.fail(keyboard);
@@ -461,15 +445,17 @@ pub fn poll(
         match reply {
             Ok(Ok(response)) => {
                 s.outstanding = None;
-                s.received_reply = true;
                 match response {
                     Response::Suggestions {
                         generation,
                         batch,
                         revision,
                         tracking,
+                        status,
                     } => {
-                        s.received_suggestions(keyboard, generation, revision, batch, tracking);
+                        s.received_suggestions(
+                            keyboard, generation, revision, batch, tracking, status,
+                        );
                     }
                     Response::Insert {
                         generation,
@@ -560,6 +546,28 @@ pub fn poll(
 mod tests {
     use super::*;
     #[test]
+    fn retry_discards_failed_worker_state_and_private_edits() {
+        stop();
+        SERVICE.with(|slot| {
+            let mut service = slot.borrow_mut();
+            service.failed = true;
+            service.generation = 17;
+            service
+                .edit
+                .push(InputScope::capture().record(Edit::Append("test".into())));
+            service.accept = Some((3, 0));
+        });
+        retry();
+        SERVICE.with(|slot| {
+            let service = slot.borrow();
+            assert!(!service.failed);
+            assert_eq!(service.generation, 0);
+            assert!(service.edit.is_empty());
+            assert!(service.accept.is_none());
+            assert!(service.client.is_none());
+        });
+    }
+    #[test]
     fn activity_observer_retries_after_failure_or_lost_hook() {
         let state = AtomicU8::new(0);
         assert!(claim_keyboard_activity_start(&state, false));
@@ -605,7 +613,6 @@ mod tests {
             SERVICE.with(|slot| {
                 let s = slot.borrow();
                 assert!(!s.failed);
-                assert!(!s.received_reply);
                 assert!(!s.accepting);
                 assert!(s.accept.is_none());
                 assert!(s.outstanding.is_none());
@@ -614,16 +621,15 @@ mod tests {
         }
     }
     #[test]
-    fn first_worker_reply_has_a_startup_deadline_then_queries_use_two_seconds() {
+    fn worker_replies_have_two_second_deadline() {
         let now = Instant::now();
         let mut service = Service {
             outstanding: Some(now - Duration::from_secs(7)),
             ..Default::default()
         };
-        assert!(!service.response_timed_out(now));
+        assert!(service.response_timed_out(now));
         service.outstanding = Some(now - Duration::from_secs(30));
         assert!(service.response_timed_out(now));
-        service.received_reply = true;
         service.outstanding = Some(now - Duration::from_secs(1));
         assert!(!service.response_timed_out(now));
         service.outstanding = Some(now - Duration::from_secs(2));
@@ -671,7 +677,7 @@ mod tests {
             ..Default::default()
         };
         let mut keyboard = Keyboard::new(false);
-        service.received_suggestions(&mut keyboard, 0, 4, None, true);
+        service.received_suggestions(&mut keyboard, 0, 4, None, true, database::Status::Ready);
         assert!(service.failed);
     }
 
@@ -684,30 +690,30 @@ mod tests {
         std::fs::write(&bundled, []).unwrap();
         std::fs::write(&source, []).unwrap();
         assert_eq!(
-            database_resource(Ok(bundled.clone()), Some(source.clone())),
+            model_resource(Ok(bundled.clone()), Some(source.clone())),
             Ok(bundled.clone())
         );
         assert_eq!(
-            database_resource(Ok(bundled.clone()), None),
+            model_resource(Ok(bundled.clone()), None),
             Ok(bundled.clone())
         );
         std::fs::remove_file(&source).unwrap();
         assert_eq!(
-            database_resource(Ok(bundled.clone()), Some(source.clone())),
+            model_resource(Ok(bundled.clone()), Some(source.clone())),
             Ok(bundled.clone())
         );
         std::fs::write(&source, []).unwrap();
         std::fs::remove_file(&bundled).unwrap();
         assert_eq!(
-            database_resource(Ok(bundled.clone()), Some(source.clone())),
+            model_resource(Ok(bundled.clone()), Some(source.clone())),
             Ok(source.clone())
         );
         assert_eq!(
-            database_resource(Err(()), Some(source.clone())),
+            model_resource(Err(()), Some(source.clone())),
             Ok(source.clone())
         );
-        assert_eq!(database_resource(Ok(bundled), None), Err(()));
-        assert_eq!(database_resource(Ok(root.clone()), None), Err(()));
+        assert_eq!(model_resource(Ok(bundled), None), Err(()));
+        assert_eq!(model_resource(Ok(root.clone()), None), Err(()));
         std::fs::remove_file(source).unwrap();
         std::fs::remove_dir(root).unwrap();
     }

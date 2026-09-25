@@ -1,4 +1,4 @@
-// Downloads the enhanced word prediction model into src-tauri/resources/prediction-model.
+// Downloads the word prediction model into src-tauri/resources/prediction-model.
 // The model is too large to commit, so every file is pinned to one upstream
 // revision and verified by SHA-256. Verified files are not downloaded again.
 import { createHash } from "node:crypto";

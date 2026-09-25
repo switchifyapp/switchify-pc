@@ -15,7 +15,9 @@ pub fn execute<I: InputInjector>(
         );
     }
     match request {
-        Request::Prediction { .. } => Err("Prediction requires the scan controller.".into()),
+        Request::Prediction { .. } | Request::PredictionRetry => {
+            Err("Prediction requires the scan controller.".into())
+        }
         Request::OpenKeyboard | Request::OpenMouse | Request::OpenPoint => input.release_all(),
         Request::MouseMove { dx, dy } => input.move_pointer_pixels(dx, dy).map(|_| ()),
         Request::MouseMoveAbsolute { x, y } => input.move_pointer_pixels_absolute(x, y).map(|_| ()),

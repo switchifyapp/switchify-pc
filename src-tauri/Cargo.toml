@@ -75,6 +75,3 @@ winreg = "0.55"
 
 [patch.crates-io]
 corebluetooth-rs = { path = "../vendor/corebluetooth-rs" }
-
-[dev-dependencies]
-rusqlite = { version = "0.40.2", features = ["bundled"] }
