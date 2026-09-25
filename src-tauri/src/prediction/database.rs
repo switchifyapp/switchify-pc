@@ -31,12 +31,11 @@ pub struct Database {
     slow_call: Duration,
 }
 impl Database {
-    pub fn open(resources: &Path) -> Self {
-        let model = resources.join("prediction-model");
-        let blocklist = resources.join("prediction-blocklist.txt");
+    pub fn open(model: &Path) -> Self {
+        let model = model.to_path_buf();
         let (tx, rx) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
-            let _ = tx.send(Model::open(&model, &blocklist));
+            let _ = tx.send(Model::open(&model));
         });
         Self {
             state: State::Loading(rx),

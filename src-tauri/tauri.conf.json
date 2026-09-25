@@ -36,7 +36,6 @@
   },
   "bundle": {
     "resources": [
-      "resources/prediction-blocklist.txt",
       "resources/prediction-model/model.onnx",
       "resources/prediction-model/tokenizer.json",
       "resources/prediction-model/config.json"

@@ -371,16 +371,19 @@ pub fn select(token: u64, index: usize) -> Result<(), String> {
         Ok(())
     })
 }
+/// The model's config file; its directory is the model. A file rather than
+/// the directory, so a half-copied bundle is not mistaken for a model.
 fn resource(app: &AppHandle) -> Result<std::path::PathBuf, ()> {
     let bundled = app
         .path()
         .resolve(
-            "resources/prediction-blocklist.txt",
+            "resources/prediction-model/config.json",
             tauri::path::BaseDirectory::Resource,
         )
         .map_err(|_| ());
-    let development = cfg!(debug_assertions)
-        .then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/prediction-blocklist.txt"));
+    let development = cfg!(debug_assertions).then(|| {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/prediction-model/config.json")
+    });
     model_resource(bundled, development)
 }
 
