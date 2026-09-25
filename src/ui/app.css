@@ -625,7 +625,7 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
   .toggle-row input:focus-visible + .toggle { outline-color: CanvasText; }
   .color-swatch, .scanner-sample { forced-color-adjust: none; }
   /* A white or yellow swatch would vanish on a light Canvas without an edge. */
-  .color-swatch { border: 2px solid CanvasText; }
+  .color-swatch, .color-swatch.white { border: 2px solid CanvasText; }
   .color-options label:has(input:checked), .scanner-colours label:has(input:checked) { border-color: Highlight; }
   .switch-practice-blocks li[data-selected="true"] { border: 4px solid Highlight; }
   /* The step rail is drawn with backgrounds only. */
