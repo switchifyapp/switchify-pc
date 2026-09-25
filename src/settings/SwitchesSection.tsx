@@ -410,6 +410,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
   const remoteRows = slots
     .map((slot, index) => ({ slot, index }))
     .filter(({ slot }) => slot.pressAction !== null);
+  const hasSwitches = settings.bindings.length > 0 || remoteRows.length > 0;
   const freeSlots = slots
     .map((slot, index) => (slot.pressAction === null ? index : -1))
     .filter((index) => index >= 0);
@@ -673,11 +674,10 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
         />
       )}
       <SettingGroup
-        title="Switches"
+        title="Your switches"
         description=""
       >
-        {!draft && <Button className="primary" ref={addRef} disabled={disabled || settings.bindings.length >= 128} onClick={startAdd}>Add switch</Button>}
-        <SwitchPractice disabled={!!state?.keyboardEntry || entryPending || capturing || !!pending || unsaved || !!remote.pending || remote.unsaved || !!draft || suspended} />
+        <div className="switch-toolbar">
         <p className="setting-note switch-status" role="status">
           {pending || remote.pending
             ? "Saving switches..."
@@ -685,6 +685,9 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
               ? "Switch assignments have unsaved changes."
               : "Saved automatically."}
         </p>
+        {/* One fixed place in every state, so focus survives switches loading. */}
+        {!draft && <Button className="primary" ref={addRef} disabled={disabled || settings.bindings.length >= 128} onClick={startAdd}>Add switch</Button>}
+        </div>
         {remote.error && (
           <div className="dialog-error switch-error" role="alert">
             <span>{remote.error}</span>
@@ -713,13 +716,14 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
             )}
           </div>
         )}
-        {!settings.bindings.length && !remoteRows.length && !draft ? (
+        {!hasSwitches && !draft ? (
           <div className="empty-state switch-empty">
             <Keyboard size={28} aria-hidden="true" />
             <h3>No switches yet</h3>
             <p>
-              Automatic scanning needs a Select switch. Manual scanning also
-              needs Next and Previous.
+              Choose Add switch, then press the switch you use to choose
+              things. Automatic scanning needs a Select switch. Manual
+              scanning also needs Next and Previous.
             </p>
             <div className="switch-list-actions">
               <Button
@@ -935,6 +939,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
 
           </div>
         )}
+        <SwitchPractice disabled={!!state?.keyboardEntry || entryPending || capturing || !!pending || unsaved || !!remote.pending || remote.unsaved || !!draft || suspended} />
       </SettingGroup>
       <MoreOptions label="More options">
       <SettingGroup
