@@ -376,7 +376,7 @@ main { min-width: 0; }
 .color-options label:has(input:focus-visible), .scanner-colours label:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 3px; }
 /* Inside a disabled group the chips are inert, so they stop inviting a click. */
 fieldset:disabled :is(.color-options, .scanner-colours) label { cursor: default; }
-fieldset:disabled :is(.color-options, .scanner-colours) label:hover { background: var(--surface); }
+fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:checked)):hover { background: var(--surface); }
 .color-swatch { flex: none; width: 24px; height: 24px; border: 1px solid rgba(20, 30, 25, 0.26); border-radius: 50%; }
 .color-swatch.red { background: #d32f2f; }
 .color-swatch.green { background: #84ff91; }
