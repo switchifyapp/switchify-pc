@@ -39,7 +39,7 @@ export function Tabs<T extends string>({ name, tabs, active, onSelect, label }: 
   };
 
   return <>
-    <div className="segmented tab-bar" role="tablist" aria-label={label} ref={listRef} style={{ ["--tab-count" as string]: tabs.length }}>
+    <div className="tab-bar" role="tablist" aria-label={label} ref={listRef}>
       {tabs.map((tab, index) => <Button
         key={tab.id}
         type="button"
