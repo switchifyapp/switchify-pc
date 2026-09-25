@@ -1,10 +1,13 @@
-export type DemonstrationKind = "jack" | "usb" | "learn" | "select" | "grid" | "line" | "hold" | "access" | "pair" | "startup";
+export type DemonstrationKind = "jack" | "usb" | "interface" | "learn" | "select" | "grid" | "line" | "hold" | "access" | "pair" | "startup";
 export type DemoPlatform = "windows" | "macos" | "linux";
+import { highKeyRange } from "./keyAvailability";
 
 export function demonstration(kind: DemonstrationKind, platform: DemoPlatform) {
   const location = platform === "macos" ? "menu bar" : "system tray";
+  const highKeys = highKeyRange(platform);
   const examples = {
     jack: { title: "Connect a jack switch", steps: ["Check which connector and socket your switch interface requires. This illustration uses socket 1 as an example.", "Insert the compatible switch plug fully into the interface.", "Connect the interface to your computer, then use Add switch to learn the key it sends."] },
+    interface: { title: "Choose a keyboard mode on your interface", steps: ["Most switch interfaces have a mode switch or setting. Mouse-click and gamepad modes cannot be learned as switches, so Switchify sees nothing when you press.", "Choose the keyboard mode. Most interfaces send Space and Enter in this mode, and Switchify learns those.", "Choose Add switch, then press and release your switch. The key it sends appears as a badge.", `Assigned keys stay reserved while Switchify runs. If your interface can be programmed, set it to ${highKeys}, which nothing else types.`] },
     usb: { title: "Connect a USB switch", steps: ["A USB switch or keyboard interface sends a key when you press the switch.", "Connect it to a compatible USB port on your computer.", "Choose Add switch and learn its key. Connecting the cable alone does not configure Switchify."] },
     learn: { title: "Learn a switch key", steps: ["Choose Add switch, then Learn key to open the capture dialog.", "Press and release your physical switch once.", "The key it sends appears in the editor. F13 is only an example; your switch may send a different key."] },
     select: { title: "Assign Select", steps: ["After learning a key, open its Press and release action list.", "Choose Select so a short press and release chooses the highlighted item.", "Save the switch. Automatic scanning needs Select; manual scanning also needs Next and Previous."] },
@@ -17,6 +20,7 @@ export function demonstration(kind: DemonstrationKind, platform: DemoPlatform) {
   };
   const captions: Record<DemonstrationKind, string[]> = {
     jack: ["Check the connector.", "Plug in your switch.", "Connect the interface. Then add your switch."],
+    interface: ["Find the mode switch.", "Choose the keyboard mode.", "Press your switch to learn its key.", `Program ${highKeys} to avoid clashes.`],
     usb: ["Your switch sends a key.", "Plug it into your computer.", "Add your switch and learn its key."],
     learn: ["Choose Add switch, then Learn key.", "Press and release your switch.", "Check the key shown."],
     select: ["Open Press and release.", "Choose Select.", "Save your switch."],

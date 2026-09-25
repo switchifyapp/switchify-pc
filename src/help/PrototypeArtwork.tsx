@@ -54,6 +54,52 @@ export function PrototypeArtwork({ kind, step, platform }: { kind: Demonstration
           </g>
         </svg>
   );
+  if (kind === "interface") {
+    const knobX = step === 0 ? 292 : 428;
+    return (
+<svg className="prototype-artwork" viewBox="0 0 720 405" aria-hidden="true" focusable="false">
+          <rect width="720" height="405" fill="#f7f6fa" />
+          <ellipse cx="360" cy="352" rx="240" ry="14" fill="#e4e2ea" />
+
+          <rect x="180" y="86" width="360" height="236" rx="14" fill="#efedf4" stroke="#a9a5b2" strokeWidth="1.5" />
+          <rect x="202" y="102" width="316" height="28" rx="6" fill="#d32f2f" />
+          <text x="360" y="120" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="700" letterSpacing="0.06em">SWITCH INTERFACE</text>
+          <text x="360" y="158" textAnchor="middle" fontSize="12" fontWeight="650" fill="#5c5764">MODE</text>
+
+          <rect x="264" y="170" width="192" height="44" rx="22" fill="#d5d2dc" stroke="#b9b5c2" />
+          <circle className="mode-knob" cx={knobX} cy="192" r="18" fill="#d32f2f" />
+
+          <g stroke="#3a3a42" strokeWidth="2" fill="none" strokeLinecap="round">
+            <g transform="translate(292,192)"><rect x="-6" y="-11" width="12" height="22" rx="6" /><path d="M0 -11 v6" /></g>
+            <g transform="translate(360,192)"><rect x="-13" y="-7" width="26" height="14" rx="6" /><circle cx="-6" cy="0" r="1.6" fill="#3a3a42" /><circle cx="6" cy="-2" r="1.6" fill="#3a3a42" /><circle cx="9" cy="2" r="1.6" fill="#3a3a42" /></g>
+            <g transform="translate(428,192)"><rect x="-14" y="-8" width="28" height="16" rx="3" /><path d="M-9 -3 h3 M-3 -3 h3 M3 -3 h3 M-9 3 h18" /></g>
+          </g>
+          <g fontSize="11" fill="#5c5764" textAnchor="middle">
+            <text x="292" y="240">Mouse</text>
+            <text x="360" y="240">Gamepad</text>
+            <text x="428" y="240" fontWeight={step > 0 ? 700 : 400} fill={step > 0 ? "#1c1b1f" : "#5c5764"}>Keyboard</text>
+          </g>
+          <g transform="translate(0,278)"><rect x="522" y="-14" width="18" height="28" rx="3" fill="#2a2a30" /><ellipse cx="540" cy="0" rx="8" ry="14" fill="#0a0a0c" stroke="#8e8a96" strokeWidth="2" /></g>
+
+          <path d="M548 278 H 600" fill="none" stroke="#1c1b1f" strokeWidth="8" strokeLinecap="round" />
+          <g transform="translate(640,278)">
+            <circle r="42" fill="#2a2a32" />
+            <circle r="31" fill="#1a1a20" />
+            <circle className="plunger" r="22" fill="#d32f2f" cy={step === 2 ? 5 : -2} />
+          </g>
+
+          <g className="mode-badge" opacity={step === 0 ? 1 : 0} transform="translate(360,300)">
+            <rect x="-70" y="-15" width="140" height="30" rx="6" fill="#ffdad6" stroke="#ba1a1a" />
+            <text textAnchor="middle" y="5" fontSize="12" fontWeight="700" fill="#ba1a1a">Nothing learned</text>
+          </g>
+          <g className="key-badge-art" opacity={step >= 2 ? 1 : 0} transform="translate(360,300)">
+            <rect x="-40" y="-16" width="80" height="32" rx="6" fill="#f3f2f6" stroke="#e2e0e8" strokeWidth="2" />
+            <text textAnchor="middle" y="5" fontSize="14" fontWeight="700" fontFamily="ui-monospace,Consolas,monospace" fill="#1c1b1f">{step === 3 ? "F13" : "Space"}</text>
+          </g>
+          <g opacity={step === 3 ? 1 : 0}><text x="360" y="382" textAnchor="middle" fontSize="12" fill="#49454f">Programmed so it never types</text></g>
+        </svg>
+    );
+  }
   if (kind === "usb") return (
 <svg className="prototype-artwork" viewBox="0 0 720 405" aria-hidden="true" focusable="false">
           <rect width="720" height="405" fill="#f7f6fa" />

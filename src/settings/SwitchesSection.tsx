@@ -1,5 +1,7 @@
 import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { Demonstration, SwitchDemonstrations } from "../help/Demonstration";
+import type { DemoPlatform } from "../help/demonstrations";
+import { interfaceModeAdvice, keysNotLearned, reservedKeyAdvice, unavailableKeyReason } from "../help/keyAvailability";
 import { SwitchPractice } from "../scanning/SwitchPractice";
 import { createPortal } from "react-dom";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -85,6 +87,7 @@ function SwitchEditor({
   holdIntervalMs,
   unavailable,
   keyError,
+  unavailableReason,
   onChange,
   onLearn,
   onDone,
@@ -105,6 +108,8 @@ function SwitchEditor({
   holdIntervalMs: number;
   unavailable: boolean;
   keyError: string | null;
+  /** Why the saved key cannot be used on this computer, when `unavailable`. */
+  unavailableReason?: string;
   onChange: (next: Binding) => void;
   onLearn: () => void;
   onDone: () => void;
@@ -189,7 +194,7 @@ function SwitchEditor({
           </div>
           {(keyError || unavailable) && (
             <span className="field-error" id={keyErrorId} role="alert">
-              {keyError ??
+              {keyError ?? unavailableReason ??
                 "This key is unavailable on this computer. Learn another key."}
             </span>
           )}
@@ -305,7 +310,8 @@ function SwitchEditor({
 // Keep focus off actionable controls throughout learning, including pre-held
 // releases and keys outside the native supported set. Losing main-window focus
 // cancels learning; Escape is handled by native capture.
-function CaptureDialog({ name, onCancel }: { name: string; onCancel: () => void }) {
+function CaptureDialog({ name, platform, onCancel }: { name: string; platform?: DemoPlatform; onCancel: () => void }) {
+  const notLearned = keysNotLearned(platform);
   const ref = useRef<HTMLElement>(null);
   const titleId = useId();
   const bodyId = useId();
@@ -345,7 +351,7 @@ function CaptureDialog({ name, onCancel }: { name: string; onCancel: () => void 
         <p id={bodyId}>
           Learning your switch for {name}. Nothing else responds until a switch
           press is learned. Press Escape to cancel, or click Cancel capture with
-          the mouse.
+          the mouse.{notLearned && ` ${notLearned}`}
         </p>
         <Button type="button" className="secondary" tabIndex={-1} onClick={onCancel}>
           Cancel capture
@@ -383,7 +389,7 @@ function SwitchConfirmation({ title, action, busy, error, cancel, confirm }: { t
   </section></div>, document.body);
 }
 
-export function SwitchesSection({ controller, onDraftChange, suspended = false, mobileConnected }: { controller: SwitchController; onDraftChange?: (draft: boolean) => void; suspended?: boolean; mobileConnected?: boolean }) {
+export function SwitchesSection({ controller, onDraftChange, suspended = false, mobileConnected, platform }: { controller: SwitchController; onDraftChange?: (draft: boolean) => void; suspended?: boolean; mobileConnected?: boolean; platform?: DemoPlatform }) {
   const { settings, state, pending, unsaved } = controller;
   // A refused capture sets both the general error and the capture error; the
   // key field already shows the latter, so the band only carries save errors.
@@ -667,6 +673,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
       {capturing && target && !suspended && (
         <CaptureDialog
           name={captureName}
+          platform={platform}
           onCancel={() => {
             setTarget(null);
             void controller.cancelCapture();
@@ -794,6 +801,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                       disabled={disabled}
                       holdIntervalMs={settings.holdIntervalMs}
                       unavailable={unavailable}
+                      unavailableReason={unavailable ? unavailableKeyReason(binding.key, platform) : undefined}
                       keyError={errorFor(binding.id)}
                       onChange={edit}
                       onLearn={() => learn(binding.id)}
@@ -1002,6 +1010,11 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
               ? "No mobile device connected. Remote assignments are available for a future connection."
               : "Mobile connection status is unavailable here."} A connection alone does not verify a physical switch press.</p>
         </div>
+        <SettingNote
+          about="switch interfaces"
+          summary={interfaceModeAdvice}
+          detail={reservedKeyAdvice(platform)}
+        />
         <SettingNote
           about="switches"
           summary="Press and release a switch to run its action. Hold it to step through its hold actions instead."
