@@ -95,12 +95,15 @@ function MobileConnection({ state, onDisconnect }: { state: AppState; onDisconne
       <StatusIcon ok={bluetoothOk || (bluetoothFixable ? false : undefined)}><Bluetooth size={20} /></StatusIcon><div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothDescriptions.connected : bluetoothDescriptions[state.bluetooth]}</p></div>
       {state.bluetooth === "connected" && <Button className="secondary" onClick={onDisconnect}>Disconnect</Button>}
     </section>
-    <p>Optional. Connecting a mobile device pauses local scanning.</p>
+    <p className="mobile-note">Optional. Connecting a mobile device pauses local scanning.</p>
+    <div className="mobile-cards">
     <div className="mobile-download">
-      <div><h2>Install Switchify for mobile</h2><p>Scan to get the app.</p><a className="secondary" href={mobileDownloadUrl} target="_blank" rel="noreferrer">Open Google Play</a></div>
+      <h2>Install Switchify for mobile</h2><p>Scan to get the app.</p>
       <figure><img src={mobileQrUrl} alt="QR code for Switchify on Google Play" /><figcaption>Get Switchify</figcaption></figure>
+      <a className="secondary" href={mobileDownloadUrl} target="_blank" rel="noreferrer">Open Google Play</a>
     </div>
     <section className="mobile-pairing"><h2>Connect your mobile</h2><ol><li>Open Switchify on your mobile device and select this computer.</li><li>Compare the pairing codes shown in both apps.</li><li>Approve the pairing request on this computer only if the codes match.</li></ol><Demonstration kind="pair" /></section>
+    </div>
   </section>;
 }
 

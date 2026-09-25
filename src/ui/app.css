@@ -501,16 +501,23 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .scan-rate-stepper output { display: grid; place-items: center; min-width: 96px; border-inline: 1px solid var(--border); color: var(--text); font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .exact-speed > span:first-child { color: var(--text); font-size: 18px; }
 
-/* --- Mobile ------------------------------------------------------------------- */
-.mobile-download { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 20px; }
-.mobile-download figure { max-width: 210px; margin: 0; }
-.mobile-download figcaption { margin-top: 8px; color: var(--muted); }
-.mobile-download img { width: 190px; height: 190px; border: 1px solid var(--border); border-radius: 9px; padding: 10px; background: white; image-rendering: crisp-edges; }
-.mobile-download a { width: max-content; margin-top: 22px; text-decoration: none; }
+/* --- Mobile -------------------------------------------------------------------
+   Two equal cards under the connection band: getting the app, then pairing.
+   Side by side when there is room, stacked otherwise. */
+.mobile-note { margin: 12px 0 24px; color: var(--muted); }
+.mobile-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start; gap: 16px; }
+.mobile-download, .mobile-pairing { border: 1px solid var(--border); border-radius: var(--radius-card); padding: 24px; background: var(--surface); }
+.mobile-download { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.mobile-download p { color: var(--muted); }
+.mobile-download figure { margin: 8px 0; }
+.mobile-download img { display: block; width: 176px; height: 176px; border: 1px solid var(--border); border-radius: 12px; padding: 10px; background: white; image-rendering: crisp-edges; }
+.mobile-download figcaption { margin-top: 6px; color: var(--muted); font-size: 16px; }
+.mobile-download a { text-decoration: none; }
 .mobile-download a.secondary { border: 1px solid var(--border-strong); padding: 12px 20px; color: var(--text); background: var(--surface); font-weight: 600; }
 .mobile-download a.secondary:hover { background: var(--surface-hover); }
-.mobile-pairing { margin-top: 28px; }
-.mobile-pairing ol { padding-left: 24px; color: var(--muted); line-height: 1.6; }
+.mobile-pairing ol { margin: 12px 0 0; padding-left: 24px; color: var(--muted); line-height: 1.6; }
+.mobile-pairing li + li { margin-top: 8px; }
+.mobile-pairing .teaching-disclosure { margin-bottom: 0; }
 
 /* --- Dialogs ------------------------------------------------------------------ */
 .modal-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 12px; background: rgba(28, 27, 31, 0.48); }
@@ -556,8 +563,15 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .profile-dialog > footer { margin-top: 20px; }
 .profile-dialog > footer > span { flex: 1; }
 .binding-list { margin-top: 18px; border-top: 1px solid var(--border); }
-.binding-row { display: grid; grid-template-columns: 74px 140px minmax(160px, 1fr); align-items: center; gap: 12px; min-height: 54px; border-bottom: 1px solid var(--border); }
-.binding-error { grid-column: 3; margin-top: -8px; padding-bottom: 7px; }
+/* Switch label, action, then the action's value; both controls share the
+   row instead of the action squeezing into a fixed narrow column. */
+.profile-dialog { container-type: inline-size; }
+.binding-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 8px 12px; min-height: 80px; border-bottom: 1px solid var(--border); padding: 8px 0; }
+.binding-error { grid-column: 2 / -1; }
+@container (max-width: 560px) {
+  .binding-row { grid-template-columns: 80px minmax(0, 1fr); }
+  .binding-row > :nth-child(3):not(.binding-error) { grid-column: 2; }
+}
 
 .capture-dialog { display: grid; justify-items: center; width: min(100%, 420px); border: 1px solid var(--brand-border); border-radius: 10px; padding: 32px 28px 24px; color: var(--text); background: var(--surface); box-shadow: var(--shadow-dialog); text-align: center; animation: capture-pulse 1.4s ease-in-out infinite; }
 .capture-dialog:focus { outline: none; }
@@ -585,19 +599,13 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
   .view { padding: 16px; }
   .hold-list li { grid-template-columns: repeat(3, minmax(64px, 1fr)); }
   .hold-list li > select { grid-column: 2 / -1; }
-  .mobile-download { grid-template-columns: 1fr; }
-  .mobile-download figure { justify-self: start; }
   .btn.profile-row { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .profile-row > span:not(:last-child) { display: none; }
+  .profile-row > span:not(.status-icon) { display: none; }
 }
 @media (max-width: 680px) {
-  .binding-row { grid-template-columns: 72px 1fr; padding: 9px 0; }
-  .binding-row input { grid-column: 1 / -1; }
-  .binding-error { grid-column: 1 / -1; margin-top: 0; }
   .profile-dialog > footer > span { flex-basis: 100%; height: 0; }
   .update-banner { grid-template-columns: auto 1fr; }
   .update-banner .btn.text-button { grid-column: 2; justify-self: start; padding-left: 0; }
-  .mobile-download img { width: 150px; height: 150px; }
 }
 @media (max-width: 480px) {
   .app-shell nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
