@@ -148,7 +148,7 @@ struct Service {
     reset: bool,
     accept: Option<(u64, usize)>,
     accepting: bool,
-    case: Option<(bool, bool, bool)>,
+    case: Option<(worker::Shift, bool, bool)>,
     tracking: bool,
 }
 #[derive(Clone, Copy)]

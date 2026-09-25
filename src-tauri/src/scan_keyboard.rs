@@ -461,8 +461,16 @@ impl Keyboard {
             caps: self.caps,
         }
     }
-    pub fn prediction_shift(&self) -> bool {
-        self.modifiers[0] != Modifier::Off && !self.auto_shift
+    /// Shift as a suggestion should see it. An automatic Shift after a
+    /// sentence end is not reported: the worker capitalises there itself.
+    pub fn prediction_shift(&self) -> crate::prediction::worker::Shift {
+        use crate::prediction::worker::Shift;
+        match self.modifiers[0] {
+            Modifier::Off => Shift::Off,
+            Modifier::Once if self.auto_shift => Shift::Off,
+            Modifier::Once => Shift::Once,
+            Modifier::Locked => Shift::Locked,
+        }
     }
     fn clear_auto_capital(&mut self) {
         if self.auto_shift {
@@ -1042,7 +1050,10 @@ mod tests {
         keyboard.choose_with_context(Key::Character('.', '>'), context(1));
         keyboard.succeeded_with_context(context(1));
         assert_eq!(keyboard.modifiers[0], Modifier::Once);
-        assert!(!keyboard.prediction_shift());
+        assert_eq!(
+            keyboard.prediction_shift(),
+            crate::prediction::worker::Shift::Off
+        );
         assert_eq!(keyboard.label(Key::Modifier(0)), "Shift\nNext key");
         let screen = Rect {
             x: 0.0,
@@ -1081,7 +1092,10 @@ mod tests {
         assert!(!keyboard.capitalize_next);
         keyboard.choose_with_context(Key::Modifier(0), context(1));
         assert_eq!(keyboard.modifiers[0], Modifier::Once);
-        assert!(keyboard.prediction_shift());
+        assert_eq!(
+            keyboard.prediction_shift(),
+            crate::prediction::worker::Shift::Once
+        );
     }
 
     #[test]
