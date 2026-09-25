@@ -118,6 +118,7 @@ describe("teaching demonstrations", () => {
     reduced = true;
     render(<DemonstrationProvider platform="macos" suspended={false}><Demonstration kind={kind} /></DemonstrationProvider>);
     const { title, steps, captions } = demonstration(kind, "macos");
+    expect(steps).toHaveLength(captions.length);
     open(title);
     for (let i = 0; i < steps.length; i++) {
       expect(document.querySelector("svg")).not.toBeNull();
