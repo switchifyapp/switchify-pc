@@ -202,6 +202,7 @@ pub struct Keyboard {
     activation: Option<u64>,
     prediction_enabled: bool,
     prediction_failed: bool,
+    pub(crate) prediction_loading: bool,
     predictions: Option<crate::prediction::worker::Batch>,
     queued_predictions: Option<crate::prediction::worker::Batch>,
     prefer_predictions: bool,
@@ -234,6 +235,7 @@ impl Keyboard {
             activation: None,
             prediction_enabled: false,
             prediction_failed: false,
+            prediction_loading: false,
             predictions: None,
             queued_predictions: None,
             prefer_predictions: true,
@@ -279,6 +281,7 @@ impl Keyboard {
     }
     pub fn predictions(&mut self, batch: Option<crate::prediction::worker::Batch>, failed: bool) {
         self.prediction_failed = failed;
+        self.prediction_loading = false;
         if batch.is_none() {
             self.predictions = None;
             self.queued_predictions = None;
@@ -723,6 +726,8 @@ impl Keyboard {
             "Suggestions updating · Select to continue".to_owned()
         } else if self.prediction_failed {
             "Predictions unavailable · Keyboard ready".to_owned()
+        } else if self.prediction_loading {
+            "Loading predictions · Keyboard ready".to_owned()
         } else {
             crate::scan_panel::scanning_status(
                 page,

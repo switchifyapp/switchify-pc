@@ -282,14 +282,7 @@ impl Adapter for PointScan {
             crate::prediction::start_keyboard_activity(captured_keys);
         }
         let enabled = technique.prediction_enabled();
-        let enhanced = technique.prediction_enhanced();
-        crate::prediction::poll(
-            app,
-            technique.prediction_keyboard(),
-            enabled,
-            enhanced,
-            captured_keys,
-        );
+        crate::prediction::poll(app, technique.prediction_keyboard(), enabled, captured_keys);
     }
     fn cleanup(_app: &AppHandle) -> Result<(), String> {
         crate::prediction::stop();

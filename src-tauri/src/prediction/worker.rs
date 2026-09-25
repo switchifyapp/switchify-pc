@@ -1,4 +1,7 @@
-use super::{activity, context, database::Database};
+use super::{
+    activity, context,
+    database::{Database, Status},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
@@ -53,6 +56,7 @@ pub enum Response {
         batch: Option<Batch>,
         revision: u64,
         tracking: bool,
+        status: Status,
     },
     Insert {
         generation: u64,
@@ -84,6 +88,7 @@ pub fn receive<T: serde::de::DeserializeOwned>(reader: &mut impl Read) -> Result
 }
 pub struct Engine {
     database: Database,
+    status: Status,
     foreground: fn() -> Result<usize, ()>,
     observe: fn() -> (u64, bool),
     last_activity: fn() -> u64,
@@ -103,6 +108,7 @@ impl Engine {
     pub fn new(database: Database, tracked: bool) -> Self {
         Self {
             database,
+            status: Status::Loading,
             tracked,
             foreground: || crate::scan_host::foreground().map_err(|_| ()),
             observe: activity::snapshot,
@@ -200,17 +206,16 @@ impl Engine {
             self.snapshot = None;
             return None;
         }
-        if self.snapshot.as_ref() == Some(&self.buffer) && self.case == (shift, caps) {
+        self.status = self.database.status();
+        if self.snapshot.as_ref() == Some(&self.buffer)
+            && self.case == (shift, caps)
+            && self.status != Status::Loading
+        {
             return self.batch.clone();
         }
         let ctx = context::extract(&self.buffer, self.clipped);
-        let words = match self.database.predict(&ctx) {
-            Ok(words) => words,
-            Err(()) => {
-                self.clear();
-                return None;
-            }
-        };
+        let (status, words) = self.database.predict(&ctx);
+        self.status = status;
         self.token = self.token.wrapping_add(1);
         self.suffixes.clear();
         let mut labels = Vec::new();
@@ -268,6 +273,7 @@ impl Engine {
                 caps,
             } => {
                 let batch = self.query(edits, revision, shift, caps);
+                self.status = self.database.status();
                 let tracking = self
                     .target
                     .is_some_and(|target| self.stable(target, self.activity));
@@ -276,6 +282,7 @@ impl Engine {
                     batch,
                     revision: self.revision,
                     tracking,
+                    status: self.status,
                 }
             }
             Request::Accept {
@@ -302,12 +309,11 @@ pub fn run_from_args() -> bool {
         return false;
     }
     let work = || -> Result<(), ()> {
-        if args.len() != 5 {
+        if args.len() != 4 {
             return Err(());
         }
         let path = PathBuf::from(&args[2]);
         let ignored: Vec<u32> = serde_json::from_str(&args[3].to_string_lossy()).map_err(|_| ())?;
-        let enhanced: bool = serde_json::from_str(&args[4].to_string_lossy()).map_err(|_| ())?;
         if ignored.len() > 129 {
             return Err(());
         }
@@ -325,7 +331,7 @@ pub fn run_from_args() -> bool {
         let tracked = activity::start();
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
-            let database = Database::open(&path, enhanced)?;
+            let database = Database::open(&path);
             let mut engine = Engine::new(database, tracked);
             let mut input = std::io::stdin().lock();
             let mut output = std::io::stdout().lock();
@@ -477,33 +483,5 @@ mod tests {
             caps: false,
         };
         assert!(send(&mut Vec::new(), &request).is_err());
-    }
-    #[test]
-    #[ignore = "Manual database performance measurement; no desktop input"]
-    fn bundled_database_benchmark() {
-        let start = std::time::Instant::now();
-        let mut db = Database::open(
-            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("resources/word-predictions.lookup"),
-            false,
-        )
-        .unwrap();
-        let startup = start.elapsed().as_secs_f64() * 1000.0;
-        let mut times = Vec::new();
-        for i in 0..200 {
-            let text = [
-                "I would like wa",
-                "the",
-                "hello ",
-                "I would like some ",
-                "zzzx",
-            ][i % 5];
-            let ctx = context::extract(text, false);
-            let t = std::time::Instant::now();
-            assert!(db.predict(&ctx).is_ok());
-            times.push(t.elapsed().as_secs_f64() * 1000.0);
-        }
-        times.sort_by(f64::total_cmp);
-        println!("database startup_ms={startup:.2} samples=200 failures=0 median_ms={:.2} p95_ms={:.2} max_ms={:.2}",times[99],times[189],times[199]);
     }
 }

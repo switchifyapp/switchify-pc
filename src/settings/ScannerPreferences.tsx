@@ -136,8 +136,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     </SettingGroup>}
     {area === 'keyboard' && <SettingGroup title="Suggestions" description="Show word suggestions while typing with the scanning keyboard.">
       <Toggle label="Word prediction" checked={config.wordPrediction} disabled={disabled} onChange={value => update('wordPrediction', value)} />
-      <Toggle label="Enhanced word prediction" checked={config.enhancedWordPrediction} disabled={disabled || !config.wordPrediction} onChange={value => update('enhancedWordPrediction', value)} />
-      <p className="setting-note">Uses a language model on this computer to suggest more current words. Your typing never leaves this computer and is not used for learning. Uses about 400 MB of extra memory while the keyboard is open.</p>
+      <p className="setting-note">Uses an on-device language model. Suggestions appear after it loads. If prediction is unavailable, the keyboard still works. Your typing never leaves this computer and is not used for learning. Uses about 400 MB of extra memory while the keyboard is open.</p>
     </SettingGroup>}
     <SettingGroup title="Movement" description="">
     {field('automatic', 'Automatic scanning', locked => <Toggle label="Automatic scanning" checked={effective.automatic} disabled={locked} onChange={value => change('automatic', value)} />)}
