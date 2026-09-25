@@ -332,11 +332,13 @@ fn cased(suffix: &str, whole_word: bool, sentence_start: bool, shift: Shift, cap
     } else {
         upper || sentence_start
     };
+    // Only an explicit flip lowers a first letter; otherwise the model's own
+    // casing, such as a name's capital, stays.
     let mut chars = suffix.chars();
     match chars.next() {
         Some(c) if first_upper => c.to_uppercase().collect::<String>() + chars.as_str(),
-        Some(c) => c.to_lowercase().collect::<String>() + chars.as_str(),
-        None => suffix,
+        Some(c) if shift == Shift::Once => c.to_lowercase().collect::<String>() + chars.as_str(),
+        _ => suffix,
     }
 }
 
@@ -582,6 +584,10 @@ mod tests {
         assert_eq!(
             e.query(vec![], 1, Shift::Once, true).unwrap().words[0],
             "wATER"
+        );
+        assert_eq!(
+            e.query(vec![], 1, Shift::Off, false).unwrap().words[4],
+            "WhatsApp"
         );
         e.query(vec![append("wa")], 2, Shift::Off, false).unwrap();
         assert_eq!(
