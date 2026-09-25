@@ -266,6 +266,10 @@ main { min-width: 0; }
 .setting-group header p { margin-top: 5px; color: var(--muted); line-height: 1.5; }
 .setting-group header:has(p:empty) p { display: none; }
 .setting-group:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+/* The first group sits straight under a page header, tab row or disclosure,
+   which already draw their own edge. */
+.setting-group:first-child, .page-header + .setting-group { border-top: 0; padding-top: 0; }
+.setting-group header p { max-width: 64ch; }
 .setting-controls { display: grid; align-content: start; gap: 16px; }
 .setting-note { margin-top: 8px; color: var(--muted); line-height: 1.5; }
 .setting-note-block { display: grid; justify-items: start; }
@@ -288,10 +292,12 @@ main { min-width: 0; }
 .toggle-row[data-disabled="true"] { cursor: default; opacity: 0.55; }
 
 .pointer-speed, .repeat-options fieldset, .overlay-options fieldset, .scanner-preferences fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
-.pointer-speed legend, .repeat-options legend { width: 100%; margin-bottom: 8px; color: var(--muted); }
-.pointer-speed legend strong { float: right; color: inherit; }
+.pointer-speed legend { width: 100%; margin-bottom: 4px; color: var(--text); font-size: 18px; font-weight: 600; }
+.pointer-speed > p { color: var(--muted); }
+.repeat-options legend { width: 100%; margin-bottom: 8px; color: var(--muted); }
+.pointer-speed legend strong { float: right; color: inherit; font-weight: 600; }
 .pointer-speed-ends, .pointer-speed-steps { display: flex; justify-content: space-between; gap: 12px; }
-.pointer-speed-ends { color: var(--muted); }
+.pointer-speed-ends { margin-top: -8px; color: var(--muted); font-size: 16px; }
 .pointer-speed-fine-tune { display: grid; gap: 12px; }
 .pointer-speed-fine-tune p { margin: 0; }
 .pointer-speed-steps .btn { flex: 1; }
@@ -317,6 +323,9 @@ main { min-width: 0; }
 .teaching-disclosure { margin: 16px 0; }
 .teaching-disclosure > .btn.disclosure { flex-wrap: wrap; justify-content: space-between; width: 100%; margin-top: 0; border-color: var(--border); padding: 12px 20px; text-align: left; }
 .teaching-disclosure > .btn > span { min-width: 0; overflow-wrap: anywhere; }
+.teaching-disclosure > .btn > span:first-child { color: var(--text); }
+.teaching-disclosure > .btn:hover { background: var(--surface-hover); text-decoration: none; }
+.teaching-disclosure > .btn:hover > span:last-child { text-decoration: underline; }
 .teaching-demo { max-width: 100%; padding: 16px; }
 .teaching-caption { font-size: 18px; }
 
@@ -356,14 +365,19 @@ main { min-width: 0; }
   .tab-bar .btn[aria-selected="true"] { border-bottom: 4px solid Highlight; }
 }
 
-/* --- Colour pickers --------------------------------------------------------- */
+/* --- Colour pickers ---------------------------------------------------------
+   Each colour is a chip holding a swatch; the native radio stays in the tree
+   for keyboard and assistive tech but is drawn by its chip. */
 .color-options, .scanner-colours { display: flex; flex-wrap: wrap; gap: 12px; }
-.color-options label, .scanner-colours label { position: relative; display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 64px; min-height: 64px; border-radius: var(--radius-control); padding: 12px 16px; font-size: 18px; cursor: pointer; }
-.color-options input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.scanner-colours input { accent-color: var(--brand); }
-.color-swatch { width: 22px; height: 22px; border: 1px solid rgba(20, 30, 25, 0.26); border-radius: 50%; }
-.color-options input:checked + .color-swatch { outline: 2px solid var(--brand); outline-offset: 3px; }
-.color-options input:focus-visible + .color-swatch { outline: 3px solid var(--focus); outline-offset: 3px; }
+.color-options label, .scanner-colours label { position: relative; display: flex; align-items: center; justify-content: center; gap: 10px; min-width: 64px; min-height: 64px; border: 1px solid var(--border-strong); border-radius: var(--radius-control); padding: 12px 16px; background: var(--surface); font-size: 18px; cursor: pointer; }
+.color-options label:hover, .scanner-colours label:hover { background: var(--surface-hover); }
+.color-options input, .scanner-colours input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
+.color-options label:has(input:checked), .scanner-colours label:has(input:checked) { border: 2px solid var(--brand); padding: 11px 15px; background: var(--brand-container); color: var(--on-brand-container); font-weight: 700; }
+.color-options label:has(input:focus-visible), .scanner-colours label:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 3px; }
+/* Inside a disabled group the chips are inert, so they stop inviting a click. */
+fieldset:disabled :is(.color-options, .scanner-colours) label { cursor: default; }
+fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:checked)):hover { background: var(--surface); }
+.color-swatch { flex: none; width: 24px; height: 24px; border: 1px solid rgba(20, 30, 25, 0.26); border-radius: 50%; }
 .color-swatch.red { background: #d32f2f; }
 .color-swatch.green { background: #84ff91; }
 .color-swatch.blue { background: #64a6ff; }
@@ -417,10 +431,15 @@ main { min-width: 0; }
 
 /* --- Scanning ---------------------------------------------------------------- */
 .scanner-settings { max-width: 920px; }
-.scanner-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 16px 20px; background: var(--surface-muted); }
-.scanner-help { margin: 18px 0 28px; color: var(--muted); line-height: 1.6; }
-.scanner-help summary { color: var(--text); }
+.scanner-status { margin-bottom: 28px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 16px 20px; background: var(--surface-muted); }
+.scanner-help { margin: 24px 0 16px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); color: var(--muted); }
+.scanner-help summary { justify-content: space-between; gap: 12px; padding: 12px 20px; color: var(--text); list-style: none; }
+.scanner-help summary::-webkit-details-marker { display: none; }
+.scanner-help summary::after { width: 10px; height: 10px; margin-top: -4px; border: solid var(--muted); border-width: 0 2px 2px 0; transform: rotate(45deg); content: ""; }
+.scanner-help[open] summary::after { margin-top: 4px; transform: rotate(-135deg); }
+.scanner-help p { max-width: 70ch; padding: 0 20px; }
 .scanner-help p + p { margin-top: 10px; }
+.scanner-help p:last-child { padding-bottom: 20px; }
 .scanner-panel-heading { margin-bottom: 24px; }
 .scanner-panel-heading h2, .scanner-areas h2 { margin-bottom: 8px; }
 .scanner-panel-heading > p, .scanner-areas header p { color: var(--muted); line-height: 1.5; }
@@ -435,10 +454,14 @@ main { min-width: 0; }
 .scanner-preferences .exact-speed { margin: 0; color: var(--text); }
 .scanner-areas { margin-top: 24px; }
 .scanner-preferences .scanner-areas { margin: 0 0 32px; }
-.scanner-area-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 20px; }
+.scanner-area-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 20px; }
 .btn.scanner-area-card { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; min-width: 0; border-color: var(--border); border-radius: var(--radius-card); padding: 20px; color: var(--text); background: var(--surface); text-align: left; }
 .btn.scanner-area-card:hover { background: var(--surface-hover); }
-.scanner-area-card strong { display: flex; justify-content: space-between; gap: 10px; font-size: 18px; }
+.scanner-area-card strong { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; font-size: 20px; font-weight: 700; }
+.scanner-area-card strong > svg { flex: none; color: var(--muted); }
+.btn.scanner-area-card:hover strong > svg { color: var(--brand); }
+.scanner-area-card > .scanner-area-status { margin-top: auto; }
+.scanner-area-card > .scanner-area-status[data-current="true"] { border-radius: 999px; padding: 2px 12px; color: var(--status-ok); background: var(--status-ok-soft); font-weight: 600; }
 .scanner-area-card > span { color: var(--muted); font-size: 16px; font-weight: 400; line-height: 1.5; }
 .scanner-area-appearance { display: flex; align-items: center; gap: 8px; text-transform: capitalize; }
 .scanner-area-badge { align-self: flex-start; margin-top: auto; }
@@ -452,8 +475,19 @@ main { min-width: 0; }
 .scanner-sample-selection.thin { border-width: 1px; }
 .scanner-sample-selection.standard { border-width: 2px; }
 .scanner-sample-selection.thick { border-width: 4px; }
-.scan-rate-stepper { display: flex; align-items: center; gap: 12px; }
-.scan-rate-stepper output { min-width: 80px; font-size: 18px; font-variant-numeric: tabular-nums; text-align: center; }
+/* One control, not three: the value sits between its own minus and plus. */
+.scan-rate-stepper { display: flex; align-items: stretch; border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--surface); }
+.scan-rate-stepper .btn { border: 0; border-radius: 0; background: transparent; font-size: 24px; }
+.scan-rate-stepper .btn:first-child { border-radius: var(--radius-control) 0 0 var(--radius-control); }
+.scan-rate-stepper .btn:last-child { border-radius: 0 var(--radius-control) var(--radius-control) 0; }
+.scan-rate-stepper .btn:hover { background: var(--surface-hover); }
+.scan-rate-stepper .btn:focus-visible { outline-offset: -3px; }
+.scan-rate-stepper .btn:disabled:not(fieldset:disabled *) { background: transparent; }
+/* With both steps unavailable (manual scanning) the whole control goes quiet. */
+.scan-rate-stepper:not(:has(.btn:enabled)) { border-color: var(--border); }
+.scan-rate-stepper:not(:has(.btn:enabled)) output { color: var(--ink-disabled); }
+.scan-rate-stepper output { display: grid; place-items: center; min-width: 96px; border-inline: 1px solid var(--border); color: var(--text); font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.exact-speed > span:first-child { color: var(--text); font-size: 18px; }
 
 /* --- Mobile ------------------------------------------------------------------- */
 .mobile-download { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 20px; }
@@ -563,12 +597,6 @@ main { min-width: 0; }
 @media (max-width: 520px) {
   .scanner-preferences .exact-speed { flex-direction: column; align-items: stretch; }
   .scanner-preferences .segmented { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 850px) {
-  .btn.scanner-area-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; padding: 16px; }
-  .scanner-area-card strong { grid-column: 1 / -1; margin-bottom: 4px; }
-  .scanner-area-badge { grid-column: 2; grid-row: 2 / 4; align-self: center; margin: 0; }
-  .scanner-area-card > span:not(.scanner-area-badge) { grid-column: 1; }
 }
 @media (max-height: 600px) {
   .setup-dialog { overflow-y: auto; }
