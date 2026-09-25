@@ -20,4 +20,10 @@ export function keysNotLearned(platform?: DemoPlatform) {
 }
 
 export const interfaceModeAdvice = "Set your switch interface to a keyboard mode. Mouse-click and gamepad modes cannot be learned as switches.";
-export const reservedKeyAdvice = "Assigned keys stay reserved while Switchify runs. If your interface can be programmed, choose F13 or higher so switch presses never clash with typing.";
+// The keys nothing else types: F13 and up, within what this platform can capture.
+export function highKeyRange(platform?: DemoPlatform) {
+  return platform === "macos" ? "F13 to F20" : "F13 or higher";
+}
+export function reservedKeyAdvice(platform?: DemoPlatform) {
+  return `Assigned keys stay reserved while Switchify runs. If your interface can be programmed, choose ${highKeyRange(platform)} so switch presses never clash with typing.`;
+}

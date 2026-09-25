@@ -96,7 +96,7 @@ export function PrototypeArtwork({ kind, step, platform }: { kind: Demonstration
             <rect x="-40" y="-16" width="80" height="32" rx="6" fill="#f3f2f6" stroke="#e2e0e8" strokeWidth="2" />
             <text textAnchor="middle" y="5" fontSize="14" fontWeight="700" fontFamily="ui-monospace,Consolas,monospace" fill="#1c1b1f">{step === 3 ? "F13" : "Space"}</text>
           </g>
-          <text x="360" y="382" textAnchor="middle" fontSize="12" fill="#49454f" opacity={step === 3 ? 1 : 0}>Programmed so it never types</text>
+          <g opacity={step === 3 ? 1 : 0}><text x="360" y="382" textAnchor="middle" fontSize="12" fill="#49454f">Programmed so it never types</text></g>
         </svg>
     );
   }

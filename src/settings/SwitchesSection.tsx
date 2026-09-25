@@ -732,7 +732,6 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
               things. Automatic scanning needs a Select switch. Manual
               scanning also needs Next and Previous.
             </p>
-            <p>{interfaceModeAdvice}</p>
             <div className="switch-list-actions">
               <Button
                 type="button"
@@ -1014,7 +1013,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
         <SettingNote
           about="switch interfaces"
           summary={interfaceModeAdvice}
-          detail={reservedKeyAdvice}
+          detail={reservedKeyAdvice(platform)}
         />
         <SettingNote
           about="switches"

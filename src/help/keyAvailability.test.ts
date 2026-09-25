@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keysNotLearned, unavailableKeyReason } from "./keyAvailability";
+import { keysNotLearned, reservedKeyAdvice, unavailableKeyReason } from "./keyAvailability";
 
 describe("unavailableKeyReason", () => {
   it("names the Windows F12 reservation", () => {
@@ -13,6 +13,13 @@ describe("unavailableKeyReason", () => {
     expect(unavailableKeyReason("F12", "macos")).toMatch(/Learn another key/);
     expect(unavailableKeyReason("F21", "windows")).toMatch(/Learn another key/);
     expect(unavailableKeyReason("Space", "windows")).toMatch(/Learn another key/);
+  });
+});
+
+describe("reservedKeyAdvice", () => {
+  it("never recommends keys the platform cannot capture", () => {
+    expect(reservedKeyAdvice("macos")).toMatch(/F13 to F20/);
+    expect(reservedKeyAdvice("windows")).toMatch(/F13 or higher/);
   });
 });
 
