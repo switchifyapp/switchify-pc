@@ -508,14 +508,11 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .mobile-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start; gap: 16px; }
 .mobile-download, .mobile-pairing { border: 1px solid var(--border); border-radius: var(--radius-card); padding: 24px; background: var(--surface); }
 .mobile-download { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
-/* The text block is flattened so the QR code can sit between the intro and
-   the store link; the DOM order is unchanged. */
-.mobile-download > div { display: contents; }
 .mobile-download p { color: var(--muted); }
-.mobile-download figure { order: 1; margin: 8px 0; }
+.mobile-download figure { margin: 8px 0; }
 .mobile-download img { display: block; width: 176px; height: 176px; border: 1px solid var(--border); border-radius: 12px; padding: 10px; background: white; image-rendering: crisp-edges; }
 .mobile-download figcaption { margin-top: 6px; color: var(--muted); font-size: 16px; }
-.mobile-download a { order: 2; text-decoration: none; }
+.mobile-download a { text-decoration: none; }
 .mobile-download a.secondary { border: 1px solid var(--border-strong); padding: 12px 20px; color: var(--text); background: var(--surface); font-weight: 600; }
 .mobile-download a.secondary:hover { background: var(--surface-hover); }
 .mobile-pairing ol { margin: 12px 0 0; padding-left: 24px; color: var(--muted); line-height: 1.6; }
