@@ -76,9 +76,11 @@ pub struct Prediction {
 }
 
 /// A word (or phrase) the beam finished: its probability mass over spellings,
-/// the best spelling, that spelling's pieces and their log-probability.
+/// how much of it spells the last word with a capital, the best spelling,
+/// that spelling's pieces and their log-probability.
 struct Finished {
     mass: f32,
+    capital: f32,
     best: f32,
     spelling: String,
     pieces: Vec<i64>,
@@ -165,14 +167,23 @@ fn grow(
                     .map(|(l, _)| l.exp())
                     .sum();
                 let score = logp + boundary.max(1e-12).ln();
+                let capital = word
+                    .rsplit(' ')
+                    .next()
+                    .and_then(|last| last.chars().next())
+                    .is_some_and(char::is_uppercase);
                 let entry = finished.entry(key).or_insert(Finished {
                     mass: 0.0,
+                    capital: 0.0,
                     best: f32::NEG_INFINITY,
                     spelling: String::new(),
                     pieces: Vec::new(),
                     logp: f32::NEG_INFINITY,
                 });
                 entry.mass += score.exp();
+                if capital {
+                    entry.capital += score.exp();
+                }
                 if score > entry.best {
                     entry.best = score;
                     entry.spelling = word.clone();
@@ -207,16 +218,26 @@ fn ranked(finished: HashMap<String, Finished>, limit: usize) -> Vec<(String, Fin
     entries
 }
 
-/// How a finished word is shown. Sentence position and all-caps tokens
-/// should not force uppercase onto ordinary completions; mixed-case names
-/// keep the model's casing, the pronoun I is always capital, and the typed
-/// apostrophe style is kept.
-fn display(key: &str, spelling: &str, typed: &str) -> String {
+/// Capitalised spellings must carry this share of a word's probability for
+/// the capital to be a name rather than a coin toss on a rare word.
+const NAME_SHARE: f32 = 0.9;
+
+/// How a finished word is shown. All-caps tokens never force uppercase onto
+/// a completion. A name keeps the model's capital: mixed case anywhere, or an
+/// initial capital mid-sentence that the model clearly prefers, which it only
+/// does for a proper noun. At a sentence start the model capitalises every
+/// word, so the lowercase form wins there and the sentence rule decides. The
+/// pronoun I is always capital, and the typed apostrophe style is kept.
+fn display(key: &str, f: &Finished, typed: &str, sentence_start: bool) -> String {
+    let spelling = &f.spelling;
+    let all_upper = spelling.chars().all(|c| c.is_ascii_uppercase());
+    let mixed = spelling.chars().skip(1).any(|c| c.is_ascii_uppercase());
+    let name = spelling.chars().next().is_some_and(char::is_uppercase)
+        && !sentence_start
+        && f.capital >= NAME_SHARE * f.mass;
     let word = if key == "i" {
         "I".to_owned()
-    } else if spelling.chars().skip(1).any(|c| c.is_ascii_uppercase())
-        && !spelling.chars().all(|c| c.is_ascii_uppercase())
-    {
+    } else if !all_upper && (mixed || name) {
         spelling.replace('’', "'")
     } else {
         key.to_owned()
@@ -275,20 +296,24 @@ pub fn complete(
     }
     let words = ranked(grow(scorer, vocabulary, beam, &prefix, deadline)?, 5);
     let phrases = follow(scorer, vocabulary, &words, phrase_deadline)?;
+    let sentence_start = start || text.ends_with(['.', '!', '?']);
     Ok(Prediction {
         words: words
             .iter()
-            .map(|(key, f)| display(key, &f.spelling, typed))
+            .map(|(key, f)| display(key, f, typed, sentence_start))
             .collect(),
         phrases: phrases
             .into_iter()
             .map(|(lead, key, f)| {
-                let second = f.spelling.split_once(' ').map_or("", |(_, s)| s);
                 let second_key = key.split_once(' ').map_or("", |(_, s)| s);
+                let second = Finished {
+                    spelling: f.spelling.split_once(' ').map_or("", |(_, s)| s).to_owned(),
+                    ..f
+                };
                 format!(
                     "{} {}",
-                    display(&words[lead].0, &words[lead].1.spelling, typed),
-                    display(second_key, second, typed)
+                    display(&words[lead].0, &words[lead].1, typed, sentence_start),
+                    display(second_key, &second, typed, false)
                 )
             })
             .collect(),
@@ -716,10 +741,10 @@ mod tests {
     }
 
     #[test]
-    fn casing_comes_from_model_except_sentence_position() {
+    fn capital_spellings_survive_mid_sentence_but_not_at_a_sentence_start() {
         let mut s = fake(&[(1, 0.9)]);
         let lowered = ["water", "waffle", "wa"];
-        assert_eq!(run(&mut s, "Send ", "").unwrap(), lowered);
+        assert_eq!(run(&mut s, "Send ", "").unwrap(), ["Water", "Waffle", "Wa"]);
         assert_eq!(run(&mut s, "Done. ", "").unwrap(), lowered);
     }
 
@@ -776,6 +801,8 @@ mod tests {
             ("I would like a cup of ", "", Some("tea")),
             ("Please put the ", "ket", Some("kettle")),
             ("Can you send a ", "wh", None),
+            ("I live in ", "lon", Some("London")),
+            ("See you on ", "mon", Some("Monday")),
             ("I want to ", "fa", None),
         ] {
             let t = Instant::now();
