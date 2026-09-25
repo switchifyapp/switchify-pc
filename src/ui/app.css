@@ -603,10 +603,22 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
   .btn { transition: none; }
 }
 
+/* Forced colours flatten backgrounds, which would erase the toggle track and
+   knob and turn every colour swatch into the same empty circle. Draw the
+   toggle with system colours, and let swatches and the highlight sample keep
+   their real colours, since the colour is the choice being made. */
 @media (forced-colors: active) {
   .btn.nav-button[data-active="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
   /* Focus must still read as focus on the current page's own button. */
   .btn.nav-button[data-active="true"]:focus-visible { outline: 3px solid CanvasText; outline-offset: 3px; }
+  .toggle, .toggle::after { forced-color-adjust: none; }
+  .toggle { border: 2px solid CanvasText; background: Canvas; }
+  .toggle::after { top: 1px; left: 1px; background: CanvasText; }
+  .toggle-row input:checked + .toggle { border-color: Highlight; background: Highlight; }
+  .toggle-row input:checked + .toggle::after { background: HighlightText; }
+  .toggle-row[data-disabled="true"] .toggle { border-color: GrayText; }
+  .toggle-row[data-disabled="true"] .toggle::after { background: GrayText; }
+  .color-swatch, .scanner-sample { forced-color-adjust: none; }
 }
 
 /* --- Responsive --------------------------------------------------------------- */
