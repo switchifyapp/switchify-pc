@@ -1,5 +1,6 @@
 import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { ChevronRight } from 'lucide-react';
 import type { ScanningController, ScannerColor, PointScanConfig } from '../scanning/useScanning';
 import { areaOptions, sharedOptions, defaultScanPreferences, type ScanArea, type ScanOptions } from '../scanning/preferences';
 import { SettingGroup, Toggle, OptionGroup } from './controls';
@@ -67,7 +68,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
       <Button type="button" className="text-button" onClick={() => setArea('shared')}><span aria-hidden="true">←</span> Back to scanning settings</Button>
       <h2 ref={heading} tabIndex={-1}>{names[area]}</h2><p>{descriptions[area]} Change any value to customise it; other settings follow the shared defaults.</p>
     </header>}
-    {area === 'shared' && <section className="scanner-areas" aria-label="Scanning modes"><div className="scanner-area-cards">{(['point', 'mouse'] as const).map(key => <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}><strong>{names[key]} <span aria-hidden="true">→</span></strong><span>{descriptions[key]}</span><span>{key === config.controlMode ? 'Select starts here' : 'Open with a switch or scanned control'}</span></Button>)}</div></section>}
+    {area === 'shared' && <section className="scanner-areas" aria-label="Scanning modes"><div className="scanner-area-cards">{(['point', 'mouse'] as const).map(key => <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}><strong>{names[key]}<ChevronRight size={22} aria-hidden="true" /></strong><span>{descriptions[key]}</span><span className="scanner-area-status" data-current={key === config.controlMode}>{key === config.controlMode ? 'Select starts here' : 'Open with a switch or scanned control'}</span></Button>)}</div></section>}
     {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move or a scroll tile to scroll; with Repeat mouse movement and scrolling on, the next switch press stops either action. Pointer speed and repeat controls are under Mouse in the sidebar. Switch to Point returns to screen selection.</p>}
     {area === 'point' && <>
       <SettingGroup
@@ -175,7 +176,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
         const options = areaOptions(config, key);
         const count = Object.values(settings[key] ?? {}).filter(value => value != null).length;
         return <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}>
-          <strong>{names[key]} <span aria-hidden="true">→</span></strong>
+          <strong>{names[key]}<ChevronRight size={22} aria-hidden="true" /></strong>
           <span>{options.automatic ? `Automatic · ${options.intervalMs / 1000}s` : 'Manual'} · {options.direction === 'forward' ? 'Forward' : 'Reverse'}</span>
           <span>{options.pattern === 'grouped' ? 'Groups, then items' : 'One item at a time'}</span>
           <span className="scanner-area-appearance"><i className={`color-swatch ${options.color}`} aria-hidden="true" />{options.color} · {options.thickness}</span>
@@ -185,6 +186,6 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     </section>}
     </MoreOptions>
     {area !== 'shared' && <Button type="button" className="secondary" disabled={disabled || Object.values(settings[area] ?? {}).every(value => value == null)} onClick={() => update('scanPreferences', { ...settings, [area]: {} })}>Reset scanning overrides</Button>}
-    <p className="setting-note scanner-save-note">Saved automatically. Press Select to scan again.</p>
+    <p className="setting-note scanner-save-note">Press Select to scan again.</p>
   </div>;
 }
