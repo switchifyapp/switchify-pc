@@ -143,6 +143,7 @@ impl Drop for Client {
 struct Service {
     client: Option<Client>,
     failed: bool,
+    received_reply: bool,
     generation: u64,
     outstanding: Option<Instant>,
     last: Option<Instant>,
@@ -195,6 +196,18 @@ pub fn reset() {
     });
 }
 impl Service {
+    fn response_timed_out(&self, now: Instant) -> bool {
+        // The worker validates and loads the bundled lookup before its first
+        // reply. On slower Windows machines that takes longer than a query.
+        let deadline = if self.received_reply {
+            Duration::from_secs(2)
+        } else {
+            Duration::from_secs(30)
+        };
+        self.outstanding
+            .is_some_and(|sent| now.duration_since(sent) >= deadline)
+    }
+
     fn queue_edit(&mut self, edit: Edit, scope: InputScope) {
         self.edit_revision = self.edit_revision.wrapping_add(1);
         if self.edit.len() >= 512 {
@@ -440,9 +453,7 @@ pub fn poll(
                 return;
             }
         }
-        if s.outstanding
-            .is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
-        {
+        if s.response_timed_out(Instant::now()) {
             s.fail(keyboard);
             return;
         }
@@ -450,6 +461,7 @@ pub fn poll(
         match reply {
             Ok(Ok(response)) => {
                 s.outstanding = None;
+                s.received_reply = true;
                 match response {
                     Response::Suggestions {
                         generation,
@@ -593,12 +605,31 @@ mod tests {
             SERVICE.with(|slot| {
                 let s = slot.borrow();
                 assert!(!s.failed);
+                assert!(!s.received_reply);
                 assert!(!s.accepting);
                 assert!(s.accept.is_none());
                 assert!(s.outstanding.is_none());
                 assert!(s.client.is_none());
             });
         }
+    }
+    #[test]
+    fn first_worker_reply_has_a_startup_deadline_then_queries_use_two_seconds() {
+        let now = Instant::now();
+        let mut service = Service {
+            outstanding: Some(now - Duration::from_secs(7)),
+            ..Default::default()
+        };
+        assert!(!service.response_timed_out(now));
+        service.outstanding = Some(now - Duration::from_secs(30));
+        assert!(service.response_timed_out(now));
+        service.received_reply = true;
+        service.outstanding = Some(now - Duration::from_secs(1));
+        assert!(!service.response_timed_out(now));
+        service.outstanding = Some(now - Duration::from_secs(2));
+        assert!(service.response_timed_out(now));
+        service.outstanding = None;
+        assert!(!service.response_timed_out(now));
     }
     #[test]
     fn only_successful_supported_edits_enter_the_buffer() {
