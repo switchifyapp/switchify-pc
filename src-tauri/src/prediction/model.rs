@@ -426,16 +426,15 @@ impl Predict for Model {
         prefix: &str,
         deadline: Instant,
     ) -> Result<Vec<String>, ()> {
-        spell(
-            &mut self.onnx,
-            &self.vocabulary,
-            match recent(before) {
-                Some(text) => text,
-                None => return Ok(Vec::new()),
-            },
-            prefix,
-            deadline,
-        )
+        // The model's beginning-of-document distribution favors site names.
+        // A fixed, local context yields useful initial completions without
+        // reading any additional user text.
+        let context = match recent(before) {
+            Some("") if !prefix.is_empty() => "I ",
+            Some(text) => text,
+            None => return Ok(Vec::new()),
+        };
+        spell(&mut self.onnx, &self.vocabulary, context, prefix, deadline)
     }
 }
 
@@ -582,7 +581,7 @@ mod tests {
         println!("model startup_ms={}", start.elapsed().as_millis());
         let mut times = Vec::new();
         for (before, prefix, expected) in [
-            ("", "w", None),
+            ("", "w", Some("want")),
             ("I would like ", "wa", None),
             ("I would like a cup of ", "", Some("tea")),
             ("Please put the ", "ket", Some("kettle")),
