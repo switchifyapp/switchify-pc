@@ -6,6 +6,7 @@ export type PointScanConfig = {
   controlMode: "point" | "mouse";
   scanPreferences?: import("./preferences").ScanPreferences;
   wordPrediction: boolean;
+  enhancedWordPrediction: boolean;
   keyboardWaitAfterTyping: boolean;
   panelAvoidsPointer: boolean;
   scannerColor: ScannerColor;
@@ -33,6 +34,7 @@ export type PointScanState = {
 export const defaultPointScanConfig: PointScanConfig = {
   controlMode: "point",
   wordPrediction: true,
+  enhancedWordPrediction: false,
   keyboardWaitAfterTyping: false,
   panelAvoidsPointer: false,
   scannerColor: "blue",

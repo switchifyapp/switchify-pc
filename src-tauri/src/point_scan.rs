@@ -26,6 +26,9 @@ pub struct Config {
     #[serde(deserialize_with = "crate::scan_preferences::deserialize_preferences")]
     pub scan_preferences: crate::scan_preferences::Preferences,
     pub word_prediction: bool,
+    /// Uses the on-device language model for word prediction. Off by default
+    /// because it needs several hundred megabytes of memory.
+    pub enhanced_word_prediction: bool,
     pub keyboard_wait_after_typing: bool,
     /// Moves the keyboard or mouse panel away while the pointer is over it.
     pub panel_avoids_pointer: bool,
@@ -48,6 +51,7 @@ impl Default for Config {
             control_mode: ControlMode::Point,
             scan_preferences: Default::default(),
             word_prediction: true,
+            enhanced_word_prediction: false,
             keyboard_wait_after_typing: false,
             panel_avoids_pointer: false,
             scanner_color: Default::default(),
@@ -109,6 +113,7 @@ impl Config {
             keyboard_scan: self.resolved(crate::scan_preferences::Area::Keyboard),
             mouse_scan: self.resolved(crate::scan_preferences::Area::Mouse),
             word_prediction: self.word_prediction,
+            enhanced_word_prediction: self.enhanced_word_prediction,
             keyboard_wait_after_typing: self.keyboard_wait_after_typing,
             panel_avoids_pointer: self.panel_avoids_pointer,
             scanner_color: self.resolved(crate::scan_preferences::Area::Point).color,
@@ -135,6 +140,7 @@ pub struct PointSettings {
     pub keyboard_scan: crate::scan_preferences::Resolved,
     pub mouse_scan: crate::scan_preferences::Resolved,
     pub word_prediction: bool,
+    pub enhanced_word_prediction: bool,
     pub keyboard_wait_after_typing: bool,
     pub panel_avoids_pointer: bool,
     pub scanner_color: crate::scanning::ScannerColor,
@@ -612,6 +618,14 @@ mod tests {
         assert!(!restored.word_prediction);
     }
     #[test]
+    fn enhanced_prediction_defaults_off_for_saved_settings_and_round_trips() {
+        let c: Config = serde_json::from_str(r#"{"wordPrediction":true}"#).unwrap();
+        assert!(!c.enhanced_word_prediction);
+        let c: Config = serde_json::from_str(r#"{"enhancedWordPrediction":true}"#).unwrap();
+        let restored: Config = serde_json::from_value(serde_json::to_value(c).unwrap()).unwrap();
+        assert!(restored.enhanced_word_prediction);
+    }
+    #[test]
     fn keyboard_wait_defaults_off_and_round_trips() {
         let legacy: Config = serde_json::from_str("{}").unwrap();
         assert!(!legacy.keyboard_wait_after_typing);
@@ -1040,6 +1054,7 @@ mod tests {
         json["scannerColor"] = serde_json::json!("blue");
         json["controlMode"] = serde_json::json!("point");
         json["wordPrediction"] = serde_json::json!(true);
+        json["enhancedWordPrediction"] = serde_json::json!(false);
         json["keyboardWaitAfterTyping"] = serde_json::json!(false);
         json["panelAvoidsPointer"] = serde_json::json!(false);
         json["scanPreferences"] =

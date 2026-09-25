@@ -4,6 +4,7 @@ mod database;
 #[cfg(test)]
 mod database_reference;
 mod lookup;
+mod model;
 pub mod worker;
 
 use crate::scan_keyboard::{Key, Keyboard, Modifier, Page, Stroke};
@@ -65,12 +66,13 @@ struct Client {
     _job: Job,
 }
 impl Client {
-    fn start(path: &Path, ignored: Vec<u32>) -> Result<Self, ()> {
+    fn start(path: &Path, ignored: Vec<u32>, enhanced: bool) -> Result<Self, ()> {
         let mut command = Command::new(std::env::current_exe().map_err(|_| ())?);
         command
             .arg(worker::ARG)
             .arg(path)
             .arg(serde_json::to_string(&ignored).map_err(|_| ())?)
+            .arg(serde_json::to_string(&enhanced).map_err(|_| ())?)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -141,6 +143,7 @@ impl Drop for Client {
 struct Service {
     client: Option<Client>,
     failed: bool,
+    received_reply: bool,
     generation: u64,
     outstanding: Option<Instant>,
     last: Option<Instant>,
@@ -152,6 +155,8 @@ struct Service {
     accepting: bool,
     case: Option<(bool, bool, bool)>,
     tracking: bool,
+    /// Whether the running worker was started with the language model.
+    enhanced: bool,
 }
 #[derive(Clone, Copy)]
 pub struct InputScope {
@@ -191,6 +196,18 @@ pub fn reset() {
     });
 }
 impl Service {
+    fn response_timed_out(&self, now: Instant) -> bool {
+        // The worker validates and loads the bundled lookup before its first
+        // reply. On slower Windows machines that takes longer than a query.
+        let deadline = if self.received_reply {
+            Duration::from_secs(2)
+        } else {
+            Duration::from_secs(30)
+        };
+        self.outstanding
+            .is_some_and(|sent| now.duration_since(sent) >= deadline)
+    }
+
     fn queue_edit(&mut self, edit: Edit, scope: InputScope) {
         self.edit_revision = self.edit_revision.wrapping_add(1);
         if self.edit.len() >= 512 {
@@ -378,7 +395,13 @@ fn database_resource(
         .ok_or(())
 }
 
-pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ignored: &[String]) {
+pub fn poll(
+    app: &AppHandle,
+    keyboard: Option<&mut Keyboard>,
+    enabled: bool,
+    enhanced: bool,
+    ignored: &[String],
+) {
     let Some(keyboard) = keyboard else {
         stop();
         return;
@@ -390,6 +413,17 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
     }
     SERVICE.with(|slot| {
         let mut s = slot.borrow_mut();
+        if s.enhanced != enhanced {
+            // Changing the engine restarts the worker, like reopening the keyboard.
+            if s.accepting || s.accept.is_some() {
+                keyboard.failed();
+            }
+            *s = Service {
+                enhanced,
+                ..Service::default()
+            };
+            keyboard.predictions(None, false);
+        }
         let case = (
             keyboard.prediction_shift(),
             keyboard.caps,
@@ -411,7 +445,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 .filter_map(|name| crate::switch_input::prediction_key_code(name))
                 .collect();
             s.client = resource(app)
-                .and_then(|path| Client::start(&path, ignored))
+                .and_then(|path| Client::start(&path, ignored, enhanced))
                 .ok();
             if s.client.is_none() {
                 s.failed = true;
@@ -419,9 +453,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 return;
             }
         }
-        if s.outstanding
-            .is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
-        {
+        if s.response_timed_out(Instant::now()) {
             s.fail(keyboard);
             return;
         }
@@ -429,6 +461,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
         match reply {
             Ok(Ok(response)) => {
                 s.outstanding = None;
+                s.received_reply = true;
                 match response {
                     Response::Suggestions {
                         generation,
@@ -572,12 +605,31 @@ mod tests {
             SERVICE.with(|slot| {
                 let s = slot.borrow();
                 assert!(!s.failed);
+                assert!(!s.received_reply);
                 assert!(!s.accepting);
                 assert!(s.accept.is_none());
                 assert!(s.outstanding.is_none());
                 assert!(s.client.is_none());
             });
         }
+    }
+    #[test]
+    fn first_worker_reply_has_a_startup_deadline_then_queries_use_two_seconds() {
+        let now = Instant::now();
+        let mut service = Service {
+            outstanding: Some(now - Duration::from_secs(7)),
+            ..Default::default()
+        };
+        assert!(!service.response_timed_out(now));
+        service.outstanding = Some(now - Duration::from_secs(30));
+        assert!(service.response_timed_out(now));
+        service.received_reply = true;
+        service.outstanding = Some(now - Duration::from_secs(1));
+        assert!(!service.response_timed_out(now));
+        service.outstanding = Some(now - Duration::from_secs(2));
+        assert!(service.response_timed_out(now));
+        service.outstanding = None;
+        assert!(!service.response_timed_out(now));
     }
     #[test]
     fn only_successful_supported_edits_enter_the_buffer() {

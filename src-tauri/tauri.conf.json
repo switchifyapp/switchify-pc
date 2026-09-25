@@ -4,9 +4,9 @@
   "version": "1.0.0-rc.15",
   "identifier": "com.enaboapps.switchify.pc",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run prediction-model && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run prediction-model && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -35,7 +35,13 @@
     }
   },
   "bundle": {
-    "resources": ["resources/word-predictions.lookup"],
+    "resources": [
+      "resources/word-predictions.lookup",
+      "resources/prediction-blocklist.txt",
+      "resources/prediction-model/model.onnx",
+      "resources/prediction-model/tokenizer.json",
+      "resources/prediction-model/config.json"
+    ],
     "active": true,
     "targets": "all",
     "icon": [

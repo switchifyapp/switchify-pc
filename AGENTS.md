@@ -24,6 +24,7 @@ The frozen C# application is not maintained in this repository. Do not reintrodu
 Use Node.js 24 and Rust 1.97.1. Run checks from the repository root:
 
 ```bash
+npm run prediction-model
 npm run lint
 npm test
 npm run build
