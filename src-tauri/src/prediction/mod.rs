@@ -255,6 +255,7 @@ impl Service {
             status == database::Status::Unavailable,
         );
         keyboard.prediction_loading = status == database::Status::Loading;
+        keyboard.prediction_tracking(tracking);
     }
     fn fail(&mut self, keyboard: &mut Keyboard) {
         self.client = None;
@@ -316,6 +317,11 @@ pub fn keyboard_input_context() -> Option<crate::scan_keyboard::TypingContext> {
 }
 pub fn stop() {
     SERVICE.with(|s| *s.borrow_mut() = Service::default());
+}
+/// Restart only prediction. The keyboard and its scan session remain open,
+/// while the old worker and its private text context are discarded.
+pub fn retry() {
+    stop();
 }
 pub fn record(stroke: Stroke, success: bool, scope: InputScope) {
     SERVICE.with(|s| {
@@ -410,7 +416,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
             s.case = Some(case);
             s.generation = s.generation.wrapping_add(1);
             s.last = None;
-            keyboard.predictions(None, false);
+            keyboard.predictions(None, s.failed);
         }
         if s.failed {
             keyboard.predictions(None, true);
@@ -429,6 +435,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 keyboard.predictions(None, true);
                 return;
             }
+            keyboard.prediction_loading = true;
         }
         if s.response_timed_out(Instant::now()) {
             s.fail(keyboard);
@@ -538,6 +545,28 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn retry_discards_failed_worker_state_and_private_edits() {
+        stop();
+        SERVICE.with(|slot| {
+            let mut service = slot.borrow_mut();
+            service.failed = true;
+            service.generation = 17;
+            service
+                .edit
+                .push(InputScope::capture().record(Edit::Append("test".into())));
+            service.accept = Some((3, 0));
+        });
+        retry();
+        SERVICE.with(|slot| {
+            let service = slot.borrow();
+            assert!(!service.failed);
+            assert_eq!(service.generation, 0);
+            assert!(service.edit.is_empty());
+            assert!(service.accept.is_none());
+            assert!(service.client.is_none());
+        });
+    }
     #[test]
     fn activity_observer_retries_after_failure_or_lost_hook() {
         let state = AtomicU8::new(0);

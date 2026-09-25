@@ -36,6 +36,7 @@ impl Modifier {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
     Prediction(usize),
+    RetryPrediction,
     Character(char, char),
     Named(&'static str),
     Modifier(usize),
@@ -90,6 +91,7 @@ impl Stroke {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Output {
     Prediction { token: u64, index: usize },
+    RetryPrediction,
     Stroke(Stroke),
     Punctuation(Punctuation),
     Close,
@@ -203,6 +205,7 @@ pub struct Keyboard {
     prediction_enabled: bool,
     prediction_failed: bool,
     pub(crate) prediction_loading: bool,
+    prediction_tracking: bool,
     predictions: Option<crate::prediction::worker::Batch>,
     queued_predictions: Option<crate::prediction::worker::Batch>,
     prefer_predictions: bool,
@@ -236,6 +239,7 @@ impl Keyboard {
             prediction_enabled: false,
             prediction_failed: false,
             prediction_loading: false,
+            prediction_tracking: true,
             predictions: None,
             queued_predictions: None,
             prefer_predictions: true,
@@ -257,6 +261,8 @@ impl Keyboard {
             return;
         }
         self.prediction_enabled = enabled;
+        self.prediction_loading = enabled;
+        self.prediction_failed = false;
         self.rebuild_rows();
     }
     fn rebuild_rows(&mut self) {
@@ -267,6 +273,9 @@ impl Keyboard {
         };
         if self.prediction_enabled && self.page == Page::Letters && !self.positioning {
             self.rows.insert(0, (0..5).map(Key::Prediction).collect());
+        }
+        if self.prediction_enabled && self.prediction_failed && !self.positioning {
+            self.rows.last_mut().unwrap().push(Key::RetryPrediction);
         }
         self.scan.replace(ItemScanner::nodes(&self.rows));
         self.scan.restart();
@@ -280,11 +289,24 @@ impl Keyboard {
             && self.scan.position(&self.rows).0 == 0
     }
     pub fn predictions(&mut self, batch: Option<crate::prediction::worker::Batch>, failed: bool) {
+        let retry_changed = self.prediction_failed != failed;
         self.prediction_failed = failed;
         self.prediction_loading = false;
+        if failed {
+            self.predictions = None;
+            self.queued_predictions = None;
+        }
+        if retry_changed {
+            let suspended = self.scan.suspended;
+            self.rebuild_rows();
+            self.scan.suspended = suspended;
+        }
         if batch.is_none() {
             self.predictions = None;
             self.queued_predictions = None;
+            if retry_changed && !self.scan.suspended {
+                self.skip_disabled(false);
+            }
             return;
         }
         if self.waiting_after_typing {
@@ -312,6 +334,40 @@ impl Keyboard {
                 self.prefer_predictions = false;
             }
         }
+    }
+    pub fn prediction_tracking(&mut self, tracking: bool) {
+        self.prediction_tracking = tracking;
+    }
+    fn prediction_note(&self) -> Option<String> {
+        if !self.prediction_enabled {
+            return None;
+        }
+        Some(if self.prediction_failed {
+            "Prediction unavailable".into()
+        } else if self.prediction_loading {
+            "Prediction loading".into()
+        } else if !self.prediction_tracking {
+            "Prediction paused".into()
+        } else if self.queued_predictions.is_some() {
+            "Suggestions updating".into()
+        } else {
+            match self.predictions.as_ref() {
+                Some(batch) if batch.words.len() == 1 => "1 suggestion".into(),
+                Some(batch) if !batch.words.is_empty() => {
+                    format!("{} suggestions", batch.words.len())
+                }
+                Some(_) => "No suggestions".into(),
+                None => "Type for suggestions".into(),
+            }
+        })
+    }
+    fn retry_predictions(&mut self) {
+        self.prediction_failed = false;
+        self.prediction_loading = true;
+        self.prediction_tracking = true;
+        self.predictions = None;
+        self.queued_predictions = None;
+        self.rebuild_rows();
     }
     fn disabled(&self) -> bool {
         if !self.prediction_row_active() || self.scan.nav.escaping() {
@@ -437,6 +493,11 @@ impl Keyboard {
     fn choose_with_context(&mut self, key: Key, context: Option<TypingContext>) -> Option<Output> {
         self.discard_stale_context(context);
         match key {
+            Key::RetryPrediction if self.prediction_failed => {
+                self.retry_predictions();
+                return Some(Output::RetryPrediction);
+            }
+            Key::RetryPrediction => return None,
             Key::Prediction(index) => {
                 let batch = self.predictions.as_ref()?;
                 if index >= batch.words.len() {
@@ -599,7 +660,7 @@ impl Keyboard {
         self.auto_shift = false;
         self.capital_context = None;
         self.pending_typed = None;
-        self.predictions(None, false);
+        self.predictions(None, self.prediction_failed);
         self.restart();
     }
     pub fn failed(&mut self) {
@@ -623,6 +684,7 @@ impl Keyboard {
                 .and_then(|b| b.words.get(i))
                 .cloned()
                 .unwrap_or_default(),
+            Key::RetryPrediction => "Retry predictions".into(),
             Key::Character(' ', _) => "Space".into(),
             Key::Character(..) => self.stroke(key).character().unwrap().to_string(),
             Key::Named(name) => match name {
@@ -684,7 +746,7 @@ impl Keyboard {
             Key::Character(' ', _) => 4.0,
             Key::Named("Backspace" | "Enter") => 1.9,
             Key::Named("Tab") | Key::Caps | Key::Modifier(_) => 1.6,
-            Key::Close | Key::Dock => 1.5,
+            Key::Close | Key::Dock | Key::RetryPrediction => 1.5,
             _ => 1.0,
         }
     }
@@ -692,7 +754,9 @@ impl Keyboard {
         TileStyle {
             role: match key {
                 Key::Character(..) => TileRole::Character,
-                Key::Page(_) | Key::Dock | Key::Back | Key::Close => TileRole::Toolbar,
+                Key::Page(_) | Key::Dock | Key::Back | Key::Close | Key::RetryPrediction => {
+                    TileRole::Toolbar
+                }
                 _ => TileRole::Utility,
             },
             active: match key {
@@ -724,10 +788,6 @@ impl Keyboard {
             crate::scan_panel::BACK_TO_ROWS.to_owned()
         } else if self.disabled() {
             "Suggestions updating · Select to continue".to_owned()
-        } else if self.prediction_failed {
-            "Predictions unavailable · Keyboard ready".to_owned()
-        } else if self.prediction_loading {
-            "Loading predictions · Keyboard ready".to_owned()
         } else {
             crate::scan_panel::scanning_status(
                 page,
@@ -755,6 +815,7 @@ impl Keyboard {
                 })
                 .collect(),
             status,
+            note: self.prediction_note(),
             dock: self.dock,
             selected: (!self.scan.suspended && !self.disabled() && !self.scan.nav.escaping())
                 .then_some((active_row, active_column)),
@@ -769,6 +830,79 @@ impl Keyboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prediction_badge_explains_empty_slots_without_replacing_scan_prompt() {
+        let mut keyboard = Keyboard::new(false);
+        keyboard.enable_predictions(true);
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let badge = |keyboard: &Keyboard| {
+            let frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+            let prompt = frame.tiles.last().unwrap();
+            let badge = &frame.tiles[frame.tiles.len() - 2];
+            assert!(prompt.text.contains("Select"));
+            assert!(!badge.selected);
+            assert!(badge.rect.x >= prompt.rect.x + prompt.rect.width);
+            badge.text.clone()
+        };
+        assert_eq!(badge(&keyboard), "Prediction loading");
+        keyboard.predictions(None, false);
+        assert_eq!(badge(&keyboard), "Type for suggestions");
+        keyboard.predictions(
+            Some(crate::prediction::worker::Batch {
+                token: 1,
+                words: vec![],
+            }),
+            false,
+        );
+        assert_eq!(badge(&keyboard), "No suggestions");
+        keyboard.predictions(
+            Some(crate::prediction::worker::Batch {
+                token: 2,
+                words: vec!["water".into()],
+            }),
+            false,
+        );
+        assert_eq!(badge(&keyboard), "1 suggestion");
+        keyboard.prediction_tracking(false);
+        assert_eq!(badge(&keyboard), "Prediction paused");
+    }
+
+    #[test]
+    fn retry_tile_restarts_prediction_without_closing_keyboard() {
+        let mut keyboard = Keyboard::new(false);
+        keyboard.enable_predictions(true);
+        keyboard.scan.suspended = true;
+        keyboard.predictions(None, true);
+        assert!(keyboard.suspended());
+        assert_eq!(
+            keyboard.prediction_note().as_deref(),
+            Some("Prediction unavailable")
+        );
+        assert_eq!(
+            keyboard.rows.last().unwrap().last(),
+            Some(&Key::RetryPrediction)
+        );
+        assert_eq!(
+            keyboard.choose(Key::RetryPrediction),
+            Some(Output::RetryPrediction)
+        );
+        assert_eq!(
+            keyboard.prediction_note().as_deref(),
+            Some("Prediction loading")
+        );
+        assert!(!keyboard
+            .rows
+            .last()
+            .unwrap()
+            .contains(&Key::RetryPrediction));
+        assert_eq!(keyboard.page, Page::Letters);
+    }
 
     fn context(epoch: u64) -> Option<TypingContext> {
         Some(TypingContext {

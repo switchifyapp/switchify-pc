@@ -250,6 +250,7 @@ impl MousePanel {
                 })
                 .collect(),
             status,
+            note: None,
             dock: self.dock,
             selected: (scanning && !escaping).then_some((active_row, active_column)),
             status_selected: scanning && escaping,

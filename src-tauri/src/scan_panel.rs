@@ -136,6 +136,8 @@ pub fn position_label(dock: Dock, current: Dock) -> String {
 pub struct Panel {
     pub rows: Vec<Vec<PanelKey>>,
     pub status: String,
+    /// Passive feedback beside the scanning prompt; never a scan target.
+    pub note: Option<String>,
     pub dock: Dock,
     /// Scanner position to highlight, or `None` when no key may be chosen.
     pub selected: Option<(usize, Option<usize>)>,
@@ -211,6 +213,28 @@ impl Panel {
                 c += 1;
             }
         }
+        let note_width = self.note.as_ref().map_or(0.0, |_| width * 0.28);
+        if let Some(note) = &self.note {
+            frame.tiles.push(FrameTile {
+                thickness: self.thickness,
+                color,
+                text: note.clone(),
+                icon: Item::KeyboardKey,
+                style: Some(TileStyle {
+                    role: TileRole::Status,
+                    active: false,
+                    row_scan: false,
+                }),
+                rect: Rect {
+                    x: x + width - note_width,
+                    y,
+                    width: note_width,
+                    height: (header_height - gap).max(1.0),
+                },
+                scale: scale * 0.8,
+                selected: false,
+            });
+        }
         frame.tiles.push(FrameTile {
             thickness: self.thickness,
             color,
@@ -224,7 +248,7 @@ impl Panel {
             rect: Rect {
                 x,
                 y,
-                width,
+                width: width - note_width - if note_width > 0.0 { gap } else { 0.0 },
                 height: (header_height - gap).max(1.0),
             },
             scale,
@@ -263,6 +287,7 @@ mod tests {
         let panel = Panel {
             rows: vec![vec![key("a", 1.0), key("b", 2.0)], vec![key("c", 1.0)]],
             status: "Page · Select a row".into(),
+            note: None,
             dock: Dock::default(),
             selected: Some((1, None)),
             status_selected: false,
@@ -307,6 +332,7 @@ mod tests {
         let panel = Panel {
             rows: vec![vec![key("a", 1.0)]],
             status: BACK_TO_ROWS.into(),
+            note: None,
             dock: Dock { column: 1, row: 0 },
             selected: None,
             status_selected: true,
@@ -399,6 +425,7 @@ mod tests {
         let mut frame = Panel {
             rows: vec![vec![key("a", 1.0)]],
             status: String::new(),
+            note: None,
             dock: Dock::default(),
             selected: None,
             status_selected: false,
@@ -428,6 +455,7 @@ mod tests {
             let panel = Panel {
                 rows: vec![vec![key("a", 1.0)]],
                 status: String::new(),
+                note: None,
                 dock,
                 selected: None,
                 status_selected: false,

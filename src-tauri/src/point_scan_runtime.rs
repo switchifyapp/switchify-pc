@@ -124,6 +124,10 @@ impl Adapter for PointScan {
             Request::Prediction { token, index } => {
                 return crate::prediction::select(token, index).map(|()| None)
             }
+            Request::PredictionRetry => {
+                crate::prediction::retry();
+                return Ok(None);
+            }
             Request::Keyboard(stroke) => {
                 let scope = crate::prediction::InputScope::capture();
                 let result = crate::scan_executor::activate(request);
@@ -268,6 +272,7 @@ impl Adapter for PointScan {
             request,
             Request::Keyboard(_)
                 | Request::Prediction { .. }
+                | Request::PredictionRetry
                 | Request::MouseMove { .. }
                 | Request::MouseMoveAbsolute { .. }
                 | Request::MouseScroll { .. }
@@ -418,6 +423,7 @@ mod tests {
             token: 1,
             index: 0
         }));
+        assert!(PointScan::preserve_visuals(&Request::PredictionRetry));
         assert!(PointScan::preserve_visuals(&Request::MouseScroll { dy: 5 }));
         assert!(!PointScan::preserve_visuals(
             &crate::point_workflow::default_click((10, 20))

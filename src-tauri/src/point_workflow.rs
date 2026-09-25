@@ -12,6 +12,7 @@ pub enum Request {
         token: u64,
         index: usize,
     },
+    PredictionRetry,
     OpenKeyboard,
     OpenMouse,
     OpenPoint,
@@ -661,6 +662,9 @@ impl Technique for Workflow {
                     }
                     Some(crate::scan_keyboard::Output::Prediction { token, index }) => {
                         return Some(Request::Prediction { token, index })
+                    }
+                    Some(crate::scan_keyboard::Output::RetryPrediction) => {
+                        return Some(Request::PredictionRetry)
                     }
                     Some(crate::scan_keyboard::Output::Close) => self.keyboard_closed(),
                     None => {}
