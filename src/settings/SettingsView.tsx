@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Settings } from "lucide-react";
 import type { AppSettings, AppState } from "../types";
 import { Tabs, TabPanel, type TabDefinition } from "../Tabs";
 import { GeneralSection } from "./GeneralSection";
@@ -51,7 +50,7 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
 
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => onChange({ ...settings, [key]: value });
 
-  return <div className="view settings-view"><header className="page-header"><div><h1>Settings</h1><p>How Switchify PC behaves on this computer</p></div><Settings size={24} /></header>
+  return <div className="view settings-view"><header className="page-header"><div><h1>Settings</h1><p>How Switchify PC behaves on this computer</p></div></header>
     <Tabs name="settings" tabs={tabs} active={active} onSelect={setActive} label="Settings sections" />
     <TabPanel name="settings" id={active}>
       {active === "general" && <GeneralSection settings={settings} update={update} />}

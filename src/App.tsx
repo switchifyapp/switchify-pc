@@ -44,10 +44,11 @@ const bluetoothDescriptions: Record<AppState["bluetooth"], string> = {
 };
 
 function NavButton({ active, icon, children, onClick }: { active: boolean; icon: ReactNode; children: ReactNode; onClick: () => void }) {
-  return <Button className="nav-button" data-active={active} onClick={onClick}>{icon}<span>{children}</span></Button>;
+  return <Button className="nav-button" data-active={active} aria-current={active ? "page" : undefined} onClick={onClick}>{icon}<span>{children}</span></Button>;
 }
 
-function StatusIcon({ ok, children }: { ok: boolean; children: ReactNode }) {
+// `ok` omitted marks a row that has no state to report, only a subject.
+function StatusIcon({ ok, children }: { ok?: boolean; children: ReactNode }) {
   return <span className="status-icon" data-ok={ok}>{children}</span>;
 }
 
@@ -76,9 +77,9 @@ function HomeView({ state, switches, scanning, navigate, onDisconnect, onAccessi
     <section className="status-list" aria-label="Switch control status">
       <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} /></div>{state.accessibility === "required" && <Button className="text-button" onClick={onAccessibility}>Open Accessibility Settings</Button>}</article>
       <article><StatusIcon ok={hasSelect}><Keyboard size={19} /></StatusIcon><div><h3>Saved switches</h3><p>{saved.length} saved · {hasSelect ? "Select assigned" : "Select action needed"}</p></div></article>
-      <article><SlidersHorizontal size={19} /><div><h3>Scanning</h3><p>Select starts {scanning.config.controlMode === "mouse" ? "Mouse scanning" : "Point scanning"} · {areaOptions(scanning.config, scanning.config.controlMode).automatic ? "Automatic" : "Manual"}</p></div><Button className="text-button" onClick={() => navigate("scanning")}>Change scanning</Button></article>
+      <article><StatusIcon><SlidersHorizontal size={19} /></StatusIcon><div><h3>Scanning</h3><p>Select starts {scanning.config.controlMode === "mouse" ? "Mouse scanning" : "Point scanning"} · {areaOptions(scanning.config, scanning.config.controlMode).automatic ? "Automatic" : "Manual"}</p></div><Button className="text-button" onClick={() => navigate("scanning")}>Change scanning</Button></article>
     </section>
-    <section className="status-list" aria-label="Optional mobile connection"><article><Smartphone size={19} /><div><h3>Mobile connection</h3><p>{state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothLabels.connected : bluetoothLabels[state.bluetooth]}</p></div><Button className="text-button" onClick={() => navigate("mobile")}>Connect mobile</Button>{state.bluetooth === "connected" && <Button className="secondary" onClick={onDisconnect}>Disconnect</Button>}</article></section>
+    <section className="status-list" aria-label="Optional mobile connection"><article><StatusIcon><Smartphone size={19} /></StatusIcon><div><h3>Mobile connection</h3><p>{state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothLabels.connected : bluetoothLabels[state.bluetooth]}</p></div><Button className="text-button" onClick={() => navigate("mobile")}>Connect mobile</Button>{state.bluetooth === "connected" && <Button className="secondary" onClick={onDisconnect}>Disconnect</Button>}</article></section>
   </div>;
 }
 
@@ -99,10 +100,10 @@ function MobileConnection({ state, onDisconnect }: { state: AppState; onDisconne
 }
 
 function DevicesView({ state, forget }: { state: AppState; forget: (id: string) => void }) {
-  return <div className="view"><header className="page-header"><div><h1>Paired devices</h1><p>Mobile devices trusted by this computer</p></div><Smartphone size={24} /></header>
+  return <section className="subview" aria-labelledby="paired-devices-title"><header className="section-header"><div><h2 id="paired-devices-title">Paired devices</h2><p>Mobile devices trusted by this computer</p></div></header>
     {state.pairedDevices.length === 0 ? <div className="empty-state"><Smartphone size={28} /><h2>No paired devices</h2><p>Open Switchify on your mobile device to pair while this computer is advertising.</p></div> :
-      <div className="device-list">{state.pairedDevices.map((device) => <article key={device.deviceId}><Smartphone size={20} /><div><h2>{device.deviceName}</h2><p>{device.lastSeenAt !== null ? `Last connected ${new Date(device.lastSeenAt).toLocaleString()}` : "Not connected yet"}</p></div><Button className="icon-button danger-icon" title={`Forget ${device.deviceName}`} onClick={() => forget(device.deviceId)}><Trash2 size={18} /></Button></article>)}</div>}
-  </div>;
+      <div className="device-list">{state.pairedDevices.map((device) => <article key={device.deviceId}><StatusIcon><Smartphone size={19} /></StatusIcon><div><h3>{device.deviceName}</h3><p>{device.lastSeenAt !== null ? `Last connected ${new Date(device.lastSeenAt).toLocaleString()}` : "Not connected yet"}</p></div><Button className="icon-button danger-icon" title={`Forget ${device.deviceName}`} onClick={() => forget(device.deviceId)}><Trash2 size={18} /></Button></article>)}</div>}
+  </section>;
 }
 
 const newProfile = (): SwitchProfile => ({
@@ -304,13 +305,13 @@ function ProfileEditor({ profile, profiles, onClose, onSave, onDelete, onDuplica
 function ProfilesView({ profiles, platform, saveProfile, deleteProfile, onDirtyChange, nativeExitRequest, onConfirmNativeExit, onCancelNativeExit, busy }: { profiles: SwitchProfile[]; platform: AppState["capabilities"]["platform"]; saveProfile: (profile: SwitchProfile) => Promise<void>; deleteProfile: (id: string) => Promise<void>; onDirtyChange: (dirty: boolean) => void; nativeExitRequest: ProfileExitAction | null; onConfirmNativeExit: () => void; onCancelNativeExit: () => void; busy: boolean }) {
   const [editing, setEditing] = useState<SwitchProfile | null>(null);
   const openerRef = useRef<HTMLButtonElement | null>(null);
-  const closeEditor = () => { setEditing(null); requestAnimationFrame(() => (openerRef.current?.isConnected ? openerRef.current : document.querySelector<HTMLButtonElement>(".page-header button"))?.focus()); };
+  const closeEditor = () => { setEditing(null); requestAnimationFrame(() => (openerRef.current?.isConnected ? openerRef.current : document.querySelector<HTMLButtonElement>(".section-header button"))?.focus()); };
   const openEditor = (profile: SwitchProfile, opener: HTMLButtonElement) => { openerRef.current = opener; setEditing(profile); };
-  return <div className="view"><header className="page-header"><div><h1>Switch Forwarding</h1><p>Profiles available to physical switch sessions</p></div><Button className="primary" onClick={(event) => openEditor(newProfile(), event.currentTarget)}><Plus size={16} />New profile</Button></header>
-    <div className="profile-list">{profiles.map((profile) => <Button className="profile-row" key={profile.id} onClick={(event) => openEditor(profile, event.currentTarget)}><div className="profile-icon"><SlidersHorizontal size={19} /></div><div><h2>{profile.name}</h2><p>{profile.provider === "grid3" ? "Grid 3" : `${profile.bindings.filter((binding) => binding.type !== "none").length} mapped switches`}</p></div><span>{profile.builtIn ? "Built in" : "Custom"}</span><ChevronRight size={18} /></Button>)}</div>
+  return <section className="subview" aria-labelledby="forwarding-title"><header className="section-header"><div><h2 id="forwarding-title">Switch Forwarding</h2><p>Profiles available to physical switch sessions</p></div><Button className="primary" onClick={(event) => openEditor(newProfile(), event.currentTarget)}><Plus size={16} />New profile</Button></header>
+    <div className="profile-list">{profiles.map((profile) => <Button className="profile-row" key={profile.id} onClick={(event) => openEditor(profile, event.currentTarget)}><StatusIcon><SlidersHorizontal size={19} /></StatusIcon><div><h3>{profile.name}</h3><p>{profile.provider === "grid3" ? "Grid 3" : `${profile.bindings.filter((binding) => binding.type !== "none").length} mapped switches`}</p></div><span>{profile.builtIn ? "Built in" : "Custom"}</span><ChevronRight size={18} /></Button>)}</div>
     {platform === "macos" && <p className="capability-note">Grid 3 profiles are available on Windows only.</p>}
     {editing && <ProfileEditor key={editing.id} profile={editing} profiles={profiles} busy={busy} onDirtyChange={onDirtyChange} nativeExitRequest={nativeExitRequest} onConfirmNativeExit={() => { closeEditor(); onConfirmNativeExit(); }} onCancelNativeExit={onCancelNativeExit} onClose={closeEditor} onDuplicate={() => setEditing(duplicateProfile(editing, profiles))} onSave={async (profile) => { await saveProfile(profile); closeEditor(); }} onDelete={editing.builtIn || !profiles.some((profile) => profile.id === editing.id) ? null : async () => { await deleteProfile(editing.id); closeEditor(); }} />}
-  </div>;
+  </section>;
 }
 
 function UpdateBanner({ update, openUpdates }: { update: UpdateState; openUpdates: () => void }) {
@@ -331,20 +332,20 @@ const supportTabs = [{ id: "setup", label: "Setup" }, { id: "troubleshooting", l
 
 function SupportView({ state, switches, busy, perform, openSetup, openUpdates }: { state: AppState; switches: SwitchController; busy: boolean; perform: (operation: () => Promise<AppState>) => void; openSetup: () => void; openUpdates: () => void }) {
   const [tab, setTab] = useState<(typeof supportTabs)[number]["id"]>("setup");
-  return <div className="view"><header className="page-header"><div><h1>Help</h1></div><CircleHelp size={24} /></header>
+  return <div className="view"><header className="page-header"><div><h1>Help</h1><p>Set up Switchify PC and fix common problems.</p></div></header>
     <Tabs name="support" tabs={supportTabs} active={tab} onSelect={setTab} label="Support view" />
     <TabPanel name="support" id={tab}>{tab === "setup" ? <><Button className="primary setup-launch" onClick={openSetup}><Wrench size={16} />Open setup guide</Button><section className="task-list" aria-label="Setup status">
       <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div>{state.accessibility === "required" && <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button>}</article>
-      <article><Keyboard size={19} /><div><h2>Local switches</h2><p>{switches.state?.settings.bindings.length ?? 0} configured. Open Switches to assign Select, then open Scanning to adjust movement.</p></div></article>
-      <article><Bluetooth size={19} /><div><h2>Optional mobile connection</h2><p>{bluetoothLabels[state.bluetooth]}. Open Mobile connection for pairing and forwarding profiles.</p></div></article>
+      <article><StatusIcon><Keyboard size={19} /></StatusIcon><div><h2>Local switches</h2><p>{switches.state?.settings.bindings.length ?? 0} configured. Open Switches to assign Select, then open Scanning to adjust movement.</p></div></article>
+      <article><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h2>Optional mobile connection</h2><p>{bluetoothLabels[state.bluetooth]}. Open Mobile connection for pairing and forwarding profiles.</p></div></article>
     </section></> : <section className="task-list" aria-label="Troubleshooting actions">
-      <article><Bluetooth size={20} /><div><h2>Bluetooth connection</h2><p>{bluetoothLabels[state.bluetooth]}</p></div><Button className="secondary" disabled={busy} onClick={() => perform(api.disconnectAll)}><Power size={16} />Disconnect</Button></article>
-      <article><Accessibility size={20} /><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div>{state.accessibility === "required" ? <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button> : <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(false))}><RefreshCw size={16} />Check input access</Button>}</article>
-      <article><RefreshCw size={20} /><div><h2>Application update</h2><p>Switchify PC {state.version}</p></div><Button className="secondary" onClick={openUpdates}>View updates</Button></article>
-      <article><Download size={20} /><div><h2>Diagnostics</h2><p>Export sanitized health, capability, and recent event data</p></div><Button className="secondary" disabled={busy} onClick={() => perform(api.exportDiagnostics)}><Download size={16} />Export</Button></article>
-      <article className="diagnostic-detail"><Bluetooth size={20} /><div><h2>Recent Bluetooth changes</h2><p>{state.diagnostics.recentBluetooth.length > 0 ? state.diagnostics.recentBluetooth.map((event) => event.status).join(" → ") : "No Bluetooth changes recorded yet"}</p></div></article>
-      <article className="diagnostic-detail"><Power size={20} /><div><h2>Last disconnect</h2><p>{state.diagnostics.lastDisconnect ? `${state.diagnostics.lastDisconnect.detail ?? state.diagnostics.lastDisconnect.status}` : "No disconnect recorded yet"}</p></div></article>
-      <article className="diagnostic-detail"><CircleHelp size={20} /><div><h2>Recent errors</h2><p>{state.diagnostics.recentErrors.length > 0 ? state.diagnostics.recentErrors.map((event) => event.detail ?? event.status).join(" · ") : "No recent errors"}</p></div></article>
+      <article><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h2>Bluetooth connection</h2><p>{bluetoothLabels[state.bluetooth]}</p></div><Button className="secondary" disabled={busy} onClick={() => perform(api.disconnectAll)}><Power size={16} />Disconnect</Button></article>
+      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div>{state.accessibility === "required" ? <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button> : <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(false))}><RefreshCw size={16} />Check input access</Button>}</article>
+      <article><StatusIcon><RefreshCw size={19} /></StatusIcon><div><h2>Application update</h2><p>Switchify PC {state.version}</p></div><Button className="secondary" onClick={openUpdates}>View updates</Button></article>
+      <article><StatusIcon><Download size={19} /></StatusIcon><div><h2>Diagnostics</h2><p>Export sanitized health, capability, and recent event data</p></div><Button className="secondary" disabled={busy} onClick={() => perform(api.exportDiagnostics)}><Download size={16} />Export</Button></article>
+      <article className="diagnostic-detail"><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h2>Recent Bluetooth changes</h2><p>{state.diagnostics.recentBluetooth.length > 0 ? state.diagnostics.recentBluetooth.map((event) => event.status).join(" → ") : "No Bluetooth changes recorded yet"}</p></div></article>
+      <article className="diagnostic-detail"><StatusIcon><Power size={19} /></StatusIcon><div><h2>Last disconnect</h2><p>{state.diagnostics.lastDisconnect ? `${state.diagnostics.lastDisconnect.detail ?? state.diagnostics.lastDisconnect.status}` : "No disconnect recorded yet"}</p></div></article>
+      <article className="diagnostic-detail"><StatusIcon><CircleHelp size={19} /></StatusIcon><div><h2>Recent errors</h2><p>{state.diagnostics.recentErrors.length > 0 ? state.diagnostics.recentErrors.map((event) => event.detail ?? event.status).join(" · ") : "No recent errors"}</p></div></article>
     </section>}</TabPanel>
   </div>;
 }
@@ -778,10 +779,10 @@ export function App() {
       <UpdateBanner update={state.updater} openUpdates={openUpdates} />
       <p id="settings-updates-notice" className="sr-only" aria-live={updateFailure ? updateLiveness(updateFailure.status) : "polite"} aria-atomic="true">{updateNotice}</p>
       {view === "home" && <HomeView state={state} switches={switches} scanning={scanning} navigate={selectView} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} />}
-      {view === "switches" && <div className="view"><header className="page-header"><h1>Switches</h1></header><SwitchesSection mobileConnected={state.bluetooth === "connected"} controller={switches} suspended={pairingOpen} /></div>}
-      {view === "scanning" && <div className="view"><header className="page-header"><h1>Scanning</h1><p>Choose how your switches control the pointer.</p></header><ScanningSection controller={scanning} /></div>}
+      {view === "switches" && <div className="view"><header className="page-header"><div><h1>Switches</h1><p>The switches you use to control this computer.</p></div></header><SwitchesSection mobileConnected={state.bluetooth === "connected"} controller={switches} suspended={pairingOpen} /></div>}
+      {view === "scanning" && <div className="view"><header className="page-header"><div><h1>Scanning</h1><p>Choose how your switches control the pointer.</p></div></header><ScanningSection controller={scanning} /></div>}
       {view === "mouse" && <MouseSettingsView settings={settings} onChange={changeSettings} />}
-      {(view === "mobile" || view === "devices" || view === "profiles") && <div className="view"><header className="page-header"><div><h1>Mobile</h1></div></header><Tabs name="mobile" label="Mobile connection sections" active={view} onSelect={selectView} tabs={[{id: "mobile", label: "Connection"}, {id: "devices", label: "Paired devices"}, {id: "profiles", label: "Switch Forwarding"}]} /><TabPanel name="mobile" id={view}>
+      {(view === "mobile" || view === "devices" || view === "profiles") && <div className="view"><header className="page-header"><div><h1>Mobile</h1><p>Control this computer from Switchify on a phone or tablet.</p></div></header><Tabs name="mobile" label="Mobile connection sections" active={view} onSelect={selectView} tabs={[{id: "mobile", label: "Connection"}, {id: "devices", label: "Paired devices"}, {id: "profiles", label: "Switch Forwarding"}]} /><TabPanel name="mobile" id={view}>
       {view === "mobile" && <MobileConnection state={state} onDisconnect={() => void perform(api.disconnectAll)} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}
       {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} nativeExitRequest={profileExitRequest} onConfirmNativeExit={confirmProfileExit} onCancelNativeExit={cancelProfileExit} />}
