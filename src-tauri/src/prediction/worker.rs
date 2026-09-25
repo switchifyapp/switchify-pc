@@ -555,6 +555,21 @@ mod tests {
         assert_eq!(locked.words[0], "WATER");
         let once = e.query(vec![], 1, Shift::Once, false).unwrap();
         assert_eq!(once.words[0], "Water");
+        // Modifiers still mirror typing at a sentence start: Caps with Shift
+        // locked cancel to lowercase letters, and Shift once under Caps
+        // lowers only the first one, exactly as the keys would type them.
+        assert_eq!(
+            e.query(vec![], 1, Shift::Off, true).unwrap().words[0],
+            "WATER"
+        );
+        assert_eq!(
+            e.query(vec![], 1, Shift::Locked, true).unwrap().words[0],
+            "Water"
+        );
+        assert_eq!(
+            e.query(vec![], 1, Shift::Once, true).unwrap().words[0],
+            "wATER"
+        );
     }
     #[test]
     fn shift_once_changes_only_the_first_letter_and_only_before_typing() {
