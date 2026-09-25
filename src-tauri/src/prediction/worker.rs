@@ -214,7 +214,8 @@ impl Engine {
             return self.batch.clone();
         }
         let ctx = context::extract(&self.buffer, self.clipped);
-        let (status, words) = self.database.predict(&ctx);
+        let (status, prediction) = self.database.predict(&ctx);
+        let words = interleave(prediction.words, prediction.phrases);
         self.status = status;
         self.token = self.token.wrapping_add(1);
         self.suffixes.clear();
@@ -303,6 +304,24 @@ impl Engine {
         }
     }
 }
+/// The five suggestion slots: words in the first, third and fifth, phrases
+/// in the second and fourth. When one kind runs short the other fills in.
+pub fn interleave(words: Vec<String>, phrases: Vec<String>) -> Vec<String> {
+    let (mut words, mut phrases) = (words.into_iter(), phrases.into_iter());
+    let mut row = Vec::new();
+    while row.len() < 5 {
+        let next = if row.len() % 2 == 1 {
+            phrases.next().or_else(|| words.next())
+        } else {
+            words.next().or_else(|| phrases.next())
+        };
+        match next {
+            Some(label) => row.push(label),
+            None => break,
+        }
+    }
+    row
+}
 pub fn run_from_args() -> bool {
     let args: Vec<_> = std::env::args_os().collect();
     if args.get(1).is_none_or(|s| s != ARG) {
@@ -364,6 +383,26 @@ mod tests {
     }
     fn append(s: &str) -> RecordedEdit {
         edit(Edit::Append(s.into()))
+    }
+    #[test]
+    fn phrases_take_every_second_slot_and_accept_as_one_suffix() {
+        let w = |s: &[&str]| s.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            interleave(w(&["a", "b", "c", "d", "e"]), w(&["a b", "c d"])),
+            w(&["a", "a b", "b", "c d", "c"])
+        );
+        assert_eq!(interleave(w(&["a", "b", "c"]), w(&[])), w(&["a", "b", "c"]));
+        assert_eq!(
+            interleave(w(&["a"]), w(&["a b", "a c"])),
+            w(&["a", "a b", "a c"])
+        );
+        assert_eq!(interleave(w(&[]), w(&["a b"])), w(&["a b"]));
+        let mut e = engine();
+        let b = e.query(vec![append("wa")], 1, false, false).unwrap();
+        assert_eq!(b.words, w(&["water", "water is", "waffle", "walk"]));
+        assert_eq!(e.accept(b.token, 1).unwrap(), "ter is ");
+        let upper = e.query(vec![], 1, false, true).unwrap();
+        assert_eq!(upper.words[1], "waTER IS");
     }
     #[test]
     fn first_letter_and_completion_chain_use_only_buffer() {
