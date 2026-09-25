@@ -114,7 +114,7 @@ describe("teaching demonstrations", () => {
     expect(screen.getByRole("list")).toHaveTextContent("return to the app");
   });
 
-  it.each(["jack", "usb", "learn", "select", "grid", "line", "hold", "access", "pair", "startup"] as DemonstrationKind[])("renders every illustrated step for %s", kind => {
+  it.each(["jack", "usb", "interface", "learn", "select", "grid", "line", "hold", "access", "pair", "startup"] as DemonstrationKind[])("renders every illustrated step for %s", kind => {
     reduced = true;
     render(<DemonstrationProvider platform="macos" suspended={false}><Demonstration kind={kind} /></DemonstrationProvider>);
     const { title, steps, captions } = demonstration(kind, "macos");

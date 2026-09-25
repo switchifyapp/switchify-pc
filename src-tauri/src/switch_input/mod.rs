@@ -392,7 +392,7 @@ impl Capture {
                 bail!("Unsupported switch key: {}", m.code);
             };
             if code == "Escape" || !supported_key(&code) {
-                bail!("Switch key is reserved or unavailable on this platform: {code}");
+                bail!("{}", unavailable_reason(&code));
             }
             if keys.insert(code, m.id.clone()).is_some() {
                 bail!("Each physical key can be mapped only once.");
@@ -552,6 +552,21 @@ pub fn supported_key(code: &str) -> bool {
         let _ = code;
         false
     }
+}
+
+/// Why a key cannot be a switch on this computer, worded for the person
+/// whose interface sent it.
+pub fn unavailable_reason(code: &str) -> String {
+    if code == "Escape" {
+        return "Escape is reserved for disabling switch control.".into();
+    }
+    if cfg!(target_os = "windows") && code == "F12" {
+        return "Windows reserves F12, so it cannot be a switch key. Set your interface to another key.".into();
+    }
+    if cfg!(target_os = "macos") && matches!(code, "F21" | "F22" | "F23" | "F24") {
+        return format!("macOS has no {code} key, so it cannot be a switch key. Set your interface to F20 or lower.");
+    }
+    format!("{code} is unavailable on this computer. Learn another key.")
 }
 
 #[cfg(test)]
@@ -827,5 +842,14 @@ mod tests {
         assert_eq!(normalize_key("Return").as_deref(), Some("Enter"));
         assert!(normalize_key("F24").is_some());
         assert!(normalize_key("F25").is_none());
+    }
+    #[test]
+    fn unavailable_reason_names_the_rule_that_applies() {
+        assert!(unavailable_reason("Escape").contains("Escape"));
+        assert!(unavailable_reason("F1").contains("F1"));
+        #[cfg(target_os = "windows")]
+        assert!(unavailable_reason("F12").contains("Windows"));
+        #[cfg(target_os = "macos")]
+        assert!(unavailable_reason("F21").contains("macOS"));
     }
 }

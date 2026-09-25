@@ -92,5 +92,5 @@ export function Demonstration({ kind }: { kind: DemonstrationKind }) {
 }
 
 export function SwitchDemonstrations() {
-  return <><Demonstration kind="jack" /><Demonstration kind="usb" /><Demonstration kind="hold" /></>;
+  return <><Demonstration kind="interface" /><Demonstration kind="jack" /><Demonstration kind="usb" /><Demonstration kind="hold" /></>;
 }
