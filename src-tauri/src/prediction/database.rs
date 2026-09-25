@@ -1,6 +1,6 @@
 use super::{
     context::Context,
-    model::{Model, Predict},
+    model::{Model, Predict, Prediction},
 };
 use std::{
     path::Path,
@@ -9,7 +9,11 @@ use std::{
 };
 
 const SEARCH_BUDGET: Duration = Duration::from_millis(400);
-const SLOW_CALL: Duration = Duration::from_millis(1000);
+/// Extra time after the word search for two-word phrases.
+const PHRASE_BUDGET: Duration = Duration::from_millis(200);
+/// Well under the parent's two-second reply deadline, with room for the
+/// budgets above plus the beam step that may overrun each of them.
+const SLOW_CALL: Duration = Duration::from_millis(1500);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Status {
@@ -56,23 +60,29 @@ impl Database {
             State::Unavailable => Status::Unavailable,
         }
     }
-    pub fn predict(&mut self, context: &Context) -> (Status, Vec<String>) {
+    pub fn predict(&mut self, context: &Context) -> (Status, Prediction) {
         let status = self.status();
         if status != Status::Ready || context.partial {
-            return (status, Vec::new());
+            return (status, Prediction::default());
         }
         let State::Ready(model) = &mut self.state else {
             unreachable!()
         };
         let start = Instant::now();
-        let result = model.predict(&context.before, &context.prefix, start + SEARCH_BUDGET);
+        let result = model.predict(
+            &context.before,
+            &context.prefix,
+            start + SEARCH_BUDGET,
+            start + SEARCH_BUDGET + PHRASE_BUDGET,
+        );
         if start.elapsed() > self.slow_call || result.is_err() {
             self.state = State::Unavailable;
-            return (Status::Unavailable, Vec::new());
+            return (Status::Unavailable, Prediction::default());
         }
-        let mut words = result.unwrap();
-        words.truncate(5);
-        (Status::Ready, words)
+        let mut prediction = result.unwrap();
+        prediction.words.truncate(5);
+        prediction.phrases.truncate(2);
+        (Status::Ready, prediction)
     }
     #[cfg(test)]
     pub fn fixture() -> Self {
@@ -92,12 +102,15 @@ impl Predict for FakeModel {
         _before: &str,
         prefix: &str,
         _deadline: Instant,
-    ) -> Result<Vec<String>, ()> {
-        Ok(["water", "waffle", "walk"]
+        _phrase_deadline: Instant,
+    ) -> Result<Prediction, ()> {
+        let words: Vec<String> = ["water", "waffle", "walk"]
             .into_iter()
             .filter(|w| w.starts_with(&prefix.to_lowercase()))
             .map(str::to_owned)
-            .collect())
+            .collect();
+        let phrases = words.iter().take(1).map(|w| format!("{w} is")).collect();
+        Ok(Prediction { words, phrases })
     }
 }
 
@@ -111,11 +124,13 @@ mod tests {
             _before: &str,
             _prefix: &str,
             _deadline: Instant,
-        ) -> Result<Vec<String>, ()> {
+            _phrase_deadline: Instant,
+        ) -> Result<Prediction, ()> {
             std::thread::sleep(self.1);
-            self.0
-                .clone()
-                .map(|w| w.into_iter().map(String::from).collect())
+            self.0.clone().map(|w| Prediction {
+                words: w.iter().map(|w| (*w).to_owned()).collect(),
+                phrases: w.iter().map(|w| format!("{w} too")).collect(),
+            })
         }
     }
     fn context() -> Context {
@@ -128,9 +143,15 @@ mod tests {
             state: State::Loading(rx),
             slow_call: SLOW_CALL,
         };
-        assert_eq!(db.predict(&context()), (Status::Loading, vec![]));
+        assert_eq!(
+            db.predict(&context()),
+            (Status::Loading, Prediction::default())
+        );
         tx.send(Err(())).unwrap();
-        assert_eq!(db.predict(&context()), (Status::Unavailable, vec![]));
+        assert_eq!(
+            db.predict(&context()),
+            (Status::Unavailable, Prediction::default())
+        );
         let missing =
             std::env::temp_dir().join(format!("switchify-missing-model-{}", std::process::id()));
         let mut db = Database::open(&missing);
@@ -138,7 +159,10 @@ mod tests {
         while db.status() == Status::Loading && Instant::now() < end {
             std::thread::sleep(Duration::from_millis(10));
         }
-        assert_eq!(db.predict(&context()), (Status::Unavailable, vec![]));
+        assert_eq!(
+            db.predict(&context()),
+            (Status::Unavailable, Prediction::default())
+        );
     }
     #[test]
     fn model_only_limit_failure_and_slow_call() {
@@ -147,12 +171,22 @@ mod tests {
             Ok(vec!["one", "two", "three", "four", "five", "six"]),
             Duration::ZERO,
         )));
-        assert_eq!(db.predict(&context()).1.len(), 5);
+        let prediction = db.predict(&context()).1;
+        assert_eq!((prediction.words.len(), prediction.phrases.len()), (5, 2));
         db.state = State::Ready(Box::new(Fake(Err(()), Duration::ZERO)));
-        assert_eq!(db.predict(&context()), (Status::Unavailable, vec![]));
+        assert_eq!(
+            db.predict(&context()),
+            (Status::Unavailable, Prediction::default())
+        );
         db.state = State::Ready(Box::new(Fake(Ok(vec!["late"]), Duration::from_millis(20))));
         db.slow_call = Duration::from_millis(10);
-        assert_eq!(db.predict(&context()), (Status::Unavailable, vec![]));
-        assert_eq!(db.predict(&context()), (Status::Unavailable, vec![]));
+        assert_eq!(
+            db.predict(&context()),
+            (Status::Unavailable, Prediction::default())
+        );
+        assert_eq!(
+            db.predict(&context()),
+            (Status::Unavailable, Prediction::default())
+        );
     }
 }

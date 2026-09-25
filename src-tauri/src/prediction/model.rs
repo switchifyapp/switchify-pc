@@ -68,66 +68,69 @@ fn normalize(word: &str) -> String {
     word.to_lowercase().replace('’', "'")
 }
 
-/// Up to five words for `prefix` after `before`, most probable first.
-/// Expansion stops at `deadline`, returning the words finished so far.
-pub fn spell(
+/// Words and phrases for one typed prefix, most probable first.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Prediction {
+    pub words: Vec<String>,
+    pub phrases: Vec<String>,
+}
+
+/// A word (or phrase) the beam finished: its probability mass over spellings,
+/// the best spelling, that spelling's pieces and their log-probability.
+struct Finished {
+    mass: f32,
+    best: f32,
+    spelling: String,
+    pieces: Vec<i64>,
+    logp: f32,
+}
+
+type Beam = Vec<(f32, Vec<i64>, String)>;
+
+/// Words the beam keeps must be able to become `prefix`, or already be it.
+fn compatible(prefix: &str, word: &str) -> bool {
+    let w = normalize(word);
+    w.starts_with(prefix) || prefix.starts_with(&w)
+}
+
+/// The word `piece` begins, or `None` if it cannot begin one. At the very
+/// start of text a capital marks a word start, since fragments are never
+/// capitalised; elsewhere a word begins after a space.
+fn word_start(piece: &str, start: bool) -> Option<&str> {
+    let word = if start {
+        piece
+    } else {
+        piece.strip_prefix(' ')?
+    };
+    let first = word.chars().next()?;
+    let begins = if start {
+        first.is_uppercase()
+    } else {
+        first.is_ascii_alphabetic()
+    };
+    (begins
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphabetic() || c == '\'' || c == '’'))
+    .then_some(word)
+}
+
+/// Extends `beam` piece by piece, collecting entries that reach a word
+/// boundary and match `prefix`, until `MAX_PIECES` or `deadline`.
+fn grow(
     scorer: &mut impl Scorer,
     vocabulary: &Vocabulary,
-    before: &str,
+    mut beam: Beam,
     prefix: &str,
     deadline: Instant,
-) -> Result<Vec<String>, ()> {
-    let typed = prefix;
-    let prefix = normalize(prefix);
-    let text = before.trim_end();
-    // A word after the last one needs a leading space; at the very start of
-    // text a capital marks a word start, since fragments are never capitalised.
-    let start = text.is_empty();
-    if !start && text.len() == before.len() {
-        return Ok(Vec::new());
-    }
-    let compatible = |word: &str| {
-        let w = normalize(word);
-        w.starts_with(&prefix) || prefix.starts_with(&w)
-    };
-    let next = scorer.context(text)?;
-    if next.len() != vocabulary.pieces.len() {
-        return Err(());
-    }
-    let mut beam: Vec<(f32, Vec<i64>, String)> = Vec::new();
-    for (id, piece) in vocabulary.pieces.iter().enumerate() {
-        let word = if start {
-            piece.as_str()
-        } else {
-            match piece.strip_prefix(' ') {
-                Some(word) => word,
-                None => continue,
-            }
-        };
-        let first = word.chars().next();
-        let begins = if start {
-            first.is_some_and(char::is_uppercase)
-        } else {
-            first.is_some_and(|c| c.is_ascii_alphabetic())
-        };
-        if begins
-            && next[id] > PRUNE
-            && word
-                .chars()
-                .all(|c| c.is_ascii_alphabetic() || c == '\'' || c == '’')
-            && compatible(word)
-        {
-            beam.push((next[id], vec![id as i64], word.to_owned()));
-        }
-    }
-    // Probability mass per normalized word, plus its most probable spelling.
-    let mut finished: HashMap<String, (f32, f32, String)> = HashMap::new();
-    let fifth = |finished: &HashMap<String, (f32, f32, String)>| {
-        // Only words that can survive the final filter may prune the beam.
+) -> Result<HashMap<String, Finished>, ()> {
+    let mut finished: HashMap<String, Finished> = HashMap::new();
+    let fifth = |finished: &HashMap<String, Finished>| {
+        // Only entries that can survive the final filter may prune the beam.
         let mut p: Vec<f32> = finished
-            .iter()
-            .filter(|(_, f)| f.0.ln() >= UNKNOWN_MIN)
-            .map(|(_, f)| f.0)
+            .values()
+            .filter(|f| f.mass.ln() >= UNKNOWN_MIN)
+            .map(|f| f.mass)
             .collect();
         p.sort_by(|a, b| b.total_cmp(a));
         p.get(4).map_or(f32::NEG_INFINITY, |p| p.ln())
@@ -154,7 +157,7 @@ pub fn spell(
             }
             let key = normalize(word);
             let plausible = key.chars().count() > 1 || key == "a" || key == "i";
-            if plausible && key.starts_with(&prefix) {
+            if plausible && key.starts_with(prefix) {
                 let boundary: f32 = row
                     .iter()
                     .zip(&vocabulary.boundary)
@@ -162,19 +165,25 @@ pub fn spell(
                     .map(|(l, _)| l.exp())
                     .sum();
                 let score = logp + boundary.max(1e-12).ln();
-                let entry = finished
-                    .entry(key)
-                    .or_insert((0.0, f32::NEG_INFINITY, String::new()));
-                entry.0 += score.exp();
-                if score > entry.1 {
-                    entry.1 = score;
-                    entry.2 = word.clone();
+                let entry = finished.entry(key).or_insert(Finished {
+                    mass: 0.0,
+                    best: f32::NEG_INFINITY,
+                    spelling: String::new(),
+                    pieces: Vec::new(),
+                    logp: f32::NEG_INFINITY,
+                });
+                entry.mass += score.exp();
+                if score > entry.best {
+                    entry.best = score;
+                    entry.spelling = word.clone();
+                    entry.pieces = pieces.clone();
+                    entry.logp = *logp;
                 }
             }
             for (id, piece) in vocabulary.pieces.iter().enumerate() {
                 if vocabulary.continues[id] && row[id] > PRUNE {
                     let longer = format!("{word}{piece}");
-                    if compatible(&longer) {
+                    if compatible(prefix, &longer) {
                         let mut pieces = pieces.clone();
                         pieces.push(id as i64);
                         grown.push((logp + row[id], pieces, longer));
@@ -184,31 +193,178 @@ pub fn spell(
         }
         beam = grown;
     }
-    let mut words: Vec<(f32, String, String)> = finished
+    Ok(finished)
+}
+
+/// The finished entries worth showing, most probable first.
+fn ranked(finished: HashMap<String, Finished>, limit: usize) -> Vec<(String, Finished)> {
+    let mut entries: Vec<(String, Finished)> = finished
         .into_iter()
-        .filter_map(|(key, (p, _, spelling))| (p.ln() >= UNKNOWN_MIN).then_some((p, key, spelling)))
+        .filter(|(_, f)| f.mass.ln() >= UNKNOWN_MIN)
         .collect();
-    words.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-    Ok(words
-        .into_iter()
-        .take(5)
-        .map(|(_, key, spelling)| {
-            // Sentence position and all-caps tokens should not force uppercase
-            // onto ordinary completions. Keep mixed case names from the model.
-            let word = if spelling.chars().skip(1).any(|c| c.is_ascii_uppercase())
-                && !spelling.chars().all(|c| c.is_ascii_uppercase())
-            {
-                spelling.replace('’', "'")
-            } else {
-                key
-            };
-            if typed.contains('’') {
-                word.replace('\'', "’")
-            } else {
-                word
+    entries.sort_by(|a, b| b.1.mass.total_cmp(&a.1.mass).then_with(|| a.0.cmp(&b.0)));
+    entries.truncate(limit);
+    entries
+}
+
+/// How a finished word is shown. Sentence position and all-caps tokens
+/// should not force uppercase onto ordinary completions; mixed-case names
+/// keep the model's casing, the pronoun I is always capital, and the typed
+/// apostrophe style is kept.
+fn display(key: &str, spelling: &str, typed: &str) -> String {
+    let word = if key == "i" {
+        "I".to_owned()
+    } else if spelling.chars().skip(1).any(|c| c.is_ascii_uppercase())
+        && !spelling.chars().all(|c| c.is_ascii_uppercase())
+    {
+        spelling.replace('’', "'")
+    } else {
+        key.to_owned()
+    };
+    if typed.contains('’') {
+        word.replace('\'', "’")
+    } else {
+        word
+    }
+}
+
+/// Up to five words for `prefix` after `before`, most probable first.
+/// Expansion stops at `deadline`, returning the words finished so far.
+#[cfg(test)]
+fn spell(
+    scorer: &mut impl Scorer,
+    vocabulary: &Vocabulary,
+    before: &str,
+    prefix: &str,
+    deadline: Instant,
+) -> Result<Vec<String>, ()> {
+    complete(scorer, vocabulary, before, prefix, deadline, deadline).map(|p| p.words)
+}
+
+/// Words for `prefix` after `before`, plus up to `PHRASES` two-word phrases
+/// that continue the likeliest of them, ranked by the probability of the
+/// pair. Word search stops at `deadline` and phrase search at
+/// `phrase_deadline`, so phrases never delay the words.
+pub fn complete(
+    scorer: &mut impl Scorer,
+    vocabulary: &Vocabulary,
+    before: &str,
+    prefix: &str,
+    deadline: Instant,
+    phrase_deadline: Instant,
+) -> Result<Prediction, ()> {
+    let typed = prefix;
+    let prefix = normalize(prefix);
+    let text = before.trim_end();
+    // A word after the last one needs a leading space.
+    let start = text.is_empty();
+    if !start && text.len() == before.len() {
+        return Ok(Prediction::default());
+    }
+    let next = scorer.context(text)?;
+    if next.len() != vocabulary.pieces.len() {
+        return Err(());
+    }
+    let mut beam = Beam::new();
+    for (id, piece) in vocabulary.pieces.iter().enumerate() {
+        if let Some(word) = word_start(piece, start) {
+            if next[id] > PRUNE && compatible(&prefix, word) {
+                beam.push((next[id], vec![id as i64], word.to_owned()));
             }
+        }
+    }
+    let words = ranked(grow(scorer, vocabulary, beam, &prefix, deadline)?, 5);
+    let phrases = follow(scorer, vocabulary, &words, phrase_deadline)?;
+    Ok(Prediction {
+        words: words
+            .iter()
+            .map(|(key, f)| display(key, &f.spelling, typed))
+            .collect(),
+        phrases: phrases
+            .into_iter()
+            .map(|(lead, key, f)| {
+                let second = f.spelling.split_once(' ').map_or("", |(_, s)| s);
+                let second_key = key.split_once(' ').map_or("", |(_, s)| s);
+                format!(
+                    "{} {}",
+                    display(&words[lead].0, &words[lead].1.spelling, typed),
+                    display(second_key, second, typed)
+                )
+            })
+            .collect(),
+    })
+}
+
+/// How many of the top words are followed, and how many phrases result.
+const PHRASE_LEADS: usize = 3;
+const PHRASES: usize = 2;
+
+/// The likeliest next words after the top `PHRASE_LEADS` words, as
+/// `(lead index, "lead second" key, finished phrase)`. One beam spells every
+/// lead's continuation at once from the same cached context, scored by the
+/// probability of the second word given its lead so that no lead crowds the
+/// others out. Pairs are then ranked by joint probability, preferring one
+/// phrase per lead so the row shows different words.
+fn follow(
+    scorer: &mut impl Scorer,
+    vocabulary: &Vocabulary,
+    words: &[(String, Finished)],
+    deadline: Instant,
+) -> Result<Vec<(usize, String, Finished)>, ()> {
+    let leads: Vec<&(String, Finished)> = words.iter().take(PHRASE_LEADS).collect();
+    if leads.is_empty() || Instant::now() >= deadline {
+        return Ok(Vec::new());
+    }
+    let rows = scorer.extend(
+        &leads
+            .iter()
+            .map(|(_, f)| f.pieces.clone())
+            .collect::<Vec<_>>(),
+    )?;
+    if rows.len() != leads.len() {
+        return Err(());
+    }
+    let mut beam = Beam::new();
+    for ((_, lead), row) in leads.iter().zip(&rows) {
+        if row.len() != vocabulary.pieces.len() {
+            return Err(());
+        }
+        for (id, piece) in vocabulary.pieces.iter().enumerate() {
+            if let Some(word) = word_start(piece, false) {
+                if row[id] > PRUNE {
+                    let mut pieces = lead.pieces.clone();
+                    pieces.push(id as i64);
+                    beam.push((row[id], pieces, format!("{} {word}", lead.spelling)));
+                }
+            }
+        }
+    }
+    let finished = grow(scorer, vocabulary, beam, "", deadline)?;
+    let mut candidates: Vec<(f32, usize, String, Finished)> = finished
+        .into_iter()
+        .filter_map(|(key, f)| {
+            let (first, second) = key.split_once(' ')?;
+            // The second word obeys the single-letter rule on its own.
+            if !(second.chars().count() > 1 || second == "a" || second == "i") {
+                return None;
+            }
+            let lead = leads.iter().position(|(k, _)| k == first)?;
+            let joint = leads[lead].1.logp + f.mass.ln();
+            (joint >= UNKNOWN_MIN).then_some((joint, lead, key, f))
         })
-        .collect())
+        .collect();
+    candidates.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
+    let mut phrases: Vec<(usize, String, Finished)> = Vec::new();
+    let mut rest = Vec::new();
+    for (_, lead, key, f) in candidates {
+        if phrases.len() < PHRASES && !phrases.iter().any(|(l, _, _)| *l == lead) {
+            phrases.push((lead, key, f));
+        } else {
+            rest.push((lead, key, f));
+        }
+    }
+    phrases.extend(rest.into_iter().take(PHRASES - phrases.len().min(PHRASES)));
+    Ok(phrases)
 }
 
 struct Past {
@@ -408,8 +564,13 @@ impl Model {
 
 /// Predictor behind `Database`, so tests can substitute a fake.
 pub trait Predict: Send {
-    fn predict(&mut self, before: &str, prefix: &str, deadline: Instant)
-        -> Result<Vec<String>, ()>;
+    fn predict(
+        &mut self,
+        before: &str,
+        prefix: &str,
+        deadline: Instant,
+        phrase_deadline: Instant,
+    ) -> Result<Prediction, ()>;
 }
 
 impl Predict for Model {
@@ -418,16 +579,24 @@ impl Predict for Model {
         before: &str,
         prefix: &str,
         deadline: Instant,
-    ) -> Result<Vec<String>, ()> {
+        phrase_deadline: Instant,
+    ) -> Result<Prediction, ()> {
         // The model's beginning-of-document distribution favors site names.
         // A fixed, local context yields useful initial completions without
         // reading any additional user text.
         let context = match recent(before) {
             Some("") if !prefix.is_empty() => "I ",
             Some(text) => text,
-            None => return Ok(Vec::new()),
+            None => return Ok(Prediction::default()),
         };
-        spell(&mut self.onnx, &self.vocabulary, context, prefix, deadline)
+        complete(
+            &mut self.onnx,
+            &self.vocabulary,
+            context,
+            prefix,
+            deadline,
+            phrase_deadline,
+        )
     }
 }
 
@@ -449,20 +618,23 @@ mod tests {
     use super::*;
 
     /// Pieces: 0 "<s>", 1 " Wa", 2 " wa", 3 "ter", 4 "ffle", 5 " .", 6 " water",
-    /// 7 "Wa", 8 "zz", 9 " darn", 10 " x". Everything after a word is a boundary.
+    /// 7 "Wa", 8 "zz", 9 " darn", 10 " x", 11 " is", 12 " i". After " water"
+    /// the next word is " is" or " i"; after "ffle" it is " is" less often.
+    /// Everything else after a word is a boundary.
     struct Fake {
         next: Vec<f32>,
         contexts: usize,
     }
     fn pieces() -> Vec<String> {
         [
-            "<s>", " Wa", " wa", "ter", "ffle", " .", " water", "Wa", "zz", " darn", " x",
+            "<s>", " Wa", " wa", "ter", "ffle", " .", " water", "Wa", "zz", " darn", " x", " is",
+            " i",
         ]
         .map(String::from)
         .to_vec()
     }
     fn dist(pairs: &[(usize, f32)]) -> Vec<f32> {
-        let mut d = vec![-30.0; 11];
+        let mut d = vec![-30.0; 13];
         for &(i, p) in pairs {
             d[i] = p.ln();
         }
@@ -478,6 +650,8 @@ mod tests {
                 .iter()
                 .map(|c| match c.last() {
                     Some(1) | Some(2) | Some(7) => dist(&[(3, 0.6), (4, 0.3), (5, 0.1)]),
+                    Some(6) => dist(&[(11, 0.5), (12, 0.3), (5, 0.2)]),
+                    Some(4) => dist(&[(11, 0.4), (5, 0.6)]),
                     _ => dist(&[(5, 1.0)]),
                 })
                 .collect())
@@ -505,6 +679,32 @@ mod tests {
         let words = run(&mut s, "I would like ", "wa").unwrap();
         assert_eq!(words, ["water", "waffle", "wa"]);
         assert_eq!(run(&mut s, "I would like ", "waf").unwrap(), ["waffle"]);
+    }
+
+    #[test]
+    fn phrases_prefer_different_leads_capitalise_i_and_keep_their_deadline() {
+        let mut s = fake(&[(1, 0.2), (2, 0.3), (6, 0.4), (9, 0.1)]);
+        let far = Instant::now() + std::time::Duration::from_secs(60);
+        // "water i" (0.4 * 0.3) outranks "waffle is" (0.09 * 0.4), but the
+        // second slot prefers a phrase from a different lead.
+        let p = complete(&mut s, &vocabulary(), "I would like ", "wa", far, far).unwrap();
+        assert_eq!(p.words, ["water", "waffle", "wa"]);
+        assert_eq!(p.phrases, ["water is", "waffle is"]);
+        let p = complete(&mut s, &vocabulary(), "I would like ", "wat", far, far).unwrap();
+        assert_eq!(p.phrases, ["water is", "water I"]);
+        let p = complete(
+            &mut s,
+            &vocabulary(),
+            "I would like ",
+            "wa",
+            far,
+            Instant::now(),
+        )
+        .unwrap();
+        assert_eq!(p.words, ["water", "waffle", "wa"]);
+        assert!(p.phrases.is_empty());
+        let p = complete(&mut s, &vocabulary(), "I would like ", "waf", far, far).unwrap();
+        assert_eq!(p.phrases, ["waffle is"]);
     }
 
     #[test]
@@ -580,10 +780,16 @@ mod tests {
         ] {
             let t = Instant::now();
             let deadline = t + std::time::Duration::from_secs(60);
-            let words = model.predict(before, prefix, deadline).unwrap();
+            let p = model.predict(before, prefix, deadline, deadline).unwrap();
             times.push(t.elapsed().as_secs_f64() * 1000.0);
-            println!("{before:?}+{prefix:?} -> {words:?}");
+            println!("{before:?}+{prefix:?} -> {:?} {:?}", p.words, p.phrases);
+            let words = &p.words;
             assert!(words.iter().all(|w| normalize(w).starts_with(prefix)));
+            for phrase in &p.phrases {
+                let (first, second) = phrase.split_once(' ').expect("two words");
+                assert!(words.iter().take(3).any(|w| w == first), "{phrase:?}");
+                assert!(!second.is_empty() && !second.contains(' '));
+            }
             if let Some(expected) = expected {
                 assert!(words.iter().any(|w| w == expected), "{words:?}");
             }
