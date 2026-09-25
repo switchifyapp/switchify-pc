@@ -231,7 +231,7 @@ main { min-width: 0; }
 .setup-launch { margin-bottom: 24px; }
 
 .empty-state { display: grid; justify-items: center; border: 1px dashed var(--border-strong); border-radius: var(--radius-card); padding: 48px 24px; color: var(--muted); text-align: center; }
-.empty-state h2 { margin-top: 14px; color: var(--text); }
+.empty-state :is(h2, h3) { margin-top: 14px; color: var(--text); }
 .empty-state p { max-width: 56ch; margin-top: 6px; }
 .btn.profile-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; justify-content: stretch; gap: 16px; width: 100%; min-height: 80px; border-width: 0 0 1px; border-color: var(--border); border-radius: 0; padding: 16px 20px; color: inherit; background: transparent; font-weight: 400; text-align: left; }
 .btn.profile-row:last-child { border-bottom: 0; }
@@ -487,6 +487,8 @@ main { min-width: 0; }
 
 @media (forced-colors: active) {
   .btn.nav-button[data-active="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  /* Focus must still read as focus on the current page's own button. */
+  .btn.nav-button[data-active="true"]:focus-visible { outline: 3px solid CanvasText; outline-offset: 3px; }
 }
 
 /* --- Responsive --------------------------------------------------------------- */

@@ -100,10 +100,10 @@ function MobileConnection({ state, onDisconnect }: { state: AppState; onDisconne
 }
 
 function DevicesView({ state, forget }: { state: AppState; forget: (id: string) => void }) {
-  return <section className="subview" aria-labelledby="paired-devices-title"><header className="section-header"><div><h2 id="paired-devices-title">Paired devices</h2><p>Mobile devices trusted by this computer</p></div></header>
-    {state.pairedDevices.length === 0 ? <div className="empty-state"><Smartphone size={28} /><h2>No paired devices</h2><p>Open Switchify on your mobile device to pair while this computer is advertising.</p></div> :
+  return <div className="subview"><header className="section-header"><div><h2>Paired devices</h2><p>Mobile devices trusted by this computer</p></div></header>
+    {state.pairedDevices.length === 0 ? <div className="empty-state"><Smartphone size={28} /><h3>No paired devices</h3><p>Open Switchify on your mobile device to pair while this computer is advertising.</p></div> :
       <div className="device-list">{state.pairedDevices.map((device) => <article key={device.deviceId}><StatusIcon><Smartphone size={19} /></StatusIcon><div><h3>{device.deviceName}</h3><p>{device.lastSeenAt !== null ? `Last connected ${new Date(device.lastSeenAt).toLocaleString()}` : "Not connected yet"}</p></div><Button className="icon-button danger-icon" title={`Forget ${device.deviceName}`} onClick={() => forget(device.deviceId)}><Trash2 size={18} /></Button></article>)}</div>}
-  </section>;
+  </div>;
 }
 
 const newProfile = (): SwitchProfile => ({
@@ -307,11 +307,11 @@ function ProfilesView({ profiles, platform, saveProfile, deleteProfile, onDirtyC
   const openerRef = useRef<HTMLButtonElement | null>(null);
   const closeEditor = () => { setEditing(null); requestAnimationFrame(() => (openerRef.current?.isConnected ? openerRef.current : document.querySelector<HTMLButtonElement>(".section-header button"))?.focus()); };
   const openEditor = (profile: SwitchProfile, opener: HTMLButtonElement) => { openerRef.current = opener; setEditing(profile); };
-  return <section className="subview" aria-labelledby="forwarding-title"><header className="section-header"><div><h2 id="forwarding-title">Switch Forwarding</h2><p>Profiles available to physical switch sessions</p></div><Button className="primary" onClick={(event) => openEditor(newProfile(), event.currentTarget)}><Plus size={16} />New profile</Button></header>
+  return <div className="subview"><header className="section-header"><div><h2>Switch Forwarding</h2><p>Profiles available to physical switch sessions</p></div><Button className="primary" onClick={(event) => openEditor(newProfile(), event.currentTarget)}><Plus size={16} />New profile</Button></header>
     <div className="profile-list">{profiles.map((profile) => <Button className="profile-row" key={profile.id} onClick={(event) => openEditor(profile, event.currentTarget)}><StatusIcon><SlidersHorizontal size={19} /></StatusIcon><div><h3>{profile.name}</h3><p>{profile.provider === "grid3" ? "Grid 3" : `${profile.bindings.filter((binding) => binding.type !== "none").length} mapped switches`}</p></div><span>{profile.builtIn ? "Built in" : "Custom"}</span><ChevronRight size={18} /></Button>)}</div>
     {platform === "macos" && <p className="capability-note">Grid 3 profiles are available on Windows only.</p>}
     {editing && <ProfileEditor key={editing.id} profile={editing} profiles={profiles} busy={busy} onDirtyChange={onDirtyChange} nativeExitRequest={nativeExitRequest} onConfirmNativeExit={() => { closeEditor(); onConfirmNativeExit(); }} onCancelNativeExit={onCancelNativeExit} onClose={closeEditor} onDuplicate={() => setEditing(duplicateProfile(editing, profiles))} onSave={async (profile) => { await saveProfile(profile); closeEditor(); }} onDelete={editing.builtIn || !profiles.some((profile) => profile.id === editing.id) ? null : async () => { await deleteProfile(editing.id); closeEditor(); }} />}
-  </section>;
+  </div>;
 }
 
 function UpdateBanner({ update, openUpdates }: { update: UpdateState; openUpdates: () => void }) {
