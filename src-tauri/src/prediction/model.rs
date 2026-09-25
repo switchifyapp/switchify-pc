@@ -746,6 +746,13 @@ mod tests {
         let lowered = ["water", "waffle", "wa"];
         assert_eq!(run(&mut s, "Send ", "").unwrap(), ["Water", "Waffle", "Wa"]);
         assert_eq!(run(&mut s, "Done. ", "").unwrap(), lowered);
+        // The capital must carry nine tenths of the word's mass: 0.8 against
+        // 0.1 is a share of 0.89 and stays lowercase; 0.85 against 0.05 is
+        // 0.94 and keeps the capital.
+        let mut s = fake(&[(1, 0.8), (2, 0.1)]);
+        assert_eq!(run(&mut s, "Send ", "").unwrap()[0], "water");
+        let mut s = fake(&[(1, 0.85), (2, 0.05)]);
+        assert_eq!(run(&mut s, "Send ", "").unwrap()[0], "Water");
     }
 
     #[test]
