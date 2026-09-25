@@ -400,7 +400,9 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .switch-row { border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); container-type: inline-size; }
 .switch-row[data-open] { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
 /* The key is what a person recognises a switch by, so it leads the row.
-   It moves visually only; reading and focus order are unchanged. */
+   It moves visually only; DOM and focus order are unchanged, so Edit still
+   comes before Remove. Every saved row has a badge, so the icon is hidden on
+   all of them and the row text says whether a switch is local or remote. */
 .switch-row-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; min-height: 80px; padding: 16px 20px; }
 .switch-row-summary > svg { flex: none; color: var(--muted); }
 .switch-row-summary:has(> .key-badge) > svg { display: none; }
@@ -426,7 +428,6 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .switch-editor-footer { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 4px; }
 .switch-editor-footer .danger { margin-left: auto; }
 .switch-list-actions, .setup-choices { display: flex; flex-wrap: wrap; gap: 12px; }
-.switch-empty .switch-list-actions { margin-top: 16px; }
 
 /* Practice is a side trip, not the page's job, so it sits after the list as
    a quiet card with its source choice and start button on one line. */
