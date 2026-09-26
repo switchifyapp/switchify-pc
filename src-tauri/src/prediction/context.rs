@@ -2,7 +2,6 @@ use unicode_segmentation::UnicodeSegmentation;
 
 pub struct Context {
     pub prefix: String,
-    pub sentence_start: bool,
     /// Buffered text before `prefix`, without a clipped leading fragment.
     pub before: String,
     /// Clipping left no complete earlier word, so an empty `before` is not
@@ -40,7 +39,6 @@ fn extract_words(text: &str, clipped: bool) -> Context {
         String::new()
     };
     Context {
-        sentence_start: tokens.is_empty() && (!clipped || boundary.is_some()),
         prefix,
         before: String::new(),
         partial: false,
@@ -53,7 +51,6 @@ mod tests {
     fn unicode_boundaries_and_clipped_words() {
         let c = extract("Discard this. I can’t find cafe\u{301}", false);
         assert_eq!(c.prefix, "cafe\u{301}");
-        assert!(extract("Done! ", false).sentence_start);
         assert_eq!(
             extract("Hi. I would like wa", false).before,
             "Hi. I would like "

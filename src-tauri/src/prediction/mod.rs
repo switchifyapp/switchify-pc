@@ -148,7 +148,7 @@ struct Service {
     reset: bool,
     accept: Option<(u64, usize)>,
     accepting: bool,
-    case: Option<(worker::Shift, bool, bool)>,
+    case: Option<(worker::Shift, bool, bool, bool)>,
     tracking: bool,
 }
 #[derive(Clone, Copy)]
@@ -414,6 +414,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
             keyboard.prediction_shift(),
             keyboard.caps,
             keyboard.modifiers[1..].iter().any(|m| *m != Modifier::Off),
+            keyboard.prediction_sentence_start(),
         );
         if s.case != Some(case) {
             s.case = Some(case);
@@ -534,6 +535,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 revision: s.edit_revision,
                 shift: keyboard.prediction_shift(),
                 caps: keyboard.caps,
+                sentence_start: keyboard.prediction_sentence_start(),
             }
         };
         let now = Instant::now();
