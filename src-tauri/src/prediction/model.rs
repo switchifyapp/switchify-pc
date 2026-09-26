@@ -227,7 +227,8 @@ const NAME_SHARE: f32 = 0.9;
 /// initial capital mid-sentence that the model clearly prefers, which it only
 /// does for a proper noun. At a sentence start the model capitalises every
 /// word, so the lowercase form wins there and the sentence rule decides. The
-/// pronoun I is always capital, and the typed apostrophe style is kept.
+/// pronoun I and its contractions are always capital, and the typed
+/// apostrophe style is kept.
 fn display(key: &str, f: &Finished, typed: &str, sentence_start: bool) -> String {
     let spelling = &f.spelling;
     let all_upper = spelling.chars().all(|c| c.is_ascii_uppercase());
@@ -235,8 +236,8 @@ fn display(key: &str, f: &Finished, typed: &str, sentence_start: bool) -> String
     let name = spelling.chars().next().is_some_and(char::is_uppercase)
         && !sentence_start
         && f.capital >= NAME_SHARE * f.mass;
-    let word = if key == "i" {
-        "I".to_owned()
+    let word = if key == "i" || key.starts_with("i'") {
+        format!("I{}", &key[1..])
     } else if !all_upper && (mixed || name) {
         spelling.replace('’', "'")
     } else {
@@ -785,6 +786,22 @@ mod tests {
     }
 
     #[test]
+    fn i_and_its_contractions_are_always_capital() {
+        let finished = |spelling: &str| Finished {
+            mass: 1.0,
+            capital: 0.0,
+            best: 0.0,
+            spelling: spelling.to_owned(),
+            pieces: Vec::new(),
+            logp: 0.0,
+        };
+        assert_eq!(display("i", &finished("i"), "", false), "I");
+        assert_eq!(display("i'm", &finished("i'm"), "", true), "I'm");
+        assert_eq!(display("i'll", &finished("i'll"), "i’", false), "I’ll");
+        assert_eq!(display("is", &finished("is"), "", false), "is");
+    }
+
+    #[test]
     fn apostrophes_continue_words_rather_than_ending_them() {
         let pieces = [" don", "’t", "'s", "’", " .", ","]
             .map(String::from)
@@ -810,6 +827,7 @@ mod tests {
             ("Can you send a ", "wh", None),
             ("I live in ", "lon", Some("London")),
             ("See you on ", "mon", Some("Monday")),
+            ("Tomorrow ", "i'", Some("I'm")),
             ("I want to ", "fa", None),
         ] {
             let t = Instant::now();
