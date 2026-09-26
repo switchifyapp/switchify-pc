@@ -242,13 +242,17 @@ impl Engine {
             if word[..offset].to_lowercase() != ctx.prefix.to_lowercase() {
                 continue;
             }
-            let suffix = cased(
-                &word[offset..],
-                ctx.prefix.is_empty(),
-                sentence_start,
-                shift,
-                caps,
-            );
+            let suffix = if shouting(&ctx.prefix) {
+                word[offset..].to_uppercase()
+            } else {
+                cased(
+                    &word[offset..],
+                    ctx.prefix.is_empty(),
+                    sentence_start,
+                    shift,
+                    caps,
+                )
+            };
             labels.push(ctx.prefix.clone() + &suffix);
             self.suffixes.push(suffix + " ");
         }
@@ -317,6 +321,18 @@ impl Engine {
         }
     }
 }
+/// A typed prefix of two or more letters, all capitals, is a word being
+/// written in capitals: its completion continues that way whatever the
+/// modifiers now say, so the label shows exactly what will be inserted.
+fn shouting(prefix: &str) -> bool {
+    let mut letters = prefix.chars().filter(|c| c.is_alphabetic());
+    let first = letters.next();
+    let second = letters.next();
+    first.is_some_and(char::is_uppercase)
+        && second.is_some_and(char::is_uppercase)
+        && letters.all(char::is_uppercase)
+}
+
 /// The case a suggestion's suffix is inserted in. Caps, or Shift locked,
 /// uppercases it all, and together they cancel like they do on typed letters.
 /// With nothing typed yet, Shift once flips the first character's case the
@@ -580,6 +596,38 @@ mod tests {
         let upper = e.query(vec![], 1, Shift::Off, true, false).unwrap();
         assert_eq!(upper.words[0], "WaTER");
         assert_ne!(upper.token, b.token);
+    }
+    #[test]
+    fn an_all_caps_prefix_continues_in_capitals_whatever_the_modifiers() {
+        let mut e = engine();
+        e.query(vec![append("WA")], 1, Shift::Off, false, false)
+            .unwrap();
+        let row = e.query(vec![], 1, Shift::Off, false, false).unwrap();
+        assert_eq!(row.words[0], "WATER");
+        assert_eq!(row.words[1], "WATER IS");
+        assert_eq!(
+            e.query(vec![], 1, Shift::Locked, false, false)
+                .unwrap()
+                .words[0],
+            "WATER"
+        );
+        assert_eq!(
+            e.query(vec![], 1, Shift::Off, true, false).unwrap().words[0],
+            "WATER"
+        );
+        // One capital is a capitalised word, not a word in capitals.
+        e.query(
+            vec![edit(Edit::Reset), append("W")],
+            2,
+            Shift::Off,
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            e.query(vec![], 2, Shift::Off, false, false).unwrap().words[0],
+            "Water"
+        );
     }
     #[test]
     fn the_keyboard_alone_decides_a_sentence_start() {
