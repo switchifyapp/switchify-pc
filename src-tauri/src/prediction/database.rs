@@ -104,7 +104,7 @@ impl Predict for FakeModel {
         _deadline: Instant,
         _phrase_deadline: Instant,
     ) -> Result<Prediction, ()> {
-        let words: Vec<String> = ["water", "waffle", "walk"]
+        let words: Vec<String> = ["water", "waffle", "walk", "WhatsApp"]
             .into_iter()
             .filter(|w| w.starts_with(&prefix.to_lowercase()))
             .map(str::to_owned)
