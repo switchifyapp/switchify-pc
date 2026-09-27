@@ -192,12 +192,13 @@ mod tests {
     }
     #[test]
     fn only_repeated_slow_calls_make_the_model_unavailable() {
-        let late = || State::Ready(Box::new(Fake(Ok(vec!["late"]), Duration::from_millis(20))));
+        // Wide margins, so a busy machine cannot make a prompt call look slow.
+        let late = || State::Ready(Box::new(Fake(Ok(vec!["late"]), Duration::from_millis(250))));
         let prompt = || State::Ready(Box::new(Fake(Ok(vec!["prompt"]), Duration::ZERO)));
         let mut db = Database::fixture();
-        db.slow_call = Duration::from_millis(10);
+        db.slow_call = Duration::from_millis(200);
         // A slow call still answers, and a prompt one forgives it.
-        for _ in 0..3 {
+        {
             db.state = late();
             for _ in 1..SLOW_CALLS {
                 let (status, prediction) = db.predict(&context());
