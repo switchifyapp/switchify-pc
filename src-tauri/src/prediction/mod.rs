@@ -7,7 +7,7 @@ pub mod worker;
 use crate::scan_keyboard::{Key, Keyboard, Modifier, Page, Stroke};
 use std::{
     cell::RefCell,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
     sync::atomic::{AtomicU8, Ordering},
     sync::mpsc,
@@ -135,9 +135,44 @@ impl Drop for Client {
         self.terminate();
     }
 }
+/// How long a spare worker waits for the keyboard to be opened again.
+const SPARE_IDLE: Duration = Duration::from_secs(120);
+
+/// A worker started when the keyboard closed, so the next open finds the
+/// model loaded. It has received no request, so it holds no text and has not
+/// started its activity observer.
+struct Spare {
+    client: Client,
+    ignored: Vec<u32>,
+    since: Instant,
+}
+impl Spare {
+    fn usable(&mut self, ignored: &[u32], now: Instant) -> bool {
+        self.ignored == ignored
+            && now.duration_since(self.since) < SPARE_IDLE
+            && matches!(self.client.child.try_wait(), Ok(None))
+    }
+}
+/// The spare worker for this keyboard open, if one is still usable. Any
+/// other spare is killed and reaped.
+fn adopt(spare: &mut Option<Spare>, ignored: &[u32], now: Instant) -> Option<Client> {
+    let mut spare = spare.take()?;
+    spare.usable(ignored, now).then_some(spare.client)
+}
+fn expire(spare: &mut Option<Spare>, now: Instant) {
+    if spare
+        .as_ref()
+        .is_some_and(|s| now.duration_since(s.since) >= SPARE_IDLE)
+    {
+        *spare = None;
+    }
+}
 #[derive(Default)]
 struct Service {
     client: Option<Client>,
+    /// What the worker was started with, to start its replacement.
+    model: Option<PathBuf>,
+    ignored: Vec<u32>,
     failed: bool,
     generation: u64,
     outstanding: Option<Instant>,
@@ -275,6 +310,7 @@ impl Service {
     }
 }
 thread_local! { static SERVICE: RefCell<Service> = RefCell::new(Service::default()); }
+thread_local! { static SPARE: RefCell<Option<Spare>> = const { RefCell::new(None) }; }
 // 0 = idle, 1 = starting, 2 = running. A failed or disabled hook can retry.
 static KEYBOARD_ACTIVITY: AtomicU8 = AtomicU8::new(0);
 
@@ -318,8 +354,39 @@ pub fn keyboard_input_context() -> Option<crate::scan_keyboard::TypingContext> {
         activity: epoch,
     })
 }
+/// End prediction: the worker, its private text context and any spare
+/// worker are killed and reaped.
 pub fn stop() {
     SERVICE.with(|s| *s.borrow_mut() = Service::default());
+    SPARE.with(|s| *s.borrow_mut() = None);
+}
+/// The keyboard closed. The worker and its private text context are killed
+/// and reaped as in `stop`, then a fresh worker loads the model for the next
+/// open. Only a keyboard that had a working worker gets one.
+pub fn close() {
+    close_with(Client::start);
+}
+fn close_with(start: impl FnOnce(&Path, Vec<u32>) -> Result<Client, ()>) {
+    let service = SERVICE.with(|s| std::mem::take(&mut *s.borrow_mut()));
+    let Service {
+        client,
+        model,
+        ignored,
+        ..
+    } = service;
+    let worked = client.is_some();
+    drop(client);
+    SPARE.with(|s| {
+        let mut spare = s.borrow_mut();
+        if let (true, Some(model)) = (worked, model) {
+            *spare = start(&model, ignored.clone()).ok().map(|client| Spare {
+                client,
+                ignored,
+                since: Instant::now(),
+            });
+        }
+        expire(&mut spare, Instant::now());
+    });
 }
 /// Restart only prediction. The keyboard and its scan session remain open,
 /// while the old worker and its private text context are discarded.
@@ -412,15 +479,17 @@ fn model_resource(
 }
 
 pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ignored: &[String]) {
-    let Some(keyboard) = keyboard else {
-        stop();
-        return;
-    };
     if !enabled {
         stop();
-        keyboard.predictions(None, false);
+        if let Some(keyboard) = keyboard {
+            keyboard.predictions(None, false);
+        }
         return;
     }
+    let Some(keyboard) = keyboard else {
+        close();
+        return;
+    };
     SERVICE.with(|slot| {
         let mut s = slot.borrow_mut();
         let case = (
@@ -440,13 +509,20 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
             return;
         }
         if s.client.is_none() {
-            let ignored = ignored
+            let mut ignored: Vec<u32> = ignored
                 .iter()
                 .filter_map(|name| crate::switch_input::prediction_key_code(name))
                 .collect();
-            s.client = resource(app)
-                .and_then(|path| Client::start(path.parent().ok_or(())?, ignored))
-                .ok();
+            ignored.sort_unstable();
+            ignored.dedup();
+            let model = resource(app)
+                .ok()
+                .and_then(|path| path.parent().map(Path::to_owned));
+            s.client = SPARE
+                .with(|spare| adopt(&mut spare.borrow_mut(), &ignored, Instant::now()))
+                .or_else(|| Client::start(model.as_deref()?, ignored.clone()).ok());
+            s.model = model;
+            s.ignored = ignored;
             if s.client.is_none() {
                 s.failed = true;
                 keyboard.predictions(None, true);
@@ -755,6 +831,17 @@ mod tests {
 
     #[test]
     fn cancellation_kills_and_reaps_a_blocked_worker() {
+        let mut client = sleeper();
+        let start = Instant::now();
+        assert!(client
+            .replies
+            .recv_timeout(Duration::from_millis(100))
+            .is_err());
+        client.terminate();
+        assert!(client.child.try_wait().unwrap().is_some());
+        assert!(start.elapsed() < Duration::from_secs(3));
+    }
+    fn sleeper() -> Client {
         #[cfg(target_os = "windows")]
         let mut command = {
             let mut c = Command::new("powershell.exe");
@@ -773,15 +860,139 @@ mod tests {
             c
         };
         command.stdin(Stdio::piped());
-        let mut client = Client::spawn(command).expect("fake worker starts");
-        let start = Instant::now();
-        assert!(client
-            .replies
-            .recv_timeout(Duration::from_millis(100))
-            .is_err());
-        client.terminate();
-        assert!(client.child.try_wait().unwrap().is_some());
-        assert!(start.elapsed() < Duration::from_secs(3));
+        Client::spawn(command).expect("fake worker starts")
+    }
+    fn spare(ignored: &[u32], since: Instant) -> Option<Spare> {
+        Some(Spare {
+            client: sleeper(),
+            ignored: ignored.to_vec(),
+            since,
+        })
+    }
+    #[test]
+    fn a_waiting_spare_worker_is_adopted_by_the_next_keyboard() {
+        let now = Instant::now();
+        let mut slot = spare(&[32], now);
+        let id = slot.as_ref().unwrap().client.child.id();
+        let mut client = adopt(&mut slot, &[32], now + Duration::from_secs(5)).unwrap();
+        assert!(slot.is_none());
+        assert_eq!(client.child.id(), id);
+        assert!(client.child.try_wait().unwrap().is_none());
+    }
+    #[test]
+    fn a_stale_spare_worker_is_discarded_not_adopted() {
+        let now = Instant::now();
+        // Started for other switch keys.
+        let mut slot = spare(&[32], now);
+        assert!(adopt(&mut slot, &[13], now).is_none());
+        assert!(slot.is_none());
+        // Waited too long.
+        let mut slot = spare(&[32], now);
+        assert!(adopt(&mut slot, &[32], now + SPARE_IDLE).is_none());
+        assert!(slot.is_none());
+        // Already exited.
+        let mut slot = spare(&[32], now);
+        let child = &mut slot.as_mut().unwrap().client.child;
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(adopt(&mut slot, &[32], now).is_none());
+    }
+    #[test]
+    fn an_idle_spare_worker_expires() {
+        let now = Instant::now();
+        let mut slot = spare(&[], now);
+        expire(&mut slot, now + SPARE_IDLE - Duration::from_secs(1));
+        assert!(slot.is_some());
+        expire(&mut slot, now + SPARE_IDLE);
+        assert!(slot.is_none());
+    }
+    /// Whether the fake worker with this id is running. The image name is
+    /// matched too, so a reused id on another program does not count.
+    fn alive(pid: u32) -> bool {
+        #[cfg(target_os = "windows")]
+        let (output, image) = (
+            Command::new("tasklist")
+                .args(["/NH", "/FI", &format!("PID eq {pid}")])
+                .output(),
+            "powershell",
+        );
+        #[cfg(target_os = "macos")]
+        let (output, image) = (
+            Command::new("/bin/ps")
+                .args(["-o", "pid=", "-o", "comm=", "-p", &pid.to_string()])
+                .output(),
+            "sleep",
+        );
+        let listed = String::from_utf8_lossy(&output.unwrap().stdout).to_lowercase();
+        listed.contains(image) && listed.split_whitespace().any(|w| w == pid.to_string())
+    }
+    #[test]
+    fn closing_kills_the_worker_that_held_text_before_starting_a_spare() {
+        stop();
+        let worker = sleeper();
+        let held = worker.child.id();
+        assert!(alive(held));
+        SERVICE.with(|slot| {
+            *slot.borrow_mut() = Service {
+                client: Some(worker),
+                model: Some(PathBuf::from("model")),
+                ignored: vec![13, 32],
+                edit: vec![InputScope::capture().record(Edit::Append("test".into()))],
+                ..Default::default()
+            };
+        });
+        close_with(|model, ignored| {
+            assert!(
+                !alive(held),
+                "the old worker is gone before the spare starts"
+            );
+            assert_eq!(model, Path::new("model"));
+            assert_eq!(ignored, [13, 32]);
+            Ok(sleeper())
+        });
+        SERVICE.with(|slot| {
+            let s = slot.borrow();
+            assert!(s.client.is_none());
+            assert!(s.edit.is_empty());
+        });
+        SPARE.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            let spare = slot.as_mut().unwrap();
+            assert_ne!(spare.client.child.id(), held);
+            assert_eq!(spare.ignored, [13, 32]);
+            assert!(spare.client.child.try_wait().unwrap().is_none());
+        });
+        // A spare that could not start is not retried.
+        SERVICE.with(|slot| {
+            let mut s = slot.borrow_mut();
+            s.client = Some(sleeper());
+            s.model = Some(PathBuf::from("model"));
+        });
+        close_with(|_, _| Err(()));
+        SPARE.with(|slot| assert!(slot.borrow().is_none()));
+        close_with(|_, _| panic!("no worker closed, so none is started"));
+        stop();
+    }
+    #[test]
+    fn closing_without_a_working_worker_starts_no_spare_and_stop_kills_one() {
+        stop();
+        SERVICE.with(|slot| {
+            *slot.borrow_mut() = Service {
+                failed: true,
+                model: Some(PathBuf::from("unused")),
+                generation: 4,
+                ..Default::default()
+            };
+        });
+        close();
+        SERVICE.with(|slot| assert_eq!(slot.borrow().generation, 0));
+        SPARE.with(|slot| assert!(slot.borrow().is_none()));
+        // Closing again keeps a spare that is waiting; ending prediction kills it.
+        SPARE.with(|slot| *slot.borrow_mut() = spare(&[], Instant::now()));
+        close();
+        SPARE.with(|slot| assert!(slot.borrow().is_some()));
+        stop();
+        SPARE.with(|slot| assert!(slot.borrow().is_none()));
     }
     #[test]
     fn bounded_private_frames_reject_invalid_lengths() {
