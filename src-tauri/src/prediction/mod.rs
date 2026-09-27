@@ -170,6 +170,9 @@ fn expire(spare: &mut Option<Spare>, now: Instant) {
 #[derive(Default)]
 struct Service {
     client: Option<Client>,
+    /// The worker was replaced after a missed deadline and has not produced
+    /// suggestions since.
+    recovered: bool,
     /// What the worker was started with, to start its replacement.
     model: Option<PathBuf>,
     ignored: Vec<u32>,
@@ -265,6 +268,9 @@ impl Service {
             return;
         }
         self.acknowledged_revision = revision;
+        if batch.is_some() {
+            self.recovered = false;
+        }
         if generation == self.generation && revision == self.edit_revision {
             self.suggestions(keyboard, batch, tracking, status);
         } else {
@@ -294,6 +300,22 @@ impl Service {
         );
         keyboard.prediction_loading = status == database::Status::Loading;
         keyboard.prediction_tracking(tracking);
+    }
+    /// A reply missed its deadline. One stall should not cost a switch user a
+    /// trip to Retry, so the first time the worker and its private text
+    /// context are killed and a new worker starts on the next poll. A
+    /// replacement that stalls before suggesting anything fails for good.
+    fn timed_out(&mut self, keyboard: &mut Keyboard) {
+        let again = self.recovered;
+        self.fail(keyboard);
+        if !again {
+            self.failed = false;
+            self.recovered = true;
+            self.reset = true;
+            self.generation = self.generation.wrapping_add(1);
+            self.last = None;
+            keyboard.predictions(None, false);
+        }
     }
     fn fail(&mut self, keyboard: &mut Keyboard) {
         self.client = None;
@@ -531,7 +553,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
             keyboard.prediction_loading = true;
         }
         if s.response_timed_out(Instant::now()) {
-            s.fail(keyboard);
+            s.timed_out(keyboard);
             return;
         }
         let reply = s.client.as_ref().unwrap().replies.try_recv();
@@ -779,6 +801,50 @@ mod tests {
         );
         SERVICE.with(|s| assert!(s.borrow().reset));
         stop();
+    }
+    #[test]
+    fn one_missed_deadline_replaces_the_worker_and_a_second_fails() {
+        let mut keyboard = Keyboard::new(false);
+        let mut service = Service {
+            client: Some(sleeper()),
+            outstanding: Some(Instant::now()),
+            edit_revision: 1,
+            edit: vec![InputScope::capture().record(Edit::Append("test".into()))],
+            ..Default::default()
+        };
+        service.timed_out(&mut keyboard);
+        assert!(service.client.is_none());
+        assert!(!service.failed && service.recovered && service.reset);
+        assert!(service.edit.is_empty() && service.outstanding.is_none());
+        // A reply without suggestions, as while loading, proves nothing yet.
+        service.received_suggestions(&mut keyboard, 0, 1, None, true, database::Status::Loading);
+        assert!(service.recovered);
+        service.client = Some(sleeper());
+        service.timed_out(&mut keyboard);
+        assert!(service.client.is_none());
+        assert!(service.failed);
+
+        // Suggestions from the replacement earn another recovery.
+        let mut service = Service {
+            recovered: true,
+            edit_revision: 1,
+            ..Default::default()
+        };
+        let batch = worker::Batch {
+            token: 1,
+            words: vec!["water".into()],
+        };
+        service.received_suggestions(
+            &mut keyboard,
+            0,
+            1,
+            Some(batch),
+            true,
+            database::Status::Ready,
+        );
+        assert!(!service.recovered);
+        service.timed_out(&mut keyboard);
+        assert!(!service.failed && service.recovered);
     }
     #[test]
     fn invalid_edit_acknowledgements_fail_closed() {

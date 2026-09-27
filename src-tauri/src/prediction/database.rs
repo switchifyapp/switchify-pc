@@ -14,6 +14,9 @@ const PHRASE_BUDGET: Duration = Duration::from_millis(200);
 /// Well under the parent's two-second reply deadline, with room for the
 /// budgets above plus the beam step that may overrun each of them.
 const SLOW_CALL: Duration = Duration::from_millis(1500);
+/// Slow calls in a row that mark the model unavailable. One stall, such as
+/// a busy disk or a waking laptop, is not a model that cannot keep up.
+const SLOW_CALLS: u8 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Status {
@@ -33,6 +36,7 @@ enum State {
 pub struct Database {
     state: State,
     slow_call: Duration,
+    slow_calls: u8,
 }
 impl Database {
     pub fn open(model: &Path) -> Self {
@@ -44,6 +48,7 @@ impl Database {
         Self {
             state: State::Loading(rx),
             slow_call: SLOW_CALL,
+            slow_calls: 0,
         }
     }
     pub fn status(&mut self) -> Status {
@@ -75,11 +80,15 @@ impl Database {
             start + SEARCH_BUDGET,
             start + SEARCH_BUDGET + PHRASE_BUDGET,
         );
-        if start.elapsed() > self.slow_call || result.is_err() {
+        self.slow_calls = if start.elapsed() > self.slow_call {
+            self.slow_calls + 1
+        } else {
+            0
+        };
+        let Some(mut prediction) = result.ok().filter(|_| self.slow_calls < SLOW_CALLS) else {
             self.state = State::Unavailable;
             return (Status::Unavailable, Prediction::default());
-        }
-        let mut prediction = result.unwrap();
+        };
         prediction.words.truncate(5);
         prediction.phrases.truncate(2);
         (Status::Ready, prediction)
@@ -89,6 +98,7 @@ impl Database {
         Self {
             state: State::Ready(Box::new(FakeModel)),
             slow_call: SLOW_CALL,
+            slow_calls: 0,
         }
     }
 }
@@ -142,6 +152,7 @@ mod tests {
         let mut db = Database {
             state: State::Loading(rx),
             slow_call: SLOW_CALL,
+            slow_calls: 0,
         };
         assert_eq!(
             db.predict(&context()),
@@ -178,8 +189,30 @@ mod tests {
             db.predict(&context()),
             (Status::Unavailable, Prediction::default())
         );
-        db.state = State::Ready(Box::new(Fake(Ok(vec!["late"]), Duration::from_millis(20))));
+    }
+    #[test]
+    fn only_repeated_slow_calls_make_the_model_unavailable() {
+        let late = || State::Ready(Box::new(Fake(Ok(vec!["late"]), Duration::from_millis(20))));
+        let prompt = || State::Ready(Box::new(Fake(Ok(vec!["prompt"]), Duration::ZERO)));
+        let mut db = Database::fixture();
         db.slow_call = Duration::from_millis(10);
+        // A slow call still answers, and a prompt one forgives it.
+        for _ in 0..3 {
+            db.state = late();
+            for _ in 1..SLOW_CALLS {
+                let (status, prediction) = db.predict(&context());
+                assert_eq!(
+                    (status, prediction.words),
+                    (Status::Ready, vec!["late".to_owned()])
+                );
+            }
+            db.state = prompt();
+            assert_eq!(db.predict(&context()).0, Status::Ready);
+        }
+        db.state = late();
+        for _ in 1..SLOW_CALLS {
+            assert_eq!(db.predict(&context()).0, Status::Ready);
+        }
         assert_eq!(
             db.predict(&context()),
             (Status::Unavailable, Prediction::default())
@@ -188,5 +221,9 @@ mod tests {
             db.predict(&context()),
             (Status::Unavailable, Prediction::default())
         );
+        // A model error is not forgiven, however fast.
+        let mut db = Database::fixture();
+        db.state = State::Ready(Box::new(Fake(Err(()), Duration::ZERO)));
+        assert_eq!(db.predict(&context()).0, Status::Unavailable);
     }
 }
