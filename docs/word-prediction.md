@@ -17,7 +17,7 @@ When context is cleared inside a word and the caret has not moved away, the lett
 | Enter or Tab | Never; a new line or field begins |
 | A foreground change, or keyboard and mouse activity from outside Switchify | Never; typing continues somewhere else. These also end a hold |
 
-Backspace releases a hold once it has deleted back to a space or punctuation Switchify typed. A hold costs at most the suggestions for one word; it never changes what is typed. To know whether a word is in progress, the main process remembers for each character Switchify typed only whether it was part of a word, never the character, for at most 512 characters. While the activity observer is not running, outside activity cannot be seen and does not end a hold.
+Backspace releases a hold once it has deleted back to a space or punctuation Switchify typed. A hold costs at most the suggestions for one word; it never changes what is typed. To know whether a word is in progress, the main process remembers for each character Switchify typed only whether it was part of a word, never the character, for at most 512 characters. While the activity observer is not running, outside activity cannot be seen and does not end a hold, and neither does the observer starting again. Changing the switch key assignments counts as outside activity.
 
 A passive observer records only an activity counter and timestamp, never external text. Prediction is unavailable if this observer cannot start or loses access. Edits made before the observer is ready are discarded because intervening activity cannot be verified. Each queued edit is scoped to its foreground target and the time before injection, so edits preceding an observed external change are discarded. Changes within an application that produce no observed input cannot be detected without inspecting its fields.
 
@@ -98,7 +98,7 @@ For native validation, use disposable synthetic text in Notepad and a browser on
 1. Open the keyboard from the action menu and an assigned Open keyboard switch, including from idle, a paused scan and an active drag. Verify no click or focus change occurs and owned drag input is released.
 2. Type `w`, then `a`, accept `water`, and continue typing. Existing or pasted text must never become prediction context.
 3. Change pages and docking, type punctuation and numbers, and return to Letters. Verify context survives these layout changes and Backspace edits the tracked buffer.
-4. Use navigation, shortcuts, failed edits and external keyboard/mouse activity. Verify suggestions clear and a new first letter starts fresh context.
+4. Use external keyboard/mouse activity. Verify suggestions clear and a new first letter starts fresh context. Then type `hel`, press an arrow key, and type `l`: verify no suggestions appear and the badge reads “Suggestions resume next word” until a space is typed. Repeat with Retry predictions and with a shortcut in place of the arrow key.
 5. Change foreground apps with locked modifiers selected. Verify the keyboard stays open, modifiers and suggestions reset, and later keys go to the new app.
 6. Close the keyboard, stop scanning, disconnect and exit. Verify input releases and the prediction worker exits. After closing the keyboard one spare worker remains; reopen after a few seconds and within two minutes, and verify the loading badge clears almost immediately, then verify the spare exits after two minutes idle and when scanning stops. Test observer failure separately; typing should remain usable without predictions.
 

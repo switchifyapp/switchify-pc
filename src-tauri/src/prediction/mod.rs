@@ -184,7 +184,8 @@ struct Service {
     /// last. It holds no text, and says if a word is in progress when the
     /// context is lost.
     shape: Vec<bool>,
-    /// Backspace went past the start of `shape`, into text never seen.
+    /// Whether the character under the start of `shape` belongs to a word.
+    /// Text never seen is taken to.
     beyond: bool,
     /// The context was lost inside a word, so its remaining letters would be
     /// completed as if they began one. Nothing reaches the worker until a
@@ -261,9 +262,10 @@ impl Service {
         match edit {
             Edit::Append(text) => {
                 self.shape.extend(text.chars().map(word_char));
-                self.beyond = false;
                 let extra = self.shape.len().saturating_sub(512);
-                self.shape.drain(..extra);
+                if let Some(last) = self.shape.drain(..extra).next_back() {
+                    self.beyond = last;
+                }
             }
             Edit::Backspace => {
                 if self.shape.pop().is_none() {
@@ -280,9 +282,12 @@ impl Service {
     }
     /// Input from outside Switchify may have moved the caret, so what was
     /// typed before says nothing about where the next letter lands. An
-    /// observer that is not running cannot tell, and changes nothing.
+    /// observer that is not running cannot tell, and changes nothing; its
+    /// own restart is not outside input either.
     fn observe(&mut self, (epoch, healthy): (u64, bool)) {
-        if healthy && self.epoch.replace(epoch).is_some_and(|seen| seen != epoch) {
+        if !healthy {
+            self.epoch = None;
+        } else if self.epoch.replace(epoch).is_some_and(|seen| seen != epoch) {
             self.shape.clear();
             self.beyond = false;
             self.held = false;
@@ -326,7 +331,7 @@ impl Service {
             return;
         }
         match &edit {
-            Edit::Append(text) => self.known += text.chars().count(),
+            Edit::Append(text) => self.known = (self.known + text.chars().count()).min(512),
             Edit::Backspace => self.known -= 1,
             Edit::Reset => {}
         }
@@ -372,8 +377,7 @@ impl Service {
     fn queue_edit(&mut self, edit: Edit, scope: InputScope) {
         self.edit_revision = self.edit_revision.wrapping_add(1);
         if self.edit.len() >= 512 {
-            self.edit.clear();
-            self.reset = true;
+            self.forget();
         }
         self.edit.push(scope.record(edit));
     }
@@ -1106,6 +1110,15 @@ mod tests {
         let mut s = Service::default();
         s.stroke(named("Backspace"), true, true, scope);
         assert!(s.held);
+        // A space typed and deleted again leaves the caret where it was.
+        for start in ["End", "Backspace"] {
+            let mut s = service("");
+            s.stroke(named(start), true, true, scope);
+            s.stroke(key(' '), true, true, scope);
+            assert!(!s.held);
+            s.stroke(named("Backspace"), true, true, scope);
+            assert!(s.held, "{start}");
+        }
         // Deleting what the worker has is an ordinary edit.
         let mut s = service("hello ");
         s.stroke(named("Backspace"), true, true, scope);
@@ -1175,10 +1188,17 @@ mod tests {
         let mut s = service("hel");
         s.observe((4, true));
         s.interrupt();
-        // An observer that is not running cannot say anything happened.
-        s.observe((5, false));
-        assert!(s.held);
         s.observe((5, true));
+        assert!(!s.held);
+        // An observer that is not running cannot say anything happened,
+        // and the epoch it starts again at is its own doing.
+        let mut s = service("hel");
+        s.observe((4, true));
+        s.interrupt();
+        s.observe((5, false));
+        s.observe((6, true));
+        assert!(s.held);
+        s.observe((7, true));
         assert!(!s.held);
     }
     #[test]
@@ -1190,9 +1210,7 @@ mod tests {
         record_punctuation('.', false, false, InputScope::capture());
         SERVICE.with(|slot| {
             let s = slot.borrow();
-            // Outside input during the test would end the hold, not start one.
-            assert!(s.held || s.shape.is_empty());
-            assert!(s.edit.is_empty() && s.reset);
+            assert!(s.held && s.edit.is_empty() && s.reset);
         });
         stop();
     }
@@ -1220,6 +1238,11 @@ mod tests {
         assert_eq!(s.shape, [true, true, true, true, false, true, true, true]);
         s.typed(Edit::Append("a ".repeat(400)), InputScope::capture());
         assert_eq!(s.shape.len(), 512);
+        assert_eq!(s.known, 512);
+        // What slid off the start is remembered as the text underneath.
+        assert!(!s.beyond);
+        s.typed(Edit::Append("b".into()), InputScope::capture());
+        assert!(s.beyond);
     }
     #[test]
     fn invalid_edit_acknowledgements_fail_closed() {
