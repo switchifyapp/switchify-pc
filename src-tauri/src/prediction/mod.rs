@@ -479,15 +479,17 @@ fn model_resource(
 }
 
 pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ignored: &[String]) {
+    if !enabled {
+        stop();
+        if let Some(keyboard) = keyboard {
+            keyboard.predictions(None, false);
+        }
+        return;
+    }
     let Some(keyboard) = keyboard else {
         close();
         return;
     };
-    if !enabled {
-        stop();
-        keyboard.predictions(None, false);
-        return;
-    }
     SERVICE.with(|slot| {
         let mut s = slot.borrow_mut();
         let case = (
@@ -904,16 +906,25 @@ mod tests {
         expire(&mut slot, now + SPARE_IDLE);
         assert!(slot.is_none());
     }
+    /// Whether the fake worker with this id is running. The image name is
+    /// matched too, so a reused id on another program does not count.
     fn alive(pid: u32) -> bool {
         #[cfg(target_os = "windows")]
-        let output = Command::new("tasklist")
-            .args(["/NH", "/FI", &format!("PID eq {pid}")])
-            .output();
+        let (output, image) = (
+            Command::new("tasklist")
+                .args(["/NH", "/FI", &format!("PID eq {pid}")])
+                .output(),
+            "powershell",
+        );
         #[cfg(target_os = "macos")]
-        let output = Command::new("/bin/ps")
-            .args(["-o", "pid=", "-p", &pid.to_string()])
-            .output();
-        String::from_utf8_lossy(&output.unwrap().stdout).contains(&pid.to_string())
+        let (output, image) = (
+            Command::new("/bin/ps")
+                .args(["-o", "pid=,comm=", "-p", &pid.to_string()])
+                .output(),
+            "sleep",
+        );
+        let listed = String::from_utf8_lossy(&output.unwrap().stdout).to_lowercase();
+        listed.contains(image) && listed.split_whitespace().any(|w| w == pid.to_string())
     }
     #[test]
     fn closing_kills_the_worker_that_held_text_before_starting_a_spare() {
