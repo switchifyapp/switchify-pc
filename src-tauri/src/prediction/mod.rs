@@ -919,7 +919,7 @@ mod tests {
         #[cfg(target_os = "macos")]
         let (output, image) = (
             Command::new("/bin/ps")
-                .args(["-o", "pid=,comm=", "-p", &pid.to_string()])
+                .args(["-o", "pid=", "-o", "comm=", "-p", &pid.to_string()])
                 .output(),
             "sleep",
         );
