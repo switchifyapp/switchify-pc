@@ -1651,6 +1651,27 @@ mod tests {
         }
     }
     #[test]
+    fn a_hold_is_explained_unless_something_more_pressing_is() {
+        let mut k = Keyboard::new(true);
+        k.enable_predictions(true);
+        k.predictions(None, false);
+        k.prediction_held = true;
+        assert_eq!(
+            k.prediction_note().as_deref(),
+            Some("Suggestions resume next word")
+        );
+        k.prediction_loading = true;
+        assert_eq!(k.prediction_note().as_deref(), Some("Prediction loading"));
+        k.predictions(None, true);
+        assert_eq!(
+            k.prediction_note().as_deref(),
+            Some("Prediction unavailable")
+        );
+        k.predictions(None, false);
+        k.prediction_held = false;
+        assert_eq!(k.prediction_note().as_deref(), Some("Type for suggestions"));
+    }
+    #[test]
     fn prediction_warning_does_not_hide_resume_or_error_instructions() {
         let mut k = Keyboard::new(false);
         k.prediction_failed = true;

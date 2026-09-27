@@ -6,7 +6,18 @@ Predictions use only a temporary buffer of successful Switchify keyboard input, 
 
 The buffer holds at most 512 characters, retaining complete Unicode graphemes at its leading boundary. It tracks ordinary characters, spaces, Backspace and accepted completions across keyboard pages and top/bottom docking. Navigation, Delete, Enter, Tab, shortcuts, failed input, external typing/clicks/scrolling and foreground changes clear context. Opening or closing the keyboard, ending scanning, disconnecting and exiting also discard it, by killing the process that held it. The keyboard remains open across foreground changes, resets modifiers and suggestions, and sends subsequent input to the new foreground application.
 
-When context is cleared inside a word and the caret has not moved away, the letters that finish that word would be completed as if they began a new one: after “hel”, a further “l” could be completed to “like” and leave “hellike”. Suggestions are therefore held until a space, punctuation or other character that ends the word has been typed, and resume with the next word. This applies after a key that failed to type, a navigation or Delete key, Retry predictions and a worker replaced after a missed deadline. Backspace does not release the hold, since it may uncover more of the word. Context cleared between words holds nothing. Nor does context cleared by a foreground change, a shortcut, Enter, Tab or outside keyboard and mouse activity, because typing then continues somewhere else; these also end a hold. To know whether a word is in progress, the main process remembers for each character Switchify typed only whether it was part of a word, never the character, for at most 512 characters.
+When context is cleared inside a word and the caret has not moved away, the letters that finish that word would be completed as if they began a new one: after “hel”, a further “l” could be completed to “like” and leave “hellike”. Suggestions are therefore held until a space, punctuation or other character that ends the word has been typed, and resume with the next word. The badge reads “Suggestions resume next word” meanwhile.
+
+| Context is cleared by | Suggestions are held |
+|---|---|
+| A key that failed to type, a failed acceptance, Retry predictions, or a worker replaced after a missed deadline | When a word is in progress |
+| A shortcut | When a word is in progress |
+| An arrow key, Home, End, Page Up, Page Down, Delete or another key that is not typed text | Always, because the caret is then in text Switchify never saw and is taken to be inside a word |
+| Backspace that deletes text the worker does not have, such as text that was there before the keyboard opened | When the character before the caret is part of a word or is unknown |
+| Enter or Tab | Never; a new line or field begins |
+| A foreground change, or keyboard and mouse activity from outside Switchify | Never; typing continues somewhere else. These also end a hold |
+
+Backspace releases a hold once it has deleted back to a space or punctuation Switchify typed. A hold costs at most the suggestions for one word; it never changes what is typed. To know whether a word is in progress, the main process remembers for each character Switchify typed only whether it was part of a word, never the character, for at most 512 characters. While the activity observer is not running, outside activity cannot be seen and does not end a hold.
 
 A passive observer records only an activity counter and timestamp, never external text. Prediction is unavailable if this observer cannot start or loses access. Edits made before the observer is ready are discarded because intervening activity cannot be verified. Each queued edit is scoped to its foreground target and the time before injection, so edits preceding an observed external change are discarded. Changes within an application that produce no observed input cannot be detected without inspecting its fields.
 
