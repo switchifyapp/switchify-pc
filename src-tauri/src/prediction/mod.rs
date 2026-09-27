@@ -135,6 +135,12 @@ impl Drop for Client {
         self.terminate();
     }
 }
+/// A second missed reply deadline this soon after a worker was replaced
+/// means the model cannot keep up, rather than one stall.
+const RECOVERY: Duration = Duration::from_secs(60);
+/// Replacements one keyboard gets, however far apart. A slow scanner on a
+/// machine that stalls on every call would otherwise never be offered Retry.
+const RECOVERIES: u8 = 2;
 /// How long a spare worker waits for the keyboard to be opened again.
 const SPARE_IDLE: Duration = Duration::from_secs(120);
 
@@ -170,6 +176,10 @@ fn expire(spare: &mut Option<Spare>, now: Instant) {
 #[derive(Default)]
 struct Service {
     client: Option<Client>,
+    /// When the worker was last replaced after a missed deadline, and how
+    /// often since the keyboard opened.
+    recovered: Option<Instant>,
+    recoveries: u8,
     /// What the worker was started with, to start its replacement.
     model: Option<PathBuf>,
     ignored: Vec<u32>,
@@ -295,13 +305,40 @@ impl Service {
         keyboard.prediction_loading = status == database::Status::Loading;
         keyboard.prediction_tracking(tracking);
     }
+    /// A reply missed its deadline. One stall should not cost a switch user a
+    /// trip to Retry, so the worker and its private text context are killed
+    /// and a new worker starts on the next poll. A second missed deadline
+    /// within `RECOVERY` of that, or one after `RECOVERIES` replacements,
+    /// fails for good whatever the replacement answered in between, so a
+    /// model that cannot keep up never loops.
+    fn timed_out(&mut self, keyboard: &mut Keyboard, now: Instant) {
+        if self.recoveries >= RECOVERIES
+            || self
+                .recovered
+                .is_some_and(|at| now.duration_since(at) < RECOVERY)
+        {
+            self.fail(keyboard);
+            return;
+        }
+        self.discard(keyboard, false);
+        self.recovered = Some(now);
+        self.recoveries += 1;
+        keyboard.prediction_loading = true;
+        self.reset = true;
+        self.generation = self.generation.wrapping_add(1);
+        self.last = None;
+    }
     fn fail(&mut self, keyboard: &mut Keyboard) {
-        self.client = None;
         self.failed = true;
+        self.discard(keyboard, true);
+    }
+    /// Kills and reaps the worker and fails an acceptance waiting on it.
+    fn discard(&mut self, keyboard: &mut Keyboard, failed: bool) {
+        self.client = None;
         self.tracking = false;
         self.edit.clear();
         self.outstanding = None;
-        keyboard.predictions(None, true);
+        keyboard.predictions(None, failed);
         if self.accepting || self.accept.is_some() {
             keyboard.failed();
         }
@@ -531,7 +568,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
             keyboard.prediction_loading = true;
         }
         if s.response_timed_out(Instant::now()) {
-            s.fail(keyboard);
+            s.timed_out(keyboard, Instant::now());
             return;
         }
         let reply = s.client.as_ref().unwrap().replies.try_recv();
@@ -779,6 +816,75 @@ mod tests {
         );
         SERVICE.with(|s| assert!(s.borrow().reset));
         stop();
+    }
+    #[test]
+    fn one_missed_deadline_replaces_the_worker_and_a_second_fails() {
+        let mut keyboard = Keyboard::new(false);
+        let mut service = Service {
+            client: Some(sleeper()),
+            outstanding: Some(Instant::now()),
+            edit_revision: 1,
+            edit: vec![InputScope::capture().record(Edit::Append("test".into()))],
+            ..Default::default()
+        };
+        let now = Instant::now();
+        let held = service.client.as_ref().unwrap().child.id();
+        assert!(alive(held));
+        service.timed_out(&mut keyboard, now);
+        assert!(service.client.is_none() && !alive(held));
+        assert!(!service.failed && service.reset);
+        assert!(service.edit.is_empty() && service.outstanding.is_none());
+        assert!(!keyboard.error);
+        // Whatever the replacement answers, a second miss soon after fails.
+        let batch = worker::Batch {
+            token: 1,
+            words: vec!["water".into()],
+        };
+        service.received_suggestions(
+            &mut keyboard,
+            service.generation,
+            1,
+            Some(batch),
+            true,
+            database::Status::Ready,
+        );
+        assert!(service.tracking && !keyboard.prediction_loading);
+        service.client = Some(sleeper());
+        let held = service.client.as_ref().unwrap().child.id();
+        service.timed_out(&mut keyboard, now + RECOVERY - Duration::from_secs(1));
+        assert!(service.client.is_none() && !alive(held));
+        assert!(service.failed);
+
+        // A stall long after the last one is recovered from again, but one
+        // keyboard only gets so many replacements.
+        let mut service = Service {
+            recovered: Some(now),
+            recoveries: 1,
+            ..Default::default()
+        };
+        service.timed_out(&mut keyboard, now + RECOVERY);
+        assert!(!service.failed && keyboard.prediction_loading);
+        assert_eq!(service.recovered, Some(now + RECOVERY));
+        assert_eq!(service.recoveries, RECOVERIES);
+        service.timed_out(&mut keyboard, now + RECOVERY * 10);
+        assert!(service.failed);
+    }
+    #[test]
+    fn a_missed_deadline_fails_the_acceptance_waiting_on_it() {
+        for (accepting, accept) in [(true, None), (false, Some((1, 0)))] {
+            let mut keyboard = Keyboard::new(false);
+            let mut service = Service {
+                client: Some(sleeper()),
+                outstanding: Some(Instant::now()),
+                accepting,
+                accept,
+                ..Default::default()
+            };
+            service.timed_out(&mut keyboard, Instant::now());
+            assert!(keyboard.error);
+            assert!(!service.failed && !service.accepting && service.accept.is_none());
+            assert!(service.client.is_none());
+        }
     }
     #[test]
     fn invalid_edit_acknowledgements_fail_closed() {
