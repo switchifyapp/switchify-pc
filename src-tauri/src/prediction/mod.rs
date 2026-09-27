@@ -138,6 +138,9 @@ impl Drop for Client {
 /// A second missed reply deadline this soon after a worker was replaced
 /// means the model cannot keep up, rather than one stall.
 const RECOVERY: Duration = Duration::from_secs(60);
+/// Replacements one keyboard gets, however far apart. A slow scanner on a
+/// machine that stalls on every call would otherwise never be offered Retry.
+const RECOVERIES: u8 = 2;
 /// How long a spare worker waits for the keyboard to be opened again.
 const SPARE_IDLE: Duration = Duration::from_secs(120);
 
@@ -173,8 +176,10 @@ fn expire(spare: &mut Option<Spare>, now: Instant) {
 #[derive(Default)]
 struct Service {
     client: Option<Client>,
-    /// When the worker was last replaced after a missed deadline.
+    /// When the worker was last replaced after a missed deadline, and how
+    /// often since the keyboard opened.
     recovered: Option<Instant>,
+    recoveries: u8,
     /// What the worker was started with, to start its replacement.
     model: Option<PathBuf>,
     ignored: Vec<u32>,
@@ -303,18 +308,22 @@ impl Service {
     /// A reply missed its deadline. One stall should not cost a switch user a
     /// trip to Retry, so the worker and its private text context are killed
     /// and a new worker starts on the next poll. A second missed deadline
-    /// within `RECOVERY` of that fails for good, whatever the replacement
-    /// answered in between, so a model that cannot keep up never loops.
+    /// within `RECOVERY` of that, or one after `RECOVERIES` replacements,
+    /// fails for good whatever the replacement answered in between, so a
+    /// model that cannot keep up never loops.
     fn timed_out(&mut self, keyboard: &mut Keyboard, now: Instant) {
-        if self
-            .recovered
-            .is_some_and(|at| now.duration_since(at) < RECOVERY)
+        if self.recoveries >= RECOVERIES
+            || self
+                .recovered
+                .is_some_and(|at| now.duration_since(at) < RECOVERY)
         {
             self.fail(keyboard);
             return;
         }
         self.discard(keyboard, false);
         self.recovered = Some(now);
+        self.recoveries += 1;
+        keyboard.prediction_loading = true;
         self.reset = true;
         self.generation = self.generation.wrapping_add(1);
         self.last = None;
@@ -833,26 +842,32 @@ mod tests {
         };
         service.received_suggestions(
             &mut keyboard,
-            0,
+            service.generation,
             1,
             Some(batch),
             true,
             database::Status::Ready,
         );
+        assert!(service.tracking && !keyboard.prediction_loading);
         service.client = Some(sleeper());
         let held = service.client.as_ref().unwrap().child.id();
         service.timed_out(&mut keyboard, now + RECOVERY - Duration::from_secs(1));
         assert!(service.client.is_none() && !alive(held));
         assert!(service.failed);
 
-        // A stall long after the last one is recovered from again.
+        // A stall long after the last one is recovered from again, but one
+        // keyboard only gets so many replacements.
         let mut service = Service {
             recovered: Some(now),
+            recoveries: 1,
             ..Default::default()
         };
         service.timed_out(&mut keyboard, now + RECOVERY);
-        assert!(!service.failed);
+        assert!(!service.failed && keyboard.prediction_loading);
         assert_eq!(service.recovered, Some(now + RECOVERY));
+        assert_eq!(service.recoveries, RECOVERIES);
+        service.timed_out(&mut keyboard, now + RECOVERY * 10);
+        assert!(service.failed);
     }
     #[test]
     fn a_missed_deadline_fails_the_acceptance_waiting_on_it() {
