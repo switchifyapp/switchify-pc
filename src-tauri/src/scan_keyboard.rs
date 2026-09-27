@@ -205,6 +205,8 @@ pub struct Keyboard {
     prediction_enabled: bool,
     prediction_failed: bool,
     pub(crate) prediction_loading: bool,
+    /// Suggestions wait for the next word after context was lost inside one.
+    pub(crate) prediction_held: bool,
     prediction_tracking: bool,
     predictions: Option<crate::prediction::worker::Batch>,
     queued_predictions: Option<crate::prediction::worker::Batch>,
@@ -239,6 +241,7 @@ impl Keyboard {
             prediction_enabled: false,
             prediction_failed: false,
             prediction_loading: false,
+            prediction_held: false,
             prediction_tracking: true,
             predictions: None,
             queued_predictions: None,
@@ -348,6 +351,8 @@ impl Keyboard {
             "Prediction loading".into()
         } else if !self.prediction_tracking {
             "Prediction paused".into()
+        } else if self.prediction_held {
+            "Suggestions resume next word".into()
         } else if self.queued_predictions.is_some() {
             "Suggestions updating".into()
         } else {
