@@ -428,6 +428,27 @@ pub fn interleave(words: Vec<String>, phrases: Vec<String>) -> Vec<String> {
     }
     row
 }
+/// Answers requests until the pipe closes. The observer starts on the first
+/// request, which means a keyboard is open: a spare worker waiting for one
+/// loads the model and observes nothing. Starting can take up to 500 ms of
+/// the parent's two-second reply deadline, which holds because the first
+/// request is sent before anything is typed and so runs no inference.
+fn serve(
+    engine: &mut Engine,
+    input: &mut impl Read,
+    output: &mut impl Write,
+    start: impl FnOnce() -> bool,
+) -> Result<(), ()> {
+    let mut start = Some(start);
+    while let Ok(request) = receive::<Request>(input) {
+        if let Some(start) = start.take() {
+            engine.tracked = start();
+        }
+        send(output, &engine.respond(request))?;
+    }
+    Ok(())
+}
+
 pub fn run_from_args() -> bool {
     let args: Vec<_> = std::env::args_os().collect();
     if args.get(1).is_none_or(|s| s != ARG) {
@@ -457,17 +478,12 @@ pub fn run_from_args() -> bool {
         {
             let database = Database::open(&path);
             let mut engine = Engine::new(database, false);
-            let mut input = std::io::stdin().lock();
-            let mut output = std::io::stdout().lock();
-            let mut observing = false;
-            while let Ok(request) = receive::<Request>(&mut input) {
-                // The first request means a keyboard is open. A spare worker
-                // waiting for one loads the model and observes nothing.
-                if !std::mem::replace(&mut observing, true) {
-                    engine.tracked = activity::start();
-                }
-                send(&mut output, &engine.respond(request))?;
-            }
+            serve(
+                &mut engine,
+                &mut std::io::stdin().lock(),
+                &mut std::io::stdout().lock(),
+                activity::start,
+            )?;
         }
         Ok(())
     };
@@ -494,6 +510,66 @@ mod tests {
     }
     fn append(s: &str) -> RecordedEdit {
         edit(Edit::Append(s.into()))
+    }
+    fn query(revision: u64, edits: Vec<RecordedEdit>) -> Vec<u8> {
+        let mut frame = Vec::new();
+        send(
+            &mut frame,
+            &Request::Query {
+                generation: 0,
+                edits,
+                revision,
+                shift: Shift::Off,
+                caps: false,
+                sentence_start: false,
+            },
+        )
+        .unwrap();
+        frame
+    }
+    #[test]
+    fn the_observer_starts_once_on_the_first_request() {
+        use std::cell::Cell;
+        let started = Cell::new(0);
+        let start = || {
+            started.set(started.get() + 1);
+            true
+        };
+        // A spare worker: the pipe closes before any request arrives.
+        let mut idle = Engine::new(Database::fixture(), false);
+        let mut output = Vec::new();
+        serve(&mut idle, &mut std::io::Cursor::new([]), &mut output, start).unwrap();
+        assert_eq!(started.get(), 0);
+        assert!(!idle.tracked);
+        assert!(output.is_empty());
+
+        let mut e = engine();
+        e.tracked = false;
+        let input = [query(1, vec![append("wa")]), query(2, vec![append("t")])].concat();
+        let mut output = Vec::new();
+        serve(&mut e, &mut std::io::Cursor::new(input), &mut output, start).unwrap();
+        assert_eq!(started.get(), 1);
+        assert!(e.tracked);
+        let mut replies = std::io::Cursor::new(output);
+        for _ in 0..2 {
+            assert!(matches!(
+                receive::<Response>(&mut replies),
+                Ok(Response::Suggestions { tracking: true, .. })
+            ));
+        }
+
+        // An observer that cannot start leaves prediction untracked.
+        let mut e = engine();
+        let input = query(1, vec![]);
+        let mut output = Vec::new();
+        serve(
+            &mut e,
+            &mut std::io::Cursor::new(input),
+            &mut output,
+            || false,
+        )
+        .unwrap();
+        assert!(!e.tracked);
     }
     #[test]
     fn phrases_take_every_second_slot_and_accept_as_one_suffix() {

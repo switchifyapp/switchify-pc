@@ -364,6 +364,9 @@ pub fn stop() {
 /// and reaped as in `stop`, then a fresh worker loads the model for the next
 /// open. Only a keyboard that had a working worker gets one.
 pub fn close() {
+    close_with(Client::start);
+}
+fn close_with(start: impl FnOnce(&Path, Vec<u32>) -> Result<Client, ()>) {
     let service = SERVICE.with(|s| std::mem::take(&mut *s.borrow_mut()));
     let Service {
         client,
@@ -376,13 +379,11 @@ pub fn close() {
     SPARE.with(|s| {
         let mut spare = s.borrow_mut();
         if let (true, Some(model)) = (worked, model) {
-            *spare = Client::start(&model, ignored.clone())
-                .ok()
-                .map(|client| Spare {
-                    client,
-                    ignored,
-                    since: Instant::now(),
-                });
+            *spare = start(&model, ignored.clone()).ok().map(|client| Spare {
+                client,
+                ignored,
+                since: Instant::now(),
+            });
         }
         expire(&mut spare, Instant::now());
     });
@@ -506,19 +507,19 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
             return;
         }
         if s.client.is_none() {
-            let ignored: Vec<u32> = ignored
+            let mut ignored: Vec<u32> = ignored
                 .iter()
                 .filter_map(|name| crate::switch_input::prediction_key_code(name))
                 .collect();
-            s.client = SPARE
-                .with(|spare| adopt(&mut spare.borrow_mut(), &ignored, Instant::now()))
-                .or_else(|| {
-                    let path = resource(app).ok()?;
-                    Client::start(path.parent()?, ignored.clone()).ok()
-                });
-            s.model = resource(app)
+            ignored.sort_unstable();
+            ignored.dedup();
+            let model = resource(app)
                 .ok()
                 .and_then(|path| path.parent().map(Path::to_owned));
+            s.client = SPARE
+                .with(|spare| adopt(&mut spare.borrow_mut(), &ignored, Instant::now()))
+                .or_else(|| Client::start(model.as_deref()?, ignored.clone()).ok());
+            s.model = model;
             s.ignored = ignored;
             if s.client.is_none() {
                 s.failed = true;
@@ -828,25 +829,7 @@ mod tests {
 
     #[test]
     fn cancellation_kills_and_reaps_a_blocked_worker() {
-        #[cfg(target_os = "windows")]
-        let mut command = {
-            let mut c = Command::new("powershell.exe");
-            c.args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "Start-Sleep -Seconds 60",
-            ]);
-            c
-        };
-        #[cfg(target_os = "macos")]
-        let mut command = {
-            let mut c = Command::new("/bin/sleep");
-            c.arg("60");
-            c
-        };
-        command.stdin(Stdio::piped());
-        let mut client = Client::spawn(command).expect("fake worker starts");
+        let mut client = sleeper();
         let start = Instant::now();
         assert!(client
             .replies
@@ -920,6 +903,64 @@ mod tests {
         assert!(slot.is_some());
         expire(&mut slot, now + SPARE_IDLE);
         assert!(slot.is_none());
+    }
+    fn alive(pid: u32) -> bool {
+        #[cfg(target_os = "windows")]
+        let output = Command::new("tasklist")
+            .args(["/NH", "/FI", &format!("PID eq {pid}")])
+            .output();
+        #[cfg(target_os = "macos")]
+        let output = Command::new("/bin/ps")
+            .args(["-o", "pid=", "-p", &pid.to_string()])
+            .output();
+        String::from_utf8_lossy(&output.unwrap().stdout).contains(&pid.to_string())
+    }
+    #[test]
+    fn closing_kills_the_worker_that_held_text_before_starting_a_spare() {
+        stop();
+        let worker = sleeper();
+        let held = worker.child.id();
+        assert!(alive(held));
+        SERVICE.with(|slot| {
+            *slot.borrow_mut() = Service {
+                client: Some(worker),
+                model: Some(PathBuf::from("model")),
+                ignored: vec![13, 32],
+                edit: vec![InputScope::capture().record(Edit::Append("test".into()))],
+                ..Default::default()
+            };
+        });
+        close_with(|model, ignored| {
+            assert!(
+                !alive(held),
+                "the old worker is gone before the spare starts"
+            );
+            assert_eq!(model, Path::new("model"));
+            assert_eq!(ignored, [13, 32]);
+            Ok(sleeper())
+        });
+        SERVICE.with(|slot| {
+            let s = slot.borrow();
+            assert!(s.client.is_none());
+            assert!(s.edit.is_empty());
+        });
+        SPARE.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            let spare = slot.as_mut().unwrap();
+            assert_ne!(spare.client.child.id(), held);
+            assert_eq!(spare.ignored, [13, 32]);
+            assert!(spare.client.child.try_wait().unwrap().is_none());
+        });
+        // A spare that could not start is not retried.
+        SERVICE.with(|slot| {
+            let mut s = slot.borrow_mut();
+            s.client = Some(sleeper());
+            s.model = Some(PathBuf::from("model"));
+        });
+        close_with(|_, _| Err(()));
+        SPARE.with(|slot| assert!(slot.borrow().is_none()));
+        close_with(|_, _| panic!("no worker closed, so none is started"));
+        stop();
     }
     #[test]
     fn closing_without_a_working_worker_starts_no_spare_and_stop_kills_one() {
