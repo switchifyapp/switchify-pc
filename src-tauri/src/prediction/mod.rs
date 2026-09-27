@@ -180,6 +180,21 @@ struct Service {
     /// often since the keyboard opened.
     recovered: Option<Instant>,
     recoveries: u8,
+    /// Whether each character Switchify typed belongs to a word, newest
+    /// last. It holds no text, and says if a word is in progress when the
+    /// context is lost.
+    shape: Vec<bool>,
+    /// Whether the character under the start of `shape` belongs to a word.
+    /// Text never seen is taken to.
+    beyond: bool,
+    /// The context was lost inside a word, so its remaining letters would be
+    /// completed as if they began one. Nothing reaches the worker until a
+    /// word boundary is typed.
+    held: bool,
+    /// The activity epoch last seen, to notice input from outside.
+    epoch: Option<u64>,
+    /// Characters the worker has had since its context was last cleared.
+    known: usize,
     /// What the worker was started with, to start its replacement.
     model: Option<PathBuf>,
     ignored: Vec<u32>,
@@ -230,13 +245,98 @@ pub fn reset() {
     SERVICE.with(|s| {
         let mut s = s.borrow_mut();
         s.generation = s.generation.wrapping_add(1);
-        s.edit.clear();
-        s.reset = true;
+        s.moved();
         s.last = None;
         s.accept = None;
     });
 }
+/// Letters, digits and apostrophes continue a word; anything else ends it.
+fn word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '\'' || c == '’'
+}
 impl Service {
+    fn in_word(&self) -> bool {
+        self.shape.last().copied().unwrap_or(self.beyond)
+    }
+    fn shaped(&mut self, edit: &Edit) {
+        match edit {
+            Edit::Append(text) => {
+                self.shape.extend(text.chars().map(word_char));
+                let extra = self.shape.len().saturating_sub(512);
+                if let Some(last) = self.shape.drain(..extra).next_back() {
+                    self.beyond = last;
+                }
+            }
+            Edit::Backspace => {
+                if self.shape.pop().is_none() {
+                    self.beyond = true;
+                }
+            }
+            Edit::Reset => {}
+        }
+    }
+    fn forget(&mut self) {
+        self.known = 0;
+        self.edit.clear();
+        self.reset = true;
+    }
+    /// Input from outside Switchify may have moved the caret, so what was
+    /// typed before says nothing about where the next letter lands. An
+    /// observer that is not running cannot tell, and changes nothing; its
+    /// own restart is not outside input either.
+    fn observe(&mut self, (epoch, healthy): (u64, bool)) {
+        if !healthy {
+            self.epoch = None;
+        } else if self.epoch.replace(epoch).is_some_and(|seen| seen != epoch) {
+            self.shape.clear();
+            self.beyond = false;
+            self.held = false;
+            // The worker saw it too and cleared its own context.
+            self.known = 0;
+        }
+    }
+    /// The context is lost and typing continues somewhere else: another
+    /// window, or a new line or field.
+    fn moved(&mut self) {
+        self.shape.clear();
+        self.beyond = false;
+        self.held = false;
+        self.forget();
+    }
+    /// The context is lost and the caret has not moved. Inside a word,
+    /// suggestions wait for the next one.
+    fn interrupt(&mut self) {
+        self.held |= self.in_word();
+        self.forget();
+    }
+    /// The context is lost and the caret is somewhere in the text nearby,
+    /// which was never seen. After a navigation key it is taken to be
+    /// inside a word; after a shortcut, only if it was before.
+    fn displaced(&mut self, navigated: bool) {
+        self.held |= navigated || self.in_word();
+        self.shape.clear();
+        self.beyond = self.held;
+        self.forget();
+    }
+    /// A successful edit. It is sent to the worker unless suggestions are
+    /// held, or it deletes text the worker never had and leaves the caret
+    /// inside a word. A character that ends the word, or a Backspace that
+    /// reaches one, releases the hold.
+    fn typed(&mut self, edit: Edit, scope: InputScope) {
+        let unknown = matches!(edit, Edit::Backspace) && self.known == 0;
+        self.shaped(&edit);
+        if self.held || unknown {
+            self.held = self.in_word();
+            self.forget();
+            return;
+        }
+        match &edit {
+            Edit::Append(text) => self.known = (self.known + text.chars().count()).min(512),
+            Edit::Backspace => self.known -= 1,
+            Edit::Reset => {}
+        }
+        self.queue_edit(edit, scope);
+    }
     fn response_timed_out(&self, now: Instant) -> bool {
         // Model loading is asynchronous; only inference uses the query deadline.
         let deadline = Duration::from_secs(2);
@@ -244,11 +344,40 @@ impl Service {
             .is_some_and(|sent| now.duration_since(sent) >= deadline)
     }
 
+    /// One keyboard stroke. `unchanged` is whether the foreground window
+    /// stayed the same while it was typed.
+    fn stroke(&mut self, stroke: Stroke, success: bool, unchanged: bool, scope: InputScope) {
+        if !unchanged {
+            self.moved();
+            return;
+        }
+        // A key that failed to type moved nothing, whatever it was.
+        if !success {
+            self.interrupt();
+            return;
+        }
+        if stroke.shortcut() {
+            self.displaced(false);
+            return;
+        }
+        let edit = stroke
+            .character()
+            .map(|c| Edit::Append(c.to_string()))
+            .or_else(|| {
+                (stroke.key == Key::Named("Backspace") && !stroke.modifiers[0])
+                    .then_some(Edit::Backspace)
+            });
+        match edit {
+            Some(edit) => self.typed(edit, scope),
+            // Enter and Tab start a new line or field.
+            None if matches!(stroke.key, Key::Named("Enter" | "Tab")) => self.moved(),
+            None => self.displaced(true),
+        }
+    }
     fn queue_edit(&mut self, edit: Edit, scope: InputScope) {
         self.edit_revision = self.edit_revision.wrapping_add(1);
         if self.edit.len() >= 512 {
-            self.edit.clear();
-            self.reset = true;
+            self.forget();
         }
         self.edit.push(scope.record(edit));
     }
@@ -280,8 +409,7 @@ impl Service {
         } else {
             self.tracking = tracking;
             if !tracking {
-                self.edit.clear();
-                self.reset = true;
+                self.forget();
             }
         }
     }
@@ -295,6 +423,7 @@ impl Service {
         self.tracking = tracking;
         if !tracking {
             self.edit.clear();
+            self.known = 0;
         }
         let visible = keyboard.page == Page::Letters
             && !keyboard.modifiers[1..].iter().any(|m| *m != Modifier::Off);
@@ -324,7 +453,7 @@ impl Service {
         self.recovered = Some(now);
         self.recoveries += 1;
         keyboard.prediction_loading = true;
-        self.reset = true;
+        self.interrupt();
         self.generation = self.generation.wrapping_add(1);
         self.last = None;
     }
@@ -428,28 +557,24 @@ fn close_with(start: impl FnOnce(&Path, Vec<u32>) -> Result<Client, ()>) {
 /// Restart only prediction. The keyboard and its scan session remain open,
 /// while the old worker and its private text context are discarded.
 pub fn retry() {
+    let kept = SERVICE.with(|s| {
+        let mut s = s.borrow_mut();
+        s.interrupt();
+        (std::mem::take(&mut s.shape), s.beyond, s.held, s.epoch)
+    });
     stop();
+    SERVICE.with(|s| {
+        let mut s = s.borrow_mut();
+        (s.shape, s.beyond, s.held, s.epoch) = kept;
+    });
 }
 pub fn record(stroke: Stroke, success: bool, scope: InputScope) {
     SERVICE.with(|s| {
         let mut s = s.borrow_mut();
         s.generation = s.generation.wrapping_add(1);
         s.last = None;
-        if success && scope.unchanged() && !stroke.shortcut() {
-            let edit = stroke
-                .character()
-                .map(|c| Edit::Append(c.to_string()))
-                .or_else(|| {
-                    (stroke.key == Key::Named("Backspace") && !stroke.modifiers[0])
-                        .then_some(Edit::Backspace)
-                });
-            if let Some(edit) = edit {
-                s.queue_edit(edit, scope);
-                return;
-            }
-        }
-        s.edit.clear();
-        s.reset = true;
+        s.observe(activity::snapshot());
+        s.stroke(stroke, success, scope.unchanged(), scope);
     });
 }
 pub fn record_punctuation(mark: char, removed_space: bool, success: bool, scope: InputScope) {
@@ -457,14 +582,17 @@ pub fn record_punctuation(mark: char, removed_space: bool, success: bool, scope:
         let mut s = s.borrow_mut();
         s.generation = s.generation.wrapping_add(1);
         s.last = None;
-        if success && scope.unchanged() {
+        s.observe(activity::snapshot());
+        let unchanged = scope.unchanged();
+        if success && unchanged {
             if removed_space {
-                s.queue_edit(Edit::Backspace, scope);
+                s.typed(Edit::Backspace, scope);
             }
-            s.queue_edit(Edit::Append(format!("{mark} ")), scope);
+            s.typed(Edit::Append(format!("{mark} ")), scope);
+        } else if unchanged {
+            s.interrupt();
         } else {
-            s.edit.clear();
-            s.reset = true;
+            s.moved();
         }
     });
 }
@@ -529,6 +657,8 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
     };
     SERVICE.with(|slot| {
         let mut s = slot.borrow_mut();
+        s.observe(activity::snapshot());
+        keyboard.prediction_held = s.held;
         let case = (
             keyboard.prediction_shift(),
             keyboard.caps,
@@ -613,9 +743,9 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                 let trailing_space = text.ends_with(' ');
                                 let contains_letter = text.chars().any(char::is_alphabetic);
                                 for _ in 0..backspaces {
-                                    s.queue_edit(Edit::Backspace, scope);
+                                    s.typed(Edit::Backspace, scope);
                                 }
-                                s.queue_edit(Edit::Append(text), scope);
+                                s.typed(Edit::Append(text), scope);
                                 Ok((trailing_space, contains_letter))
                             })
                         } else {
@@ -633,8 +763,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                 );
                             }
                         } else {
-                            s.edit.clear();
-                            s.reset = true;
+                            s.interrupt();
                             let _ = crate::scan_executor::cleanup();
                             keyboard.failed();
                         }
@@ -729,6 +858,11 @@ mod tests {
     #[test]
     fn punctuation_records_the_backspace_and_insert_as_one_successful_edit() {
         stop();
+        SERVICE.with(|slot| {
+            let mut service = slot.borrow_mut();
+            service.typed(Edit::Append(" ".into()), InputScope::capture());
+            service.edit.clear();
+        });
         record_punctuation('.', true, true, InputScope::capture());
         SERVICE.with(|slot| {
             let service = slot.borrow();
@@ -885,6 +1019,230 @@ mod tests {
             assert!(!service.failed && !service.accepting && service.accept.is_none());
             assert!(service.client.is_none());
         }
+    }
+    fn key(c: char) -> Stroke {
+        Stroke {
+            key: Key::Character(c, c.to_ascii_uppercase()),
+            modifiers: [false; 4],
+            caps: false,
+        }
+    }
+    fn named(name: &'static str) -> Stroke {
+        Stroke {
+            key: Key::Named(name),
+            ..key('a')
+        }
+    }
+    fn service(text: &str) -> Service {
+        let mut service = Service::default();
+        for c in text.chars() {
+            service.stroke(key(c), true, true, InputScope::capture());
+        }
+        service
+    }
+    fn sent(service: &mut Service) -> String {
+        service
+            .take_edits()
+            .into_iter()
+            .map(|e| match e.edit {
+                Edit::Append(text) => text,
+                Edit::Backspace => "<".into(),
+                Edit::Reset => "|".into(),
+            })
+            .collect()
+    }
+    #[test]
+    fn context_lost_inside_a_word_holds_suggestions_until_the_next_word() {
+        let scope = InputScope::capture();
+        let mut s = service("hel");
+        s.interrupt();
+        assert!(s.held);
+        for c in "lo".chars() {
+            s.stroke(key(c), true, true, scope);
+            assert!(s.held && s.edit.is_empty() && s.reset);
+        }
+        s.stroke(named("Backspace"), true, true, scope);
+        assert!(s.held);
+        s.stroke(key(' '), true, true, scope);
+        assert!(!s.held && s.edit.is_empty());
+        for c in "wa".chars() {
+            s.stroke(key(c), true, true, scope);
+        }
+        assert_eq!(sent(&mut s), "|wa");
+
+        // Punctuation ends the word too, with the space it removes ignored.
+        let mut s = service("hel");
+        s.interrupt();
+        s.typed(Edit::Backspace, scope);
+        s.typed(Edit::Append(". ".into()), scope);
+        assert!(!s.held && s.edit.is_empty());
+    }
+    #[test]
+    fn deleting_the_rest_of_the_word_releases_the_hold() {
+        let scope = InputScope::capture();
+        let mut s = service("say hel");
+        s.interrupt();
+        for _ in 0..2 {
+            s.stroke(named("Backspace"), true, true, scope);
+            assert!(s.held);
+        }
+        s.stroke(named("Backspace"), true, true, scope);
+        assert!(!s.held);
+        for c in "hello".chars() {
+            s.stroke(key(c), true, true, scope);
+        }
+        assert_eq!(sent(&mut s), "|hello");
+    }
+    #[test]
+    fn deleting_into_text_the_worker_never_had_holds() {
+        let scope = InputScope::capture();
+        // Released by a space, which is then deleted: the caret is back
+        // inside the word whose start the worker never saw.
+        let mut s = service("hel");
+        s.interrupt();
+        s.stroke(key(' '), true, true, scope);
+        assert!(!s.held);
+        s.stroke(named("Backspace"), true, true, scope);
+        assert!(s.held);
+        s.stroke(key('l'), true, true, scope);
+        assert_eq!(sent(&mut s), "|");
+        // Text that was there before the keyboard opened.
+        let mut s = Service::default();
+        s.stroke(named("Backspace"), true, true, scope);
+        assert!(s.held);
+        // A space typed and deleted again leaves the caret where it was.
+        for start in ["End", "Backspace"] {
+            let mut s = service("");
+            s.stroke(named(start), true, true, scope);
+            s.stroke(key(' '), true, true, scope);
+            assert!(!s.held);
+            s.stroke(named("Backspace"), true, true, scope);
+            assert!(s.held, "{start}");
+        }
+        // Deleting what the worker has is an ordinary edit.
+        let mut s = service("hello ");
+        s.stroke(named("Backspace"), true, true, scope);
+        s.stroke(named("Backspace"), true, true, scope);
+        assert!(!s.held);
+        assert_eq!(sent(&mut s), "hello <<");
+    }
+    #[test]
+    fn context_lost_between_words_holds_nothing() {
+        let scope = InputScope::capture();
+        for text in ["", "hello ", "hello. ", "hello\n"] {
+            let mut s = service(text);
+            s.interrupt();
+            assert!(!s.held, "{text:?}");
+            s.stroke(key('w'), true, true, scope);
+            assert_eq!(sent(&mut s), "|w");
+        }
+    }
+    #[test]
+    fn only_a_loss_that_leaves_the_caret_nearby_holds() {
+        let scope = InputScope::capture();
+        let shortcut = |key: Stroke| Stroke {
+            modifiers: [false, true, false, false],
+            ..key
+        };
+        // A key that failed, whatever it was, and a replaced worker.
+        for failed in [key('l'), named("Enter"), named("Tab"), shortcut(key('s'))] {
+            let mut s = service("hel");
+            s.stroke(failed, false, true, scope);
+            assert!(s.held && s.reset, "{failed:?}");
+        }
+        let mut s = service("hel");
+        s.timed_out(&mut Keyboard::new(false), Instant::now());
+        assert!(s.held && !s.failed);
+        // A shortcut holds inside a word only.
+        let mut s = service("hel");
+        s.stroke(shortcut(key('s')), true, true, scope);
+        assert!(s.held);
+        let mut s = service("hello ");
+        s.stroke(shortcut(key('a')), true, true, scope);
+        assert!(!s.held && s.reset);
+        // A navigation key lands in text never seen, so it always holds.
+        for name in ["ArrowLeft", "ArrowUp", "Home", "End", "Delete"] {
+            let mut s = service("hello ");
+            s.stroke(named(name), true, true, scope);
+            assert!(s.held, "{name}");
+            s.stroke(key(' '), true, true, scope);
+            assert!(!s.held);
+        }
+        // Another window, a new line and outside input hold nothing.
+        let mut s = service("hel");
+        s.stroke(key('l'), true, false, scope);
+        assert!(!s.held && s.reset && !s.in_word());
+        for name in ["Enter", "Tab"] {
+            let mut s = service("hel");
+            s.stroke(named(name), true, true, scope);
+            assert!(!s.held && s.reset);
+        }
+        let mut s = service("hel");
+        s.observe((4, true));
+        s.observe((4, true));
+        assert!(s.in_word());
+        s.observe((5, true));
+        s.interrupt();
+        assert!(!s.held);
+        // Outside input also ends a hold: the caret may be anywhere now.
+        let mut s = service("hel");
+        s.observe((4, true));
+        s.interrupt();
+        s.observe((5, true));
+        assert!(!s.held);
+        // An observer that is not running cannot say anything happened,
+        // and the epoch it starts again at is its own doing.
+        let mut s = service("hel");
+        s.observe((4, true));
+        s.interrupt();
+        s.observe((5, false));
+        s.observe((6, true));
+        assert!(s.held);
+        s.observe((7, true));
+        assert!(!s.held);
+    }
+    #[test]
+    fn failed_punctuation_holds_inside_a_word() {
+        stop();
+        for c in "hel".chars() {
+            record(key(c), true, InputScope::capture());
+        }
+        record_punctuation('.', false, false, InputScope::capture());
+        SERVICE.with(|slot| {
+            let s = slot.borrow();
+            assert!(s.held && s.edit.is_empty() && s.reset);
+        });
+        stop();
+    }
+    #[test]
+    fn retry_keeps_the_hold_and_discards_everything_else() {
+        stop();
+        SERVICE.with(|slot| *slot.borrow_mut() = service("say hel"));
+        retry();
+        SERVICE.with(|slot| {
+            let s = slot.borrow();
+            assert!(s.held && s.edit.is_empty());
+            assert_eq!((s.generation, s.known, s.shape.len()), (0, 0, 7));
+        });
+        retry();
+        SERVICE.with(|slot| assert!(slot.borrow().held));
+        stop();
+        SERVICE.with(|slot| {
+            let s = slot.borrow();
+            assert!(!s.held && s.shape.is_empty());
+        });
+    }
+    #[test]
+    fn the_word_shape_holds_no_text_and_stays_bounded() {
+        let mut s = service("it's 4pm");
+        assert_eq!(s.shape, [true, true, true, true, false, true, true, true]);
+        s.typed(Edit::Append("a ".repeat(400)), InputScope::capture());
+        assert_eq!(s.shape.len(), 512);
+        assert_eq!(s.known, 512);
+        // What slid off the start is remembered as the text underneath.
+        assert!(!s.beyond);
+        s.typed(Edit::Append("b".into()), InputScope::capture());
+        assert!(s.beyond);
     }
     #[test]
     fn invalid_edit_acknowledgements_fail_closed() {

@@ -205,6 +205,8 @@ pub struct Keyboard {
     prediction_enabled: bool,
     prediction_failed: bool,
     pub(crate) prediction_loading: bool,
+    /// Suggestions wait for the next word after context was lost inside one.
+    pub(crate) prediction_held: bool,
     prediction_tracking: bool,
     predictions: Option<crate::prediction::worker::Batch>,
     queued_predictions: Option<crate::prediction::worker::Batch>,
@@ -239,6 +241,7 @@ impl Keyboard {
             prediction_enabled: false,
             prediction_failed: false,
             prediction_loading: false,
+            prediction_held: false,
             prediction_tracking: true,
             predictions: None,
             queued_predictions: None,
@@ -348,6 +351,8 @@ impl Keyboard {
             "Prediction loading".into()
         } else if !self.prediction_tracking {
             "Prediction paused".into()
+        } else if self.prediction_held {
+            "Suggestions resume next word".into()
         } else if self.queued_predictions.is_some() {
             "Suggestions updating".into()
         } else {
@@ -1644,6 +1649,27 @@ mod tests {
             }
             assert!(!k.suspended());
         }
+    }
+    #[test]
+    fn a_hold_is_explained_unless_something_more_pressing_is() {
+        let mut k = Keyboard::new(true);
+        k.enable_predictions(true);
+        k.predictions(None, false);
+        k.prediction_held = true;
+        assert_eq!(
+            k.prediction_note().as_deref(),
+            Some("Suggestions resume next word")
+        );
+        k.prediction_loading = true;
+        assert_eq!(k.prediction_note().as_deref(), Some("Prediction loading"));
+        k.predictions(None, true);
+        assert_eq!(
+            k.prediction_note().as_deref(),
+            Some("Prediction unavailable")
+        );
+        k.predictions(None, false);
+        k.prediction_held = false;
+        assert_eq!(k.prediction_note().as_deref(), Some("Type for suggestions"));
     }
     #[test]
     fn prediction_warning_does_not_hide_resume_or_error_instructions() {
