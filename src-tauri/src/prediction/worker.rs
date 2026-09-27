@@ -453,14 +453,19 @@ pub fn run_from_args() -> bool {
             });
         }
         activity::set_ignored(ignored);
-        let tracked = activity::start();
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             let database = Database::open(&path);
-            let mut engine = Engine::new(database, tracked);
+            let mut engine = Engine::new(database, false);
             let mut input = std::io::stdin().lock();
             let mut output = std::io::stdout().lock();
+            let mut observing = false;
             while let Ok(request) = receive::<Request>(&mut input) {
+                // The first request means a keyboard is open. A spare worker
+                // waiting for one loads the model and observes nothing.
+                if !std::mem::replace(&mut observing, true) {
+                    engine.tracked = activity::start();
+                }
                 send(&mut output, &engine.respond(request))?;
             }
         }

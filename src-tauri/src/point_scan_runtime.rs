@@ -151,7 +151,7 @@ impl Adapter for PointScan {
                 return result.map(|()| None);
             }
             Request::OpenKeyboard | Request::OpenMouse | Request::OpenPoint => {
-                crate::prediction::stop();
+                crate::prediction::close();
                 crate::scan_executor::activate(request)
             }
             Request::MouseDrag => {
