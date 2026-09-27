@@ -45,6 +45,10 @@ pub enum Request {
         revision: u64,
         shift: Shift,
         caps: bool,
+        /// The keyboard's pending automatic capital, the one place that decides
+        /// a sentence start: it saw the punctuation, and whether the person
+        /// cancelled the capital since.
+        sentence_start: bool,
     },
     Accept {
         generation: u64,
@@ -111,7 +115,7 @@ pub struct Engine {
     batch: Option<Batch>,
     suffixes: Vec<String>,
     token: u64,
-    case: (Shift, bool),
+    case: (Shift, bool, bool),
 }
 impl Engine {
     pub fn new(database: Database, tracked: bool) -> Self {
@@ -131,7 +135,7 @@ impl Engine {
             batch: None,
             suffixes: Vec::new(),
             token: 0,
-            case: (Shift::Off, false),
+            case: (Shift::Off, false, false),
         }
     }
     fn clear(&mut self) {
@@ -174,6 +178,7 @@ impl Engine {
         revision: u64,
         shift: Shift,
         caps: bool,
+        sentence_start: bool,
     ) -> Option<Batch> {
         if revision < self.revision || (revision == self.revision && !edits.is_empty()) {
             self.clear();
@@ -217,7 +222,7 @@ impl Engine {
         }
         self.status = self.database.status();
         if self.snapshot.as_ref() == Some(&self.buffer)
-            && self.case == (shift, caps)
+            && self.case == (shift, caps, sentence_start)
             && self.status != Status::Loading
         {
             return self.batch.clone();
@@ -240,7 +245,7 @@ impl Engine {
             let suffix = cased(
                 &word[offset..],
                 ctx.prefix.is_empty(),
-                ctx.sentence_start,
+                sentence_start,
                 shift,
                 caps,
             );
@@ -251,7 +256,7 @@ impl Engine {
             self.clear();
             return None;
         }
-        self.case = (shift, caps);
+        self.case = (shift, caps, sentence_start);
         self.snapshot = Some(self.buffer.clone());
         self.batch = Some(Batch {
             token: self.token,
@@ -279,8 +284,9 @@ impl Engine {
                 revision,
                 shift,
                 caps,
+                sentence_start,
             } => {
-                let batch = self.query(edits, revision, shift, caps);
+                let batch = self.query(edits, revision, shift, caps, sentence_start);
                 self.status = self.database.status();
                 let tracking = self
                     .target
@@ -436,26 +442,38 @@ mod tests {
         );
         assert_eq!(interleave(w(&[]), w(&["a b"])), w(&["a b"]));
         let mut e = engine();
-        let b = e.query(vec![append("wa")], 1, Shift::Off, false).unwrap();
+        let b = e
+            .query(vec![append("wa")], 1, Shift::Off, false, false)
+            .unwrap();
         assert_eq!(b.words, w(&["water", "water is", "waffle", "walk"]));
         assert_eq!(e.accept(b.token, 1).unwrap(), "ter is ");
-        let upper = e.query(vec![], 1, Shift::Off, true).unwrap();
+        let upper = e.query(vec![], 1, Shift::Off, true, false).unwrap();
         assert_eq!(upper.words[1], "waTER IS");
     }
     #[test]
     fn first_letter_and_completion_chain_use_only_buffer() {
         let mut e = engine();
-        let first = e.query(vec![append("w")], 1, Shift::Off, false).unwrap();
+        let first = e
+            .query(vec![append("w")], 1, Shift::Off, false, false)
+            .unwrap();
         assert!(first.words.iter().any(|w| w == "water"));
-        let b = e.query(vec![append("a")], 2, Shift::Off, false).unwrap();
+        let b = e
+            .query(vec![append("a")], 2, Shift::Off, false, false)
+            .unwrap();
         assert_eq!(b.words[0], "water");
         let suffix = e.accept(b.token, 0).unwrap();
         assert_eq!(suffix, "ter ");
         assert!(e.accept(b.token, 0).is_none());
-        e.query(vec![append(&suffix)], 3, Shift::Off, false);
+        e.query(vec![append(&suffix)], 3, Shift::Off, false, false);
         assert_eq!(e.buffer, "water ");
-        e.query(vec![edit(Edit::Reset), append("wa")], 4, Shift::Off, false)
-            .unwrap();
+        e.query(
+            vec![edit(Edit::Reset), append("wa")],
+            4,
+            Shift::Off,
+            false,
+            false,
+        )
+        .unwrap();
         assert_eq!(e.buffer, "wa");
     }
     #[test]
@@ -464,26 +482,28 @@ mod tests {
         // A Switchify edit at 10 and external activity at 11 both precede
         // observer startup at 12. Only typing after startup is trustworthy.
         e.last_activity = || 12;
-        e.query(vec![append("wa")], 1, Shift::Off, false);
+        e.query(vec![append("wa")], 1, Shift::Off, false, false);
         assert!(e.buffer.is_empty());
         let mut fresh = append("w");
         fresh.time = 13;
-        assert!(e.query(vec![fresh], 2, Shift::Off, false).is_some());
+        assert!(e.query(vec![fresh], 2, Shift::Off, false, false).is_some());
         assert_eq!(e.buffer, "w");
     }
     #[test]
     fn queued_edits_are_scoped_to_window_and_external_activity() {
         let mut e = engine();
-        let b = e.query(vec![append("wa")], 1, Shift::Off, false).unwrap();
+        let b = e
+            .query(vec![append("wa")], 1, Shift::Off, false, false)
+            .unwrap();
         e.observe = || (1, true);
         e.last_activity = || 11;
         assert!(e.accept(b.token, 0).is_none());
         let mut fresh = append("he");
         fresh.time = 12;
-        e.query(vec![append("ter"), fresh], 2, Shift::Off, false);
+        e.query(vec![append("ter"), fresh], 2, Shift::Off, false, false);
         assert_eq!(e.buffer, "he");
         e.foreground = || Ok(2);
-        e.query(vec![append("wa")], 3, Shift::Off, false);
+        e.query(vec![append("wa")], 3, Shift::Off, false, false);
         assert!(e.buffer.is_empty());
     }
     #[test]
@@ -498,22 +518,31 @@ mod tests {
             1,
             Shift::Off,
             false,
+            false,
         );
         assert_eq!(e.buffer, "wa");
         for rev in 2..10 {
-            e.query(vec![append(&" word".repeat(90))], rev, Shift::Off, false);
+            e.query(
+                vec![append(&" word".repeat(90))],
+                rev,
+                Shift::Off,
+                false,
+                false,
+            );
         }
         assert!(e.buffer.chars().count() <= 512);
         assert!(e.clipped);
-        e.query(vec![edit(Edit::Reset)], 10, Shift::Off, false);
+        e.query(vec![edit(Edit::Reset)], 10, Shift::Off, false, false);
         assert!(e.buffer.is_empty());
-        e.query(vec![append("wa"); 513], 11, Shift::Off, false);
+        e.query(vec![append("wa"); 513], 11, Shift::Off, false, false);
         assert!(e.buffer.is_empty());
     }
     #[test]
     fn stale_revisions_health_and_foreground_races_reject_acceptance() {
         let mut e = engine();
-        let b = e.query(vec![append("wa")], 1, Shift::Off, false).unwrap();
+        let b = e
+            .query(vec![append("wa")], 1, Shift::Off, false, false)
+            .unwrap();
         assert!(matches!(
             e.respond(Request::Accept {
                 generation: 0,
@@ -524,93 +553,113 @@ mod tests {
             Response::Insert { text: None, .. }
         ));
         assert!(e.buffer.is_empty());
-        e.query(vec![append("wa")], 2, Shift::Off, false);
-        assert!(e.query(vec![append("wa")], 2, Shift::Off, false).is_none());
-        let b = e.query(vec![append("wa")], 3, Shift::Off, false).unwrap();
+        e.query(vec![append("wa")], 2, Shift::Off, false, false);
+        assert!(e
+            .query(vec![append("wa")], 2, Shift::Off, false, false)
+            .is_none());
+        let b = e
+            .query(vec![append("wa")], 3, Shift::Off, false, false)
+            .unwrap();
         e.observe = || (0, false);
         assert!(e.accept(b.token, 0).is_none());
-        assert!(e.query(vec![append("wa")], 4, Shift::Off, false).is_none());
+        assert!(e
+            .query(vec![append("wa")], 4, Shift::Off, false, false)
+            .is_none());
     }
     #[test]
     fn casing_and_unchanged_context_keep_choice_identity() {
         let mut e = engine();
-        let b = e.query(vec![append("Wa")], 1, Shift::Off, false).unwrap();
+        let b = e
+            .query(vec![append("Wa")], 1, Shift::Off, false, false)
+            .unwrap();
         assert_eq!(b.words[0], "Water");
         assert_eq!(
-            e.query(vec![], 1, Shift::Off, false).unwrap().token,
+            e.query(vec![], 1, Shift::Off, false, false).unwrap().token,
             b.token
         );
-        let upper = e.query(vec![], 1, Shift::Off, true).unwrap();
+        let upper = e.query(vec![], 1, Shift::Off, true, false).unwrap();
         assert_eq!(upper.words[0], "WaTER");
         assert_ne!(upper.token, b.token);
     }
     #[test]
-    fn sentence_start_prediction_uses_title_case_without_manual_shift() {
+    fn the_keyboard_alone_decides_a_sentence_start() {
         let mut e = engine();
-        let suggestions = e
-            .query(vec![append("Done! ")], 1, Shift::Off, false)
+        // Punctuation in the buffer is not enough: the keyboard may have seen
+        // the person cancel the capital, or the buffer may have started
+        // mid-line after a reset.
+        let buffer_only = e
+            .query(vec![append("Done! ")], 1, Shift::Off, false, false)
             .unwrap();
+        assert_eq!(buffer_only.words[0], "water");
+        let suggestions = e.query(vec![], 1, Shift::Off, false, true).unwrap();
         assert_eq!(suggestions.words[0], "Water");
-        let locked = e.query(vec![], 1, Shift::Locked, false).unwrap();
+        let locked = e.query(vec![], 1, Shift::Locked, false, true).unwrap();
         assert_eq!(locked.words[0], "WATER");
-        let once = e.query(vec![], 1, Shift::Once, false).unwrap();
+        let once = e.query(vec![], 1, Shift::Once, false, true).unwrap();
         assert_eq!(once.words[0], "Water");
         // Modifiers still mirror typing at a sentence start: Caps with Shift
         // locked cancel to lowercase letters, and Shift once under Caps
         // lowers only the first one, exactly as the keys would type them.
         assert_eq!(
-            e.query(vec![], 1, Shift::Off, true).unwrap().words[0],
+            e.query(vec![], 1, Shift::Off, true, true).unwrap().words[0],
             "WATER"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Locked, true).unwrap().words[0],
+            e.query(vec![], 1, Shift::Locked, true, true).unwrap().words[0],
             "Water"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Once, true).unwrap().words[0],
+            e.query(vec![], 1, Shift::Once, true, true).unwrap().words[0],
             "wATER"
         );
     }
     #[test]
     fn shift_once_changes_only_the_first_letter_and_only_before_typing() {
         let mut e = engine();
-        e.query(vec![append("Send ")], 1, Shift::Off, false)
+        e.query(vec![append("Send ")], 1, Shift::Off, false, false)
             .unwrap();
         assert_eq!(
-            e.query(vec![], 1, Shift::Off, false).unwrap().words[0],
+            e.query(vec![], 1, Shift::Off, false, false).unwrap().words[0],
             "water"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Once, false).unwrap().words[0],
+            e.query(vec![], 1, Shift::Once, false, false).unwrap().words[0],
             "Water"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Locked, false).unwrap().words[0],
+            e.query(vec![], 1, Shift::Locked, false, false)
+                .unwrap()
+                .words[0],
             "WATER"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Off, true).unwrap().words[0],
+            e.query(vec![], 1, Shift::Off, true, false).unwrap().words[0],
             "WATER"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Locked, true).unwrap().words[0],
+            e.query(vec![], 1, Shift::Locked, true, false)
+                .unwrap()
+                .words[0],
             "water"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Once, true).unwrap().words[0],
+            e.query(vec![], 1, Shift::Once, true, false).unwrap().words[0],
             "wATER"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Off, false).unwrap().words[4],
+            e.query(vec![], 1, Shift::Off, false, false).unwrap().words[4],
             "WhatsApp"
         );
-        e.query(vec![append("wa")], 2, Shift::Off, false).unwrap();
+        e.query(vec![append("wa")], 2, Shift::Off, false, false)
+            .unwrap();
         assert_eq!(
-            e.query(vec![], 2, Shift::Once, false).unwrap().words[0],
+            e.query(vec![], 2, Shift::Once, false, false).unwrap().words[0],
             "water"
         );
         assert_eq!(
-            e.query(vec![], 2, Shift::Locked, false).unwrap().words[0],
+            e.query(vec![], 2, Shift::Locked, false, false)
+                .unwrap()
+                .words[0],
             "waTER"
         );
     }
@@ -623,6 +672,7 @@ mod tests {
             edits: vec![append(&"x".repeat(LIMIT))],
             shift: Shift::Off,
             caps: false,
+            sentence_start: false,
         };
         assert!(send(&mut Vec::new(), &request).is_err());
     }

@@ -472,6 +472,11 @@ impl Keyboard {
             Modifier::Locked => Shift::Locked,
         }
     }
+    /// Whether the next word starts a sentence, as the keyboard knows it: a
+    /// sentence mark it typed, not yet followed by a letter or cancelled.
+    pub fn prediction_sentence_start(&self) -> bool {
+        self.capitalize_next
+    }
     fn clear_auto_capital(&mut self) {
         if self.auto_shift {
             self.modifiers[0] = Modifier::Off;
