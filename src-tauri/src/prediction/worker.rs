@@ -73,6 +73,9 @@ pub enum Response {
     },
     Insert {
         generation: u64,
+        /// Characters to delete before typing `text`: the typed prefix, when
+        /// accepting restores a capital in it. Never more than the prefix.
+        backspaces: usize,
         text: Option<String>,
         foreground: Option<usize>,
     },
@@ -113,7 +116,8 @@ pub struct Engine {
     revision: u64,
     snapshot: Option<String>,
     batch: Option<Batch>,
-    suffixes: Vec<String>,
+    /// Per suggestion: how many typed characters to delete, then the text.
+    inserts: Vec<(usize, String)>,
     token: u64,
     case: (Shift, bool, bool),
 }
@@ -133,7 +137,7 @@ impl Engine {
             revision: 0,
             snapshot: None,
             batch: None,
-            suffixes: Vec::new(),
+            inserts: Vec::new(),
             token: 0,
             case: (Shift::Off, false, false),
         }
@@ -143,7 +147,7 @@ impl Engine {
         self.clipped = false;
         self.snapshot = None;
         self.batch = None;
-        self.suffixes.clear();
+        self.inserts.clear();
     }
     fn stable(&self, target: usize, epoch: u64) -> bool {
         self.tracked && (self.observe)() == (epoch, true) && (self.foreground)() == Ok(target)
@@ -232,7 +236,7 @@ impl Engine {
         let words = interleave(prediction.words, prediction.phrases);
         self.status = status;
         self.token = self.token.wrapping_add(1);
-        self.suffixes.clear();
+        self.inserts.clear();
         let mut labels = Vec::new();
         for word in words {
             let offset = word
@@ -253,8 +257,25 @@ impl Engine {
                     caps,
                 )
             };
-            labels.push(ctx.prefix.clone() + &suffix);
-            self.suffixes.push(suffix + " ");
+            // A word written in capitals keeps its typed prefix as it is.
+            let head = if shouting(&ctx.prefix) {
+                None
+            } else {
+                restored(&ctx.prefix, &word[..offset])
+            };
+            match head {
+                Some(head) => {
+                    labels.push(format!("{head}{suffix}"));
+                    self.inserts.push((
+                        ctx.prefix.graphemes(true).count(),
+                        format!("{head}{suffix} "),
+                    ));
+                }
+                None => {
+                    labels.push(ctx.prefix.clone() + &suffix);
+                    self.inserts.push((0, suffix + " "));
+                }
+            }
         }
         if !self.stable(target, epoch) {
             self.clear();
@@ -268,17 +289,17 @@ impl Engine {
         });
         self.batch.clone()
     }
-    fn accept(&mut self, token: u64, index: usize) -> Option<String> {
-        if self.batch.as_ref()?.token != token || index >= self.suffixes.len() {
+    fn accept(&mut self, token: u64, index: usize) -> Option<(usize, String)> {
+        if self.batch.as_ref()?.token != token || index >= self.inserts.len() {
             return None;
         }
         if !self.stable(self.target?, self.activity) {
             self.clear();
             return None;
         }
-        let suffix = self.suffixes[index].clone();
+        let insert = self.inserts[index].clone();
         self.batch = None;
-        Some(suffix)
+        Some(insert)
     }
     pub fn respond(&mut self, request: Request) -> Response {
         match request {
@@ -308,19 +329,44 @@ impl Engine {
                 token,
                 revision,
                 index,
-            } => Response::Insert {
-                generation,
-                foreground: self.target,
-                text: if revision == self.revision {
+            } => {
+                let insert = if revision == self.revision {
                     self.accept(token, index)
                 } else {
                     self.clear();
                     None
-                },
-            },
+                };
+                let (backspaces, text) = insert.map_or((0, None), |(n, text)| (n, Some(text)));
+                Response::Insert {
+                    generation,
+                    foreground: self.target,
+                    backspaces,
+                    text,
+                }
+            }
         }
     }
 }
+/// The typed prefix as it should read once the word is accepted. A capital
+/// the word has where the person typed a lowercase letter is restored, as in
+/// "lon" for London or "i" for I'm. A capital the person typed is kept.
+/// `None` when nothing would change, which is the usual case and deletes
+/// nothing.
+fn restored(typed: &str, head: &str) -> Option<String> {
+    let merged: String = typed
+        .chars()
+        .zip(head.chars())
+        .map(|(t, w)| {
+            if t.is_lowercase() && w.is_uppercase() {
+                w
+            } else {
+                t
+            }
+        })
+        .collect();
+    (merged != typed).then_some(merged)
+}
+
 /// A typed prefix of two or more letters, all capitals, is a word being
 /// written in capitals: its completion continues that way whatever the
 /// modifiers now say, so the label shows exactly what will be inserted.
@@ -462,7 +508,7 @@ mod tests {
             .query(vec![append("wa")], 1, Shift::Off, false, false)
             .unwrap();
         assert_eq!(b.words, w(&["water", "water is", "waffle", "walk"]));
-        assert_eq!(e.accept(b.token, 1).unwrap(), "ter is ");
+        assert_eq!(e.accept(b.token, 1).unwrap(), (0, "ter is ".to_owned()));
         let upper = e.query(vec![], 1, Shift::Off, true, false).unwrap();
         assert_eq!(upper.words[1], "waTER IS");
     }
@@ -477,7 +523,8 @@ mod tests {
             .query(vec![append("a")], 2, Shift::Off, false, false)
             .unwrap();
         assert_eq!(b.words[0], "water");
-        let suffix = e.accept(b.token, 0).unwrap();
+        let (deleted, suffix) = e.accept(b.token, 0).unwrap();
+        assert_eq!(deleted, 0);
         assert_eq!(suffix, "ter ");
         assert!(e.accept(b.token, 0).is_none());
         e.query(vec![append(&suffix)], 3, Shift::Off, false, false);
@@ -596,6 +643,73 @@ mod tests {
         let upper = e.query(vec![], 1, Shift::Off, true, false).unwrap();
         assert_eq!(upper.words[0], "WaTER");
         assert_ne!(upper.token, b.token);
+    }
+    #[test]
+    fn accepting_restores_a_capital_the_typed_prefix_lacks_and_nothing_else() {
+        let w = |s: &[&str]| s.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert_eq!(restored("lon", "Lon").as_deref(), Some("Lon"));
+        assert_eq!(restored("i’", "I’").as_deref(), Some("I’"));
+        assert_eq!(restored("whats", "Whats").as_deref(), Some("Whats"));
+        assert_eq!(restored("Wa", "wa"), None);
+        assert_eq!(restored("wa", "wa"), None);
+        assert_eq!(restored("", ""), None);
+        let mut e = engine();
+        // The label reads as the text will, and only the prefix is deleted.
+        let b = e
+            .query(vec![append("wh")], 1, Shift::Off, false, false)
+            .unwrap();
+        assert_eq!(b.words, w(&["WhatsApp", "WhatsApp is"]));
+        assert_eq!(e.accept(b.token, 0).unwrap(), (2, "WhatsApp ".to_owned()));
+        // The edits the service queues afterwards leave the buffer reading
+        // as the screen does.
+        e.query(
+            vec![
+                edit(Edit::Backspace),
+                edit(Edit::Backspace),
+                append("WhatsApp "),
+            ],
+            2,
+            Shift::Off,
+            false,
+            false,
+        );
+        assert_eq!(e.buffer, "WhatsApp ");
+        // A capital the person typed is kept, and nothing is deleted.
+        let b = e
+            .query(
+                vec![edit(Edit::Reset), append("Wh")],
+                3,
+                Shift::Off,
+                false,
+                false,
+            )
+            .unwrap();
+        assert_eq!(b.words, w(&["WhatsApp", "WhatsApp is"]));
+        assert_eq!(e.accept(b.token, 0).unwrap(), (0, "atsApp ".to_owned()));
+        // A word in capitals is never retyped.
+        let b = e
+            .query(
+                vec![edit(Edit::Reset), append("WH")],
+                4,
+                Shift::Off,
+                false,
+                false,
+            )
+            .unwrap();
+        assert_eq!(e.accept(b.token, 0).unwrap(), (0, "ATSAPP ".to_owned()));
+        match e.respond(Request::Accept {
+            generation: 0,
+            token: 0,
+            revision: 99,
+            index: 0,
+        }) {
+            Response::Insert {
+                backspaces, text, ..
+            } => {
+                assert_eq!((backspaces, text), (0, None));
+            }
+            _ => panic!("expected an insert response"),
+        }
     }
     #[test]
     fn an_all_caps_prefix_continues_in_capitals_whatever_the_modifiers() {

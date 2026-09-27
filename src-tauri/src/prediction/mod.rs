@@ -147,6 +147,9 @@ struct Service {
     acknowledged_revision: u64,
     reset: bool,
     accept: Option<(u64, usize)>,
+    /// The activity epoch when the suggestion was chosen. A deletion needs it
+    /// unchanged and the observer healthy at the moment of injection.
+    accept_activity: (u64, bool),
     accepting: bool,
     case: Option<(worker::Shift, bool, bool, bool)>,
     tracking: bool,
@@ -368,9 +371,19 @@ pub fn select(token: u64, index: usize) -> Result<(), String> {
             return Err("Prediction is unavailable.".into());
         }
         s.accept = Some((token, index));
+        s.accept_activity = activity::snapshot();
         Ok(())
     })
 }
+/// Whether an accepted suggestion may delete typed characters. The worker
+/// checked for outside input up to its reply; this covers the time since the
+/// suggestion was chosen. Any keyboard or mouse activity not made by
+/// Switchify, or an observer that cannot vouch for the interval, refuses the
+/// deletion. Appending without deleting keeps its existing checks.
+fn may_delete(backspaces: usize, chosen: (u64, bool), now: (u64, bool)) -> bool {
+    backspaces == 0 || (chosen.1 && now == chosen)
+}
+
 /// The model's config file; its directory is the model. A file rather than
 /// the directory, so a half-copied bundle is not mistaken for a model.
 fn resource(app: &AppHandle) -> Result<std::path::PathBuf, ()> {
@@ -463,6 +476,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                     }
                     Response::Insert {
                         generation,
+                        backspaces,
                         text,
                         foreground,
                     } => {
@@ -474,12 +488,20 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                 if Some(scope.foreground) != foreground || !scope.unchanged() {
                                     return Err(());
                                 }
-                                crate::scan_executor::prediction_text(&text).map_err(|_| ())?;
+                                if !may_delete(backspaces, s.accept_activity, activity::snapshot())
+                                {
+                                    return Err(());
+                                }
+                                crate::scan_executor::prediction_replace(backspaces, &text)
+                                    .map_err(|_| ())?;
                                 if !scope.unchanged() {
                                     return Err(());
                                 }
                                 let trailing_space = text.ends_with(' ');
                                 let contains_letter = text.chars().any(char::is_alphabetic);
+                                for _ in 0..backspaces {
+                                    s.queue_edit(Edit::Backspace, scope);
+                                }
                                 s.queue_edit(Edit::Append(text), scope);
                                 Ok((trailing_space, contains_letter))
                             })
@@ -571,6 +593,14 @@ mod tests {
             assert!(service.accept.is_none());
             assert!(service.client.is_none());
         });
+    }
+    #[test]
+    fn deleting_needs_an_unbroken_watch_since_the_suggestion_was_chosen() {
+        assert!(may_delete(0, (3, false), (9, false)));
+        assert!(may_delete(2, (3, true), (3, true)));
+        assert!(!may_delete(2, (3, true), (4, true)));
+        assert!(!may_delete(2, (3, true), (3, false)));
+        assert!(!may_delete(2, (3, false), (3, false)));
     }
     #[test]
     fn activity_observer_retries_after_failure_or_lost_hook() {

@@ -106,7 +106,7 @@ impl Predict for FakeModel {
     ) -> Result<Prediction, ()> {
         let words: Vec<String> = ["water", "waffle", "walk", "WhatsApp"]
             .into_iter()
-            .filter(|w| w.starts_with(&prefix.to_lowercase()))
+            .filter(|w| w.to_lowercase().starts_with(&prefix.to_lowercase()))
             .map(str::to_owned)
             .collect();
         let phrases = words.iter().take(1).map(|w| format!("{w} is")).collect();
