@@ -825,6 +825,94 @@ mod tests {
             "waTER"
         );
     }
+    /// Every combination of typed prefix, Shift, Caps and sentence start for
+    /// one word, then the name cases with Caps off. The expected label and
+    /// insert are written out by hand, so the table documents the behaviour
+    /// rather than restating the rule.
+    #[test]
+    fn casing_matrix() {
+        use Shift::{Locked, Off, Once};
+        const EITHER: [bool; 2] = [false, true];
+        // (typed, shift, caps, sentence starts, label, deleted, typed text)
+        type Row = (
+            &'static str,
+            Shift,
+            bool,
+            &'static [bool],
+            &'static str,
+            usize,
+            &'static str,
+        );
+        let rows: &[Row] = &[
+            // Nothing of the word typed yet: the whole word is cased.
+            ("", Off, false, &[false], "water", 0, "water "),
+            ("", Off, false, &[true], "Water", 0, "Water "),
+            ("", Once, false, &EITHER, "Water", 0, "Water "),
+            ("", Locked, false, &EITHER, "WATER", 0, "WATER "),
+            ("", Off, true, &EITHER, "WATER", 0, "WATER "),
+            ("", Once, true, &EITHER, "wATER", 0, "wATER "),
+            ("", Locked, true, &[false], "water", 0, "water "),
+            ("", Locked, true, &[true], "Water", 0, "Water "),
+            // Lowercase letters typed: modifiers case the rest only, and a
+            // pending Shift once is left for the next typed letter.
+            ("wa", Off, false, &EITHER, "water", 0, "ter "),
+            ("wa", Once, false, &EITHER, "water", 0, "ter "),
+            ("wa", Locked, false, &EITHER, "waTER", 0, "TER "),
+            ("wa", Off, true, &EITHER, "waTER", 0, "TER "),
+            ("wa", Once, true, &EITHER, "waTER", 0, "TER "),
+            ("wa", Locked, true, &EITHER, "water", 0, "ter "),
+            // A capital the person typed is kept.
+            ("Wa", Off, false, &EITHER, "Water", 0, "ter "),
+            ("Wa", Once, false, &EITHER, "Water", 0, "ter "),
+            ("Wa", Locked, false, &EITHER, "WaTER", 0, "TER "),
+            ("Wa", Off, true, &EITHER, "WaTER", 0, "TER "),
+            ("Wa", Once, true, &EITHER, "WaTER", 0, "TER "),
+            ("Wa", Locked, true, &EITHER, "Water", 0, "ter "),
+            // A word typed in capitals continues in capitals.
+            ("WA", Off, false, &EITHER, "WATER", 0, "TER "),
+            ("WA", Once, false, &EITHER, "WATER", 0, "TER "),
+            ("WA", Locked, false, &EITHER, "WATER", 0, "TER "),
+            ("WA", Off, true, &EITHER, "WATER", 0, "TER "),
+            ("WA", Once, true, &EITHER, "WATER", 0, "TER "),
+            ("WA", Locked, true, &EITHER, "WATER", 0, "TER "),
+            // A name restores its capital by retyping a lowercase prefix,
+            // keeps a typed capital, and is never retyped in capitals.
+            ("wh", Off, false, &EITHER, "WhatsApp", 2, "WhatsApp "),
+            ("wh", Once, false, &EITHER, "WhatsApp", 2, "WhatsApp "),
+            ("Wh", Off, false, &EITHER, "WhatsApp", 0, "atsApp "),
+            ("WH", Off, false, &EITHER, "WHATSAPP", 0, "ATSAPP "),
+        ];
+        let mut e = engine();
+        let mut revision = 0;
+        let mut typed = None;
+        for &(prefix, shift, caps, starts, label, deleted, text) in rows {
+            if typed != Some(prefix) {
+                typed = Some(prefix);
+                revision += 1;
+                // "Send " leaves a buffer whose current word is empty.
+                let buffer = format!("Send {prefix}");
+                e.query(
+                    vec![edit(Edit::Reset), append(&buffer)],
+                    revision,
+                    Off,
+                    false,
+                    false,
+                );
+            }
+            for &sentence_start in starts {
+                let case = format!("{prefix:?} {shift:?} caps={caps} start={sentence_start}");
+                let row = e
+                    .query(vec![], revision, shift, caps, sentence_start)
+                    .unwrap_or_else(|| panic!("no suggestions for {case}"));
+                assert_eq!(row.words[0], label, "label for {case}");
+                assert_eq!(
+                    e.accept(row.token, 0),
+                    Some((deleted, text.to_owned())),
+                    "insert for {case}"
+                );
+            }
+        }
+    }
     #[test]
     fn private_frames_are_bounded() {
         assert!(receive::<Request>(&mut &b"bad!"[..]).is_err());
