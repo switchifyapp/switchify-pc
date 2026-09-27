@@ -20,11 +20,11 @@ Candidates contain ASCII letters and apostrophes and must have sufficient model 
 
 The label on a suggestion always reads as the text will after it is accepted. Casing is decided in three steps.
 
-**1. The word itself.** Ordinary words are lowercase. Names keep the model's capital: mixed case anywhere, such as WhatsApp, or an initial capital mid-sentence that the model clearly prefers, such as London or Monday. The model does that for proper nouns and occasionally a rare word. At a sentence start the model capitalises every word, so the lowercase form wins there and step 3 decides. The pronoun I and its contractions, such as I’m and I’ll, always have a capital I.
+**1. The word itself.** Ordinary words are lowercase. Names keep the model's capital: mixed case anywhere, such as WhatsApp, or an initial capital mid-sentence that the model clearly prefers, such as London or Monday. The model does that for proper nouns and occasionally a rare word. After a full stop, exclamation or question mark in the text the model read, the model capitalises every word, so its capital says nothing about the word and the lowercase form is used; step 3 then decides the first letter. The pronoun I and its contractions, such as I’m and I’ll, always have a capital I.
 
 **2. The letters already typed.** A capital the person typed is kept. A typed prefix of two or more letters, all capitals, is a word being written in capitals, and is completed in capitals whatever the modifiers say. Where the word has a capital and a lowercase letter was typed, accepting restores the capital by retyping the prefix, described below.
 
-**3. The modifiers, for letters not yet typed.** Caps, or Shift locked, uppercases the rest of the word, and together they cancel as they do on typed letters. Before any letter of the word is typed, Shift once changes only the first letter, the way it would change the next typed letter, and a sentence start capitalises the first letter without any modifier. After typed letters, a pending Shift once is left for the next letter and does not touch the completion.
+**3. The modifiers, for letters not yet typed.** Caps, or Shift locked, uppercases the rest of the word, and together they cancel as they do on typed letters. Before any letter of the word is typed, Shift once changes only the first letter, the way it would change the next typed letter, so under Caps it gives a lowercase first letter. A sentence start capitalises the first letter without any modifier. After typed letters, a pending Shift once is left for the next letter and does not touch the completion.
 
 The keyboard alone decides what a sentence start is: a full stop, exclamation or question mark it typed, not yet followed by a letter and not cancelled by pressing Shift. Punctuation the worker merely sees in its buffer, or the bare start of that buffer after a reset, does not capitalise anything, so a suggestion never disagrees with the keyboard's own automatic Shift. At the true start of a document the keyboard has no such signal, so the first word is not capitalised automatically; Shift once capitalises it.
 
@@ -46,11 +46,13 @@ For the word “water”:
 | wa | locked | on | either | water |
 | Wa | off or once | off | either | Water |
 | Wa | locked | off | either | WaTER |
+| Wa | off or once | on | either | WaTER |
+| Wa | locked | on | either | Water |
 | WA | any | any | either | WATER |
 
 ### Retyping the prefix
 
-Accepting restores a capital the typed prefix lacks by backspacing that prefix and typing the whole word, as in “lon” for London, “i” for I’m or “wh” for WhatsApp. When the case already matches, which is the usual case, nothing is deleted and only the missing suffix is typed.
+Accepting restores a capital the typed prefix lacks by backspacing that prefix and typing the whole word, as in “lon” for London, “i” for I’m or “wh” for WhatsApp. When the case already matches, which is the usual case, nothing is deleted and only the missing suffix is typed. A capital the person typed is kept, and a word typed in capitals is never retyped.
 
 The deletion is bounded. The prefix is text Switchify typed itself in the current window with no outside activity since. It is never more than one word, and the executor refuses more than 32 deletions. Any keyboard or mouse activity not made by Switchify between choosing the suggestion and typing it cancels the acceptance, so nothing else is deleted.
 

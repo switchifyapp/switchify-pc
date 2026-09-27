@@ -826,8 +826,9 @@ mod tests {
         );
     }
     /// Every combination of typed prefix, Shift, Caps and sentence start for
-    /// one word, with the expected label and insert written out by hand so
-    /// the table documents the behaviour rather than restating the rule.
+    /// one word, then the name cases with Caps off. The expected label and
+    /// insert are written out by hand, so the table documents the behaviour
+    /// rather than restating the rule.
     #[test]
     fn casing_matrix() {
         use Shift::{Locked, Off, Once};
@@ -865,6 +866,7 @@ mod tests {
             ("Wa", Once, false, &EITHER, "Water", 0, "ter "),
             ("Wa", Locked, false, &EITHER, "WaTER", 0, "TER "),
             ("Wa", Off, true, &EITHER, "WaTER", 0, "TER "),
+            ("Wa", Once, true, &EITHER, "WaTER", 0, "TER "),
             ("Wa", Locked, true, &EITHER, "Water", 0, "ter "),
             // A word typed in capitals continues in capitals.
             ("WA", Off, false, &EITHER, "WATER", 0, "TER "),
