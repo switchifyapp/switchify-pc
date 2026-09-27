@@ -168,19 +168,40 @@ pub fn toggle_mouse_drag(point: (i32, i32)) -> Result<(), String> {
         result
     })
 }
-pub fn prediction_text(text: &str) -> Result<(), String> {
-    if text.chars().count() > 64 || !crate::scan_host::modifiers_released() {
+/// The most typed characters an accepted suggestion may delete. A prefix is
+/// part of one word, so anything longer is refused rather than trusted.
+const PREDICTION_BACKSPACES: usize = 32;
+
+/// Types an accepted suggestion, first deleting `backspaces` characters when
+/// the worker is restoring a capital in the typed prefix. The worker only
+/// ever asks to delete the prefix, which Switchify typed itself.
+pub fn prediction_replace(backspaces: usize, text: &str) -> Result<(), String> {
+    if !crate::scan_host::modifiers_released() {
         return Err("Prediction input is unavailable.".into());
     }
     INPUT.with(|slot| {
         let mut slot = slot.borrow_mut();
         let input = slot.as_mut().ok_or("Prediction input is unavailable.")?;
-        if input.has_active_drag() || input.has_active_switch_session() {
+        if input.has_active_switch_session() {
             return Err("Prediction input is unavailable.".into());
         }
-        input.release_all()?;
-        input.type_text(text)
+        replace_text(input, backspaces, text)
     })
+}
+
+fn replace_text<T: crate::input::InputInjector>(
+    input: &mut DesktopInput<T>,
+    backspaces: usize,
+    text: &str,
+) -> Result<(), String> {
+    if text.chars().count() > 64 || backspaces > PREDICTION_BACKSPACES || input.has_active_drag() {
+        return Err("Prediction input is unavailable.".into());
+    }
+    input.release_all()?;
+    for _ in 0..backspaces {
+        input.scan_chord(&["Backspace"], None)?;
+    }
+    input.type_text(text)
 }
 pub fn cleanup() -> Result<(), String> {
     INPUT.with(|slot| {
@@ -414,6 +435,28 @@ mod tests {
             self.events.push(format!("window {action}"));
             Ok(())
         }
+    }
+    #[test]
+    fn accepted_predictions_delete_only_what_they_are_told_then_type() {
+        let mut input = DesktopInput::new(Fake::default());
+        replace_text(&mut input, 0, "ter ").unwrap();
+        assert_eq!(input.injector.events, ["text ter "]);
+        input.injector.events.clear();
+        replace_text(&mut input, 2, "WhatsApp ").unwrap();
+        assert_eq!(
+            input.injector.events,
+            [
+                "key Backspace true",
+                "key Backspace false",
+                "key Backspace true",
+                "key Backspace false",
+                "text WhatsApp "
+            ]
+        );
+        input.injector.events.clear();
+        assert!(replace_text(&mut input, PREDICTION_BACKSPACES + 1, "x ").is_err());
+        assert!(replace_text(&mut input, 0, &"x".repeat(65)).is_err());
+        assert!(input.injector.events.is_empty());
     }
     #[test]
     fn opening_keyboard_releases_a_drag_without_clicking_or_typing() {

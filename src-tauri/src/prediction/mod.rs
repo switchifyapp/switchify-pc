@@ -463,6 +463,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                     }
                     Response::Insert {
                         generation,
+                        backspaces,
                         text,
                         foreground,
                     } => {
@@ -474,12 +475,16 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                 if Some(scope.foreground) != foreground || !scope.unchanged() {
                                     return Err(());
                                 }
-                                crate::scan_executor::prediction_text(&text).map_err(|_| ())?;
+                                crate::scan_executor::prediction_replace(backspaces, &text)
+                                    .map_err(|_| ())?;
                                 if !scope.unchanged() {
                                     return Err(());
                                 }
                                 let trailing_space = text.ends_with(' ');
                                 let contains_letter = text.chars().any(char::is_alphabetic);
+                                for _ in 0..backspaces {
+                                    s.queue_edit(Edit::Backspace, scope);
+                                }
                                 s.queue_edit(Edit::Append(text), scope);
                                 Ok((trailing_space, contains_letter))
                             })
