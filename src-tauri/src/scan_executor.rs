@@ -198,10 +198,14 @@ fn replace_text<T: crate::input::InputInjector>(
         return Err("Prediction input is unavailable.".into());
     }
     input.release_all()?;
-    for _ in 0..backspaces {
-        input.scan_chord(&["Backspace"], None)?;
+    let result = (0..backspaces)
+        .try_for_each(|_| input.scan_chord(&["Backspace"], None))
+        .and_then(|()| input.type_text(text));
+    if result.is_err() {
+        // Nothing stays held after a failure part-way through.
+        let _ = input.release_all();
     }
-    input.type_text(text)
+    result
 }
 pub fn cleanup() -> Result<(), String> {
     INPUT.with(|slot| {
@@ -457,6 +461,21 @@ mod tests {
         assert!(replace_text(&mut input, PREDICTION_BACKSPACES + 1, "x ").is_err());
         assert!(replace_text(&mut input, 0, &"x".repeat(65)).is_err());
         assert!(input.injector.events.is_empty());
+        // Typing fails after the deletion: the error is reported and no key
+        // is left down.
+        input.injector.fail_text = true;
+        assert!(replace_text(&mut input, 1, "I'm ").is_err());
+        let downs = |events: &[String], down: &str| {
+            events
+                .iter()
+                .filter(|e| e.starts_with("key ") && e.ends_with(down))
+                .count()
+        };
+        assert_eq!(
+            downs(&input.injector.events, "true"),
+            downs(&input.injector.events, "false")
+        );
+        assert!(!input.has_active_drag());
     }
     #[test]
     fn opening_keyboard_releases_a_drag_without_clicking_or_typing() {

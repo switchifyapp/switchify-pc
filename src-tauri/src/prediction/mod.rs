@@ -147,6 +147,9 @@ struct Service {
     acknowledged_revision: u64,
     reset: bool,
     accept: Option<(u64, usize)>,
+    /// The activity epoch when the suggestion was chosen. A deletion needs it
+    /// unchanged and the observer healthy at the moment of injection.
+    accept_activity: (u64, bool),
     accepting: bool,
     case: Option<(worker::Shift, bool, bool, bool)>,
     tracking: bool,
@@ -368,11 +371,21 @@ pub fn select(token: u64, index: usize) -> Result<(), String> {
             return Err("Prediction is unavailable.".into());
         }
         s.accept = Some((token, index));
+        s.accept_activity = activity::snapshot();
         Ok(())
     })
 }
 /// The model's config file; its directory is the model. A file rather than
 /// the directory, so a half-copied bundle is not mistaken for a model.
+/// Whether an accepted suggestion may delete typed characters. The worker
+/// checked for outside input up to its reply; this covers the time since the
+/// suggestion was chosen. Any keyboard or mouse activity not made by
+/// Switchify, or an observer that cannot vouch for the interval, refuses the
+/// deletion. Appending without deleting keeps its existing checks.
+fn may_delete(backspaces: usize, chosen: (u64, bool), now: (u64, bool)) -> bool {
+    backspaces == 0 || (chosen.1 && now == chosen)
+}
+
 fn resource(app: &AppHandle) -> Result<std::path::PathBuf, ()> {
     let bundled = app
         .path()
@@ -473,6 +486,10 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                 crate::point_scan_ready(app).map_err(|_| ())?;
                                 let scope = InputScope::capture();
                                 if Some(scope.foreground) != foreground || !scope.unchanged() {
+                                    return Err(());
+                                }
+                                if !may_delete(backspaces, s.accept_activity, activity::snapshot())
+                                {
                                     return Err(());
                                 }
                                 crate::scan_executor::prediction_replace(backspaces, &text)
@@ -576,6 +593,14 @@ mod tests {
             assert!(service.accept.is_none());
             assert!(service.client.is_none());
         });
+    }
+    #[test]
+    fn deleting_needs_an_unbroken_watch_since_the_suggestion_was_chosen() {
+        assert!(may_delete(0, (3, false), (9, false)));
+        assert!(may_delete(2, (3, true), (3, true)));
+        assert!(!may_delete(2, (3, true), (4, true)));
+        assert!(!may_delete(2, (3, true), (3, false)));
+        assert!(!may_delete(2, (3, false), (3, false)));
     }
     #[test]
     fn activity_observer_retries_after_failure_or_lost_hook() {

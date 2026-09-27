@@ -660,11 +660,25 @@ mod tests {
             .unwrap();
         assert_eq!(b.words, w(&["WhatsApp", "WhatsApp is"]));
         assert_eq!(e.accept(b.token, 0).unwrap(), (2, "WhatsApp ".to_owned()));
+        // The edits the service queues afterwards leave the buffer reading
+        // as the screen does.
+        e.query(
+            vec![
+                edit(Edit::Backspace),
+                edit(Edit::Backspace),
+                append("WhatsApp "),
+            ],
+            2,
+            Shift::Off,
+            false,
+            false,
+        );
+        assert_eq!(e.buffer, "WhatsApp ");
         // A capital the person typed is kept, and nothing is deleted.
         let b = e
             .query(
                 vec![edit(Edit::Reset), append("Wh")],
-                2,
+                3,
                 Shift::Off,
                 false,
                 false,
@@ -676,7 +690,7 @@ mod tests {
         let b = e
             .query(
                 vec![edit(Edit::Reset), append("WH")],
-                3,
+                4,
                 Shift::Off,
                 false,
                 false,
