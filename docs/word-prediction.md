@@ -20,7 +20,7 @@ Candidates contain ASCII letters and apostrophes and must have sufficient model 
 
 The label on a suggestion always reads as the text will after it is accepted. Casing is decided in three steps.
 
-**1. The word itself.** Ordinary words are lowercase. Names keep the model's capital: mixed case anywhere, such as WhatsApp, or an initial capital mid-sentence that the model clearly prefers, such as London or Monday. The model does that for proper nouns and occasionally a rare word. After a full stop, exclamation or question mark in the text the model read, the model capitalises every word, so its capital says nothing about the word and the lowercase form is used; step 3 then decides the first letter. The pronoun I and its contractions, such as I’m and I’ll, always have a capital I.
+**1. The word itself.** Ordinary words are lowercase. Names keep the model's capital: mixed case anywhere, such as WhatsApp, or an initial capital mid-sentence that the model clearly prefers, such as London or Monday. The model does that for proper nouns and occasionally a rare word. After a full stop, exclamation or question mark in the text the model read, or when that text is empty, the model capitalises every word, so its capital says nothing about the word and the lowercase form is used; step 3 then decides the first letter. The pronoun I and its contractions, such as I’m and I’ll, always have a capital I.
 
 **2. The letters already typed.** A capital the person typed is kept. A typed prefix of two or more letters, all capitals, is a word being written in capitals, and is completed in capitals whatever the modifiers say. Where the word has a capital and a lowercase letter was typed, accepting restores the capital by retyping the prefix, described below.
 
