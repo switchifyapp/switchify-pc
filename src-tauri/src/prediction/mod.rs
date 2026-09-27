@@ -375,8 +375,6 @@ pub fn select(token: u64, index: usize) -> Result<(), String> {
         Ok(())
     })
 }
-/// The model's config file; its directory is the model. A file rather than
-/// the directory, so a half-copied bundle is not mistaken for a model.
 /// Whether an accepted suggestion may delete typed characters. The worker
 /// checked for outside input up to its reply; this covers the time since the
 /// suggestion was chosen. Any keyboard or mouse activity not made by
@@ -386,6 +384,8 @@ fn may_delete(backspaces: usize, chosen: (u64, bool), now: (u64, bool)) -> bool 
     backspaces == 0 || (chosen.1 && now == chosen)
 }
 
+/// The model's config file; its directory is the model. A file rather than
+/// the directory, so a half-copied bundle is not mistaken for a model.
 fn resource(app: &AppHandle) -> Result<std::path::PathBuf, ()> {
     let bundled = app
         .path()

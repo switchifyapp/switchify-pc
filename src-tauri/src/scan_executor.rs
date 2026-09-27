@@ -465,6 +465,10 @@ mod tests {
         // is left down.
         input.injector.fail_text = true;
         assert!(replace_text(&mut input, 1, "I'm ").is_err());
+        assert_eq!(
+            input.injector.events,
+            ["key Backspace true", "key Backspace false", "text I'm "]
+        );
         let downs = |events: &[String], down: &str| {
             events
                 .iter()
