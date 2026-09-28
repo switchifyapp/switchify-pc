@@ -591,6 +591,7 @@ impl Technique for Workflow {
             return;
         }
         self.pending = None;
+        self.following = false;
         self.stage = Stage::Menu;
         self.menu = Menu::configured(Kind::Actions, self.point.config.menu_scan);
         self.parent_menu.clear();
