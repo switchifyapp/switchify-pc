@@ -402,22 +402,60 @@ it("shows what each scanner does after a selection and saves a choice for one", 
   fireEvent.click(screen.getByRole("button", { name: "Customise menus" }));
   more();
   expect(screen.queryByRole("button", { name: "Usual for each scanner" })).not.toBeInTheDocument();
-  expect([pressed("Start scanning"), pressed("Where I selected")]).toEqual([true, true]);
+  expect([pressed("Keep scanning"), pressed("Where I selected")]).toEqual([true, true]);
   fireEvent.click(screen.getByRole("button", { name: /Back to scanning settings/ }));
   fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
   more();
   expect(pressed("Wait for Select")).toBe(true);
-  expect(screen.queryByText("Start from")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Start scanning" }));
+  expect(screen.queryByText("Start again from")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Keep scanning" }));
   await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", { config: { ...defaultPointScanConfig, scanPreferences: { ...defaultScanPreferences, point: { nextScan: "automatic" } } } }));
   fireEvent.click(screen.getByRole("button", { name: "Use default for after a selection" }));
   await waitFor(() => expect(pressed("Wait for Select")).toBe(true));
   fireEvent.click(screen.getByRole("button", { name: /Back to scanning settings/ }));
   fireEvent.click(screen.getByRole("button", { name: "Customise mouse scanning" }));
   more();
-  expect([pressed("Start scanning"), pressed("The beginning")]).toEqual([true, true]);
+  expect([pressed("Keep scanning"), pressed("The beginning")]).toEqual([true, true]);
   fireEvent.click(screen.getByRole("button", { name: "Where I selected" }));
   await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.mouse).toEqual({ startFrom: "selection" }));
+});
+
+it("saves a choice for every scanner and shows it in each", async () => {
+  mocks.invoke.mockImplementation(async (command, args) => command === "get_point_scan"
+    ? { ...initial, config: { ...initial.config, automatic: false, keyboardWaitAfterTyping: true } } : { ...initial, config: args.config });
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  more();
+  // Point scanning and scanners with their own setting still use it.
+  expect(screen.getByRole("button", { name: "Keep scanning" })).toBeEnabled();
+  expect(screen.getByText(/The keyboard waits, as saved earlier/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Keep scanning" }));
+  await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.nextScan).toBe("automatic"));
+  expect(screen.queryByText(/The keyboard waits, as saved earlier/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Where I selected" }));
+  await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.startFrom).toBe("selection"));
+  fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
+  more();
+  expect(screen.getByRole("button", { name: "Keep scanning" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Keep scanning" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Where I selected" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Where I selected" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "The beginning" }));
+  await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.keyboard).toEqual({ startFrom: "beginning" }));
+  fireEvent.click(screen.getByRole("button", { name: "Reset scanning overrides" }));
+  await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.keyboard).toEqual({}));
+  expect(screen.getByRole("button", { name: "Where I selected" })).toHaveAttribute("aria-pressed", "true");
+});
+
+it("shows a keyboard set back to standard as it will behave", async () => {
+  const saved = { ...initial, config: { ...initial.config, keyboardWaitAfterTyping: true, scanPreferences: { ...defaultScanPreferences, keyboard: { nextScan: "standard" as const } } } };
+  mocks.invoke.mockImplementation(async (command, args) => command === "get_point_scan" ? saved : { ...saved, config: args.config });
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  more();
+  fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
+  more();
+  expect(screen.getByRole("button", { name: "Keep scanning" })).toHaveAttribute("aria-pressed", "true");
 });
 
 it("keeps a saved wait after typing as the keyboard's usual behaviour", async () => {
@@ -428,11 +466,12 @@ it("keeps a saved wait after typing as the keyboard's usual behaviour", async ()
   more();
   fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
   more();
-  expect(screen.queryByText("After typing")).not.toBeInTheDocument();
+  expect(screen.queryByRole("group", { name: "After typing" })).not.toBeInTheDocument();
+  expect(screen.getByText(/saved earlier as After typing/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Wait for Select" })).toHaveAttribute("aria-pressed", "true");
-  fireEvent.click(screen.getByRole("button", { name: "Start scanning" }));
+  fireEvent.click(screen.getByRole("button", { name: "Keep scanning" }));
   await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.keyboard).toEqual({ nextScan: "automatic" }));
-  expect(screen.getByRole("button", { name: "Start scanning" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Keep scanning" })).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(screen.getByRole("button", { name: "Wait for Select" }));
   await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.keyboard).toEqual({ nextScan: "wait" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Automatic scanning" }));

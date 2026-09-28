@@ -2,7 +2,7 @@ import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { ScanningController, ScannerColor, PointScanConfig } from '../scanning/useScanning';
-import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, type ScanArea, type ScanOptions } from '../scanning/preferences';
+import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, savedKeyboardWait, type ScanArea, type ScanOptions } from '../scanning/preferences';
 import { SettingGroup, Toggle, OptionGroup } from './controls';
 
 export function ScannerPreferences({ controller }: { controller: ScanningController }) {
@@ -156,13 +156,13 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     </>)}
     </SettingGroup>
     <MoreOptions>
-    {field('nextScan', 'After a selection', locked => <OptionGroup<ScanOptions['nextScan']> legend="After a selection" columns={area === 'shared' ? 'three' : undefined} disabled={locked || (area !== 'point' && !effective.automatic)} value={nextScan}
-      options={[...usualOption, { value: 'automatic', label: 'Start scanning' }, { value: 'wait', label: 'Wait for Select' }]} onChange={value => change('nextScan', value)}
-      note={{ summary: area === 'point' ? 'After a click, the next point scan starts by itself or waits for Select. The pass limit still stops it.'
+    {field('nextScan', 'After a selection', locked => <OptionGroup<ScanOptions['nextScan']> legend="After a selection" columns={area === 'shared' ? 'three' : undefined} disabled={locked || (area !== 'shared' && area !== 'point' && !effective.automatic)} value={nextScan}
+      options={[...usualOption, { value: 'automatic', label: 'Keep scanning' }, { value: 'wait', label: 'Wait for Select' }]} onChange={value => change('nextScan', value)}
+      note={{ summary: area === 'point' ? 'After a click, the next point scan starts by itself or waits for Select. Scanning still stops at the pass limit.'
         : area !== 'shared' && !effective.automatic ? 'Used in automatic scanning. Your choice is kept while scanning manually.'
-        : area === 'shared' ? 'After a selection that does something, such as typing a key or clicking, scanning starts again by itself or waits for Select. Usually, scanning waits after a click and starts again after anything else.'
-        : 'After a selection that does something, such as typing a key or scrolling, scanning starts again by itself or waits for Select.' }} />)}
-    {area !== 'point' && field('startFrom', 'Start from', locked => <OptionGroup<ScanOptions['startFrom']> legend="Start from" columns={area === 'shared' ? 'three' : undefined} disabled={locked} value={startFrom}
+        : area === 'shared' ? 'After a selection that does something, such as typing a key or clicking, scanning starts again by itself or waits for Select. Usually, scanning waits after a click and starts again after anything else.' + (savedKeyboardWait(config) ? ' The keyboard waits, as saved earlier.' : '') + ' Waiting applies to scanners that scan automatically.'
+        : 'After a selection that does something, such as typing a key or scrolling, scanning starts again by itself or waits for Select.' + (area === 'keyboard' && savedKeyboardWait(config) ? ' Waiting is the default here because it was saved earlier as After typing.' : '') }} />)}
+    {area !== 'point' && field('startFrom', 'Start again from', locked => <OptionGroup<ScanOptions['startFrom']> legend="Start again from" columns={area === 'shared' ? 'three' : undefined} disabled={locked} value={startFrom}
       options={[...usualOption, { value: 'beginning', label: 'The beginning' }, { value: 'selection', label: 'Where I selected' }]} onChange={value => change('startFrom', value)}
       note={{ summary: area === 'shared' ? 'Where scanning starts after a selection that does something. Usually, menus stay where you selected, and the keyboard and mouse panel return to the beginning. Point scanning always starts from the beginning.'
         : area === 'keyboard' ? 'Where scanning starts after typing a key. After a suggestion, or when changing page, it starts from the beginning.'

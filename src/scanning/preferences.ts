@@ -18,10 +18,15 @@ export const defaultScanPreferences: ScanPreferences = {
   direction: 'forward', passLimit: 3, pattern: 'grouped', thickness: 'standard',
   point: {}, menu: {}, keyboard: {}, mouse: {},
 };
+/** Wait after typing, saved before the choice existed for every scanner, is still in effect. */
+export function savedKeyboardWait(config: PointScanConfig) {
+  const settings = config.scanPreferences ?? defaultScanPreferences;
+  return config.keyboardWaitAfterTyping && settings.keyboard?.nextScan == null && (settings.nextScan ?? 'standard') === 'standard';
+}
 /** What a scanner does after a selection when nothing has been chosen for it. */
 export function usualAfterSelection(config: PointScanConfig, area: ScanArea): Pick<ScanOptions, 'nextScan' | 'startFrom'> {
   return {
-    nextScan: area === 'point' || (area === 'keyboard' && config.keyboardWaitAfterTyping) ? 'wait' : 'automatic',
+    nextScan: area === 'point' || (area === 'keyboard' && savedKeyboardWait(config)) ? 'wait' : 'automatic',
     startFrom: area === 'menu' ? 'selection' : 'beginning',
   };
 }
