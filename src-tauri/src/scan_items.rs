@@ -1,5 +1,5 @@
 use crate::{
-    scan_preferences::{Direction, Pattern, Resolved},
+    scan_preferences::{Direction, NextScan, Pattern, Resolved, StartFrom},
     scan_tree::{Navigator, Node, Selection},
     scanning::{Action, Interval},
 };
@@ -30,6 +30,8 @@ pub struct ItemScanner<T> {
     policy: Policy,
     pending: bool,
     revision: u64,
+    /// Suspended by the user's choice to wait after a selection.
+    waiting: bool,
 }
 impl<T: Clone> ItemScanner<T> {
     pub fn new(nodes: Vec<Node<T>>, policy: Policy) -> Self {
@@ -43,6 +45,7 @@ impl<T: Clone> ItemScanner<T> {
             policy,
             pending: false,
             revision: 0,
+            waiting: false,
         }
     }
     pub fn nodes(rows: &[Vec<T>]) -> Vec<Node<T>> {
@@ -121,6 +124,28 @@ impl<T: Clone> ItemScanner<T> {
         self.interval.reset();
         self.cycles = 0;
         self.suspended = false;
+        self.waiting = false;
+    }
+    pub fn waiting(&self) -> bool {
+        self.waiting
+    }
+    pub fn stays_at_selection(&self) -> bool {
+        self.options.start_from == StartFrom::Selection
+    }
+    pub fn waits_after_selection(&self) -> bool {
+        self.options.next_scan == NextScan::Wait && self.options.automatic
+    }
+    /// Carries on after a selection that did something, as the user chose.
+    /// Left alone, a panel starts again from the beginning by itself.
+    pub fn continue_after_selection(&mut self) {
+        if self.stays_at_selection() {
+            self.pending = false;
+            self.restart_interval();
+        } else {
+            self.restart();
+        }
+        self.waiting = self.waits_after_selection();
+        self.suspended = self.waiting;
     }
     pub fn reset_clock(&mut self) {
         self.interval.reset();
@@ -156,7 +181,9 @@ impl<T: Clone> ItemScanner<T> {
         }
         if self.suspended {
             if action == Action::Select {
-                if self.policy.resume_at_root {
+                if self.waiting && self.stays_at_selection() {
+                    self.restart_interval();
+                } else if self.policy.resume_at_root {
                     self.restart();
                 } else {
                     self.restart_interval();
@@ -283,6 +310,68 @@ mod tests {
         assert!(!scan.advance(499, 500));
     }
 
+    #[test]
+    fn after_a_selection_scanning_continues_as_the_user_chose() {
+        let rows = vec![vec!["copy", "paste"], vec!["save", "close"]];
+        for next_scan in [NextScan::Standard, NextScan::Automatic, NextScan::Wait] {
+            for start_from in [
+                StartFrom::Standard,
+                StartFrom::Beginning,
+                StartFrom::Selection,
+            ] {
+                for automatic in [false, true] {
+                    let mut scan = ItemScanner::configured_rows(
+                        &rows,
+                        Policy::KEYBOARD,
+                        Resolved {
+                            automatic,
+                            next_scan,
+                            start_from,
+                            ..Default::default()
+                        },
+                    );
+                    scan.handle(Action::Next);
+                    scan.handle(Action::Select);
+                    scan.handle(Action::Next);
+                    scan.advance(499, 500);
+                    assert_eq!(scan.handle(Action::Select), Some("close"));
+                    scan.continue_after_selection();
+                    let stays = start_from == StartFrom::Selection;
+                    let place = if stays { (1, Some(1)) } else { (0, None) };
+                    assert_eq!(scan.position(&rows), place);
+                    let waits = automatic && next_scan == NextScan::Wait;
+                    assert_eq!((scan.suspended, scan.waiting()), (waits, waits));
+                    if waits {
+                        assert!(!scan.advance(500, 500));
+                        assert_eq!(scan.handle(Action::Next), None);
+                        assert_eq!(scan.handle(Action::Select), None);
+                        assert!(!scan.suspended && !scan.waiting());
+                        assert_eq!(scan.position(&rows), place);
+                    }
+                    assert!(!scan.advance(499, 500));
+                    assert!(scan.advance(1, 500));
+                }
+            }
+        }
+    }
+    #[test]
+    fn a_pause_that_was_not_chosen_still_resumes_at_the_start() {
+        let mut scan = ItemScanner::configured_rows(
+            &[vec!["copy", "paste"], vec!["save", "close"]],
+            Policy::KEYBOARD,
+            Resolved {
+                next_scan: NextScan::Wait,
+                start_from: StartFrom::Selection,
+                ..Default::default()
+            },
+        );
+        scan.handle(Action::Next);
+        scan.handle(Action::Select);
+        scan.suspended = true;
+        scan.handle(Action::Select);
+        assert!(scan.nav.path().is_empty());
+        assert_eq!(scan.nav.index(), 0);
+    }
     #[test]
     fn adapters_preserve_their_existing_resume_policy() {
         for policy in [Policy::MENU, Policy::KEYBOARD] {

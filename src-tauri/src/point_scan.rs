@@ -123,7 +123,6 @@ impl Config {
             keyboard_scan: self.resolved(crate::scan_preferences::Area::Keyboard),
             mouse_scan: self.resolved(crate::scan_preferences::Area::Mouse),
             word_prediction: self.word_prediction,
-            keyboard_wait_after_typing: self.keyboard_wait_after_typing,
             panel_avoids_pointer: self.panel_avoids_pointer,
             scanner_color: self.resolved(crate::scan_preferences::Area::Point).color,
             mode: self.mode,
@@ -149,7 +148,6 @@ pub struct PointSettings {
     pub keyboard_scan: crate::scan_preferences::Resolved,
     pub mouse_scan: crate::scan_preferences::Resolved,
     pub word_prediction: bool,
-    pub keyboard_wait_after_typing: bool,
     pub panel_avoids_pointer: bool,
     pub scanner_color: crate::scanning::ScannerColor,
     pub mode: Mode,
@@ -703,7 +701,10 @@ mod tests {
             let restored: Config =
                 serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
             assert_eq!(restored.keyboard_wait_after_typing, enabled);
-            assert_eq!(restored.point().keyboard_wait_after_typing, enabled);
+            assert_eq!(
+                restored.point().keyboard_scan.next_scan == crate::scan_preferences::NextScan::Wait,
+                enabled
+            );
         }
     }
     #[test]
