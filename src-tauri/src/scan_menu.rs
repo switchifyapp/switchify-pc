@@ -476,6 +476,7 @@ impl Kind {
                 Group(Self::Media),
                 Group(Self::Displays),
                 Group(Self::MouseScanning),
+                Keyboard,
                 Back,
             ],
             Self::MouseScanning => vec![
@@ -591,6 +592,13 @@ mod tests {
         }
         assert!(!root.contains(&Item::NewPoint));
         assert!(!root.contains(&Item::MousePanel));
+        assert!(root.contains(&Item::Keyboard));
+        let mut menu = Menu::new(Kind::MouseActions, 250);
+        menu.advance(250);
+        menu.advance(250);
+        assert_eq!(menu.handle(Action::Select), None);
+        menu.advance(250);
+        assert_eq!(menu.handle(Action::Select), Some(Item::Keyboard));
         let scanning = Kind::MouseScanning
             .rows()
             .into_iter()
