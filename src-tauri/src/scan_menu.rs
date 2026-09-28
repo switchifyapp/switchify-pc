@@ -66,6 +66,8 @@ impl Item {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     More,
+    MouseActions,
+    MouseScanning,
     Mouse,
     Editing,
     Windows,
@@ -80,9 +82,11 @@ pub enum Kind {
     ConfirmDrag,
 }
 #[cfg(test)]
-pub(crate) const ALL_MENU_KINDS: [Kind; 13] = [
+pub(crate) const ALL_MENU_KINDS: [Kind; 15] = [
     Kind::Actions,
     Kind::More,
+    Kind::MouseActions,
+    Kind::MouseScanning,
     Kind::Mouse,
     Kind::Editing,
     Kind::Windows,
@@ -423,6 +427,8 @@ impl Kind {
             Self::Scroll => "Scroll",
             Self::ConfirmDrag => "Confirm drag",
             Self::More => "More actions",
+            Self::MouseActions => "Actions",
+            Self::MouseScanning => "Scanning",
             Self::Mouse => "Mouse",
             Self::Editing => "Editing",
             Self::Windows => "Apps and windows",
@@ -460,6 +466,23 @@ impl Kind {
                 Group(Self::Media),
                 Group(Self::Displays),
                 Group(Self::Scanning),
+                Back,
+            ],
+            Self::MouseActions => vec![
+                Group(Self::Mouse),
+                Group(Self::Editing),
+                Group(Self::Windows),
+                Group(Self::Browser),
+                Group(Self::Media),
+                Group(Self::Displays),
+                Group(Self::MouseScanning),
+                Back,
+            ],
+            Self::MouseScanning => vec![
+                Pause,
+                Reverse,
+                Setting(self::Setting::FasterScan),
+                Setting(self::Setting::SlowerScan),
                 Back,
             ],
             Self::Mouse => vec![
@@ -547,6 +570,37 @@ impl Kind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mouse_actions_expose_app_commands_without_point_only_controls() {
+        let root = Kind::MouseActions
+            .rows()
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        for kind in [
+            Kind::Mouse,
+            Kind::Editing,
+            Kind::Windows,
+            Kind::Browser,
+            Kind::Media,
+            Kind::Displays,
+            Kind::MouseScanning,
+        ] {
+            assert!(root.contains(&Item::Group(kind)));
+        }
+        assert!(!root.contains(&Item::NewPoint));
+        assert!(!root.contains(&Item::MousePanel));
+        let scanning = Kind::MouseScanning
+            .rows()
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        assert!(scanning.contains(&Item::Pause));
+        assert!(scanning.contains(&Item::Reverse));
+        assert!(!scanning.contains(&Item::Setting(Setting::LineMode)));
+        assert!(!scanning.contains(&Item::Setting(Setting::GridMode)));
+    }
     #[test]
     fn every_page_has_one_close_tile_in_its_final_navigation_row() {
         for kind in ALL_MENU_KINDS {

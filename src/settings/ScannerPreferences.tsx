@@ -37,7 +37,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
   const names = { point: 'Point scanning', menu: 'Menus', keyboard: 'Keyboard', mouse: 'Mouse scanning' };
   const descriptions = {
     point: 'Choose a place on the screen with a moving line or grid, then choose what to do there.',
-    mouse: 'Move the pointer with direction controls and a visible ring. Click, drag, scroll, or open the keyboard from the mouse panel.',
+    mouse: 'Move the pointer with direction controls and a visible ring. Click, drag, scroll, open Actions for other commands, or open the keyboard from the mouse panel.',
     menu: 'Choose actions after selecting a point.',
     keyboard: 'Choose keys and word suggestions when the scanning keyboard is open.',
   };
@@ -74,7 +74,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
       <h2 ref={heading} tabIndex={-1}>{names[area]}</h2><p>{descriptions[area]} Change any value to customise it; other settings follow the shared defaults.</p>
     </header>}
     {area === 'shared' && <section className="scanner-areas" aria-label="Scanning modes"><div className="scanner-area-cards">{(['point', 'mouse'] as const).map(key => <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}><strong>{names[key]}<ChevronRight size={22} aria-hidden="true" /></strong><span>{descriptions[key]}</span><span className="scanner-area-status" data-current={key === config.controlMode}>{key === config.controlMode ? 'Select starts here' : 'Open with a switch or scanned control'}</span></Button>)}</div></section>}
-    {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move or a scroll tile to scroll; with Repeat mouse movement and scrolling on, the next switch press stops either action. Pointer speed and repeat controls are under Mouse in the sidebar. Switch to Point returns to screen selection.</p>}
+    {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move or a scroll tile to scroll; with Repeat mouse movement and scrolling on, the next switch press stops either action. Actions opens editing, window, browser, media, display and scanning commands, then returns to Mouse. Modified clicks use the current pointer. End a drag before opening Actions. Pointer speed and repeat controls are under Mouse in the sidebar. Switch to Point returns to screen selection.</p>}
     {area === 'point' && <>
       <SettingGroup
         title="Point scan"

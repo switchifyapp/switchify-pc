@@ -36,6 +36,7 @@ pub enum Request {
     MouseDrag,
     MouseSpeed(i8),
     MouseMonitor(i8, i8),
+    MouseCycleDisplay(bool),
     Click {
         point: Point,
         right: bool,
@@ -120,6 +121,7 @@ pub struct Workflow {
     /// Where the open panel is drawn while it avoids the pointer.
     moved: Option<crate::scan_panel::Dock>,
     return_to_mouse: bool,
+    mouse_actions_open: bool,
     move_repeat: Option<crate::mouse_repeat::ScanMoveRepeat>,
     scroll_repeat: Option<crate::mouse_repeat::ScanScrollRepeat>,
     mouse_repeat_enabled: bool,
@@ -158,6 +160,7 @@ impl Workflow {
             pointer: None,
             moved: None,
             return_to_mouse: false,
+            mouse_actions_open: false,
             move_repeat: None,
             scroll_repeat: None,
             mouse_repeat_enabled: true,
@@ -227,6 +230,7 @@ impl Workflow {
             self.keyboard = self.new_keyboard();
             self.mouse = self.new_mouse();
             self.return_to_mouse = false;
+            self.mouse_actions_open = false;
             self.move_repeat = None;
             self.scroll_repeat = None;
             self.parent_menu.clear();
@@ -249,7 +253,7 @@ impl Workflow {
         matches!(
             self.stage,
             Stage::Mouse | Stage::MouseMoving | Stage::MouseScrolling
-        )
+        ) || (self.stage == Stage::Menu && self.mouse_actions_open)
     }
     pub fn control_mode(&self) -> crate::point_scan::ControlMode {
         self.point.config.control_mode
@@ -306,6 +310,7 @@ impl Workflow {
             } else {
                 PointerFeedback::Move
             }),
+            Stage::Menu if self.mouse_actions_open => Some(PointerFeedback::Move),
             _ => None,
         }
     }
@@ -330,6 +335,11 @@ impl Workflow {
     }
     pub fn set_pointer(&mut self, pointer: Option<(f64, f64)>) {
         self.pointer = pointer;
+        if self.stage == Stage::Menu && self.mouse_actions_open {
+            if let Some((x, y)) = pointer {
+                self.source = (x.round() as i32, y.round() as i32);
+            }
+        }
         self.moved = self.avoiding();
     }
     /// Dock to draw the open panel at instead of `dock`, while the pointer is over it.
@@ -388,6 +398,7 @@ impl Workflow {
     fn open_mouse(&mut self) -> Option<Request> {
         self.point.config.control_mode = crate::point_scan::ControlMode::Mouse;
         self.stage = Stage::Mouse;
+        self.mouse_actions_open = false;
         self.move_repeat = None;
         self.scroll_repeat = None;
         self.mouse = self.new_mouse();
@@ -409,6 +420,16 @@ impl Workflow {
     }
     fn mouse_key(&mut self, key: crate::scan_mouse::Key) -> Option<Request> {
         use crate::scan_mouse::Key;
+        if key == Key::Actions {
+            if self.mouse.dragging {
+                self.mouse.block_actions("End drag before opening Actions");
+                return None;
+            }
+            if self.pointer.is_none() {
+                self.mouse.block_actions("Pointer unavailable · Try again");
+                return None;
+            }
+        }
         self.mouse.choose(key);
         self.set_dock(self.mouse.dock);
         match key {
@@ -475,14 +496,28 @@ impl Workflow {
                 Some(Request::OpenKeyboard)
             }
             Key::Close => self.open_point(),
+            Key::Actions => {
+                self.mouse_actions_open = true;
+                self.parent_menu.clear();
+                self.source = self
+                    .pointer
+                    .map_or((0, 0), |(x, y)| (x.round() as i32, y.round() as i32));
+                self.open(Kind::MouseActions);
+                None
+            }
             Key::More | Key::Movement | Key::Dock | Key::Position(_) | Key::Back => None,
         }
+    }
+    fn return_to_mouse_panel(&mut self) {
+        self.parent_menu.clear();
+        self.mouse_actions_open = false;
+        self.stage = Stage::Mouse;
+        self.mouse.restart();
     }
     fn keyboard_closed(&mut self) {
         if self.return_to_mouse {
             self.return_to_mouse = false;
-            self.stage = Stage::Mouse;
-            self.mouse.restart();
+            self.return_to_mouse_panel();
         } else {
             self.start();
         }
@@ -494,6 +529,7 @@ impl Workflow {
                 if self.return_to_mouse {
                     self.mouse.dragging = false;
                 }
+                self.mouse_actions_open = false;
                 self.stage = Stage::KeyboardOpening;
                 self.keyboard = self.new_keyboard();
                 self.pending = None;
@@ -515,8 +551,25 @@ impl Workflow {
                     .push(std::mem::replace(&mut self.menu, next));
             }
             Item::Command(command) => {
+                if self.mouse_actions_open
+                    && matches!(
+                        command,
+                        crate::scan_menu::Command::MiddleClick
+                            | crate::scan_menu::Command::TripleClick
+                            | crate::scan_menu::Command::ShiftClick
+                            | crate::scan_menu::Command::CtrlClick
+                            | crate::scan_menu::Command::AltClick
+                            | crate::scan_menu::Command::MetaClick
+                    )
+                    && self.pointer.is_none()
+                {
+                    self.error = Some("Pointer unavailable. Try again.".into());
+                    return None;
+                }
                 if command.stays_open() {
                     self.menu.continue_after_selection();
+                } else if self.mouse_actions_open {
+                    self.return_to_mouse_panel();
                 } else {
                     self.used();
                 }
@@ -526,6 +579,10 @@ impl Workflow {
                 });
             }
             Item::Setting(setting) => return Some(Request::Setting(setting)),
+            Item::Display(next) if self.mouse_actions_open => {
+                self.return_to_mouse_panel();
+                return Some(Request::MouseCycleDisplay(next));
+            }
             Item::Display(next) => return Some(Request::Display(next)),
             Item::Pause => self.menu.suspend(),
             Item::Reverse => {
@@ -554,6 +611,7 @@ impl Workflow {
                 }
             }
             Item::NewPoint => self.new_point(),
+            Item::Cancel if self.mouse_actions_open => self.return_to_mouse_panel(),
             Item::Cancel => self.reset(),
             Item::Up | Item::Down | Item::Left | Item::Right => {
                 self.menu.continue_after_selection();
@@ -568,6 +626,11 @@ impl Workflow {
                     dx,
                     dy,
                 });
+            }
+            Item::Back | Item::CancelDrag
+                if self.mouse_actions_open && self.parent_menu.is_empty() =>
+            {
+                self.return_to_mouse_panel();
             }
             Item::Back | Item::CancelDrag => self.restore_actions(),
             Item::DestinationAgain => {
@@ -596,6 +659,8 @@ impl Technique for Workflow {
         self.return_to_mouse &= !returning;
         if self.mouse_open() || returning {
             self.stage = Stage::Mouse;
+            self.mouse_actions_open = false;
+            self.parent_menu.clear();
             self.move_repeat = None;
             self.scroll_repeat = None;
             self.mouse.dragging = false;
@@ -633,6 +698,7 @@ impl Technique for Workflow {
         self.keyboard = self.new_keyboard();
         self.mouse = self.new_mouse();
         self.return_to_mouse = false;
+        self.mouse_actions_open = false;
         self.move_repeat = None;
         self.scroll_repeat = None;
         self.stage = Stage::Idle;
@@ -986,6 +1052,152 @@ impl Technique for Workflow {
 mod tests {
     use super::*;
     use crate::{point_scan::Config, scanning::Session};
+
+    #[test]
+    fn mouse_actions_use_the_current_pointer_and_return_to_mouse() {
+        use crate::scan_menu::Command;
+        use crate::scan_mouse::Key;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(Config::default().point(), screen, 1.0).unwrap();
+        workflow.handle(Action::OpenMouse);
+        workflow.set_pointer(Some((321.4, 246.6)));
+        assert_eq!(workflow.mouse_key(Key::Actions), None);
+        assert_eq!(workflow.menu.kind, Kind::MouseActions);
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Menu));
+        assert_eq!(
+            workflow.mouse_feedback(),
+            Some(crate::input::PointerFeedback::Move)
+        );
+        assert_eq!(
+            workflow.control_mode(),
+            crate::point_scan::ControlMode::Mouse
+        );
+        workflow.selected(Item::Group(Kind::Mouse));
+        workflow.set_pointer(Some((400.0, 500.0)));
+        assert_eq!(
+            workflow.selected(Item::Command(Command::ShiftClick)),
+            Some(Request::Command {
+                command: Command::ShiftClick,
+                point: (400, 500),
+            })
+        );
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert_eq!(
+            workflow.mouse_feedback(),
+            Some(crate::input::PointerFeedback::Move)
+        );
+        assert_eq!(
+            workflow.control_mode(),
+            crate::point_scan::ControlMode::Mouse
+        );
+        assert!(workflow.parent_menu.is_empty());
+
+        workflow.mouse_key(Key::Actions);
+        workflow.selected(Item::Group(Kind::Media));
+        assert_eq!(
+            workflow.selected(Item::Command(Command::Mute)),
+            Some(Request::Command {
+                command: Command::Mute,
+                point: (400, 500),
+            })
+        );
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Menu));
+        workflow.selected(Item::Back);
+        assert_eq!(workflow.menu.kind, Kind::MouseActions);
+        workflow.selected(Item::Back);
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+
+        workflow.mouse_key(Key::Actions);
+        workflow.selected(Item::Group(Kind::Displays));
+        assert_eq!(
+            workflow.selected(Item::Display(true)),
+            Some(Request::MouseCycleDisplay(true))
+        );
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    }
+
+    #[test]
+    fn mouse_actions_block_active_drag_and_return_from_keyboard_or_failure() {
+        use crate::scan_mouse::Key;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(Config::default().point(), screen, 1.0).unwrap();
+        workflow.handle(Action::OpenMouse);
+        workflow.set_pointer(Some((100.0, 200.0)));
+        assert_eq!(workflow.mouse_key(Key::Drag), Some(Request::MouseDrag));
+        assert_eq!(workflow.mouse_key(Key::Actions), None);
+        assert!(workflow.mouse.dragging);
+        assert!(!workflow.mouse_actions_open);
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert_eq!(workflow.mouse_key(Key::Drag), Some(Request::MouseDrag));
+        workflow.mouse_key(Key::Actions);
+        assert_eq!(
+            workflow.selected(Item::Keyboard),
+            Some(Request::OpenKeyboard)
+        );
+        workflow.execution_succeeded();
+        workflow.keyboard_closed();
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert_eq!(
+            workflow.mouse_feedback(),
+            Some(crate::input::PointerFeedback::Move)
+        );
+        workflow.mouse_key(Key::Actions);
+        workflow.execution_failed("failed".into());
+        assert_eq!(
+            workflow.phase(),
+            Phase::Workflow(WorkflowPhase::MouseSuspended)
+        );
+        assert!(!workflow.mouse_actions_open);
+        assert_eq!(workflow.mouse_feedback(), None);
+    }
+
+    #[test]
+    fn mouse_actions_stop_and_unavailable_pointer_never_reuse_an_old_target() {
+        use crate::scan_menu::Command;
+        use crate::scan_mouse::Key;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut session = Session::new(
+            Workflow::new(Config::default().point(), screen, 1.0).unwrap(),
+            true,
+        );
+        session.action(Action::OpenMouse);
+        session.technique.set_pointer(Some((40.0, 50.0)));
+        session.technique.mouse_key(Key::Actions);
+        session.technique.set_pointer(None);
+        assert_eq!(
+            session
+                .technique
+                .selected(Item::Command(Command::MiddleClick)),
+            None
+        );
+        assert_eq!(
+            session.technique.phase(),
+            Phase::Workflow(WorkflowPhase::Menu)
+        );
+        session.action(Action::Stop);
+        assert!(!session.active());
+        assert_eq!(session.technique.mouse_feedback(), None);
+        assert!(!session.technique.mouse_actions_open);
+        assert_eq!(
+            session.technique.control_mode(),
+            crate::point_scan::ControlMode::Mouse
+        );
+    }
 
     #[test]
     fn select_resumes_saved_mode_and_switching_updates_it() {
