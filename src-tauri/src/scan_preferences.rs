@@ -173,10 +173,10 @@ pub fn deserialize_preferences<'de, D: serde::Deserializer<'de>>(
 ) -> Result<Preferences, D::Error> {
     let mut value = serde_json::Value::deserialize(deserializer)?;
     // A choice this version does not know must not cost the other settings.
-    forget_unknown_choices(&mut value);
+    forget_unknown_choices(&mut value, false);
     for area in ["point", "menu", "keyboard", "mouse"] {
         if let Some(local) = value.get_mut(area) {
-            forget_unknown_choices(local);
+            forget_unknown_choices(local, true);
         }
     }
     let mut preferences: Preferences = serde_json::from_value(value).unwrap_or_default();
@@ -194,13 +194,14 @@ pub fn deserialize_preferences<'de, D: serde::Deserializer<'de>>(
     }
     Ok(preferences)
 }
-fn forget_unknown_choices(value: &mut serde_json::Value) {
+/// Only a scanner's own choice may be absent, which is saved as null.
+fn forget_unknown_choices(value: &mut serde_json::Value, optional: bool) {
     let Some(fields) = value.as_object_mut() else {
         return;
     };
     fields.retain(|name, choice| match name.as_str() {
-        "nextScan" => choice.is_null() || NextScan::deserialize(&*choice).is_ok(),
-        "startFrom" => choice.is_null() || StartFrom::deserialize(&*choice).is_ok(),
+        "nextScan" => (optional && choice.is_null()) || NextScan::deserialize(&*choice).is_ok(),
+        "startFrom" => (optional && choice.is_null()) || StartFrom::deserialize(&*choice).is_ok(),
         _ => true,
     });
 }
@@ -246,7 +247,7 @@ mod tests {
         let saved = read(serde_json::json!({
             "direction": "reverse",
             "passLimit": 5,
-            "nextScan": "sometimes",
+            "nextScan": null,
             "startFrom": 7,
             "keyboard": {"intervalMs": 250, "nextScan": "later", "startFrom": "selection"},
             "menu": {"nextScan": "wait", "startFrom": null},
@@ -260,6 +261,9 @@ mod tests {
         assert_eq!(saved.keyboard.start_from, Some(StartFrom::Selection));
         assert_eq!(saved.menu.next_scan, Some(NextScan::Wait));
         assert_eq!(saved.menu.start_from, None);
+        let saved = read(serde_json::json!({"passLimit": 5, "nextScan": "sometimes"}));
+        assert_eq!(saved.pass_limit, 5);
+        assert_eq!(saved.next_scan, NextScan::Standard);
     }
     #[test]
     fn areas_inherit_and_override_independently() {

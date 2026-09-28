@@ -103,9 +103,12 @@ impl Config {
                 .resolved(crate::scan_preferences::Area::Keyboard)
                 .automatic;
         }
-        // Saved before the choice existed for every scanner.
+        // Saved before the choice existed for every scanner. It stands
+        // until the keyboard is given a choice of its own, or every scanner
+        // is given one other than standard.
         if area == crate::scan_preferences::Area::Keyboard
             && self.keyboard_wait_after_typing
+            && self.scan_preferences.keyboard.next_scan.is_none()
             && resolved.next_scan == crate::scan_preferences::NextScan::Standard
         {
             resolved.next_scan = crate::scan_preferences::NextScan::Wait;
@@ -624,9 +627,21 @@ mod tests {
     }
     #[test]
     fn saved_wait_after_typing_becomes_the_keyboard_choice() {
-        use crate::scan_preferences::{Area, NextScan};
+        use crate::scan_preferences::{Area, NextScan, StartFrom};
         let saved: Config = serde_json::from_str(r#"{"keyboardWaitAfterTyping":true}"#).unwrap();
         assert_eq!(saved.resolved(Area::Keyboard).next_scan, NextScan::Wait);
+        assert_eq!(
+            saved.resolved(Area::Keyboard).start_from,
+            StartFrom::Standard
+        );
+        let standard: Config = serde_json::from_str(
+            r#"{"keyboardWaitAfterTyping":true,"scanPreferences":{"keyboard":{"nextScan":"standard"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            standard.resolved(Area::Keyboard).next_scan,
+            NextScan::Standard
+        );
         for area in [Area::Point, Area::Menu, Area::Mouse] {
             assert_eq!(saved.resolved(area).next_scan, NextScan::Standard);
         }
@@ -657,6 +672,16 @@ mod tests {
         saved.validate().unwrap();
         assert_eq!(saved.grid_size, 7);
         assert_eq!(saved.scan_preferences.pass_limit, 5);
+    }
+    #[test]
+    fn after_selection_choices_round_trip_through_the_saved_file() {
+        use crate::scan_preferences::{NextScan, StartFrom};
+        let mut config = Config::default();
+        config.scan_preferences.next_scan = NextScan::Automatic;
+        config.scan_preferences.point.start_from = Some(StartFrom::Selection);
+        let restored: Config =
+            serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
+        assert_eq!(restored, config);
     }
     #[test]
     fn enhanced_prediction_defaults_off_for_saved_settings_and_round_trips() {
