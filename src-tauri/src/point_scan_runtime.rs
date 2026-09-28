@@ -229,6 +229,13 @@ impl Adapter for PointScan {
                 let (_, environment) = new_engine(app, app.state::<Controller>().view().config)?;
                 return Ok(Some(environment));
             }
+            Request::MouseCycleDisplay(next) => {
+                let (cursor, displays) =
+                    display_navigation::displays(app).map_err(|e| e.message)?;
+                let target = display_navigation::cycle_center(cursor, &displays, next)?;
+                crate::scan_executor::move_to(target)?;
+                return Ok(None);
+            }
             Request::Setting(setting) => scanning_runtime::update_point_setting(app, setting),
             Request::Display(next) => scanning_runtime::restart_point_on_display(app, next),
             request => crate::scan_executor::activate(request),
@@ -269,6 +276,8 @@ impl Adapter for PointScan {
                     technique.set_pointer(Some(cursor));
                     environment.display = current;
                     environment.keyboard_area = area;
+                } else {
+                    technique.set_pointer(None);
                 }
                 let settings = app.state::<crate::state::AppModel>().snapshot().settings;
                 technique.set_mouse_settings(

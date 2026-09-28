@@ -18,6 +18,7 @@ pub enum Key {
     Monitor(i8, i8),
     More,
     Movement,
+    Actions,
     Keyboard,
     Dock,
     Position(Dock),
@@ -37,6 +38,7 @@ pub struct MousePanel {
     pub dragging: bool,
     pub speed_percent: u16,
     pub error: bool,
+    notice: Option<&'static str>,
     positioning: bool,
     displays: usize,
     rows: Vec<Vec<Key>>,
@@ -53,6 +55,7 @@ impl MousePanel {
             dragging: false,
             speed_percent,
             error: false,
+            notice: None,
             positioning: false,
             displays,
             rows,
@@ -69,7 +72,7 @@ impl MousePanel {
                 vec![Move(-1, -1), Move(0, -1), Move(1, -1), Scroll(1)],
                 vec![Move(-1, 0), Move(1, 0)],
                 vec![Move(-1, 1), Move(0, 1), Move(1, 1), Scroll(-1)],
-                vec![More, Keyboard, Dock, Close],
+                vec![Actions, More, Keyboard, Close],
             ]
         } else {
             let mut rows = vec![vec![Speed(-1), Speed(1)]];
@@ -86,6 +89,7 @@ impl MousePanel {
         }
     }
     pub fn choose(&mut self, key: Key) {
+        self.notice = None;
         match key {
             Key::More | Key::Movement => {
                 self.more = key == Key::More;
@@ -101,7 +105,7 @@ impl MousePanel {
                 self.rebuild_rows();
             }
             // The panel is left behind.
-            Key::Keyboard | Key::Close => self.scan.restart(),
+            Key::Actions | Key::Keyboard | Key::Close => self.scan.restart(),
             _ => self.scan.continue_after_selection(),
         }
     }
@@ -123,7 +127,12 @@ impl MousePanel {
         self.scan.advance(ms, period);
     }
     pub fn restart(&mut self) {
+        self.notice = None;
         self.scan.restart();
+    }
+    pub fn block_actions(&mut self, message: &'static str) {
+        self.notice = Some(message);
+        self.scan.continue_after_selection();
     }
     pub fn suspended(&self) -> bool {
         self.scan.suspended
@@ -178,6 +187,7 @@ impl MousePanel {
             Monitor(..) => "Monitor".into(),
             More => "More controls".into(),
             Movement => "Movement".into(),
+            Actions => "Actions".into(),
             Keyboard => "Keyboard".into(),
             Dock => crate::scan_panel::POSITION_PAGE.into(),
             Position(dock) => crate::scan_panel::position_label(dock, self.dock),
@@ -188,9 +198,13 @@ impl MousePanel {
     fn role(key: Key) -> TileRole {
         match key {
             Key::Move(..) => TileRole::Character,
-            Key::More | Key::Movement | Key::Keyboard | Key::Dock | Key::Back | Key::Close => {
-                TileRole::Toolbar
-            }
+            Key::More
+            | Key::Movement
+            | Key::Actions
+            | Key::Keyboard
+            | Key::Dock
+            | Key::Back
+            | Key::Close => TileRole::Toolbar,
             _ => TileRole::Utility,
         }
     }
@@ -214,6 +228,8 @@ impl MousePanel {
             .to_owned()
         } else if self.error {
             "Mouse action failed · Select to resume".to_owned()
+        } else if let Some(notice) = self.notice {
+            notice.to_owned()
         } else if self.scan.waiting() {
             "Mouse waiting · Select to continue".to_owned()
         } else if self.scan.suspended {
@@ -286,10 +302,12 @@ mod tests {
                 vec![Move(-1, -1), Move(0, -1), Move(1, -1), Scroll(1)],
                 vec![Move(-1, 0), Move(1, 0)],
                 vec![Move(-1, 1), Move(0, 1), Move(1, 1), Scroll(-1)],
-                vec![More, Keyboard, Dock, Close],
+                vec![Actions, More, Keyboard, Close],
             ]
         );
         panel.choose(Key::More);
+        assert!(panel.rows.iter().flatten().any(|key| *key == Key::Dock));
+        assert!(!panel.rows.iter().flatten().any(|key| *key == Key::Actions));
         assert!(!panel
             .rows
             .iter()

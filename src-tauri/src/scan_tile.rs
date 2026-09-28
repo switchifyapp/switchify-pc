@@ -412,7 +412,7 @@ fn artwork(path: &mut PathBuilder, item: Item) {
                 monitor(path);
                 rect(path, 42., 32., 70., 47.);
             }
-            K::Scanning => {
+            K::Scanning | K::MouseScanning => {
                 rect(path, 51., 35., 66., 66.);
                 line(path, &[(73., 35.), (73., 101.)]);
                 line(path, &[(95., 35.), (95., 101.)]);
@@ -428,7 +428,7 @@ fn artwork(path: &mut PathBuilder, item: Item) {
                 path.push_circle(78., 61., 24.);
                 line(path, &[(95., 79.), (117., 101.)]);
             }
-            K::More | K::Actions | K::Scroll | K::ConfirmDrag => {
+            K::More | K::Actions | K::MouseActions | K::Scroll | K::ConfirmDrag => {
                 unreachable!("Not a grouped menu tile")
             }
         },
