@@ -20,6 +20,19 @@ pub struct Environment {
 fn window_changed(environment: &Environment, foreground: Option<usize>) -> bool {
     !environment.panel && environment.foreground != foreground
 }
+/// Where the open keyboard belongs: on its own display while that exists,
+/// however it has changed, and otherwise on the display under the pointer.
+fn keyboard_display<'a>(
+    current: &Display,
+    displays: &'a [Display],
+    cursor: (f64, f64),
+) -> Option<&'a Display> {
+    displays
+        .iter()
+        .find(|display| *display == current)
+        .or_else(|| displays.iter().find(|display| display.name == current.name))
+        .or_else(|| display_navigation::current_display(cursor, displays))
+}
 fn bounds(display: &Display) -> Rect {
     Rect {
         x: display.x.into(),
@@ -258,12 +271,7 @@ impl Adapter for PointScan {
                     settings.mouse_repeat_enabled,
                 );
             } else if technique.follows_foreground() {
-                // There may be no window in front while one is coming forward.
-                match crate::scan_host::foreground() {
-                    Ok(foreground) => environment.foreground = Some(foreground),
-                    Err(_) if technique.awaits_foreground() => return Ok(false),
-                    Err(error) => return Err(error),
-                }
+                environment.foreground = crate::scan_host::foreground().ok();
                 environment.panel = false;
             } else if technique.keyboard_open() {
                 crate::point_scan_ready(app)?;
@@ -278,18 +286,20 @@ impl Adapter for PointScan {
                 }
                 environment.panel = true;
                 // The keyboard moves to fit its display rather than closing.
-                let (cursor, displays) =
-                    display_navigation::displays(app).map_err(|e| e.message)?;
-                let current = if displays.contains(&environment.display) {
-                    environment.display.clone()
-                } else {
-                    display_navigation::current_display(cursor, &displays)
-                        .ok_or("No scanning display is available.")?
-                        .clone()
-                };
-                let rect = bounds(&current);
-                let area = crate::scan_host::work_area(rect)?;
-                if environment.display != current || environment.keyboard_area != area {
+                // While the displays cannot be read it stays where it is.
+                let fitted = display_navigation::displays(app)
+                    .ok()
+                    .and_then(|(cursor, displays)| {
+                        keyboard_display(&environment.display, &displays, cursor).cloned()
+                    })
+                    .and_then(|display| {
+                        let area = crate::scan_host::work_area(bounds(&display)).ok()?;
+                        Some((display, area))
+                    });
+                if let Some((current, area)) = fitted.filter(|(display, area)| {
+                    environment.display != *display || environment.keyboard_area != *area
+                }) {
+                    let rect = bounds(&current);
                     technique.set_keyboard_display(
                         area,
                         rect,
@@ -371,7 +381,8 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
 }
 fn validate_display(app: &AppHandle, display: Option<&Environment>) -> Result<(), String> {
     crate::point_scan_ready(app)?;
-    if let Some(expected) = display {
+    // An open panel fits itself to its display and needs no window.
+    if let Some(expected) = display.filter(|environment| !environment.panel) {
         if window_changed(expected, crate::scan_host::foreground().ok()) {
             return Err("Foreground application changed. Select a new point.".into());
         }
@@ -388,36 +399,6 @@ fn validate_display(app: &AppHandle, display: Option<&Environment>) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn only_a_chosen_point_is_held_to_its_window() {
-        let environment = |panel, foreground| super::Environment {
-            display: super::Display {
-                name: String::new(),
-                scale_factor: 1.0,
-                x: 0,
-                y: 0,
-                width: 1920,
-                height: 1080,
-            },
-            foreground,
-            panel,
-            keyboard_area: super::Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 1920.0,
-                height: 1040.0,
-            },
-        };
-        for now in [None, Some(1), Some(2)] {
-            for held in [None, Some(1)] {
-                assert!(!super::window_changed(&environment(true, held), now));
-                assert_eq!(
-                    super::window_changed(&environment(false, held), now),
-                    held != now
-                );
-            }
-        }
-    }
     use super::*;
     use crate::scanning::Technique;
 
@@ -492,5 +473,48 @@ mod tests {
         ));
         assert!(!PointScan::preserve_visuals(&Request::OpenKeyboard));
         assert!(!PointScan::preserve_visuals(&Request::DragStart((10, 20))));
+    }
+    fn display(name: &str, x: i32, width: u32) -> Display {
+        Display {
+            name: name.into(),
+            scale_factor: 1.0,
+            x,
+            y: 0,
+            width,
+            height: 1080,
+        }
+    }
+    #[test]
+    fn only_a_chosen_point_is_held_to_its_window() {
+        let environment = |panel, foreground| Environment {
+            display: display("one", 0, 1920),
+            foreground,
+            panel,
+            keyboard_area: bounds(&display("one", 0, 1920)),
+        };
+        for now in [None, Some(1), Some(2)] {
+            for held in [None, Some(1)] {
+                assert!(!window_changed(&environment(true, held), now));
+                assert_eq!(window_changed(&environment(false, held), now), held != now);
+            }
+        }
+    }
+    #[test]
+    fn the_keyboard_stays_on_its_display_while_that_exists() {
+        let one = display("one", 0, 1920);
+        let two = display("two", 1920, 1280);
+        let over_two = (2000.0, 10.0);
+        let both = [one.clone(), two.clone()];
+        assert_eq!(keyboard_display(&one, &both, over_two), Some(&one));
+        // A display that changed size is still the keyboard's.
+        let resized = [display("one", 0, 1280), two.clone()];
+        assert_eq!(
+            keyboard_display(&one, &resized, over_two),
+            Some(&resized[0])
+        );
+        // One that was removed gives way to the display under the pointer.
+        let left = [two.clone()];
+        assert_eq!(keyboard_display(&one, &left, (10.0, 10.0)), Some(&two));
+        assert_eq!(keyboard_display(&one, &[], over_two), None);
     }
 }

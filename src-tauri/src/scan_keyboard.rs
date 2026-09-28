@@ -1046,8 +1046,58 @@ mod tests {
         keyboard.prediction_inserted(true, true, context(3));
         assert!(!keyboard.capitalize_next);
         assert_eq!(keyboard.owned_space, context(3));
-        keyboard.reset_context();
+        keyboard.typing_moved();
         assert_eq!(keyboard.owned_space, None);
+    }
+    #[test]
+    fn typing_in_another_window_leaves_the_keyboard_as_it_is() {
+        let mut keyboard = Keyboard::new(false);
+        // A capital the keyboard chose goes; keys the user latched stay.
+        keyboard.choose_with_context(Key::Character('.', '>'), context(1));
+        keyboard.succeeded_with_context(context(1));
+        assert_eq!(keyboard.modifiers[0], Modifier::Once);
+        keyboard.modifiers[1] = Modifier::Once;
+        keyboard.modifiers[2] = Modifier::Locked;
+        keyboard.caps = true;
+        keyboard.typing_moved();
+        assert_eq!(
+            keyboard.modifiers,
+            [
+                Modifier::Off,
+                Modifier::Once,
+                Modifier::Locked,
+                Modifier::Off
+            ]
+        );
+        assert!(keyboard.caps && !keyboard.capitalize_next);
+        // A Shift the user latched is theirs.
+        let mut keyboard = Keyboard::new(false);
+        keyboard.choose_with_context(Key::Modifier(0), context(1));
+        keyboard.typing_moved();
+        assert_eq!(keyboard.modifiers[0], Modifier::Once);
+        // A wait, a pause and a failure are kept.
+        let mut keyboard = Keyboard::new(false).with_wait_after_typing(true);
+        keyboard.handle(Action::Select);
+        assert!(keyboard.handle(Action::Select).is_some());
+        keyboard.succeeded();
+        keyboard.typing_moved();
+        assert!(keyboard.waiting_after_typing && keyboard.suspended());
+        let mut keyboard = Keyboard::new(false);
+        keyboard.failed();
+        keyboard.typing_moved();
+        assert!(keyboard.error && keyboard.suspended());
+        // A key on its way when the window changed is given up, and its
+        // late arrival changes nothing.
+        let mut keyboard = Keyboard::new(false);
+        keyboard.handle(Action::Select);
+        keyboard.handle(Action::Next);
+        assert!(keyboard.handle(Action::Select).is_some());
+        assert_eq!(keyboard.handle(Action::Select), None);
+        keyboard.typing_moved();
+        assert!(!keyboard.succeeded());
+        assert!(keyboard.scan.row_scan());
+        assert_eq!(keyboard.handle(Action::Select), None);
+        assert!(keyboard.handle(Action::Select).is_some());
     }
 
     #[test]
