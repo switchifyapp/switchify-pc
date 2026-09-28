@@ -1458,8 +1458,8 @@ pub fn pointer_profile_response(
                     "minScalePercent": 5,
                     "maxScalePercent": 1350,
                     "stepPercent": 5,
-                    "baseMoveDelta": 128,
-                    "effectiveMoveDelta": (128.0 * f64::from(settings.pointer_scale_percent) / 100.0).round() as u32
+                    "baseMoveDelta": crate::mouse_repeat::DIRECTION_MOVE_DELTA,
+                    "effectiveMoveDelta": (f64::from(crate::mouse_repeat::DIRECTION_MOVE_DELTA) * f64::from(settings.pointer_scale_percent) / 100.0).round() as u32
                 },
                 "displayNavigation": {
                     "supported": profile.display_navigation_supported,
@@ -2554,6 +2554,25 @@ mod tests {
                 "accelerationInitialScalePercent": 25
             })
         );
+
+        // The current Remote reads baseMoveDelta; older clients may still use
+        // recommendedDeltas. Keep their profile shape while matching Mouse scanning.
+        for (speed, expected_effective) in [(5, 1), (100, 12), (225, 27), (1350, 162)] {
+            let mut settings = settings.clone();
+            settings.pointer_scale_percent = speed;
+            let response: Value =
+                serde_json::from_str(&pointer_profile_response("profile-1", &profile, &settings))
+                    .unwrap();
+            assert_eq!(
+                response["payload"]["capabilities"]["pointerSpeed"]["baseMoveDelta"],
+                12
+            );
+            assert_eq!(
+                response["payload"]["capabilities"]["pointerSpeed"]["effectiveMoveDelta"],
+                expected_effective
+            );
+            assert_eq!(response["payload"]["recommendedDeltas"]["medium"], 130);
+        }
     }
 
     #[test]

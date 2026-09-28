@@ -413,7 +413,8 @@ impl Workflow {
         self.set_dock(self.mouse.dock);
         match key {
             Key::Move(dx, dy) => {
-                let delta = (i32::from(dx) * 12, i32::from(dy) * 12);
+                let step = crate::mouse_repeat::DIRECTION_MOVE_DELTA;
+                let delta = (i32::from(dx) * step, i32::from(dy) * step);
                 if self.mouse_repeat_enabled {
                     let mut repeat = crate::mouse_repeat::ScanMoveRepeat::new(
                         delta.0,
@@ -1338,6 +1339,40 @@ mod tests {
         );
         assert!(workflow.take_selection().is_none());
         assert!(!workflow.switch_pressed());
+    }
+
+    #[test]
+    fn mouse_one_step_uses_the_shared_direction_distance_at_saved_speeds() {
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        for (speed, distance) in [(5, 1), (100, 12), (225, 27), (1350, 162)] {
+            for (x, y) in [
+                (-1, -1),
+                (0, -1),
+                (1, -1),
+                (-1, 0),
+                (1, 0),
+                (-1, 1),
+                (0, 1),
+                (1, 1),
+            ] {
+                let mut workflow = Workflow::new(Config::default().point(), screen, 1.0).unwrap();
+                workflow.open_mouse();
+                workflow.set_mouse_settings(speed, 1000, 250, 250, false);
+                assert_eq!(
+                    workflow.mouse_key(crate::scan_mouse::Key::Move(x, y)),
+                    Some(Request::MouseMove {
+                        dx: i32::from(x) * distance,
+                        dy: i32::from(y) * distance,
+                    })
+                );
+                assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+            }
+        }
     }
 
     #[test]
