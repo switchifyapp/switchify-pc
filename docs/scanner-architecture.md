@@ -71,6 +71,40 @@ if any area is manual. Pass limit zero means unlimited; grouped and linear item
 scanning share the same navigator and execution revision. Keyboard skipping of
 unavailable predictions counts automatic wraps but never manual passes.
 
+### After a selection
+
+Two preferences decide how scanning continues after a selection that does something, such as typing a key, clicking or scrolling. Each has a shared value and an optional value for each area.
+
+| Preference | Values | Meaning |
+|---|---|---|
+| `nextScan` | `standard`, `automatic`, `wait` | Whether scanning moves on by itself or waits for Select |
+| `startFrom` | `standard`, `beginning`, `selection` | Whether scanning starts from the beginning or from the item selected |
+
+`standard` is what each scanner did before the preferences existed, and is the default:
+
+| Scanner | `nextScan` | `startFrom` |
+|---|---|---|
+| Point scanning | Waits after a click, a closing command or a drag | Always the beginning; the preference is ignored |
+| Menus | Moves on after a scroll or media item | The item selected |
+| Keyboard | Moves on after a key or suggestion | The first row |
+| Mouse panel | Moves on after an action | The first row |
+
+Rules that hold whatever is chosen:
+
+- Selections that only navigate start from the beginning of what they open. These are opening a menu, page or panel, Back, Close, and the position, modifier, speed and mode items.
+- A failed action and a pause at the pass limit resume from where they always did.
+- A chosen suggestion returns to the first row, because its row is replaced.
+- `wait` has no effect in an area that is not automatic, except that point scanning always waits unless `automatic` is chosen.
+- A point scan that starts by itself still stops at the pass limit.
+
+A point scan that started by itself takes up whichever window is in front until something is chosen in it, because the click before it may have brought another window forward. From the first choice, a change of window ends the scan as usual. While no window is in front, the scan holds still for up to a second.
+
+`keyboardWaitAfterTyping`, saved by earlier versions, still makes the keyboard wait. It applies only while the keyboard has no `nextScan` of its own and the shared value is `standard`. Settings no longer writes it.
+
+A value that is not recognised is dropped on its own when the file is read, and the other scan settings are kept.
+
+`ItemScanner::continue_after_selection` applies both preferences for item scanners. `Workflow::used` decides what follows a used point.
+
 The existing configure API cancels a running scan and waits for Select. Native
 frames carry effective colour and thickness; individual renderers do not resolve
 settings. Point line/grid geometry and movement speed remain separate controls.
