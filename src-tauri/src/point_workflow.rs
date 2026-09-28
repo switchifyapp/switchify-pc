@@ -135,6 +135,8 @@ pub struct Workflow {
     elapsed: u64,
     pending: Option<Request>,
     error: Option<String>,
+    /// A scan that started by itself, in which nothing has been chosen yet.
+    following: bool,
 }
 impl Workflow {
     pub fn new(config: PointSettings, screen: Rect, scale: f64) -> Result<Self, String> {
@@ -171,6 +173,7 @@ impl Workflow {
             elapsed: 0,
             pending: None,
             error: None,
+            following: false,
         })
     }
     fn new_keyboard(&self) -> crate::scan_keyboard::Keyboard {
@@ -349,12 +352,21 @@ impl Workflow {
     /// user chose to have it start by itself.
     fn used(&mut self) {
         if self.point.config.scan.next_scan == crate::scan_preferences::NextScan::Automatic {
-            self.parent_menu.clear();
-            self.stage = Stage::Point;
-            self.point.start();
+            self.new_point();
+            self.following = true;
         } else {
             self.stage = Stage::Idle;
         }
+    }
+    fn new_point(&mut self) {
+        self.parent_menu.clear();
+        self.stage = Stage::Point;
+        self.point.start();
+    }
+    /// What was just done may bring another window forward. Until something
+    /// is chosen in the scan that followed, no point depends on which.
+    pub fn follows_foreground(&self) -> bool {
+        self.following && self.stage == Stage::Point
     }
     fn restore_actions(&mut self) {
         if let Some(menu) = self.parent_menu.pop() {
@@ -530,11 +542,7 @@ impl Workflow {
                     self.point.start();
                 }
             }
-            Item::NewPoint => {
-                self.parent_menu.clear();
-                self.stage = Stage::Point;
-                self.point.start();
-            }
+            Item::NewPoint => self.new_point(),
             Item::Cancel => self.reset(),
             Item::Up | Item::Down | Item::Left | Item::Right => {
                 self.menu.continue_after_selection();
@@ -617,6 +625,7 @@ impl Technique for Workflow {
         self.parent_menu.clear();
         self.pending = None;
         self.error = None;
+        self.following = false;
         self.elapsed = 0;
         self.source = (0, 0);
         self.destination = (0, 0);
@@ -649,6 +658,7 @@ impl Technique for Workflow {
         self.stage != Stage::Executing
     }
     fn handle(&mut self, action: Action) -> Option<Request> {
+        self.following = false;
         if action == Action::OpenPoint {
             return self.open_point();
         }
@@ -1076,17 +1086,25 @@ mod tests {
                         s.take_selection()
                     })
                 } else {
-                    let click = s.technique.selected(Item::LeftClick);
-                    s.take_selection();
-                    click
+                    choose(&mut s, 0, 0)
                 };
                 assert!(
                     matches!(click, Some(Request::Click { .. })),
                     "{next_scan:?} {click:?}"
                 );
                 let again = next_scan == NextScan::Automatic;
+                assert_eq!(s.active(), again, "{next_scan:?}");
                 assert_eq!(s.frame() != Frame::default(), again, "{next_scan:?}");
+                assert_eq!(s.technique.follows_foreground(), again);
                 if again {
+                    // Once something is chosen, the window is held to.
+                    s.tick(33, false);
+                    assert!(s.technique.follows_foreground());
+                    s.action(Action::Select);
+                    assert!(!s.technique.follows_foreground());
+                    s.action(Action::Cancel);
+                    s.action(Action::Select);
+                    assert!(!s.technique.follows_foreground());
                     assert_eq!(
                         s.technique.phase(),
                         Phase::Point(crate::point_scan::Phase::X)
@@ -1106,6 +1124,64 @@ mod tests {
                     assert_eq!(s.frame(), Frame::default());
                 }
             }
+        }
+    }
+    #[test]
+    fn a_drag_or_a_closing_command_is_followed_by_the_next_point_scan() {
+        use crate::scan_preferences::NextScan;
+        for next_scan in [NextScan::Standard, NextScan::Automatic] {
+            let again = next_scan == NextScan::Automatic;
+            let mut config = Config {
+                automatic: false,
+                block_interval_ms: 250,
+                ..Default::default()
+            };
+            config.scan_preferences.point.next_scan = Some(next_scan);
+            let screen = Rect {
+                x: -1000.0,
+                y: 20.0,
+                width: 1000.0,
+                height: 800.0,
+            };
+            let new = || Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), false);
+            let mut s = new();
+            open(&mut s);
+            choose(&mut s, 1, 1);
+            for action in [Action::Next, Action::Select, Action::Next, Action::Select] {
+                s.action(action);
+            }
+            assert!(matches!(choose(&mut s, 0, 0), Some(Request::DragStart(_))));
+            s.tick(150, false);
+            assert!(matches!(s.take_selection(), Some(Request::DragMove(_))));
+            s.tick(150, false);
+            assert!(matches!(s.take_selection(), Some(Request::DragEnd(_))));
+            assert_eq!(s.active(), again);
+            assert_eq!(s.technique.follows_foreground(), again);
+            if again {
+                assert_eq!(
+                    s.technique.phase(),
+                    Phase::Point(crate::point_scan::Phase::X)
+                );
+                // The menus of the drag are not returned to.
+                assert!(s.technique.parent_menu.is_empty());
+            }
+            let mut s = new();
+            open(&mut s);
+            let copy = Item::Command(crate::scan_menu::Command::Copy);
+            assert!(matches!(
+                s.technique.selected(copy),
+                Some(Request::Command { .. })
+            ));
+            s.take_selection();
+            assert_eq!(s.active(), again);
+            // A command that leaves the menu open starts nothing.
+            let mut s = new();
+            open(&mut s);
+            let mute = Item::Command(crate::scan_menu::Command::Mute);
+            let before = s.frame();
+            assert!(s.technique.selected(mute).is_some());
+            assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Menu));
+            assert_eq!(s.frame(), before);
         }
     }
     #[test]

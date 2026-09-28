@@ -142,10 +142,13 @@ impl<T: Clone> ItemScanner<T> {
     }
     /// Carries on after a selection that did something, as the user chose.
     pub fn continue_after_selection(&mut self) {
-        if self.stays_at_selection() {
-            self.restart_in_place();
-        } else {
+        if !self.stays_at_selection() {
             self.restart();
+        } else if self.options.start_from == StartFrom::Standard {
+            // A menu left alone also keeps the direction it was turned to.
+            self.restart_interval();
+        } else {
+            self.restart_in_place();
         }
         if self.waits_after_selection() {
             self.wait();
@@ -404,6 +407,24 @@ mod tests {
                 assert!(!scan.advance(499, 500));
                 assert!(scan.advance(1, 500));
             }
+        }
+        // Left alone, it goes on in the direction it was turned to.
+        for (start_from, turned) in [(StartFrom::Standard, true), (StartFrom::Selection, false)] {
+            let mut scan = ItemScanner::configured_rows(
+                &rows,
+                Policy::MENU,
+                Resolved {
+                    start_from,
+                    ..Default::default()
+                },
+            );
+            scan.handle(Action::Select);
+            scan.handle(Action::Next);
+            scan.handle(Action::Reverse);
+            assert_eq!(scan.handle(Action::Select), Some("paste"));
+            scan.continue_after_selection();
+            scan.advance(500, 500);
+            assert_eq!(scan.position(&rows), (0, turned.then_some(0)));
         }
     }
     #[test]
