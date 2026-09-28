@@ -1018,10 +1018,20 @@ mod tests {
             let mut frame = session.technique.frame();
             frame.tiles.pop().unwrap().text
         };
-        assert_eq!(status(&session), "Press Select to continue.");
+        assert_eq!(status(&session), "Mouse waiting · Select to continue");
         session.tick(5000, false);
         assert_eq!(session.action(Action::Select), None);
         assert_eq!(status(&session), "Movement · Select →");
+        // A move that fails starts again from the top.
+        assert!(session.action(Action::Select).is_some());
+        session.technique.switch_pressed();
+        session.action(Action::Select);
+        session.technique.mouse_repeat_enabled = false;
+        assert!(session.action(Action::Select).is_some());
+        session.technique.execution_failed(String::new());
+        assert_eq!(status(&session), "Mouse action failed · Select to resume");
+        session.action(Action::Select);
+        assert_eq!(status(&session), "Movement · Select a row");
     }
     #[test]
     fn mouse_motion_stops_on_press_and_returns_to_first_row() {

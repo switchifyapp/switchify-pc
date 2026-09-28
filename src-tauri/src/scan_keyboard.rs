@@ -412,14 +412,15 @@ impl Keyboard {
     }
     /// Carries on from the key just typed, where the user chose to stay.
     /// Suggestions then do not pull the highlight to their row.
+    /// A suggestion is not stayed at: its row is about to be replaced, and
+    /// new suggestions are held back while the highlight is in it.
     fn restart_after_typing(&mut self) {
-        if !self.scan.stays_at_selection() {
+        if !self.scan.stays_at_selection() || self.prediction_row_active() {
             return self.restart();
         }
         self.waiting_after_typing = false;
         self.prefer_predictions = false;
-        self.scan.restart_interval();
-        self.skip_disabled(false);
+        self.scan.restart_in_place();
     }
     pub fn advance(&mut self, ms: u64, period: u64) {
         if self.scan.advance(ms, period) {
@@ -1192,8 +1193,30 @@ mod tests {
             // A failure starts again from the top.
             k.failed();
             k.handle(Action::Select);
-            let frame = k.frame(screen, 1.0, ScannerColor::default());
-            assert_eq!(frame.tiles.last().unwrap().text, "Letters · Select a row");
+            let status = |k: &Keyboard| {
+                let mut frame = k.frame(screen, 1.0, ScannerColor::default());
+                frame.tiles.pop().unwrap().text
+            };
+            assert_eq!(status(&k), "Letters · Select a row");
+            // So does a suggestion, whose row is replaced.
+            k.predictions(
+                Some(crate::prediction::worker::Batch {
+                    token: 2,
+                    words: vec!["hello".into()],
+                }),
+                false,
+            );
+            assert!(k.prediction_row_active());
+            k.handle(Action::Select);
+            assert!(matches!(
+                k.handle(Action::Select),
+                Some(Output::Prediction { .. })
+            ));
+            assert!(k.succeeded());
+            if wait {
+                k.handle(Action::Select);
+            }
+            assert_eq!(status(&k), "Letters · Select a row");
         }
     }
     #[test]

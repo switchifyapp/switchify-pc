@@ -129,14 +129,20 @@ impl MousePanel {
         self.scan.suspended
     }
     pub fn failed(&mut self) {
+        self.scan.restart();
         self.error = true;
         self.scan.suspended = true;
     }
     pub fn set_displays(&mut self, displays: usize) {
         if self.displays != displays {
             self.displays = displays;
-            if !self.positioning {
+            if !self.positioning && self.rows != Self::rows(self.more, false, displays) {
+                let (suspended, waiting) = (self.scan.suspended, self.scan.waiting());
                 self.rebuild_rows();
+                self.scan.suspended = suspended;
+                if waiting {
+                    self.scan.wait();
+                }
             }
         }
     }
@@ -209,7 +215,7 @@ impl MousePanel {
         } else if self.error {
             "Mouse action failed · Select to resume".to_owned()
         } else if self.scan.waiting() {
-            "Press Select to continue.".to_owned()
+            "Mouse waiting · Select to continue".to_owned()
         } else if self.scan.suspended {
             "Mouse paused · Select to resume".to_owned()
         } else if escaping {
@@ -358,12 +364,17 @@ mod tests {
         assert_eq!(panel.handle(Action::Select), Some(Key::RightClick));
         panel.choose(Key::RightClick);
         assert!(panel.suspended());
-        assert_eq!(status(&panel), "Press Select to continue.");
+        assert_eq!(status(&panel), "Mouse waiting · Select to continue");
+        // The monitor keys appearing does not end the wait.
+        panel.set_displays(2);
+        panel.set_displays(1);
+        assert_eq!(status(&panel), "Mouse waiting · Select to continue");
         panel.advance(1000, 1000);
         assert_eq!(panel.handle(Action::Select), None);
         assert_eq!(status(&panel), "Movement · Select Right click");
         assert_eq!(panel.handle(Action::Select), Some(Key::RightClick));
         // A failure is not a choice, and starts again from the top.
+        panel.choose(Key::RightClick);
         panel.failed();
         assert_eq!(status(&panel), "Mouse action failed · Select to resume");
         panel.handle(Action::Select);

@@ -139,13 +139,23 @@ impl<T: Clone> ItemScanner<T> {
     /// Left alone, a panel starts again from the beginning by itself.
     pub fn continue_after_selection(&mut self) {
         if self.stays_at_selection() {
-            self.pending = false;
-            self.restart_interval();
+            self.restart_in_place();
         } else {
             self.restart();
         }
-        self.waiting = self.waits_after_selection();
-        self.suspended = self.waiting;
+        if self.waits_after_selection() {
+            self.wait();
+        }
+    }
+    /// Starts again from the highlighted item, in the chosen direction.
+    pub fn restart_in_place(&mut self) {
+        self.pending = false;
+        self.forward = self.options.direction == Direction::Forward;
+        self.restart_interval();
+    }
+    pub fn wait(&mut self) {
+        self.waiting = true;
+        self.suspended = true;
     }
     pub fn reset_clock(&mut self) {
         self.interval.reset();
@@ -353,6 +363,33 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn staying_at_a_selection_keeps_the_direction_and_pass_limit() {
+        let rows = vec![vec!["copy", "paste", "undo"], vec!["save", "close"]];
+        let mut scan = ItemScanner::configured_rows(
+            &rows,
+            Policy::KEYBOARD,
+            Resolved {
+                start_from: StartFrom::Selection,
+                pass_limit: 1,
+                ..Default::default()
+            },
+        );
+        scan.handle(Action::Select);
+        scan.handle(Action::Next);
+        scan.handle(Action::Next);
+        scan.handle(Action::Back);
+        assert_eq!(scan.handle(Action::Select), Some("paste"));
+        scan.continue_after_selection();
+        // A step back does not turn automatic scanning around.
+        assert!(scan.advance(500, 500));
+        assert_eq!(scan.position(&rows), (0, Some(2)));
+        // Past the last item and the way out of the row is one pass.
+        assert!(scan.advance(500, 500));
+        assert!(scan.nav.escaping() && !scan.suspended);
+        assert!(scan.advance(500, 500));
+        assert!(scan.suspended && !scan.waiting());
     }
     #[test]
     fn a_pause_that_was_not_chosen_still_resumes_at_the_start() {
