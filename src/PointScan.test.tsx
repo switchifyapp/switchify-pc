@@ -11,6 +11,7 @@ import {
   defaultPointScanConfig,
   type PointScanState,
 } from "./scanning/useScanning";
+import { defaultScanPreferences } from "./scanning/preferences";
 import { ScanningSection } from "./settings/ScanningSection";
 function more() {
   const button = screen.getByRole("button", { name: "More options" });
@@ -391,16 +392,49 @@ it("saves the shared panel pointer-avoidance choice from the mouse and keyboard 
   expect(screen.getByRole("checkbox", { name: "Move away from the pointer" })).toBeChecked();
 });
 
-it("saves the keyboard after-typing choice and preserves it while manual", async () => {
+it("shows what each scanner does after a selection and saves a choice for one", async () => {
   mocks.invoke.mockImplementation(async (command, args) => command === "get_point_scan" ? initial : { ...initial, config: args.config });
   render(<PointScan />);
   await screen.findByText(initial.message);
-  expect(screen.queryByText("After typing")).not.toBeInTheDocument();
+  const pressed = (name: string) => screen.getByRole("button", { name }).getAttribute("aria-pressed") === "true";
+  more();
+  expect(screen.getAllByRole("button", { name: "Usual for each scanner" }).map(button => button.getAttribute("aria-pressed"))).toEqual(["true", "true"]);
+  fireEvent.click(screen.getByRole("button", { name: "Customise menus" }));
+  more();
+  expect(screen.queryByRole("button", { name: "Usual for each scanner" })).not.toBeInTheDocument();
+  expect([pressed("Start scanning"), pressed("Where I selected")]).toEqual([true, true]);
+  fireEvent.click(screen.getByRole("button", { name: /Back to scanning settings/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
+  more();
+  expect(pressed("Wait for Select")).toBe(true);
+  expect(screen.queryByText("Start from")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Start scanning" }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", { config: { ...defaultPointScanConfig, scanPreferences: { ...defaultScanPreferences, point: { nextScan: "automatic" } } } }));
+  fireEvent.click(screen.getByRole("button", { name: "Use default for after a selection" }));
+  await waitFor(() => expect(pressed("Wait for Select")).toBe(true));
+  fireEvent.click(screen.getByRole("button", { name: /Back to scanning settings/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Customise mouse scanning" }));
+  more();
+  expect([pressed("Start scanning"), pressed("The beginning")]).toEqual([true, true]);
+  fireEvent.click(screen.getByRole("button", { name: "Where I selected" }));
+  await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.mouse).toEqual({ startFrom: "selection" }));
+});
+
+it("keeps a saved wait after typing as the keyboard's usual behaviour", async () => {
+  const saved = { ...initial, config: { ...initial.config, keyboardWaitAfterTyping: true } };
+  mocks.invoke.mockImplementation(async (command, args) => command === "get_point_scan" ? saved : { ...saved, config: args.config });
+  render(<PointScan />);
+  await screen.findByText(initial.message);
   more();
   fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
-  expect(screen.getByRole("button", { name: "Continue scanning" })).toHaveAttribute("aria-pressed", "true");
+  more();
+  expect(screen.queryByText("After typing")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Wait for Select" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByRole("button", { name: "Start scanning" }));
+  await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.keyboard).toEqual({ nextScan: "automatic" }));
+  expect(screen.getByRole("button", { name: "Start scanning" })).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(screen.getByRole("button", { name: "Wait for Select" }));
-  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", { config: { ...defaultPointScanConfig, keyboardWaitAfterTyping: true } }));
+  await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.keyboard).toEqual({ nextScan: "wait" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Automatic scanning" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Wait for Select" })).toBeDisabled());
   expect(screen.getByRole("button", { name: "Wait for Select" })).toHaveAttribute("aria-pressed", "true");
