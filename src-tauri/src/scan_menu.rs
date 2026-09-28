@@ -135,6 +135,10 @@ impl Menu {
     pub fn restart_interval(&mut self) {
         self.scan.restart_interval();
     }
+    /// An item that leaves the menu open was chosen.
+    pub fn continue_after_selection(&mut self) {
+        self.scan.continue_after_selection();
+    }
     pub fn advance(&mut self, ms: u64) {
         self.scan.advance(ms, self.period);
     }
@@ -182,7 +186,9 @@ impl Menu {
                 });
             }
         }
-        let text = if self.suspended() {
+        let text = if self.scan.waiting() {
+            "Select to continue"
+        } else if self.suspended() {
             "Select to resume"
         } else if self.scan.nav.escaping() {
             "Back to rows"

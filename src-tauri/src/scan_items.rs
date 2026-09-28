@@ -129,19 +129,26 @@ impl<T: Clone> ItemScanner<T> {
     pub fn waiting(&self) -> bool {
         self.waiting
     }
+    /// Left alone, a menu stays where it is and a panel starts again.
     pub fn stays_at_selection(&self) -> bool {
-        self.options.start_from == StartFrom::Selection
+        match self.options.start_from {
+            StartFrom::Standard => !self.policy.resume_at_root,
+            StartFrom::Beginning => false,
+            StartFrom::Selection => true,
+        }
     }
     pub fn waits_after_selection(&self) -> bool {
         self.options.next_scan == NextScan::Wait && self.options.automatic
     }
     /// Carries on after a selection that did something, as the user chose.
-    /// Left alone, a panel starts again from the beginning by itself.
     pub fn continue_after_selection(&mut self) {
-        if self.stays_at_selection() {
-            self.restart_in_place();
-        } else {
+        if !self.stays_at_selection() {
             self.restart();
+        } else if self.options.start_from == StartFrom::Standard {
+            // A menu left alone also keeps the direction it was turned to.
+            self.restart_interval();
+        } else {
+            self.restart_in_place();
         }
         if self.waits_after_selection() {
             self.wait();
@@ -362,6 +369,62 @@ mod tests {
                     assert!(scan.advance(1, 500));
                 }
             }
+        }
+    }
+    #[test]
+    fn a_menu_left_alone_stays_at_the_selection() {
+        let rows = vec![vec!["copy", "paste"], vec!["save", "close"]];
+        for (start_from, place) in [
+            (StartFrom::Standard, (1, Some(1))),
+            (StartFrom::Selection, (1, Some(1))),
+            (StartFrom::Beginning, (0, None)),
+        ] {
+            for wait in [false, true] {
+                let mut scan = ItemScanner::configured_rows(
+                    &rows,
+                    Policy::MENU,
+                    Resolved {
+                        start_from,
+                        next_scan: if wait {
+                            NextScan::Wait
+                        } else {
+                            NextScan::Standard
+                        },
+                        ..Default::default()
+                    },
+                );
+                scan.handle(Action::Next);
+                scan.handle(Action::Select);
+                scan.handle(Action::Next);
+                assert_eq!(scan.handle(Action::Select), Some("close"));
+                scan.continue_after_selection();
+                assert_eq!(scan.position(&rows), place);
+                assert_eq!(scan.waiting(), wait);
+                if wait {
+                    assert_eq!(scan.handle(Action::Select), None);
+                    assert_eq!(scan.position(&rows), place);
+                }
+                assert!(!scan.advance(499, 500));
+                assert!(scan.advance(1, 500));
+            }
+        }
+        // Left alone, it goes on in the direction it was turned to.
+        for (start_from, turned) in [(StartFrom::Standard, true), (StartFrom::Selection, false)] {
+            let mut scan = ItemScanner::configured_rows(
+                &rows,
+                Policy::MENU,
+                Resolved {
+                    start_from,
+                    ..Default::default()
+                },
+            );
+            scan.handle(Action::Select);
+            scan.handle(Action::Next);
+            scan.handle(Action::Reverse);
+            assert_eq!(scan.handle(Action::Select), Some("paste"));
+            scan.continue_after_selection();
+            scan.advance(500, 500);
+            assert_eq!(scan.position(&rows), (0, turned.then_some(0)));
         }
     }
     #[test]

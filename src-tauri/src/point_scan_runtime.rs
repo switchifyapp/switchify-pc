@@ -246,6 +246,13 @@ impl Adapter for PointScan {
                     settings.scroll_repeat_interval_ms,
                     settings.mouse_repeat_enabled,
                 );
+            } else if technique.follows_foreground() {
+                // There may be no window in front while one is coming forward.
+                match crate::scan_host::foreground() {
+                    Ok(foreground) => environment.foreground = foreground,
+                    Err(_) if technique.awaits_foreground() => return Ok(false),
+                    Err(error) => return Err(error),
+                }
             } else if technique.keyboard_open() {
                 crate::point_scan_ready(app)?;
                 let foreground = crate::scan_host::foreground()?;
