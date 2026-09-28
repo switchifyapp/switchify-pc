@@ -135,10 +135,8 @@ pub struct Workflow {
     elapsed: u64,
     pending: Option<Request>,
     error: Option<String>,
-    /// A scan that started by itself, in which nothing has been chosen yet.
+    /// A point scan in which no switch has moved or chosen anything yet.
     following: bool,
-    /// Times no window was in front of such a scan.
-    unseen: u64,
 }
 impl Workflow {
     pub fn new(config: PointSettings, screen: Rect, scale: f64) -> Result<Self, String> {
@@ -176,7 +174,6 @@ impl Workflow {
             pending: None,
             error: None,
             following: false,
-            unseen: 0,
         })
     }
     fn new_keyboard(&self) -> crate::scan_keyboard::Keyboard {
@@ -233,8 +230,7 @@ impl Workflow {
             self.move_repeat = None;
             self.scroll_repeat = None;
             self.parent_menu.clear();
-            self.stage = Stage::Point;
-            self.point.start();
+            self.begin_point();
         }
     }
     pub fn prediction_keyboard(&mut self) -> Option<&mut crate::scan_keyboard::Keyboard> {
@@ -313,8 +309,8 @@ impl Workflow {
             _ => None,
         }
     }
-    pub fn foreground_changed(&mut self) {
-        self.keyboard.reset_context();
+    pub fn typing_moved(&mut self) {
+        self.keyboard.typing_moved();
     }
     pub fn prediction_enabled(&self) -> bool {
         self.point.config.word_prediction
@@ -322,6 +318,12 @@ impl Workflow {
 
     pub fn set_keyboard_area(&mut self, area: Rect) {
         self.keyboard_area = area;
+    }
+    /// The display the open keyboard is on changed, or was replaced.
+    pub fn set_keyboard_display(&mut self, area: Rect, screen: Rect, scale: f64) {
+        self.keyboard_area = area;
+        self.point.screen = screen;
+        self.point.units_per_logical_pixel = scale;
     }
     pub fn panel_avoids_pointer(&self) -> bool {
         self.point.config.panel_avoids_pointer
@@ -356,31 +358,23 @@ impl Workflow {
     fn used(&mut self) {
         if self.point.config.scan.next_scan == crate::scan_preferences::NextScan::Automatic {
             self.new_point();
-            self.following = true;
-            self.unseen = 0;
         } else {
             self.stage = Stage::Idle;
         }
     }
     fn new_point(&mut self) {
         self.parent_menu.clear();
+        self.begin_point();
+    }
+    fn begin_point(&mut self) {
         self.stage = Stage::Point;
         self.point.start();
+        self.following = true;
     }
-    /// What was just done may bring another window forward. Until something
-    /// is chosen in the scan that followed, no point depends on which.
-    pub fn follows_foreground(&mut self) -> bool {
-        let follows = self.following && self.stage == Stage::Point;
-        if !follows {
-            self.unseen = 0;
-        }
-        follows
-    }
-    /// No window is in front. Scanning holds still for up to a second in
-    /// all in case one is coming forward, and then ends as it always has.
-    pub fn awaits_foreground(&mut self) -> bool {
-        self.unseen += 1;
-        self.unseen * crate::scanning::TICK_MS <= 1000
+    /// A window may come forward or go as a point scan begins. Until a
+    /// switch is used in the scan, no point depends on which is in front.
+    pub fn follows_foreground(&self) -> bool {
+        self.following && self.stage == Stage::Point
     }
     fn restore_actions(&mut self) {
         if let Some(menu) = self.parent_menu.pop() {
@@ -402,13 +396,15 @@ impl Workflow {
         self.elapsed = 0;
         self.error = None;
         self.return_to_mouse = false;
+        // A point chosen earlier is not kept for a window that may change.
+        self.source = (0, 0);
+        self.destination = (0, 0);
         Some(Request::OpenMouse)
     }
     fn open_point(&mut self) -> Option<Request> {
         self.point.config.control_mode = crate::point_scan::ControlMode::Point;
         self.reset();
-        self.stage = Stage::Point;
-        self.point.start();
+        self.begin_point();
         Some(Request::OpenPoint)
     }
     fn mouse_key(&mut self, key: crate::scan_mouse::Key) -> Option<Request> {
@@ -594,7 +590,10 @@ impl Technique for Workflow {
             self.keyboard.failed();
             return;
         }
-        if self.mouse_open() {
+        // The keyboard did not open from the mouse panel, which is still there.
+        let returning = self.stage == Stage::KeyboardOpening && self.return_to_mouse;
+        self.return_to_mouse &= !returning;
+        if self.mouse_open() || returning {
             self.stage = Stage::Mouse;
             self.move_repeat = None;
             self.scroll_repeat = None;
@@ -626,8 +625,7 @@ impl Technique for Workflow {
         if mode == crate::point_scan::ControlMode::Mouse {
             let _ = self.open_mouse();
         } else {
-            self.stage = Stage::Point;
-            self.point.start();
+            self.begin_point();
         }
     }
     fn reset(&mut self) {
@@ -1112,20 +1110,19 @@ mod tests {
                 assert_eq!(s.frame() != Frame::default(), again, "{next_scan:?}");
                 assert_eq!(s.technique.follows_foreground(), again);
                 if again {
-                    // No window in front is waited out, but not for ever.
-                    let waited = (0..100)
-                        .take_while(|_| s.technique.awaits_foreground())
-                        .count() as u64;
-                    assert_eq!(waited, 1000 / crate::scanning::TICK_MS);
-                    assert!(s.technique.follows_foreground());
                     // Once something is chosen, the window is held to.
                     s.tick(33, false);
                     assert!(s.technique.follows_foreground());
                     s.action(Action::Select);
                     assert!(!s.technique.follows_foreground());
                     s.action(Action::Cancel);
+                    // A scan begun with Select follows until a switch is used in it.
                     s.action(Action::Select);
+                    assert!(s.technique.follows_foreground());
+                    s.action(Action::Next);
                     assert!(!s.technique.follows_foreground());
+                    s.action(Action::Cancel);
+                    s.action(Action::Select);
                     assert_eq!(
                         s.technique.phase(),
                         Phase::Point(crate::point_scan::Phase::X)
@@ -1663,7 +1660,56 @@ mod tests {
         assert!(idle.active());
     }
     #[test]
-    fn foreground_change_keeps_keyboard_layout_but_clears_context_and_modifiers() {
+    fn a_point_scan_follows_the_window_only_while_nothing_is_chosen() {
+        let mut s = session(false);
+        s.action(Action::Select);
+        assert!(s.technique.follows_foreground());
+        // Pausing chooses nothing.
+        s.action(Action::Pause);
+        s.action(Action::Pause);
+        assert!(s.technique.follows_foreground());
+        s.action(Action::Select);
+        assert!(!s.technique.follows_foreground());
+        s.action(Action::Select);
+        // The source of a drag was chosen over a window.
+        s.technique.selected(Item::Drag);
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::DragDestination)
+        );
+        assert!(!s.technique.follows_foreground());
+        // A scan restarted by a change of mode has nothing chosen in it.
+        s.technique.apply_config(Config::default().point(), true);
+        assert!(s.technique.follows_foreground());
+    }
+    #[test]
+    fn a_keyboard_that_fails_to_open_from_the_mouse_panel_returns_to_it() {
+        let mut s = session(false);
+        open(&mut s);
+        assert_ne!(s.technique.source, (0, 0));
+        assert_eq!(
+            s.technique.selected(Item::MousePanel),
+            Some(Request::OpenMouse)
+        );
+        // The point chosen before is not kept.
+        assert_eq!(s.technique.source, (0, 0));
+        assert_eq!(
+            s.technique.mouse_key(crate::scan_mouse::Key::Keyboard),
+            Some(Request::OpenKeyboard)
+        );
+        s.technique.execution_failed("Cleanup failed".into());
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::MouseSuspended)
+        );
+        assert!(!s.technique.return_to_mouse);
+        assert_eq!(
+            s.frame().tiles.last().unwrap().text,
+            "Mouse action failed · Select to resume"
+        );
+    }
+    #[test]
+    fn another_window_in_front_takes_the_suggestions_and_nothing_else() {
         let mut s = session(false);
         s.action(Action::OpenKeyboard);
         s.technique.execution_succeeded();
@@ -1677,14 +1723,40 @@ mod tests {
             }),
             false,
         );
-        s.technique.foreground_changed();
+        s.action(Action::Next);
+        s.action(Action::Next);
+        s.action(Action::Select);
+        s.action(Action::Next);
+        let selected = |s: &Session<Workflow>| {
+            let tiles = s.frame().tiles;
+            let selected: Vec<_> = tiles.into_iter().filter(|t| t.selected).collect();
+            assert_eq!(selected.len(), 1);
+            selected[0].text.clone()
+        };
+        let key = selected(&s);
+        s.technique.typing_moved();
         assert!(s.technique.keyboard_open());
         assert_eq!(
-            s.technique.keyboard.modifiers,
-            [crate::scan_keyboard::Modifier::Off; 4]
+            s.technique.keyboard.modifiers[1],
+            crate::scan_keyboard::Modifier::Locked
         );
-        assert!(!s.technique.keyboard.caps);
+        assert!(s.technique.keyboard.caps);
+        assert_eq!(selected(&s), key);
         assert!(!s.frame().tiles.iter().any(|t| t.text == "water"));
+        // The keyboard follows its display without closing.
+        let area = Rect {
+            x: 1920.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 680.0,
+        };
+        let before = s.frame().tiles[0].rect;
+        s.technique.set_keyboard_display(area, area, 1.0);
+        assert!(s.technique.keyboard_open());
+        assert_eq!(selected(&s), key);
+        let after = s.frame().tiles[0].rect;
+        assert_ne!(after, before);
+        assert!(after.x >= area.x && after.y + after.height <= area.y + area.height);
     }
     #[test]
     fn keyboard_opening_waits_for_cleanup_and_failure_stays_in_menu() {

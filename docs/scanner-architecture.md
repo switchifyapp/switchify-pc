@@ -102,7 +102,7 @@ Rules that hold whatever is chosen:
 - `wait` has no effect in an area that is not automatic, except that point scanning always waits unless `automatic` is chosen.
 - A point scan that starts by itself still stops at the pass limit.
 
-A point scan that started by itself takes up whichever window is in front until a switch is used in it, because the click before it may have brought another window forward. From then on, a change of window ends the scan as usual. While such a scan has no window in front, it holds still for up to a second, then ends as usual.
+Every point scan takes up whichever window is in front, or none, until a switch moves or chooses something in it. A click may have brought another window forward, and a panel may just have closed. From then on, a change of window ends the scan as usual. A change of display or work area ends a point scan at any time. The keyboard and the mouse panel are not tied to any window or display; see [the keyboard](qwerty-keyboard.md).
 
 `keyboardWaitAfterTyping`, saved by earlier versions, still makes the keyboard wait. It applies only while the keyboard has no `nextScan` of its own and the shared value is `standard`. Settings no longer offers or changes it; the saved value is kept.
 

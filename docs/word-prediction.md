@@ -99,7 +99,7 @@ For native validation, use disposable synthetic text in Notepad and a browser on
 2. Type `w`, then `a`, accept `water`, and continue typing. Existing or pasted text must never become prediction context.
 3. Change pages and docking, type punctuation and numbers, and return to Letters. Verify context survives these layout changes and Backspace edits the tracked buffer.
 4. Use external keyboard/mouse activity. Verify suggestions clear and a new first letter starts fresh context. Then type `hel`, press an arrow key, and type `l`: verify no suggestions appear and the badge reads “Suggestions resume next word” until a space is typed. Repeat with Retry predictions and with a shortcut in place of the arrow key.
-5. Change foreground apps with locked modifiers selected. Verify the keyboard stays open, modifiers and suggestions reset, and later keys go to the new app.
+5. Change foreground apps with locked modifiers selected. Verify the keyboard stays open, the modifiers stay locked, suggestions clear, and later keys go to the new app.
 6. Close the keyboard, stop scanning, disconnect and exit. Verify input releases and the prediction worker exits. After closing the keyboard one spare worker remains; reopen after a few seconds and within two minutes, and verify the loading badge clears almost immediately, then verify the spare exits after two minutes idle and when scanning stops. Test observer failure separately; typing should remain usable without predictions.
 
 Compilation and fake-adapter tests do not establish native application compatibility. Record live results separately.
