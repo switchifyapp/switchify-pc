@@ -345,6 +345,17 @@ impl Workflow {
         self.menu = Menu::configured(kind, self.point.config.menu_scan);
         self.stage = Stage::Menu;
     }
+    /// The point has been used. The next scan waits for Select unless the
+    /// user chose to have it start by itself.
+    fn used(&mut self) {
+        if self.point.config.scan.next_scan == crate::scan_preferences::NextScan::Automatic {
+            self.parent_menu.clear();
+            self.stage = Stage::Point;
+            self.point.start();
+        } else {
+            self.stage = Stage::Idle;
+        }
+    }
     fn restore_actions(&mut self) {
         if let Some(menu) = self.parent_menu.pop() {
             self.menu = menu;
@@ -481,8 +492,10 @@ impl Workflow {
                     .push(std::mem::replace(&mut self.menu, next));
             }
             Item::Command(command) => {
-                if !command.stays_open() {
-                    self.stage = Stage::Idle;
+                if command.stays_open() {
+                    self.menu.continue_after_selection();
+                } else {
+                    self.used();
                 }
                 return Some(Request::Command {
                     command,
@@ -497,7 +510,7 @@ impl Workflow {
             }
 
             Item::LeftClick | Item::RightClick | Item::DoubleClick => {
-                self.stage = Stage::Idle;
+                self.used();
                 return Some(if item == Item::LeftClick {
                     default_click(self.source)
                 } else {
@@ -524,7 +537,7 @@ impl Workflow {
             }
             Item::Cancel => self.reset(),
             Item::Up | Item::Down | Item::Left | Item::Right => {
-                self.menu.restart_interval();
+                self.menu.continue_after_selection();
                 let (dx, dy) = match item {
                     Item::Up => (0, 3),
                     Item::Down => (0, -3),
@@ -769,7 +782,7 @@ impl Technique for Workflow {
                     .min(self.point.config.auto_select_delay_ms);
                 if self.elapsed == self.point.config.auto_select_delay_ms {
                     self.pending = Some(default_click(self.source));
-                    self.stage = Stage::Idle;
+                    self.used();
                 }
             }
         } else if self.stage == Stage::Executing {
@@ -782,7 +795,7 @@ impl Technique for Workflow {
                     .round() as i32,
             );
             self.pending = Some(if self.elapsed == 300 {
-                self.stage = Stage::Idle;
+                self.used();
                 Request::DragEnd(p)
             } else {
                 Request::DragMove(p)
@@ -1032,6 +1045,114 @@ mod tests {
         assert_eq!(status(&session), "Mouse action failed · Select to resume");
         session.action(Action::Select);
         assert_eq!(status(&session), "Movement · Select a row");
+    }
+    #[test]
+    fn the_next_point_scan_starts_by_itself_where_the_user_chose_to() {
+        use crate::scan_preferences::NextScan;
+        for next_scan in [NextScan::Standard, NextScan::Wait, NextScan::Automatic] {
+            for auto_select in [false, true] {
+                let mut config = Config {
+                    block_interval_ms: 250,
+                    auto_select_enabled: auto_select,
+                    auto_select_delay_ms: 500,
+                    ..Default::default()
+                };
+                config.scan_preferences.point.next_scan = Some(next_scan);
+                // The menu's own choice does not decide this.
+                config.scan_preferences.menu.next_scan = Some(NextScan::Automatic);
+                let screen = Rect {
+                    x: -1000.0,
+                    y: 20.0,
+                    width: 1000.0,
+                    height: 800.0,
+                };
+                let mut s = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
+                for _ in 0..3 {
+                    assert_eq!(s.action(Action::Select), None);
+                }
+                let click = if auto_select {
+                    (0..50).find_map(|_| {
+                        s.tick(33, false);
+                        s.take_selection()
+                    })
+                } else {
+                    let click = s.technique.selected(Item::LeftClick);
+                    s.take_selection();
+                    click
+                };
+                assert!(
+                    matches!(click, Some(Request::Click { .. })),
+                    "{next_scan:?} {click:?}"
+                );
+                let again = next_scan == NextScan::Automatic;
+                assert_eq!(s.frame() != Frame::default(), again, "{next_scan:?}");
+                if again {
+                    assert_eq!(
+                        s.technique.phase(),
+                        Phase::Point(crate::point_scan::Phase::X)
+                    );
+                    // A click that failed is still reported.
+                    s.technique.execution_failed("failed".into());
+                    assert_eq!(
+                        s.technique.phase(),
+                        Phase::Workflow(WorkflowPhase::MenuSuspended)
+                    );
+                    s.action(Action::Select);
+                    s.technique.selected(Item::NewPoint);
+                    // And the pass limit still stops it.
+                    for _ in 0..400 {
+                        s.tick(250, false);
+                    }
+                    assert_eq!(s.frame(), Frame::default());
+                }
+            }
+        }
+    }
+    #[test]
+    fn scrolling_continues_in_the_menu_as_the_user_chose() {
+        use crate::scan_preferences::{NextScan, StartFrom};
+        for (next_scan, start_from) in [
+            (NextScan::Standard, StartFrom::Standard),
+            (NextScan::Wait, StartFrom::Selection),
+            (NextScan::Wait, StartFrom::Beginning),
+            (NextScan::Automatic, StartFrom::Beginning),
+        ] {
+            let mut config = Config {
+                automatic: true,
+                block_interval_ms: 250,
+                ..Default::default()
+            };
+            config.scan_preferences.menu.next_scan = Some(next_scan);
+            config.scan_preferences.menu.start_from = Some(start_from);
+            let screen = Rect {
+                x: -1000.0,
+                y: 20.0,
+                width: 1000.0,
+                height: 800.0,
+            };
+            let mut s = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
+            open(&mut s);
+            choose(&mut s, 1, 0);
+            assert!(matches!(choose(&mut s, 0, 1), Some(Request::Scroll { .. })));
+            let waits = next_scan == NextScan::Wait;
+            assert_eq!(
+                s.technique.phase(),
+                Phase::Workflow(if waits {
+                    WorkflowPhase::MenuSuspended
+                } else {
+                    WorkflowPhase::Menu
+                })
+            );
+            if waits {
+                s.tick(5000, false);
+                assert_eq!(s.action(Action::Select), None);
+            }
+            assert_eq!(
+                matches!(s.action(Action::Select), Some(Request::Scroll { .. })),
+                start_from != StartFrom::Beginning,
+                "{start_from:?}"
+            );
+        }
     }
     #[test]
     fn mouse_motion_stops_on_press_and_returns_to_first_row() {
