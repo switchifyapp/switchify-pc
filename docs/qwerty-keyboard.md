@@ -4,7 +4,7 @@ Switchify has its own UK English keyboard on Windows and macOS. It uses the save
 
 Select **Keyboard** in the action menu, or assign **Open keyboard** to a switch press or hold action in Settings → Switches. The switch opens the keyboard from idle, point scanning, menus, pauses and drags. Opening releases owned input and preserves the existing foreground focus without clicking. The keyboard does not take focus or accept mouse clicks.
 
-Scan a row, select it, then scan and select a key. The escape slot returns to rows. After typing, scanning starts again at the first row. Existing automatic/manual movement, speed, pause, reverse and inactivity suspension apply. The keyboard stays open after Space, Backspace, Enter and Tab. **Close** returns to point scanning.
+Scan a row, select it, then scan and select a key. The escape slot returns to rows. After typing, scanning starts again at the beginning: the first row, or the last when the direction is reverse. After a selection and Start again from, under Scanning settings, can make it wait for Select or continue from the key just typed; see [After a selection](scanner-architecture.md#after-a-selection). Existing automatic/manual movement, speed, pause, reverse and inactivity suspension apply. The keyboard stays open after Space, Backspace, Enter and Tab. **Close** returns to point scanning.
 
 Pages:
 
@@ -25,7 +25,7 @@ Use synthetic text in Notepad and a browser on Windows, and TextEdit and a brows
 1. Open Keyboard from the menu and an assigned switch while idle, scanning, paused and dragging. Verify no click or focus change occurs and owned input is released.
 2. Type lowercase letters, uppercase letters with Shift/Caps, and UK punctuation including £, @ and double quotes. Test Space, Backspace, Enter and Tab.
 3. Test Ctrl+A/C/V on Windows and Command+A/C/V on macOS. Cycle once/locked/off, including Shift with another modifier, and confirm no modifier remains physically held between selections.
-4. Visit every page. Verify row/key highlighting, reverse movement, row escape, suspension/resume, returning to the first row after a key and Close.
+4. Visit every page. Verify row/key highlighting, reverse movement, row escape, suspension/resume, returning to the beginning after a key and Close. Set Start again from to Where I selected and After a selection to Wait for Select for the keyboard, with automatic scanning; verify the highlight stays on the typed key, waits for Select, and returns to the beginning after a suggestion.
 5. Move the keyboard between the top and bottom. Check a scaled display and a secondary display, including negative coordinates. Verify the keyboard fits the work area and never activates its native windows.
 6. Switch foreground apps and verify the keyboard remains open with cleared modifiers and predictions. Disconnect remote scanning, change display configuration and close Switchify; verify overlays disappear and owned input is released.
 
