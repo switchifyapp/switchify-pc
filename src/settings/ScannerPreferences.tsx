@@ -2,7 +2,7 @@ import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { ScanningController, ScannerColor, PointScanConfig } from '../scanning/useScanning';
-import { areaOptions, sharedOptions, defaultScanPreferences, type ScanArea, type ScanOptions } from '../scanning/preferences';
+import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, savedKeyboardWait, type ScanArea, type ScanOptions } from '../scanning/preferences';
 import { SettingGroup, Toggle, OptionGroup } from './controls';
 
 export function ScannerPreferences({ controller }: { controller: ScanningController }) {
@@ -45,6 +45,11 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
   const settings = config.scanPreferences ?? defaultScanPreferences;
   const shared = sharedOptions(config);
   const effective = area === 'shared' ? shared : areaOptions(config, area);
+  // A scanner shows what it will do, so its usual behaviour stands in for "standard".
+  const usual = area === 'shared' ? null : usualAfterSelection(config, area);
+  const nextScan = effective.nextScan === 'standard' && usual ? usual.nextScan : effective.nextScan;
+  const startFrom = effective.startFrom === 'standard' && usual ? usual.startFrom : effective.startFrom;
+  const usualOption = area === 'shared' ? [{ value: 'standard' as const, label: 'Usual for each scanner' }] : [];
   const change = <K extends keyof ScanOptions>(key: K, value: ScanOptions[K] | undefined) => {
     if (area !== 'shared') {
       const overrides = { ...(settings[area] ?? {}), [key]: value };
@@ -141,10 +146,6 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     </SettingGroup>}
     <SettingGroup title="Movement" description="">
     {field('automatic', 'Automatic scanning', locked => <Toggle label="Automatic scanning" checked={effective.automatic} disabled={locked} onChange={value => change('automatic', value)} />)}
-    {area === 'keyboard' && <OptionGroup<'continue' | 'wait'> legend="After typing" disabled={disabled || !effective.automatic} value={config.keyboardWaitAfterTyping ? 'wait' : 'continue'}
-      options={[{ value: 'continue', label: 'Continue scanning' }, { value: 'wait', label: 'Wait for Select' }]}
-      onChange={value => update('keyboardWaitAfterTyping', value === 'wait')}
-      note={{ summary: effective.automatic ? 'After typing a key or suggestion, wait for Select before scanning again.' : 'Used in automatic keyboard scanning. Your choice is kept while scanning manually.' }} />}
     {field('intervalMs', 'Auto scan rate', locked => <>
       <div className="exact-speed"><span>Auto scan rate</span><div className="scan-rate-stepper">
         <Button type="button" aria-label="Decrease auto scan interval by 0.1 seconds" disabled={locked || !effective.automatic || effective.intervalMs <= 100} onClick={() => change('intervalMs', Math.max(100, effective.intervalMs - 100))}>−</Button>
@@ -155,6 +156,17 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     </>)}
     </SettingGroup>
     <MoreOptions>
+    {field('nextScan', 'After a selection', locked => <OptionGroup<ScanOptions['nextScan']> legend="After a selection" columns={area === 'shared' ? 'three' : undefined} disabled={locked || (area !== 'shared' && area !== 'point' && !effective.automatic)} value={nextScan}
+      options={[...usualOption, { value: 'automatic', label: 'Keep scanning' }, { value: 'wait', label: 'Wait for Select' }]} onChange={value => change('nextScan', value)}
+      note={{ summary: area === 'point' ? 'After a click, the next point scan starts by itself or waits for Select. Scanning still stops at the pass limit.'
+        : area !== 'shared' && !effective.automatic ? 'Used in automatic scanning. Your choice is kept while scanning manually.'
+        : area === 'shared' ? 'After a selection that does something, such as typing a key or clicking, scanning starts again by itself or waits for Select. Usually, scanning waits after a click and starts again after anything else.' + (savedKeyboardWait(config) ? ' The keyboard waits, as saved earlier.' : '') + ' Waiting applies to scanners that scan automatically.'
+        : 'After a selection that does something, such as typing a key or scrolling, scanning starts again by itself or waits for Select.' + (area === 'keyboard' && savedKeyboardWait(config) ? ' Waiting is the default here because it was saved earlier as After typing.' : '') }} />)}
+    {area !== 'point' && field('startFrom', 'Start again from', locked => <OptionGroup<ScanOptions['startFrom']> legend="Start again from" columns={area === 'shared' ? 'three' : undefined} disabled={locked} value={startFrom}
+      options={[...usualOption, { value: 'beginning', label: 'The beginning' }, { value: 'selection', label: 'Where I selected' }]} onChange={value => change('startFrom', value)}
+      note={{ summary: area === 'shared' ? 'Where scanning starts after a selection that does something. Usually, menus stay where you selected, and the keyboard and mouse panel return to the beginning. Point scanning always starts from the beginning.'
+        : area === 'keyboard' ? 'Where scanning starts after typing a key. After a suggestion, or when changing page, it starts from the beginning.'
+        : 'Where scanning starts after a selection that does something. Opening another page or menu starts from its beginning.' }} />)}
     {field('direction', 'Initial direction', locked => <OptionGroup<ScanOptions['direction']> legend="Initial direction" disabled={locked} value={effective.direction} options={[{ value: 'forward', label: 'Forward' }, { value: 'reverse', label: 'Reverse' }]} onChange={value => change('direction', value)} />)}
     {field('passLimit', 'Pass limit', locked => <OptionGroup<number> legend="Pass limit" disabled={locked} value={effective.passLimit} options={[1, 2, 3, 5, 0].map(value => ({ value, label: value ? `${value} ${value === 1 ? 'pass' : 'passes'}` : 'Unlimited' }))} onChange={value => change('passLimit', value)}
       note={{ summary: 'After this many automatic passes, scanning waits for Select. Unlimited keeps scanning until you pause or stop.' }} />)}
