@@ -137,6 +137,8 @@ pub struct Workflow {
     error: Option<String>,
     /// A scan that started by itself, in which nothing has been chosen yet.
     following: bool,
+    /// Times no window was in front of such a scan.
+    unseen: u64,
 }
 impl Workflow {
     pub fn new(config: PointSettings, screen: Rect, scale: f64) -> Result<Self, String> {
@@ -174,6 +176,7 @@ impl Workflow {
             pending: None,
             error: None,
             following: false,
+            unseen: 0,
         })
     }
     fn new_keyboard(&self) -> crate::scan_keyboard::Keyboard {
@@ -354,6 +357,7 @@ impl Workflow {
         if self.point.config.scan.next_scan == crate::scan_preferences::NextScan::Automatic {
             self.new_point();
             self.following = true;
+            self.unseen = 0;
         } else {
             self.stage = Stage::Idle;
         }
@@ -365,8 +369,18 @@ impl Workflow {
     }
     /// What was just done may bring another window forward. Until something
     /// is chosen in the scan that followed, no point depends on which.
-    pub fn follows_foreground(&self) -> bool {
-        self.following && self.stage == Stage::Point
+    pub fn follows_foreground(&mut self) -> bool {
+        let follows = self.following && self.stage == Stage::Point;
+        if !follows {
+            self.unseen = 0;
+        }
+        follows
+    }
+    /// No window is in front. Scanning holds still for up to a second in
+    /// all in case one is coming forward, and then ends as it always has.
+    pub fn awaits_foreground(&mut self) -> bool {
+        self.unseen += 1;
+        self.unseen * crate::scanning::TICK_MS <= 1000
     }
     fn restore_actions(&mut self) {
         if let Some(menu) = self.parent_menu.pop() {
@@ -1098,6 +1112,12 @@ mod tests {
                 assert_eq!(s.frame() != Frame::default(), again, "{next_scan:?}");
                 assert_eq!(s.technique.follows_foreground(), again);
                 if again {
+                    // No window in front is waited out, but not for ever.
+                    let waited = (0..100)
+                        .take_while(|_| s.technique.awaits_foreground())
+                        .count() as u64;
+                    assert_eq!(waited, 1000 / crate::scanning::TICK_MS);
+                    assert!(s.technique.follows_foreground());
                     // Once something is chosen, the window is held to.
                     s.tick(33, false);
                     assert!(s.technique.follows_foreground());

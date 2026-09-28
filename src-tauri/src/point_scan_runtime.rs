@@ -248,10 +248,11 @@ impl Adapter for PointScan {
                 );
             } else if technique.follows_foreground() {
                 // There may be no window in front while one is coming forward.
-                let Ok(foreground) = crate::scan_host::foreground() else {
-                    return Ok(false);
-                };
-                environment.foreground = foreground;
+                match crate::scan_host::foreground() {
+                    Ok(foreground) => environment.foreground = foreground,
+                    Err(_) if technique.awaits_foreground() => return Ok(false),
+                    Err(error) => return Err(error),
+                }
             } else if technique.keyboard_open() {
                 crate::point_scan_ready(app)?;
                 let foreground = crate::scan_host::foreground()?;
