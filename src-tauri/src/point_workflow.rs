@@ -135,7 +135,7 @@ pub struct Workflow {
     elapsed: u64,
     pending: Option<Request>,
     error: Option<String>,
-    /// A point scan in which no switch has been used yet.
+    /// A point scan in which no switch has moved or chosen anything yet.
     following: bool,
 }
 impl Workflow {
@@ -230,8 +230,7 @@ impl Workflow {
             self.move_repeat = None;
             self.scroll_repeat = None;
             self.parent_menu.clear();
-            self.stage = Stage::Point;
-            self.point.start();
+            self.begin_point();
         }
     }
     pub fn prediction_keyboard(&mut self) -> Option<&mut crate::scan_keyboard::Keyboard> {
@@ -1659,6 +1658,29 @@ mod tests {
             Some(Request::OpenKeyboard)
         );
         assert!(idle.active());
+    }
+    #[test]
+    fn a_point_scan_follows_the_window_only_while_nothing_is_chosen() {
+        let mut s = session(false);
+        s.action(Action::Select);
+        assert!(s.technique.follows_foreground());
+        // Pausing chooses nothing.
+        s.action(Action::Pause);
+        s.action(Action::Pause);
+        assert!(s.technique.follows_foreground());
+        s.action(Action::Select);
+        assert!(!s.technique.follows_foreground());
+        s.action(Action::Select);
+        // The source of a drag was chosen over a window.
+        s.technique.selected(Item::Drag);
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::DragDestination)
+        );
+        assert!(!s.technique.follows_foreground());
+        // A scan restarted by a change of mode has nothing chosen in it.
+        s.technique.apply_config(Config::default().point(), true);
+        assert!(s.technique.follows_foreground());
     }
     #[test]
     fn a_keyboard_that_fails_to_open_from_the_mouse_panel_returns_to_it() {

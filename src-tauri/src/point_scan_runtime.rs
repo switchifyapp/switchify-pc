@@ -14,11 +14,13 @@ pub struct Environment {
     foreground: Option<usize>,
     /// The keyboard or mouse panel is open. No window matters to a panel.
     panel: bool,
+    /// Nothing is chosen yet in the point scan, which takes up any window.
+    following: bool,
     keyboard_area: Rect,
 }
 /// A point is chosen over one window and must not be used on another.
 fn window_changed(environment: &Environment, foreground: Option<usize>) -> bool {
-    !environment.panel && environment.foreground != foreground
+    !environment.panel && !environment.following && environment.foreground != foreground
 }
 /// Where the open keyboard belongs: on its own display while that exists,
 /// however it has changed, and otherwise on the display under the pointer.
@@ -239,29 +241,35 @@ impl Adapter for PointScan {
         technique: Option<&mut Workflow>,
     ) -> Result<bool, String> {
         if let (Some(environment), Some(technique)) = (environment, technique) {
+            environment.following = false;
             if technique.mouse_open() {
-                let (cursor, displays) =
-                    display_navigation::displays(app).map_err(|e| e.message)?;
-                let current = display_navigation::current_display(cursor, &displays)
-                    .ok_or("No scanning display is available.")?
-                    .clone();
-                let rect = bounds(&current);
-                let area = crate::scan_host::work_area(rect)?;
-                environment.display = current;
-                environment.keyboard_area = area;
                 environment.foreground = crate::scan_host::foreground().ok();
                 environment.panel = true;
-                technique.set_mouse_area(
-                    area,
-                    rect,
-                    if cfg!(target_os = "windows") {
-                        environment.display.scale_factor
-                    } else {
-                        1.0
-                    },
-                    displays.len(),
-                );
-                technique.set_pointer(Some(cursor));
+                // While the displays cannot be read the panel stays where it is.
+                let placed =
+                    display_navigation::displays(app)
+                        .ok()
+                        .and_then(|(cursor, displays)| {
+                            let current =
+                                display_navigation::current_display(cursor, &displays)?.clone();
+                            let area = crate::scan_host::work_area(bounds(&current)).ok()?;
+                            Some((cursor, displays.len(), current, area))
+                        });
+                if let Some((cursor, displays, current, area)) = placed {
+                    technique.set_mouse_area(
+                        area,
+                        bounds(&current),
+                        if cfg!(target_os = "windows") {
+                            current.scale_factor
+                        } else {
+                            1.0
+                        },
+                        displays,
+                    );
+                    technique.set_pointer(Some(cursor));
+                    environment.display = current;
+                    environment.keyboard_area = area;
+                }
                 let settings = app.state::<crate::state::AppModel>().snapshot().settings;
                 technique.set_mouse_settings(
                     settings.pointer_scale_percent,
@@ -273,6 +281,7 @@ impl Adapter for PointScan {
             } else if technique.follows_foreground() {
                 environment.foreground = crate::scan_host::foreground().ok();
                 environment.panel = false;
+                environment.following = true;
             } else if technique.keyboard_open() {
                 crate::point_scan_ready(app)?;
                 // The keyboard stays as it is whatever is in front. Only what
@@ -375,6 +384,7 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
             display,
             foreground: crate::scan_host::foreground().ok(),
             panel: false,
+            following: false,
             keyboard_area,
         },
     ))
@@ -486,16 +496,21 @@ mod tests {
     }
     #[test]
     fn only_a_chosen_point_is_held_to_its_window() {
-        let environment = |panel, foreground| Environment {
+        let environment = |panel, following, foreground| Environment {
             display: display("one", 0, 1920),
             foreground,
             panel,
+            following,
             keyboard_area: bounds(&display("one", 0, 1920)),
         };
         for now in [None, Some(1), Some(2)] {
             for held in [None, Some(1)] {
-                assert!(!window_changed(&environment(true, held), now));
-                assert_eq!(window_changed(&environment(false, held), now), held != now);
+                assert!(!window_changed(&environment(true, false, held), now));
+                assert!(!window_changed(&environment(false, true, held), now));
+                assert_eq!(
+                    window_changed(&environment(false, false, held), now),
+                    held != now
+                );
             }
         }
     }
