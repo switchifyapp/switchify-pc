@@ -685,16 +685,23 @@ impl Keyboard {
             self.clear_auto_capital();
         }
     }
-    pub fn reset_context(&mut self) {
-        self.modifiers = [Modifier::Off; 4];
-        self.caps = false;
-        self.activation = None;
+    /// Typing continues in another window. What was typed and suggested
+    /// stays behind; the keys latched and the highlight do not change.
+    pub fn typing_moved(&mut self) {
         self.owned_space = None;
-        self.capitalize_next = false;
-        self.auto_shift = false;
-        self.capital_context = None;
+        self.clear_auto_capital();
         self.pending_typed = None;
         self.predictions(None, self.prediction_failed);
+        // A suggestion being typed was abandoned with its window.
+        if self.activation.take().is_some() {
+            self.restart();
+        }
+    }
+    #[cfg(test)]
+    fn reset_context(&mut self) {
+        self.modifiers = [Modifier::Off; 4];
+        self.caps = false;
+        self.typing_moved();
         self.restart();
     }
     pub fn failed(&mut self) {

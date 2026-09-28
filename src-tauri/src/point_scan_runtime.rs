@@ -10,8 +10,23 @@ use tauri::{AppHandle, Manager};
 #[derive(Clone)]
 pub struct Environment {
     display: Display,
-    foreground: usize,
+    /// The window in front, if there is one.
+    foreground: Option<usize>,
+    /// The keyboard or mouse panel is open. No window matters to a panel.
+    panel: bool,
     keyboard_area: Rect,
+}
+/// A point is chosen over one window and must not be used on another.
+fn window_changed(environment: &Environment, foreground: Option<usize>) -> bool {
+    !environment.panel && environment.foreground != foreground
+}
+fn bounds(display: &Display) -> Rect {
+    Rect {
+        x: display.x.into(),
+        y: display.y.into(),
+        width: display.width.into(),
+        height: display.height.into(),
+    }
 }
 pub struct PointScan;
 pub type Controller = scanning_runtime::Controller<PointScan>;
@@ -217,16 +232,12 @@ impl Adapter for PointScan {
                 let current = display_navigation::current_display(cursor, &displays)
                     .ok_or("No scanning display is available.")?
                     .clone();
-                let rect = Rect {
-                    x: current.x.into(),
-                    y: current.y.into(),
-                    width: current.width.into(),
-                    height: current.height.into(),
-                };
+                let rect = bounds(&current);
                 let area = crate::scan_host::work_area(rect)?;
                 environment.display = current;
                 environment.keyboard_area = area;
-                environment.foreground = crate::scan_host::foreground()?;
+                environment.foreground = crate::scan_host::foreground().ok();
+                environment.panel = true;
                 technique.set_mouse_area(
                     area,
                     rect,
@@ -249,18 +260,47 @@ impl Adapter for PointScan {
             } else if technique.follows_foreground() {
                 // There may be no window in front while one is coming forward.
                 match crate::scan_host::foreground() {
-                    Ok(foreground) => environment.foreground = foreground,
+                    Ok(foreground) => environment.foreground = Some(foreground),
                     Err(_) if technique.awaits_foreground() => return Ok(false),
                     Err(error) => return Err(error),
                 }
+                environment.panel = false;
             } else if technique.keyboard_open() {
                 crate::point_scan_ready(app)?;
-                let foreground = crate::scan_host::foreground()?;
+                // The keyboard stays as it is whatever is in front. Only what
+                // was typed, suggested or held down belongs to one window.
+                let foreground = crate::scan_host::foreground().ok();
                 if environment.foreground != foreground {
                     crate::scan_executor::cleanup()?;
                     crate::prediction::reset();
-                    technique.foreground_changed();
+                    technique.typing_moved();
                     environment.foreground = foreground;
+                }
+                environment.panel = true;
+                // The keyboard moves to fit its display rather than closing.
+                let (cursor, displays) =
+                    display_navigation::displays(app).map_err(|e| e.message)?;
+                let current = if displays.contains(&environment.display) {
+                    environment.display.clone()
+                } else {
+                    display_navigation::current_display(cursor, &displays)
+                        .ok_or("No scanning display is available.")?
+                        .clone()
+                };
+                let rect = bounds(&current);
+                let area = crate::scan_host::work_area(rect)?;
+                if environment.display != current || environment.keyboard_area != area {
+                    technique.set_keyboard_display(
+                        area,
+                        rect,
+                        if cfg!(target_os = "windows") {
+                            current.scale_factor
+                        } else {
+                            1.0
+                        },
+                    );
+                    environment.display = current;
+                    environment.keyboard_area = area;
                 }
                 // An unreadable pointer only stops the panel moving; it never stops scanning.
                 technique.set_pointer(if technique.panel_avoids_pointer() {
@@ -269,6 +309,11 @@ impl Adapter for PointScan {
                     None
                 });
             } else {
+                if environment.panel {
+                    // Point scanning begins again over whatever is in front now.
+                    environment.panel = false;
+                    environment.foreground = crate::scan_host::foreground().ok();
+                }
                 technique.set_pointer(None);
             }
         }
@@ -311,28 +356,15 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
     } else {
         1.0
     };
-    let mut e = Workflow::new(
-        config.point(),
-        Rect {
-            x: display.x.into(),
-            y: display.y.into(),
-            width: display.width.into(),
-            height: display.height.into(),
-        },
-        units,
-    )?;
-    let keyboard_area = crate::scan_host::work_area(Rect {
-        x: display.x.into(),
-        y: display.y.into(),
-        width: display.width.into(),
-        height: display.height.into(),
-    })?;
+    let mut e = Workflow::new(config.point(), bounds(&display), units)?;
+    let keyboard_area = crate::scan_host::work_area(bounds(&display))?;
     e.set_keyboard_area(keyboard_area);
     Ok((
         e,
         Environment {
             display,
-            foreground: crate::scan_host::foreground()?,
+            foreground: crate::scan_host::foreground().ok(),
+            panel: false,
             keyboard_area,
         },
     ))
@@ -340,21 +372,14 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
 fn validate_display(app: &AppHandle, display: Option<&Environment>) -> Result<(), String> {
     crate::point_scan_ready(app)?;
     if let Some(expected) = display {
-        if crate::scan_host::foreground()? != expected.foreground {
+        if window_changed(expected, crate::scan_host::foreground().ok()) {
             return Err("Foreground application changed. Select a new point.".into());
         }
         let (_, displays) = display_navigation::displays(app).map_err(|e| e.message)?;
         if !displays.contains(&expected.display) {
             return Err("Display geometry changed. Scanning restarts.".into());
         }
-        let d = &expected.display;
-        if crate::scan_host::work_area(Rect {
-            x: d.x.into(),
-            y: d.y.into(),
-            width: d.width.into(),
-            height: d.height.into(),
-        })? != expected.keyboard_area
-        {
+        if crate::scan_host::work_area(bounds(&expected.display))? != expected.keyboard_area {
             return Err("Display work area changed. Scanning restarts.".into());
         }
     }
@@ -363,6 +388,36 @@ fn validate_display(app: &AppHandle, display: Option<&Environment>) -> Result<()
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_a_chosen_point_is_held_to_its_window() {
+        let environment = |panel, foreground| super::Environment {
+            display: super::Display {
+                name: String::new(),
+                scale_factor: 1.0,
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            },
+            foreground,
+            panel,
+            keyboard_area: super::Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1920.0,
+                height: 1040.0,
+            },
+        };
+        for now in [None, Some(1), Some(2)] {
+            for held in [None, Some(1)] {
+                assert!(!super::window_changed(&environment(true, held), now));
+                assert_eq!(
+                    super::window_changed(&environment(false, held), now),
+                    held != now
+                );
+            }
+        }
+    }
     use super::*;
     use crate::scanning::Technique;
 

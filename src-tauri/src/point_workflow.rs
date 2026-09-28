@@ -313,8 +313,8 @@ impl Workflow {
             _ => None,
         }
     }
-    pub fn foreground_changed(&mut self) {
-        self.keyboard.reset_context();
+    pub fn typing_moved(&mut self) {
+        self.keyboard.typing_moved();
     }
     pub fn prediction_enabled(&self) -> bool {
         self.point.config.word_prediction
@@ -322,6 +322,12 @@ impl Workflow {
 
     pub fn set_keyboard_area(&mut self, area: Rect) {
         self.keyboard_area = area;
+    }
+    /// The display the open keyboard is on changed, or was replaced.
+    pub fn set_keyboard_display(&mut self, area: Rect, screen: Rect, scale: f64) {
+        self.keyboard_area = area;
+        self.point.screen = screen;
+        self.point.units_per_logical_pixel = scale;
     }
     pub fn panel_avoids_pointer(&self) -> bool {
         self.point.config.panel_avoids_pointer
@@ -1663,7 +1669,7 @@ mod tests {
         assert!(idle.active());
     }
     #[test]
-    fn foreground_change_keeps_keyboard_layout_but_clears_context_and_modifiers() {
+    fn another_window_in_front_takes_the_suggestions_and_nothing_else() {
         let mut s = session(false);
         s.action(Action::OpenKeyboard);
         s.technique.execution_succeeded();
@@ -1677,14 +1683,40 @@ mod tests {
             }),
             false,
         );
-        s.technique.foreground_changed();
+        s.action(Action::Next);
+        s.action(Action::Next);
+        s.action(Action::Select);
+        s.action(Action::Next);
+        let selected = |s: &Session<Workflow>| {
+            let tiles = s.frame().tiles;
+            let selected: Vec<_> = tiles.into_iter().filter(|t| t.selected).collect();
+            assert_eq!(selected.len(), 1);
+            selected[0].text.clone()
+        };
+        let key = selected(&s);
+        s.technique.typing_moved();
         assert!(s.technique.keyboard_open());
         assert_eq!(
-            s.technique.keyboard.modifiers,
-            [crate::scan_keyboard::Modifier::Off; 4]
+            s.technique.keyboard.modifiers[1],
+            crate::scan_keyboard::Modifier::Locked
         );
-        assert!(!s.technique.keyboard.caps);
+        assert!(s.technique.keyboard.caps);
+        assert_eq!(selected(&s), key);
         assert!(!s.frame().tiles.iter().any(|t| t.text == "water"));
+        // The keyboard follows its display without closing.
+        let area = Rect {
+            x: 1920.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 680.0,
+        };
+        let before = s.frame().tiles[0].rect;
+        s.technique.set_keyboard_display(area, area, 1.0);
+        assert!(s.technique.keyboard_open());
+        assert_eq!(selected(&s), key);
+        let after = s.frame().tiles[0].rect;
+        assert_ne!(after, before);
+        assert!(after.x >= area.x && after.y + after.height <= area.y + area.height);
     }
     #[test]
     fn keyboard_opening_waits_for_cleanup_and_failure_stays_in_menu() {
