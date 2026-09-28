@@ -410,6 +410,18 @@ impl Keyboard {
         self.scan.restart();
         self.skip_disabled(false);
     }
+    /// Carries on from the key just typed, where the user chose to stay.
+    /// Suggestions then do not pull the highlight to their row.
+    /// A suggestion is not stayed at: its row is about to be replaced, and
+    /// new suggestions are held back while the highlight is in it.
+    fn restart_after_typing(&mut self) {
+        if !self.scan.stays_at_selection() || self.prediction_row_active() {
+            return self.restart();
+        }
+        self.waiting_after_typing = false;
+        self.prefer_predictions = false;
+        self.scan.restart_in_place();
+    }
     pub fn advance(&mut self, ms: u64, period: u64) {
         if self.scan.advance(ms, period) {
             self.prefer_predictions = false;
@@ -431,8 +443,12 @@ impl Keyboard {
         }
         if self.scan.suspended {
             if action == Action::Select {
-                self.error = false;
-                self.restart();
+                if self.waiting_after_typing && !self.error {
+                    self.restart_after_typing();
+                } else {
+                    self.error = false;
+                    self.restart();
+                }
             }
             return None;
         }
@@ -641,7 +657,7 @@ impl Keyboard {
                 Some(PendingTyped::Prediction) | None => {}
             }
             self.activation = None;
-            self.restart();
+            self.restart_after_typing();
             if self.wait_after_typing && self.scan.options.automatic {
                 self.waiting_after_typing = true;
                 self.prefer_predictions = false;
@@ -1124,6 +1140,84 @@ mod tests {
             keyboard.choose_with_context(Key::Character('a', 'A'), context(1)),
             Some(Output::Stroke(stroke)) if stroke.character() == Some('a')
         ));
+    }
+    #[test]
+    fn typing_continues_from_the_key_where_the_user_chose_to_stay() {
+        use crate::scan_preferences::{Resolved, StartFrom};
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let selected = |k: &Keyboard| {
+            let frame = k.frame(screen, 1.0, ScannerColor::default());
+            let tiles: Vec<_> = frame.tiles.iter().filter(|t| t.selected).collect();
+            assert_eq!(tiles.len(), 1);
+            tiles[0].text.clone()
+        };
+        for wait in [false, true] {
+            let mut k = Keyboard::configured(
+                false,
+                Resolved {
+                    start_from: StartFrom::Selection,
+                    ..Default::default()
+                },
+            )
+            .with_wait_after_typing(wait);
+            k.enable_predictions(true);
+            k.predictions(None, false);
+            k.handle(Action::Select);
+            k.handle(Action::Next);
+            let key = selected(&k);
+            assert!(matches!(k.handle(Action::Select), Some(Output::Stroke(_))));
+            assert!(k.succeeded());
+            assert_eq!(k.waiting_after_typing, wait);
+            // Suggestions arriving do not move the highlight.
+            k.predictions(
+                Some(crate::prediction::worker::Batch {
+                    token: 1,
+                    words: vec!["hello".into()],
+                }),
+                false,
+            );
+            if wait {
+                assert!(k.suspended());
+                assert_eq!(k.handle(Action::Select), None);
+                assert!(!k.suspended());
+            }
+            assert_eq!(selected(&k), key);
+            k.advance(999, 1000);
+            assert_eq!(selected(&k), key);
+            assert!(matches!(k.handle(Action::Select), Some(Output::Stroke(_))));
+            // A failure starts again from the top.
+            k.failed();
+            k.handle(Action::Select);
+            let status = |k: &Keyboard| {
+                let mut frame = k.frame(screen, 1.0, ScannerColor::default());
+                frame.tiles.pop().unwrap().text
+            };
+            assert_eq!(status(&k), "Letters · Select a row");
+            // So does a suggestion, whose row is replaced.
+            k.predictions(
+                Some(crate::prediction::worker::Batch {
+                    token: 2,
+                    words: vec!["hello".into()],
+                }),
+                false,
+            );
+            assert!(k.prediction_row_active());
+            k.handle(Action::Select);
+            assert!(matches!(
+                k.handle(Action::Select),
+                Some(Output::Prediction { .. })
+            ));
+            assert!(k.succeeded());
+            if wait {
+                k.handle(Action::Select);
+            }
+            assert_eq!(status(&k), "Letters · Select a row");
+        }
     }
     #[test]
     fn typing_wait_consumes_resume_and_restarts_a_full_interval() {

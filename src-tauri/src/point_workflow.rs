@@ -146,7 +146,9 @@ impl Workflow {
                 cfg!(target_os = "macos"),
                 keyboard_options,
             )
-            .with_wait_after_typing(config.keyboard_wait_after_typing),
+            .with_wait_after_typing(
+                config.keyboard_scan.next_scan == crate::scan_preferences::NextScan::Wait,
+            ),
             keyboard_area: screen,
             mouse: crate::scan_mouse::MousePanel::new(mouse_options, 1, 100),
             mouse_area: screen,
@@ -176,7 +178,9 @@ impl Workflow {
             cfg!(target_os = "macos"),
             self.point.config.keyboard_scan,
         )
-        .with_wait_after_typing(self.point.config.keyboard_wait_after_typing);
+        .with_wait_after_typing(
+            self.point.config.keyboard_scan.next_scan == crate::scan_preferences::NextScan::Wait,
+        );
         keyboard.dock = self.dock;
         keyboard
     }
@@ -622,7 +626,7 @@ impl Technique for Workflow {
         self.move_repeat = None;
         self.scroll_repeat = None;
         self.pending = None;
-        self.mouse.restart();
+        self.mouse.repeat_stopped();
         true
     }
     fn auto_selecting(&self) -> bool {
@@ -988,6 +992,47 @@ mod tests {
         assert!(matches!(session.technique.phase(), Phase::Point(_)));
     }
 
+    #[test]
+    fn stopped_mouse_motion_waits_at_the_arrow_where_the_user_chose_to() {
+        use crate::scan_preferences::{NextScan, StartFrom};
+        let mut config = Config::default();
+        config.scan_preferences.mouse.next_scan = Some(NextScan::Wait);
+        config.scan_preferences.mouse.start_from = Some(StartFrom::Selection);
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut session = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
+        session.action(Action::OpenMouse);
+        for action in [Action::Next, Action::Next, Action::Select, Action::Next] {
+            assert_eq!(session.action(action), None);
+        }
+        assert!(matches!(
+            session.action(Action::Select),
+            Some(Request::MouseMove { dy: 0, .. })
+        ));
+        assert!(session.technique.switch_pressed());
+        let status = |session: &Session<Workflow>| {
+            let mut frame = session.technique.frame();
+            frame.tiles.pop().unwrap().text
+        };
+        assert_eq!(status(&session), "Mouse waiting · Select to continue");
+        session.tick(5000, false);
+        assert_eq!(session.action(Action::Select), None);
+        assert_eq!(status(&session), "Movement · Select →");
+        // A move that fails starts again from the top.
+        assert!(session.action(Action::Select).is_some());
+        session.technique.switch_pressed();
+        session.action(Action::Select);
+        session.technique.mouse_repeat_enabled = false;
+        assert!(session.action(Action::Select).is_some());
+        session.technique.execution_failed(String::new());
+        assert_eq!(status(&session), "Mouse action failed · Select to resume");
+        session.action(Action::Select);
+        assert_eq!(status(&session), "Movement · Select a row");
+    }
     #[test]
     fn mouse_motion_stops_on_press_and_returns_to_first_row() {
         let screen = Rect {

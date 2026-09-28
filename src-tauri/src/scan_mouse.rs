@@ -100,20 +100,22 @@ impl MousePanel {
                 self.positioning = false;
                 self.rebuild_rows();
             }
-            _ => self.scan.restart(),
+            // The panel is left behind.
+            Key::Keyboard | Key::Close => self.scan.restart(),
+            _ => self.scan.continue_after_selection(),
         }
+    }
+    /// A repeating move or scroll was stopped by a switch.
+    pub fn repeat_stopped(&mut self) {
+        self.scan.continue_after_selection();
     }
     fn rebuild_rows(&mut self) {
         self.rows = Self::rows(self.more, self.positioning, self.displays);
         self.scan = ItemScanner::configured_rows(&self.rows, Policy::KEYBOARD, self.scan.options);
     }
     pub fn handle(&mut self, action: Action) -> Option<Key> {
-        if self.scan.suspended {
-            if action == Action::Select {
-                self.error = false;
-                self.scan.restart();
-            }
-            return None;
+        if self.scan.suspended && action == Action::Select {
+            self.error = false;
         }
         self.scan.handle(action)
     }
@@ -127,14 +129,20 @@ impl MousePanel {
         self.scan.suspended
     }
     pub fn failed(&mut self) {
+        self.scan.restart();
         self.error = true;
         self.scan.suspended = true;
     }
     pub fn set_displays(&mut self, displays: usize) {
         if self.displays != displays {
             self.displays = displays;
-            if !self.positioning {
+            if !self.positioning && self.rows != Self::rows(self.more, false, displays) {
+                let (suspended, waiting) = (self.scan.suspended, self.scan.waiting());
                 self.rebuild_rows();
+                self.scan.suspended = suspended;
+                if waiting {
+                    self.scan.wait();
+                }
             }
         }
     }
@@ -206,6 +214,8 @@ impl MousePanel {
             .to_owned()
         } else if self.error {
             "Mouse action failed · Select to resume".to_owned()
+        } else if self.scan.waiting() {
+            "Mouse waiting · Select to continue".to_owned()
         } else if self.scan.suspended {
             "Mouse paused · Select to resume".to_owned()
         } else if escaping {
@@ -327,6 +337,58 @@ mod tests {
         );
     }
 
+    #[test]
+    fn after_an_action_the_panel_continues_as_the_user_chose() {
+        use crate::scan_preferences::{NextScan, StartFrom};
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let status = |panel: &MousePanel| {
+            let mut frame = panel.frame(screen, 1.0, ScannerColor::default(), None);
+            frame.tiles.pop().unwrap().text
+        };
+        let mut panel = MousePanel::new(
+            Resolved {
+                next_scan: NextScan::Wait,
+                start_from: StartFrom::Selection,
+                ..Default::default()
+            },
+            1,
+            100,
+        );
+        panel.handle(Action::Select);
+        panel.handle(Action::Next);
+        assert_eq!(panel.handle(Action::Select), Some(Key::RightClick));
+        panel.choose(Key::RightClick);
+        assert!(panel.suspended());
+        assert_eq!(status(&panel), "Mouse waiting · Select to continue");
+        // The monitor keys appearing does not end the wait.
+        panel.set_displays(2);
+        panel.set_displays(1);
+        assert_eq!(status(&panel), "Mouse waiting · Select to continue");
+        panel.advance(1000, 1000);
+        assert_eq!(panel.handle(Action::Select), None);
+        assert_eq!(status(&panel), "Movement · Select Right click");
+        assert_eq!(panel.handle(Action::Select), Some(Key::RightClick));
+        // A failure is not a choice, and starts again from the top.
+        panel.choose(Key::RightClick);
+        panel.failed();
+        assert_eq!(status(&panel), "Mouse action failed · Select to resume");
+        panel.handle(Action::Select);
+        assert_eq!(status(&panel), "Movement · Select a row");
+        // Changing page is not an action.
+        panel.choose(Key::More);
+        assert!(!panel.suspended());
+        assert_eq!(status(&panel), "More controls · Select a row");
+        // Nor is leaving the panel.
+        panel.handle(Action::Next);
+        panel.choose(Key::Keyboard);
+        assert!(!panel.suspended());
+        assert_eq!(status(&panel), "More controls · Select a row");
+    }
     #[test]
     fn panel_renders_with_selected_tiles_inside_the_screen() {
         let panel = MousePanel::new(Resolved::default(), 2, 100);
