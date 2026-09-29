@@ -219,6 +219,7 @@ impl MousePanel {
         let row_scan = self.scan.row_scan();
         let (active_row, active_column) = self.scan.position(&self.rows);
         let escaping = self.scan.nav.escaping();
+        let highlight_row = row_scan || escaping;
         let status = if let Some(repeating) = repeating {
             match repeating {
                 RepeatPrompt::Moving => "Moving pointer · Press any switch to stop",
@@ -278,9 +279,8 @@ impl MousePanel {
             status,
             note: None,
             dock: self.dock,
-            selected: (scanning && !escaping).then_some((active_row, active_column)),
-            status_selected: scanning && escaping,
-            row_scan,
+            selected: scanning.then_some((active_row, active_column)),
+            row_scan: highlight_row,
             thickness: self.scan.options.thickness,
         }
         .frame(screen, units, color)
@@ -422,6 +422,70 @@ mod tests {
             .tiles
             .iter()
             .all(|tile| tile.rect.x >= screen.x && tile.rect.y >= screen.y));
+    }
+
+    #[test]
+    fn both_mouse_pages_highlight_the_exit_row_and_return_to_it() {
+        use crate::scan_preferences::{Direction, Pattern};
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        for direction in [Direction::Forward, Direction::Reverse] {
+            for more in [false, true] {
+                let mut panel = MousePanel::new(
+                    Resolved {
+                        direction,
+                        ..Default::default()
+                    },
+                    2,
+                    100,
+                );
+                if more {
+                    panel.choose(Key::More);
+                }
+                let row = panel.scan.position(&panel.rows).0;
+                panel.handle(Action::Select);
+                panel.handle(match direction {
+                    Direction::Forward => Action::Back,
+                    Direction::Reverse => Action::Next,
+                });
+                assert!(panel.scan.nav.escaping());
+                let frame = panel.frame(screen, 1.0, ScannerColor::default(), None);
+                let selected: Vec<_> = frame.tiles.iter().filter(|tile| tile.selected).collect();
+                assert_eq!(
+                    selected.len(),
+                    panel.rows[row].len(),
+                    "{direction:?} more={more}"
+                );
+                assert!(selected
+                    .iter()
+                    .all(|tile| tile.rect.y == selected[0].rect.y));
+                assert!(selected.iter().all(|tile| tile.style.unwrap().row_scan));
+                assert!(!frame.tiles.last().unwrap().selected);
+                assert_eq!(
+                    frame.tiles.last().unwrap().text,
+                    crate::scan_panel::BACK_TO_ROWS
+                );
+                panel.handle(Action::Select);
+                assert_eq!(panel.scan.position(&panel.rows), (row, None));
+            }
+        }
+        let mut linear = MousePanel::new(
+            Resolved {
+                pattern: Pattern::Linear,
+                ..Default::default()
+            },
+            1,
+            100,
+        );
+        linear.handle(Action::Back);
+        assert!(!linear.scan.nav.escaping());
+        let frame = linear.frame(screen, 1.0, ScannerColor::default(), None);
+        assert_eq!(frame.tiles.iter().filter(|tile| tile.selected).count(), 1);
+        assert!(!frame.tiles.last().unwrap().selected);
     }
 
     #[test]

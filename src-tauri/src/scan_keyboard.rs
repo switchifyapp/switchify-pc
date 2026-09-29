@@ -909,6 +909,8 @@ impl Keyboard {
     }
     pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor) -> Frame {
         let row_scan = self.scan.row_scan();
+        let escaping = self.scan.nav.escaping();
+        let highlight_row = row_scan || escaping;
         let (active_row, active_column) = self.scan.position(&self.rows);
         let page = match self.page {
             _ if self.positioning => crate::scan_panel::POSITION_PAGE,
@@ -927,7 +929,7 @@ impl Keyboard {
             "Press Select to continue typing.".to_owned()
         } else if self.scan.suspended {
             "Keyboard paused · Select to resume".to_owned()
-        } else if self.scan.nav.escaping() {
+        } else if escaping {
             crate::scan_panel::BACK_TO_ROWS.to_owned()
         } else if self.disabled() {
             "Suggestions updating · Select to continue".to_owned()
@@ -945,7 +947,7 @@ impl Keyboard {
                 .map(|row| {
                     row.iter()
                         .map(|&key| {
-                            let style = self.style(key, row_scan);
+                            let style = self.style(key, highlight_row);
                             crate::scan_panel::PanelKey {
                                 text: self.label(key),
                                 weight: Self::weight(key),
@@ -964,10 +966,9 @@ impl Keyboard {
                 self.prediction_note()
             },
             dock: self.dock,
-            selected: (!self.scan.suspended && !self.disabled() && !self.scan.nav.escaping())
+            selected: (!self.scan.suspended && !self.disabled())
                 .then_some((active_row, active_column)),
-            status_selected: !self.scan.suspended && self.scan.nav.escaping(),
-            row_scan,
+            row_scan: highlight_row,
             thickness: Default::default(),
         }
         .frame(screen, units, color)
@@ -1698,7 +1699,7 @@ mod tests {
         assert_eq!(k.rows.last().unwrap()[0], Key::Close);
     }
     #[test]
-    fn row_escape_only_highlights_return_and_modifier_state_is_separate() {
+    fn row_escape_highlights_its_row_and_modifier_state_is_separate() {
         let screen = Rect {
             x: 0.0,
             y: 0.0,
@@ -1721,10 +1722,74 @@ mod tests {
         k.handle(Action::Back);
         let escaping = k.frame(screen, 1.0, ScannerColor::default());
         let selected: Vec<_> = escaping.tiles.iter().filter(|t| t.selected).collect();
-        assert_eq!(selected.len(), 1);
-        assert!(selected[0].text.starts_with("Back to rows"));
+        assert_eq!(selected.len(), k.rows[0].len());
+        assert!(selected
+            .iter()
+            .all(|tile| tile.rect.y == selected[0].rect.y));
+        assert!(selected.iter().all(|tile| tile.style.unwrap().row_scan));
+        assert!(!escaping.tiles.last().unwrap().selected);
+        assert_eq!(
+            escaping.tiles.last().unwrap().text,
+            crate::scan_panel::BACK_TO_ROWS
+        );
         k.handle(Action::Select);
         assert!(k.scan.nav.path().is_empty());
+        assert_eq!(k.scan.position(&k.rows), (0, None));
+    }
+
+    #[test]
+    fn every_keyboard_page_returns_from_the_highlighted_row_in_both_directions() {
+        use crate::scan_preferences::{Direction, Pattern};
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        for direction in [Direction::Forward, Direction::Reverse] {
+            for page in [Page::Letters, Page::Numbers, Page::Functions] {
+                let mut keyboard = Keyboard::configured(
+                    false,
+                    crate::scan_preferences::Resolved {
+                        direction,
+                        ..Default::default()
+                    },
+                );
+                keyboard.choose(Key::Page(page));
+                let row = keyboard.scan.position(&keyboard.rows).0;
+                keyboard.handle(Action::Select);
+                keyboard.handle(match direction {
+                    Direction::Forward => Action::Back,
+                    Direction::Reverse => Action::Next,
+                });
+                assert!(keyboard.scan.nav.escaping());
+                let frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+                let selected: Vec<_> = frame.tiles.iter().filter(|tile| tile.selected).collect();
+                assert_eq!(
+                    selected.len(),
+                    keyboard.rows[row].len(),
+                    "{direction:?} {page:?}"
+                );
+                assert!(selected
+                    .iter()
+                    .all(|tile| tile.rect.y == selected[0].rect.y));
+                assert!(!frame.tiles.last().unwrap().selected);
+                keyboard.handle(Action::Select);
+                assert_eq!(keyboard.scan.position(&keyboard.rows), (row, None));
+            }
+        }
+        let mut linear = Keyboard::configured(
+            false,
+            crate::scan_preferences::Resolved {
+                pattern: Pattern::Linear,
+                ..Default::default()
+            },
+        );
+        linear.handle(Action::Back);
+        assert!(!linear.scan.nav.escaping());
+        let frame = linear.frame(screen, 1.0, ScannerColor::default());
+        assert_eq!(frame.tiles.iter().filter(|tile| tile.selected).count(), 1);
+        assert!(!frame.tiles.last().unwrap().selected);
     }
     #[test]
     fn uk_layout_and_platform_keys() {
