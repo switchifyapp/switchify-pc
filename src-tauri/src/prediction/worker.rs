@@ -233,19 +233,15 @@ impl Engine {
         }
         let ctx = context::extract(&self.buffer, self.clipped);
         let (status, prediction) = self.database.predict(&ctx);
-        let words = interleave(prediction.words, prediction.phrases);
+        let words = prediction.words;
         self.status = status;
         self.token = self.token.wrapping_add(1);
         self.inserts.clear();
         let mut labels = Vec::new();
         for word in words {
-            let offset = word
-                .char_indices()
-                .nth(ctx.prefix.chars().count())
-                .map_or(word.len(), |(i, _)| i);
-            if word[..offset].to_lowercase() != ctx.prefix.to_lowercase() {
+            let Some(offset) = prefix_offset(&word, &ctx.prefix) else {
                 continue;
-            }
+            };
             let suffix = if shouting(&ctx.prefix) {
                 word[offset..].to_uppercase()
             } else {
@@ -282,7 +278,9 @@ impl Engine {
             return None;
         }
         self.case = (shift, caps, sentence_start);
-        self.snapshot = Some(self.buffer.clone());
+        // Loading produces an empty batch, not a reusable prediction. Once the
+        // model becomes ready, predict the buffered text even without a new edit.
+        self.snapshot = (self.status == Status::Ready).then(|| self.buffer.clone());
         self.batch = Some(Batch {
             token: self.token,
             words: labels,
@@ -352,15 +350,27 @@ impl Engine {
 /// "lon" for London or "i" for I'm. A capital the person typed is kept.
 /// `None` when nothing would change, which is the usual case and deletes
 /// nothing.
+fn prefix_offset(word: &str, typed: &str) -> Option<usize> {
+    let normalized = switchify_prediction::normalize(typed);
+    if normalized.is_empty() {
+        return Some(0);
+    }
+    word.grapheme_indices(true)
+        .map(|(i, g)| i + g.len())
+        .find(|&end| switchify_prediction::normalize(&word[..end]) == normalized)
+}
+
 fn restored(typed: &str, head: &str) -> Option<String> {
     let merged: String = typed
-        .chars()
-        .zip(head.chars())
+        .graphemes(true)
+        .zip(head.graphemes(true))
         .map(|(t, w)| {
-            if t.is_lowercase() && w.is_uppercase() {
-                w
+            if t.chars().next().is_some_and(char::is_lowercase)
+                && w.chars().next().is_some_and(char::is_uppercase)
+            {
+                t.to_uppercase()
             } else {
-                t
+                t.to_owned()
             }
         })
         .collect();
@@ -410,24 +420,6 @@ fn cased(suffix: &str, whole_word: bool, sentence_start: bool, shift: Shift, cap
     }
 }
 
-/// The five suggestion slots: words in the first, third and fifth, phrases
-/// in the second and fourth. When one kind runs short the other fills in.
-pub fn interleave(words: Vec<String>, phrases: Vec<String>) -> Vec<String> {
-    let (mut words, mut phrases) = (words.into_iter(), phrases.into_iter());
-    let mut row = Vec::new();
-    while row.len() < 5 {
-        let next = if row.len() % 2 == 1 {
-            phrases.next().or_else(|| words.next())
-        } else {
-            words.next().or_else(|| phrases.next())
-        };
-        match next {
-            Some(label) => row.push(label),
-            None => break,
-        }
-    }
-    row
-}
 /// Answers requests until the pipe closes. The observer starts on the first
 /// request, which means a keyboard is open: a spare worker waiting for one
 /// loads the model and observes nothing. Starting can take up to 500 ms of
@@ -572,26 +564,70 @@ mod tests {
         assert!(!e.tracked);
     }
     #[test]
-    fn phrases_take_every_second_slot_and_accept_as_one_suffix() {
-        let w = |s: &[&str]| s.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    fn normalized_prefixes_preserve_typed_graphemes_and_apostrophes() {
+        assert_eq!(prefix_offset("café", "cafe\u{301}"), Some("café".len()));
+        assert_eq!(prefix_offset("I'm", "i’"), Some(2));
+        assert_eq!(prefix_offset("can't", "can’"), Some(4));
+        assert_eq!(restored("i’", "I'").as_deref(), Some("I’"));
+        assert_eq!(restored("cafe\u{301}", "café"), None);
+        assert_eq!(prefix_offset("water", "wax"), None);
+        assert_eq!(prefix_offset("water", ""), Some(0));
+    }
+
+    #[test]
+    fn normalized_completions_insert_without_rewriting_typed_accents_or_apostrophes() {
+        for (typed, expected, deletion, insertion) in [
+            ("cafe\u{301}", "cafe\u{301}", 0, " "),
+            ("can’", "can’t", 0, "t "),
+            ("i’", "I’m", 2, "I’m "),
+        ] {
+            let mut e = engine();
+            let b = e
+                .query(vec![append(typed)], 1, Shift::Off, false, false)
+                .unwrap();
+            assert_eq!(b.words, vec![expected]);
+            assert_eq!(e.accept(b.token, 0), Some((deletion, insertion.to_owned())));
+        }
+        let mut e = engine();
+        assert!(e.query(vec![], 1, Shift::Off, false, false).is_none());
+        assert!(!e
+            .query(vec![append("I need ")], 2, Shift::Off, false, false)
+            .unwrap()
+            .words
+            .is_empty());
+    }
+
+    #[test]
+    fn text_typed_during_loading_is_predicted_when_ready_without_another_edit() {
+        let mut e = engine();
+        let (loading, _pending) = Database::pending_fixture();
+        e.database = loading;
+        let waiting = e
+            .query(vec![append("wa")], 1, Shift::Off, false, false)
+            .unwrap();
+        assert!(waiting.words.is_empty());
+        assert_eq!(e.status, Status::Loading);
+        e.database = Database::fixture();
+        let ready = e.query(vec![], 1, Shift::Off, false, false).unwrap();
+        assert_eq!(ready.words, vec!["water", "waffle", "walk"]);
+        assert_ne!(ready.token, waiting.token);
+        // Once ready, an unchanged query retains the scan choice identity.
         assert_eq!(
-            interleave(w(&["a", "b", "c", "d", "e"]), w(&["a b", "c d"])),
-            w(&["a", "a b", "b", "c d", "c"])
+            e.query(vec![], 1, Shift::Off, false, false).unwrap().token,
+            ready.token
         );
-        assert_eq!(interleave(w(&["a", "b", "c"]), w(&[])), w(&["a", "b", "c"]));
-        assert_eq!(
-            interleave(w(&["a"]), w(&["a b", "a c"])),
-            w(&["a", "a b", "a c"])
-        );
-        assert_eq!(interleave(w(&[]), w(&["a b"])), w(&["a b"]));
+    }
+
+    #[test]
+    fn five_slots_contain_ranked_words_only() {
         let mut e = engine();
         let b = e
             .query(vec![append("wa")], 1, Shift::Off, false, false)
             .unwrap();
-        assert_eq!(b.words, w(&["water", "water is", "waffle", "walk"]));
-        assert_eq!(e.accept(b.token, 1).unwrap(), (0, "ter is ".to_owned()));
+        assert_eq!(b.words, vec!["water", "waffle", "walk"]);
+        assert_eq!(e.accept(b.token, 1).unwrap(), (0, "ffle ".to_owned()));
         let upper = e.query(vec![], 1, Shift::Off, true, false).unwrap();
-        assert_eq!(upper.words[1], "waTER IS");
+        assert_eq!(upper.words[1], "waFFLE");
     }
     #[test]
     fn first_letter_and_completion_chain_use_only_buffer() {
@@ -739,7 +775,7 @@ mod tests {
         let b = e
             .query(vec![append("wh")], 1, Shift::Off, false, false)
             .unwrap();
-        assert_eq!(b.words, w(&["WhatsApp", "WhatsApp is"]));
+        assert_eq!(b.words, w(&["WhatsApp"]));
         assert_eq!(e.accept(b.token, 0).unwrap(), (2, "WhatsApp ".to_owned()));
         // The edits the service queues afterwards leave the buffer reading
         // as the screen does.
@@ -765,7 +801,7 @@ mod tests {
                 false,
             )
             .unwrap();
-        assert_eq!(b.words, w(&["WhatsApp", "WhatsApp is"]));
+        assert_eq!(b.words, w(&["WhatsApp"]));
         assert_eq!(e.accept(b.token, 0).unwrap(), (0, "atsApp ".to_owned()));
         // A word in capitals is never retyped.
         let b = e
@@ -799,7 +835,7 @@ mod tests {
             .unwrap();
         let row = e.query(vec![], 1, Shift::Off, false, false).unwrap();
         assert_eq!(row.words[0], "WATER");
-        assert_eq!(row.words[1], "WATER IS");
+        assert_eq!(row.words[1], "WAFFLE");
         assert_eq!(
             e.query(vec![], 1, Shift::Locked, false, false)
                 .unwrap()
@@ -890,7 +926,7 @@ mod tests {
             "wATER"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Off, false, false).unwrap().words[4],
+            e.query(vec![], 1, Shift::Off, false, false).unwrap().words[3],
             "WhatsApp"
         );
         e.query(vec![append("wa")], 2, Shift::Off, false, false)

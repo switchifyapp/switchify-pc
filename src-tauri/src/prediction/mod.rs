@@ -616,18 +616,17 @@ fn may_delete(backspaces: usize, chosen: (u64, bool), now: (u64, bool)) -> bool 
     backspaces == 0 || (chosen.1 && now == chosen)
 }
 
-/// The model's config file; its directory is the model. A file rather than
-/// the directory, so a half-copied bundle is not mistaken for a model.
+/// Resolve the baseline file; the worker verifies its pinned identity before loading.
 fn resource(app: &AppHandle) -> Result<std::path::PathBuf, ()> {
     let bundled = app
         .path()
         .resolve(
-            "resources/prediction-model/config.json",
+            "resources/prediction-model/english.sqlite",
             tauri::path::BaseDirectory::Resource,
         )
         .map_err(|_| ());
     let development = cfg!(debug_assertions).then(|| {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/prediction-model/config.json")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/prediction-model/english.sqlite")
     });
     model_resource(bundled, development)
 }
@@ -682,9 +681,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 .collect();
             ignored.sort_unstable();
             ignored.dedup();
-            let model = resource(app)
-                .ok()
-                .and_then(|path| path.parent().map(Path::to_owned));
+            let model = resource(app).ok();
             s.client = SPARE
                 .with(|spare| adopt(&mut spare.borrow_mut(), &ignored, Instant::now()))
                 .or_else(|| Client::start(model.as_deref()?, ignored.clone()).ok());

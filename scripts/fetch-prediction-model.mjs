@@ -1,58 +1,80 @@
-// Downloads the word prediction model into src-tauri/resources/prediction-model.
-// The model is too large to commit, so every file is pinned to one upstream
-// revision and verified by SHA-256. Verified files are not downloaded again.
-import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rename, rm, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import { fileURLToPath } from "node:url";
+// Build-time acquisition only. The installed app never downloads prediction data.
+import { createHash } from 'node:crypto';
+import { readFile, writeFile, mkdir, mkdtemp, rename, rm, lstat } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { unzipSync } from 'fflate';
 
-const revision = "d0ae6834f1df45e0e95b5fdae95e536f9ca7cd3f";
-const base = `https://huggingface.co/onnx-community/SmolLM2-135M-ONNX/resolve/${revision}`;
-const files = [
-  { name: "model.onnx", source: "onnx/model_int8.onnx", size: 135658354, sha256: "50ba80511ce74634d232a043b6c37775cca756b826b49d0a4a8eff958c4bbcc9" },
-  { name: "tokenizer.json", source: "tokenizer.json", size: 2053526, sha256: "139d2f4b4919b90953bdd3c0c40c94c9b23074799a766508dc3bf5eb8ab73351" },
-  { name: "config.json", source: "config.json", size: 1035, sha256: "2c5f23fddabecdf9c47d0048f555899822ec87ec4a28169393840ac7e74192c4" },
-];
-const target = join(dirname(fileURLToPath(import.meta.url)), "..", "src-tauri", "resources", "prediction-model");
+const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+const MAX_ARCHIVE = 64 * 1024 * 1024;
 
-async function digest(path) {
-  const hash = createHash("sha256");
-  await pipeline(createReadStream(path), hash);
-  return hash.digest("hex");
-}
-
-async function verified(path, file) {
+export async function verified(directory, manifest) {
   try {
-    return (await stat(path)).size === file.size && (await digest(path)) === file.sha256;
-  } catch {
-    return false;
-  }
-}
-
-async function download(file) {
-  const path = join(target, file.name);
-  if (await verified(path, file)) return false;
-  const pending = `${path}.pending`;
-  for (let attempt = 1; ; attempt++) {
-    try {
-      const response = await fetch(`${base}/${file.source}`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      await pipeline(Readable.fromWeb(response.body), createWriteStream(pending));
-      if (!(await verified(pending, file))) throw new Error("size or SHA-256 mismatch");
-      await rename(pending, path);
-      return true;
-    } catch (error) {
-      await rm(pending, { force: true });
-      if (attempt === 3) throw new Error(`Could not fetch ${file.name}: ${error.message}`);
-      await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
+    for (const [name, expected] of Object.entries(manifest.files)) {
+      const path = join(directory, name);
+      const info = await lstat(path);
+      if (!info.isFile() || info.size !== expected.size || digest(await readFile(path)) !== expected.sha256) return false;
     }
-  }
+    return true;
+  } catch { return false; }
 }
 
-await mkdir(target, { recursive: true });
-for (const file of files) {
-  if (await download(file)) console.log(`Fetched ${file.name}`);
+export function unpack(bytes, manifest) {
+  if (bytes.length > MAX_ARCHIVE || digest(bytes) !== manifest.archive_sha256) throw new Error('Prediction archive checksum mismatch');
+  const seen = new Set();
+  const entries = unzipSync(new Uint8Array(bytes), { filter: entry => {
+    const name = entry.name;
+    if (name.startsWith('/') || name.includes('\\') || name.includes(':') || name.split('/').some(p => p === '..' || p === '.') || seen.has(name)) throw new Error('Unsafe prediction archive path');
+    seen.add(name);
+    if (!Object.hasOwn(manifest.files, name)) return false;
+    const expected = manifest.files[name];
+    if (entry.originalSize !== expected.size) throw new Error('Prediction entry size mismatch');
+    return true;
+  }});
+  for (const [name, expected] of Object.entries(manifest.files)) {
+    if (!entries[name] || entries[name].length !== expected.size || digest(entries[name]) !== expected.sha256) throw new Error('Prediction file checksum mismatch');
+  }
+  return entries;
+}
+
+async function download(url, fetcher) {
+  const response = await fetcher(url, { signal: AbortSignal.timeout(120000) });
+  if (!response.ok || !response.body) throw new Error(`Prediction download failed: HTTP ${response.status}`);
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of response.body) {
+    size += chunk.length;
+    if (size > MAX_ARCHIVE) throw new Error('Prediction archive too large');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+export async function acquire(target, manifest, fetcher = fetch) {
+  if (await verified(target, manifest)) return false;
+  // No destination writes until the complete archive and every selected file verify.
+  const entries = unpack(await download(manifest.url, fetcher), manifest);
+  await mkdir(dirname(target), { recursive: true });
+  const staging = await mkdtemp(`${target}.pending-`);
+  const previous = `${staging}.previous`;
+  let moved = false;
+  try {
+    for (const [name, bytes] of Object.entries(entries)) {
+      await mkdir(dirname(join(staging, name)), { recursive: true });
+      await writeFile(join(staging, name), bytes);
+    }
+    if (!(await verified(staging, manifest))) throw new Error('Prediction staging verification failed');
+    try { await rename(target, previous); moved = true; }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    try { await rename(staging, target); }
+    catch (error) { if (moved) await rename(previous, target); throw error; }
+    await rm(previous, { recursive: true, force: true });
+    return true;
+  } finally { await rm(staging, { recursive: true, force: true }); }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const manifest = JSON.parse(await readFile(new URL('./prediction-model.json', import.meta.url), 'utf8'));
+  const target = fileURLToPath(new URL('../src-tauri/resources/prediction-model', import.meta.url));
+  if (await acquire(target, manifest)) console.log(`Fetched and verified ${manifest.model}`);
 }

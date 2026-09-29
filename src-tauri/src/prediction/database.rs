@@ -8,11 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const SEARCH_BUDGET: Duration = Duration::from_millis(400);
-/// Extra time after the word search for two-word phrases.
-const PHRASE_BUDGET: Duration = Duration::from_millis(200);
-/// Well under the parent's two-second reply deadline, with room for the
-/// budgets above plus the beam step that may overrun each of them.
+/// Repeated stalls mark the model unavailable before the parent reply deadline.
 const SLOW_CALL: Duration = Duration::from_millis(1500);
 /// Slow calls in a row that mark the model unavailable. One stall, such as
 /// a busy disk or a waking laptop, is not a model that cannot keep up.
@@ -74,12 +70,7 @@ impl Database {
             unreachable!()
         };
         let start = Instant::now();
-        let result = model.predict(
-            &context.before,
-            &context.prefix,
-            start + SEARCH_BUDGET,
-            start + SEARCH_BUDGET + PHRASE_BUDGET,
-        );
+        let result = model.predict(&context.before, &context.prefix);
         self.slow_calls = if start.elapsed() > self.slow_call {
             self.slow_calls + 1
         } else {
@@ -90,9 +81,21 @@ impl Database {
             return (Status::Unavailable, Prediction::default());
         };
         prediction.words.truncate(5);
-        prediction.phrases.truncate(2);
         (Status::Ready, prediction)
     }
+    #[cfg(test)]
+    pub fn pending_fixture() -> (Self, mpsc::SyncSender<Result<Model, ()>>) {
+        let (tx, rx) = mpsc::sync_channel(1);
+        (
+            Self {
+                state: State::Loading(rx),
+                slow_call: SLOW_CALL,
+                slow_calls: 0,
+            },
+            tx,
+        )
+    }
+
     #[cfg(test)]
     pub fn fixture() -> Self {
         Self {
@@ -107,20 +110,17 @@ impl Database {
 struct FakeModel;
 #[cfg(test)]
 impl Predict for FakeModel {
-    fn predict(
-        &mut self,
-        _before: &str,
-        prefix: &str,
-        _deadline: Instant,
-        _phrase_deadline: Instant,
-    ) -> Result<Prediction, ()> {
-        let words: Vec<String> = ["water", "waffle", "walk", "WhatsApp"]
-            .into_iter()
-            .filter(|w| w.to_lowercase().starts_with(&prefix.to_lowercase()))
-            .map(str::to_owned)
-            .collect();
-        let phrases = words.iter().take(1).map(|w| format!("{w} is")).collect();
-        Ok(Prediction { words, phrases })
+    fn predict(&mut self, _before: &str, prefix: &str) -> Result<Prediction, ()> {
+        let words: Vec<String> = [
+            "water", "waffle", "walk", "WhatsApp", "café", "can't", "I'm",
+        ]
+        .into_iter()
+        .filter(|w| {
+            switchify_prediction::normalize(w).starts_with(&switchify_prediction::normalize(prefix))
+        })
+        .map(str::to_owned)
+        .collect();
+        Ok(Prediction { words })
     }
 }
 
@@ -129,17 +129,10 @@ mod tests {
     use super::*;
     struct Fake(Result<Vec<&'static str>, ()>, Duration);
     impl Predict for Fake {
-        fn predict(
-            &mut self,
-            _before: &str,
-            _prefix: &str,
-            _deadline: Instant,
-            _phrase_deadline: Instant,
-        ) -> Result<Prediction, ()> {
+        fn predict(&mut self, _before: &str, _prefix: &str) -> Result<Prediction, ()> {
             std::thread::sleep(self.1);
             self.0.clone().map(|w| Prediction {
                 words: w.iter().map(|w| (*w).to_owned()).collect(),
-                phrases: w.iter().map(|w| format!("{w} too")).collect(),
             })
         }
     }
@@ -183,7 +176,7 @@ mod tests {
             Duration::ZERO,
         )));
         let prediction = db.predict(&context()).1;
-        assert_eq!((prediction.words.len(), prediction.phrases.len()), (5, 2));
+        assert_eq!(prediction.words.len(), 5);
         db.state = State::Ready(Box::new(Fake(Err(()), Duration::ZERO)));
         assert_eq!(
             db.predict(&context()),

@@ -1,13 +1,26 @@
-# Word prediction model
+# English prediction database
 
-`prediction-model/` is not committed. `npm run prediction-model` (`scripts/fetch-prediction-model.mjs`) downloads it from [`onnx-community/SmolLM2-135M-ONNX`](https://huggingface.co/onnx-community/SmolLM2-135M-ONNX) at revision `d0ae6834f1df45e0e95b5fdae95e536f9ca7cd3f` and verifies each file's size and SHA-256 before use:
+Switchify PC uses `switchify-prediction` v0.1.0 at commit
+`c4b9d14ba8312179617ead4d2707e86ec825a2e6` and model `en-aac-oanc-v1`.
+The Rust dependency is pinned by commit and Cargo.lock. The baseline contains
+21,674 words and 539,151 n-grams. Its SHA-256 is
+`222253417d0a7a705823ffb7e599a3bcf5d5d3daf4a9d76161ac6b3e555aeaad`.
 
-- `model.onnx`: upstream `onnx/model_int8.onnx`, 135,658,354 bytes, SHA-256 `50ba80511ce74634d232a043b6c37775cca756b826b49d0a4a8eff958c4bbcc9`.
-- `tokenizer.json`: 2,053,526 bytes, SHA-256 `139d2f4b4919b90953bdd3c0c40c94c9b23074799a766508dc3bf5eb8ab73351`.
-- `config.json`: 1,035 bytes, SHA-256 `2c5f23fddabecdf9c47d0048f555899822ec87ec4a28169393840ac7e74192c4`.
+`npm run prediction-model` downloads the [versioned release](https://github.com/switchifyapp/switchify-prediction/releases/tag/v0.1.0)
+and verifies the archive and each shipped resource against
+`scripts/prediction-model.json`. No raw training files or personal data are bundled.
+The installed app uses the database offline and read-only. No ONNX runtime,
+model, tokenizer or third-party native-runtime download is used.
 
-It is an int8 ONNX conversion of [HuggingFaceTB/SmolLM2-135M](https://huggingface.co/HuggingFaceTB/SmolLM2-135M), licensed Apache-2.0. The app bundles these files unchanged and only reads them.
+New library code is MIT licensed; SQLite is public domain. Corpus licensing is
+separate: WorldAlphabets identifies its English Tatoeba CC0 source; Taskmaster
+and AAC are CC BY 4.0. OANC's current publisher grants unrestricted use and
+redistribution, including commercial use; its historical XML-release notice has
+different restrictions. Both notices remain included, and no independent legal
+clearance is claimed.
 
-# ONNX Runtime
-
-Word prediction statically links ONNX Runtime 1.28.0 through the `ort` crate (`=2.0.0-rc.13`, MIT/Apache-2.0). At build time, `ort-sys` downloads the prebuilt archive for the target from `cdn.pyke.io` and verifies it against a SHA-256 embedded in the crate. So every build, including signed releases, depends on that download. Only the CPU provider is used, and ONNX Runtime telemetry is disabled when the worker starts it.
+The application bundles ATTRIBUTION.md, LICENSE, production-model.json,
+source-manifest.json, aac-source-manifest.json and corpus-notices alongside the
+database. Retain these when redistributing. The corpus includes crowd-imagined
+AAC communication and older American speech; suggestions can be inappropriate
+or incorrect. Model quality results are available in the upstream release.

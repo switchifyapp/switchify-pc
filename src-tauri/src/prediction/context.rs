@@ -10,14 +10,16 @@ pub struct Context {
 }
 pub fn extract(text: &str, clipped: bool) -> Context {
     let context = extract_words(text, clipped);
-    let mut before = &text[..text.len() - context.prefix.len()];
-    if clipped {
+    let boundary = text.rfind(['.', '!', '?', '\n', '\r', '。', '！', '？']);
+    let start = boundary.map_or(0, |i| i + text[i..].chars().next().unwrap().len_utf8());
+    let mut before = &text[start..text.len() - context.prefix.len()];
+    if clipped && start == 0 {
         before = before
             .find(char::is_whitespace)
             .map_or("", |i| &before[i..]);
     }
     Context {
-        partial: clipped && before.trim().is_empty(),
+        partial: clipped && start == 0 && before.trim().is_empty(),
         before: before.to_owned(),
         ..context
     }
@@ -30,11 +32,13 @@ fn extract_words(text: &str, clipped: bool) -> Context {
     if clipped && start == 0 && tokens.first().is_some_and(|(i, _)| *i == 0) {
         tokens.remove(0);
     }
-    let prefix = if tokens
-        .last()
-        .is_some_and(|(i, w)| i + w.len() == tail.len())
-    {
-        tokens.pop().unwrap().1.to_owned()
+    let prefix = if tokens.last().is_some_and(|(i, w)| {
+        i + w.len() == tail.len()
+            || (matches!(&tail[i + w.len()..], "'" | "’")
+                && w.chars().last().is_some_and(char::is_alphabetic))
+    }) {
+        let (i, _) = tokens.pop().unwrap();
+        tail[i..].to_owned()
     } else {
         String::new()
     };
@@ -53,12 +57,17 @@ mod tests {
         assert_eq!(c.prefix, "cafe\u{301}");
         assert_eq!(
             extract("Hi. I would like wa", false).before,
-            "Hi. I would like "
+            " I would like "
         );
         assert_eq!(extract("agment whole pa", true).before, " whole ");
         assert_eq!(extract("agment", true).before, "");
         assert!(extract("agment", true).partial);
         assert!(!extract("agment whole pa", true).partial);
         assert!(!extract("wa", false).partial);
+        assert_eq!(extract("I think i’", false).prefix, "i’");
+        assert_eq!(extract("I can'", false).prefix, "can'");
+        assert_eq!(extract("Old context。I need h", false).before, "I need ");
+        assert!(!extract("agment. h", true).partial);
+        assert_eq!(extract("I can't", false).prefix, "can't");
     }
 }
