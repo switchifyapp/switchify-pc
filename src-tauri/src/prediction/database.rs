@@ -84,6 +84,19 @@ impl Database {
         (Status::Ready, prediction)
     }
     #[cfg(test)]
+    pub fn pending_fixture() -> (Self, mpsc::SyncSender<Result<Model, ()>>) {
+        let (tx, rx) = mpsc::sync_channel(1);
+        (
+            Self {
+                state: State::Loading(rx),
+                slow_call: SLOW_CALL,
+                slow_calls: 0,
+            },
+            tx,
+        )
+    }
+
+    #[cfg(test)]
     pub fn fixture() -> Self {
         Self {
             state: State::Ready(Box::new(FakeModel)),

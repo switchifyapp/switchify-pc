@@ -278,7 +278,9 @@ impl Engine {
             return None;
         }
         self.case = (shift, caps, sentence_start);
-        self.snapshot = Some(self.buffer.clone());
+        // Loading produces an empty batch, not a reusable prediction. Once the
+        // model becomes ready, predict the buffered text even without a new edit.
+        self.snapshot = (self.status == Status::Ready).then(|| self.buffer.clone());
         self.batch = Some(Batch {
             token: self.token,
             words: labels,
@@ -593,6 +595,27 @@ mod tests {
             .unwrap()
             .words
             .is_empty());
+    }
+
+    #[test]
+    fn text_typed_during_loading_is_predicted_when_ready_without_another_edit() {
+        let mut e = engine();
+        let (loading, _pending) = Database::pending_fixture();
+        e.database = loading;
+        let waiting = e
+            .query(vec![append("wa")], 1, Shift::Off, false, false)
+            .unwrap();
+        assert!(waiting.words.is_empty());
+        assert_eq!(e.status, Status::Loading);
+        e.database = Database::fixture();
+        let ready = e.query(vec![], 1, Shift::Off, false, false).unwrap();
+        assert_eq!(ready.words, vec!["water", "waffle", "walk"]);
+        assert_ne!(ready.token, waiting.token);
+        // Once ready, an unchanged query retains the scan choice identity.
+        assert_eq!(
+            e.query(vec![], 1, Shift::Off, false, false).unwrap().token,
+            ready.token
+        );
     }
 
     #[test]
