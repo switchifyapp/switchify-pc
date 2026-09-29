@@ -321,8 +321,12 @@ pub trait Technique {
     fn auto_selecting(&self) -> bool {
         false
     }
-    /// Consumes the next physical press while a technique is moving the pointer.
-    fn switch_pressed(&mut self) -> bool {
+    /// True while a scanned Mouse action repeats and waits for a stop gesture.
+    fn mouse_repeating(&self) -> bool {
+        false
+    }
+    /// Ends a repeating scanned Mouse action after its stop switch is released.
+    fn switch_released(&mut self) -> bool {
         false
     }
     fn execution_failed(&mut self, _message: String) {}

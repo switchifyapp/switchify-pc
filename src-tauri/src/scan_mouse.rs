@@ -222,9 +222,11 @@ impl MousePanel {
         let highlight_row = row_scan || escaping;
         let status = if let Some(repeating) = repeating {
             match repeating {
-                RepeatPrompt::Moving => "Moving pointer · Press any switch to stop",
-                RepeatPrompt::Scrolling(dy) if dy > 0 => "Scrolling up · Press any switch to stop",
-                RepeatPrompt::Scrolling(_) => "Scrolling down · Press any switch to stop",
+                RepeatPrompt::Moving => "Moving pointer · Press and release a switch to stop",
+                RepeatPrompt::Scrolling(dy) if dy > 0 => {
+                    "Scrolling up · Press and release a switch to stop"
+                }
+                RepeatPrompt::Scrolling(_) => "Scrolling down · Press and release a switch to stop",
             }
             .to_owned()
         } else if self.error {
@@ -558,11 +560,11 @@ mod tests {
         assert!(moving.tiles.iter().all(|tile| !tile.selected));
         assert_eq!(
             moving.tiles.last().unwrap().text,
-            "Moving pointer · Press any switch to stop"
+            "Moving pointer · Press and release a switch to stop"
         );
         for (direction, expected) in [
-            (1, "Scrolling up · Press any switch to stop"),
-            (-1, "Scrolling down · Press any switch to stop"),
+            (1, "Scrolling up · Press and release a switch to stop"),
+            (-1, "Scrolling down · Press and release a switch to stop"),
         ] {
             let scrolling =
                 panel.frame(screen, 1.0, color, Some(RepeatPrompt::Scrolling(direction)));

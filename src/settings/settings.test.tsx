@@ -55,6 +55,8 @@ describe("Switchify PC settings", () => {
     expect(screen.getByText(/Actions opens editing, window, browser, media, display and scanning commands/)).toBeInTheDocument();
     expect(screen.getByText(/Modified clicks use the current pointer\./)).toBeInTheDocument();
     expect(screen.getByText(/Pointer speed and repeat controls are under Mouse in the sidebar/)).toBeInTheDocument();
+    expect(screen.getByText(/press and release a switch to stop either action/)).toBeInTheDocument();
+    expect(screen.getByText(/the stop switch keeps the action going until release/)).toBeInTheDocument();
     fireEvent.click(within(navigation).getByRole("button", { name: "Mouse" }));
     expect(screen.getByRole("group", { name: /Pointer speed/ })).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Click when I stop" })).not.toBeInTheDocument();

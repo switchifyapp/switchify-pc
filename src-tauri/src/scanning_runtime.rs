@@ -60,6 +60,7 @@ use crate::switch_input::Event;
 use crate::{switch_gestures::Gestures, switch_runtime, switches::Settings};
 use std::{
     cell::RefCell,
+    collections::HashSet,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Mutex,
@@ -75,6 +76,43 @@ thread_local! {static COUNTDOWN: RefCell<(Option<Host>, Option<crate::scanning::
 /// Mobile session or a failed key reservation. Failed attempts back off by this
 /// much so a key held by another application is not hammered every tick.
 const RETRY_MS: u64 = 2000;
+/// Switches captured by a repeating Mouse action. The first press owns the
+/// stop gesture; all overlapping releases are consumed as well.
+#[derive(Default)]
+struct RepeatStop {
+    owner: Option<String>,
+    held: HashSet<String>,
+}
+impl RepeatStop {
+    fn down(&mut self, id: &str, repeating: bool) -> bool {
+        if self.owner.is_none() && !repeating && self.held.is_empty() {
+            return false;
+        }
+        self.held.insert(id.to_owned());
+        if self.owner.is_none() && repeating {
+            self.owner = Some(id.to_owned());
+        }
+        true
+    }
+    /// None means the release belongs to ordinary switch handling.
+    fn up(&mut self, id: &str) -> Option<bool> {
+        if !self.held.remove(id) {
+            return None;
+        }
+        let stop = self.owner.as_deref() == Some(id);
+        if stop {
+            self.owner = None;
+        }
+        Some(stop)
+    }
+    fn held(&self) -> bool {
+        !self.held.is_empty()
+    }
+    fn clear(&mut self) {
+        self.owner = None;
+        self.held.clear();
+    }
+}
 pub struct Controller<A: Adapter> {
     enabled: AtomicBool,
     halted: AtomicBool,
@@ -88,6 +126,7 @@ struct Data<A: Adapter> {
     engine: Option<Session<A::Technique>>,
     display: Option<A::Environment>,
     pressed: Gestures,
+    repeat_stop: RepeatStop,
     switches: Settings,
     input_generation: u64,
     remote: bool,
@@ -126,6 +165,7 @@ impl<A: Adapter> Controller<A> {
                 engine: None,
                 display: None,
                 pressed: Gestures::default(),
+                repeat_stop: RepeatStop::default(),
                 switches: Settings::default(),
                 input_generation: 0,
                 remote: false,
@@ -239,6 +279,7 @@ fn reset_scanner_for_capture<A: Adapter>(app: &AppHandle, message: &str, recover
         d.engine = None;
         d.display = None;
         d.pressed.cancel();
+        d.repeat_stop.clear();
         d.remote = false;
         d.remote_hold_started = None;
         d.message = message.into();
@@ -347,6 +388,7 @@ fn arm<A: Adapter>(app: &AppHandle, config: &A::Config) -> Result<(), String> {
     d.display = None;
     d.switches = switches.settings();
     d.pressed = Gestures::default();
+    d.repeat_stop.clear();
     d.input_generation = switches.generation();
     d.last_tick = Instant::now();
     Ok(())
@@ -776,41 +818,59 @@ fn tick<A: Adapter>(app: &AppHandle) {
                 reset_scanner::<A>(app, "Remote switches changed. Scan reset.");
                 return;
             }
-            let action = {
+            let (action, stopped) = {
                 let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
                 match edge {
                     crate::remote_scan::Edge::Reset => unreachable!(),
                     crate::remote_scan::Edge::Down(id) => {
-                        if d.engine
-                            .as_mut()
-                            .is_some_and(|engine| engine.technique.switch_pressed())
-                        {
-                            d.pressed.cancel();
-                            d.last_tick = Instant::now();
-                            drop(d);
-                            publish::<A>(app);
-                            continue;
-                        }
-                        if !d.pressed.held() {
+                        if d.remote_hold_started.is_none() {
                             d.remote_hold_started = Some(now_ms);
                         }
-                        let countdown = d
+                        let repeating = d
                             .engine
                             .as_ref()
-                            .is_some_and(|e| e.technique.auto_selecting());
-                        d.pressed
-                            .pressed_for_scan(&id.to_string(), now_ms, &settings, countdown);
-                        None
+                            .is_some_and(|engine| engine.technique.mouse_repeating());
+                        if d.repeat_stop.down(&id.to_string(), repeating) {
+                            d.pressed.cancel();
+                            (None, false)
+                        } else {
+                            let countdown = d
+                                .engine
+                                .as_ref()
+                                .is_some_and(|e| e.technique.auto_selecting());
+                            d.pressed.pressed_for_scan(
+                                &id.to_string(),
+                                now_ms,
+                                &settings,
+                                countdown,
+                            );
+                            (None, false)
+                        }
                     }
                     crate::remote_scan::Edge::Up(id) => {
-                        let action = d.pressed.released(&id.to_string(), now_ms);
-                        if !d.pressed.held() {
+                        let (action, stopped) =
+                            if let Some(stop) = d.repeat_stop.up(&id.to_string()) {
+                                let stopped = stop
+                                    && d.engine
+                                        .as_mut()
+                                        .is_some_and(|engine| engine.technique.switch_released());
+                                if stopped {
+                                    d.last_tick = Instant::now();
+                                }
+                                (None, stopped)
+                            } else {
+                                (d.pressed.released(&id.to_string(), now_ms), false)
+                            };
+                        if !d.pressed.held() && !d.repeat_stop.held() {
                             d.remote_hold_started = None;
                         }
-                        action
+                        (action, stopped)
                     }
                 }
             };
+            if stopped {
+                publish::<A>(app);
+            }
             if let Some(action) = action {
                 switch::<A>(app, action, generation, true);
             }
@@ -851,7 +911,7 @@ fn tick<A: Adapter>(app: &AppHandle) {
                 action,
                 monotonic_ms,
             } => {
-                let selected = {
+                let (selected, stopped) = {
                     let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
                     if d.remote
                         || generation != d.input_generation
@@ -862,28 +922,45 @@ fn tick<A: Adapter>(app: &AppHandle) {
                         continue;
                     }
                     if action == crate::switch_input::Action::Pressed {
-                        if d.engine
-                            .as_mut()
-                            .is_some_and(|engine| engine.technique.switch_pressed())
-                        {
-                            d.pressed.cancel();
-                            d.last_tick = Instant::now();
-                            drop(d);
-                            publish::<A>(app);
-                            continue;
-                        }
-                        let settings = d.switches.clone();
-                        let countdown = d
+                        let repeating = d
                             .engine
                             .as_ref()
-                            .is_some_and(|e| e.technique.auto_selecting());
-                        d.pressed
-                            .pressed_for_scan(&switch_id, monotonic_ms, &settings, countdown);
-                        None
+                            .is_some_and(|engine| engine.technique.mouse_repeating());
+                        if d.repeat_stop.down(&switch_id, repeating) {
+                            d.pressed.cancel();
+                            (None, false)
+                        } else {
+                            let settings = d.switches.clone();
+                            let countdown = d
+                                .engine
+                                .as_ref()
+                                .is_some_and(|e| e.technique.auto_selecting());
+                            d.pressed.pressed_for_scan(
+                                &switch_id,
+                                monotonic_ms,
+                                &settings,
+                                countdown,
+                            );
+                            (None, false)
+                        }
                     } else {
-                        d.pressed.released(&switch_id, monotonic_ms)
+                        if let Some(stop) = d.repeat_stop.up(&switch_id) {
+                            let stopped = stop
+                                && d.engine
+                                    .as_mut()
+                                    .is_some_and(|engine| engine.technique.switch_released());
+                            if stopped {
+                                d.last_tick = Instant::now();
+                            }
+                            (None, stopped)
+                        } else {
+                            (d.pressed.released(&switch_id, monotonic_ms), false)
+                        }
                     }
                 };
+                if stopped {
+                    publish::<A>(app);
+                }
                 if let Some(action) = selected {
                     switch::<A>(app, action, generation, false);
                 }
@@ -928,7 +1005,7 @@ fn tick<A: Adapter>(app: &AppHandle) {
             now.duration_since(d.last_tick).as_millis() as u64
         };
         d.last_tick = now;
-        let held = d.pressed.held();
+        let held = d.pressed.held() || d.repeat_stop.held();
         let prompt = d.pressed.prompt(now_ms);
         let mut request = None;
         let captured_keys = prediction_captured_keys(d.remote, &d.switches);
@@ -1131,6 +1208,82 @@ mod config_file_tests {
         assert_eq!(saved, serde_json::json!({ "speed": 2 }));
         assert!(!path.with_extension("json.tmp").exists());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod repeat_stop_tests {
+    use super::RepeatStop;
+    use crate::{
+        scanning::Action,
+        switch_gestures::Gestures,
+        switches::{Binding, Settings},
+    };
+
+    fn switches() -> Settings {
+        Settings {
+            bindings: vec![Binding {
+                id: "one".into(),
+                name: "Switch".into(),
+                key: "Space".into(),
+                press_action: Action::Select,
+                hold_actions: vec![Action::OpenKeyboard, Action::Stop],
+            }],
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn local_and_remote_stop_edges_consume_press_hold_and_release() {
+        for id in ["one", "remote:1"] {
+            let mut stop = RepeatStop::default();
+            let gestures = Gestures::default();
+            assert!(stop.down(id, true));
+            assert!(stop.held());
+            assert!(gestures.prompt(30_000).is_none());
+            assert!(!gestures.held());
+            assert_eq!(stop.up("unmatched"), None);
+            assert_eq!(stop.up(id), Some(true));
+            assert_eq!(stop.up(id), None);
+            assert!(!stop.held());
+            assert!(!stop.down(id, false));
+        }
+    }
+
+    #[test]
+    fn first_press_owns_stop_and_overlapping_releases_are_consumed() {
+        let mut stop = RepeatStop::default();
+        assert!(stop.down("one", true));
+        assert!(stop.down("one", true));
+        assert!(stop.down("two", true));
+        assert_eq!(stop.up("one"), Some(true));
+        assert!(stop.held());
+        assert!(stop.down("three", false));
+        assert_eq!(stop.up("two"), Some(false));
+        assert_eq!(stop.up("three"), Some(false));
+        assert!(!stop.held());
+    }
+
+    #[test]
+    fn ending_repeat_while_held_still_consumes_pending_releases() {
+        for _reason in ["settings", "failure", "display"] {
+            let mut stop = RepeatStop::default();
+            assert!(stop.down("one", true));
+            assert!(stop.down("two", true));
+            // The technique ended its repeat independently before either Up.
+            assert_eq!(stop.up("one"), Some(true));
+            assert_eq!(stop.up("two"), Some(false));
+            assert!(!stop.held());
+            assert!(!stop.down("one", false));
+        }
+        let mut stop = RepeatStop::default();
+        assert!(stop.down("one", true));
+        stop.clear(); // Escape, emergency hold, disconnect, or a new session.
+        assert_eq!(stop.up("one"), None);
+        let mut gestures = Gestures::default();
+        assert_eq!(gestures.released("one", 30_000), None);
+        gestures.pressed("one", 31_000, &switches());
+        assert_eq!(gestures.released("one", 31_010), Some(Action::Select));
     }
 }
 
