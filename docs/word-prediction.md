@@ -92,7 +92,7 @@ Before accepting a suggestion, the worker checks its token, edit revision, foreg
 Automated tests use fake predictors, foreground/activity sources, input adapters and sleeping subprocesses. They never inject desktop input. They cover first-letter completion, Unicode Backspace, bounded context, stale replies, foreground/external changes, failure cleanup and switch action compatibility. `cargo test` exercises the SQLite adapter with synthetic corpora. Packaged model verification and isolated release-mode measurements run separately on macOS and Windows. For release-build suggestions and timings:
 
 ```powershell
-cargo test --release --manifest-path src-tauri/Cargo.toml bundled_prediction_benchmark -- --ignored --nocapture --test-threads=1
+cargo test --release --lib --manifest-path src-tauri/Cargo.toml bundled_prediction_benchmark -- --ignored --nocapture --test-threads=1
 ```
 
 For native validation, use disposable synthetic text in Notepad and a browser on Windows, and TextEdit and a browser on macOS. Launch macOS with `npm run macos:run` to retain its signed Accessibility identity.
