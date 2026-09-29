@@ -265,8 +265,11 @@ impl Workflow {
         self.point.config.control_mode
     }
     pub fn set_mouse_area(&mut self, area: Rect, screen: Rect, scale: f64, displays: usize) {
-        if self.point.screen != screen && self.stage == Stage::MouseScrolling {
+        if self.point.screen != screen
+            && matches!(self.stage, Stage::MouseMoving | Stage::MouseScrolling)
+        {
             self.stage = Stage::Mouse;
+            self.move_repeat = None;
             self.scroll_repeat = None;
             self.pending = None;
             self.mouse.restart();
@@ -284,12 +287,17 @@ impl Workflow {
         scroll_interval_ms: u32,
         repeat_enabled: bool,
     ) {
+        let changed = self.mouse.speed_percent != speed
+            || self.mouse_acceleration_ms != acceleration_ms
+            || self.mouse_move_interval_ms != move_interval_ms
+            || self.mouse_scroll_interval_ms != scroll_interval_ms
+            || self.mouse_repeat_enabled != repeat_enabled;
         self.mouse.speed_percent = speed;
         self.mouse_acceleration_ms = acceleration_ms;
         self.mouse_move_interval_ms = move_interval_ms;
         self.mouse_scroll_interval_ms = scroll_interval_ms;
         self.mouse_repeat_enabled = repeat_enabled;
-        if !repeat_enabled && matches!(self.stage, Stage::MouseMoving | Stage::MouseScrolling) {
+        if changed && matches!(self.stage, Stage::MouseMoving | Stage::MouseScrolling) {
             self.stage = Stage::Mouse;
             self.move_repeat = None;
             self.scroll_repeat = None;
@@ -1720,6 +1728,34 @@ mod tests {
             None
         );
         assert_eq!(workflow.mouse_feedback(), None);
+    }
+
+    #[test]
+    fn changing_mouse_settings_or_display_ends_a_held_move_repeat() {
+        use crate::scan_mouse::Key;
+        let mut workflow = session(false).technique;
+        workflow.open_mouse();
+        workflow.set_mouse_settings(100, 1000, 250, 80, true);
+        assert!(matches!(
+            workflow.mouse_key(Key::Move(1, 0)),
+            Some(Request::MouseMove { .. })
+        ));
+        assert!(workflow.mouse_repeating());
+        workflow.set_mouse_settings(105, 1000, 250, 80, true);
+        assert!(!workflow.mouse_repeating());
+        assert!(!workflow.switch_released());
+
+        workflow.mouse_key(Key::Move(1, 0));
+        let next_screen = Rect {
+            x: 1000.0,
+            y: 20.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        workflow.set_mouse_area(next_screen, next_screen, 1.0, 2);
+        assert!(!workflow.mouse_repeating());
+        assert!(workflow.move_repeat.is_none());
+        assert!(!workflow.switch_released());
     }
 
     #[test]
