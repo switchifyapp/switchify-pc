@@ -141,8 +141,6 @@ pub struct Panel {
     pub dock: Dock,
     /// Scanner position to highlight, or `None` when no key may be chosen.
     pub selected: Option<(usize, Option<usize>)>,
-    /// Highlights the status tile, used while the scan offers to go back to rows.
-    pub status_selected: bool,
     pub row_scan: bool,
     pub thickness: Thickness,
 }
@@ -252,7 +250,7 @@ impl Panel {
                 height: (header_height - gap).max(1.0),
             },
             scale,
-            selected: self.status_selected,
+            selected: false,
         });
         frame
     }
@@ -290,7 +288,6 @@ mod tests {
             note: None,
             dock: Dock::default(),
             selected: Some((1, None)),
-            status_selected: false,
             row_scan: true,
             thickness: Thickness::Thick,
         };
@@ -328,15 +325,14 @@ mod tests {
     }
 
     #[test]
-    fn docking_and_status_selection() {
+    fn docking_and_row_escape_selection() {
         let panel = Panel {
             rows: vec![vec![key("a", 1.0)]],
             status: BACK_TO_ROWS.into(),
             note: None,
             dock: Dock { column: 1, row: 0 },
-            selected: None,
-            status_selected: true,
-            row_scan: false,
+            selected: Some((0, None)),
+            row_scan: true,
             thickness: Thickness::default(),
         };
         let screen = Rect {
@@ -348,8 +344,8 @@ mod tests {
         let frame = panel.frame(screen, 1.0, ScannerColor::default());
         assert_eq!(frame.tiles[0].rect.y, 50.0);
         assert!(frame.tiles[0].rect.x >= 0.0 && frame.tiles[0].rect.width <= 800.0);
-        assert!(!frame.tiles[1].selected);
-        assert!(frame.tiles[2].selected);
+        assert!(frame.tiles[1].selected);
+        assert!(!frame.tiles[2].selected);
         assert_eq!(
             scanning_status("Movement", false, "Caps lock\nOn"),
             "Movement · Select Caps lock On"
@@ -428,7 +424,6 @@ mod tests {
             note: None,
             dock: Dock::default(),
             selected: None,
-            status_selected: false,
             row_scan: false,
             thickness: Thickness::default(),
         }
@@ -458,7 +453,6 @@ mod tests {
                 note: None,
                 dock,
                 selected: None,
-                status_selected: false,
                 row_scan: false,
                 thickness: Thickness::default(),
             };
