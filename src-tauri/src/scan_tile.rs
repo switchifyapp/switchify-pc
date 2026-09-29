@@ -702,6 +702,12 @@ fn artwork(path: &mut PathBuilder, item: Item) {
                 line(path, &[(48., 79.), (120., 79.)]);
                 rect(path, 75., 60., 18., 16.);
             }
+            S::KeyboardLayout(_) => {
+                rect(path, 48., 42., 72., 52.);
+                line(path, &[(58., 55.), (110., 55.)]);
+                line(path, &[(58., 67.), (110., 67.)]);
+                line(path, &[(58., 79.), (95., 79.)]);
+            }
         },
         _ => unreachable!("Legacy tile artwork is drawn separately"),
     }

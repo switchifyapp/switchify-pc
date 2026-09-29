@@ -18,6 +18,13 @@ pub enum ControlMode {
     Point,
     Mouse,
 }
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum KeyboardLayout {
+    #[default]
+    Qwerty,
+    CommonLetters,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -26,6 +33,7 @@ pub struct Config {
     #[serde(deserialize_with = "crate::scan_preferences::deserialize_preferences")]
     pub scan_preferences: crate::scan_preferences::Preferences,
     pub word_prediction: bool,
+    pub keyboard_layout: KeyboardLayout,
     /// Retained for saved-settings compatibility; the model is always used
     /// when `word_prediction` is enabled.
     pub enhanced_word_prediction: bool,
@@ -51,6 +59,7 @@ impl Default for Config {
             control_mode: ControlMode::Point,
             scan_preferences: Default::default(),
             word_prediction: true,
+            keyboard_layout: KeyboardLayout::Qwerty,
             enhanced_word_prediction: false,
             keyboard_wait_after_typing: false,
             panel_avoids_pointer: false,
@@ -123,6 +132,7 @@ impl Config {
             keyboard_scan: self.resolved(crate::scan_preferences::Area::Keyboard),
             mouse_scan: self.resolved(crate::scan_preferences::Area::Mouse),
             word_prediction: self.word_prediction,
+            keyboard_layout: self.keyboard_layout,
             panel_avoids_pointer: self.panel_avoids_pointer,
             scanner_color: self.resolved(crate::scan_preferences::Area::Point).color,
             mode: self.mode,
@@ -148,6 +158,7 @@ pub struct PointSettings {
     pub keyboard_scan: crate::scan_preferences::Resolved,
     pub mouse_scan: crate::scan_preferences::Resolved,
     pub word_prediction: bool,
+    pub keyboard_layout: KeyboardLayout,
     pub panel_avoids_pointer: bool,
     pub scanner_color: crate::scanning::ScannerColor,
     pub mode: Mode,
@@ -1113,6 +1124,7 @@ mod tests {
         let mut json = serde_json::json!({"mode":"grid","automatic":false,"speed":4,"gridSize":7,"blockIntervalMs":1500,"selectKey":"F1","nextKey":"F2","backKey":"F3","pauseKey":"F4"});
         let config: Config = serde_json::from_value(json.clone()).unwrap();
         config.validate().unwrap();
+        assert_eq!(config.keyboard_layout, KeyboardLayout::Qwerty);
         assert_eq!(config.scanner_color, crate::scanning::ScannerColor::Blue);
         assert!(!config.auto_select_enabled);
         assert_eq!(config.auto_select_delay_ms, 1000);
@@ -1121,6 +1133,7 @@ mod tests {
         json["scannerColor"] = serde_json::json!("blue");
         json["controlMode"] = serde_json::json!("point");
         json["wordPrediction"] = serde_json::json!(true);
+        json["keyboardLayout"] = serde_json::json!("qwerty");
         json["enhancedWordPrediction"] = serde_json::json!(false);
         json["keyboardWaitAfterTyping"] = serde_json::json!(false);
         json["panelAvoidsPointer"] = serde_json::json!(false);
@@ -1166,6 +1179,22 @@ mod tests {
             1.0
         )
         .is_err());
+    }
+    #[test]
+    fn keyboard_layout_is_additive_and_uses_stable_saved_names() {
+        let older: Config = serde_json::from_str(r#"{"wordPrediction":false}"#).unwrap();
+        assert_eq!(older.keyboard_layout, KeyboardLayout::Qwerty);
+        let chosen: Config = serde_json::from_str(r#"{"keyboardLayout":"commonLetters"}"#).unwrap();
+        assert_eq!(chosen.keyboard_layout, KeyboardLayout::CommonLetters);
+        assert_eq!(
+            chosen.point().keyboard_layout,
+            KeyboardLayout::CommonLetters
+        );
+        assert_eq!(
+            serde_json::to_value(chosen).unwrap()["keyboardLayout"],
+            "commonLetters"
+        );
+        assert!(serde_json::from_str::<Config>(r#"{"keyboardLayout":"unknown"}"#).is_err());
     }
     #[test]
     fn legacy_settings_and_new_overrides_round_trip_without_changing_shared_values() {

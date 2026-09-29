@@ -1413,6 +1413,30 @@ async fn configure_point_scan(
         .map_err(|_| "Point scan configuration was cancelled.".to_string())?
 }
 
+#[tauri::command]
+async fn set_keyboard_layout(
+    app: AppHandle,
+    layout: point_scan::KeyboardLayout,
+) -> Result<point_scan_runtime::View, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let result = if switch_practice::active(&handle) {
+            Err("Finish practice before changing scanning settings.".into())
+        } else {
+            scanning_runtime::update_point_setting(
+                &handle,
+                scan_menu::Setting::KeyboardLayout(layout),
+            )
+            .map(|()| handle.state::<point_scan_runtime::Controller>().view())
+        };
+        let _ = tx.send(result);
+    })
+    .map_err(|e| e.to_string())?;
+    rx.await
+        .map_err(|_| "Keyboard layout change was cancelled.".to_string())?
+}
+
 /// Pure environment check, safe to call every tick while scanning is off.
 fn point_scan_ready(app: &AppHandle) -> Result<(), String> {
     if app.state::<switch_runtime::Controller>().keyboard_entry() {
@@ -1592,6 +1616,7 @@ pub fn run() {
             set_switch_keyboard_entry,
             get_point_scan,
             configure_point_scan,
+            set_keyboard_layout,
             get_app_state,
             check_accessibility,
             approve_pairing,

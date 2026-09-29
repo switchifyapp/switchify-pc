@@ -58,7 +58,7 @@ describe("Switchify PC shell", () => {
     browserState.accessibility = "granted";
     browserState.bluetooth = "unsupported";
     vi.spyOn(switchHooks, "useSwitches").mockReturnValue(localSwitches());
-    const scanning: scanHooks.ScanningController = { config: { ...scanHooks.defaultPointScanConfig, scanPreferences: { ...defaultScanPreferences, point: { automatic: false } } }, state: { config: scanHooks.defaultPointScanConfig, supported: true, enabled: true, paused: false, phase: "idle", message: "Ready" }, pending: 0, error: null, unsaved: false, update: vi.fn(), retry: vi.fn() };
+    const scanning: scanHooks.ScanningController = { config: { ...scanHooks.defaultPointScanConfig, scanPreferences: { ...defaultScanPreferences, point: { automatic: false } } }, state: { config: scanHooks.defaultPointScanConfig, supported: true, enabled: true, paused: false, phase: "idle", message: "Ready" }, pending: 0, error: null, unsaved: false, update: vi.fn(), chooseKeyboardLayout: vi.fn(), retry: vi.fn() };
     vi.spyOn(scanHooks, "useScanning").mockReturnValue(scanning);
     let receive: ((state: typeof browserState) => void) | undefined;
     vi.spyOn(api, "onState").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
@@ -77,7 +77,7 @@ describe("Switchify PC shell", () => {
     const switches = localSwitches();
     switches.settings.bindings[0].pressAction = "next";
     vi.spyOn(switchHooks, "useSwitches").mockReturnValue(switches);
-    vi.spyOn(scanHooks, "useScanning").mockReturnValue({ config: scanHooks.defaultPointScanConfig, state: { config: scanHooks.defaultPointScanConfig, supported: true, enabled: false, paused: false, phase: "idle", message: "Select needed" }, pending: 0, error: null, unsaved: false, update: vi.fn(), retry: vi.fn() });
+    vi.spyOn(scanHooks, "useScanning").mockReturnValue({ config: scanHooks.defaultPointScanConfig, state: { config: scanHooks.defaultPointScanConfig, supported: true, enabled: false, paused: false, phase: "idle", message: "Select needed" }, pending: 0, error: null, unsaved: false, update: vi.fn(), chooseKeyboardLayout: vi.fn(), retry: vi.fn() });
     render(<App />);
     await screen.findByText("Add a switch with the Select action to begin scanning.");
     fireEvent.click(screen.getByRole("button", { name: "Set up switches" }));
