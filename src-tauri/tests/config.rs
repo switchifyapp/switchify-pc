@@ -83,6 +83,7 @@ fn main_window_has_application_commands_and_core_defaults() {
         "allow-get-app-state",
         "allow-get-point-scan",
         "allow-configure-point-scan",
+        "allow-set-keyboard-layout",
         "allow-approve-pairing",
         "allow-save-settings",
         "allow-list-switch-profiles",

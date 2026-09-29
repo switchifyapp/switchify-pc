@@ -6,7 +6,7 @@ import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection
 import { SettingGroup, Toggle, OptionGroup } from './controls';
 
 export function ScannerPreferences({ controller }: { controller: ScanningController }) {
-  const { config, state, update } = controller;
+  const { config, state, update, chooseKeyboardLayout, pending } = controller;
   const [area, setArea] = useState<'shared' | ScanArea>('shared');
   const heading = useRef<HTMLHeadingElement>(null);
   const container = useRef<HTMLDivElement>(null);
@@ -135,7 +135,25 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
       </SettingGroup></MoreOptions>
 
     </>}
-    {area === 'keyboard' && <p className="setting-note">The scanning keyboard spaces punctuation for you. Period, question mark, and exclamation mark capitalize the next letter. The Numbers page period stays a decimal point.</p>}
+    {area === 'keyboard' && <>
+      <SettingGroup title="Keyboard layout" description="Choose the order of keys on the Letters page. The Numbers and Navigation pages stay the same.">
+        <OptionGroup<PointScanConfig['keyboardLayout']>
+          legend="Keyboard layout"
+          disabled={disabled || !!pending}
+          value={config.keyboardLayout}
+          onChange={chooseKeyboardLayout}
+          options={[
+            { value: 'qwerty', label: 'QWERTY' },
+            { value: 'commonLetters', label: 'Common letters first' },
+          ]}
+          note={{ summary: config.keyboardLayout === 'commonLetters'
+            ? 'Static English key order: Space E T A O I Backspace; N S H R D L U Enter; C M F W Y P V B; G K J Q X Z Tab Caps lock. Punctuation and modifiers follow.'
+            : 'Familiar QWERTY key rows: Q W E R T Y U I O P; A S D F G H J K L; Z X C V B N M. The keyboard footer can switch layouts at any time.' }}
+        />
+        <p className="setting-note">Common letters first puts frequent English letters and Space early in row scanning. You can switch layouts from the keyboard footer; the choice is saved.</p>
+      </SettingGroup>
+      <p className="setting-note">The scanning keyboard spaces punctuation for you. Period, question mark, and exclamation mark capitalize the next letter. The Numbers page period stays a decimal point.</p>
+    </>}
     {(area === 'keyboard' || area === 'mouse') && <SettingGroup title="Panel position" description="Choose where the keyboard and mouse panels sit from Position on either panel.">
       <Toggle label="Move away from the pointer" checked={config.panelAvoidsPointer} disabled={disabled} onChange={value => update('panelAvoidsPointer', value)} />
       <p className="setting-note">While the pointer is over the panel, it moves to the other side of the screen. It returns when the pointer moves away.</p>

@@ -299,6 +299,32 @@ it("customises individual settings, restores defaults and returns focus without 
   expect(screen.queryByRole("button", { name: "Use default for initial direction" })).not.toBeInTheDocument();
 });
 
+it("offers accessible saved keyboard layouts and keeps the prior choice when saving fails", async () => {
+  mocks.invoke.mockImplementation(async (command, args) => {
+    if (command === "get_point_scan") return initial;
+    if (command === "set_keyboard_layout") return { ...initial, config: { ...initial.config, keyboardLayout: args.layout } };
+    return { ...initial, ...args };
+  });
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  more();
+  fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
+  expect(screen.getByRole("group", { name: "Keyboard layout" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "QWERTY" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.queryByText(/Static English key order/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Common letters first" }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("set_keyboard_layout", { layout: "commonLetters" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Common letters first" })).toHaveAttribute("aria-pressed", "true"));
+  expect(screen.getByText(/Static English key order/)).toBeInTheDocument();
+  mocks.invoke.mockImplementation(async (command) => {
+    if (command === "set_keyboard_layout") throw new Error("Cannot save scanning settings.");
+    return initial;
+  });
+  fireEvent.click(screen.getByRole("button", { name: "QWERTY" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Cannot save scanning settings.");
+  expect(screen.getByRole("button", { name: "Common letters first" })).toHaveAttribute("aria-pressed", "true");
+});
+
 it("keeps rate values in manual mode and preserves keyboard settings when resetting overrides", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);

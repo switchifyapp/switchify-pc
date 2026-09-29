@@ -19,6 +19,7 @@
     "allow-set-switch-keyboard-entry",
     "allow-get-point-scan",
     "allow-configure-point-scan",
+    "allow-set-keyboard-layout",
     "allow-check-accessibility",
     "allow-approve-pairing",
     "allow-reject-pairing",

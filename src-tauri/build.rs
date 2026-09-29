@@ -17,6 +17,7 @@ fn main() {
         "set_switch_keyboard_entry",
         "get_point_scan",
         "configure_point_scan",
+        "set_keyboard_layout",
         "check_accessibility",
         "approve_pairing",
         "reject_pairing",

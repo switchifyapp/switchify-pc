@@ -42,6 +42,7 @@ pub enum Key {
     Modifier(usize),
     Caps,
     Page(Page),
+    Layout,
     Dock,
     Position(crate::scan_panel::Dock),
     Back,
@@ -94,6 +95,7 @@ pub enum Output {
     RetryPrediction,
     Stroke(Stroke),
     Punctuation(Punctuation),
+    Layout(crate::point_scan::KeyboardLayout),
     Close,
 }
 
@@ -191,12 +193,67 @@ pub fn rows(page: Page, mac: bool) -> Vec<Vec<Key>> {
     result
 }
 
+fn rows_for(page: Page, mac: bool, layout: crate::point_scan::KeyboardLayout) -> Vec<Vec<Key>> {
+    use crate::point_scan::KeyboardLayout;
+    use Key::{Character as C, Named as N};
+    if page != Page::Letters || layout == KeyboardLayout::Qwerty {
+        let mut result = rows(page, mac);
+        result.last_mut().unwrap().push(Key::Layout);
+        return result;
+    }
+    let letters = |text: &str| {
+        text.chars()
+            .map(|letter| C(letter, letter.to_ascii_uppercase()))
+            .collect::<Vec<_>>()
+    };
+    let mut first = vec![C(' ', ' ')];
+    first.extend(letters("etaoi"));
+    first.push(N("Backspace"));
+    let mut second = letters("nshrdlu");
+    second.push(N("Enter"));
+    let mut fourth = letters("gkjqxz");
+    fourth.extend([N("Tab"), Key::Caps]);
+    vec![
+        first,
+        second,
+        letters("cmfwypvb"),
+        fourth,
+        vec![
+            C('[', '{'),
+            C(']', '}'),
+            C(';', ':'),
+            C('\'', '@'),
+            C('#', '~'),
+            C('\\', '|'),
+            C(',', '<'),
+            C('.', '>'),
+            C('/', '?'),
+        ],
+        vec![
+            Key::Modifier(0),
+            Key::Modifier(1),
+            Key::Modifier(2),
+            Key::Modifier(3),
+        ],
+        vec![
+            Key::Close,
+            Key::Page(Page::Letters),
+            Key::Page(Page::Functions),
+            Key::Page(Page::Numbers),
+            Key::Dock,
+            Key::Layout,
+        ],
+    ]
+}
+
 pub struct Keyboard {
     pub page: Page,
+    pub layout: crate::point_scan::KeyboardLayout,
     pub modifiers: [Modifier; 4],
     pub caps: bool,
     pub dock: crate::scan_panel::Dock,
     pub error: bool,
+    layout_save_error: bool,
     positioning: bool,
     mac: bool,
     rows: Vec<Vec<Key>>,
@@ -225,14 +282,20 @@ impl Keyboard {
         Self::configured(mac, crate::scan_preferences::Resolved::default())
     }
     pub fn configured(mac: bool, options: crate::scan_preferences::Resolved) -> Self {
-        let rows = rows(Page::Letters, mac);
+        let rows = rows_for(
+            Page::Letters,
+            mac,
+            crate::point_scan::KeyboardLayout::Qwerty,
+        );
         let scan = ItemScanner::configured_rows(&rows, Policy::KEYBOARD, options);
         Self {
             page: Page::Letters,
+            layout: crate::point_scan::KeyboardLayout::Qwerty,
             modifiers: [Modifier::Off; 4],
             caps: false,
             dock: Default::default(),
             error: false,
+            layout_save_error: false,
             positioning: false,
             mac,
             rows,
@@ -259,6 +322,21 @@ impl Keyboard {
         self.wait_after_typing = enabled;
         self
     }
+    pub fn with_layout(mut self, layout: crate::point_scan::KeyboardLayout) -> Self {
+        self.set_layout(layout);
+        self
+    }
+    pub fn set_layout(&mut self, layout: crate::point_scan::KeyboardLayout) {
+        if self.layout != layout {
+            self.layout = layout;
+            self.rebuild_rows();
+        }
+        self.layout_save_error = false;
+    }
+    pub fn layout_change_failed(&mut self) {
+        self.layout_save_error = true;
+        self.restart();
+    }
     pub fn enable_predictions(&mut self, enabled: bool) {
         if self.prediction_enabled == enabled {
             return;
@@ -272,7 +350,7 @@ impl Keyboard {
         self.rows = if self.positioning {
             crate::scan_panel::position_rows(Key::Position, Key::Back)
         } else {
-            rows(self.page, self.mac)
+            rows_for(self.page, self.mac, self.layout)
         };
         if self.prediction_enabled && self.page == Page::Letters && !self.positioning {
             self.rows.insert(0, (0..5).map(Key::Prediction).collect());
@@ -437,6 +515,7 @@ impl Keyboard {
         action: Action,
         context: Option<TypingContext>,
     ) -> Option<Output> {
+        self.layout_save_error = false;
         self.discard_stale_context(context);
         if self.scan.pending() {
             return None;
@@ -563,6 +642,16 @@ impl Keyboard {
             Key::Page(page) => {
                 self.page = page;
                 self.rebuild_rows();
+            }
+            Key::Layout => {
+                return Some(Output::Layout(match self.layout {
+                    crate::point_scan::KeyboardLayout::Qwerty => {
+                        crate::point_scan::KeyboardLayout::CommonLetters
+                    }
+                    crate::point_scan::KeyboardLayout::CommonLetters => {
+                        crate::point_scan::KeyboardLayout::Qwerty
+                    }
+                }));
             }
             Key::Dock | Key::Back => {
                 self.positioning = key == Key::Dock;
@@ -776,6 +865,11 @@ impl Keyboard {
                 },
                 if page == self.page { " •" } else { "" }
             ),
+            Key::Layout => match self.layout {
+                crate::point_scan::KeyboardLayout::Qwerty => "Use common letters",
+                crate::point_scan::KeyboardLayout::CommonLetters => "Use QWERTY",
+            }
+            .into(),
             Key::Dock => crate::scan_panel::POSITION_PAGE.into(),
             Key::Position(dock) => crate::scan_panel::position_label(dock, self.dock),
             Key::Back => "Back".into(),
@@ -787,7 +881,7 @@ impl Keyboard {
             Key::Character(' ', _) => 4.0,
             Key::Named("Backspace" | "Enter") => 1.9,
             Key::Named("Tab") | Key::Caps | Key::Modifier(_) => 1.6,
-            Key::Close | Key::Dock | Key::RetryPrediction => 1.5,
+            Key::Close | Key::Dock | Key::Layout | Key::RetryPrediction => 1.5,
             _ => 1.0,
         }
     }
@@ -795,9 +889,12 @@ impl Keyboard {
         TileStyle {
             role: match key {
                 Key::Character(..) => TileRole::Character,
-                Key::Page(_) | Key::Dock | Key::Back | Key::Close | Key::RetryPrediction => {
-                    TileRole::Toolbar
-                }
+                Key::Page(_)
+                | Key::Layout
+                | Key::Dock
+                | Key::Back
+                | Key::Close
+                | Key::RetryPrediction => TileRole::Toolbar,
                 _ => TileRole::Utility,
             },
             active: match key {
@@ -815,7 +912,12 @@ impl Keyboard {
         let (active_row, active_column) = self.scan.position(&self.rows);
         let page = match self.page {
             _ if self.positioning => crate::scan_panel::POSITION_PAGE,
-            Page::Letters => "Letters",
+            Page::Letters => match self.layout {
+                crate::point_scan::KeyboardLayout::Qwerty => "Letters · QWERTY",
+                crate::point_scan::KeyboardLayout::CommonLetters => {
+                    "Letters · Common letters first"
+                }
+            },
             Page::Functions => "Navigation",
             Page::Numbers => "Numbers",
         };
@@ -856,7 +958,11 @@ impl Keyboard {
                 })
                 .collect(),
             status,
-            note: self.prediction_note(),
+            note: if self.layout_save_error {
+                Some("Could not save layout".into())
+            } else {
+                self.prediction_note()
+            },
             dock: self.dock,
             selected: (!self.scan.suspended && !self.disabled() && !self.scan.nav.escaping())
                 .then_some((active_row, active_column)),
@@ -1254,7 +1360,7 @@ mod tests {
                 let mut frame = k.frame(screen, 1.0, ScannerColor::default());
                 frame.tiles.pop().unwrap().text
             };
-            assert_eq!(status(&k), "Letters · Select a row");
+            assert_eq!(status(&k), "Letters · QWERTY · Select a row");
             // So does a suggestion, whose row is replaced.
             k.predictions(
                 Some(crate::prediction::worker::Batch {
@@ -1273,7 +1379,7 @@ mod tests {
             if wait {
                 k.handle(Action::Select);
             }
-            assert_eq!(status(&k), "Letters · Select a row");
+            assert_eq!(status(&k), "Letters · QWERTY · Select a row");
         }
     }
     #[test]
@@ -1645,6 +1751,110 @@ mod tests {
         assert!(!rows(Page::Functions, true)
             .concat()
             .contains(&Key::Named("Insert")));
+    }
+    #[test]
+    fn common_letters_layout_keeps_every_key_and_reduces_english_scan_steps() {
+        use crate::point_scan::KeyboardLayout;
+        let familiar = rows_for(Page::Letters, false, KeyboardLayout::Qwerty);
+        let common = rows_for(Page::Letters, false, KeyboardLayout::CommonLetters);
+        assert_eq!(common[0][0], Key::Character(' ', ' '));
+        assert_eq!(common[0][1], Key::Character('e', 'E'));
+        assert_eq!(common[0].last(), Some(&Key::Named("Backspace")));
+        for key in familiar.iter().flatten() {
+            assert_eq!(
+                common
+                    .iter()
+                    .flatten()
+                    .filter(|other| *other == key)
+                    .count(),
+                1,
+                "{key:?}"
+            );
+        }
+        let scan_steps = |rows: &Vec<Vec<Key>>, text: &str| {
+            text.chars()
+                .map(|character| {
+                    let (row, column) = rows
+                        .iter()
+                        .enumerate()
+                        .find_map(|(row, keys)| keys.iter().position(|key| matches!(key, Key::Character(base, _) if *base == character)).map(|column| (row, column)))
+                        .unwrap();
+                    row + column + 2
+                })
+                .sum::<usize>()
+        };
+        let text = "the quick brown fox jumps over the lazy dog";
+        assert!(scan_steps(&common, text) < scan_steps(&familiar, text));
+        for page in [Page::Numbers, Page::Functions] {
+            assert_eq!(
+                rows_for(page, false, KeyboardLayout::Qwerty),
+                rows_for(page, false, KeyboardLayout::CommonLetters)
+            );
+        }
+    }
+    #[test]
+    fn layout_key_requests_change_and_saved_layout_rebuilds_without_losing_shift() {
+        use crate::point_scan::KeyboardLayout;
+        let mut keyboard = Keyboard::new(false);
+        keyboard.choose(Key::Modifier(0));
+        assert_eq!(
+            keyboard.choose(Key::Layout),
+            Some(Output::Layout(KeyboardLayout::CommonLetters))
+        );
+        assert_eq!(keyboard.layout, KeyboardLayout::Qwerty);
+        keyboard.set_layout(KeyboardLayout::CommonLetters);
+        assert_eq!(keyboard.modifiers[0], Modifier::Once);
+        assert_eq!(keyboard.rows[0][0], Key::Character(' ', ' '));
+        assert_eq!(
+            keyboard.choose(Key::Layout),
+            Some(Output::Layout(KeyboardLayout::Qwerty))
+        );
+        keyboard.choose(Key::Page(Page::Numbers));
+        assert!(keyboard.rows.last().unwrap().contains(&Key::Layout));
+        keyboard.set_layout(KeyboardLayout::Qwerty);
+        keyboard.choose(Key::Page(Page::Letters));
+        assert_eq!(keyboard.rows[0][1], Key::Character('q', 'Q'));
+    }
+    #[test]
+    fn footer_layout_key_is_reachable_by_switches_and_failure_keeps_keyboard_running() {
+        use crate::point_scan::KeyboardLayout;
+        let mut keyboard = Keyboard::new(false);
+        let footer = keyboard.rows.len() - 1;
+        for _ in 0..footer {
+            keyboard.handle(Action::Next);
+        }
+        assert_eq!(keyboard.scan.position(&keyboard.rows), (footer, None));
+        keyboard.handle(Action::Select);
+        for _ in 0..keyboard.rows[footer].len() - 1 {
+            keyboard.handle(Action::Next);
+        }
+        assert_eq!(
+            keyboard.rows[footer][keyboard.scan.position(&keyboard.rows).1.unwrap()],
+            Key::Layout
+        );
+        assert_eq!(
+            keyboard.handle(Action::Select),
+            Some(Output::Layout(KeyboardLayout::CommonLetters))
+        );
+        keyboard.layout_change_failed();
+        assert!(!keyboard.suspended());
+        assert_eq!(keyboard.layout, KeyboardLayout::Qwerty);
+        assert!(keyboard
+            .frame(
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1280.0,
+                    height: 720.0
+                },
+                1.0,
+                ScannerColor::default()
+            )
+            .tiles
+            .iter()
+            .any(|tile| tile.text == "Could not save layout"));
+        keyboard.handle(Action::Next);
+        assert!(!keyboard.layout_save_error);
     }
     #[test]
     fn modifiers_are_consumed_only_after_success_and_lock_persists() {

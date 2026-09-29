@@ -384,6 +384,7 @@ pub enum Setting {
     SlowerLine,
     LineMode,
     GridMode,
+    KeyboardLayout(crate::point_scan::KeyboardLayout),
 }
 impl Setting {
     pub fn label(self) -> &'static str {
@@ -394,6 +395,7 @@ impl Setting {
             Self::SlowerLine => "Slower lines",
             Self::LineMode => "Line only",
             Self::GridMode => "Grid then line",
+            Self::KeyboardLayout(_) => "Keyboard layout",
         }
     }
     pub fn apply(self, config: &mut crate::point_scan::Config) {
@@ -417,6 +419,7 @@ impl Setting {
             Self::SlowerLine => config.speed = config.speed.saturating_sub(1),
             Self::LineMode => config.mode = crate::point_scan::Mode::Line,
             Self::GridMode => config.mode = crate::point_scan::Mode::Grid,
+            Self::KeyboardLayout(layout) => config.keyboard_layout = layout,
         }
     }
 }

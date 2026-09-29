@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 export type ScannerColor = "red" | "green" | "blue" | "yellow" | "white";
+export type KeyboardLayout = "qwerty" | "commonLetters";
 export type PointScanConfig = {
   controlMode: "point" | "mouse";
   scanPreferences?: import("./preferences").ScanPreferences;
   wordPrediction: boolean;
+  keyboardLayout: KeyboardLayout;
   enhancedWordPrediction: boolean;
   keyboardWaitAfterTyping: boolean;
   panelAvoidsPointer: boolean;
@@ -34,6 +36,7 @@ export type PointScanState = {
 export const defaultPointScanConfig: PointScanConfig = {
   controlMode: "point",
   wordPrediction: true,
+  keyboardLayout: "qwerty",
   enhancedWordPrediction: false,
   keyboardWaitAfterTyping: false,
   panelAvoidsPointer: false,
@@ -76,6 +79,7 @@ export function useScanning() {
     saved: 0,
     pending: 0,
     supported: false,
+    latestRuntime: null as PointScanState | null,
   });
   const queue = useRef(Promise.resolve());
   const runtimeRevision = useRef(0);
@@ -85,6 +89,7 @@ export function useScanning() {
     const receive = (next: PointScanState) => {
       if (!alive) return;
       model.current.supported = next.supported;
+      model.current.latestRuntime = next;
       setState(next);
       if (
         model.current.pending === 0 &&
@@ -134,6 +139,11 @@ export function useScanning() {
       .finally(() => {
         model.current.pending--;
         setPending(model.current.pending);
+        const latest = model.current.latestRuntime;
+        if (model.current.pending === 0 && model.current.revision === model.current.saved && latest) {
+          model.current.config = latest.config;
+          setConfig(latest.config);
+        }
       });
   };
   const save = (revision: number, next: PointScanConfig) =>
@@ -145,7 +155,14 @@ export function useScanning() {
         config: next,
       });
       model.current.saved = revision;
-      if (runtime === runtimeRevision.current) setState(result);
+      if (runtime === runtimeRevision.current) {
+        setState(result);
+        model.current.latestRuntime = result;
+      }
+      if (revision === model.current.revision) {
+        model.current.config = result.config;
+        setConfig(result.config);
+      }
     });
   const update = <K extends keyof PointScanConfig>(
     key: K,
@@ -164,12 +181,26 @@ export function useScanning() {
     if (validSwitches(model.current.config))
       save(model.current.revision, model.current.config);
   };
+  const chooseKeyboardLayout = (layout: KeyboardLayout) => {
+    enqueue(async () => {
+      setError(null);
+      const result = await invoke<PointScanState>("set_keyboard_layout", { layout });
+      model.current.latestRuntime = result;
+      const next = model.current.revision === model.current.saved
+        ? result.config
+        : { ...model.current.config, keyboardLayout: result.config.keyboardLayout };
+      model.current.config = next;
+      setConfig(next);
+      setState(result);
+    });
+  };
   return {
     state,
     config,
     pending,
     error,
     update,
+    chooseKeyboardLayout,
     retry,
     unsaved: model.current.revision !== model.current.saved,
   };

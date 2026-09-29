@@ -109,6 +109,9 @@ impl Adapter for PointScan {
     }
     fn keep_runtime_config(next: &mut Config, current: &Config) {
         next.control_mode = current.control_mode;
+        // Layout changes can also come from the scanned keyboard. Settings
+        // saves use a separate layout command so stale forms cannot undo one.
+        next.keyboard_layout = current.keyboard_layout;
     }
     fn cursor_feedback(technique: &Workflow) -> Option<crate::input::PointerFeedback> {
         technique.mouse_feedback()
@@ -357,6 +360,7 @@ impl Adapter for PointScan {
                 | Request::MouseMoveAbsolute { .. }
                 | Request::MouseScroll { .. }
                 | Request::KeyboardPunctuation(_)
+                | Request::Setting(crate::scan_menu::Setting::KeyboardLayout(_))
         )
     }
     fn deferred(request: &Request) -> bool {
@@ -461,6 +465,7 @@ mod tests {
     fn settings_saves_keep_the_runtime_mode() {
         let current = Config {
             control_mode: crate::point_scan::ControlMode::Mouse,
+            keyboard_layout: crate::point_scan::KeyboardLayout::CommonLetters,
             ..Config::default()
         };
         let mut next = Config {
@@ -469,7 +474,23 @@ mod tests {
         };
         PointScan::keep_runtime_config(&mut next, &current);
         assert_eq!(next.control_mode, crate::point_scan::ControlMode::Mouse);
+        assert_eq!(
+            next.keyboard_layout,
+            crate::point_scan::KeyboardLayout::CommonLetters
+        );
         assert_eq!(next.speed, 5);
+    }
+    #[test]
+    fn scanned_layout_setting_changes_only_the_saved_keyboard_choice() {
+        let mut config = Config::default();
+        crate::scan_menu::Setting::KeyboardLayout(crate::point_scan::KeyboardLayout::CommonLetters)
+            .apply(&mut config);
+        assert_eq!(
+            config.keyboard_layout,
+            crate::point_scan::KeyboardLayout::CommonLetters
+        );
+        assert_eq!(config.control_mode, crate::point_scan::ControlMode::Point);
+        assert!(config.word_prediction);
     }
 
     #[test]
@@ -486,6 +507,11 @@ mod tests {
             index: 0
         }));
         assert!(PointScan::preserve_visuals(&Request::PredictionRetry));
+        assert!(PointScan::preserve_visuals(&Request::Setting(
+            crate::scan_menu::Setting::KeyboardLayout(
+                crate::point_scan::KeyboardLayout::CommonLetters,
+            ),
+        )));
         assert!(PointScan::preserve_visuals(&Request::MouseScroll { dy: 5 }));
         assert!(!PointScan::preserve_visuals(
             &crate::point_workflow::default_click((10, 20))

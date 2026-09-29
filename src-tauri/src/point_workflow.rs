@@ -111,6 +111,7 @@ enum Stage {
 }
 pub struct Workflow {
     keyboard: crate::scan_keyboard::Keyboard,
+    keyboard_layout_pending: bool,
     keyboard_area: Rect,
     mouse: crate::scan_mouse::MousePanel,
     mouse_area: Rect,
@@ -150,9 +151,11 @@ impl Workflow {
                 cfg!(target_os = "macos"),
                 keyboard_options,
             )
+            .with_layout(config.keyboard_layout)
             .with_wait_after_typing(
                 config.keyboard_scan.next_scan == crate::scan_preferences::NextScan::Wait,
             ),
+            keyboard_layout_pending: false,
             keyboard_area: screen,
             mouse: crate::scan_mouse::MousePanel::new(mouse_options, 1, 100),
             mouse_area: screen,
@@ -184,6 +187,7 @@ impl Workflow {
             cfg!(target_os = "macos"),
             self.point.config.keyboard_scan,
         )
+        .with_layout(self.point.config.keyboard_layout)
         .with_wait_after_typing(
             self.point.config.keyboard_scan.next_scan == crate::scan_preferences::NextScan::Wait,
         );
@@ -221,6 +225,7 @@ impl Workflow {
             self.open(Kind::Actions);
         }
         self.point.config = config;
+        self.keyboard.set_layout(self.point.config.keyboard_layout);
         self.menu
             .set_period(self.point.config.menu_scan.interval_ms);
         for menu in &mut self.parent_menu {
@@ -228,6 +233,7 @@ impl Workflow {
         }
         if restart {
             self.keyboard = self.new_keyboard();
+            self.keyboard_layout_pending = false;
             self.mouse = self.new_mouse();
             self.return_to_mouse = false;
             self.mouse_actions_open = false;
@@ -651,7 +657,12 @@ impl Technique for Workflow {
     type Phase = Phase;
     fn execution_failed(&mut self, message: String) {
         if self.stage == Stage::Keyboard {
-            self.keyboard.failed();
+            if self.keyboard_layout_pending {
+                self.keyboard_layout_pending = false;
+                self.keyboard.layout_change_failed();
+            } else {
+                self.keyboard.failed();
+            }
             return;
         }
         // The keyboard did not open from the mouse panel, which is still there.
@@ -681,6 +692,7 @@ impl Technique for Workflow {
         if self.stage == Stage::KeyboardOpening {
             self.stage = Stage::Keyboard;
         } else if self.stage == Stage::Keyboard {
+            self.keyboard_layout_pending = false;
             self.keyboard
                 .succeeded_with_context(crate::prediction::keyboard_input_context());
         }
@@ -696,6 +708,7 @@ impl Technique for Workflow {
     }
     fn reset(&mut self) {
         self.keyboard = self.new_keyboard();
+        self.keyboard_layout_pending = false;
         self.mouse = self.new_mouse();
         self.return_to_mouse = false;
         self.mouse_actions_open = false;
@@ -772,6 +785,12 @@ impl Technique for Workflow {
                     }
                     Some(crate::scan_keyboard::Output::RetryPrediction) => {
                         return Some(Request::PredictionRetry)
+                    }
+                    Some(crate::scan_keyboard::Output::Layout(layout)) => {
+                        self.keyboard_layout_pending = true;
+                        return Some(Request::Setting(crate::scan_menu::Setting::KeyboardLayout(
+                            layout,
+                        )));
                     }
                     Some(crate::scan_keyboard::Output::Close) => self.keyboard_closed(),
                     None => {}
@@ -1905,6 +1924,47 @@ mod tests {
             Some(Request::OpenKeyboard)
         );
         assert!(idle.active());
+    }
+    #[test]
+    fn chosen_keyboard_layout_opens_from_point_and_mouse_and_survives_save_failure() {
+        use crate::point_scan::{ControlMode, KeyboardLayout};
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        for mode in [ControlMode::Point, ControlMode::Mouse] {
+            let config = Config {
+                control_mode: mode,
+                keyboard_layout: KeyboardLayout::CommonLetters,
+                ..Config::default()
+            };
+            let mut workflow = Workflow::new(config.point(), screen, 1.0).unwrap();
+            if mode == ControlMode::Mouse {
+                workflow.handle(Action::OpenMouse);
+            }
+            assert_eq!(
+                workflow.handle(Action::OpenKeyboard),
+                Some(Request::OpenKeyboard)
+            );
+            workflow.execution_succeeded();
+            assert_eq!(workflow.keyboard.layout, KeyboardLayout::CommonLetters);
+            workflow.keyboard_layout_pending = true;
+            workflow.execution_failed("Cannot save scanning settings.".into());
+            assert_eq!(workflow.keyboard.layout, KeyboardLayout::CommonLetters);
+            assert!(!workflow.keyboard.suspended());
+            let next = Config {
+                keyboard_layout: KeyboardLayout::Qwerty,
+                ..config
+            };
+            workflow.apply_config(next.point(), false);
+            assert_eq!(workflow.keyboard.layout, KeyboardLayout::Qwerty);
+            workflow.keyboard_closed();
+            if mode == ControlMode::Mouse {
+                assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+            }
+        }
     }
     #[test]
     fn a_point_scan_follows_the_window_only_while_nothing_is_chosen() {
