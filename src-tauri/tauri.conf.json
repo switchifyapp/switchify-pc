@@ -36,9 +36,13 @@
   },
   "bundle": {
     "resources": [
-      "resources/prediction-model/model.onnx",
-      "resources/prediction-model/tokenizer.json",
-      "resources/prediction-model/config.json"
+      "resources/prediction-model/english.sqlite",
+      "resources/prediction-model/production-model.json",
+      "resources/prediction-model/source-manifest.json",
+      "resources/prediction-model/aac-source-manifest.json",
+      "resources/prediction-model/ATTRIBUTION.md",
+      "resources/prediction-model/LICENSE",
+      "resources/prediction-model/corpus-notices/*"
     ],
     "active": true,
     "targets": "all",

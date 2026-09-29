@@ -1,6 +1,6 @@
 # Word prediction
 
-Word prediction is enabled by default in Scanning settings. Its five-position row appears only on the Letters page. Empty positions are skipped. Select the row and then a word using the existing switches. Acceptance appends the missing suffix and a space without selecting text or using the clipboard. It deletes nothing, with one bounded exception: when the word has a capital where a lowercase letter was typed, as in “lon” for London or “i” for I’m, it backspaces the typed prefix and types the whole word. Shift and Caps affect completion casing; Ctrl, Alt/Option and Windows/Command suppress suggestions.
+Word prediction is enabled by default in Scanning settings. Its five-position row appears only on the Letters page. Empty positions are skipped. Select the row and then a word using the existing switches. Acceptance appends the missing suffix and a space without selecting text or using the clipboard. It deletes nothing, with one bounded exception: when the word has a capital where a lowercase letter was typed, as in “i” for I’m, it backspaces the typed prefix and types the whole word. Shift and Caps affect completion casing; Ctrl, Alt/Option and Windows/Command suppress suggestions.
 
 Predictions use only a temporary buffer of successful Switchify keyboard input, starting with the first letter. Existing text, pasted text and hardware keyboard typing are never read into it. Switchify does not inspect fields, selections, passwords or caret positions. Suggestions may therefore appear anywhere the keyboard is open, including password fields or applications without a text field. The buffer records successful input injection; it cannot verify what an application actually accepted.
 
@@ -23,17 +23,19 @@ A passive observer records only an activity counter and timestamp, never externa
 
 ## On-device model
 
-One Word prediction setting controls an offline SmolLM2-135M int8 ONNX model. The saved `enhancedWordPrediction` field is retained for compatibility but does not choose an engine. The model spells candidates from subword pieces and reads only the last 256 characters of the temporary buffer, beginning at a word boundary. It never learns from typing.
+One Word prediction setting controls the English `en-aac-oanc-v1` SQLite database through the pinned `switchify-prediction` Rust library. The saved `enhancedWordPrediction` field remains compatible but does not choose an engine. Only the isolated worker opens the read-only baseline; there is no personal database, saved learning, import, or runtime download.
 
-For a first typed prefix, a fixed local context keeps the model from favoring website names at the start of a document; it adds no user text. The model loads in the worker while keyboard input remains available, which takes about a second. Suggestions are blank until loading finishes. Later keyboard opens normally skip this wait by using the spare worker described under Worker process. A passive badge beside the scan prompt distinguishes loading, a ready keyboard awaiting typed context, suggestions held until the next word, no matching suggestions, available suggestions, paused activity tracking, and prediction failure. It never shows typed text and is not a scan target. If loading or inference fails, the keyboard continues accepting input and offers **Retry predictions** in its toolbar. A call that exceeds 1.5 seconds is tolerated: its suggestions are still shown, and only three such calls in a row count as a failure, since one stall on a busy machine does not mean the model cannot keep up. A call at normal speed clears the count. A call so slow that its reply misses the two-second deadline is handled by replacing the worker, described under Worker process. Retry restarts only the prediction worker, clears its private text context, and leaves the keyboard open. Suggestions resume with the next word, or at once when no word was in progress. A 400 ms search budget bounds candidate exploration. A clipped buffer with no complete earlier word yields no suggestions.
+The worker ranks up to five words using interpolated trigram/bigram/unigram probabilities (0.6/0.3/0.1, renormalized when context is unavailable). Suggestions begin with the first typed character and continue after a space as next-word suggestions. An untouched keyboard remains empty. The prefix and preceding text are supplied separately, and sentence punctuation resets language context. There are no generated phrases. Unknown prefixes yield no suggestions. The vocabulary can contain names, disfluencies and inappropriate words; it is English-only and is not a clinical recommendation system.
 
-Candidates contain ASCII letters and apostrophes and must have sufficient model probability. There is no vocabulary filter: any word the model finds likely can be suggested, including swearing, because the person typing chose it. Single-letter candidates are limited to “a” and “I”. Up to five suggestions are shown: the first, third and fifth are the most likely single words, and the second and fourth are the two most likely two-word phrases that begin with one of the top three words, ranked by the probability of the pair. When fewer phrases are found within an extra 200 ms, single words fill the remaining slots, and the other way round. Accepting a phrase inserts the rest of its first word, a space, the second word and a trailing space.
+Loading is asynchronous and typing remains available. The existing badge distinguishes loading, waiting for typed context, held suggestions, no match, available suggestions, paused activity tracking, and failure. **Retry predictions** replaces the worker without closing the keyboard. A clipped buffer without a complete earlier word yields no suggestions. Repeated calls exceeding 1.5 seconds mark prediction unavailable; a missed two-second reply deadline triggers the existing worker replacement policy. Errors never expose buffered text.
+
+The loader checks the pinned database SHA-256 before opening it. Missing, corrupt or incompatible resources fail closed. `npm run prediction-model` obtains the versioned upstream release, verifies its archive and individual file hashes, and installs only allowlisted resources after verification. Verified local files work without network access. Bundles carry the source manifests, attribution and separate corpus notices; see [model provenance](../src-tauri/resources/PROVENANCE.md).
 
 ## Casing
 
 The label on a suggestion always reads as the text will after it is accepted. Casing is decided in three steps.
 
-**1. The word itself.** Ordinary words are lowercase. Names keep the model's capital: mixed case anywhere, such as WhatsApp, or an initial capital mid-sentence that the model clearly prefers, such as London or Monday. The model does that for proper nouns and occasionally a rare word. After a full stop, exclamation or question mark in the text the model read, or when that text is empty, the model capitalises every word, so its capital says nothing about the word and the lowercase form is used; step 3 then decides the first letter. The pronoun I and its contractions, such as I’m and I’ll, always have a capital I.
+**1. The word itself.** Database lookup words are normalized lowercase. The pronoun I and its standard contractions (I'm, I'll, I'd and I've) receive a capital I for display. Proper-name capitals are not guessed; use Shift or Caps to enter them.
 
 **2. The letters already typed.** A capital the person typed is kept. A typed prefix of two or more letters, all capitals, is a word being written in capitals, and is completed in capitals whatever the modifiers say. Where the word has a capital and a lowercase letter was typed, accepting restores the capital by retyping the prefix, described below.
 
@@ -65,13 +67,13 @@ For the word “water”:
 
 ### Retyping the prefix
 
-Accepting restores a capital the typed prefix lacks by backspacing that prefix and typing the whole word, as in “lon” for London, “i” for I’m or “wh” for WhatsApp. When the case already matches, which is the usual case, nothing is deleted and only the missing suffix is typed. A capital the person typed is kept, and a word typed in capitals is never retyped.
+Accepting restores a capital the typed prefix lacks by backspacing that prefix and typing the whole word, as in “i” for I’m. When the case already matches, which is the usual case, nothing is deleted and only the missing suffix is typed. A capital the person typed is kept, and a word typed in capitals is never retyped.
 
 The deletion is bounded. The prefix is text Switchify typed itself in the current window with no outside activity since. It is never more than one word, and the executor refuses more than 32 deletions. Any keyboard or mouse activity not made by Switchify between choosing the suggestion and typing it cancels the acceptance, so nothing else is deleted.
 
 Two things cannot be guaranteed. Deleting and typing cannot be atomic: if typing fails after the deletion, the prefix is lost and prediction context resets. The deletion also assumes one Backspace removes one typed character; an application that auto-pairs or autocorrects what was typed can break that, and Switchify cannot verify what an application accepted.
 
-The model files are too large to commit. `npm run prediction-model` downloads them from a pinned upstream revision and verifies their SHA-256. The Tauri dev and build commands and CI run it automatically. Run it once before `cargo test` or `cargo clippy` in a fresh checkout.
+The database is not committed. `npm run prediction-model` downloads the pinned release bundle and verifies its SHA-256. The Tauri dev and build commands and CI run it automatically. Run it once before `cargo test` or `cargo clippy` in a fresh checkout.
 
 ## Worker process
 
@@ -79,18 +81,18 @@ A separate process owns the buffer, activity observer and model. Private bounded
 
 ### Spare worker
 
-Loading the model takes about a second, so a keyboard that had a working worker leaves a spare behind when it closes. The worker that held the typed text is killed and reaped first. A new process is then started, which loads the model and waits. It has received no request, so it holds no text, and it starts its activity observer only on its first request, so it observes nothing while it waits. The next keyboard open adopts it and suggestions are ready without a reload.
+Loading remains lazy on first keyboard use, so a keyboard that had a working worker leaves a spare behind when it closes. The worker that held the typed text is killed and reaped first. A new process is then started, which loads the model and waits. It has received no request, so it holds no text, and it starts its activity observer only on its first request, so it observes nothing while it waits. The next keyboard open adopts it and suggestions are ready without a reload.
 
-At most one spare exists, and only between keyboard opens. It is killed and reaped after two minutes without a keyboard open, whenever scanning ends or restarts, such as after saving settings, when Word prediction is turned off, on Retry predictions and on exit. A spare started for different switch keys, or one that has exited, is discarded and a new worker is started instead. A keyboard whose worker failed leaves no spare. In each of these cases, and on the first open of a scanning session, the next open loads the model again. A keyboard reopened within about a second adopts a spare that is still loading and shows the loading badge until it finishes. While it waits, the spare holds the loaded model in memory, roughly 250 MB.
+At most one spare exists, and only between keyboard opens. It is killed and reaped after two minutes without a keyboard open, whenever scanning ends or restarts, such as after saving settings, when Word prediction is turned off, on Retry predictions and on exit. A spare started for different switch keys, or one that has exited, is discarded and a new worker is started instead. A keyboard whose worker failed leaves no spare. In each of these cases, and on the first open of a scanning session, the next open loads the model again. A keyboard reopened before loading completes adopts a spare that is still loading and shows the loading badge until it finishes. While it waits, the spare holds the loaded model in memory. CI records platform-specific load time and memory measurements rather than assuming a fixed allocation.
 
 Before accepting a suggestion, the worker checks its token, edit revision, foreground identity and external activity. The main process checks its generation and foreground again before injection. Verification and native insertion cannot be atomic across applications; the target can still change in that short interval.
 
 ## Validation
 
-Automated tests use fake predictors, foreground/activity sources, input adapters and sleeping subprocesses. They never inject desktop input. They cover first-letter completion, Unicode Backspace, bounded context, stale replies, foreground/external changes, failure cleanup and switch action compatibility. `cargo test` also runs the language model against the fetched files with synthetic text. For release-build suggestions and timings:
+Automated tests use fake predictors, foreground/activity sources, input adapters and sleeping subprocesses. They never inject desktop input. They cover first-letter completion, Unicode Backspace, bounded context, stale replies, foreground/external changes, failure cleanup and switch action compatibility. `cargo test` exercises the SQLite adapter with synthetic corpora. Packaged model verification and isolated release-mode measurements run separately on macOS and Windows. For release-build suggestions and timings:
 
 ```powershell
-cargo test --release --manifest-path src-tauri/Cargo.toml bundled_model_suggests_current_words -- --nocapture
+cargo test --release --manifest-path src-tauri/Cargo.toml bundled_prediction_benchmark -- --ignored --nocapture --test-threads=1
 ```
 
 For native validation, use disposable synthetic text in Notepad and a browser on Windows, and TextEdit and a browser on macOS. Launch macOS with `npm run macos:run` to retain its signed Accessibility identity.
@@ -103,3 +105,19 @@ For native validation, use disposable synthetic text in Notepad and a browser on
 6. Close the keyboard, stop scanning, disconnect and exit. Verify input releases and the prediction worker exits. After closing the keyboard one spare worker remains; reopen after a few seconds and within two minutes, and verify the loading badge clears almost immediately, then verify the spare exits after two minutes idle and when scanning stops. Test observer failure separately; typing should remain usable without predictions.
 
 Compilation and fake-adapter tests do not establish native application compatibility. Record live results separately.
+
+### Database adapter measurement
+
+On the development Apple M2 Max (12 logical CPUs), an isolated release-mode
+adapter test loaded the verified 29,802,496-byte database in 1,758 ms. Across
+200 warmed queries, p50 was 0.254 ms and p95 was 5.812 ms. Process RSS rose from
+10.0 MiB to 371.5 MiB; this includes the Rust test harness and retained allocator
+memory, and is not a measurement of the whole desktop application. The SQLite
+file size does not describe its in-memory n-gram representation.
+
+Keep first-use loading asynchronous and lazy: preloading at app startup would
+allocate this memory even for people who never open the keyboard. The existing
+bounded spare-worker policy handles subsequent opens. Native CI records the same
+measurements against extracted Windows and macOS package resources; timing is
+reported, not enforced as a flaky shared-runner threshold. See the integration
+PR for each platform's report.

@@ -1,0 +1,52 @@
+{
+  "model": "en-aac-oanc-v1",
+  "revision": "c4b9d14ba8312179617ead4d2707e86ec825a2e6",
+  "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.1.0/switchify-english-en-aac-oanc-v1.zip",
+  "archive_sha256": "4537c70b44f553b31e618378a5cc500cd83ffa2dff940263ecabf88e18945b17",
+  "files": {
+    "english.sqlite": {
+      "sha256": "222253417d0a7a705823ffb7e599a3bcf5d5d3daf4a9d76161ac6b3e555aeaad",
+      "size": 29802496
+    },
+    "production-model.json": {
+      "sha256": "70be7dc26a372eef4e8731ef8a2ea4ef19fb9dc5d93803d14e65b02b232b7424",
+      "size": 12352
+    },
+    "source-manifest.json": {
+      "sha256": "5421600b9be1063599e8adc07ee14a4ff4bdbf91a07b6a9d4fcfc793e2aafd7d",
+      "size": 4624
+    },
+    "aac-source-manifest.json": {
+      "sha256": "4da7fef8208e9829881b8ae656d941a7db9bf22aab49a4a8e3d029576b847879",
+      "size": 3015
+    },
+    "ATTRIBUTION.md": {
+      "sha256": "3922703e6f3bb669ded05674f034d7f9ccfd7d359805d12439191496c7755266",
+      "size": 4188
+    },
+    "LICENSE": {
+      "sha256": "1e5643d5431cc5b2d04534dee7b3f716b24fc3b82493a1659534cbfa4fc8732c",
+      "size": 1079
+    },
+    "corpus-notices/aac-notice.html": {
+      "sha256": "d803db680180170cbdb8f6dafd8202ba29198ce9399f7f16b9ae802406e958d0",
+      "size": 7737
+    },
+    "corpus-notices/aac-readme.txt": {
+      "sha256": "556d1e4e136cf2f6b16296880df86301c260b669ea2eb4566ca164cdadc0f850",
+      "size": 2309
+    },
+    "corpus-notices/oanc-download.html": {
+      "sha256": "1a0e43a2434517dc58d8806b955b72ba3838ea47a70a77e7c767bdb38d185847",
+      "size": 6583
+    },
+    "corpus-notices/oanc-legacy-license.txt": {
+      "sha256": "b0dcd84d8980a7bbe5a9d82786b95376ef1c91bbd89c34969e34ef81cdc440a6",
+      "size": 12198
+    },
+    "corpus-notices/oanc-notice.html": {
+      "sha256": "d8d0e58baa168e99451586e4de0c211f801cb0a43238593a51426d98d9dea605",
+      "size": 5249
+    }
+  }
+}

@@ -134,3 +134,31 @@ jobs:
         run: |
           $env:SWITCHIFY_ALLOW_UNSIGNED_UIACCESS_PACKAGE = '1'
           pwsh ./scripts/Verify-WindowsUiAccessPackage.ps1
+
+      - name: Verify macOS packaged prediction resources
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          model=$(node scripts/check-packaged-prediction.mjs src-tauri/target/release/bundle/macos)
+          echo "SWITCHIFY_BENCHMARK_MODEL=$model" >> "$GITHUB_ENV"
+      - name: Verify Windows packaged prediction resources
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
+          $unpacked = Join-Path $env:RUNNER_TEMP 'prediction-package'
+          & 7z x $installer.FullName "-o$unpacked" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract the installer.' }
+          $model = node scripts/check-packaged-prediction.mjs $unpacked
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged prediction resources failed verification.' }
+          "SWITCHIFY_BENCHMARK_MODEL=$model" >> $env:GITHUB_ENV
+      - name: Measure packaged prediction without desktop input
+        env:
+          SWITCHIFY_BENCHMARK_REPORT: prediction-benchmark.json
+        run: cargo test --release --locked --manifest-path src-tauri/Cargo.toml bundled_prediction_benchmark -- --ignored --nocapture --test-threads=1
+      - name: Upload prediction measurements
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: prediction-benchmark-${{ runner.os }}
+          path: src-tauri/prediction-benchmark.json
+          if-no-files-found: error

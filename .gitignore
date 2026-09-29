@@ -17,3 +17,5 @@ src-tauri/icons/ios/
 src-tauri/tauri.release*.generated.json
 tools/prediction-data/target/
 src-tauri/resources/prediction-model/
+
+src-tauri/prediction-benchmark.json
