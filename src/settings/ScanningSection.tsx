@@ -9,8 +9,8 @@ const phases = {
   keyboardOpening: "Opening the keyboard",
   mouse: "Choose a mouse control",
   mouseSuspended: "Select to resume the mouse",
-  mouseMoving: "Moving pointer. Press any switch to stop",
-  mouseScrolling: "Scrolling. Press any switch to stop",
+  mouseMoving: "Moving pointer. Press and release a switch to stop",
+  mouseScrolling: "Scrolling. Press and release a switch to stop",
   idle: "Ready to begin",
   autoSelecting: "Waiting to click. Press a switch for the action menu",
   menu: "Choose an action at the selected point",
@@ -39,8 +39,8 @@ export function ScanningSection({ controller }: { controller: ScanningController
     <details className="scanner-help"><summary>How scanning works</summary>
       <p>Point scanning chooses a screen location with a moving line or grid, then opens actions for clicks, scrolling and dragging. Mouse scanning moves a visible pointer ring and offers directions, clicks, dragging, scrolling and Keyboard in a persistent panel.</p>
       <p>Select starts the last mode used. Choose Mouse from the Point action menu or assign Open mouse to a switch. Mouse has an Actions tile for editing, windows, browser, media and other commands, so you can stay in Mouse. Modified clicks use the current pointer position. Choose Switch to Point in the Mouse panel or assign Open point to a switch. Stop scanning or Escape ends the session without changing the mode Select will start next time.</p>
-      <p>In Mouse, select a direction to move with the saved pointer speed and Remote repeat settings. Press any switch to stop repeating and scan the panel again. If repeat is off, each selection moves one step.</p>
-      <p>Assign switch actions in the Switches page. Actions run on release; holding a switch freezes movement. Manual scanning needs Select, Next and Previous. After clicking or reaching the pass limit, use Select to start again.</p>
+      <p>In Mouse, select a direction to move with the saved pointer speed and Remote repeat settings. Press and release a switch to stop repeating and scan the panel again. If repeat is off, each selection moves one step.</p>
+      <p>Assign switch actions in the Switches page. Actions run on release; holding a switch pauses the scan highlight. During repeating Mouse movement or scrolling, the stop switch keeps the action going until release and ignores its assigned actions. Manual scanning needs Select, Next and Previous. After clicking or reaching the pass limit, use Select to start again.</p>
       <p>The scanning keyboard offers QWERTY and Common letters first. Choose a saved layout in Keyboard settings or use the keyboard footer to switch while typing. Common letters first puts frequent English letters and Space earlier in the scan.</p>
       <p>Assigned keys stay reserved while Switchify runs. Escape resets the scan. Mobile connections pause local scanning until they end.</p>
       <p>On Windows, assigned keys remain switches with Shift, Ctrl, Alt or Windows held, even in the background. Other keys and Switchify-generated shortcuts still work normally.</p>
