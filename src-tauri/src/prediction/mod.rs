@@ -681,9 +681,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 .collect();
             ignored.sort_unstable();
             ignored.dedup();
-            let model = resource(app)
-                .ok()
-                .and_then(|path| path.parent().map(Path::to_owned));
+            let model = resource(app).ok();
             s.client = SPARE
                 .with(|spare| adopt(&mut spare.borrow_mut(), &ignored, Instant::now()))
                 .or_else(|| Client::start(model.as_deref()?, ignored.clone()).ok());
