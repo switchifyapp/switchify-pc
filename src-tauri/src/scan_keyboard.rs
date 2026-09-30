@@ -198,6 +198,22 @@ fn rows_for(page: Page, mac: bool, layout: crate::point_scan::KeyboardLayout) ->
     use Key::{Character as C, Named as N};
     if page != Page::Letters || layout == KeyboardLayout::Qwerty {
         let mut result = rows(page, mac);
+        if page == Page::Numbers && layout == KeyboardLayout::SimpleQwerty {
+            let before_modifiers = result.len() - 2;
+            result.splice(
+                before_modifiers..before_modifiers,
+                [
+                    vec![
+                        C('[', '{'),
+                        C(']', '}'),
+                        C(';', ':'),
+                        C('\'', '@'),
+                        C('#', '~'),
+                    ],
+                    vec![C('\\', '|'), C(',', '<'), C('.', '>'), C('/', '?')],
+                ],
+            );
+        }
         result.last_mut().unwrap().push(Key::Layout);
         return result;
     }
@@ -206,6 +222,28 @@ fn rows_for(page: Page, mac: bool, layout: crate::point_scan::KeyboardLayout) ->
             .map(|letter| C(letter, letter.to_ascii_uppercase()))
             .collect::<Vec<_>>()
     };
+    if layout == KeyboardLayout::SimpleQwerty {
+        let mut top = letters("qwertyuiop");
+        top.push(N("Backspace"));
+        let mut middle = letters("asdfghjkl");
+        middle.push(N("Enter"));
+        let mut bottom = vec![Key::Modifier(0)];
+        bottom.extend(letters("zxcvbnm"));
+        bottom.push(C(' ', ' '));
+        return vec![
+            top,
+            middle,
+            bottom,
+            vec![
+                Key::Close,
+                Key::Page(Page::Letters),
+                Key::Page(Page::Functions),
+                Key::Page(Page::Numbers),
+                Key::Dock,
+                Key::Layout,
+            ],
+        ];
+    }
     let mut first = vec![C(' ', ' ')];
     first.extend(letters("etaoi"));
     first.push(N("Backspace"));
@@ -601,7 +639,17 @@ impl Keyboard {
         }
         let mark = stroke.character()?;
         let supported = matches!(mark, '.' | ',' | '!' | '?' | ':' | ';');
-        (supported && (self.page == Page::Letters || mark == '!')).then_some(mark)
+        let simple_punctuation = self.page == Page::Numbers
+            && self.layout == crate::point_scan::KeyboardLayout::SimpleQwerty
+            && matches!(
+                stroke.key,
+                Key::Character(',', '<')
+                    | Key::Character('.', '>')
+                    | Key::Character(';', ':')
+                    | Key::Character('/', '?')
+            );
+        (supported && (self.page == Page::Letters || simple_punctuation || mark == '!'))
+            .then_some(mark)
     }
     fn choose_with_context(&mut self, key: Key, context: Option<TypingContext>) -> Option<Output> {
         self.discard_stale_context(context);
@@ -646,6 +694,9 @@ impl Keyboard {
             Key::Layout => {
                 return Some(Output::Layout(match self.layout {
                     crate::point_scan::KeyboardLayout::Qwerty => {
+                        crate::point_scan::KeyboardLayout::SimpleQwerty
+                    }
+                    crate::point_scan::KeyboardLayout::SimpleQwerty => {
                         crate::point_scan::KeyboardLayout::CommonLetters
                     }
                     crate::point_scan::KeyboardLayout::CommonLetters => {
@@ -866,7 +917,8 @@ impl Keyboard {
                 if page == self.page { " •" } else { "" }
             ),
             Key::Layout => match self.layout {
-                crate::point_scan::KeyboardLayout::Qwerty => "Use common letters",
+                crate::point_scan::KeyboardLayout::Qwerty => "Use simple QWERTY",
+                crate::point_scan::KeyboardLayout::SimpleQwerty => "Use common letters",
                 crate::point_scan::KeyboardLayout::CommonLetters => "Use QWERTY",
             }
             .into(),
@@ -916,6 +968,7 @@ impl Keyboard {
             _ if self.positioning => crate::scan_panel::POSITION_PAGE,
             Page::Letters => match self.layout {
                 crate::point_scan::KeyboardLayout::Qwerty => "Letters · QWERTY",
+                crate::point_scan::KeyboardLayout::SimpleQwerty => "Letters · Simple QWERTY",
                 crate::point_scan::KeyboardLayout::CommonLetters => {
                     "Letters · Common letters first"
                 }
@@ -1858,15 +1911,123 @@ mod tests {
         }
     }
     #[test]
+    fn simple_qwerty_has_three_letter_rows_and_keeps_removed_keys_reachable() {
+        use crate::point_scan::KeyboardLayout;
+        let letters = rows_for(Page::Letters, false, KeyboardLayout::SimpleQwerty);
+        let line = |text: &str| {
+            text.chars()
+                .map(|c| Key::Character(c, c.to_ascii_uppercase()))
+                .collect::<Vec<_>>()
+        };
+        let mut top = line("qwertyuiop");
+        top.push(Key::Named("Backspace"));
+        let mut middle = line("asdfghjkl");
+        middle.push(Key::Named("Enter"));
+        let mut bottom = vec![Key::Modifier(0)];
+        bottom.extend(line("zxcvbnm"));
+        bottom.push(Key::Character(' ', ' '));
+        assert_eq!(&letters[..3], &[top, middle, bottom]);
+        assert_eq!(letters.len(), 4);
+        assert!(letters[3].contains(&Key::Layout));
+        let numbers = rows_for(Page::Numbers, false, KeyboardLayout::SimpleQwerty);
+        assert_eq!(
+            numbers[numbers.len() - 4],
+            vec![
+                Key::Character('[', '{'),
+                Key::Character(']', '}'),
+                Key::Character(';', ':'),
+                Key::Character('\'', '@'),
+                Key::Character('#', '~'),
+            ]
+        );
+        assert_eq!(
+            numbers[numbers.len() - 3],
+            vec![
+                Key::Character('\\', '|'),
+                Key::Character(',', '<'),
+                Key::Character('.', '>'),
+                Key::Character('/', '?'),
+            ]
+        );
+        let functions = rows_for(Page::Functions, false, KeyboardLayout::SimpleQwerty);
+        for key in rows(Page::Letters, false).into_iter().flatten() {
+            assert!(
+                letters
+                    .iter()
+                    .chain(&numbers)
+                    .chain(&functions)
+                    .flatten()
+                    .any(|available| *available == key),
+                "missing {key:?}"
+            );
+        }
+        assert_eq!(
+            rows_for(Page::Numbers, false, KeyboardLayout::Qwerty),
+            rows_for(Page::Numbers, false, KeyboardLayout::CommonLetters)
+        );
+    }
+    #[test]
+    fn simple_qwerty_keeps_predictions_above_the_three_letter_rows() {
+        use crate::point_scan::KeyboardLayout;
+        let mut keyboard = Keyboard::new(false).with_layout(KeyboardLayout::SimpleQwerty);
+        keyboard.enable_predictions(true);
+        keyboard.predictions(
+            Some(crate::prediction::worker::Batch {
+                token: 9,
+                words: vec!["hello".into()],
+            }),
+            false,
+        );
+        assert_eq!(keyboard.rows[0][0], Key::Prediction(0));
+        assert_eq!(keyboard.rows[1][0], Key::Character('q', 'Q'));
+        assert_eq!(keyboard.rows.len(), 5);
+    }
+    #[test]
+    fn simple_qwerty_prose_punctuation_on_numbers_keeps_decimal_literal() {
+        use crate::point_scan::KeyboardLayout;
+        let mut keyboard = Keyboard::new(false).with_layout(KeyboardLayout::SimpleQwerty);
+        keyboard.choose(Key::Page(Page::Numbers));
+        assert!(matches!(
+            keyboard.choose_with_context(Key::Character('.', '.'), context(1)),
+            Some(Output::Stroke(_))
+        ));
+        keyboard.succeeded_with_context(context(1));
+        for (key, mark) in [
+            (Key::Character(',', '<'), ','),
+            (Key::Character(';', ':'), ';'),
+            (Key::Character('.', '>'), '.'),
+        ] {
+            assert!(
+                matches!(keyboard.choose_with_context(key, context(1)), Some(Output::Punctuation(p)) if p.mark == mark)
+            );
+            keyboard.succeeded_with_context(context(1));
+        }
+        keyboard.reset_context();
+        keyboard.choose_with_context(Key::Modifier(0), context(1));
+        assert!(
+            matches!(keyboard.choose_with_context(Key::Character('/', '?'), context(1)), Some(Output::Punctuation(p)) if p.mark == '?')
+        );
+        keyboard.succeeded_with_context(context(1));
+        keyboard.choose_with_context(Key::Page(Page::Letters), context(1));
+        assert_eq!(keyboard.label(Key::Character('a', 'A')), "A");
+    }
+    #[test]
     fn layout_key_requests_change_and_saved_layout_rebuilds_without_losing_shift() {
         use crate::point_scan::KeyboardLayout;
         let mut keyboard = Keyboard::new(false);
         keyboard.choose(Key::Modifier(0));
         assert_eq!(
             keyboard.choose(Key::Layout),
-            Some(Output::Layout(KeyboardLayout::CommonLetters))
+            Some(Output::Layout(KeyboardLayout::SimpleQwerty))
         );
         assert_eq!(keyboard.layout, KeyboardLayout::Qwerty);
+        keyboard.set_layout(KeyboardLayout::SimpleQwerty);
+        assert_eq!(keyboard.modifiers[0], Modifier::Once);
+        assert_eq!(keyboard.rows[0][0], Key::Character('q', 'Q'));
+        assert_eq!(
+            keyboard.choose(Key::Layout),
+            Some(Output::Layout(KeyboardLayout::CommonLetters))
+        );
         keyboard.set_layout(KeyboardLayout::CommonLetters);
         assert_eq!(keyboard.modifiers[0], Modifier::Once);
         assert_eq!(keyboard.rows[0][0], Key::Character(' ', ' '));
@@ -1899,7 +2060,7 @@ mod tests {
         );
         assert_eq!(
             keyboard.handle(Action::Select),
-            Some(Output::Layout(KeyboardLayout::CommonLetters))
+            Some(Output::Layout(KeyboardLayout::SimpleQwerty))
         );
         keyboard.layout_change_failed();
         assert!(!keyboard.suspended());

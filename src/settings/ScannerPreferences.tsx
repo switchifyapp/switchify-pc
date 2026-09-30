@@ -136,7 +136,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
 
     </>}
     {area === 'keyboard' && <>
-      <SettingGroup title="Keyboard layout" description="Choose the order of keys on the Letters page. The Numbers and Navigation pages stay the same.">
+      <SettingGroup title="Keyboard layout" description="Choose the Letters page layout. Simple QWERTY puts punctuation on its Numbers page; Navigation stays the same.">
         <OptionGroup<PointScanConfig['keyboardLayout']>
           legend="Keyboard layout"
           disabled={disabled || !!pending}
@@ -144,15 +144,18 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
           onChange={chooseKeyboardLayout}
           options={[
             { value: 'qwerty', label: 'QWERTY' },
+            { value: 'simpleQwerty', label: 'Simple QWERTY' },
             { value: 'commonLetters', label: 'Common letters first' },
           ]}
           note={{ summary: config.keyboardLayout === 'commonLetters'
             ? 'Static English key order: Space E T A O I Backspace; N S H R D L U Enter; C M F W Y P V B; G K J Q X Z Tab Caps lock. Punctuation and modifiers follow.'
-            : 'Familiar QWERTY key rows: Q W E R T Y U I O P; A S D F G H J K L; Z X C V B N M. The keyboard footer can switch layouts at any time.' }}
+            : config.keyboardLayout === 'simpleQwerty'
+              ? 'Three familiar letter rows: Q W E R T Y U I O P Backspace; A S D F G H J K L Enter; Shift Z X C V B N M Space. Punctuation is on Numbers.'
+              : 'Familiar QWERTY key rows: Q W E R T Y U I O P; A S D F G H J K L; Z X C V B N M. The keyboard footer can switch layouts at any time.' }}
         />
-        <p className="setting-note">Common letters first puts frequent English letters and Space early in row scanning. You can switch layouts from the keyboard footer; the choice is saved.</p>
+        <p className="setting-note">Simple QWERTY keeps the letter order with fewer keys on its Letters page. Common letters first puts frequent English letters and Space early in row scanning. The keyboard footer cycles through all three layouts; the choice is saved.</p>
       </SettingGroup>
-      <p className="setting-note">The scanning keyboard spaces punctuation for you. Period, question mark, and exclamation mark capitalize the next letter. The Numbers page period stays a decimal point.</p>
+      <p className="setting-note">The scanning keyboard spaces prose punctuation for you. In Simple QWERTY, those marks are on Numbers; the separate numeric period stays a decimal point. Period, question mark, and exclamation mark capitalize the next letter.</p>
     </>}
     {(area === 'keyboard' || area === 'mouse') && <SettingGroup title="Panel position" description="Choose where the keyboard and mouse panels sit from Position on either panel.">
       <Toggle label="Move away from the pointer" checked={config.panelAvoidsPointer} disabled={disabled} onChange={value => update('panelAvoidsPointer', value)} />

@@ -23,6 +23,7 @@ pub enum ControlMode {
 pub enum KeyboardLayout {
     #[default]
     Qwerty,
+    SimpleQwerty,
     CommonLetters,
 }
 
@@ -1193,6 +1194,12 @@ mod tests {
         assert_eq!(
             serde_json::to_value(chosen).unwrap()["keyboardLayout"],
             "commonLetters"
+        );
+        let simple: Config = serde_json::from_str(r#"{"keyboardLayout":"simpleQwerty"}"#).unwrap();
+        assert_eq!(simple.keyboard_layout, KeyboardLayout::SimpleQwerty);
+        assert_eq!(
+            serde_json::to_value(simple).unwrap()["keyboardLayout"],
+            "simpleQwerty"
         );
         assert!(serde_json::from_str::<Config>(r#"{"keyboardLayout":"unknown"}"#).is_err());
     }
