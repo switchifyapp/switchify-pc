@@ -271,7 +271,7 @@ function SwitchEditor({
             ? `Hold ${binding.holdActions
                 .map((a, i) => `${seconds(holdIntervalMs * (i + 1))} for ${actions[a]}`)
                 .join(", ")}. Release to run the action shown.`
-            : "Holding pauses the scan highlight. Add actions to offer them one by one while held; Mouse repeat uses press and release to stop instead."}
+            : "Holding pauses the scan highlight. Add actions to offer them one by one while held; Mouse repeat follows the Stop repeating choice in Mouse settings instead."}
         </p>
         <Button
           type="button"

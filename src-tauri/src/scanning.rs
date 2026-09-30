@@ -325,8 +325,12 @@ pub trait Technique {
     fn mouse_repeating(&self) -> bool {
         false
     }
-    /// Ends a repeating scanned Mouse action after its stop switch is released.
-    fn switch_released(&mut self) -> bool {
+    /// Which switch edge stops a repeating scanned Mouse action.
+    fn mouse_repeat_stop_edge(&self) -> crate::point_scan::MouseRepeatStopEdge {
+        Default::default()
+    }
+    /// Ends a repeating scanned Mouse action.
+    fn stop_mouse_repeat(&mut self) -> bool {
         false
     }
     fn execution_failed(&mut self, _message: String) {}

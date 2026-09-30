@@ -12,6 +12,8 @@ import {
   type PointScanState,
 } from "./scanning/useScanning";
 import { defaultScanPreferences } from "./scanning/preferences";
+import { MouseSettingsView } from "./settings/MouseSettingsView";
+import { browserState } from "./api";
 import { ScanningSection } from "./settings/ScanningSection";
 function more() {
   const button = screen.getByRole("button", { name: "More options" });
@@ -561,4 +563,43 @@ it("explains the saved Mouse mode and keeps mode cards keyboard accessible", asy
   expect(screen.getByRole("heading", { name: "Mouse scanning", level: 2 })).toHaveFocus();
   fireEvent.click(screen.getByRole("button", { name: "Back to scanning settings" }));
   expect(screen.getByRole("button", { name: "Customise mouse scanning" })).toHaveFocus();
+});
+
+function MouseSettings() {
+  const scanning = useScanning();
+  return <MouseSettingsView settings={browserState.settings} onChange={() => {}} scanning={scanning} />;
+}
+
+it("saves the accessible Mouse stop choice and retains failed edits for retry", async () => {
+  render(<MouseSettings />);
+  const release = screen.getByRole("button", { name: "On switch release" });
+  await waitFor(() => expect(release).toBeEnabled());
+  expect(release).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("group", { name: "Stop repeating" })).toBeInTheDocument();
+  const press = screen.getByRole("button", { name: "On switch press" });
+  press.focus();
+  expect(press).toHaveFocus();
+  fireEvent.click(press);
+  await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("configure_point_scan", {
+    config: { ...defaultPointScanConfig, mouseRepeatStopEdge: "press" },
+  }));
+  await waitFor(() => expect(press).toBeEnabled());
+  expect(press).toHaveAttribute("aria-pressed", "true");
+  mocks.invoke.mockRejectedValueOnce("Disk is full.");
+  fireEvent.click(release);
+  expect(await screen.findByRole("alert")).toHaveTextContent("Disk is full.");
+  expect(release).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByText("Scanning settings have unsaved changes.")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
+  await screen.findByText("Saved automatically.");
+  expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: { ...defaultPointScanConfig, mouseRepeatStopEdge: "release" },
+  });
+});
+
+it.each(["press", "release"] as const)("reports the saved %s stop instruction during Mouse repeats", async mouseRepeatStopEdge => {
+  mocks.invoke.mockResolvedValue({ ...initial, config: { ...initial.config, mouseRepeatStopEdge }, enabled: true, phase: "mouseScrolling" });
+  render(<PointScan />);
+  const instruction = mouseRepeatStopEdge === "press" ? "Press a switch to stop" : "Press and release a switch to stop";
+  await screen.findByText(`Scrolling. ${instruction}.`);
 });

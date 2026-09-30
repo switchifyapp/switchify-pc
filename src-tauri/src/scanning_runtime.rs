@@ -82,17 +82,26 @@ const RETRY_MS: u64 = 2000;
 struct RepeatStop {
     owner: Option<String>,
     held: HashSet<String>,
+    stop_on_release: bool,
 }
 impl RepeatStop {
-    fn down(&mut self, id: &str, repeating: bool) -> bool {
+    /// None means an ordinary press; Some records whether to stop now.
+    fn down(
+        &mut self,
+        id: &str,
+        repeating: bool,
+        edge: crate::point_scan::MouseRepeatStopEdge,
+    ) -> Option<bool> {
         if self.owner.is_none() && !repeating && self.held.is_empty() {
-            return false;
+            return None;
         }
         self.held.insert(id.to_owned());
-        if self.owner.is_none() && repeating {
+        let first = self.owner.is_none() && repeating;
+        if first {
             self.owner = Some(id.to_owned());
+            self.stop_on_release = edge == crate::point_scan::MouseRepeatStopEdge::Release;
         }
-        true
+        Some(first && !self.stop_on_release)
     }
     /// None means the release belongs to ordinary switch handling.
     fn up(&mut self, id: &str) -> Option<bool> {
@@ -103,7 +112,19 @@ impl RepeatStop {
         if stop {
             self.owner = None;
         }
-        Some(stop)
+        Some(stop && self.stop_on_release)
+    }
+    fn press<T: Technique>(&mut self, id: &str, mut technique: Option<&mut T>) -> Option<bool> {
+        let repeating = technique.as_ref().is_some_and(|t| t.mouse_repeating());
+        let edge = technique
+            .as_ref()
+            .map_or(Default::default(), |t| t.mouse_repeat_stop_edge());
+        self.down(id, repeating, edge)
+            .map(|stop| stop && technique.as_mut().is_some_and(|t| t.stop_mouse_repeat()))
+    }
+    fn release<T: Technique>(&mut self, id: &str, mut technique: Option<&mut T>) -> Option<bool> {
+        self.up(id)
+            .map(|stop| stop && technique.as_mut().is_some_and(|t| t.stop_mouse_repeat()))
     }
     fn held(&self) -> bool {
         !self.held.is_empty()
@@ -826,13 +847,20 @@ fn tick<A: Adapter>(app: &AppHandle) {
                         if d.remote_hold_started.is_none() {
                             d.remote_hold_started = Some(now_ms);
                         }
-                        let repeating = d
-                            .engine
-                            .as_ref()
-                            .is_some_and(|engine| engine.technique.mouse_repeating());
-                        if d.repeat_stop.down(&id.to_string(), repeating) {
+                        let Data {
+                            repeat_stop,
+                            engine,
+                            ..
+                        } = &mut *d;
+                        if let Some(stopped) = repeat_stop.press(
+                            &id.to_string(),
+                            engine.as_mut().map(|engine| &mut engine.technique),
+                        ) {
                             d.pressed.cancel();
-                            (None, false)
+                            if stopped {
+                                d.last_tick = Instant::now();
+                            }
+                            (None, stopped)
                         } else {
                             let countdown = d
                                 .engine
@@ -848,19 +876,24 @@ fn tick<A: Adapter>(app: &AppHandle) {
                         }
                     }
                     crate::remote_scan::Edge::Up(id) => {
-                        let (action, stopped) =
-                            if let Some(stop) = d.repeat_stop.up(&id.to_string()) {
-                                let stopped = stop
-                                    && d.engine
-                                        .as_mut()
-                                        .is_some_and(|engine| engine.technique.switch_released());
-                                if stopped {
-                                    d.last_tick = Instant::now();
-                                }
-                                (None, stopped)
-                            } else {
-                                (d.pressed.released(&id.to_string(), now_ms), false)
-                            };
+                        let (action, stopped) = if let Some(stopped) = {
+                            let Data {
+                                repeat_stop,
+                                engine,
+                                ..
+                            } = &mut *d;
+                            repeat_stop.release(
+                                &id.to_string(),
+                                engine.as_mut().map(|engine| &mut engine.technique),
+                            )
+                        } {
+                            if stopped {
+                                d.last_tick = Instant::now();
+                            }
+                            (None, stopped)
+                        } else {
+                            (d.pressed.released(&id.to_string(), now_ms), false)
+                        };
                         if !d.pressed.held() && !d.repeat_stop.held() {
                             d.remote_hold_started = None;
                         }
@@ -922,13 +955,20 @@ fn tick<A: Adapter>(app: &AppHandle) {
                         continue;
                     }
                     if action == crate::switch_input::Action::Pressed {
-                        let repeating = d
-                            .engine
-                            .as_ref()
-                            .is_some_and(|engine| engine.technique.mouse_repeating());
-                        if d.repeat_stop.down(&switch_id, repeating) {
+                        let Data {
+                            repeat_stop,
+                            engine,
+                            ..
+                        } = &mut *d;
+                        if let Some(stopped) = repeat_stop.press(
+                            &switch_id,
+                            engine.as_mut().map(|engine| &mut engine.technique),
+                        ) {
                             d.pressed.cancel();
-                            (None, false)
+                            if stopped {
+                                d.last_tick = Instant::now();
+                            }
+                            (None, stopped)
                         } else {
                             let settings = d.switches.clone();
                             let countdown = d
@@ -944,11 +984,17 @@ fn tick<A: Adapter>(app: &AppHandle) {
                             (None, false)
                         }
                     } else {
-                        if let Some(stop) = d.repeat_stop.up(&switch_id) {
-                            let stopped = stop
-                                && d.engine
-                                    .as_mut()
-                                    .is_some_and(|engine| engine.technique.switch_released());
+                        if let Some(stopped) = {
+                            let Data {
+                                repeat_stop,
+                                engine,
+                                ..
+                            } = &mut *d;
+                            repeat_stop.release(
+                                &switch_id,
+                                engine.as_mut().map(|engine| &mut engine.technique),
+                            )
+                        } {
                             if stopped {
                                 d.last_tick = Instant::now();
                             }
@@ -1233,12 +1279,183 @@ mod repeat_stop_tests {
         }
     }
 
+    fn repeating(
+        edge: crate::point_scan::MouseRepeatStopEdge,
+        scroll: bool,
+    ) -> crate::scanning::Session<crate::point_workflow::Workflow> {
+        use crate::{
+            point_scan::Config,
+            point_workflow::{Request, Workflow},
+            scanning::{Rect, Session},
+        };
+        let config = Config {
+            automatic: false,
+            mouse_repeat_stop_edge: edge,
+            ..Config::default()
+        };
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut session = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), false);
+        session.action(Action::OpenMouse);
+        session.action(Action::Next);
+        session.action(Action::Select);
+        if scroll {
+            for _ in 0..3 {
+                session.action(Action::Next);
+            }
+        }
+        let request = session.action(Action::Select);
+        assert!(
+            matches!(
+                request,
+                Some(Request::MouseMove { .. }) | Some(Request::MouseScroll { .. })
+            ),
+            "{request:?}"
+        );
+        session
+    }
+
+    #[test]
+    fn both_stop_choices_control_move_and_scroll_for_local_and_forwarded_switches() {
+        use crate::{
+            point_scan::MouseRepeatStopEdge::{Press, Release},
+            scanning::Technique,
+        };
+        for edge in [Press, Release] {
+            for scroll in [false, true] {
+                for id in ["one", "remote:1"] {
+                    let mut session = repeating(edge, scroll);
+                    let frame = session.technique.frame();
+                    assert!(frame
+                        .tiles
+                        .last()
+                        .unwrap()
+                        .text
+                        .ends_with(edge.instruction()));
+                    let mut stop = RepeatStop::default();
+                    let mut gestures = Gestures::default();
+                    gestures.pressed("previous", 0, &switches());
+                    assert_eq!(
+                        stop.release("unmatched", Some(&mut session.technique)),
+                        None
+                    );
+                    assert_eq!(
+                        stop.press(id, Some(&mut session.technique)),
+                        Some(edge == Press)
+                    );
+                    gestures.cancel(); // Both transport paths cancel configured gestures on capture.
+                    assert!(gestures.prompt(30_000).is_none());
+                    assert_eq!(gestures.released(id, 30_000), None);
+                    assert_eq!(session.technique.mouse_repeating(), edge == Release);
+                    assert_eq!(
+                        stop.press("overlap", Some(&mut session.technique)),
+                        Some(false)
+                    );
+                    let mut repeated = false;
+                    for _ in 0..20 {
+                        session.tick(33, stop.held());
+                        repeated |= session.take_selection().is_some();
+                    }
+                    assert_eq!(repeated, edge == Release);
+                    assert_eq!(
+                        stop.release("overlap", Some(&mut session.technique)),
+                        Some(false)
+                    );
+                    assert_eq!(
+                        stop.release(id, Some(&mut session.technique)),
+                        Some(edge == Release)
+                    );
+                    assert!(!session.technique.mouse_repeating());
+                    session.tick(250, false);
+                    assert!(session.take_selection().is_none());
+                    assert_eq!(stop.release(id, Some(&mut session.technique)), None);
+                    assert_eq!(stop.press(id, Some(&mut session.technique)), None);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn repeat_off_leaves_switch_gestures_available_for_both_choices() {
+        use crate::{
+            point_scan::MouseRepeatStopEdge::{Press, Release},
+            scanning::Technique,
+        };
+        for edge in [Press, Release] {
+            let mut session = repeating(edge, false);
+            session
+                .technique
+                .set_mouse_settings(100, 1000, 250, 250, false);
+            assert!(!session.technique.mouse_repeating());
+            // Select the first movement key again: this time it is a single step.
+            session.action(Action::Next);
+            session.action(Action::Select);
+            assert!(matches!(
+                session.action(Action::Select),
+                Some(crate::point_workflow::Request::MouseMove { .. })
+            ));
+            assert!(!session.technique.mouse_repeating());
+            let mut stop = RepeatStop::default();
+            assert_eq!(stop.press("one", Some(&mut session.technique)), None);
+            let mut gestures = Gestures::default();
+            gestures.pressed("one", 0, &switches());
+            assert_eq!(stop.release("one", Some(&mut session.technique)), None);
+            assert_eq!(gestures.released("one", 10), Some(Action::Select));
+        }
+    }
+
+    #[test]
+    fn captured_edges_remain_consumed_after_repeat_cleanup() {
+        use crate::{
+            point_scan::MouseRepeatStopEdge::{Press, Release},
+            scanning::{Rect, Technique},
+        };
+        for edge in [Press, Release] {
+            for scroll in [false, true] {
+                for reason in ["settings", "failure", "display", "emergency", "disconnect"] {
+                    let mut session = repeating(edge, scroll);
+                    let mut stop = RepeatStop::default();
+                    stop.press("one", Some(&mut session.technique));
+                    match reason {
+                        "failure" => session
+                            .technique
+                            .execution_failed("fake input failure".into()),
+                        "display" => {
+                            let screen = Rect {
+                                x: 1280.0,
+                                y: 0.0,
+                                width: 1280.0,
+                                height: 720.0,
+                            };
+                            session.technique.set_mouse_area(screen, screen, 1.0, 2);
+                        }
+                        _ => {
+                            session.technique.reset();
+                            stop.clear();
+                        }
+                    }
+                    assert!(!session.technique.mouse_repeating());
+                    assert_ne!(
+                        stop.release("one", Some(&mut session.technique)),
+                        Some(true)
+                    );
+                    assert!(Gestures::default().released("one", 30_000).is_none());
+                    assert!(session.take_selection().is_none());
+                }
+            }
+        }
+    }
+
     #[test]
     fn local_and_remote_stop_edges_consume_press_hold_and_release() {
         for id in ["one", "remote:1"] {
             let mut stop = RepeatStop::default();
             let gestures = Gestures::default();
-            assert!(stop.down(id, true));
+            assert_eq!(stop.down(id, true, Default::default()), Some(false));
             assert!(stop.held());
             assert!(gestures.prompt(30_000).is_none());
             assert!(!gestures.held());
@@ -1246,19 +1463,19 @@ mod repeat_stop_tests {
             assert_eq!(stop.up(id), Some(true));
             assert_eq!(stop.up(id), None);
             assert!(!stop.held());
-            assert!(!stop.down(id, false));
+            assert_eq!(stop.down(id, false, Default::default()), None);
         }
     }
 
     #[test]
     fn first_press_owns_stop_and_overlapping_releases_are_consumed() {
         let mut stop = RepeatStop::default();
-        assert!(stop.down("one", true));
-        assert!(stop.down("one", true));
-        assert!(stop.down("two", true));
+        assert_eq!(stop.down("one", true, Default::default()), Some(false));
+        assert_eq!(stop.down("one", true, Default::default()), Some(false));
+        assert_eq!(stop.down("two", true, Default::default()), Some(false));
         assert_eq!(stop.up("one"), Some(true));
         assert!(stop.held());
-        assert!(stop.down("three", false));
+        assert_eq!(stop.down("three", false, Default::default()), Some(false));
         assert_eq!(stop.up("two"), Some(false));
         assert_eq!(stop.up("three"), Some(false));
         assert!(!stop.held());
@@ -1268,16 +1485,16 @@ mod repeat_stop_tests {
     fn ending_repeat_while_held_still_consumes_pending_releases() {
         for _reason in ["settings", "failure", "display"] {
             let mut stop = RepeatStop::default();
-            assert!(stop.down("one", true));
-            assert!(stop.down("two", true));
+            assert_eq!(stop.down("one", true, Default::default()), Some(false));
+            assert_eq!(stop.down("two", true, Default::default()), Some(false));
             // The technique ended its repeat independently before either Up.
             assert_eq!(stop.up("one"), Some(true));
             assert_eq!(stop.up("two"), Some(false));
             assert!(!stop.held());
-            assert!(!stop.down("one", false));
+            assert_eq!(stop.down("one", false, Default::default()), None);
         }
         let mut stop = RepeatStop::default();
-        assert!(stop.down("one", true));
+        assert_eq!(stop.down("one", true, Default::default()), Some(false));
         stop.clear(); // Escape, emergency hold, disconnect, or a new session.
         assert_eq!(stop.up("one"), None);
         let mut gestures = Gestures::default();

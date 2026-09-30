@@ -5,6 +5,7 @@ export type ScannerColor = "red" | "green" | "blue" | "yellow" | "white";
 export type KeyboardLayout = "qwerty" | "simpleQwerty" | "commonLetters";
 export type PointScanConfig = {
   controlMode: "point" | "mouse";
+  mouseRepeatStopEdge: "press" | "release";
   scanPreferences?: import("./preferences").ScanPreferences;
   wordPrediction: boolean;
   keyboardLayout: KeyboardLayout;
@@ -24,6 +25,9 @@ export type PointScanConfig = {
   backKey: string;
   pauseKey: string;
 };
+export function mouseRepeatStopInstruction(config: PointScanConfig) {
+  return config.mouseRepeatStopEdge === "press" ? "Press a switch to stop" : "Press and release a switch to stop";
+}
 export type PointScanState = {
   remote?: boolean;
   config: PointScanConfig;
@@ -35,6 +39,7 @@ export type PointScanState = {
 };
 export const defaultPointScanConfig: PointScanConfig = {
   controlMode: "point",
+  mouseRepeatStopEdge: "release",
   wordPrediction: true,
   keyboardLayout: "qwerty",
   enhancedWordPrediction: false,

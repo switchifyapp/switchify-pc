@@ -39,6 +39,7 @@ pub struct MousePanel {
     pub speed_percent: u16,
     pub error: bool,
     notice: Option<&'static str>,
+    repeat_stop_edge: crate::point_scan::MouseRepeatStopEdge,
     positioning: bool,
     displays: usize,
     rows: Vec<Vec<Key>>,
@@ -56,11 +57,16 @@ impl MousePanel {
             speed_percent,
             error: false,
             notice: None,
+            repeat_stop_edge: Default::default(),
             positioning: false,
             displays,
             rows,
             scan,
         }
+    }
+    pub fn with_repeat_stop_edge(mut self, edge: crate::point_scan::MouseRepeatStopEdge) -> Self {
+        self.repeat_stop_edge = edge;
+        self
     }
     fn rows(more: bool, positioning: bool, displays: usize) -> Vec<Vec<Key>> {
         use Key::*;
@@ -221,14 +227,12 @@ impl MousePanel {
         let escaping = self.scan.nav.escaping();
         let highlight_row = row_scan || escaping;
         let status = if let Some(repeating) = repeating {
-            match repeating {
-                RepeatPrompt::Moving => "Moving pointer · Press and release a switch to stop",
-                RepeatPrompt::Scrolling(dy) if dy > 0 => {
-                    "Scrolling up · Press and release a switch to stop"
-                }
-                RepeatPrompt::Scrolling(_) => "Scrolling down · Press and release a switch to stop",
-            }
-            .to_owned()
+            let action = match repeating {
+                RepeatPrompt::Moving => "Moving pointer",
+                RepeatPrompt::Scrolling(dy) if dy > 0 => "Scrolling up",
+                RepeatPrompt::Scrolling(_) => "Scrolling down",
+            };
+            format!("{action} · {}", self.repeat_stop_edge.instruction())
         } else if self.error {
             "Mouse action failed · Select to resume".to_owned()
         } else if let Some(notice) = self.notice {
