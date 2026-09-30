@@ -1980,34 +1980,36 @@ mod tests {
             height: 720.0,
         };
         for mode in [ControlMode::Point, ControlMode::Mouse] {
-            let config = Config {
-                control_mode: mode,
-                keyboard_layout: KeyboardLayout::CommonLetters,
-                ..Config::default()
-            };
-            let mut workflow = Workflow::new(config.point(), screen, 1.0).unwrap();
-            if mode == ControlMode::Mouse {
-                workflow.handle(Action::OpenMouse);
-            }
-            assert_eq!(
-                workflow.handle(Action::OpenKeyboard),
-                Some(Request::OpenKeyboard)
-            );
-            workflow.execution_succeeded();
-            assert_eq!(workflow.keyboard.layout, KeyboardLayout::CommonLetters);
-            workflow.keyboard_layout_pending = true;
-            workflow.execution_failed("Cannot save scanning settings.".into());
-            assert_eq!(workflow.keyboard.layout, KeyboardLayout::CommonLetters);
-            assert!(!workflow.keyboard.suspended());
-            let next = Config {
-                keyboard_layout: KeyboardLayout::Qwerty,
-                ..config
-            };
-            workflow.apply_config(next.point(), false);
-            assert_eq!(workflow.keyboard.layout, KeyboardLayout::Qwerty);
-            workflow.keyboard_closed();
-            if mode == ControlMode::Mouse {
-                assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+            for layout in [KeyboardLayout::CommonLetters, KeyboardLayout::SimpleQwerty] {
+                let config = Config {
+                    control_mode: mode,
+                    keyboard_layout: layout,
+                    ..Config::default()
+                };
+                let mut workflow = Workflow::new(config.point(), screen, 1.0).unwrap();
+                if mode == ControlMode::Mouse {
+                    workflow.handle(Action::OpenMouse);
+                }
+                assert_eq!(
+                    workflow.handle(Action::OpenKeyboard),
+                    Some(Request::OpenKeyboard)
+                );
+                workflow.execution_succeeded();
+                assert_eq!(workflow.keyboard.layout, layout);
+                workflow.keyboard_layout_pending = true;
+                workflow.execution_failed("Cannot save scanning settings.".into());
+                assert_eq!(workflow.keyboard.layout, layout);
+                assert!(!workflow.keyboard.suspended());
+                let next = Config {
+                    keyboard_layout: KeyboardLayout::Qwerty,
+                    ..config
+                };
+                workflow.apply_config(next.point(), false);
+                assert_eq!(workflow.keyboard.layout, KeyboardLayout::Qwerty);
+                workflow.keyboard_closed();
+                if mode == ControlMode::Mouse {
+                    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+                }
             }
         }
     }

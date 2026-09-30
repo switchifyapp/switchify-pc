@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 export type ScannerColor = "red" | "green" | "blue" | "yellow" | "white";
-export type KeyboardLayout = "qwerty" | "commonLetters";
+export type KeyboardLayout = "qwerty" | "simpleQwerty" | "commonLetters";
 export type PointScanConfig = {
   controlMode: "point" | "mouse";
   scanPreferences?: import("./preferences").ScanPreferences;

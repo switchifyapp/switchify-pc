@@ -283,7 +283,7 @@ it("customises individual settings, restores defaults and returns focus without 
   fireEvent.click(screen.getByRole("checkbox", { name: "Word prediction" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Word prediction" }));
   mocks.invoke.mockClear();
-  expect(screen.getByText(/The scanning keyboard spaces punctuation for you/)).toBeInTheDocument();
+  expect(screen.getByText(/The scanning keyboard spaces prose punctuation for you/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Reverse" }));
   await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
     config: expect.objectContaining({ scanPreferences: expect.objectContaining({ keyboard: { direction: "reverse" }, menu: {} }) })
@@ -311,7 +311,12 @@ it("offers accessible saved keyboard layouts and keeps the prior choice when sav
   fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
   expect(screen.getByRole("group", { name: "Keyboard layout" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "QWERTY" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Simple QWERTY" })).toBeInTheDocument();
   expect(screen.queryByText(/Static English key order/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Simple QWERTY" }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("set_keyboard_layout", { layout: "simpleQwerty" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Simple QWERTY" })).toHaveAttribute("aria-pressed", "true"));
+  expect(screen.getByText(/Three familiar letter rows/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Common letters first" }));
   await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("set_keyboard_layout", { layout: "commonLetters" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Common letters first" })).toHaveAttribute("aria-pressed", "true"));
