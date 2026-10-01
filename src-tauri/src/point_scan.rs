@@ -27,10 +27,27 @@ pub enum KeyboardLayout {
     CommonLetters,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MouseRepeatStopEdge {
+    Press,
+    #[default]
+    Release,
+}
+impl MouseRepeatStopEdge {
+    pub fn instruction(self) -> &'static str {
+        match self {
+            Self::Press => "Press a switch to stop",
+            Self::Release => "Press and release a switch to stop",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
     pub control_mode: ControlMode,
+    pub mouse_repeat_stop_edge: MouseRepeatStopEdge,
     #[serde(deserialize_with = "crate::scan_preferences::deserialize_preferences")]
     pub scan_preferences: crate::scan_preferences::Preferences,
     pub word_prediction: bool,
@@ -58,6 +75,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             control_mode: ControlMode::Point,
+            mouse_repeat_stop_edge: MouseRepeatStopEdge::Release,
             scan_preferences: Default::default(),
             word_prediction: true,
             keyboard_layout: KeyboardLayout::Qwerty,
@@ -128,6 +146,7 @@ impl Config {
     pub fn point(&self) -> PointSettings {
         PointSettings {
             control_mode: self.control_mode,
+            mouse_repeat_stop_edge: self.mouse_repeat_stop_edge,
             scan: self.resolved(crate::scan_preferences::Area::Point),
             menu_scan: self.resolved(crate::scan_preferences::Area::Menu),
             keyboard_scan: self.resolved(crate::scan_preferences::Area::Keyboard),
@@ -154,6 +173,7 @@ impl Config {
 #[derive(Clone)]
 pub struct PointSettings {
     pub control_mode: ControlMode,
+    pub mouse_repeat_stop_edge: MouseRepeatStopEdge,
     pub scan: crate::scan_preferences::Resolved,
     pub menu_scan: crate::scan_preferences::Resolved,
     pub keyboard_scan: crate::scan_preferences::Resolved,
@@ -1133,6 +1153,7 @@ mod tests {
         json["autoSelectDelayMs"] = serde_json::json!(1000);
         json["scannerColor"] = serde_json::json!("blue");
         json["controlMode"] = serde_json::json!("point");
+        json["mouseRepeatStopEdge"] = serde_json::json!("release");
         json["wordPrediction"] = serde_json::json!(true);
         json["keyboardLayout"] = serde_json::json!("qwerty");
         json["enhancedWordPrediction"] = serde_json::json!(false);
@@ -1180,6 +1201,23 @@ mod tests {
             1.0
         )
         .is_err());
+    }
+    #[test]
+    fn mouse_repeat_stop_edge_is_saved_and_older_settings_default_to_release() {
+        let older: Config = serde_json::from_str(r#"{"controlMode":"mouse"}"#).unwrap();
+        assert_eq!(older.mouse_repeat_stop_edge, MouseRepeatStopEdge::Release);
+        for (value, edge) in [
+            ("press", MouseRepeatStopEdge::Press),
+            ("release", MouseRepeatStopEdge::Release),
+        ] {
+            let config: Config =
+                serde_json::from_value(serde_json::json!({"mouseRepeatStopEdge":value})).unwrap();
+            assert_eq!(config.point().mouse_repeat_stop_edge, edge);
+            let saved = serde_json::to_value(&config).unwrap();
+            assert_eq!(saved["mouseRepeatStopEdge"], value);
+            assert_eq!(serde_json::from_value::<Config>(saved).unwrap(), config);
+        }
+        assert!(serde_json::from_str::<Config>(r#"{"mouseRepeatStopEdge":"unknown"}"#).is_err());
     }
     #[test]
     fn keyboard_layout_is_additive_and_uses_stable_saved_names() {

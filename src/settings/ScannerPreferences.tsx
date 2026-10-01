@@ -1,7 +1,7 @@
 import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
-import type { ScanningController, ScannerColor, PointScanConfig } from '../scanning/useScanning';
+import { mouseRepeatStopInstruction, type ScanningController, type ScannerColor, type PointScanConfig } from '../scanning/useScanning';
 import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, savedKeyboardWait, type ScanArea, type ScanOptions } from '../scanning/preferences';
 import { SettingGroup, Toggle, OptionGroup } from './controls';
 
@@ -74,7 +74,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
       <h2 ref={heading} tabIndex={-1}>{names[area]}</h2><p>{descriptions[area]} Change any value to customise it; other settings follow the shared defaults.</p>
     </header>}
     {area === 'shared' && <section className="scanner-areas" aria-label="Scanning modes"><div className="scanner-area-cards">{(['point', 'mouse'] as const).map(key => <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}><strong>{names[key]}<ChevronRight size={22} aria-hidden="true" /></strong><span>{descriptions[key]}</span><span className="scanner-area-status" data-current={key === config.controlMode}>{key === config.controlMode ? 'Select starts here' : 'Open with a switch or scanned control'}</span></Button>)}</div></section>}
-    {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move or a scroll tile to scroll; with Repeat mouse movement and scrolling on, press and release a switch to stop either action. Actions opens editing, window, browser, media, display and scanning commands, then returns to Mouse. Modified clicks use the current pointer. End a drag before opening Actions. Pointer speed and repeat controls are under Mouse in the sidebar. Switch to Point returns to screen selection.</p>}
+    {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move or a scroll tile to scroll; with Repeat mouse movement and scrolling on, {mouseRepeatStopInstruction(config).toLowerCase()} either action. Actions opens editing, window, browser, media, display and scanning commands, then returns to Mouse. Modified clicks use the current pointer. End a drag before opening Actions. Pointer speed and repeat controls are under Mouse in the sidebar. Switch to Point returns to screen selection.</p>}
     {area === 'point' && <>
       <SettingGroup
         title="Point scan"

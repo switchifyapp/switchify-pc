@@ -1,5 +1,5 @@
 import { Button, Input, MoreOptions } from "../ui/controls";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { AppSettings } from "../types";
 import {
   OptionGroup, SettingGroup, Toggle, accelerationOptions, repeatIntervalOptions,
@@ -7,7 +7,7 @@ import {
 } from "./controls";
 import { speedLevel, speedLevelLabel, speedPercent } from "./pointerSpeedScale";
 
-export function PointerSection({ settings, update }: { settings: AppSettings; update: SettingsUpdate }) {
+export function PointerSection({ settings, update, children }: { settings: AppSettings; update: SettingsUpdate; children?: ReactNode }) {
   const percent = settings.pointerScalePercent;
   const level = speedLevelLabel(percent);
   const [sliderLevel, setSliderLevel] = useState(level);
@@ -41,6 +41,7 @@ export function PointerSection({ settings, update }: { settings: AppSettings; up
       </fieldset>
       <div className="repeat-settings">
         <Toggle label="Repeat mouse movement and scrolling" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
+        {children}
         <MoreOptions label="Repeat timing"><div className="repeat-options">
           <OptionGroup<number> legend="Movement interval" columns="four" disabled={!settings.mouseRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.moveRepeatIntervalMs} onChange={(next) => update("moveRepeatIntervalMs", next)} />
           <OptionGroup<number> legend="Movement acceleration" columns="four" disabled={!settings.mouseRepeatEnabled} options={accelerationOptions} value={settings.mouseRepeatAccelerationDurationMs} onChange={(next) => update("mouseRepeatAccelerationDurationMs", next)} />
