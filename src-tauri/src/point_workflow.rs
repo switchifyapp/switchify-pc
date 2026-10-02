@@ -126,6 +126,8 @@ pub struct Workflow {
     return_to_mouse: bool,
     /// The keyboard was opened from Home and returns there when closed.
     return_to_home: bool,
+    /// The request just chosen in Home left it, and returns there if it fails.
+    leaving_home: bool,
     /// The last scan ended by performing an action, so Select continues in
     /// the same mode instead of opening Home.
     resume: bool,
@@ -172,6 +174,7 @@ impl Workflow {
             moved: None,
             return_to_mouse: false,
             return_to_home: false,
+            leaving_home: false,
             resume: false,
             mouse_actions_open: false,
             move_repeat: None,
@@ -590,9 +593,15 @@ impl Workflow {
     fn selected(&mut self, item: Item) -> Option<Request> {
         match item {
             Item::Home => self.open_home(),
-            Item::PointScan => return self.open_point(),
+            // No point exists yet, so a failure goes back to Home, never to an action menu.
+            Item::PointScan => {
+                let request = self.open_point();
+                self.leaving_home = true;
+                return request;
+            }
             Item::Switchify => {
                 self.reset();
+                self.leaving_home = true;
                 return Some(Request::OpenSwitchify);
             }
             Item::Keyboard => {
@@ -751,8 +760,9 @@ impl Technique for Workflow {
             return;
         }
         // A failure in Home, or in a keyboard opened from it, returns to Home.
-        let home = self.home_open() || self.return_to_home;
+        let home = self.home_open() || self.return_to_home || self.leaving_home;
         self.return_to_home = false;
+        self.leaving_home = false;
         self.pending = None;
         self.following = false;
         self.stage = Stage::Menu;
@@ -765,6 +775,7 @@ impl Technique for Workflow {
         self.error = Some(message);
     }
     fn execution_succeeded(&mut self) {
+        self.leaving_home = false;
         if self.stage == Stage::KeyboardOpening {
             self.stage = Stage::Keyboard;
         } else if self.stage == Stage::Keyboard {
@@ -787,6 +798,7 @@ impl Technique for Workflow {
         self.mouse = self.new_mouse();
         self.return_to_mouse = false;
         self.return_to_home = false;
+        self.leaving_home = false;
         self.resume = false;
         self.mouse_actions_open = false;
         self.move_repeat = None;
@@ -835,6 +847,7 @@ impl Technique for Workflow {
     }
     fn handle(&mut self, action: Action) -> Option<Request> {
         self.following = false;
+        self.leaving_home = false;
         if action == Action::OpenPoint {
             return self.open_point();
         }
@@ -1327,6 +1340,31 @@ mod tests {
         choose_in(&mut s, 0, 0);
         s.execution_failed("Action is unavailable on this platform.".into());
         assert_eq!(s.technique.menu.kind, Kind::Home);
+    }
+
+    #[test]
+    fn leaving_home_that_fails_returns_to_home_not_to_an_unchosen_point() {
+        for (column, request) in [(0, Request::OpenPoint), (1, Request::OpenSwitchify)] {
+            let mut s = home_session();
+            s.action(Action::Select);
+            let row = if request == Request::OpenPoint { 0 } else { 2 };
+            assert_eq!(choose_in(&mut s, row, column), Some(request));
+            s.execution_failed("Input could not be released.".into());
+            assert_eq!(s.technique.menu.kind, Kind::Home, "{request:?}");
+            assert!(s.technique.home_open());
+            assert!(s.active());
+        }
+        // Once Point has opened, a failed click offers the action menu at its point as before.
+        let mut s = home_session();
+        s.action(Action::Select);
+        choose_in(&mut s, 0, 0);
+        s.technique.execution_succeeded();
+        s.action(Action::Select);
+        s.action(Action::Select);
+        choose_in(&mut s, 0, 0);
+        s.execution_failed("Click failed.".into());
+        assert_eq!(s.technique.menu.kind, Kind::Actions);
+        assert!(!s.technique.home_open());
     }
 
     #[test]
