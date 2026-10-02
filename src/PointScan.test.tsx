@@ -237,6 +237,22 @@ it("saves scanner colour and updates the sample", async () => {
   }));
 });
 
+it("saves what Select starts and explains Home without asking to focus an app", async () => {
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  const group = screen.getByRole("group", { name: "Select starts" });
+  expect(group).toBeVisible();
+  expect(screen.getByRole("button", { name: "Home menu" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByText("Home", { selector: "strong" })).toBeInTheDocument();
+  expect(screen.queryByText(/Focus the application/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Last mode used" }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: { ...defaultPointScanConfig, startWith: "lastMode" },
+  }));
+  expect(screen.getByRole("button", { name: "Last mode used" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByText("Select starts here")).toBeInTheDocument();
+});
+
 it("retains a failed colour selection for retry", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);

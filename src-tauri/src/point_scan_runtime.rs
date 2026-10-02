@@ -107,6 +107,9 @@ impl Adapter for PointScan {
         config.control_mode = next;
         true
     }
+    fn carry_over(previous: &Workflow, next: &mut Workflow) {
+        next.resume_from(previous);
+    }
     fn keep_runtime_config(next: &mut Config, current: &Config) {
         next.control_mode = current.control_mode;
         // Layout changes can also come from the scanned keyboard. Settings
@@ -186,6 +189,12 @@ impl Adapter for PointScan {
             Request::OpenKeyboard | Request::OpenMouse | Request::OpenPoint => {
                 crate::prediction::close();
                 crate::scan_executor::activate(request)
+            }
+            Request::OpenSwitchify => {
+                crate::prediction::close();
+                crate::scan_executor::activate(request)?;
+                crate::show_main_window(app, None);
+                return Ok(None);
             }
             Request::MouseDrag => {
                 let (position, _) = display_navigation::displays(app).map_err(|e| e.message)?;

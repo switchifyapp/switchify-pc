@@ -1,5 +1,5 @@
 import type { AppState } from "./types";
-import type { PointScanState } from "./scanning/useScanning";
+import { lastModeName, selectOpensHome, type PointScanState } from "./scanning/useScanning";
 
 export type HomeTone = "ready" | "attention" | "neutral";
 export type HomeStatus = { title: string; tone: HomeTone; message: string };
@@ -28,6 +28,6 @@ export function homeStatus({ accessibility, bluetooth, switchesLoaded, hasSelect
   if (!switchesLoaded) return { title: "Switch control", tone: "neutral", message: "Loading switch control..." };
   if (!hasSelect) return { title: "Finish setting up", tone: "attention", message: "Add a switch with the Select action to begin scanning." };
   if (scanning.paused) return { title: "Paused", tone: "neutral", message: "Scanning is paused. Use your Pause / resume switch to continue." };
-  if (scanning.enabled) return { title: "Ready", tone: "ready", message: "Focus the application you want to use, then press and release your Select switch." };
+  if (scanning.enabled) return { title: "Ready", tone: "ready", message: selectOpensHome(scanning.config) ? "Press and release your Select switch to open Home, then choose what to control." : `Press and release your Select switch to start ${lastModeName(scanning.config)}.` };
   return { title: "Switch control", tone: "neutral", message: scanning.message };
 }

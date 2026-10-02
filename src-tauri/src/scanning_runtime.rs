@@ -22,6 +22,8 @@ pub trait Adapter: Send + Sync + 'static {
     fn sync_mode(_config: &mut Self::Config, _technique: &Self::Technique) -> bool {
         false
     }
+    /// Carries what a finished scan leaves behind into the scan Select starts next.
+    fn carry_over(_previous: &Self::Technique, _next: &mut Self::Technique) {}
     /// Carries state the runtime owns, such as the saved mode, into settings saved by the UI.
     fn keep_runtime_config(_next: &mut Self::Config, _current: &Self::Config) {}
     fn cursor_action_feedback(
@@ -511,7 +513,10 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
             Action::OpenKeyboard | Action::OpenPoint | Action::OpenMouse
         ) || (d.engine.as_ref().is_none_or(|e| !e.active()) && action == Action::Select)
         {
-            let (engine, display) = A::create(app, d.config.clone())?;
+            let (mut engine, display) = A::create(app, d.config.clone())?;
+            if let Some(previous) = d.engine.as_ref() {
+                A::carry_over(&previous.technique, &mut engine);
+            }
             d.engine = Some(Session::new(engine, A::switches(&d.config).automatic));
             d.display = Some(display);
             A::prepare(app)?;
