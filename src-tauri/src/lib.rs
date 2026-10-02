@@ -155,7 +155,7 @@ impl PendingNavigation {
     }
 }
 
-fn show_main_window(app: &AppHandle, destination: Option<&str>) {
+pub(crate) fn show_main_window(app: &AppHandle, destination: Option<&str>) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();

@@ -181,8 +181,8 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
             lines(&[(62., 46.), (106., 90.)]);
             lines(&[(106., 46.), (62., 90.)]);
         }
-        Keyboard | MousePanel | More | Group(_) | Command(_) | Setting(_) | Display(_) | Pause
-        | Reverse => {
+        Home | PointScan | Switchify | Keyboard | MousePanel | More | Group(_) | Command(_)
+        | Setting(_) | Display(_) | Pause | Reverse => {
             artwork(&mut path, tile.icon);
         }
         DragHere => {
@@ -358,6 +358,22 @@ fn return_arrow(path: &mut PathBuilder, forward: bool) {
 fn artwork(path: &mut PathBuilder, item: Item) {
     use crate::scan_menu::{Command as C, Kind as K, Setting as S};
     match item {
+        Item::Home => {
+            line(path, &[(48., 68.), (84., 36.), (120., 68.)]);
+            line(path, &[(58., 60.), (58., 100.), (110., 100.), (110., 60.)]);
+            rect(path, 76., 76., 16., 24.);
+        }
+        Item::PointScan => {
+            line(path, &[(84., 34.), (84., 102.)]);
+            line(path, &[(50., 68.), (118., 68.)]);
+            rect(path, 72., 56., 24., 24.);
+        }
+        Item::Switchify => {
+            for (y, x) in [(46., 70.), (68., 100.), (90., 62.)] {
+                line(path, &[(48., y), (120., y)]);
+                path.push_circle(x, y, 7.);
+            }
+        }
         Item::Keyboard => {
             rect(path, 46., 44., 76., 48.);
             for y in [55., 67.] {
@@ -428,7 +444,7 @@ fn artwork(path: &mut PathBuilder, item: Item) {
                 path.push_circle(78., 61., 24.);
                 line(path, &[(95., 79.), (117., 101.)]);
             }
-            K::More | K::Actions | K::MouseActions | K::Scroll | K::ConfirmDrag => {
+            K::Home | K::More | K::Actions | K::MouseActions | K::Scroll | K::ConfirmDrag => {
                 unreachable!("Not a grouped menu tile")
             }
         },
@@ -750,6 +766,9 @@ mod tests {
         use Item::*;
         let mut images = Vec::new();
         for icon in [
+            Home,
+            PointScan,
+            Switchify,
             LeftClick,
             RightClick,
             DoubleClick,

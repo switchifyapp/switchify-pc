@@ -18,6 +18,14 @@ pub enum ControlMode {
     Point,
     Mouse,
 }
+/// What Select opens when scanning starts afresh rather than continuing after an action.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StartWith {
+    #[default]
+    Home,
+    LastMode,
+}
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum KeyboardLayout {
@@ -47,6 +55,7 @@ impl MouseRepeatStopEdge {
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
     pub control_mode: ControlMode,
+    pub start_with: StartWith,
     pub mouse_repeat_stop_edge: MouseRepeatStopEdge,
     #[serde(deserialize_with = "crate::scan_preferences::deserialize_preferences")]
     pub scan_preferences: crate::scan_preferences::Preferences,
@@ -75,6 +84,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             control_mode: ControlMode::Point,
+            start_with: StartWith::Home,
             mouse_repeat_stop_edge: MouseRepeatStopEdge::Release,
             scan_preferences: Default::default(),
             word_prediction: true,
@@ -146,6 +156,7 @@ impl Config {
     pub fn point(&self) -> PointSettings {
         PointSettings {
             control_mode: self.control_mode,
+            start_with: self.start_with,
             mouse_repeat_stop_edge: self.mouse_repeat_stop_edge,
             scan: self.resolved(crate::scan_preferences::Area::Point),
             menu_scan: self.resolved(crate::scan_preferences::Area::Menu),
@@ -173,6 +184,7 @@ impl Config {
 #[derive(Clone)]
 pub struct PointSettings {
     pub control_mode: ControlMode,
+    pub start_with: StartWith,
     pub mouse_repeat_stop_edge: MouseRepeatStopEdge,
     pub scan: crate::scan_preferences::Resolved,
     pub menu_scan: crate::scan_preferences::Resolved,
@@ -1141,6 +1153,22 @@ mod tests {
         assert!(e.technique.x > -1000.0);
     }
     #[test]
+    fn saved_settings_without_a_start_choice_open_home_and_the_choice_round_trips() {
+        let config: Config =
+            serde_json::from_value(serde_json::json!({"controlMode":"mouse"})).unwrap();
+        assert_eq!(config.start_with, StartWith::Home);
+        assert_eq!(config.control_mode, ControlMode::Mouse);
+        let config: Config =
+            serde_json::from_value(serde_json::json!({"startWith":"lastMode"})).unwrap();
+        assert_eq!(config.start_with, StartWith::LastMode);
+        assert_eq!(config.point().start_with, StartWith::LastMode);
+        assert_eq!(
+            serde_json::to_value(&config).unwrap()["startWith"],
+            serde_json::json!("lastMode")
+        );
+        assert!(serde_json::from_value::<Config>(serde_json::json!({"startWith":"menu"})).is_err());
+    }
+    #[test]
     fn existing_flat_settings_gain_safe_auto_select_defaults() {
         let mut json = serde_json::json!({"mode":"grid","automatic":false,"speed":4,"gridSize":7,"blockIntervalMs":1500,"selectKey":"F1","nextKey":"F2","backKey":"F3","pauseKey":"F4"});
         let config: Config = serde_json::from_value(json.clone()).unwrap();
@@ -1153,6 +1181,7 @@ mod tests {
         json["autoSelectDelayMs"] = serde_json::json!(1000);
         json["scannerColor"] = serde_json::json!("blue");
         json["controlMode"] = serde_json::json!("point");
+        json["startWith"] = serde_json::json!("home");
         json["mouseRepeatStopEdge"] = serde_json::json!("release");
         json["wordPrediction"] = serde_json::json!(true);
         json["keyboardLayout"] = serde_json::json!("qwerty");

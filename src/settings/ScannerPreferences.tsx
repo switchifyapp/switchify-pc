@@ -1,7 +1,7 @@
 import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { mouseRepeatStopInstruction, type ScanningController, type ScannerColor, type PointScanConfig } from '../scanning/useScanning';
+import { lastModeName, mouseRepeatStopInstruction, selectOpensHome, type ScanningController, type ScannerColor, type PointScanConfig } from '../scanning/useScanning';
 import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, savedKeyboardWait, type ScanArea, type ScanOptions } from '../scanning/preferences';
 import { SettingGroup, Toggle, OptionGroup } from './controls';
 
@@ -42,6 +42,7 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     keyboard: 'Choose keys and word suggestions when the scanning keyboard is open.',
   };
   const disabled = !state?.supported;
+  const opensHome = selectOpensHome(config);
   const settings = config.scanPreferences ?? defaultScanPreferences;
   const shared = sharedOptions(config);
   const effective = area === 'shared' ? shared : areaOptions(config, area);
@@ -69,11 +70,25 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     </div>;
   };
   return <div ref={container} className="scanner-preferences">
-    {area === 'shared' ? <header className="scanner-panel-heading"><h2>Two ways to control your PC</h2><p>Select starts the last mode you used: <strong>{config.controlMode === 'mouse' ? 'Mouse scanning' : 'Point scanning'}</strong>. Use Open Point or Open Mouse on a switch to change modes. You can also switch from a scanned panel.</p></header> : <header className="scanner-panel-heading">
+    {area === 'shared' ? <header className="scanner-panel-heading"><h2>Two ways to control your PC</h2><p>{opensHome
+      ? <>Select opens <strong>Home</strong>. After an action, it carries on in the last mode you used: <strong>{lastModeName(config)}</strong>.</>
+      : <>Select starts the last mode you used: <strong>{lastModeName(config)}</strong>.</>} Use Open Point or Open Mouse on a switch to change modes. You can also switch from a scanned panel.</p></header> : <header className="scanner-panel-heading">
       <Button type="button" className="text-button" onClick={() => setArea('shared')}><span aria-hidden="true">←</span> Back to scanning settings</Button>
       <h2 ref={heading} tabIndex={-1}>{names[area]}</h2><p>{descriptions[area]} Change any value to customise it; other settings follow the shared defaults.</p>
     </header>}
-    {area === 'shared' && <section className="scanner-areas" aria-label="Scanning modes"><div className="scanner-area-cards">{(['point', 'mouse'] as const).map(key => <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}><strong>{names[key]}<ChevronRight size={22} aria-hidden="true" /></strong><span>{descriptions[key]}</span><span className="scanner-area-status" data-current={key === config.controlMode}>{key === config.controlMode ? 'Select starts here' : 'Open with a switch or scanned control'}</span></Button>)}</div></section>}
+    {area === 'shared' && <section className="scanner-areas" aria-label="Scanning modes"><div className="scanner-area-cards">{(['point', 'mouse'] as const).map(key => <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}><strong>{names[key]}<ChevronRight size={22} aria-hidden="true" /></strong><span>{descriptions[key]}</span><span className="scanner-area-status" data-current={key === config.controlMode}>{key !== config.controlMode ? 'Open with a switch or scanned control' : opensHome ? 'Used last' : 'Select starts here'}</span></Button>)}</div></section>}
+    {area === 'shared' && <SettingGroup title="Starting" description="">
+      <OptionGroup<NonNullable<PointScanConfig['startWith']>>
+        legend="Select starts"
+        disabled={disabled}
+        value={config.startWith ?? 'home'}
+        onChange={value => update('startWith', value)}
+        options={[{ value: 'home', label: 'Home menu' }, { value: 'lastMode', label: 'Last mode used' }]}
+        note={{ summary: opensHome
+          ? 'Home offers Point, Mouse and Keyboard, plus Apps and windows to bring another app forward, without focusing it first. After a click or other action, Select carries on in the same mode. Close menu or Stop scanning returns to Home.'
+          : 'Select starts the last mode you used straight away. Open Home from the Point action menu or Mouse Actions.' }}
+      />
+    </SettingGroup>}
     {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move or a scroll tile to scroll; with Repeat mouse movement and scrolling on, {mouseRepeatStopInstruction(config).toLowerCase()} either action. Actions opens editing, window, browser, media, display and scanning commands, then returns to Mouse. Modified clicks use the current pointer. End a drag before opening Actions. Pointer speed and repeat controls are under Mouse in the sidebar. Switch to Point returns to screen selection.</p>}
     {area === 'point' && <>
       <SettingGroup

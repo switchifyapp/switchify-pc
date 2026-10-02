@@ -5,6 +5,9 @@ use crate::{
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
+    Home,
+    PointScan,
+    Switchify,
     Keyboard,
     MousePanel,
     KeyboardKey,
@@ -34,6 +37,9 @@ pub enum Item {
 impl Item {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Home => "Home",
+            Self::PointScan => "Point",
+            Self::Switchify => "Switchify",
             Self::Keyboard => "Keyboard",
             Self::MousePanel => "Mouse",
             Self::KeyboardKey => "Key",
@@ -65,6 +71,7 @@ impl Item {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
+    Home,
     More,
     MouseActions,
     MouseScanning,
@@ -82,7 +89,8 @@ pub enum Kind {
     ConfirmDrag,
 }
 #[cfg(test)]
-pub(crate) const ALL_MENU_KINDS: [Kind; 15] = [
+pub(crate) const ALL_MENU_KINDS: [Kind; 16] = [
+    Kind::Home,
     Kind::Actions,
     Kind::More,
     Kind::MouseActions,
@@ -150,7 +158,27 @@ impl Menu {
         self.scan.handle(action)
     }
 
+    /// Draws the menu beside the point it acts on.
     pub fn frame(&self, point: (i32, i32), screen: Rect, units: f64) -> Frame {
+        self.frame_placed(screen, units, |width, height, gap| {
+            place(point, screen, width, height, gap)
+        })
+    }
+    /// Draws a menu that acts on no point in the middle of the screen.
+    pub fn centered_frame(&self, screen: Rect, units: f64) -> Frame {
+        self.frame_placed(screen, units, |width, height, _| Rect {
+            x: screen.x + (screen.width - width) / 2.0,
+            y: screen.y + (screen.height - height) / 2.0,
+            width,
+            height,
+        })
+    }
+    fn frame_placed(
+        &self,
+        screen: Rect,
+        units: f64,
+        placed: impl FnOnce(f64, f64, f64) -> Rect,
+    ) -> Frame {
         let columns = self.rows.iter().map(Vec::len).max().unwrap_or(1) as f64;
         let logical_width = 16.0 + columns * 180.0;
         let logical_height = 56.0 + 180.0 * self.rows.len() as f64;
@@ -159,7 +187,7 @@ impl Menu {
             .min(screen.height / logical_height);
         let width = logical_width * scale;
         let height = logical_height * scale;
-        let panel = place(point, screen, width, height, 20.0 * scale);
+        let panel = placed(width, height, 20.0 * scale);
         let mut frame = Frame::default();
         frame.tiles.push(FrameTile::panel_background(
             panel,
@@ -198,6 +226,7 @@ impl Menu {
             "Back to rows"
         } else {
             match self.kind {
+                Kind::Home => "Choose what to control",
                 Kind::Actions => "Choose an action",
                 Kind::Scroll => "Scroll at selected point",
                 Kind::ConfirmDrag => "Confirm drag",
@@ -426,6 +455,7 @@ impl Setting {
 impl Kind {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Home => "Home",
             Self::Actions => "Choose an action",
             Self::Scroll => "Scroll",
             Self::ConfirmDrag => "Confirm drag",
@@ -447,11 +477,23 @@ impl Kind {
         use self::Command as C;
         use Item::*;
         let items = match self {
+            // Only actions that need no point, so nothing depends on which window is in front.
+            Self::Home => {
+                return vec![
+                    vec![PointScan, MousePanel, Keyboard],
+                    vec![
+                        Group(Self::Windows),
+                        Group(Self::Editing),
+                        Group(Self::Browser),
+                    ],
+                    vec![Group(Self::Media), Switchify, Cancel],
+                ]
+            }
             Self::Actions => {
                 return vec![
                     vec![LeftClick, RightClick, DoubleClick],
                     vec![Scroll, Drag, More],
-                    vec![Keyboard, MousePanel],
+                    vec![Keyboard, MousePanel, Home],
                     vec![NewPoint, Cancel],
                 ]
             }
@@ -480,6 +522,7 @@ impl Kind {
                 Group(Self::Displays),
                 Group(Self::MouseScanning),
                 Keyboard,
+                Home,
                 Back,
             ],
             Self::MouseScanning => vec![
@@ -617,11 +660,18 @@ mod tests {
         for kind in ALL_MENU_KINDS {
             let rows = kind.rows();
             let back = match kind {
-                Kind::Actions => Item::NewPoint,
-                Kind::ConfirmDrag => Item::CancelDrag,
-                _ => Item::Back,
+                // Home is the top of the menus and has nothing to go back to.
+                Kind::Home => None,
+                Kind::Actions => Some(Item::NewPoint),
+                Kind::ConfirmDrag => Some(Item::CancelDrag),
+                _ => Some(Item::Back),
             };
-            assert_eq!(rows.last().unwrap(), &[back, Item::Cancel], "{kind:?}");
+            if let Some(back) = back {
+                assert_eq!(rows.last().unwrap(), &[back, Item::Cancel], "{kind:?}");
+            } else {
+                assert_eq!(rows.last().unwrap().last(), Some(&Item::Cancel));
+                assert!(!rows.iter().flatten().any(|item| *item == Item::Back));
+            }
             assert_eq!(
                 rows.iter()
                     .flatten()
@@ -642,7 +692,9 @@ mod tests {
                 menu.advance(250);
             }
             assert_eq!(menu.handle(Action::Select), None);
-            menu.advance(250);
+            for _ in 1..kind.rows().last().unwrap().len() {
+                menu.advance(250);
+            }
             assert_eq!(menu.handle(Action::Select), Some(Item::Cancel), "{kind:?}");
         }
     }
@@ -685,7 +737,7 @@ mod tests {
     }
     #[test]
     fn every_submenu_is_reachable_and_fits_three_columns_and_four_rows() {
-        let mut pending = vec![Kind::Actions];
+        let mut pending = vec![Kind::Actions, Kind::Home];
         let mut visited = vec![];
         let mut commands = vec![];
         while let Some(kind) = pending.pop() {
@@ -696,7 +748,7 @@ mod tests {
             let rows = kind.rows();
             assert!(rows.len() <= 4);
             assert!(rows.iter().all(|r| r.len() <= 3));
-            if kind != Kind::Actions {
+            if !matches!(kind, Kind::Actions | Kind::Home) {
                 assert!(rows.iter().flatten().any(|i| *i == Item::Back));
             }
             for item in rows.into_iter().flatten() {
@@ -713,6 +765,49 @@ mod tests {
         assert!(visited.contains(&Kind::Displays));
         assert!(visited.contains(&Kind::Tabs));
         assert!(visited.contains(&Kind::Zoom));
+    }
+    #[test]
+    fn home_offers_modes_and_point_free_actions_in_the_middle_of_the_screen() {
+        let home = Kind::Home.rows().into_iter().flatten().collect::<Vec<_>>();
+        assert_eq!(
+            home,
+            [
+                Item::PointScan,
+                Item::MousePanel,
+                Item::Keyboard,
+                Item::Group(Kind::Windows),
+                Item::Group(Kind::Editing),
+                Item::Group(Kind::Browser),
+                Item::Group(Kind::Media),
+                Item::Switchify,
+                Item::Cancel,
+            ]
+        );
+        // Mouse and Displays act at a point or move it; Scanning settings restart the point scan.
+        let mut pending = home.clone();
+        while let Some(item) = pending.pop() {
+            if let Item::Group(kind) = item {
+                assert!(!matches!(
+                    kind,
+                    Kind::Mouse | Kind::Displays | Kind::Scanning | Kind::Scroll
+                ));
+                pending.extend(kind.rows().into_iter().flatten());
+            }
+        }
+        for kind in [Kind::Actions, Kind::MouseActions] {
+            assert!(kind.rows().iter().flatten().any(|item| *item == Item::Home));
+        }
+        let screen = Rect {
+            x: -1280.0,
+            y: -100.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        for kind in [Kind::Home, Kind::Windows] {
+            let panel = Menu::new(kind, 250).centered_frame(screen, 1.5).tiles[0].rect;
+            assert!((panel.x + panel.width / 2.0 + 640.0).abs() < 0.001);
+            assert!((panel.y + panel.height / 2.0 - 260.0).abs() < 0.001);
+        }
     }
     #[test]
     fn settings_step_tenths_and_clamp_at_limits() {

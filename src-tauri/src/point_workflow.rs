@@ -14,6 +14,8 @@ pub enum Request {
     },
     PredictionRetry,
     OpenKeyboard,
+    /// Shows the Switchify window. Scanning has ended.
+    OpenSwitchify,
     OpenMouse,
     OpenPoint,
     Keyboard(crate::scan_keyboard::Stroke),
@@ -122,6 +124,13 @@ pub struct Workflow {
     /// Where the open panel is drawn while it avoids the pointer.
     moved: Option<crate::scan_panel::Dock>,
     return_to_mouse: bool,
+    /// The keyboard was opened from Home and returns there when closed.
+    return_to_home: bool,
+    /// The request just chosen in Home left it, and returns there if it fails.
+    leaving_home: bool,
+    /// The last scan ended by performing an action, so Select continues in
+    /// the same mode instead of opening Home.
+    resume: bool,
     mouse_actions_open: bool,
     move_repeat: Option<crate::mouse_repeat::ScanMoveRepeat>,
     scroll_repeat: Option<crate::mouse_repeat::ScanScrollRepeat>,
@@ -164,6 +173,9 @@ impl Workflow {
             pointer: None,
             moved: None,
             return_to_mouse: false,
+            return_to_home: false,
+            leaving_home: false,
+            resume: false,
             mouse_actions_open: false,
             move_repeat: None,
             scroll_repeat: None,
@@ -265,6 +277,31 @@ impl Workflow {
     }
     pub fn control_mode(&self) -> crate::point_scan::ControlMode {
         self.point.config.control_mode
+    }
+    /// Carries over whether the scan that came before ended with an action.
+    pub fn resume_from(&mut self, previous: &Self) {
+        self.resume = previous.resume;
+    }
+    /// Home, or a menu opened from it, is showing. Nothing in it acts at a point.
+    pub fn home_open(&self) -> bool {
+        self.stage == Stage::Menu
+            && (self.menu.kind == Kind::Home
+                || self
+                    .parent_menu
+                    .first()
+                    .is_some_and(|menu| menu.kind == Kind::Home))
+    }
+    fn open_home(&mut self) {
+        self.mouse_actions_open = false;
+        self.return_to_home = false;
+        self.parent_menu.clear();
+        self.pending = None;
+        self.error = None;
+        self.elapsed = 0;
+        // Home acts on whatever window is in front, never on a chosen point.
+        self.source = (0, 0);
+        self.destination = (0, 0);
+        self.open(Kind::Home);
     }
     pub fn set_mouse_area(&mut self, area: Rect, screen: Rect, scale: f64, displays: usize) {
         if self.point.screen != screen
@@ -386,6 +423,7 @@ impl Workflow {
             self.new_point();
         } else {
             self.stage = Stage::Idle;
+            self.resume = true;
         }
     }
     fn new_point(&mut self) {
@@ -399,8 +437,9 @@ impl Workflow {
     }
     /// A window may come forward or go as a point scan begins. Until a
     /// switch is used in the scan, no point depends on which is in front.
+    /// Home brings windows forward itself and acts only on the one in front.
     pub fn follows_foreground(&self) -> bool {
-        self.following && self.stage == Stage::Point
+        (self.following && self.stage == Stage::Point) || self.home_open()
     }
     fn restore_actions(&mut self) {
         if let Some(menu) = self.parent_menu.pop() {
@@ -415,6 +454,7 @@ impl Workflow {
         self.point.config.control_mode = crate::point_scan::ControlMode::Mouse;
         self.stage = Stage::Mouse;
         self.mouse_actions_open = false;
+        self.return_to_home = false;
         self.move_repeat = None;
         self.scroll_repeat = None;
         self.mouse = self.new_mouse();
@@ -534,13 +574,38 @@ impl Workflow {
         if self.return_to_mouse {
             self.return_to_mouse = false;
             self.return_to_mouse_panel();
+        } else if self.return_to_home {
+            self.open_home();
         } else {
-            self.start();
+            self.resume_mode();
+        }
+    }
+    /// Starts the mode used last.
+    fn resume_mode(&mut self) {
+        let mode = self.point.config.control_mode;
+        self.reset();
+        if mode == crate::point_scan::ControlMode::Mouse {
+            let _ = self.open_mouse();
+        } else {
+            self.begin_point();
         }
     }
     fn selected(&mut self, item: Item) -> Option<Request> {
         match item {
+            Item::Home => self.open_home(),
+            // No point exists yet, so a failure goes back to Home, never to an action menu.
+            Item::PointScan => {
+                let request = self.open_point();
+                self.leaving_home = true;
+                return request;
+            }
+            Item::Switchify => {
+                self.reset();
+                self.leaving_home = true;
+                return Some(Request::OpenSwitchify);
+            }
             Item::Keyboard => {
+                self.return_to_home = self.home_open();
                 self.return_to_mouse = self.mouse_open();
                 if self.return_to_mouse {
                     self.mouse.dragging = false;
@@ -586,6 +651,10 @@ impl Workflow {
                     self.menu.continue_after_selection();
                 } else if self.mouse_actions_open {
                     self.return_to_mouse_panel();
+                } else if self.home_open() {
+                    // Stay in Home so the user can go on, for example to
+                    // bring another app forward and then choose a mode.
+                    self.open_home();
                 } else {
                     self.used();
                 }
@@ -690,15 +759,23 @@ impl Technique for Workflow {
             let _ = message;
             return;
         }
+        // A failure in Home, or in a keyboard opened from it, returns to Home.
+        let home = self.home_open() || self.return_to_home || self.leaving_home;
+        self.return_to_home = false;
+        self.leaving_home = false;
         self.pending = None;
         self.following = false;
         self.stage = Stage::Menu;
-        self.menu = Menu::configured(Kind::Actions, self.point.config.menu_scan);
+        self.menu = Menu::configured(
+            if home { Kind::Home } else { Kind::Actions },
+            self.point.config.menu_scan,
+        );
         self.parent_menu.clear();
         self.menu.suspend();
         self.error = Some(message);
     }
     fn execution_succeeded(&mut self) {
+        self.leaving_home = false;
         if self.stage == Stage::KeyboardOpening {
             self.stage = Stage::Keyboard;
         } else if self.stage == Stage::Keyboard {
@@ -708,12 +785,11 @@ impl Technique for Workflow {
         }
     }
     fn start(&mut self) {
-        let mode = self.point.config.control_mode;
-        self.reset();
-        if mode == crate::point_scan::ControlMode::Mouse {
-            let _ = self.open_mouse();
+        if self.resume || self.point.config.start_with == crate::point_scan::StartWith::LastMode {
+            self.resume_mode();
         } else {
-            self.begin_point();
+            self.reset();
+            self.open_home();
         }
     }
     fn reset(&mut self) {
@@ -721,6 +797,9 @@ impl Technique for Workflow {
         self.keyboard_layout_pending = false;
         self.mouse = self.new_mouse();
         self.return_to_mouse = false;
+        self.return_to_home = false;
+        self.leaving_home = false;
+        self.resume = false;
         self.mouse_actions_open = false;
         self.move_repeat = None;
         self.scroll_repeat = None;
@@ -768,6 +847,7 @@ impl Technique for Workflow {
     }
     fn handle(&mut self, action: Action) -> Option<Request> {
         self.following = false;
+        self.leaving_home = false;
         if action == Action::OpenPoint {
             return self.open_point();
         }
@@ -870,6 +950,8 @@ impl Technique for Workflow {
                 if self.point.exhausted() {
                     self.point.start();
                     if self.stage == Stage::Point {
+                        // Nothing was chosen, so Select starts afresh.
+                        self.resume = false;
                         self.stage = Stage::Idle;
                     } else {
                         self.restore_actions();
@@ -1013,6 +1095,9 @@ impl Technique for Workflow {
                 }
             }
             Stage::Point | Stage::Destination => self.point.frame(),
+            Stage::Menu if self.home_open() => self
+                .menu
+                .centered_frame(self.point.screen, self.point.units_per_logical_pixel),
             Stage::Menu => self.menu.frame(
                 if self.menu.kind == Kind::ConfirmDrag {
                     self.destination
@@ -1045,7 +1130,7 @@ impl Technique for Workflow {
                 });
             }
         }
-        if matches!(self.stage, Stage::Menu | Stage::Destination) {
+        if matches!(self.stage, Stage::Menu | Stage::Destination) && !self.home_open() {
             let s = self.point.units_per_logical_pixel;
             frame.strips.extend(outline(
                 Rect {
@@ -1088,6 +1173,226 @@ mod tests {
     use super::*;
     use crate::{point_scan::Config, scanning::Session};
 
+    /// Select starts the last mode, as these scans were written for.
+    fn last_mode() -> Config {
+        Config {
+            start_with: crate::point_scan::StartWith::LastMode,
+            ..Config::default()
+        }
+    }
+    fn home_session() -> Session<Workflow> {
+        Session::new(
+            Workflow::new(
+                Config {
+                    block_interval_ms: 250,
+                    ..Config::default()
+                }
+                .point(),
+                Rect {
+                    x: -1000.0,
+                    y: 20.0,
+                    width: 1000.0,
+                    height: 800.0,
+                },
+                1.0,
+            )
+            .unwrap(),
+            false,
+        )
+    }
+    /// The next scan, made the way the runtime makes it when Select starts one.
+    fn next_session(previous: &Session<Workflow>) -> Session<Workflow> {
+        let mut next = home_session();
+        next.technique.resume_from(&previous.technique);
+        next
+    }
+    fn choose_in(s: &mut Session<Workflow>, row: usize, column: usize) -> Option<Request> {
+        for _ in 0..row {
+            s.action(Action::Next);
+        }
+        assert_eq!(s.action(Action::Select), None);
+        for _ in 0..column {
+            s.action(Action::Next);
+        }
+        s.action(Action::Select)
+    }
+
+    #[test]
+    fn select_opens_home_until_an_action_lets_the_next_select_continue() {
+        let mut s = home_session();
+        assert_eq!(s.action(Action::Select), None);
+        assert!(s.technique.home_open());
+        assert_eq!(s.technique.menu.kind, Kind::Home);
+        assert!(s.technique.follows_foreground());
+        let frame = s.technique.frame();
+        let panel = frame.tiles[0].rect;
+        assert!((panel.x + panel.width / 2.0 + 500.0).abs() < 0.001);
+        assert!((panel.y + panel.height / 2.0 - 420.0).abs() < 0.001);
+        // No chosen point is marked, because Home has none.
+        assert!(frame.strips.is_empty());
+
+        assert_eq!(choose_in(&mut s, 0, 0), Some(Request::OpenPoint));
+        assert!(matches!(s.technique.phase(), Phase::Point(_)));
+        assert!(s.technique.follows_foreground());
+        s.action(Action::Select);
+        s.action(Action::Select);
+        assert_eq!(s.technique.menu.kind, Kind::Actions);
+        assert!(!s.technique.home_open());
+        assert!(matches!(
+            choose_in(&mut s, 0, 0),
+            Some(Request::Click { right: false, .. })
+        ));
+        assert!(!s.active());
+
+        // After an action, Select carries on with point scanning.
+        let mut s = next_session(&s);
+        s.action(Action::Select);
+        assert!(matches!(s.technique.phase(), Phase::Point(_)));
+        // Stopping means starting afresh from Home.
+        s.action(Action::Stop);
+        let mut s = next_session(&s);
+        s.action(Action::Select);
+        assert!(s.technique.home_open());
+    }
+
+    #[test]
+    fn a_point_scan_that_times_out_starts_afresh_from_home() {
+        let mut s = home_session();
+        s.action(Action::Select);
+        choose_in(&mut s, 0, 0);
+        s.technique.resume = true;
+        for _ in 0..100_000 {
+            if !s.active() {
+                break;
+            }
+            s.tick(100, false);
+            assert_eq!(s.take_selection(), None);
+        }
+        assert!(!s.active());
+        let mut s = next_session(&s);
+        s.action(Action::Select);
+        assert!(s.technique.home_open());
+    }
+
+    #[test]
+    fn home_commands_return_to_home_and_close_or_switchify_end_scanning() {
+        use crate::scan_menu::Command;
+        let mut s = home_session();
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 1, 0), None);
+        assert_eq!(s.technique.menu.kind, Kind::Windows);
+        assert!(s.technique.home_open());
+        assert!(s.technique.follows_foreground());
+        assert_eq!(
+            choose_in(&mut s, 0, 0),
+            Some(Request::Command {
+                command: Command::SwitchNext,
+                point: (0, 0),
+            })
+        );
+        assert_eq!(s.technique.menu.kind, Kind::Home);
+        assert!(s.technique.parent_menu.is_empty());
+        assert!(s.active());
+
+        assert_eq!(choose_in(&mut s, 2, 2), None);
+        assert!(!s.active());
+
+        let mut s = next_session(&s);
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 2, 1), Some(Request::OpenSwitchify));
+        assert!(!s.active());
+
+        let mut s = next_session(&s);
+        s.action(Action::Select);
+        assert!(s.technique.home_open());
+        // Back from a Home group returns to Home.
+        choose_in(&mut s, 1, 1);
+        assert_eq!(s.technique.menu.kind, Kind::Editing);
+        assert_eq!(choose_in(&mut s, 3, 0), None);
+        assert_eq!(s.technique.menu.kind, Kind::Home);
+        assert!(s.technique.home_open());
+    }
+
+    #[test]
+    fn keyboard_from_home_returns_home_and_failures_stay_in_home() {
+        let mut s = home_session();
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 0, 2), Some(Request::OpenKeyboard));
+        assert!(!s.technique.home_open());
+        s.technique.execution_succeeded();
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::Keyboard)
+        );
+        s.technique.keyboard_closed();
+        assert!(s.technique.home_open());
+        assert!(!s.technique.return_to_home);
+
+        assert_eq!(choose_in(&mut s, 0, 2), Some(Request::OpenKeyboard));
+        s.execution_failed("Keyboard unavailable.".into());
+        assert_eq!(s.technique.menu.kind, Kind::Home);
+        assert!(s.technique.error.is_some());
+        assert!(!s.technique.return_to_home);
+
+        // A failed Home command is reported in Home too.
+        s.action(Action::Select);
+        choose_in(&mut s, 1, 0);
+        choose_in(&mut s, 0, 0);
+        s.execution_failed("Action is unavailable on this platform.".into());
+        assert_eq!(s.technique.menu.kind, Kind::Home);
+    }
+
+    #[test]
+    fn leaving_home_that_fails_returns_to_home_not_to_an_unchosen_point() {
+        for (column, request) in [(0, Request::OpenPoint), (1, Request::OpenSwitchify)] {
+            let mut s = home_session();
+            s.action(Action::Select);
+            let row = if request == Request::OpenPoint { 0 } else { 2 };
+            assert_eq!(choose_in(&mut s, row, column), Some(request));
+            s.execution_failed("Input could not be released.".into());
+            assert_eq!(s.technique.menu.kind, Kind::Home, "{request:?}");
+            assert!(s.technique.home_open());
+            assert!(s.active());
+        }
+        // Once Point has opened, a failed click offers the action menu at its point as before.
+        let mut s = home_session();
+        s.action(Action::Select);
+        choose_in(&mut s, 0, 0);
+        s.technique.execution_succeeded();
+        s.action(Action::Select);
+        s.action(Action::Select);
+        choose_in(&mut s, 0, 0);
+        s.execution_failed("Click failed.".into());
+        assert_eq!(s.technique.menu.kind, Kind::Actions);
+        assert!(!s.technique.home_open());
+    }
+
+    #[test]
+    fn home_opens_from_the_point_and_mouse_action_menus() {
+        let mut s = home_session();
+        s.action(Action::Select);
+        choose_in(&mut s, 0, 0);
+        s.action(Action::Select);
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 2, 2), None);
+        assert!(s.technique.home_open());
+        assert_eq!(s.technique.source, (0, 0));
+        assert!(s.technique.follows_foreground());
+
+        assert_eq!(choose_in(&mut s, 0, 1), Some(Request::OpenMouse));
+        s.technique.set_pointer(Some((100.0, 200.0)));
+        s.technique.mouse_key(crate::scan_mouse::Key::Actions);
+        assert_eq!(s.technique.menu.kind, Kind::MouseActions);
+        assert_eq!(choose_in(&mut s, 2, 2), None);
+        assert!(s.technique.home_open());
+        assert!(!s.technique.mouse_actions_open);
+        assert_eq!(s.technique.mouse_feedback(), None);
+        assert_eq!(
+            s.technique.control_mode(),
+            crate::point_scan::ControlMode::Mouse
+        );
+    }
+
     #[test]
     fn mouse_actions_use_the_current_pointer_and_return_to_mouse() {
         use crate::scan_menu::Command;
@@ -1098,7 +1403,7 @@ mod tests {
             width: 1280.0,
             height: 720.0,
         };
-        let mut workflow = Workflow::new(Config::default().point(), screen, 1.0).unwrap();
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         workflow.handle(Action::OpenMouse);
         workflow.set_pointer(Some((321.4, 246.6)));
         assert_eq!(workflow.mouse_key(Key::Actions), None);
@@ -1165,7 +1470,7 @@ mod tests {
             width: 1280.0,
             height: 720.0,
         };
-        let mut workflow = Workflow::new(Config::default().point(), screen, 1.0).unwrap();
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         workflow.handle(Action::OpenMouse);
         workflow.set_pointer(Some((100.0, 200.0)));
         assert_eq!(workflow.mouse_key(Key::Drag), Some(Request::MouseDrag));
@@ -1207,7 +1512,7 @@ mod tests {
             height: 720.0,
         };
         let mut session = Session::new(
-            Workflow::new(Config::default().point(), screen, 1.0).unwrap(),
+            Workflow::new(last_mode().point(), screen, 1.0).unwrap(),
             true,
         );
         session.action(Action::OpenMouse);
@@ -1244,7 +1549,7 @@ mod tests {
         };
         let config = Config {
             control_mode: crate::point_scan::ControlMode::Mouse,
-            ..Config::default()
+            ..last_mode()
         };
         let mut session = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
         assert_eq!(session.action(Action::Select), None);
@@ -1279,7 +1584,7 @@ mod tests {
     #[test]
     fn stopped_mouse_motion_waits_at_the_arrow_where_the_user_chose_to() {
         use crate::scan_preferences::{NextScan, StartFrom};
-        let mut config = Config::default();
+        let mut config = last_mode();
         config.scan_preferences.mouse.next_scan = Some(NextScan::Wait);
         config.scan_preferences.mouse.start_from = Some(StartFrom::Selection);
         let screen = Rect {
@@ -1326,7 +1631,7 @@ mod tests {
                     block_interval_ms: 250,
                     auto_select_enabled: auto_select,
                     auto_select_delay_ms: 500,
-                    ..Default::default()
+                    ..last_mode()
                 };
                 config.scan_preferences.point.next_scan = Some(next_scan);
                 // The menu's own choice does not decide this.
@@ -1400,7 +1705,7 @@ mod tests {
             let mut config = Config {
                 automatic: false,
                 block_interval_ms: 250,
-                ..Default::default()
+                ..last_mode()
             };
             config.scan_preferences.point.next_scan = Some(next_scan);
             let screen = Rect {
@@ -1462,7 +1767,7 @@ mod tests {
             let mut config = Config {
                 automatic: true,
                 block_interval_ms: 250,
-                ..Default::default()
+                ..last_mode()
             };
             config.scan_preferences.menu.next_scan = Some(next_scan);
             config.scan_preferences.menu.start_from = Some(start_from);
@@ -1505,7 +1810,7 @@ mod tests {
             height: 720.0,
         };
         let mut session = Session::new(
-            Workflow::new(Config::default().point(), screen, 1.0).unwrap(),
+            Workflow::new(last_mode().point(), screen, 1.0).unwrap(),
             true,
         );
         assert_eq!(session.action(Action::OpenMouse), Some(Request::OpenMouse));
@@ -1569,7 +1874,7 @@ mod tests {
             width: 1280.0,
             height: 720.0,
         };
-        let mut workflow = Workflow::new(Config::default().point(), screen, 1.0).unwrap();
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         workflow.open_mouse();
         workflow.set_mouse_settings(50, 1000, 250, 250, false);
         assert_eq!(
@@ -1612,7 +1917,7 @@ mod tests {
                 (0, 1),
                 (1, 1),
             ] {
-                let mut workflow = Workflow::new(Config::default().point(), screen, 1.0).unwrap();
+                let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
                 workflow.open_mouse();
                 workflow.set_mouse_settings(speed, 1000, 250, 250, false);
                 assert_eq!(
@@ -1772,7 +2077,7 @@ mod tests {
             width: 1280.0,
             height: 720.0,
         };
-        let mut workflow = Workflow::new(Config::default().point(), screen, 1.0).unwrap();
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         workflow.open_mouse();
         let dock = Dock { column: 2, row: 1 };
         assert_eq!(workflow.mouse_key(Key::Dock), None);
@@ -1808,14 +2113,14 @@ mod tests {
         let bottom = Dock::default().rect(screen, 1.0);
         let top = Dock { column: 1, row: 0 }.rect(screen, 1.0);
         let over_bottom = Some((640.0, 700.0));
-        let mut workflow = Workflow::new(Config::default().point(), screen, 1.0).unwrap();
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         workflow.open_mouse();
         workflow.set_pointer(over_bottom);
         assert_eq!(background(&workflow), bottom, "off by default");
 
         let config = Config {
             panel_avoids_pointer: true,
-            ..Config::default()
+            ..last_mode()
         };
         workflow.apply_config(config.point(), false);
         assert!(workflow.panel_avoids_pointer());
@@ -1865,7 +2170,7 @@ mod tests {
             width: 1280.0,
             height: 720.0,
         };
-        let mut workflow = Workflow::new(Config::default().point(), screen, 1.0).unwrap();
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         workflow.open_mouse();
         assert_eq!(
             workflow.mouse_key(crate::scan_mouse::Key::Drag),
@@ -1928,7 +2233,7 @@ mod tests {
                 Config {
                     automatic,
                     block_interval_ms: 250,
-                    ..Config::default()
+                    ..last_mode()
                 }
                 .point(),
                 Rect {
@@ -1989,7 +2294,7 @@ mod tests {
                 let config = Config {
                     control_mode: mode,
                     keyboard_layout: layout,
-                    ..Config::default()
+                    ..last_mode()
                 };
                 let mut workflow = Workflow::new(config.point(), screen, 1.0).unwrap();
                 if mode == ControlMode::Mouse {
@@ -2038,7 +2343,7 @@ mod tests {
         );
         assert!(!s.technique.follows_foreground());
         // A scan restarted by a change of mode has nothing chosen in it.
-        s.technique.apply_config(Config::default().point(), true);
+        s.technique.apply_config(last_mode().point(), true);
         assert!(s.technique.follows_foreground());
     }
     #[test]
@@ -2149,7 +2454,7 @@ mod tests {
         let config = Config {
             keyboard_wait_after_typing: true,
             block_interval_ms: 250,
-            ..Default::default()
+            ..last_mode()
         };
         s.technique.apply_config(config.point(), false);
         s.action(Action::Select);
@@ -2252,7 +2557,8 @@ mod tests {
                     .iter()
                     .filter(|tile| !tile.is_panel_background() && tile.rect.x == first.rect.x)
                     .count();
-                assert_eq!(choose(&mut s, rows - 1, 1), None, "{kind:?}");
+                let close = if kind == Kind::Home { 2 } else { 1 };
+                assert_eq!(choose(&mut s, rows - 1, close), None, "{kind:?}");
                 assert!(!s.active());
                 assert!(s.technique.stage == Stage::Idle);
                 assert!(s.technique.parent_menu.is_empty());
@@ -2278,7 +2584,7 @@ mod tests {
             mode,
             automatic,
             auto_select_enabled: true,
-            ..Default::default()
+            ..last_mode()
         };
         let workflow = Workflow::new(
             config.point(),
@@ -2425,7 +2731,7 @@ mod tests {
     #[test]
     fn nested_back_restores_parent_and_pause_resumes_without_selection() {
         let mut w = Workflow::new(
-            crate::point_scan::Config::default().point(),
+            last_mode().point(),
             Rect {
                 x: 0.,
                 y: 0.,
@@ -2456,7 +2762,7 @@ mod tests {
     #[test]
     fn command_failure_preserves_point_and_requires_acknowledgement() {
         let mut w = Workflow::new(
-            crate::point_scan::Config::default().point(),
+            last_mode().point(),
             Rect {
                 x: 0.,
                 y: 0.,
@@ -2505,7 +2811,7 @@ mod tests {
         for (column, right, count) in [(0, false, 1), (1, true, 1), (2, false, 2)] {
             let mut s = session(false);
             open(&mut s);
-            assert_eq!(s.frame().tiles.len(), 11);
+            assert_eq!(s.frame().tiles.len(), 12);
             assert_eq!(
                 choose(&mut s, 0, column),
                 Some(Request::Click {
@@ -2667,7 +2973,7 @@ mod tests {
         use crate::scan_preferences::Area;
         let mut config = crate::point_scan::Config {
             automatic: false,
-            ..Default::default()
+            ..last_mode()
         };
         config.scan_preferences.menu.automatic = Some(true);
         config.scan_preferences.menu.interval_ms = Some(250);

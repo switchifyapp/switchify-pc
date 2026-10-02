@@ -22,6 +22,8 @@ pub trait Adapter: Send + Sync + 'static {
     fn sync_mode(_config: &mut Self::Config, _technique: &Self::Technique) -> bool {
         false
     }
+    /// Carries what a finished scan leaves behind into the scan Select starts next.
+    fn carry_over(_previous: &Self::Technique, _next: &mut Self::Technique) {}
     /// Carries state the runtime owns, such as the saved mode, into settings saved by the UI.
     fn keep_runtime_config(_next: &mut Self::Config, _current: &Self::Config) {}
     fn cursor_action_feedback(
@@ -511,7 +513,10 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
             Action::OpenKeyboard | Action::OpenPoint | Action::OpenMouse
         ) || (d.engine.as_ref().is_none_or(|e| !e.active()) && action == Action::Select)
         {
-            let (engine, display) = A::create(app, d.config.clone())?;
+            let (mut engine, display) = A::create(app, d.config.clone())?;
+            if let Some(previous) = d.engine.as_ref() {
+                A::carry_over(&previous.technique, &mut engine);
+            }
             d.engine = Some(Session::new(engine, A::switches(&d.config).automatic));
             d.display = Some(display);
             A::prepare(app)?;
@@ -1217,6 +1222,16 @@ pub fn update_point_setting(
     publish::<PointScan>(app);
     Ok(())
 }
+/// A point scan already under way, whatever Select would open.
+fn point_session(
+    technique: crate::point_workflow::Workflow,
+    automatic: bool,
+) -> Session<crate::point_workflow::Workflow> {
+    let mut session = Session::new(technique, automatic);
+    // The display changes before the scan starts; nothing is left to release.
+    let _ = session.action(Action::OpenPoint);
+    session
+}
 pub fn restart_point_on_display(app: &AppHandle, next: bool) -> Result<(), String> {
     use crate::point_scan_runtime::PointScan;
     let (cursor, displays) = crate::display_navigation::displays(app).map_err(|e| e.message)?;
@@ -1225,9 +1240,7 @@ pub fn restart_point_on_display(app: &AppHandle, next: bool) -> Result<(), Strin
     let controller = app.state::<Controller<PointScan>>();
     let mut data = controller.data.lock().unwrap_or_else(|p| p.into_inner());
     let (technique, environment) = PointScan::create(app, data.config.clone())?;
-    let mut engine = Session::new(technique, data.config.automatic);
-    engine.action(Action::Select);
-    data.engine = Some(engine);
+    data.engine = Some(point_session(technique, data.config.automatic));
     data.display = Some(environment);
     data.last_tick = Instant::now();
     Ok(())
@@ -1235,6 +1248,32 @@ pub fn restart_point_on_display(app: &AppHandle, next: bool) -> Result<(), Strin
 
 #[cfg(test)]
 mod config_file_tests {
+    #[test]
+    fn a_display_restart_resumes_point_scanning_instead_of_opening_home() {
+        use crate::{
+            point_scan::{Config, StartWith},
+            point_workflow::{Phase, Workflow},
+            scanning::{Rect, Technique},
+        };
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        for start_with in [StartWith::Home, StartWith::LastMode] {
+            let config = Config {
+                start_with,
+                control_mode: crate::point_scan::ControlMode::Point,
+                ..Config::default()
+            };
+            let session =
+                super::point_session(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
+            assert!(session.active());
+            assert!(!session.technique.home_open());
+            assert!(matches!(session.technique.phase(), Phase::Point(_)));
+        }
+    }
     #[test]
     fn saving_replaces_the_file_without_leaving_a_temporary_copy() {
         let dir = std::env::temp_dir().join(format!(

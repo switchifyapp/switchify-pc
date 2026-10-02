@@ -29,4 +29,11 @@ describe("homeStatus", () => {
     expect(homeStatus({ ...ready, switchesLoaded: false, hasSelect: false }).message).toBe("Loading switch control...");
     expect(homeStatus({ ...ready, scanning: { ...scanning, supported: false, message: "Unsupported." }, hasSelect: false }).message).toBe("Unsupported.");
   });
+
+  it("says what Select opens instead of asking for an app to be focused", () => {
+    expect(homeStatus(ready).message).toBe("Press and release your Select switch to open Home, then choose what to control.");
+    const { startWith: _, ...saved } = defaultPointScanConfig;
+    expect(homeStatus({ ...ready, scanning: { ...scanning, config: saved } }).message).toContain("open Home");
+    expect(homeStatus({ ...ready, scanning: { ...scanning, config: { ...defaultPointScanConfig, startWith: "lastMode", controlMode: "mouse" } } }).message).toBe("Press and release your Select switch to start Mouse scanning.");
+  });
 });

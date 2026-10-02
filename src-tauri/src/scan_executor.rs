@@ -18,7 +18,10 @@ pub fn execute<I: InputInjector>(
         Request::Prediction { .. } | Request::PredictionRetry => {
             Err("Prediction requires the scan controller.".into())
         }
-        Request::OpenKeyboard | Request::OpenMouse | Request::OpenPoint => input.release_all(),
+        Request::OpenKeyboard
+        | Request::OpenMouse
+        | Request::OpenPoint
+        | Request::OpenSwitchify => input.release_all(),
         Request::MouseMove { dx, dy } => input.move_pointer_pixels(dx, dy).map(|_| ()),
         Request::MouseMoveAbsolute { x, y } => input.move_pointer_pixels_absolute(x, y).map(|_| ()),
         Request::MouseClick { right, count } => {
@@ -781,6 +784,7 @@ mod tests {
                 let workflow = Workflow::new(
                     Config {
                         block_interval_ms: 250,
+                        start_with: crate::point_scan::StartWith::LastMode,
                         ..Config::default()
                     }
                     .point(),

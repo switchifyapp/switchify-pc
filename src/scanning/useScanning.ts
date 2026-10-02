@@ -5,6 +5,8 @@ export type ScannerColor = "red" | "green" | "blue" | "yellow" | "white";
 export type KeyboardLayout = "qwerty" | "simpleQwerty" | "commonLetters";
 export type PointScanConfig = {
   controlMode: "point" | "mouse";
+  /** What Select opens when scanning starts afresh. Older saved state may lack it; the runtime then opens Home. */
+  startWith?: "home" | "lastMode";
   mouseRepeatStopEdge: "press" | "release";
   scanPreferences?: import("./preferences").ScanPreferences;
   wordPrediction: boolean;
@@ -25,6 +27,13 @@ export type PointScanConfig = {
   backKey: string;
   pauseKey: string;
 };
+/** Select opens Home unless it continues after an action or the user chose the last mode. */
+export function selectOpensHome(config: PointScanConfig) {
+  return config.startWith !== "lastMode";
+}
+export function lastModeName(config: PointScanConfig) {
+  return config.controlMode === "mouse" ? "Mouse scanning" : "Point scanning";
+}
 export function mouseRepeatStopInstruction(config: PointScanConfig) {
   return config.mouseRepeatStopEdge === "press" ? "Press a switch to stop" : "Press and release a switch to stop";
 }
@@ -39,6 +48,7 @@ export type PointScanState = {
 };
 export const defaultPointScanConfig: PointScanConfig = {
   controlMode: "point",
+  startWith: "home",
   mouseRepeatStopEdge: "release",
   wordPrediction: true,
   keyboardLayout: "qwerty",
