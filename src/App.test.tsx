@@ -487,23 +487,22 @@ describe("Switchify PC shell", () => {
       stateHandler = handler;
       return () => undefined;
     });
+    const markShown = vi.spyOn(api, "markSetupShown");
 
     render(<App />);
     await screen.findByRole("dialog", { name: "Pairing requests" });
     expect(screen.queryByRole("dialog", { name: "Input access" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Verification code for Galaxy")).toHaveTextContent("063781");
+    // Let the auto-open state response settle first, so it cannot land after the cancellation and restore the pairing.
+    await waitFor(() => expect(markShown).toHaveBeenCalled());
+    await act(() => markShown.mock.results[0].value);
 
-    act(() => stateHandler?.({
-      ...structuredClone(browserState),
-      pendingPairings: [],
-      lastActivity: { kind: "info", message: "Pairing request cancelled." },
-    }));
+    browserState.pendingPairings = [];
+    browserState.lastActivity = { kind: "info", message: "Pairing request cancelled." };
+    act(() => stateHandler?.(structuredClone(browserState)));
 
-    // The setup guide is revealed in the same render that removes the pairing dialog; allow slow CI runners to reach it.
-    await waitFor(() => {
-      expect(screen.queryByLabelText("Verification code for Galaxy")).not.toBeInTheDocument();
-      expect(screen.getByRole("dialog", { name: "Input access" })).toBeInTheDocument();
-    }, { timeout: 4000 });
+    expect(await screen.findByRole("dialog", { name: "Input access" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Verification code for Galaxy")).not.toBeInTheDocument();
   });
 
   it("creates a profile and records a desired key", async () => {
