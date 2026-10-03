@@ -499,8 +499,11 @@ describe("Switchify PC shell", () => {
       lastActivity: { kind: "info", message: "Pairing request cancelled." },
     }));
 
-    await waitFor(() => expect(screen.queryByLabelText("Verification code for Galaxy")).not.toBeInTheDocument());
-    expect(await screen.findByRole("dialog", { name: "Input access" })).toBeInTheDocument();
+    // The setup guide is revealed in the same render that removes the pairing dialog; allow slow CI runners to reach it.
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Verification code for Galaxy")).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: "Input access" })).toBeInTheDocument();
+    }, { timeout: 4000 });
   });
 
   it("creates a profile and records a desired key", async () => {
