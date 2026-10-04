@@ -1,5 +1,5 @@
 {
-  "revision": "40c09c3f125403811b167d042730826ff6d451b7",
+  "revision": "9ec55f767ca6e7e97a775df0bf0dc8d4be42c709",
   "bundle": {
     "format_version": 1,
     "model_id": "smollm2-135m-q8-v1",
@@ -76,77 +76,77 @@
   "workers": {
     "aarch64-apple-darwin": {
       "prepared_artifact": {
-        "run_id": 37211131470,
+        "run_id": 37212539426,
         "name": "neural-macos-latest",
         "archive": "switchify-prediction-neural-0.2.1-aarch64-apple-darwin.zip"
       },
-      "archive_sha256": "2ba7ff29b2286eb02b0435f608e44934d89d119967418d15b8f95aaf5072544c",
+      "archive_sha256": "3976ac1274488b23438b9af299cfca64a9feffecfd1d4548a3ec0dc1b8681f8c",
       "files": {
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/QUALIFICATION.md": {
-          "sha256": "f5d13a7406728515112cab4da093ee19642f68abbb9f30c8c8f511ae68ec8eb3",
-          "size": 7086
+          "size": 7086,
+          "sha256": "f5d13a7406728515112cab4da093ee19642f68abbb9f30c8c8f511ae68ec8eb3"
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/QUALIFICATION.json": {
-          "sha256": "55b6e9429ecb290fd194682406773a6f07102861529d5e1c0e51a6d2d4fc8c7e",
-          "size": 473
+          "size": 714,
+          "sha256": "636ff7eabd1eec3cbfcf3d554d1908175cbae42d65330b7d8cf80bc4f0cbc509"
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/LICENSE": {
-          "sha256": "1e5643d5431cc5b2d04534dee7b3f716b24fc3b82493a1659534cbfa4fc8732c",
-          "size": 1079
+          "size": 1079,
+          "sha256": "1e5643d5431cc5b2d04534dee7b3f716b24fc3b82493a1659534cbfa4fc8732c"
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/Cargo.lock": {
-          "sha256": "a49ecb4d18fa6f26d8777701e2bbad87691fff4ec05664e5a746bf18580673b0",
-          "size": 46262
+          "size": 46262,
+          "sha256": "1ca440eb3b6acbe7a5b40ebc39bf2db2fb761ab5592f6610fd1a61adf04f2ffe"
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/THIRD_PARTY_NOTICES.md": {
-          "sha256": "6bc01a7be7b3aaa59d2c04acbbdea91b20699f0f20d556debc5e674eb0d3600f",
-          "size": 1545871
+          "size": 1545871,
+          "sha256": "6bc01a7be7b3aaa59d2c04acbbdea91b20699f0f20d556debc5e674eb0d3600f"
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/README.md": {
-          "sha256": "02cf02f01d6e711cf6415304ace910722cb76268e90358c5362feaec034a090b",
-          "size": 8913
+          "size": 8954,
+          "sha256": "c1ffe05faa70725dfe43e54657b2088baec45fcd1356e5cc802ec89a4965c39b"
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/switchify-smol-worker": {
-          "sha256": "c968323826413de70108e70a94bf1bd5554cff7db4708035590b1b99f758581e",
-          "size": 7322096
+          "size": 7321632,
+          "sha256": "acb543af042d1dc40b928edbfd4d5dfb88270d05f19efe98b8b322002a7469d3"
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/SHA256SUMS": {
-          "sha256": "c7a37e54a371f6f16731e7bf88ddaafe4eb5934fa26696641e731876aa9fafef",
-          "size": 998
+          "size": 998,
+          "sha256": "a95f16357fb6e6747ab2e50df2ef7cdbf09a2749019d7b762e592272089a1abd"
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/RUST_LIBRARY_COPYRIGHT.html": {
-          "sha256": "0a65bb747c49c7bb816cbc7188319bd6e4e8d08091c1190b8a3c0971c47968ed",
-          "size": 279302
+          "size": 279302,
+          "sha256": "0a65bb747c49c7bb816cbc7188319bd6e4e8d08091c1190b8a3c0971c47968ed"
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/verify_bundle.py": {
-          "sha256": "69c124d037d9e25018f690c10b861c4388c01a8cd8eb3ed438d17136196c1194",
-          "size": 1282
+          "size": 1282,
+          "sha256": "69c124d037d9e25018f690c10b861c4388c01a8cd8eb3ed438d17136196c1194"
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/BUILD.json": {
-          "sha256": "59cf2afc66e1bcd5c3481d241849039f02a4d2e7d0b6b7a236bfa922fb173c52",
-          "size": 987
+          "size": 987,
+          "sha256": "701bed567579160606ebf4ad203ebb5560a7a32093ed68194fa66bbad5de06d9"
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/SECURITY.md": {
-          "sha256": "d79bf51500d3927bc47fad3e61b987be10764c7003b82df0f9d1f752f72a5182",
-          "size": 1973
+          "size": 1973,
+          "sha256": "d79bf51500d3927bc47fad3e61b987be10764c7003b82df0f9d1f752f72a5182"
         }
       }
     },
     "x86_64-apple-darwin": {
       "prepared_artifact": {
-        "run_id": 37211131470,
+        "run_id": 37212539426,
         "name": "neural-macos-15-intel",
         "archive": "switchify-prediction-neural-0.2.1-x86_64-apple-darwin.zip"
       },
-      "archive_sha256": "e477f97866303487d2f3c4e9551fc6fe5fe6e5f38a3a453cdbf1917957f763bd",
+      "archive_sha256": "c5df5cc3ff7732fa0ca4bd53b7dd5c9f5bcfb9531a721e727d9ecd3bb4cac78a",
       "files": {
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/QUALIFICATION.md": {
           "size": 7086,
           "sha256": "f5d13a7406728515112cab4da093ee19642f68abbb9f30c8c8f511ae68ec8eb3"
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/QUALIFICATION.json": {
-          "size": 473,
-          "sha256": "55b6e9429ecb290fd194682406773a6f07102861529d5e1c0e51a6d2d4fc8c7e"
+          "size": 714,
+          "sha256": "636ff7eabd1eec3cbfcf3d554d1908175cbae42d65330b7d8cf80bc4f0cbc509"
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/LICENSE": {
           "size": 1079,
@@ -154,27 +154,27 @@
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/Cargo.lock": {
           "size": 46262,
-          "sha256": "a49ecb4d18fa6f26d8777701e2bbad87691fff4ec05664e5a746bf18580673b0"
+          "sha256": "1ca440eb3b6acbe7a5b40ebc39bf2db2fb761ab5592f6610fd1a61adf04f2ffe"
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/THIRD_PARTY_NOTICES.md": {
           "size": 1545871,
           "sha256": "6bc01a7be7b3aaa59d2c04acbbdea91b20699f0f20d556debc5e674eb0d3600f"
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/README.md": {
-          "size": 8913,
-          "sha256": "02cf02f01d6e711cf6415304ace910722cb76268e90358c5362feaec034a090b"
+          "size": 8954,
+          "sha256": "c1ffe05faa70725dfe43e54657b2088baec45fcd1356e5cc802ec89a4965c39b"
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/switchify-smol-worker": {
-          "size": 7903992,
-          "sha256": "7a0b9177485369195ea0af9e1578104c2efb3f721208f7fec0cb713ef8d00a9f"
+          "size": 7903704,
+          "sha256": "5a518794a91d7ad9edb6f537c5f9e12ec765cfeffa2160a1a46ecf1e3eb35790"
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/switchify-smol-worker-avx2": {
-          "size": 8055144,
-          "sha256": "7ac36b3e7f30d69be0f88b1b452b66791ac03fe4534e06ebd6c21c46c95e041a"
+          "size": 8054416,
+          "sha256": "6151ef19e3848ce7375a3748b844ae9ef2d5f52037c60eebd49b7df09004a2ba"
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/SHA256SUMS": {
           "size": 1091,
-          "sha256": "7eac576a4042419adedb7dac5f3ab847e6bce6c3c2a8bdb23e29ffe2382ef627"
+          "sha256": "13b66da70c11dafffd1dbcad71aa9e803ad21ccf36d4f51b913e4fca9a361182"
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/RUST_LIBRARY_COPYRIGHT.html": {
           "size": 279302,
@@ -186,7 +186,7 @@
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/BUILD.json": {
           "size": 1024,
-          "sha256": "1ac79006baf2fe3499c027a509357ae19130a41b1bb56fd4687e5c1b722fe9a0"
+          "sha256": "e49098008cbcb1a968d6c2abb67ad5245fbb3891a32a768f8d3e5de3c4d2abf6"
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/SECURITY.md": {
           "size": 1973,
@@ -196,128 +196,128 @@
     },
     "x86_64-pc-windows-msvc": {
       "prepared_artifact": {
-        "run_id": 37211131470,
+        "run_id": 37212539426,
         "name": "neural-windows-latest",
         "archive": "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc.zip"
       },
-      "archive_sha256": "6b2a385fca62f2947add1de286440d87778c94c6d79ff6892813cc702514c45e",
+      "archive_sha256": "175f3f9a8c021078c8bd1fefa1d6389afbdaec3f383cecdd14810ac8f6acba1a",
       "files": {
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/BUILD.json": {
-          "sha256": "ebe7986dc80c01e19b55697b740a2e42950f49314890eeedb233baaa25ddbf69",
-          "size": 1059
+          "size": 1059,
+          "sha256": "5a90cebe110f2711f9d262d8b0542dfebf56b407f019a6dc75bb0395fe2efd96"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/Cargo.lock": {
-          "sha256": "a49ecb4d18fa6f26d8777701e2bbad87691fff4ec05664e5a746bf18580673b0",
-          "size": 46262
+          "size": 46262,
+          "sha256": "1ca440eb3b6acbe7a5b40ebc39bf2db2fb761ab5592f6610fd1a61adf04f2ffe"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/LICENSE": {
-          "sha256": "38a190016c5d23b6acf37beda35bdef634a3572da76bb7c6ebfec84763648357",
-          "size": 1100
+          "size": 1100,
+          "sha256": "38a190016c5d23b6acf37beda35bdef634a3572da76bb7c6ebfec84763648357"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/QUALIFICATION.json": {
-          "sha256": "55b6e9429ecb290fd194682406773a6f07102861529d5e1c0e51a6d2d4fc8c7e",
-          "size": 473
+          "size": 714,
+          "sha256": "636ff7eabd1eec3cbfcf3d554d1908175cbae42d65330b7d8cf80bc4f0cbc509"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/QUALIFICATION.md": {
-          "sha256": "934945362415a5672a5c05887553911778f2032508b5efcb9a755c5e551548dc",
-          "size": 7147
+          "size": 7147,
+          "sha256": "934945362415a5672a5c05887553911778f2032508b5efcb9a755c5e551548dc"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/README.md": {
-          "sha256": "02cf02f01d6e711cf6415304ace910722cb76268e90358c5362feaec034a090b",
-          "size": 8913
+          "size": 8954,
+          "sha256": "c1ffe05faa70725dfe43e54657b2088baec45fcd1356e5cc802ec89a4965c39b"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/RUST_LIBRARY_COPYRIGHT.html": {
-          "sha256": "0a65bb747c49c7bb816cbc7188319bd6e4e8d08091c1190b8a3c0971c47968ed",
-          "size": 279302
+          "size": 279302,
+          "sha256": "0a65bb747c49c7bb816cbc7188319bd6e4e8d08091c1190b8a3c0971c47968ed"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/SECURITY.md": {
-          "sha256": "d79bf51500d3927bc47fad3e61b987be10764c7003b82df0f9d1f752f72a5182",
-          "size": 1973
+          "size": 1973,
+          "sha256": "d79bf51500d3927bc47fad3e61b987be10764c7003b82df0f9d1f752f72a5182"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/SHA256SUMS": {
-          "sha256": "a585397a8c2ad3f12f767f1d87a40d5bc7c10d3c087ed0183b5554ef48af9ea8",
-          "size": 1116
+          "size": 1116,
+          "sha256": "31d12eb51fce3223f4a3ed141cf388f186c592731127ba231149bab8d9008a1c"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/switchify-smol-worker-avx2.exe": {
-          "sha256": "56884d10a431f186c369943cc335b5108b7d920d308fd465234827fba8aeb38d",
-          "size": 8709120
+          "size": 8709120,
+          "sha256": "8e9efe60e59816f2cc5d4127b3e9ed47a8d5ca18675ea5c3fc527106471d0c32"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/switchify-smol-worker.exe": {
-          "sha256": "537028f08e65dd08e7e9353f03308e0a641ad65b8424a17af318fb8f86d8eaed",
-          "size": 8510464
+          "size": 8510464,
+          "sha256": "47123b4cc20002f7c2d6fa369a9ce994cf1b1a1939d03318d1c1088ed1865783"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/THIRD_PARTY_NOTICES.md": {
-          "sha256": "448c7f55a9ef918d5cf67f57cfb141c62f7bc6d819cc168fc4ad20f73b34c5f0",
-          "size": 1552635
+          "size": 1552635,
+          "sha256": "448c7f55a9ef918d5cf67f57cfb141c62f7bc6d819cc168fc4ad20f73b34c5f0"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/verify_bundle.py": {
-          "sha256": "96b47d695b104c61ca65de856108d8850a6da7c00220ae72dd91b8e73cb8f6f2",
-          "size": 1315
+          "size": 1315,
+          "sha256": "96b47d695b104c61ca65de856108d8850a6da7c00220ae72dd91b8e73cb8f6f2"
         }
       }
     },
     "x86_64-unknown-linux-gnu": {
       "prepared_artifact": {
-        "run_id": 37211131470,
+        "run_id": 37212539426,
         "name": "neural-ubuntu-latest",
         "archive": "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu.zip"
       },
-      "archive_sha256": "248b14c7220a58a9119eac6dadf63394f35d0bbc2d105d58563c55b4b701a7b2",
+      "archive_sha256": "c8fb614e53c4656bd1eeb808552a7f51c9da09b45ba77687b7f07e7775b2f479",
       "files": {
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/BUILD.json": {
-          "sha256": "1440f4897ac396ff4b3ef11baf963042c97e9113b5177fd4cac811e598e60240",
-          "size": 1051
+          "size": 1051,
+          "sha256": "29b25c63447c59ada1b7ed8549905fb9735540b2d698e6a5d4c3ea9857fdeb3d"
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/RUST_LIBRARY_COPYRIGHT.html": {
-          "sha256": "0a65bb747c49c7bb816cbc7188319bd6e4e8d08091c1190b8a3c0971c47968ed",
-          "size": 279302
+          "size": 279302,
+          "sha256": "0a65bb747c49c7bb816cbc7188319bd6e4e8d08091c1190b8a3c0971c47968ed"
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/switchify-smol-worker": {
-          "sha256": "3dba4916ff39f2779e80906aaf8c1aac5270e746f4bc7d3ecef4e0532915977a",
-          "size": 10153664
+          "size": 10154408,
+          "sha256": "d537aff0606ac07289ae2dae69dab503a090be9d5d2248919e0fb91bf7c29df3"
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/SHA256SUMS": {
-          "sha256": "678af020c062ada94dfcc4403efb972955e574d34ccbef35760e205f012196d5",
-          "size": 1091
+          "size": 1091,
+          "sha256": "2d6d80a8edb6bb0b5c03787b3218c4e76cb5bf963a3a8f636f0a3a26076d576c"
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/LICENSE": {
-          "sha256": "1e5643d5431cc5b2d04534dee7b3f716b24fc3b82493a1659534cbfa4fc8732c",
-          "size": 1079
+          "size": 1079,
+          "sha256": "1e5643d5431cc5b2d04534dee7b3f716b24fc3b82493a1659534cbfa4fc8732c"
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/switchify-smol-worker-avx2": {
-          "sha256": "737e8e4804e58c5b40676d4ca9237b02913682b63ce9679ed4416326276c3259",
-          "size": 10246512
+          "size": 10245944,
+          "sha256": "2a75322f581d8bfdad17094d36fd1e529effcdf03d482a6a7d876eaf9c4cd91e"
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/SECURITY.md": {
-          "sha256": "d79bf51500d3927bc47fad3e61b987be10764c7003b82df0f9d1f752f72a5182",
-          "size": 1973
+          "size": 1973,
+          "sha256": "d79bf51500d3927bc47fad3e61b987be10764c7003b82df0f9d1f752f72a5182"
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/verify_bundle.py": {
-          "sha256": "69c124d037d9e25018f690c10b861c4388c01a8cd8eb3ed438d17136196c1194",
-          "size": 1282
+          "size": 1282,
+          "sha256": "69c124d037d9e25018f690c10b861c4388c01a8cd8eb3ed438d17136196c1194"
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/Cargo.lock": {
-          "sha256": "a49ecb4d18fa6f26d8777701e2bbad87691fff4ec05664e5a746bf18580673b0",
-          "size": 46262
+          "size": 46262,
+          "sha256": "1ca440eb3b6acbe7a5b40ebc39bf2db2fb761ab5592f6610fd1a61adf04f2ffe"
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/README.md": {
-          "sha256": "02cf02f01d6e711cf6415304ace910722cb76268e90358c5362feaec034a090b",
-          "size": 8913
+          "size": 8954,
+          "sha256": "c1ffe05faa70725dfe43e54657b2088baec45fcd1356e5cc802ec89a4965c39b"
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/THIRD_PARTY_NOTICES.md": {
-          "sha256": "93cad9c9282edec579015f6d822901ab48596ff21e9f74bb3f07dc2ae8b7314c",
-          "size": 1535176
+          "size": 1535176,
+          "sha256": "93cad9c9282edec579015f6d822901ab48596ff21e9f74bb3f07dc2ae8b7314c"
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/QUALIFICATION.json": {
-          "sha256": "55b6e9429ecb290fd194682406773a6f07102861529d5e1c0e51a6d2d4fc8c7e",
-          "size": 473
+          "size": 714,
+          "sha256": "636ff7eabd1eec3cbfcf3d554d1908175cbae42d65330b7d8cf80bc4f0cbc509"
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/QUALIFICATION.md": {
-          "sha256": "f5d13a7406728515112cab4da093ee19642f68abbb9f30c8c8f511ae68ec8eb3",
-          "size": 7086
+          "size": 7086,
+          "sha256": "f5d13a7406728515112cab4da093ee19642f68abbb9f30c8c8f511ae68ec8eb3"
         }
       }
     }
   },
-  "library_revision": "70fc4a869ffd22a405527e4d81d25c149aebc418"
+  "library_revision": "c25f068dacef8fbf65dde6b98c745ad4cd56d555"
 }
