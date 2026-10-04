@@ -681,7 +681,11 @@ mod tests {
         if let Some(path) = std::env::var_os("SWITCHIFY_NEURAL_REPORT") {
             std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
         }
-        assert!(!refined.is_empty(), "neural model was never available");
+        assert_eq!(
+            refined.len(),
+            1000,
+            "every measured query must exercise neural refinement"
+        );
     }
     #[test]
     fn refinement_preserves_the_displayed_acceptance_and_retires_it_on_ack() {
