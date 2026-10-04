@@ -11,10 +11,27 @@ pub struct Prediction {
 }
 
 pub trait Predict: Send {
+    #[cfg(test)]
+    fn neural_status(&self) -> Option<switchify_prediction_neural::Status> {
+        None
+    }
     fn predict(&mut self, before: &str, prefix: &str) -> Result<Prediction, ()>;
+    fn poll(&mut self) -> Option<Prediction> {
+        None
+    }
+    fn pending(&self) -> bool {
+        false
+    }
+    fn reset(&mut self) {}
 }
 
-pub struct Model(Predictor);
+pub struct Model {
+    predictor: Predictor,
+    neural: Option<switchify_prediction_neural::Refiner>,
+    request: Option<u64>,
+    config: Option<switchify_prediction_neural::Config>,
+}
+
 impl Model {
     pub fn open(path: &Path) -> Result<Self, ()> {
         let mut file = File::open(path).map_err(|_| ())?;
@@ -30,7 +47,55 @@ impl Model {
         if format!("{:x}", hash.finalize()) != DATABASE_SHA256 {
             return Err(());
         }
-        Predictor::open(path, None).map(Self).map_err(|_| ())
+        let predictor = Predictor::open(path, None).map_err(|_| ())?;
+        let config = (|| {
+            let bundle = path.parent()?.parent()?.join("prediction-neural");
+            let executable = std::env::current_exe().ok()?;
+            #[cfg(test)]
+            let executable = std::env::var_os("SWITCHIFY_BENCHMARK_WORKER")
+                .map(std::path::PathBuf::from)
+                .unwrap_or(executable);
+            let worker = |name: &str| {
+                let name = format!("{name}{}", std::env::consts::EXE_SUFFIX);
+                let bundled = executable.parent()?.join(&name);
+                if bundled.is_file() {
+                    return Some(bundled);
+                }
+                if cfg!(debug_assertions) {
+                    let target = if cfg!(target_os = "windows") {
+                        "x86_64-pc-windows-msvc"
+                    } else if cfg!(target_arch = "aarch64") {
+                        "aarch64-apple-darwin"
+                    } else {
+                        "x86_64-apple-darwin"
+                    };
+                    return Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries").join(
+                        format!(
+                            "{}-{target}{}",
+                            name.trim_end_matches(std::env::consts::EXE_SUFFIX),
+                            std::env::consts::EXE_SUFFIX
+                        ),
+                    ));
+                }
+                None
+            };
+            Some(switchify_prediction_neural::Config {
+                bundle,
+                portable_worker: worker("switchify-smol-worker")?,
+                accelerated_worker: if cfg!(target_os = "windows") {
+                    worker("switchify-smol-worker-avx2").filter(|p| p.is_file())
+                } else {
+                    None
+                },
+                threads: 4,
+            })
+        })();
+        Ok(Self {
+            predictor,
+            neural: None,
+            config,
+            request: None,
+        })
     }
 }
 
@@ -41,23 +106,66 @@ fn display_word(word: String) -> String {
     }
 }
 impl Predict for Model {
+    #[cfg(test)]
+    fn neural_status(&self) -> Option<switchify_prediction_neural::Status> {
+        self.neural.as_ref().map(|n| n.status())
+    }
     fn predict(&mut self, before: &str, prefix: &str) -> Result<Prediction, ()> {
+        // Child inference starts only after the parent has contained this worker
+        // and sent a query, never during speculative statistical loading.
+        if let Some(config) = self.config.take() {
+            self.neural = switchify_prediction_neural::Refiner::new(config).ok();
+        }
+        let options = Options {
+            limit: 5,
+            min_chars: 0,
+            unigram_only: false,
+        };
+        if let Some(neural) = &mut self.neural {
+            if let Ok(immediate) = neural.submit(&self.predictor, before, prefix, options, 0) {
+                self.request = immediate
+                    .refinement_requested
+                    .then_some(immediate.request_id);
+                return Ok(Prediction {
+                    words: immediate.words.into_iter().map(display_word).collect(),
+                });
+            }
+        }
+        self.request = None;
         Ok(Prediction {
             words: self
-                .0
-                .predict(
-                    before,
-                    prefix,
-                    Options {
-                        limit: 5,
-                        min_chars: 0,
-                        unigram_only: false,
-                    },
-                )
+                .predictor
+                .predict(before, prefix, options)
                 .into_iter()
                 .map(|s| display_word(s.word))
                 .collect(),
         })
+    }
+    fn poll(&mut self) -> Option<Prediction> {
+        let result = self.neural.as_mut()?.poll()?;
+        if self.request != Some(result.request_id) {
+            return None;
+        }
+        self.request = None;
+        Some(Prediction {
+            words: result.words.into_iter().map(display_word).collect(),
+        })
+    }
+    fn pending(&self) -> bool {
+        self.request.is_some()
+            && self.neural.as_ref().is_some_and(|n| {
+                matches!(
+                    n.status(),
+                    switchify_prediction_neural::Status::Ready
+                        | switchify_prediction_neural::Status::Loading
+                )
+            })
+    }
+    fn reset(&mut self) {
+        self.request = None;
+        if let Some(n) = &mut self.neural {
+            n.reset();
+        }
     }
 }
 
@@ -87,8 +195,22 @@ mod tests {
         switchify_prediction::build(&path,
             "I need help. I need help. I need help. I drink water. I drink water. Café can't wait. I'm here. I am home. I am happy. I am healthy. I am hungry. I am hopeful. I am human.", "synthetic test").unwrap();
         let original = fs::read(&path).unwrap();
-        let mut model = Model(Predictor::open(&path, None).unwrap());
+        let mut model = Model {
+            predictor: Predictor::open(&path, None).unwrap(),
+            neural: None,
+            config: None,
+            request: None,
+        };
+        model.config = Some(switchify_prediction_neural::Config {
+            bundle: dir.0.join("missing"),
+            portable_worker: dir.0.join("missing-worker"),
+            accelerated_worker: None,
+            threads: 4,
+        });
         assert_eq!(model.predict("I need ", "h").unwrap().words[0], "help");
+        assert!(!model.pending());
+        assert!(model.config.is_none());
+        assert!(model.poll().is_none());
         assert_eq!(model.predict("I drink ", "").unwrap().words[0], "water");
         assert!(model.predict("", "zyzzy").unwrap().words.is_empty());
         assert_eq!(

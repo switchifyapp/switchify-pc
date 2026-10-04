@@ -23,7 +23,7 @@ const config = {
 };
 
 if (windows) {
-  config.bundle.externalBin = ["binaries/switchify-pc-startup"];
+  config.bundle.externalBin = ["binaries/switchify-pc-startup", "binaries/switchify-smol-worker", "binaries/switchify-smol-worker-avx2"];
   config.bundle.windows = {
     signCommand: {
       cmd: "powershell.exe",

@@ -1,0 +1,5 @@
+{
+  "bundle": {
+    "externalBin": ["binaries/switchify-smol-worker", "binaries/switchify-smol-worker-avx2"]
+  }
+}

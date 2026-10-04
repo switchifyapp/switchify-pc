@@ -19,3 +19,7 @@ tools/prediction-data/target/
 src-tauri/resources/prediction-model/
 
 src-tauri/prediction-benchmark.json
+
+.cache/
+src-tauri/resources/prediction-neural/
+src-tauri/neural-benchmark.json

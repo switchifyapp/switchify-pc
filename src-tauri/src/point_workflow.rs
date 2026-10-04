@@ -2382,6 +2382,7 @@ mod tests {
         keyboard.caps = true;
         keyboard.predictions(
             Some(crate::prediction::worker::Batch {
+                refined: false,
                 token: 7,
                 words: vec!["water".into()],
             }),

@@ -44,6 +44,7 @@ if [[ ! -x "$main_executable" ]]; then
   exit 1
 fi
 
+node "${project_directory}/scripts/check-packaged-prediction.mjs" "$app_path" --signed
 codesign --verify --deep --strict --verbose=2 "$app_path"
 codesign --verify --strict --verbose=2 "$dmg_path"
 

@@ -1,0 +1,29 @@
+{
+  "arch": "x86_64",
+  "failures": 0,
+  "immediate": {
+    "max_ms": 13.4205,
+    "median_ms": 8.3329,
+    "p95_ms": 9.2327,
+    "samples": 1000
+  },
+  "os": "windows",
+  "production_qualified": false,
+  "queries": 1000,
+  "refinement": {
+    "max_ms": 143.70759999999999,
+    "median_ms": 89.7075,
+    "p95_ms": 91.6524,
+    "samples": 1000
+  },
+  "scope": "Production Engine and model adapter, real neural child IPC, 20ms polling, fake input/activity; excludes outer desktop pipe and rendering",
+  "process_tree_peak_rss_bytes": 693190656,
+  "memory_note": "20ms sampled sum of test process and child RSS; shared pages may be counted twice and short peaks missed.",
+  "reference_machine": "Windows 11, AMD Ryzen AI 9 HX 370, four inference threads",
+  "prediction_revision": "99a3ef03cb54500006887a998547fded4ad39e0e",
+  "integration_source_head": "a6c85a4ad30e17a6dbad80b38f6565f171a236f5",
+  "model_id": "smollm2-135m-q8-v1",
+  "installer_bytes": 154901216,
+  "signed": false,
+  "fixture_note": "Five synthetic contexts repeated; latency regression check, not representative accuracy evaluation."
+}

@@ -42,8 +42,10 @@
       "resources/prediction-model/aac-source-manifest.json",
       "resources/prediction-model/ATTRIBUTION.md",
       "resources/prediction-model/LICENSE",
-      "resources/prediction-model/corpus-notices/*"
+      "resources/prediction-model/corpus-notices/*",
+      "resources/prediction-neural/**/*"
     ],
+    "externalBin": ["binaries/switchify-smol-worker"],
     "active": true,
     "targets": "all",
     "icon": [

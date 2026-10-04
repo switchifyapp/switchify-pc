@@ -35,6 +35,13 @@ pub struct Database {
     slow_calls: u8,
 }
 impl Database {
+    #[cfg(test)]
+    pub fn neural_status(&self) -> Option<switchify_prediction_neural::Status> {
+        match &self.state {
+            State::Ready(model) => model.neural_status(),
+            _ => None,
+        }
+    }
     pub fn open(model: &Path) -> Self {
         let model = model.to_path_buf();
         let (tx, rx) = mpsc::sync_channel(1);
@@ -59,6 +66,21 @@ impl Database {
             State::Loading(_) => Status::Loading,
             State::Ready(_) => Status::Ready,
             State::Unavailable => Status::Unavailable,
+        }
+    }
+    pub fn poll(&mut self) -> Option<Prediction> {
+        if let State::Ready(model) = &mut self.state {
+            model.poll()
+        } else {
+            None
+        }
+    }
+    pub fn pending(&self) -> bool {
+        matches!(&self.state, State::Ready(model) if model.pending())
+    }
+    pub fn reset(&mut self) {
+        if let State::Ready(model) = &mut self.state {
+            model.reset();
         }
     }
     pub fn predict(&mut self, context: &Context) -> (Status, Prediction) {
@@ -96,6 +118,14 @@ impl Database {
         )
     }
 
+    #[cfg(test)]
+    pub fn with_predictor(model: Box<dyn Predict>) -> Self {
+        Self {
+            state: State::Ready(model),
+            slow_call: SLOW_CALL,
+            slow_calls: 0,
+        }
+    }
     #[cfg(test)]
     pub fn fixture() -> Self {
         Self {

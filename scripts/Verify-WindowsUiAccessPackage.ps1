@@ -54,6 +54,9 @@ $installerScript = Get-Content -LiteralPath $generatedInstaller -Raw
 foreach ($expected in @(
   '!define INSTALLMODE "perMachine"',
   'switchify-pc-startup.exe',
+  'switchify-smol-worker.exe',
+  'switchify-smol-worker-avx2.exe',
+  'model.gguf',
   'installer-hooks.nsh'
 )) {
   if (-not $installerScript.Contains($expected)) {
@@ -67,3 +70,24 @@ if ($configuration.bundle.windows.nsis.installMode -ne 'perMachine') {
 }
 
 Write-Output "Verified Windows UIAccess package: $installer"
+
+# Inspect installed bytes: Tauri signs external binaries after the build copy.
+$archiveTool = (Get-Command 7z -ErrorAction Stop).Source
+$unpacked = Join-Path ([IO.Path]::GetTempPath()) "switchify-package-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $unpacked | Out-Null
+try {
+  & $archiveTool x $installer "-o$unpacked" -y | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Could not extract the installer for verification.' }
+  & node (Join-Path $PSScriptRoot 'check-packaged-prediction.mjs') $unpacked --signed
+  if ($LASTEXITCODE -ne 0) { throw 'Installed prediction resources failed verification.' }
+  foreach ($name in @('switchify-smol-worker.exe', 'switchify-smol-worker-avx2.exe')) {
+    $workers = @(Get-ChildItem -LiteralPath $unpacked -Recurse -File -Filter $name)
+    if ($workers.Count -ne 1) { throw "Expected one installed $name" }
+    Assert-Signature $workers[0].FullName
+  }
+} finally {
+  $resolved = [IO.Path]::GetFullPath($unpacked)
+  $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
+  if (-not $resolved.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid verification directory' }
+  Remove-Item -LiteralPath $resolved -Recurse -Force
+}
