@@ -11,6 +11,10 @@ pub struct Prediction {
 }
 
 pub trait Predict: Send {
+    #[cfg(test)]
+    fn neural_status(&self) -> Option<switchify_prediction_neural::Status> {
+        None
+    }
     fn predict(&mut self, before: &str, prefix: &str) -> Result<Prediction, ()>;
     fn poll(&mut self) -> Option<Prediction> {
         None
@@ -102,6 +106,10 @@ fn display_word(word: String) -> String {
     }
 }
 impl Predict for Model {
+    #[cfg(test)]
+    fn neural_status(&self) -> Option<switchify_prediction_neural::Status> {
+        self.neural.as_ref().map(|n| n.status())
+    }
     fn predict(&mut self, before: &str, prefix: &str) -> Result<Prediction, ()> {
         // Child inference starts only after the parent has contained this worker
         // and sent a query, never during speculative statistical loading.

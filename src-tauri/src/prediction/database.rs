@@ -35,6 +35,13 @@ pub struct Database {
     slow_calls: u8,
 }
 impl Database {
+    #[cfg(test)]
+    pub fn neural_status(&self) -> Option<switchify_prediction_neural::Status> {
+        match &self.state {
+            State::Ready(model) => model.neural_status(),
+            _ => None,
+        }
+    }
     pub fn open(model: &Path) -> Self {
         let model = model.to_path_buf();
         let (tx, rx) = mpsc::sync_channel(1);

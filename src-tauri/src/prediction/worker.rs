@@ -675,6 +675,7 @@ mod tests {
         };
         let report = serde_json::json!({"os":std::env::consts::OS,"arch":std::env::consts::ARCH,
             "queries":1000,"failures":failures,"immediate":stats(&immediate),"refinement":stats(&refined),
+            "neural_status":e.database.neural_status(),
             "scope":"Production Engine and model adapter, real neural child IPC, 20ms polling, fake input/activity; excludes outer desktop pipe and rendering",
             "production_qualified":false});
         println!("{report}");

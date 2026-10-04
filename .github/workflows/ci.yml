@@ -164,7 +164,11 @@ jobs:
         env:
           SWITCHIFY_NEURAL_REPORT: neural-benchmark.json
         run: cargo test --release --lib --locked --manifest-path src-tauri/Cargo.toml neural_integration_benchmark -- --ignored --nocapture --test-threads=1
+      - name: Diagnose packaged worker after benchmark failure
+        if: failure() && env.SWITCHIFY_BENCHMARK_WORKER != ''
+        run: python scripts/probe-neural-worker.py
       - name: Upload prediction measurements
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: prediction-benchmark-${{ runner.os }}
