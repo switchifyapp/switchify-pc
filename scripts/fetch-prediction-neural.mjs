@@ -1,6 +1,6 @@
 // Build-time only. Installed applications never fetch models or workers.
 import { createHash } from 'node:crypto';
-import { readFile, writeFile, mkdir, copyFile, chmod } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, copyFile, chmod, mkdtemp, rm } from 'node:fs/promises';
 import { join, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -36,6 +36,30 @@ export async function pinnedFile(path, pin, url, fetcher = fetch) {
   await writeFile(path, bytes);
 }
 
+// Prepared companion artifacts are review inputs, not a published release.
+// Only the pinned archive and selected file hashes are trusted. A later release
+// replaces this source with its permanent public asset URL without changing bytes.
+export async function acquireWorker(workers, pin, cache, runner = run) {
+  if (!pin.prepared_artifact) return acquire(workers, pin);
+  if (await verified(workers, pin)) return false;
+  const prepared = pin.prepared_artifact;
+  if (!Number.isSafeInteger(prepared.run_id) || prepared.run_id <= 0 ||
+      !/^neural-[a-z0-9-]+$/.test(prepared.name) ||
+      basename(prepared.archive) !== prepared.archive || !prepared.archive.endsWith('.zip')) {
+    throw new Error('Invalid prepared worker source');
+  }
+  await mkdir(cache, { recursive: true });
+  const staging = await mkdtemp(join(cache, 'prepared-'));
+  try {
+    await runner('gh', ['run', 'download', String(prepared.run_id), '--repo',
+      'switchifyapp/switchify-prediction', '--name', prepared.name, '--dir', staging], root);
+    const bytes = await readFile(join(staging, prepared.archive));
+    return await acquire(workers, { ...pin, url: 'prepared-worker' }, async () => new Response(bytes));
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
+}
+
 export async function prepare() {
   const target = process.env.TAURI_ENV_TARGET_TRIPLE ??
     (process.platform === 'win32' ? 'x86_64-pc-windows-msvc' :
@@ -48,7 +72,7 @@ export async function prepare() {
   const binaries = join(root, 'src-tauri/binaries');
   await mkdir(bundle, { recursive: true });
   await mkdir(binaries, { recursive: true });
-  await acquire(workers, workerPin);
+  await acquireWorker(workers, workerPin, cache);
   for (const name of Object.keys(workerPin.files)) {
     const file = basename(name);
     if (file.startsWith('switchify-smol-worker')) {

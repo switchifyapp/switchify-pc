@@ -7,7 +7,13 @@ const DATABASE_SHA256: &str = "222253417d0a7a705823ffb7e599a3bcf5d5d3daf4a9d7616
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Prediction {
-    pub words: Vec<String>,
+    pub words: [Option<String>; 6],
+}
+
+#[cfg(test)]
+pub fn slots(words: impl IntoIterator<Item = impl Into<String>>) -> [Option<String>; 6] {
+    let mut words = words.into_iter();
+    std::array::from_fn(|_| words.next().map(Into::into))
 }
 
 pub trait Predict: Send {
@@ -29,6 +35,7 @@ pub struct Model {
     predictor: Predictor,
     neural: Option<switchify_prediction_neural::Refiner>,
     request: Option<u64>,
+    instant: [Option<String>; 3],
     config: Option<switchify_prediction_neural::Config>,
 }
 
@@ -95,6 +102,7 @@ impl Model {
             neural: None,
             config,
             request: None,
+            instant: Default::default(),
         })
     }
 }
@@ -117,28 +125,23 @@ impl Predict for Model {
             self.neural = switchify_prediction_neural::Refiner::new(config).ok();
         }
         let options = Options {
-            limit: 5,
+            limit: 3,
             min_chars: 0,
             unigram_only: false,
         };
-        if let Some(neural) = &mut self.neural {
-            if let Ok(immediate) = neural.submit(&self.predictor, before, prefix, options, 0) {
-                self.request = immediate
-                    .refinement_requested
-                    .then_some(immediate.request_id);
-                return Ok(Prediction {
-                    words: immediate.words.into_iter().map(display_word).collect(),
-                });
-            }
-        }
-        self.request = None;
+        let words: Vec<String> = self
+            .predictor
+            .predict(before, prefix, options)
+            .into_iter()
+            .map(|s| s.word)
+            .collect();
+        self.instant = std::array::from_fn(|i| words.get(i).cloned().map(display_word));
+        self.request = self
+            .neural
+            .as_mut()
+            .and_then(|n| n.generate(before, prefix, 0, &words, 3).ok().flatten());
         Ok(Prediction {
-            words: self
-                .predictor
-                .predict(before, prefix, options)
-                .into_iter()
-                .map(|s| display_word(s.word))
-                .collect(),
+            words: std::array::from_fn(|i| self.instant.get(i).cloned().flatten()),
         })
     }
     fn poll(&mut self) -> Option<Prediction> {
@@ -148,7 +151,13 @@ impl Predict for Model {
         }
         self.request = None;
         Some(Prediction {
-            words: result.words.into_iter().map(display_word).collect(),
+            words: std::array::from_fn(|i| {
+                if i < 3 {
+                    self.instant[i].clone()
+                } else {
+                    result.words.get(i - 3).cloned().map(display_word)
+                }
+            }),
         })
     }
     fn pending(&self) -> bool {
@@ -163,6 +172,7 @@ impl Predict for Model {
     }
     fn reset(&mut self) {
         self.request = None;
+        self.instant = Default::default();
         if let Some(n) = &mut self.neural {
             n.reset();
         }
@@ -200,6 +210,7 @@ mod tests {
             neural: None,
             config: None,
             request: None,
+            instant: Default::default(),
         };
         model.config = Some(switchify_prediction_neural::Config {
             bundle: dir.0.join("missing"),
@@ -207,19 +218,49 @@ mod tests {
             accelerated_worker: None,
             threads: 4,
         });
-        assert_eq!(model.predict("I need ", "h").unwrap().words[0], "help");
+        assert_eq!(
+            model.predict("I need ", "h").unwrap().words[0]
+                .as_deref()
+                .unwrap(),
+            "help"
+        );
         assert!(!model.pending());
         assert!(model.config.is_none());
         assert!(model.poll().is_none());
-        assert_eq!(model.predict("I drink ", "").unwrap().words[0], "water");
-        assert!(model.predict("", "zyzzy").unwrap().words.is_empty());
+        assert_eq!(
+            model.predict("I drink ", "").unwrap().words[0]
+                .as_deref()
+                .unwrap(),
+            "water"
+        );
+        assert!(model
+            .predict("", "zyzzy")
+            .unwrap()
+            .words
+            .iter()
+            .all(Option::is_none));
         assert_eq!(
             model.predict("", "cafe\u{301}").unwrap().words,
-            vec!["café"]
+            crate::prediction::slots(["café"])
         );
-        assert_eq!(model.predict("", "can’").unwrap().words, vec!["can't"]);
-        assert_eq!(model.predict("", "i’").unwrap().words, vec!["I'm"]);
-        assert_eq!(model.predict("", "h").unwrap().words.len(), 5);
+        assert_eq!(
+            model.predict("", "can’").unwrap().words,
+            crate::prediction::slots(["can't"])
+        );
+        assert_eq!(
+            model.predict("", "i’").unwrap().words,
+            crate::prediction::slots(["I'm"])
+        );
+        assert_eq!(
+            model
+                .predict("", "h")
+                .unwrap()
+                .words
+                .iter()
+                .flatten()
+                .count(),
+            3
+        );
         assert_eq!(
             model.predict("I need.", "h").unwrap(),
             model.predict("", "h").unwrap()
@@ -287,13 +328,18 @@ mod tests {
             ][i % 4];
             let start = Instant::now();
             let suggestions = model.predict(context, prefix).unwrap();
-            assert!(!suggestions.words.is_empty());
+            assert!(!suggestions.words.iter().all(Option::is_none));
             if i >= 20 {
                 samples.push(start.elapsed().as_secs_f64() * 1000.0);
             }
         }
         samples.sort_by(f64::total_cmp);
-        assert_eq!(model.predict("I need ", "he").unwrap().words[0], "help");
+        assert_eq!(
+            model.predict("I need ", "he").unwrap().words[0]
+                .as_deref()
+                .unwrap(),
+            "help"
+        );
         #[cfg(target_os = "macos")]
         let cpu = std::process::Command::new("sysctl")
             .args(["-n", "machdep.cpu.brand_string"])

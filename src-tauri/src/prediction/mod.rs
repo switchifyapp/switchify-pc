@@ -2,6 +2,8 @@ mod activity;
 mod context;
 mod database;
 mod model;
+#[cfg(test)]
+pub(crate) use model::slots;
 pub mod worker;
 
 use crate::scan_keyboard::{Key, Keyboard, Modifier, Page, Stroke};
@@ -983,7 +985,7 @@ mod tests {
         let batch = worker::Batch {
             refined: false,
             token: 1,
-            words: vec!["water".into()],
+            words: crate::prediction::slots(vec!["water".to_owned()]),
         };
         service.received_suggestions(
             &mut keyboard,

@@ -16,7 +16,7 @@ if (!(await verified(neural, { files: bundlePins }))) throw new Error('Packaged 
 const pin = JSON.parse(await readFile(new URL('./prediction-neural.json', import.meta.url), 'utf8'));
 if (JSON.stringify(JSON.parse(await readFile(join(neural, 'model-bundle.json'), 'utf8'))) !== JSON.stringify(pin.bundle)) throw new Error('Wrong packaged neural policy');
 const build = JSON.parse(await readFile(join(neural, 'worker-notices/BUILD.json'), 'utf8'));
-if (build.commit !== pin.revision || build.version !== '0.2.0') throw new Error('Wrong worker provenance');
+if (build.commit !== pin.revision || build.version !== '0.2.1' || build.worker_protocol !== 2) throw new Error('Wrong worker provenance');
 const workerPin = pin.workers[build.target];
 if (!workerPin) throw new Error('Unsupported packaged worker');
 const windows = build.target.includes('windows');

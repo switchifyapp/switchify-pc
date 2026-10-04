@@ -2384,7 +2384,7 @@ mod tests {
             Some(crate::prediction::worker::Batch {
                 refined: false,
                 token: 7,
-                words: vec!["water".into()],
+                words: crate::prediction::slots(vec!["water".to_owned()]),
             }),
             false,
         );

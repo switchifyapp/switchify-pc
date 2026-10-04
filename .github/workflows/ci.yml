@@ -112,7 +112,9 @@ jobs:
           toolchain: 1.97.1
           components: rustfmt, clippy
       - run: npm ci
-      - name: Fetch prediction model
+      - name: Fetch prediction model and prepared companion workers
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: npm run prediction-model
       - name: Diagnose prepared ARM worker
         if: runner.os == 'macOS'

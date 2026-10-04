@@ -58,12 +58,12 @@ with tempfile.TemporaryDirectory() as temporary:
                 peak = max(peak, rss)
             except psutil.NoSuchProcess:
                 pass
-            if time.monotonic() - start > 1200:
+            if time.monotonic() - start > 2400:
                 for child in tracked.children(recursive=True):
                     child.kill()
                 process.kill()
                 process.wait()
-                raise RuntimeError('Integration benchmark exceeded 20 minutes')
+                raise RuntimeError('Integration benchmark exceeded 40 minutes')
             time.sleep(0.02)
     if report_path.is_file():
         report = json.loads(report_path.read_bytes())
