@@ -27,3 +27,9 @@ The extracted unsigned Windows installer completed 1,000 warmed integration quer
 This uses five repeated synthetic contexts and measures latency, not accuracy. An earlier diagnostic run concurrent with packaging completed 561 refinements before a worker failure left the remaining 439 queries on statistical fallback; the simultaneous build also hit an executable file lock. The final measurement ran after packaging finished and used extracted installer assets. No deadline or runtime retry policy was relaxed.
 
 macOS package and synthetic inference validation run in CI. Signed macOS Accessibility testing and signed Windows installation remain manual release checks; they were not performed on this Windows development host. This PR does not publish a release or change the RC version.
+
+## CI sessions and deadline failures
+
+The macOS ARM CI runner completed 359 measured refinements before a 500 ms companion timeout disabled refinement for the session. Its successful samples had median 141.91 ms and p95 272.95 ms. The remaining 641 queries returned statistics only. A separate direct worker diagnostic loaded and ranked successfully, so this was not a missing or incompatible asset. This failure remains evidence of latency variability on the shared runner.
+
+The benchmark now requires 1,000 successful warmed refinements across at most five simulated keyboard sessions. On failure it records the reason, destroys the context-bearing engine, and explicitly simulates reopening the keyboard with a new engine and 20 fresh warmup queries. Reports retain every failure, including warmup failures, and each session's status and successful count. Successful-sample latency excludes timed-out queries; failure counts must be read alongside it. This changes only the test scenario, not the production 500 ms deadline or the requirement for a user action to restart after failure. CI also samples the process tree's memory use with the measurement helper.

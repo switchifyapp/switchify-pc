@@ -167,9 +167,9 @@ jobs:
           SWITCHIFY_BENCHMARK_REPORT: prediction-benchmark.json
         run: cargo test --release --lib --locked --manifest-path src-tauri/Cargo.toml bundled_prediction_benchmark -- --ignored --nocapture --test-threads=1
       - name: Measure packaged neural integration without desktop input
-        env:
-          SWITCHIFY_NEURAL_REPORT: neural-benchmark.json
-        run: cargo test --release --lib --locked --manifest-path src-tauri/Cargo.toml neural_integration_benchmark -- --ignored --nocapture --test-threads=1
+        run: |
+          python -m pip install psutil==7.0.0
+          python scripts/measure-neural.py --build --output src-tauri/neural-benchmark.json
       - name: Diagnose packaged worker after benchmark failure
         if: failure() && env.SWITCHIFY_BENCHMARK_WORKER != ''
         run: python scripts/probe-neural-worker.py
