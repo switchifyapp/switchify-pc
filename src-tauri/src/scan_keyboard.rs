@@ -391,7 +391,7 @@ impl Keyboard {
             rows_for(self.page, self.mac, self.layout)
         };
         if self.prediction_enabled && self.page == Page::Letters && !self.positioning {
-            self.rows.insert(0, (0..5).map(Key::Prediction).collect());
+            self.rows.insert(0, (0..6).map(Key::Prediction).collect());
         }
         if self.prediction_enabled && self.prediction_failed && !self.positioning {
             self.rows.last_mut().unwrap().push(Key::RetryPrediction);
@@ -451,7 +451,7 @@ impl Keyboard {
                 && self
                     .predictions
                     .as_ref()
-                    .is_some_and(|b| !b.words.is_empty())
+                    .is_some_and(|b| b.words.iter().any(Option::is_some))
             {
                 self.scan.nav.reset();
                 self.scan.reset_clock();
@@ -478,9 +478,9 @@ impl Keyboard {
             "Suggestions updating".into()
         } else {
             match self.predictions.as_ref() {
-                Some(batch) if batch.words.len() == 1 => "1 suggestion".into(),
-                Some(batch) if !batch.words.is_empty() => {
-                    format!("{} suggestions", batch.words.len())
+                Some(batch) if batch.words.iter().flatten().count() == 1 => "1 suggestion".into(),
+                Some(batch) if batch.words.iter().any(Option::is_some) => {
+                    format!("{} suggestions", batch.words.iter().flatten().count())
                 }
                 Some(_) => "No suggestions".into(),
                 None => "Type for suggestions".into(),
@@ -499,11 +499,15 @@ impl Keyboard {
         if !self.prediction_row_active() || self.scan.nav.escaping() {
             return false;
         }
-        let count = self.predictions.as_ref().map_or(0, |b| b.words.len());
-        self.scan
-            .position(&self.rows)
-            .1
-            .map_or(count == 0, |column| column >= count)
+        let words = self.predictions.as_ref().map(|b| &b.words);
+        self.scan.position(&self.rows).1.map_or_else(
+            || words.is_none_or(|w| w.iter().all(Option::is_none)),
+            |column| {
+                words
+                    .and_then(|w| w.get(column))
+                    .is_none_or(Option::is_none)
+            },
+        )
     }
     fn skip_disabled(&mut self, automatic: bool) {
         for _ in 0..self.rows.iter().map(Vec::len).sum::<usize>() + 1 {
@@ -666,7 +670,7 @@ impl Keyboard {
             Key::RetryPrediction => return None,
             Key::Prediction(index) => {
                 let batch = self.predictions.as_ref()?;
-                if index >= batch.words.len() {
+                if batch.words.get(index).is_none_or(Option::is_none) {
                     return None;
                 }
                 self.activation = self.scan.begin_activation();
@@ -868,6 +872,7 @@ impl Keyboard {
                 .predictions
                 .as_ref()
                 .and_then(|b| b.words.get(i))
+                .and_then(Option::as_ref)
                 .cloned()
                 .unwrap_or_default(),
             Key::RetryPrediction => "Retry predictions".into(),
@@ -1045,7 +1050,7 @@ mod tests {
             Some(crate::prediction::worker::Batch {
                 token: 1,
                 refined: false,
-                words: vec!["water".into(), "walk".into()],
+                words: crate::prediction::slots(vec!["water".to_owned(), "walk".to_owned()]),
             }),
             false,
         );
@@ -1056,15 +1061,86 @@ mod tests {
             Some(crate::prediction::worker::Batch {
                 token: 2,
                 refined: true,
-                words: vec!["walk".into(), "water".into()],
+                words: [
+                    Some("water".into()),
+                    Some("walk".into()),
+                    None,
+                    Some("walnut".into()),
+                    None,
+                    Some("wavy".into()),
+                ],
             }),
             false,
         );
         assert_eq!(k.displayed_prediction(), Some(1));
-        assert_eq!(k.predictions.as_ref().unwrap().words[0], "water");
+        assert_eq!(
+            k.predictions.as_ref().unwrap().words[0].as_deref().unwrap(),
+            "water"
+        );
         assert_eq!(k.queued_predictions.as_ref().unwrap().token, 2);
         assert_eq!(k.scan.position(&k.rows), position);
     }
+    #[test]
+    fn six_slots_skip_internal_gaps_in_both_directions() {
+        use crate::scan_preferences::{Direction, Pattern, Resolved};
+        for direction in [Direction::Forward, Direction::Reverse] {
+            let mut k = Keyboard::configured(
+                false,
+                Resolved {
+                    direction,
+                    pattern: Pattern::Linear,
+                    pass_limit: 0,
+                    ..Default::default()
+                },
+            );
+            k.enable_predictions(true);
+            k.predictions(
+                Some(crate::prediction::worker::Batch {
+                    token: 19,
+                    refined: true,
+                    words: [
+                        Some("one".into()),
+                        None,
+                        None,
+                        Some("four".into()),
+                        None,
+                        Some("six".into()),
+                    ],
+                }),
+                false,
+            );
+            k.restart();
+            assert_eq!(k.rows[0].len(), 6);
+            let mut seen = std::collections::BTreeSet::new();
+            for _ in 0..k.rows.iter().map(Vec::len).sum::<usize>() * 3 {
+                if let (0, Some(column)) = k.scan.position(&k.rows) {
+                    assert!([0, 3, 5].contains(&column));
+                    seen.insert(column);
+                }
+                k.handle(Action::Next);
+            }
+            assert_eq!(seen, [0, 3, 5].into_iter().collect());
+            assert!(k.choose(Key::Prediction(1)).is_none());
+            assert!(k.choose(Key::Prediction(4)).is_none());
+            let frame = k.frame(
+                Rect {
+                    x: 0.,
+                    y: 0.,
+                    width: 1920.,
+                    height: 1080.,
+                },
+                1.,
+                ScannerColor::default(),
+            );
+            let tiles = &frame.tiles[1..7];
+            assert!(tiles
+                .iter()
+                .all(|t| (t.rect.width - tiles[0].rect.width).abs() < 0.01));
+            assert_eq!(tiles[1].text, "");
+            assert_eq!(tiles[3].text, "four");
+        }
+    }
+
     #[test]
     fn prediction_badge_explains_empty_slots_without_replacing_scan_prompt() {
         let mut keyboard = Keyboard::new(false);
@@ -1091,7 +1167,7 @@ mod tests {
             Some(crate::prediction::worker::Batch {
                 refined: false,
                 token: 1,
-                words: vec![],
+                words: Default::default(),
             }),
             false,
         );
@@ -1100,7 +1176,7 @@ mod tests {
             Some(crate::prediction::worker::Batch {
                 refined: false,
                 token: 2,
-                words: vec!["water".into()],
+                words: crate::prediction::slots(vec!["water".to_owned()]),
             }),
             false,
         );
@@ -1430,7 +1506,7 @@ mod tests {
                 Some(crate::prediction::worker::Batch {
                     refined: false,
                     token: 1,
-                    words: vec!["hello".into()],
+                    words: crate::prediction::slots(vec!["hello".to_owned()]),
                 }),
                 false,
             );
@@ -1456,7 +1532,7 @@ mod tests {
                 Some(crate::prediction::worker::Batch {
                     refined: false,
                     token: 2,
-                    words: vec!["hello".into()],
+                    words: crate::prediction::slots(vec!["hello".to_owned()]),
                 }),
                 false,
             );
@@ -1527,7 +1603,7 @@ mod tests {
             Some(crate::prediction::worker::Batch {
                 refined: false,
                 token: 1,
-                words: vec!["hello".into()],
+                words: crate::prediction::slots(vec!["hello".to_owned()]),
             }),
             false,
         );
@@ -1541,7 +1617,7 @@ mod tests {
                 Some(crate::prediction::worker::Batch {
                     refined: false,
                     token,
-                    words: vec!["world".into()],
+                    words: crate::prediction::slots(vec!["world".to_owned()]),
                 }),
                 false,
             );
@@ -1615,7 +1691,7 @@ mod tests {
         let batch = crate::prediction::worker::Batch {
             refined: false,
             token: 1,
-            words: vec!["hello".into()],
+            words: crate::prediction::slots(vec!["hello".to_owned()]),
         };
         keyboard.predictions(Some(batch.clone()), false);
         assert_eq!(keyboard.scan.nav.index(), 0);
@@ -1645,7 +1721,10 @@ mod tests {
                     let batch = crate::prediction::worker::Batch {
                         refined: false,
                         token: 7,
-                        words: vec!["water".into(), "walk".into()],
+                        words: crate::prediction::slots(vec![
+                            "water".to_owned(),
+                            "walk".to_owned(),
+                        ]),
                     };
                     for k in [&mut baseline, &mut polled] {
                         k.enable_predictions(true);
@@ -1685,7 +1764,7 @@ mod tests {
         let batch = crate::prediction::worker::Batch {
             refined: false,
             token: 7,
-            words: vec!["water".into(), "walk".into()],
+            words: crate::prediction::slots(vec!["water".to_owned(), "walk".to_owned()]),
         };
         k.predictions(Some(batch.clone()), false);
         k.handle(Action::Select);
@@ -1710,7 +1789,7 @@ mod tests {
             Some(crate::prediction::worker::Batch {
                 refined: false,
                 token: 7,
-                words: vec!["water".into(), "walk".into()],
+                words: crate::prediction::slots(vec!["water".to_owned(), "walk".to_owned()]),
             }),
             false,
         );
@@ -2018,7 +2097,7 @@ mod tests {
             Some(crate::prediction::worker::Batch {
                 refined: false,
                 token: 9,
-                words: vec!["hello".into()],
+                words: crate::prediction::slots(vec!["hello".to_owned()]),
             }),
             false,
         );
@@ -2345,7 +2424,7 @@ mod tests {
                 Some(crate::prediction::worker::Batch {
                     refined: false,
                     token: 1,
-                    words: vec!["hello".into(), "world".into()],
+                    words: crate::prediction::slots(vec!["hello".to_owned(), "world".to_owned()]),
                 }),
                 false,
             );
@@ -2387,7 +2466,10 @@ mod tests {
                         Some(crate::prediction::worker::Batch {
                             refined: false,
                             token: 1,
-                            words: vec!["hello".into(), "world".into()],
+                            words: crate::prediction::slots(vec![
+                                "hello".to_owned(),
+                                "world".to_owned(),
+                            ]),
                         }),
                         false,
                     );
@@ -2405,7 +2487,7 @@ mod tests {
                     let next = replacement.then(|| crate::prediction::worker::Batch {
                         refined: false,
                         token: 2,
-                        words: vec!["new".into()],
+                        words: crate::prediction::slots(vec!["new".to_owned()]),
                     });
                     for _ in 0..3 {
                         k.predictions(next.clone(), false);

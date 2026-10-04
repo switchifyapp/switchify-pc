@@ -1,0 +1,36 @@
+{
+  "arch": "x86_64",
+  "failures_including_warmup": 0,
+  "generated_words": 3000,
+  "immediate": {
+    "max_ms": 15.2479,
+    "median_ms": 8.3391,
+    "p95_ms": 9.3506,
+    "samples": 1000
+  },
+  "maximum_sessions": 5,
+  "neural_slot_fill_rate": 1.0,
+  "os": "windows",
+  "policy": "three instant plus three generated optional slots",
+  "production_qualified": false,
+  "queries": 1000,
+  "refinement": {
+    "max_ms": 1034.8055,
+    "median_ms": 496.2131,
+    "p95_ms": 536.6225,
+    "samples": 1000
+  },
+  "retry_policy": "Benchmark simulates explicit keyboard reopenings after failure; production never retries automatically",
+  "scope": "Production Engine and model adapter, real neural child IPC, 20ms polling, fake input/activity; excludes outer desktop pipe and rendering",
+  "sessions": [
+    {
+      "failed_during_warmup": false,
+      "neural_status": "Ready",
+      "session": 1,
+      "successful_refinements": 1000,
+      "warmup_completed": 20
+    }
+  ],
+  "process_tree_peak_rss_bytes": 695799808,
+  "memory_note": "20ms sampled sum of test process and child RSS; shared pages may be counted twice and short peaks missed."
+}

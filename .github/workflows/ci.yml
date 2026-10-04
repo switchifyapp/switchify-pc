@@ -112,9 +112,9 @@ jobs:
           toolchain: 1.97.1
           components: rustfmt, clippy
       - run: npm ci
-      - name: Fetch prediction model
+      - name: Fetch prediction model and released companion workers
         run: npm run prediction-model
-      - name: Diagnose prepared ARM worker
+      - name: Diagnose released ARM worker
         if: runner.os == 'macOS'
         env:
           SWITCHIFY_BENCHMARK_MODEL: src-tauri/resources/prediction-model/english.sqlite

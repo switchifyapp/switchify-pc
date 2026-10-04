@@ -1,7 +1,7 @@
 """Text-free packaged-worker diagnostic with a fixed synthetic query.
 
 The five-second diagnostic bound measures slow workers without changing the
-application's 500 ms inference deadline. No desktop input is injected.
+application's two-second inference deadline. No desktop input is injected.
 """
 import json
 import os
@@ -39,7 +39,7 @@ def receive(process, timeout):
 def main():
     worker = Path(os.environ['SWITCHIFY_BENCHMARK_WORKER'])
     bundle = Path(os.environ['SWITCHIFY_BENCHMARK_MODEL']).parent.parent / 'prediction-neural'
-    report = {'ready': False, 'ranked': False}
+    report = {'ready': False, 'generated': False}
     start = time.monotonic()
     process = subprocess.Popen([str(worker), str(bundle)], stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -48,19 +48,17 @@ def main():
     try:
         ready = receive(process, 30)
         report['ready_ms'] = (time.monotonic() - start) * 1000
-        report['ready'] = isinstance(ready, dict) and 'Ready' in ready
+        report['ready'] = isinstance(ready, dict) and ready.get('Ready', {}).get('version') == 2
         if report['ready']:
-            frame = json.dumps({'Predict': {'id': 1, 'session': 0,
-                                'before': 'please send the',
-                                'candidates': ['message', 'email', 'file', 'letter',
-                                               'report', 'information', 'details', 'document'],
-                                'limit': 5}}).encode()
+            frame = json.dumps({'Generate': {'id': 1, 'session': 0,
+                                'before': 'please send the', 'prefix': '',
+                                'exclude': ['receipt', 'order', 'tickets'], 'limit': 3}}).encode()
             start = time.monotonic()
             process.stdin.write(struct.pack('<I', len(frame)) + frame)
             process.stdin.flush()
             ranked = receive(process, 5)
             report['query_ms'] = (time.monotonic() - start) * 1000
-            report['ranked'] = isinstance(ranked, dict) and 'Ranked' in ranked
+            report['generated'] = isinstance(ranked, dict) and 'Generated' in ranked
         report['exit_before_cleanup'] = process.poll()
     finally:
         process.kill()

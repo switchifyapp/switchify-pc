@@ -62,7 +62,7 @@ pub enum Request {
 pub struct Batch {
     pub token: u64,
     pub refined: bool,
-    pub words: Vec<String>,
+    pub words: [Option<String>; 6],
 }
 #[derive(Serialize, Deserialize)]
 pub enum Response {
@@ -105,6 +105,8 @@ pub fn receive<T: serde::de::DeserializeOwned>(reader: &mut impl Read) -> Result
     reader.read_exact(&mut bytes).map_err(|_| ())?;
     serde_json::from_slice(&bytes).map_err(|_| ())
 }
+type Inserts = [Option<(usize, String)>; 6];
+
 pub struct Engine {
     database: Database,
     status: Status,
@@ -120,10 +122,10 @@ pub struct Engine {
     snapshot: Option<String>,
     batch: Option<Batch>,
     /// Per suggestion: how many typed characters to delete, then the text.
-    inserts: Vec<(usize, String)>,
+    inserts: Inserts,
     token: u64,
     case: (Shift, bool, bool),
-    displayed: Option<(Batch, Vec<(usize, String)>)>,
+    displayed: Option<(Batch, Inserts)>,
     generation: u64,
 }
 impl Engine {
@@ -142,7 +144,7 @@ impl Engine {
             revision: 0,
             snapshot: None,
             batch: None,
-            inserts: Vec::new(),
+            inserts: Default::default(),
             token: 0,
             case: (Shift::Off, false, false),
             displayed: None,
@@ -156,7 +158,7 @@ impl Engine {
         self.clipped = false;
         self.snapshot = None;
         self.batch = None;
-        self.inserts.clear();
+        self.inserts = Default::default();
     }
     fn stable(&self, target: usize, epoch: u64) -> bool {
         self.tracked && (self.observe)() == (epoch, true) && (self.foreground)() == Ok(target)
@@ -250,9 +252,12 @@ impl Engine {
             (prediction.words, false)
         };
         self.token = self.token.wrapping_add(1);
-        self.inserts.clear();
-        let mut labels = Vec::new();
-        for word in words {
+        self.inserts = Default::default();
+        let mut labels = std::array::from_fn(|_| None);
+        for (index, word) in words.into_iter().enumerate() {
+            let Some(word) = word else {
+                continue;
+            };
             let Some(offset) = prefix_offset(&word, &ctx.prefix) else {
                 continue;
             };
@@ -275,15 +280,15 @@ impl Engine {
             };
             match head {
                 Some(head) => {
-                    labels.push(format!("{head}{suffix}"));
-                    self.inserts.push((
+                    labels[index] = Some(format!("{head}{suffix}"));
+                    self.inserts[index] = Some((
                         ctx.prefix.graphemes(true).count(),
                         format!("{head}{suffix} "),
                     ));
                 }
                 None => {
-                    labels.push(ctx.prefix.clone() + &suffix);
-                    self.inserts.push((0, suffix + " "));
+                    labels[index] = Some(ctx.prefix.clone() + &suffix);
+                    self.inserts[index] = Some((0, suffix + " "));
                 }
             }
         }
@@ -317,11 +322,11 @@ impl Engine {
         } else {
             return None;
         };
-        let insert = inserts.get(index)?.clone();
+        let insert = inserts.get(index)?.clone()?;
         self.database.reset();
         self.batch = None;
         self.displayed = None;
-        self.inserts.clear();
+        self.inserts = Default::default();
         self.snapshot = None;
         Some(insert)
     }
@@ -576,12 +581,19 @@ mod tests {
         fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
             self.pending = true;
             Ok(super::super::model::Prediction {
-                words: vec!["water".into(), "walk".into()],
+                words: crate::prediction::slots(["water", "walk", "waffle"]),
             })
         }
         fn poll(&mut self) -> Option<super::super::model::Prediction> {
             std::mem::take(&mut self.pending).then(|| super::super::model::Prediction {
-                words: vec!["walk".into(), "water".into()],
+                words: [
+                    Some("water".into()),
+                    Some("walk".into()),
+                    Some("waffle".into()),
+                    Some("walnut".into()),
+                    None,
+                    Some("wavy".into()),
+                ],
             })
         }
         fn pending(&self) -> bool {
@@ -621,6 +633,7 @@ mod tests {
         let mut immediate = Vec::new();
         let mut refined = Vec::new();
         let mut failures = 0;
+        let mut generated_words = 0;
         let mut session_reports = Vec::new();
         // A timeout deliberately disables refinement for the keyboard session.
         // Simulate at most five explicit reopenings to collect 1,000 successes,
@@ -652,6 +665,7 @@ mod tests {
                     revision,
                     None,
                 )));
+                assert!(first.words[3..].iter().all(Option::is_none));
                 let first_ms = start.elapsed().as_secs_f64() * 1000.;
                 let mut success = false;
                 while e.database.pending() {
@@ -660,6 +674,10 @@ mod tests {
                     let next =
                         response_batch(e.respond(request(vec![], revision, Some(first.token))));
                     if next.refined {
+                        assert_eq!(&first.words[..3], &next.words[..3]);
+                        if i >= 20 {
+                            generated_words += next.words[3..].iter().flatten().count();
+                        }
                         success = true;
                         break;
                     }
@@ -707,6 +725,9 @@ mod tests {
             "sessions":session_reports,"maximum_sessions":5,
             "retry_policy":"Benchmark simulates explicit keyboard reopenings after failure; production never retries automatically",
             "scope":"Production Engine and model adapter, real neural child IPC, 20ms polling, fake input/activity; excludes outer desktop pipe and rendering",
+            "policy":"three instant plus three generated optional slots",
+            "generated_words":generated_words,
+            "neural_slot_fill_rate":generated_words as f64 / (refined.len().max(1) * 3) as f64,
             "production_qualified":false});
         println!("{report}");
         if let Some(path) = std::env::var_os("SWITCHIFY_NEURAL_REPORT") {
@@ -727,14 +748,16 @@ mod tests {
             assert!(!immediate.refined);
             let refined = response_batch(e.respond(request(vec![], 1, Some(immediate.token))));
             assert!(refined.refined);
-            assert_eq!(refined.words, vec!["walk", "water"]);
+            assert_eq!(&refined.words[..3], &immediate.words[..3]);
+            assert_eq!(refined.words[3].as_deref(), Some("walnut"));
+            assert!(e.accept(refined.token, 4).is_none());
             if accept_old {
                 assert_eq!(e.accept(immediate.token, 0), Some((0, "ter ".into())));
                 assert!(e.accept(refined.token, 0).is_none());
             } else {
                 e.respond(request(vec![], 1, Some(refined.token)));
                 assert!(e.accept(immediate.token, 0).is_none());
-                assert_eq!(e.accept(refined.token, 0), Some((0, "lk ".into())));
+                assert_eq!(e.accept(refined.token, 5), Some((0, "vy ".into())));
             }
         }
     }
@@ -821,7 +844,7 @@ mod tests {
             let b = e
                 .query(vec![append(typed)], 1, Shift::Off, false, false)
                 .unwrap();
-            assert_eq!(b.words, vec![expected]);
+            assert_eq!(b.words, crate::prediction::slots([expected]));
             assert_eq!(e.accept(b.token, 0), Some((deletion, insertion.to_owned())));
         }
         let mut e = engine();
@@ -841,11 +864,14 @@ mod tests {
         let waiting = e
             .query(vec![append("wa")], 1, Shift::Off, false, false)
             .unwrap();
-        assert!(waiting.words.is_empty());
+        assert!(waiting.words.iter().all(Option::is_none));
         assert_eq!(e.status, Status::Loading);
         e.database = Database::fixture();
         let ready = e.query(vec![], 1, Shift::Off, false, false).unwrap();
-        assert_eq!(ready.words, vec!["water", "waffle", "walk"]);
+        assert_eq!(
+            ready.words,
+            crate::prediction::slots(["water", "waffle", "walk"])
+        );
         assert_ne!(ready.token, waiting.token);
         // Once ready, an unchanged query retains the scan choice identity.
         assert_eq!(
@@ -855,15 +881,18 @@ mod tests {
     }
 
     #[test]
-    fn five_slots_contain_ranked_words_only() {
+    fn six_slots_preserve_populated_positions() {
         let mut e = engine();
         let b = e
             .query(vec![append("wa")], 1, Shift::Off, false, false)
             .unwrap();
-        assert_eq!(b.words, vec!["water", "waffle", "walk"]);
+        assert_eq!(
+            b.words,
+            crate::prediction::slots(["water", "waffle", "walk"])
+        );
         assert_eq!(e.accept(b.token, 1).unwrap(), (0, "ffle ".to_owned()));
         let upper = e.query(vec![], 1, Shift::Off, true, false).unwrap();
-        assert_eq!(upper.words[1], "waFFLE");
+        assert_eq!(upper.words[1].as_deref().unwrap(), "waFFLE");
     }
     #[test]
     fn first_letter_and_completion_chain_use_only_buffer() {
@@ -871,11 +900,11 @@ mod tests {
         let first = e
             .query(vec![append("w")], 1, Shift::Off, false, false)
             .unwrap();
-        assert!(first.words.iter().any(|w| w == "water"));
+        assert!(first.words.iter().flatten().any(|w| w == "water"));
         let b = e
             .query(vec![append("a")], 2, Shift::Off, false, false)
             .unwrap();
-        assert_eq!(b.words[0], "water");
+        assert_eq!(b.words[0].as_deref().unwrap(), "water");
         let (deleted, suffix) = e.accept(b.token, 0).unwrap();
         assert_eq!(deleted, 0);
         assert_eq!(suffix, "ter ");
@@ -988,18 +1017,17 @@ mod tests {
         let b = e
             .query(vec![append("Wa")], 1, Shift::Off, false, false)
             .unwrap();
-        assert_eq!(b.words[0], "Water");
+        assert_eq!(b.words[0].as_deref().unwrap(), "Water");
         assert_eq!(
             e.query(vec![], 1, Shift::Off, false, false).unwrap().token,
             b.token
         );
         let upper = e.query(vec![], 1, Shift::Off, true, false).unwrap();
-        assert_eq!(upper.words[0], "WaTER");
+        assert_eq!(upper.words[0].as_deref().unwrap(), "WaTER");
         assert_ne!(upper.token, b.token);
     }
     #[test]
     fn accepting_restores_a_capital_the_typed_prefix_lacks_and_nothing_else() {
-        let w = |s: &[&str]| s.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
         assert_eq!(restored("lon", "Lon").as_deref(), Some("Lon"));
         assert_eq!(restored("i’", "I’").as_deref(), Some("I’"));
         assert_eq!(restored("whats", "Whats").as_deref(), Some("Whats"));
@@ -1011,7 +1039,7 @@ mod tests {
         let b = e
             .query(vec![append("wh")], 1, Shift::Off, false, false)
             .unwrap();
-        assert_eq!(b.words, w(&["WhatsApp"]));
+        assert_eq!(b.words, crate::prediction::slots(["WhatsApp"]));
         assert_eq!(e.accept(b.token, 0).unwrap(), (2, "WhatsApp ".to_owned()));
         // The edits the service queues afterwards leave the buffer reading
         // as the screen does.
@@ -1037,7 +1065,7 @@ mod tests {
                 false,
             )
             .unwrap();
-        assert_eq!(b.words, w(&["WhatsApp"]));
+        assert_eq!(b.words, crate::prediction::slots(["WhatsApp"]));
         assert_eq!(e.accept(b.token, 0).unwrap(), (0, "atsApp ".to_owned()));
         // A word in capitals is never retyped.
         let b = e
@@ -1070,16 +1098,20 @@ mod tests {
         e.query(vec![append("WA")], 1, Shift::Off, false, false)
             .unwrap();
         let row = e.query(vec![], 1, Shift::Off, false, false).unwrap();
-        assert_eq!(row.words[0], "WATER");
-        assert_eq!(row.words[1], "WAFFLE");
+        assert_eq!(row.words[0].as_deref().unwrap(), "WATER");
+        assert_eq!(row.words[1].as_deref().unwrap(), "WAFFLE");
         assert_eq!(
             e.query(vec![], 1, Shift::Locked, false, false)
                 .unwrap()
-                .words[0],
+                .words[0]
+                .as_deref()
+                .unwrap(),
             "WATER"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Off, true, false).unwrap().words[0],
+            e.query(vec![], 1, Shift::Off, true, false).unwrap().words[0]
+                .as_deref()
+                .unwrap(),
             "WATER"
         );
         // One capital is a capitalised word, not a word in capitals.
@@ -1092,7 +1124,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            e.query(vec![], 2, Shift::Off, false, false).unwrap().words[0],
+            e.query(vec![], 2, Shift::Off, false, false).unwrap().words[0]
+                .as_deref()
+                .unwrap(),
             "Water"
         );
     }
@@ -1105,26 +1139,32 @@ mod tests {
         let buffer_only = e
             .query(vec![append("Done! ")], 1, Shift::Off, false, false)
             .unwrap();
-        assert_eq!(buffer_only.words[0], "water");
+        assert_eq!(buffer_only.words[0].as_deref().unwrap(), "water");
         let suggestions = e.query(vec![], 1, Shift::Off, false, true).unwrap();
-        assert_eq!(suggestions.words[0], "Water");
+        assert_eq!(suggestions.words[0].as_deref().unwrap(), "Water");
         let locked = e.query(vec![], 1, Shift::Locked, false, true).unwrap();
-        assert_eq!(locked.words[0], "WATER");
+        assert_eq!(locked.words[0].as_deref().unwrap(), "WATER");
         let once = e.query(vec![], 1, Shift::Once, false, true).unwrap();
-        assert_eq!(once.words[0], "Water");
+        assert_eq!(once.words[0].as_deref().unwrap(), "Water");
         // Modifiers still mirror typing at a sentence start: Caps with Shift
         // locked cancel to lowercase letters, and Shift once under Caps
         // lowers only the first one, exactly as the keys would type them.
         assert_eq!(
-            e.query(vec![], 1, Shift::Off, true, true).unwrap().words[0],
+            e.query(vec![], 1, Shift::Off, true, true).unwrap().words[0]
+                .as_deref()
+                .unwrap(),
             "WATER"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Locked, true, true).unwrap().words[0],
+            e.query(vec![], 1, Shift::Locked, true, true).unwrap().words[0]
+                .as_deref()
+                .unwrap(),
             "Water"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Once, true, true).unwrap().words[0],
+            e.query(vec![], 1, Shift::Once, true, true).unwrap().words[0]
+                .as_deref()
+                .unwrap(),
             "wATER"
         );
     }
@@ -1134,47 +1174,65 @@ mod tests {
         e.query(vec![append("Send ")], 1, Shift::Off, false, false)
             .unwrap();
         assert_eq!(
-            e.query(vec![], 1, Shift::Off, false, false).unwrap().words[0],
+            e.query(vec![], 1, Shift::Off, false, false).unwrap().words[0]
+                .as_deref()
+                .unwrap(),
             "water"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Once, false, false).unwrap().words[0],
+            e.query(vec![], 1, Shift::Once, false, false).unwrap().words[0]
+                .as_deref()
+                .unwrap(),
             "Water"
         );
         assert_eq!(
             e.query(vec![], 1, Shift::Locked, false, false)
                 .unwrap()
-                .words[0],
+                .words[0]
+                .as_deref()
+                .unwrap(),
             "WATER"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Off, true, false).unwrap().words[0],
+            e.query(vec![], 1, Shift::Off, true, false).unwrap().words[0]
+                .as_deref()
+                .unwrap(),
             "WATER"
         );
         assert_eq!(
             e.query(vec![], 1, Shift::Locked, true, false)
                 .unwrap()
-                .words[0],
+                .words[0]
+                .as_deref()
+                .unwrap(),
             "water"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Once, true, false).unwrap().words[0],
+            e.query(vec![], 1, Shift::Once, true, false).unwrap().words[0]
+                .as_deref()
+                .unwrap(),
             "wATER"
         );
         assert_eq!(
-            e.query(vec![], 1, Shift::Off, false, false).unwrap().words[3],
+            e.query(vec![], 1, Shift::Off, false, false).unwrap().words[3]
+                .as_deref()
+                .unwrap(),
             "WhatsApp"
         );
         e.query(vec![append("wa")], 2, Shift::Off, false, false)
             .unwrap();
         assert_eq!(
-            e.query(vec![], 2, Shift::Once, false, false).unwrap().words[0],
+            e.query(vec![], 2, Shift::Once, false, false).unwrap().words[0]
+                .as_deref()
+                .unwrap(),
             "water"
         );
         assert_eq!(
             e.query(vec![], 2, Shift::Locked, false, false)
                 .unwrap()
-                .words[0],
+                .words[0]
+                .as_deref()
+                .unwrap(),
             "waTER"
         );
     }
@@ -1257,7 +1315,7 @@ mod tests {
                 let row = e
                     .query(vec![], revision, shift, caps, sentence_start)
                     .unwrap_or_else(|| panic!("no suggestions for {case}"));
-                assert_eq!(row.words[0], label, "label for {case}");
+                assert_eq!(row.words[0].as_deref().unwrap(), label, "label for {case}");
                 assert_eq!(
                     e.accept(row.token, 0),
                     Some((deleted, text.to_owned())),

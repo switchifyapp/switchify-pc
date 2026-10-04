@@ -98,11 +98,10 @@ impl Database {
         } else {
             0
         };
-        let Some(mut prediction) = result.ok().filter(|_| self.slow_calls < SLOW_CALLS) else {
+        let Some(prediction) = result.ok().filter(|_| self.slow_calls < SLOW_CALLS) else {
             self.state = State::Unavailable;
             return (Status::Unavailable, Prediction::default());
         };
-        prediction.words.truncate(5);
         (Status::Ready, prediction)
     }
     #[cfg(test)]
@@ -150,7 +149,9 @@ impl Predict for FakeModel {
         })
         .map(str::to_owned)
         .collect();
-        Ok(Prediction { words })
+        Ok(Prediction {
+            words: super::model::slots(words),
+        })
     }
 }
 
@@ -162,7 +163,7 @@ mod tests {
         fn predict(&mut self, _before: &str, _prefix: &str) -> Result<Prediction, ()> {
             std::thread::sleep(self.1);
             self.0.clone().map(|w| Prediction {
-                words: w.iter().map(|w| (*w).to_owned()).collect(),
+                words: super::super::model::slots(w),
             })
         }
     }
@@ -206,7 +207,7 @@ mod tests {
             Duration::ZERO,
         )));
         let prediction = db.predict(&context()).1;
-        assert_eq!(prediction.words.len(), 5);
+        assert_eq!(prediction.words.len(), 6);
         db.state = State::Ready(Box::new(Fake(Err(()), Duration::ZERO)));
         assert_eq!(
             db.predict(&context()),
@@ -227,7 +228,7 @@ mod tests {
                 let (status, prediction) = db.predict(&context());
                 assert_eq!(
                     (status, prediction.words),
-                    (Status::Ready, vec!["late".to_owned()])
+                    (Status::Ready, super::super::model::slots(["late"]))
                 );
             }
             db.state = prompt();
