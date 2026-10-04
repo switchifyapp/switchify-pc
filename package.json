@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "prediction-model": "node scripts/fetch-prediction-model.mjs",
+    "prediction-model": "node scripts/fetch-prediction-model.mjs && node scripts/fetch-prediction-neural.mjs",
     "test": "vitest run && node --test scripts/*.node-test.mjs",
     "lint": "tsc --noEmit",
     "macos:setup-signing": "./scripts/setup-macos-dev-signing.sh",

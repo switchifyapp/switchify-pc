@@ -46,6 +46,9 @@ Assert-Manifest $launcher 'asInvoker' 'false'
 Assert-Signature $main
 Assert-Signature $launcher
 Assert-Signature $installer
+foreach ($worker in @('switchify-smol-worker.exe', 'switchify-smol-worker-avx2.exe')) {
+  Assert-Signature (Join-Path $releaseDirectory $worker)
+}
 
 if (-not (Test-Path -LiteralPath $generatedInstaller -PathType Leaf)) {
   throw "Generated NSIS script is missing: $generatedInstaller"
@@ -54,6 +57,9 @@ $installerScript = Get-Content -LiteralPath $generatedInstaller -Raw
 foreach ($expected in @(
   '!define INSTALLMODE "perMachine"',
   'switchify-pc-startup.exe',
+  'switchify-smol-worker.exe',
+  'switchify-smol-worker-avx2.exe',
+  'model.gguf',
   'installer-hooks.nsh'
 )) {
   if (-not $installerScript.Contains($expected)) {

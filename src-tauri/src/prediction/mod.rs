@@ -84,6 +84,11 @@ impl Client {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x08000000);
         }
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
         let mut child = command.spawn().map_err(|_| ())?;
         #[cfg(target_os = "windows")]
         let job = match Job::contain(&child) {
@@ -116,6 +121,10 @@ impl Client {
 }
 impl Client {
     fn terminate(&mut self) {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            libc::kill(-(self.child.id() as i32), libc::SIGKILL);
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
         // Drain the bounded channel before joining, including a final EOF reply.
@@ -200,6 +209,7 @@ struct Service {
     ignored: Vec<u32>,
     failed: bool,
     generation: u64,
+    refinement_pending: bool,
     outstanding: Option<Instant>,
     last: Option<Instant>,
     edit: Vec<worker::RecordedEdit>,
@@ -708,8 +718,10 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                         batch,
                         revision,
                         tracking,
+                        pending,
                         status,
                     } => {
+                        s.refinement_pending = pending && generation == s.generation;
                         s.received_suggestions(
                             keyboard, generation, revision, batch, tracking, status,
                         );
@@ -785,14 +797,15 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 index,
             }
         } else {
-            if s.last
-                .is_some_and(|t| t.elapsed() < Duration::from_millis(250))
-            {
+            if s.last.is_some_and(|t| {
+                t.elapsed() < Duration::from_millis(if s.refinement_pending { 20 } else { 250 })
+            }) {
                 return;
             }
             Request::Query {
                 generation: s.generation,
                 edits: s.take_edits(),
+                displayed: keyboard.displayed_prediction(),
                 revision: s.edit_revision,
                 shift: keyboard.prediction_shift(),
                 caps: keyboard.caps,
@@ -968,6 +981,7 @@ mod tests {
         assert!(!keyboard.error);
         // Whatever the replacement answers, a second miss soon after fails.
         let batch = worker::Batch {
+            refined: false,
             token: 1,
             words: vec!["water".into()],
         };

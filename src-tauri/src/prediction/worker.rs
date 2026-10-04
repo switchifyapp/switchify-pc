@@ -42,6 +42,7 @@ pub enum Request {
     Query {
         generation: u64,
         edits: Vec<RecordedEdit>,
+        displayed: Option<u64>,
         revision: u64,
         shift: Shift,
         caps: bool,
@@ -60,6 +61,7 @@ pub enum Request {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Batch {
     pub token: u64,
+    pub refined: bool,
     pub words: Vec<String>,
 }
 #[derive(Serialize, Deserialize)]
@@ -69,6 +71,7 @@ pub enum Response {
         batch: Option<Batch>,
         revision: u64,
         tracking: bool,
+        pending: bool,
         status: Status,
     },
     Insert {
@@ -120,6 +123,8 @@ pub struct Engine {
     inserts: Vec<(usize, String)>,
     token: u64,
     case: (Shift, bool, bool),
+    displayed: Option<(Batch, Vec<(usize, String)>)>,
+    generation: u64,
 }
 impl Engine {
     pub fn new(database: Database, tracked: bool) -> Self {
@@ -140,9 +145,13 @@ impl Engine {
             inserts: Vec::new(),
             token: 0,
             case: (Shift::Off, false, false),
+            displayed: None,
+            generation: 0,
         }
     }
     fn clear(&mut self) {
+        self.database.reset();
+        self.displayed = None;
         self.buffer.clear();
         self.clipped = false;
         self.snapshot = None;
@@ -220,21 +229,26 @@ impl Engine {
             return None;
         }
         if self.buffer.is_empty() {
-            self.batch = None;
-            self.snapshot = None;
+            self.clear();
             return None;
         }
         self.status = self.database.status();
-        if self.snapshot.as_ref() == Some(&self.buffer)
+        let same = self.snapshot.as_ref() == Some(&self.buffer)
             && self.case == (shift, caps, sentence_start)
-            && self.status != Status::Loading
-        {
-            return self.batch.clone();
-        }
+            && self.status != Status::Loading;
         let ctx = context::extract(&self.buffer, self.clipped);
-        let (status, prediction) = self.database.predict(&ctx);
-        let words = prediction.words;
-        self.status = status;
+        let (words, refined) = if same {
+            match self.database.poll() {
+                Some(prediction) => (prediction.words, true),
+                None => return self.batch.clone(),
+            }
+        } else {
+            self.database.reset();
+            self.displayed = None;
+            let (status, prediction) = self.database.predict(&ctx);
+            self.status = status;
+            (prediction.words, false)
+        };
         self.token = self.token.wrapping_add(1);
         self.inserts.clear();
         let mut labels = Vec::new();
@@ -283,20 +297,32 @@ impl Engine {
         self.snapshot = (self.status == Status::Ready).then(|| self.buffer.clone());
         self.batch = Some(Batch {
             token: self.token,
+            refined,
             words: labels,
         });
         self.batch.clone()
     }
     fn accept(&mut self, token: u64, index: usize) -> Option<(usize, String)> {
-        if self.batch.as_ref()?.token != token || index >= self.inserts.len() {
-            return None;
-        }
         if !self.stable(self.target?, self.activity) {
             self.clear();
             return None;
         }
-        let insert = self.inserts[index].clone();
+        let inserts = if self.batch.as_ref().is_some_and(|b| b.token == token) {
+            &self.inserts
+        } else if let Some((batch, inserts)) = &self.displayed {
+            if batch.token != token {
+                return None;
+            }
+            inserts
+        } else {
+            return None;
+        };
+        let insert = inserts.get(index)?.clone();
+        self.database.reset();
         self.batch = None;
+        self.displayed = None;
+        self.inserts.clear();
+        self.snapshot = None;
         Some(insert)
     }
     pub fn respond(&mut self, request: Request) -> Response {
@@ -304,11 +330,27 @@ impl Engine {
             Request::Query {
                 generation,
                 edits,
+                displayed,
                 revision,
                 shift,
                 caps,
                 sentence_start,
             } => {
+                if self.generation != generation {
+                    self.database.reset();
+                    self.displayed = None;
+                    self.snapshot = None;
+                }
+                self.generation = generation;
+                if let Some(batch) = self.batch.as_ref().filter(|b| Some(b.token) == displayed) {
+                    self.displayed = Some((batch.clone(), self.inserts.clone()));
+                } else if self
+                    .displayed
+                    .as_ref()
+                    .is_none_or(|(b, _)| Some(b.token) != displayed)
+                {
+                    self.displayed = None;
+                }
                 let batch = self.query(edits, revision, shift, caps, sentence_start);
                 self.status = self.database.status();
                 let tracking = self
@@ -319,6 +361,7 @@ impl Engine {
                     batch,
                     revision: self.revision,
                     tracking,
+                    pending: self.database.pending(),
                     status: self.status,
                 }
             }
@@ -328,7 +371,7 @@ impl Engine {
                 revision,
                 index,
             } => {
-                let insert = if revision == self.revision {
+                let insert = if revision == self.revision && generation == self.generation {
                     self.accept(token, index)
                 } else {
                     self.clear();
@@ -461,6 +504,12 @@ pub fn run_from_args() -> bool {
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 if unsafe { libc::getppid() } != parent {
+                    // The parent creates a dedicated group for this process tree.
+                    unsafe {
+                        if libc::getpgrp() == libc::getpid() {
+                            libc::kill(0, libc::SIGKILL);
+                        }
+                    }
                     std::process::exit(0);
                 }
             });
@@ -508,6 +557,7 @@ mod tests {
         send(
             &mut frame,
             &Request::Query {
+                displayed: None,
                 generation: 0,
                 edits,
                 revision,
@@ -518,6 +568,157 @@ mod tests {
         )
         .unwrap();
         frame
+    }
+    struct Deferred {
+        pending: bool,
+    }
+    impl super::super::model::Predict for Deferred {
+        fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
+            self.pending = true;
+            Ok(super::super::model::Prediction {
+                words: vec!["water".into(), "walk".into()],
+            })
+        }
+        fn poll(&mut self) -> Option<super::super::model::Prediction> {
+            std::mem::take(&mut self.pending).then(|| super::super::model::Prediction {
+                words: vec!["walk".into(), "water".into()],
+            })
+        }
+        fn pending(&self) -> bool {
+            self.pending
+        }
+        fn reset(&mut self) {
+            self.pending = false;
+        }
+    }
+    fn request(edits: Vec<RecordedEdit>, revision: u64, displayed: Option<u64>) -> Request {
+        Request::Query {
+            generation: revision,
+            edits,
+            revision,
+            displayed,
+            shift: Shift::Off,
+            caps: false,
+            sentence_start: false,
+        }
+    }
+    fn response_batch(response: Response) -> Batch {
+        match response {
+            Response::Suggestions { batch: Some(b), .. } => b,
+            _ => panic!("missing batch"),
+        }
+    }
+    #[test]
+    #[ignore = "real offline model measurement; no desktop input"]
+    fn neural_integration_benchmark() {
+        use std::time::{Duration, Instant};
+        let path = std::env::var_os("SWITCHIFY_BENCHMARK_MODEL")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("resources/prediction-model/english.sqlite")
+            });
+        let mut e = engine();
+        e.database = Database::open(&path);
+        let cold = Instant::now();
+        while e.database.status() == Status::Loading {
+            assert!(cold.elapsed() < Duration::from_secs(30));
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(e.database.status(), Status::Ready);
+        let mut immediate = Vec::new();
+        let mut refined = Vec::new();
+        let mut failures = 0;
+        for i in 0..1020 {
+            let text = [
+                "please send the ",
+                "I need he",
+                "can you ",
+                "I want to ",
+                "thank you for ",
+            ][i % 5];
+            let revision = (i + 1) as u64;
+            let start = Instant::now();
+            let first = response_batch(e.respond(request(
+                vec![edit(Edit::Reset), append(text)],
+                revision,
+                None,
+            )));
+            let first_ms = start.elapsed().as_secs_f64() * 1000.;
+            let mut success = false;
+            while e.database.pending() {
+                assert!(start.elapsed() < Duration::from_secs(35));
+                std::thread::sleep(Duration::from_millis(20));
+                let next = response_batch(e.respond(request(vec![], revision, Some(first.token))));
+                if next.refined {
+                    success = true;
+                    break;
+                }
+            }
+            if i >= 20 {
+                immediate.push(first_ms);
+                if success {
+                    refined.push(start.elapsed().as_secs_f64() * 1000.);
+                } else {
+                    failures += 1;
+                }
+            }
+        }
+        immediate.sort_by(f64::total_cmp);
+        refined.sort_by(f64::total_cmp);
+        let stats = |values: &[f64]| {
+            serde_json::json!({
+                "samples":values.len(), "median_ms":values.get(values.len()/2),
+                "p95_ms":values.get((values.len()*95/100).min(values.len().saturating_sub(1))),
+                "max_ms":values.last()
+            })
+        };
+        let report = serde_json::json!({"os":std::env::consts::OS,"arch":std::env::consts::ARCH,
+            "queries":1000,"failures":failures,"immediate":stats(&immediate),"refinement":stats(&refined),
+            "scope":"Production Engine and model adapter, real neural child IPC, 20ms polling, fake input/activity; excludes outer desktop pipe and rendering",
+            "production_qualified":false});
+        println!("{report}");
+        if let Some(path) = std::env::var_os("SWITCHIFY_NEURAL_REPORT") {
+            std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+        }
+        assert!(!refined.is_empty(), "neural model was never available");
+    }
+    #[test]
+    fn refinement_preserves_the_displayed_acceptance_and_retires_it_on_ack() {
+        for accept_old in [true, false] {
+            let mut e = engine();
+            e.database = Database::with_predictor(Box::new(Deferred { pending: false }));
+            let immediate = response_batch(e.respond(request(vec![append("wa")], 1, None)));
+            assert!(!immediate.refined);
+            let refined = response_batch(e.respond(request(vec![], 1, Some(immediate.token))));
+            assert!(refined.refined);
+            assert_eq!(refined.words, vec!["walk", "water"]);
+            if accept_old {
+                assert_eq!(e.accept(immediate.token, 0), Some((0, "ter ".into())));
+                assert!(e.accept(refined.token, 0).is_none());
+            } else {
+                e.respond(request(vec![], 1, Some(refined.token)));
+                assert!(e.accept(immediate.token, 0).is_none());
+                assert_eq!(e.accept(refined.token, 0), Some((0, "lk ".into())));
+            }
+        }
+    }
+    #[test]
+    fn context_change_and_wrong_generation_reject_prior_batches() {
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(Deferred { pending: false }));
+        let old = response_batch(e.respond(request(vec![append("wa")], 1, None)));
+        e.respond(request(vec![append("l")], 2, Some(old.token)));
+        assert!(e.accept(old.token, 0).is_none());
+        let current = e.batch.as_ref().unwrap().token;
+        let result = e.respond(Request::Accept {
+            generation: 1,
+            token: current,
+            revision: 2,
+            index: 0,
+        });
+        assert!(matches!(result, Response::Insert { text: None, .. }));
+        assert!(!e.database.pending());
     }
     #[test]
     fn the_observer_starts_once_on_the_first_request() {
@@ -1034,6 +1235,7 @@ mod tests {
     fn private_frames_are_bounded() {
         assert!(receive::<Request>(&mut &b"bad!"[..]).is_err());
         let request = Request::Query {
+            displayed: None,
             generation: 0,
             revision: 1,
             edits: vec![append(&"x".repeat(LIMIT))],

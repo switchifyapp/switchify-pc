@@ -407,6 +407,9 @@ impl Keyboard {
             && !self.positioning
             && self.scan.position(&self.rows).0 == 0
     }
+    pub(crate) fn displayed_prediction(&self) -> Option<u64> {
+        self.predictions.as_ref().map(|b| b.token)
+    }
     pub fn predictions(&mut self, batch: Option<crate::prediction::worker::Batch>, failed: bool) {
         let retry_changed = self.prediction_failed != failed;
         self.prediction_failed = failed;
@@ -435,7 +438,9 @@ impl Keyboard {
         }
         if self.prediction_row_active() {
             if self.predictions.as_ref().map(|b| b.token) != batch.as_ref().map(|b| b.token) {
-                self.predictions = None;
+                if !batch.as_ref().is_some_and(|b| b.refined) {
+                    self.predictions = None;
+                }
                 self.queued_predictions = batch;
             }
         } else {
@@ -1033,6 +1038,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn refinement_keeps_visible_words_and_selection_stable() {
+        let mut k = Keyboard::new(false);
+        k.enable_predictions(true);
+        k.predictions(
+            Some(crate::prediction::worker::Batch {
+                token: 1,
+                refined: false,
+                words: vec!["water".into(), "walk".into()],
+            }),
+            false,
+        );
+        k.restart();
+        assert!(k.prediction_row_active());
+        let position = k.scan.position(&k.rows);
+        k.predictions(
+            Some(crate::prediction::worker::Batch {
+                token: 2,
+                refined: true,
+                words: vec!["walk".into(), "water".into()],
+            }),
+            false,
+        );
+        assert_eq!(k.displayed_prediction(), Some(1));
+        assert_eq!(k.predictions.as_ref().unwrap().words[0], "water");
+        assert_eq!(k.queued_predictions.as_ref().unwrap().token, 2);
+        assert_eq!(k.scan.position(&k.rows), position);
+    }
+    #[test]
     fn prediction_badge_explains_empty_slots_without_replacing_scan_prompt() {
         let mut keyboard = Keyboard::new(false);
         keyboard.enable_predictions(true);
@@ -1056,6 +1089,7 @@ mod tests {
         assert_eq!(badge(&keyboard), "Type for suggestions");
         keyboard.predictions(
             Some(crate::prediction::worker::Batch {
+                refined: false,
                 token: 1,
                 words: vec![],
             }),
@@ -1064,6 +1098,7 @@ mod tests {
         assert_eq!(badge(&keyboard), "No suggestions");
         keyboard.predictions(
             Some(crate::prediction::worker::Batch {
+                refined: false,
                 token: 2,
                 words: vec!["water".into()],
             }),
@@ -1393,6 +1428,7 @@ mod tests {
             // Suggestions arriving do not move the highlight.
             k.predictions(
                 Some(crate::prediction::worker::Batch {
+                    refined: false,
                     token: 1,
                     words: vec!["hello".into()],
                 }),
@@ -1418,6 +1454,7 @@ mod tests {
             // So does a suggestion, whose row is replaced.
             k.predictions(
                 Some(crate::prediction::worker::Batch {
+                    refined: false,
                     token: 2,
                     words: vec!["hello".into()],
                 }),
@@ -1488,6 +1525,7 @@ mod tests {
         k.enable_predictions(true);
         k.predictions(
             Some(crate::prediction::worker::Batch {
+                refined: false,
                 token: 1,
                 words: vec!["hello".into()],
             }),
@@ -1501,6 +1539,7 @@ mod tests {
         for token in 2..5 {
             k.predictions(
                 Some(crate::prediction::worker::Batch {
+                    refined: false,
                     token,
                     words: vec!["world".into()],
                 }),
@@ -1574,6 +1613,7 @@ mod tests {
         keyboard.advance(490, 500);
         assert_eq!(keyboard.scan.nav.index(), 1);
         let batch = crate::prediction::worker::Batch {
+            refined: false,
             token: 1,
             words: vec!["hello".into()],
         };
@@ -1603,6 +1643,7 @@ mod tests {
                     let mut baseline = Keyboard::configured(false, options);
                     let mut polled = Keyboard::configured(false, options);
                     let batch = crate::prediction::worker::Batch {
+                        refined: false,
                         token: 7,
                         words: vec!["water".into(), "walk".into()],
                     };
@@ -1642,6 +1683,7 @@ mod tests {
         let mut k = Keyboard::new(false);
         k.enable_predictions(true);
         let batch = crate::prediction::worker::Batch {
+            refined: false,
             token: 7,
             words: vec!["water".into(), "walk".into()],
         };
@@ -1666,6 +1708,7 @@ mod tests {
         assert_eq!(k.scan.nav.index(), 1);
         k.predictions(
             Some(crate::prediction::worker::Batch {
+                refined: false,
                 token: 7,
                 words: vec!["water".into(), "walk".into()],
             }),
@@ -1973,6 +2016,7 @@ mod tests {
         keyboard.enable_predictions(true);
         keyboard.predictions(
             Some(crate::prediction::worker::Batch {
+                refined: false,
                 token: 9,
                 words: vec!["hello".into()],
             }),
@@ -2299,6 +2343,7 @@ mod tests {
             k.advance(490, 500);
             k.predictions(
                 Some(crate::prediction::worker::Batch {
+                    refined: false,
                     token: 1,
                     words: vec!["hello".into(), "world".into()],
                 }),
@@ -2340,6 +2385,7 @@ mod tests {
                     k.enable_predictions(true);
                     k.predictions(
                         Some(crate::prediction::worker::Batch {
+                            refined: false,
                             token: 1,
                             words: vec!["hello".into(), "world".into()],
                         }),
@@ -2357,6 +2403,7 @@ mod tests {
                     k.advance(490, 500);
                     let position = k.scan.nav.index();
                     let next = replacement.then(|| crate::prediction::worker::Batch {
+                        refined: false,
                         token: 2,
                         words: vec!["new".into()],
                     });

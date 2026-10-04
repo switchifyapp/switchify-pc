@@ -4199,6 +4199,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "switchify-prediction",
+ "switchify-prediction-neural",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
@@ -4215,8 +4216,8 @@ dependencies = [
 
 [[package]]
 name = "switchify-prediction"
-version = "0.1.0"
-source = "git+https://github.com/switchifyapp/switchify-prediction?rev=c4b9d14ba8312179617ead4d2707e86ec825a2e6#c4b9d14ba8312179617ead4d2707e86ec825a2e6"
+version = "0.2.0"
+source = "git+https://github.com/switchifyapp/switchify-prediction?rev=99a3ef03cb54500006887a998547fded4ad39e0e#99a3ef03cb54500006887a998547fded4ad39e0e"
 dependencies = [
  "clap",
  "rusqlite",
@@ -4227,6 +4228,19 @@ dependencies = [
  "thiserror 2.0.19",
  "unicode-normalization",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "switchify-prediction-neural"
+version = "0.2.0"
+source = "git+https://github.com/switchifyapp/switchify-prediction?rev=99a3ef03cb54500006887a998547fded4ad39e0e#99a3ef03cb54500006887a998547fded4ad39e0e"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
+ "sha2",
+ "switchify-prediction",
+ "thiserror 2.0.19",
 ]
 
 [[package]]

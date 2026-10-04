@@ -141,6 +141,7 @@ jobs:
         run: |
           model=$(node scripts/check-packaged-prediction.mjs src-tauri/target/release/bundle/macos)
           echo "SWITCHIFY_BENCHMARK_MODEL=$model" >> "$GITHUB_ENV"
+          echo "SWITCHIFY_BENCHMARK_WORKER=$(node scripts/check-packaged-prediction.mjs src-tauri/target/release/bundle/macos --worker)" >> "$GITHUB_ENV"
       - name: Verify Windows packaged prediction resources
         if: runner.os == 'Windows'
         shell: pwsh
@@ -152,13 +153,22 @@ jobs:
           $model = node scripts/check-packaged-prediction.mjs $unpacked
           if ($LASTEXITCODE -ne 0) { throw 'Packaged prediction resources failed verification.' }
           "SWITCHIFY_BENCHMARK_MODEL=$model" >> $env:GITHUB_ENV
+          $worker = node scripts/check-packaged-prediction.mjs $unpacked --worker
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged workers failed verification.' }
+          "SWITCHIFY_BENCHMARK_WORKER=$worker" >> $env:GITHUB_ENV
       - name: Measure packaged prediction without desktop input
         env:
           SWITCHIFY_BENCHMARK_REPORT: prediction-benchmark.json
         run: cargo test --release --lib --locked --manifest-path src-tauri/Cargo.toml bundled_prediction_benchmark -- --ignored --nocapture --test-threads=1
+      - name: Measure packaged neural integration without desktop input
+        env:
+          SWITCHIFY_NEURAL_REPORT: neural-benchmark.json
+        run: cargo test --release --lib --locked --manifest-path src-tauri/Cargo.toml neural_integration_benchmark -- --ignored --nocapture --test-threads=1
       - name: Upload prediction measurements
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: prediction-benchmark-${{ runner.os }}
-          path: src-tauri/prediction-benchmark.json
+          path: |
+            src-tauri/prediction-benchmark.json
+            src-tauri/neural-benchmark.json
           if-no-files-found: error

@@ -61,6 +61,21 @@ impl Database {
             State::Unavailable => Status::Unavailable,
         }
     }
+    pub fn poll(&mut self) -> Option<Prediction> {
+        if let State::Ready(model) = &mut self.state {
+            model.poll()
+        } else {
+            None
+        }
+    }
+    pub fn pending(&self) -> bool {
+        matches!(&self.state, State::Ready(model) if model.pending())
+    }
+    pub fn reset(&mut self) {
+        if let State::Ready(model) = &mut self.state {
+            model.reset();
+        }
+    }
     pub fn predict(&mut self, context: &Context) -> (Status, Prediction) {
         let status = self.status();
         if status != Status::Ready || context.partial {
@@ -96,6 +111,14 @@ impl Database {
         )
     }
 
+    #[cfg(test)]
+    pub fn with_predictor(model: Box<dyn Predict>) -> Self {
+        Self {
+            state: State::Ready(model),
+            slow_call: SLOW_CALL,
+            slow_calls: 0,
+        }
+    }
     #[cfg(test)]
     pub fn fixture() -> Self {
         Self {
