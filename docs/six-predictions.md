@@ -13,14 +13,13 @@ The companion uses protocol 2. Model and tokenizer bytes are unchanged. Startup
 remains bounded to 30 seconds and each reply to two seconds. Failure leaves the
 instant slots available, with explicit retry or keyboard reopening required.
 
-## Prepared assets
+## Release assets
 
-The build can consume checksum-pinned companion CI archives before publication,
-using an authenticated GitHub CLI. Verified local caches work offline. These CI
-artifacts expire and are not permanent release assets. Before merging/releasing
-the desktop, separately authorize companion artifact publication and replace
-prepared artifact sources with the permanent release URLs for the same bytes.
-No runtime network access or model setup is needed.
+The build downloads checksum-pinned v0.2.1 companion release archives from
+GitHub. Both libraries and worker provenance are pinned to the release commit.
+Verified local caches work offline, and installed applications need no network
+access or model setup. Model, tokenizer and statistical database bytes remain
+unchanged.
 
 ## Validation
 

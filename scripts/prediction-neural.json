@@ -1,5 +1,5 @@
 {
-  "revision": "9ec55f767ca6e7e97a775df0bf0dc8d4be42c709",
+  "revision": "2a2ed0c2b0013663ffa9317dba3389ec96b6f14b",
   "bundle": {
     "format_version": 1,
     "model_id": "smollm2-135m-q8-v1",
@@ -75,12 +75,7 @@
   },
   "workers": {
     "aarch64-apple-darwin": {
-      "prepared_artifact": {
-        "run_id": 37212539426,
-        "name": "neural-macos-latest",
-        "archive": "switchify-prediction-neural-0.2.1-aarch64-apple-darwin.zip"
-      },
-      "archive_sha256": "3976ac1274488b23438b9af299cfca64a9feffecfd1d4548a3ec0dc1b8681f8c",
+      "archive_sha256": "aaa633461090006311557e7b2a4b9876c225af29933501feb65afc4c8c048d49",
       "files": {
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/QUALIFICATION.md": {
           "size": 7086,
@@ -112,7 +107,7 @@
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/SHA256SUMS": {
           "size": 998,
-          "sha256": "a95f16357fb6e6747ab2e50df2ef7cdbf09a2749019d7b762e592272089a1abd"
+          "sha256": "ba76f5b2bd7aa375164d1886548f913c0faf83cde9edb8f463c89877b59a3aea"
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/RUST_LIBRARY_COPYRIGHT.html": {
           "size": 279302,
@@ -124,21 +119,17 @@
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/BUILD.json": {
           "size": 987,
-          "sha256": "701bed567579160606ebf4ad203ebb5560a7a32093ed68194fa66bbad5de06d9"
+          "sha256": "efe9910c9f3de2f33846eb08cae659f5f01b12cadddd3e4121903239c4ff97e3"
         },
         "switchify-prediction-neural-0.2.1-aarch64-apple-darwin/SECURITY.md": {
           "size": 1973,
           "sha256": "d79bf51500d3927bc47fad3e61b987be10764c7003b82df0f9d1f752f72a5182"
         }
-      }
+      },
+      "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.2.1/switchify-prediction-neural-0.2.1-aarch64-apple-darwin.zip"
     },
     "x86_64-apple-darwin": {
-      "prepared_artifact": {
-        "run_id": 37212539426,
-        "name": "neural-macos-15-intel",
-        "archive": "switchify-prediction-neural-0.2.1-x86_64-apple-darwin.zip"
-      },
-      "archive_sha256": "c5df5cc3ff7732fa0ca4bd53b7dd5c9f5bcfb9531a721e727d9ecd3bb4cac78a",
+      "archive_sha256": "6882754360e1f854c96052d816cccbf1f93598ffc7b81f711ba2150cddbbd465",
       "files": {
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/QUALIFICATION.md": {
           "size": 7086,
@@ -174,7 +165,7 @@
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/SHA256SUMS": {
           "size": 1091,
-          "sha256": "13b66da70c11dafffd1dbcad71aa9e803ad21ccf36d4f51b913e4fca9a361182"
+          "sha256": "d1b7a00190a833867cdf2924fc5835e2865c9c365b294130dab136535a71892d"
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/RUST_LIBRARY_COPYRIGHT.html": {
           "size": 279302,
@@ -186,25 +177,21 @@
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/BUILD.json": {
           "size": 1024,
-          "sha256": "e49098008cbcb1a968d6c2abb67ad5245fbb3891a32a768f8d3e5de3c4d2abf6"
+          "sha256": "d910e349135956cd1341383b1d1bd2a8b76fe0f5ea957776d54c8a94d2ec83ac"
         },
         "switchify-prediction-neural-0.2.1-x86_64-apple-darwin/SECURITY.md": {
           "size": 1973,
           "sha256": "d79bf51500d3927bc47fad3e61b987be10764c7003b82df0f9d1f752f72a5182"
         }
-      }
+      },
+      "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.2.1/switchify-prediction-neural-0.2.1-x86_64-apple-darwin.zip"
     },
     "x86_64-pc-windows-msvc": {
-      "prepared_artifact": {
-        "run_id": 37212539426,
-        "name": "neural-windows-latest",
-        "archive": "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc.zip"
-      },
-      "archive_sha256": "175f3f9a8c021078c8bd1fefa1d6389afbdaec3f383cecdd14810ac8f6acba1a",
+      "archive_sha256": "5580543007f7e0cc8601685be195be6fb68215a6521bd5eb8864ac58590bad1c",
       "files": {
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/BUILD.json": {
           "size": 1059,
-          "sha256": "5a90cebe110f2711f9d262d8b0542dfebf56b407f019a6dc75bb0395fe2efd96"
+          "sha256": "b168a91658032969073ff350bec657113039905d9c5b64a5e0c6c7b442530bce"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/Cargo.lock": {
           "size": 46262,
@@ -236,15 +223,15 @@
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/SHA256SUMS": {
           "size": 1116,
-          "sha256": "31d12eb51fce3223f4a3ed141cf388f186c592731127ba231149bab8d9008a1c"
+          "sha256": "117a918e874ac6fe4d473fd6e449e472205d327f5c7588abe12802d11b7e234d"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/switchify-smol-worker-avx2.exe": {
           "size": 8709120,
-          "sha256": "8e9efe60e59816f2cc5d4127b3e9ed47a8d5ca18675ea5c3fc527106471d0c32"
+          "sha256": "46d05730c283e7d6ca6d325611410c0b2196d0431e6cfe8b973cd61c24011d2b"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/switchify-smol-worker.exe": {
           "size": 8510464,
-          "sha256": "47123b4cc20002f7c2d6fa369a9ce994cf1b1a1939d03318d1c1088ed1865783"
+          "sha256": "d6087919a6704a673ab6f4609e87a113e3f59a4bba692a9be4cd1f7bcdc2dc69"
         },
         "switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc/THIRD_PARTY_NOTICES.md": {
           "size": 1552635,
@@ -254,19 +241,15 @@
           "size": 1315,
           "sha256": "96b47d695b104c61ca65de856108d8850a6da7c00220ae72dd91b8e73cb8f6f2"
         }
-      }
+      },
+      "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.2.1/switchify-prediction-neural-0.2.1-x86_64-pc-windows-msvc.zip"
     },
     "x86_64-unknown-linux-gnu": {
-      "prepared_artifact": {
-        "run_id": 37212539426,
-        "name": "neural-ubuntu-latest",
-        "archive": "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu.zip"
-      },
-      "archive_sha256": "c8fb614e53c4656bd1eeb808552a7f51c9da09b45ba77687b7f07e7775b2f479",
+      "archive_sha256": "7411a6773589f7e28975e6754a6a48e893808b5c3953252a9251bdec792474bd",
       "files": {
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/BUILD.json": {
           "size": 1051,
-          "sha256": "29b25c63447c59ada1b7ed8549905fb9735540b2d698e6a5d4c3ea9857fdeb3d"
+          "sha256": "aad2210a773e9979ceae63e668f91c10db49d7906f90f274eed474d6124c0c35"
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/RUST_LIBRARY_COPYRIGHT.html": {
           "size": 279302,
@@ -278,7 +261,7 @@
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/SHA256SUMS": {
           "size": 1091,
-          "sha256": "2d6d80a8edb6bb0b5c03787b3218c4e76cb5bf963a3a8f636f0a3a26076d576c"
+          "sha256": "589c2588753eb078508c447dd374dd1da4a34a0d62d6e824a9adffc1c01cda69"
         },
         "switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu/LICENSE": {
           "size": 1079,
@@ -316,8 +299,9 @@
           "size": 7086,
           "sha256": "f5d13a7406728515112cab4da093ee19642f68abbb9f30c8c8f511ae68ec8eb3"
         }
-      }
+      },
+      "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.2.1/switchify-prediction-neural-0.2.1-x86_64-unknown-linux-gnu.zip"
     }
   },
-  "library_revision": "c25f068dacef8fbf65dde6b98c745ad4cd56d555"
+  "library_revision": "2a2ed0c2b0013663ffa9317dba3389ec96b6f14b"
 }
