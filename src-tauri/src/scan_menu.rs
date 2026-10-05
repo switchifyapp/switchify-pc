@@ -114,6 +114,10 @@ pub struct Menu {
     period: u64,
 }
 impl Menu {
+    pub fn set_panel_size(&mut self, size: crate::scan_preferences::PanelSize) {
+        self.scan.options.panel_size = size;
+    }
+
     #[cfg(test)]
     pub fn new(kind: Kind, period: u64) -> Self {
         Self::configured(
@@ -182,9 +186,13 @@ impl Menu {
         let columns = self.rows.iter().map(Vec::len).max().unwrap_or(1) as f64;
         let logical_width = 16.0 + columns * 180.0;
         let logical_height = 56.0 + 180.0 * self.rows.len() as f64;
-        let scale = units
-            .min(screen.width / logical_width)
-            .min(screen.height / logical_height);
+        let scale = crate::scan_panel::fit_scale(
+            screen,
+            units,
+            self.scan.options.panel_size,
+            logical_width,
+            logical_height,
+        );
         let width = logical_width * scale;
         let height = logical_height * scale;
         let panel = placed(width, height, 20.0 * scale);
@@ -282,8 +290,8 @@ fn place(point: (i32, i32), screen: Rect, width: f64, height: f64, gap: f64) -> 
         })
         .unwrap_or(candidates[0]);
     Rect {
-        x: x.clamp(screen.x, screen.x + screen.width - width),
-        y: y.clamp(screen.y, screen.y + screen.height - height),
+        x: x.clamp(screen.x, (screen.x + screen.width - width).max(screen.x)),
+        y: y.clamp(screen.y, (screen.y + screen.height - height).max(screen.y)),
         width,
         height,
     }
@@ -617,6 +625,41 @@ impl Kind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_menu_uses_the_shared_preset_and_fits_the_screen() {
+        use crate::scan_preferences::PanelSize;
+        for kind in ALL_MENU_KINDS {
+            for size in [PanelSize::Small, PanelSize::Medium, PanelSize::Large] {
+                for units in [1.0, 1.5, 2.0] {
+                    let screen = Rect {
+                        x: -800.0,
+                        y: -200.0,
+                        width: 800.0,
+                        height: 600.0,
+                    };
+                    let mut menu = Menu::new(kind, 250);
+                    menu.set_panel_size(size);
+                    for frame in [
+                        menu.frame((-799, -199), screen, units),
+                        menu.centered_frame(screen, units),
+                    ] {
+                        for tile in frame.tiles {
+                            assert!(
+                                tile.rect.x >= screen.x - 0.01 && tile.rect.y >= screen.y - 0.01
+                            );
+                            assert!(
+                                tile.rect.x + tile.rect.width <= screen.x + screen.width + 0.01
+                            );
+                            assert!(
+                                tile.rect.y + tile.rect.height <= screen.y + screen.height + 0.01
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn mouse_actions_expose_app_commands_without_point_only_controls() {

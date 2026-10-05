@@ -461,6 +461,12 @@ fn rounded_rect(rect: Rect, radius: f32) -> Result<tiny_skia::Path, String> {
         .ok_or_else(|| "the modifier overlay chip path is invalid".into())
 }
 
+// Captures only synthetic fixtures on the exporting test's thread, never desktop pixels.
+#[cfg(test)]
+thread_local! {
+    static PANEL_FIXTURE: std::cell::RefCell<Option<Pixmap>> = const { std::cell::RefCell::new(None) };
+}
+
 fn present_pixmap_with_text(
     window: HWND,
     labels: &[String],
@@ -564,6 +570,34 @@ fn present_pixmap_with_text(
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE
                 },
             );
+        }
+
+        #[cfg(test)]
+        if PANEL_FIXTURE.with(|fixture| fixture.borrow().is_some()) {
+            let mut pixels = vec![0; output.len()];
+            copy_rgba_to_bgra(output, &mut pixels)?;
+            // GDI clears alpha on text pixels; the panel underneath is opaque.
+            for pixel in pixels.chunks_exact_mut(4) {
+                if pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0 {
+                    pixel[3] = 255;
+                }
+            }
+            let tile = Pixmap::from_vec(
+                pixels,
+                tiny_skia::IntSize::from_wh(layout.width as u32, layout.height as u32).unwrap(),
+            )
+            .unwrap();
+            PANEL_FIXTURE.with(|fixture| {
+                fixture.borrow_mut().as_mut().unwrap().draw_pixmap(
+                    layout.x,
+                    layout.y,
+                    tile.as_ref(),
+                    &Default::default(),
+                    Transform::identity(),
+                    None,
+                )
+            });
+            return Ok(());
         }
 
         let destination = POINT {
@@ -871,6 +905,75 @@ mod tests {
         }
         stop_sender.send(()).unwrap();
         thread.join().unwrap();
+    }
+
+    #[test]
+    #[ignore = "Exports synthetic panels through the native Windows text renderer; no input or desktop capture"]
+    fn export_panel_size_fixtures() {
+        use crate::{
+            scan_panel::Dock,
+            scan_preferences::{PanelSize, Resolved},
+            scanning::{Rect, ScannerColor},
+        };
+        let directory =
+            std::env::var("SWITCHIFY_PANEL_FIXTURES").expect("fixture output directory");
+        std::fs::create_dir_all(&directory).unwrap();
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        for size in [PanelSize::Small, PanelSize::Medium, PanelSize::Large] {
+            let mut mouse = crate::scan_mouse::MousePanel::new(
+                Resolved {
+                    panel_size: size,
+                    ..Default::default()
+                },
+                2,
+                100,
+            );
+            mouse.dock = Dock { row: 0, column: 0 };
+            let mut keyboard = crate::scan_keyboard::Keyboard::new(false);
+            keyboard.dock = mouse.dock;
+            keyboard.set_panel_size(size);
+            keyboard.enable_predictions(true);
+            let keyboard_frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+            keyboard.fixture_page(crate::scan_keyboard::Key::Dock);
+            for (name, frame) in [
+                (
+                    "mouse",
+                    mouse.frame(screen, 1.0, ScannerColor::default(), None),
+                ),
+                ("keyboard", keyboard_frame),
+                (
+                    "keyboard-position",
+                    keyboard.frame(screen, 1.0, ScannerColor::default()),
+                ),
+            ] {
+                let bounds = frame.tiles[0].rect;
+                super::PANEL_FIXTURE.with(|fixture| {
+                    *fixture.borrow_mut() = tiny_skia::Pixmap::new(
+                        bounds.width.ceil() as u32,
+                        bounds.height.ceil() as u32,
+                    )
+                });
+                for tile in &frame.tiles {
+                    super::present_scan_tile(windows::Win32::Foundation::HWND::default(), tile)
+                        .unwrap();
+                }
+                super::PANEL_FIXTURE.with(|fixture| {
+                    fixture
+                        .borrow_mut()
+                        .take()
+                        .unwrap()
+                        .save_png(
+                            std::path::Path::new(&directory).join(format!("{name}-{size:?}.png")),
+                        )
+                        .unwrap()
+                });
+            }
+        }
     }
 
     #[test]

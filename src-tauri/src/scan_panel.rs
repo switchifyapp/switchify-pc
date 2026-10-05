@@ -2,9 +2,16 @@
 //! and weighted rows of keys. Panels supply content; geometry lives here.
 use crate::{
     scan_menu::Item,
-    scan_preferences::Thickness,
+    scan_preferences::{PanelSize, Thickness},
     scanning::{Frame, FrameTile, Rect, ScannerColor, TileRole, TileStyle},
 };
+
+/// One scale for the complete panel, including text and artwork.
+pub fn fit_scale(screen: Rect, units: f64, size: PanelSize, width: f64, height: f64) -> f64 {
+    (units * size.scale())
+        .min(screen.width.max(1.0) / width)
+        .min(screen.height.max(1.0) / height)
+}
 
 pub struct PanelKey {
     pub text: String,
@@ -54,9 +61,7 @@ impl Dock {
         start + (length - size) * f64::from(slot.min(2)) / 2.0
     }
     /// Outer rectangle of a panel docked here.
-    pub fn rect(self, screen: Rect, units: f64) -> Rect {
-        let width = (1180.0 * units).min((screen.width - 24.0 * units).max(1.0));
-        let height = (460.0 * units).min(screen.height * 0.55).max(1.0);
+    pub fn rect(self, screen: Rect, (width, height): (f64, f64)) -> Rect {
         Rect {
             x: Self::place(self.column, screen.x, screen.width, width),
             y: Self::place(self.row, screen.y, screen.height, height),
@@ -72,18 +77,18 @@ impl Dock {
         self,
         pointer: (f64, f64),
         screen: Rect,
-        units: f64,
+        size: (f64, f64),
         moved: Option<Dock>,
     ) -> Option<Dock> {
         let covers = |dock: Dock| {
-            let rect = dock.rect(screen, units);
+            let rect = dock.rect(screen, size);
             let (x, y) = pointer;
             x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
         };
         if !covers(self) {
             return None;
         }
-        let rect = self.rect(screen, units);
+        let rect = self.rect(screen, size);
         let away = if pointer.1 < rect.y + rect.height / 2.0 {
             2
         } else {
@@ -104,8 +109,12 @@ impl Dock {
 }
 
 /// Shifts a panel frame drawn at `from` so it is drawn at `to` instead.
-pub fn move_frame(frame: &mut Frame, from: Dock, to: Dock, screen: Rect, units: f64) {
-    let (from, to) = (from.rect(screen, units), to.rect(screen, units));
+pub fn move_frame(frame: &mut Frame, to: Dock, screen: Rect) {
+    let Some(background) = frame.tiles.iter().find(|tile| tile.is_panel_background()) else {
+        return;
+    };
+    let from = background.rect;
+    let to = to.rect(screen, (from.width, from.height));
     for tile in &mut frame.tiles {
         tile.rect.x += to.x - from.x;
         tile.rect.y += to.y - from.y;
@@ -134,6 +143,8 @@ pub fn position_label(dock: Dock, current: Dock) -> String {
 }
 
 pub struct Panel {
+    pub key_width: f64,
+    pub size: PanelSize,
     pub rows: Vec<Vec<PanelKey>>,
     pub status: String,
     /// Passive feedback beside the scanning prompt; never a scan target.
@@ -147,20 +158,33 @@ pub struct Panel {
 
 impl Panel {
     pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor) -> Frame {
+        let preferred_width = self
+            .rows
+            .iter()
+            .map(|row| {
+                row.iter().map(|key| key.weight).sum::<f64>() * self.key_width
+                    + row.len().saturating_sub(1) as f64 * 8.0
+            })
+            .fold(0.0, f64::max)
+            + 32.0;
+        let preferred_height = 32.0
+            + 48.0
+            + self.rows.len() as f64 * 56.0
+            + self.rows.len().saturating_sub(1) as f64 * 8.0;
+        let scale = fit_scale(screen, units, self.size, preferred_width, preferred_height);
         let Rect {
             x,
             y,
             width,
             height,
-        } = self.dock.rect(screen, units);
-        let outer_scale = units.min(height / 460.0).min(width / 1180.0);
-        let padding = 16.0 * outer_scale;
-        let content_width = (width - padding * 2.0).max(1.0);
-        let content_height = (height - padding * 2.0).max(1.0);
-        let row_height = content_height / (self.rows.len() as f64 + 0.9);
-        let scale = units.min(row_height / 60.0).min(content_width / 1040.0);
-        let gap = (6.0 * scale).min(row_height / 8.0);
-        let header_height = row_height * 0.9;
+        } = self
+            .dock
+            .rect(screen, (preferred_width * scale, preferred_height * scale));
+        let padding = 16.0 * scale;
+        let content_width = width - padding * 2.0;
+        let gap = 8.0 * scale;
+        let row_height = 64.0 * scale;
+        let header_height = 48.0 * scale;
         let mut frame = Frame::default();
         frame.tiles.push(FrameTile::panel_background(
             Rect {
@@ -169,7 +193,7 @@ impl Panel {
                 width,
                 height,
             },
-            outer_scale,
+            scale,
             color,
         ));
         let x = x + padding;
@@ -177,7 +201,8 @@ impl Panel {
         let width = content_width;
         for (r, row) in self.rows.iter().enumerate() {
             let total_weight: f64 = row.iter().map(|key| key.weight).sum();
-            let cell_unit = (width - gap * (row.len() - 1) as f64).max(1.0) / total_weight;
+            let cell_unit =
+                (width - gap * row.len().saturating_sub(1) as f64).max(1.0) / total_weight;
             let mut left = x;
             let mut c = 0;
             for key in row {
@@ -283,6 +308,8 @@ mod tests {
     #[test]
     fn rows_fill_the_padded_width_with_even_gaps_below_the_status_tile() {
         let panel = Panel {
+            key_width: 380.0,
+            size: PanelSize::Medium,
             rows: vec![vec![key("a", 1.0), key("b", 2.0)], vec![key("c", 1.0)]],
             status: "Page · Select a row".into(),
             note: None,
@@ -309,7 +336,7 @@ mod tests {
         assert!((b.rect.x + b.rect.width - right).abs() < 1e-9);
         assert!((c.rect.x + c.rect.width - right).abs() < 1e-9);
         assert!((b.rect.width - 2.0 * a.rect.width).abs() < 1e-9);
-        assert!((b.rect.x - (a.rect.x + a.rect.width) - 6.0).abs() < 1e-9);
+        assert!((b.rect.x - (a.rect.x + a.rect.width) - 8.0).abs() < 1e-9);
         assert_eq!(status.style.unwrap().role, TileRole::Status);
         assert_eq!(
             (status.rect.x, status.rect.y),
@@ -327,6 +354,8 @@ mod tests {
     #[test]
     fn docking_and_row_escape_selection() {
         let panel = Panel {
+            key_width: 380.0,
+            size: PanelSize::Medium,
             rows: vec![vec![key("a", 1.0)]],
             status: BACK_TO_ROWS.into(),
             note: None,
@@ -366,39 +395,42 @@ mod tests {
         };
         let dock = |column, row| Dock { column, row };
         for column in 0..3 {
-            let bottom = dock(column, 2).rect(screen, 1.0);
+            let bottom = dock(column, 2).rect(screen, (1180.0, 460.0));
             let inside = (bottom.x + 1.0, bottom.y + bottom.height - 1.0);
             let outside = (bottom.x + 1.0, bottom.y - 1.0);
             assert_eq!(
-                dock(column, 2).avoiding(inside, screen, 1.0, None),
+                dock(column, 2).avoiding(inside, screen, (1180.0, 460.0), None),
                 Some(dock(column, 0))
             );
-            assert_eq!(dock(column, 2).avoiding(outside, screen, 1.0, None), None);
-            let top = dock(column, 0).rect(screen, 1.0);
             assert_eq!(
-                dock(column, 0).avoiding((top.x, top.y), screen, 1.0, None),
+                dock(column, 2).avoiding(outside, screen, (1180.0, 460.0), None),
+                None
+            );
+            let top = dock(column, 0).rect(screen, (1180.0, 460.0));
+            assert_eq!(
+                dock(column, 0).avoiding((top.x, top.y), screen, (1180.0, 460.0), None),
                 Some(dock(column, 2))
             );
         }
-        let middle = dock(1, 1).rect(screen, 1.0);
+        let middle = dock(1, 1).rect(screen, (1180.0, 460.0));
         let upper = (middle.x + 10.0, middle.y + 10.0);
         let lower = (middle.x + 10.0, middle.y + middle.height - 10.0);
         assert_eq!(
-            dock(1, 1).avoiding(upper, screen, 1.0, None),
+            dock(1, 1).avoiding(upper, screen, (1180.0, 460.0), None),
             Some(dock(1, 2))
         );
         assert_eq!(
-            dock(1, 1).avoiding(lower, screen, 1.0, None),
+            dock(1, 1).avoiding(lower, screen, (1180.0, 460.0), None),
             Some(dock(1, 0))
         );
         let centre = (middle.x + 10.0, middle.y + middle.height / 2.0 + 1.0);
         assert_eq!(
-            dock(1, 1).avoiding(centre, screen, 1.0, Some(dock(1, 2))),
+            dock(1, 1).avoiding(centre, screen, (1180.0, 460.0), Some(dock(1, 2))),
             Some(dock(1, 2)),
             "a moved middle panel stays put while its end is clear of the pointer"
         );
         assert_eq!(
-            dock(1, 1).avoiding(lower, screen, 1.0, Some(dock(1, 2))),
+            dock(1, 1).avoiding(lower, screen, (1180.0, 460.0), Some(dock(1, 2))),
             Some(dock(1, 0)),
             "a moved middle panel leaves an end the pointer reaches"
         );
@@ -411,14 +443,22 @@ mod tests {
             height: 700.0,
         };
         let overlap = (640.0, 350.0);
-        assert_eq!(dock(1, 0).avoiding(overlap, short, 1.0, None), None);
-        assert_eq!(dock(1, 2).avoiding(overlap, short, 1.0, None), None);
         assert_eq!(
-            dock(1, 2).avoiding((640.0, 690.0), short, 1.0, None),
+            dock(1, 0).avoiding(overlap, short, (1180.0, 460.0), None),
+            None
+        );
+        assert_eq!(
+            dock(1, 2).avoiding(overlap, short, (1180.0, 460.0), None),
+            None
+        );
+        assert_eq!(
+            dock(1, 2).avoiding((640.0, 690.0), short, (1180.0, 460.0), None),
             Some(dock(1, 0))
         );
 
         let mut frame = Panel {
+            key_width: 380.0,
+            size: PanelSize::Medium,
             rows: vec![vec![key("a", 1.0)]],
             status: String::new(),
             note: None,
@@ -429,8 +469,9 @@ mod tests {
         }
         .frame(screen, 1.0, ScannerColor::default());
         let key_offset = frame.tiles[1].rect.y - frame.tiles[0].rect.y;
-        move_frame(&mut frame, Dock::default(), dock(1, 0), screen, 1.0);
-        assert_eq!(frame.tiles[0].rect, dock(1, 0).rect(screen, 1.0));
+        let size = (frame.tiles[0].rect.width, frame.tiles[0].rect.height);
+        move_frame(&mut frame, dock(1, 0), screen);
+        assert_eq!(frame.tiles[0].rect, dock(1, 0).rect(screen, size));
         assert_eq!(frame.tiles[1].rect.y - frame.tiles[0].rect.y, key_offset);
     }
 
@@ -448,6 +489,8 @@ mod tests {
         for dock in rows[..3].iter().flatten().copied() {
             assert!(labels.insert(dock.label()));
             let panel = Panel {
+                key_width: 380.0,
+                size: PanelSize::Medium,
                 rows: vec![vec![key("a", 1.0)]],
                 status: String::new(),
                 note: None,

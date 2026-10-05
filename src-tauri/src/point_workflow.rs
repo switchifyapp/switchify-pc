@@ -239,6 +239,16 @@ impl Workflow {
             self.open(Kind::Actions);
         }
         self.point.config = config;
+        self.keyboard
+            .set_panel_size(self.point.config.keyboard_scan.panel_size);
+        self.mouse
+            .set_panel_size(self.point.config.mouse_scan.panel_size);
+        self.menu
+            .set_panel_size(self.point.config.menu_scan.panel_size);
+        for menu in &mut self.parent_menu {
+            menu.set_panel_size(self.point.config.menu_scan.panel_size);
+        }
+
         self.keyboard.set_layout(self.point.config.keyboard_layout);
         self.menu
             .set_period(self.point.config.menu_scan.interval_ms);
@@ -405,10 +415,29 @@ impl Workflow {
         if !self.point.config.panel_avoids_pointer {
             return None;
         }
+        // Use the same measured frame as rendering, never a keyboard-sized proxy.
+        let frame = match self.stage {
+            Stage::Keyboard => self.keyboard.frame(
+                area,
+                self.point.units_per_logical_pixel,
+                self.point.config.scanner_color,
+            ),
+            _ => self.mouse.frame(
+                area,
+                self.point.units_per_logical_pixel,
+                self.point.config.mouse_scan.color,
+                None,
+            ),
+        };
+        let bounds = frame
+            .tiles
+            .iter()
+            .find(|tile| tile.is_panel_background())?
+            .rect;
         self.dock.avoiding(
             self.pointer?,
             area,
-            self.point.units_per_logical_pixel,
+            (bounds.width, bounds.height),
             self.moved,
         )
     }
@@ -1110,13 +1139,7 @@ impl Technique for Workflow {
             _ => Frame::default(),
         };
         if let Some(moved) = self.avoiding() {
-            crate::scan_panel::move_frame(
-                &mut frame,
-                self.dock,
-                moved,
-                panel_area,
-                self.point.units_per_logical_pixel,
-            );
+            crate::scan_panel::move_frame(&mut frame, moved, panel_area);
         }
         if let Some(error) = &self.error {
             frame.tiles.clear();
@@ -2101,6 +2124,42 @@ mod tests {
     }
 
     #[test]
+    fn size_changes_update_open_panels_without_resetting_the_scan() {
+        use crate::scan_preferences::PanelSize;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let mut config = last_mode();
+        let mut workflow = Workflow::new(config.point(), screen, 1.0).unwrap();
+        workflow.open_mouse();
+        workflow.handle(Action::Next);
+        let selected = workflow
+            .frame()
+            .tiles
+            .iter()
+            .filter(|tile| tile.selected)
+            .map(|tile| tile.text.clone())
+            .collect::<Vec<_>>();
+        config.scan_preferences.panel_size = PanelSize::Large;
+        workflow.apply_config(config.point(), false);
+        let frame = workflow.frame();
+        assert!((frame.tiles[0].rect.width - 568.0 * 1.2).abs() < 1e-8);
+        assert_eq!(
+            selected,
+            frame
+                .tiles
+                .iter()
+                .filter(|tile| tile.selected)
+                .map(|tile| tile.text.clone())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    }
+
+    #[test]
     fn open_panels_move_out_of_the_pointers_way_only_when_enabled() {
         use crate::scan_panel::Dock;
         let screen = Rect {
@@ -2110,8 +2169,8 @@ mod tests {
             height: 720.0,
         };
         let background = |workflow: &Workflow| workflow.frame().tiles[0].rect;
-        let bottom = Dock::default().rect(screen, 1.0);
-        let top = Dock { column: 1, row: 0 }.rect(screen, 1.0);
+        let bottom = Dock::default().rect(screen, (568.0, 392.0));
+        let top = Dock { column: 1, row: 0 }.rect(screen, (568.0, 392.0));
         let over_bottom = Some((640.0, 700.0));
         let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         workflow.open_mouse();
@@ -2146,6 +2205,10 @@ mod tests {
         workflow.mouse_key(crate::scan_mouse::Key::Keyboard);
         workflow.execution_succeeded();
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+        let keyboard_bounds = background(&workflow);
+        let size = (keyboard_bounds.width, keyboard_bounds.height);
+        let top = Dock { column: 1, row: 0 }.rect(screen, size);
+        let bottom = Dock::default().rect(screen, size);
         workflow.set_pointer(over_bottom);
         assert_eq!(background(&workflow), top, "the keyboard also moves");
         workflow.set_pointer(None);
@@ -2154,7 +2217,7 @@ mod tests {
         // A closed panel forgets where it moved, so a middle dock chooses afresh when reopened.
         let middle = Dock { column: 1, row: 1 };
         workflow.set_dock(middle);
-        let area = middle.rect(screen, 1.0);
+        let area = middle.rect(screen, size);
         workflow.set_pointer(Some((640.0, area.y + 10.0)));
         assert_eq!(workflow.moved, Some(Dock::default()));
         workflow.keyboard_closed();

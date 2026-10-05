@@ -315,6 +315,15 @@ pub struct Keyboard {
     pending_typed: Option<PendingTyped>,
 }
 impl Keyboard {
+    #[cfg(all(test, target_os = "windows"))]
+    pub(crate) fn fixture_page(&mut self, key: Key) {
+        self.choose(key);
+    }
+
+    pub fn set_panel_size(&mut self, size: crate::scan_preferences::PanelSize) {
+        self.scan.options.panel_size = size;
+    }
+
     #[cfg(test)]
     pub fn new(mac: bool) -> Self {
         Self::configured(mac, crate::scan_preferences::Resolved::default())
@@ -1004,6 +1013,8 @@ impl Keyboard {
             )
         };
         crate::scan_panel::Panel {
+            key_width: if self.positioning { 128.0 } else { 68.0 },
+            size: self.scan.options.panel_size,
             rows: self
                 .rows
                 .iter()
@@ -2272,6 +2283,45 @@ mod tests {
         assert!(!k.suspended());
     }
     #[test]
+    fn layouts_and_predictions_keep_bounds_independent_of_text() {
+        use crate::{point_scan::KeyboardLayout, scan_preferences::PanelSize};
+        let screen = Rect {
+            x: -1920.0,
+            y: -100.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        for layout in [
+            KeyboardLayout::Qwerty,
+            KeyboardLayout::SimpleQwerty,
+            KeyboardLayout::CommonLetters,
+        ] {
+            for size in [PanelSize::Small, PanelSize::Medium, PanelSize::Large] {
+                let mut keyboard = Keyboard::new(false);
+                keyboard.set_layout(layout);
+                keyboard.set_panel_size(size);
+                keyboard.enable_predictions(true);
+                let before = keyboard.frame(screen, 1.0, ScannerColor::default());
+                keyboard.predictions(
+                    Some(crate::prediction::worker::Batch {
+                        token: 42,
+                        refined: true,
+                        words: std::array::from_fn(|_| Some("extraordinary".into())),
+                    }),
+                    false,
+                );
+                let after = keyboard.frame(screen, 1.0, ScannerColor::default());
+                assert_eq!(before.tiles[0].rect, after.tiles[0].rect);
+                assert_eq!(
+                    before.tiles.iter().map(|t| t.rect).collect::<Vec<_>>(),
+                    after.tiles.iter().map(|t| t.rect).collect::<Vec<_>>()
+                );
+                assert_eq!(keyboard.rows[0].len(), 6);
+            }
+        }
+    }
+
+    #[test]
     fn geometry_fits_work_area_at_every_dock_and_scale() {
         let docks = crate::scan_panel::position_rows(|dock| dock, Default::default());
         for units in [0.75, 1.0, 1.5, 2.0, 3.0] {
@@ -2314,6 +2364,10 @@ mod tests {
         };
         let frame = k.frame(screen, 1.0, ScannerColor::default());
         assert_eq!(frame.tiles.last().unwrap().text, "Position · Select a row");
+        assert_eq!(
+            frame.tiles[1].rect.width, 128.0,
+            "position labels use utility cells rather than character cells"
+        );
         assert!(frame.tiles.iter().any(|tile| tile.text == "Bottom •"));
 
         k.choose(Key::Back);
