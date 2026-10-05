@@ -189,8 +189,6 @@ pub struct AccountView {
 /// A usable access token for the signed-in user.
 #[derive(Clone)]
 pub struct Authorized {
-    // Read by the sync engine (#986).
-    #[allow(dead_code)]
     pub user_id: String,
     pub access_token: String,
 }
@@ -287,6 +285,14 @@ impl Account {
         data.session = None;
         data.pending_email = None;
         let _ = self.store.delete();
+    }
+
+    /// The project URL and publishable key, for the database requests made by
+    /// settings sync with an `Authorized` token.
+    pub fn endpoint(&self) -> Option<(String, String)> {
+        self.config
+            .as_ref()
+            .map(|config| (config.url.clone(), config.key.clone()))
     }
 
     fn config(&self) -> Result<&Config, String> {

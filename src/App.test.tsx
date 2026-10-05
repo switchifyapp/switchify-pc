@@ -580,6 +580,22 @@ describe("Switchify PC shell", () => {
     await waitFor(() => expect(opener).toHaveFocus());
   });
 
+  it("refreshes Switch Forwarding profiles when settings sync changes them", async () => {
+    let changed: () => void = () => undefined;
+    vi.spyOn(api, "onProfilesChanged").mockImplementation(async (handler) => { changed = handler; return () => undefined; });
+    const list = vi.spyOn(api, "listProfiles");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
+    await screen.findByRole("button", { name: "New profile" });
+    const before = list.mock.calls.length;
+    list.mockResolvedValueOnce([{ id: "builtin.keyboard", version: 1, name: "Generic keyboard", provider: "mapped", builtIn: true, bindings: [] },
+      { id: "6f1c1a52-6a0e-4c2b-9d0f-2f8a7b9e4c11", version: 2, name: "Synced desk", provider: "mapped", builtIn: false, bindings: [] }]);
+    act(() => changed());
+    await waitFor(() => expect(list.mock.calls.length).toBe(before + 1));
+    expect(await screen.findByRole("button", { name: /Synced desk/ })).toBeInTheDocument();
+  });
+
   it("closes pristine new and duplicated profiles without a discard prompt", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));

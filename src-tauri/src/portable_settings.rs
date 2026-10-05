@@ -5,8 +5,6 @@
 //! registration never leave this install. Incoming documents are fully
 //! validated before anything is applied, and each section is applied through
 //! the same path as a local save so runtime state and overlays stay in step.
-// Wired up by the sync engine (#986).
-#![allow(dead_code)]
 
 use crate::{
     point_scan, remote_scan,
@@ -224,6 +222,7 @@ pub struct Plan {
 }
 
 impl Plan {
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }

@@ -733,6 +733,15 @@ export function App() {
   }, []);
 
   useEffect(() => { if (view === "profiles") void api.listProfiles().then(setProfiles).catch((reason) => setError(String(reason))); }, [view]);
+  // Settings sync can change profiles from another computer; refresh the list
+  // unless an edit is in progress, which a refresh would discard.
+  useEffect(() => {
+    if (view !== "profiles") return;
+    const stop = api.onProfilesChanged(() => {
+      if (!profileEditorDirty.current) void api.listProfiles().then(setProfiles).catch((reason) => setError(String(reason)));
+    });
+    return () => { void stop.then((unlisten) => unlisten()); };
+  }, [view]);
   const nav = useMemo(() => [
     ["home", "Home", <Home size={19} />], ["switches", "Switches", <Keyboard size={19} />], ["scanning", "Scanning", <SlidersHorizontal size={19} />], ["mouse", "Mouse", <MousePointer2 size={19} />], ["mobile", "Mobile", <Smartphone size={19} />], ["settings", "Settings", <Settings size={19} />],
     ["support", "Help", <CircleHelp size={19} />],

@@ -45,6 +45,9 @@
     "allow-verify-sign-in-code",
     "allow-cancel-sign-in",
     "allow-sign-out",
-    "allow-delete-account"
+    "allow-delete-account",
+    "allow-get-settings-sync",
+    "allow-sync-settings-now",
+    "allow-resolve-settings-sync"
   ]
 }

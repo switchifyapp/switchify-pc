@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "../api";
 import { Button, Input } from "../ui/controls";
-import type { AccountView } from "../types";
+import type { AccountView, SyncView } from "../types";
 import { SettingGroup } from "./controls";
 
-const description = "Sign in with the same account as Switchify on Android. We email you a code; there is no password.";
+const description = "Sign in to bring your settings to your other computers. It is the same account as Switchify on Android. We email you a code; there is no password.";
 
 type FocusTarget = "email" | "code" | "signOut" | "deleteAccount" | "keepAccount";
 type Screen = "loading" | "unavailable" | "keychain" | "signedIn" | "pending" | "signedOut";
@@ -125,6 +125,7 @@ export function AccountSection() {
   if (account.signedIn) {
     return <SettingGroup title="Account" description={description}>
       <p className="setting-note" role="status">Signed in as <strong>{account.email}</strong>.</p>
+      {!confirmDelete && <SyncPanel />}
       {confirmDelete
         ? <div role="group" aria-label="Confirm account deletion">
           <p className="setting-note">Deleting your account removes it and its saved settings from every device, including Switchify on Android. This cannot be undone.</p>
@@ -170,4 +171,68 @@ export function AccountSection() {
       </div>
     </form>
   </SettingGroup>;
+}
+
+const syncText: Record<SyncView["status"], string> = {
+  off: "Settings sync is starting.",
+  syncing: "Syncing settings…",
+  upToDate: "Settings are up to date.",
+  needsChoice: "This computer and your account have different settings. Choose which to keep; the other is replaced.",
+  updateRequired: "",
+  error: "",
+};
+
+/** Sync status for the signed-in account, with the first-sync choice. */
+function SyncPanel() {
+  const [sync, setSync] = useState<SyncView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const syncNowRef = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void api.settingsSync().then((view) => { if (active) setSync(view); });
+    const unlisten = api.onSettingsSync((view) => setSync(view));
+    return () => { active = false; void unlisten.then((stop) => stop()); };
+  }, []);
+
+  useEffect(() => {
+    if (restoreFocus.current && sync?.status !== "needsChoice") {
+      restoreFocus.current = false;
+      syncNowRef.current?.focus();
+    }
+  });
+
+  const run = async (action: () => Promise<SyncView>, fromChoice = false) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      restoreFocus.current = fromChoice;
+      setSync(await action());
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!sync) return null;
+  const last = sync.lastSyncedAt ? new Date(sync.lastSyncedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : null;
+  const text = sync.message ?? syncText[sync.status];
+  return <div className="sync-panel" aria-busy={busy || sync.status === "syncing"}>
+    <p className="setting-note" role="status">
+      {text}{sync.status === "upToDate" && last && <> Last synced {last}.</>}
+    </p>
+    {sync.status === "needsChoice"
+      ? <div className="privacy-choice" role="group" aria-label="Choose which settings to keep">
+        <Button className="secondary" aria-disabled={busy} onClick={() => void run(() => api.resolveSettingsSync("cloud"), true)}>Use my account&apos;s settings</Button>
+        <Button className="secondary" aria-disabled={busy} onClick={() => void run(() => api.resolveSettingsSync("local"), true)}>Keep this computer&apos;s settings</Button>
+      </div>
+      : <div className="privacy-choice">
+        <Button ref={syncNowRef} className="secondary" aria-disabled={busy || sync.status === "syncing"} onClick={() => { if (sync.status !== "syncing") void run(api.syncSettingsNow); }}>Sync now</Button>
+      </div>}
+    {error && <span className="field-error" role="alert">{error}</span>}
+  </div>;
 }

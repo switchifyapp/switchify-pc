@@ -46,6 +46,9 @@ fn main() {
         "cancel_sign_in",
         "sign_out",
         "delete_account",
+        "get_settings_sync",
+        "sync_settings_now",
+        "resolve_settings_sync",
     ]);
     let mut attributes = tauri_build::Attributes::new().app_manifest(app_manifest);
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {

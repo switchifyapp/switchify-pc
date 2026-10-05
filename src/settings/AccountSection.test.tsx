@@ -1,21 +1,74 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
-import type { AccountView } from "../types";
+import type { AccountView, SyncView } from "../types";
 import { AccountSection } from "./AccountSection";
 
 const signedOut: AccountView = { available: true, signedIn: false, email: null, pendingEmail: null, keychainUnavailable: false };
 const pending: AccountView = { ...signedOut, pendingEmail: "me@example.com" };
 const signedIn: AccountView = { ...signedOut, signedIn: true, email: "me@example.com" };
 
-function start(view: AccountView) {
+function start(view: AccountView, sync: SyncView = { status: "upToDate", lastSyncedAt: null, message: null }) {
   vi.spyOn(api, "account").mockResolvedValue(view);
   vi.spyOn(api, "onAccount").mockResolvedValue(() => undefined);
+  vi.spyOn(api, "settingsSync").mockResolvedValue(sync);
+  vi.spyOn(api, "onSettingsSync").mockResolvedValue(() => undefined);
   render(<AccountSection />);
 }
 
 describe("AccountSection", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  describe("settings sync", () => {
+    it("shows when settings last synced and can sync now", async () => {
+      start(signedIn, { status: "upToDate", lastSyncedAt: Date.UTC(2026, 9, 5, 12, 0), message: null });
+      expect(await screen.findByText(/Settings are up to date. Last synced/)).toBeInTheDocument();
+      const now = vi.spyOn(api, "syncSettingsNow").mockResolvedValue({ status: "upToDate", lastSyncedAt: Date.now(), message: null });
+      fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+      expect(now).toHaveBeenCalled();
+    });
+
+    it("asks which settings to keep and resolves the choice", async () => {
+      start(signedIn, { status: "needsChoice", lastSyncedAt: null, message: null });
+      expect(await screen.findByText(/different settings. Choose which to keep/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Sync now" })).not.toBeInTheDocument();
+      const resolve = vi.spyOn(api, "resolveSettingsSync").mockResolvedValue({ status: "upToDate", lastSyncedAt: Date.now(), message: null });
+      fireEvent.click(screen.getByRole("button", { name: "Keep this computer's settings" }));
+      expect(resolve).toHaveBeenCalledWith("local");
+      await waitFor(() => expect(screen.getByRole("button", { name: "Sync now" })).toHaveFocus());
+    });
+
+    it("can take the account settings instead", async () => {
+      start(signedIn, { status: "needsChoice", lastSyncedAt: null, message: null });
+      const resolve = vi.spyOn(api, "resolveSettingsSync").mockResolvedValue({ status: "upToDate", lastSyncedAt: Date.now(), message: null });
+      fireEvent.click(await screen.findByRole("button", { name: "Use my account's settings" }));
+      expect(resolve).toHaveBeenCalledWith("cloud");
+    });
+
+    it("shows the backend message for errors and newer app versions", async () => {
+      start(signedIn, { status: "updateRequired", lastSyncedAt: null, message: "Your synced settings were saved by a newer Switchify PC." });
+      expect(await screen.findByText(/saved by a newer Switchify PC/)).toBeInTheDocument();
+    });
+
+    it("follows sync changes from the backend", async () => {
+      let receive: (view: SyncView) => void = () => undefined;
+      vi.spyOn(api, "account").mockResolvedValue(signedIn);
+      vi.spyOn(api, "onAccount").mockResolvedValue(() => undefined);
+      vi.spyOn(api, "settingsSync").mockResolvedValue({ status: "upToDate", lastSyncedAt: null, message: null });
+      vi.spyOn(api, "onSettingsSync").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
+      render(<AccountSection />);
+      await screen.findByText("Settings are up to date.");
+      receive({ status: "error", lastSyncedAt: null, message: "Could not reach Switchify to sync settings." });
+      expect(await screen.findByText("Could not reach Switchify to sync settings.")).toBeInTheDocument();
+    });
+
+    it("is hidden while confirming account deletion", async () => {
+      start(signedIn);
+      await screen.findByRole("button", { name: "Sync now" });
+      fireEvent.click(screen.getByRole("button", { name: "Delete account…" }));
+      expect(screen.queryByRole("button", { name: "Sync now" })).not.toBeInTheDocument();
+    });
+  });
 
   it("says when accounts are unavailable in this build", async () => {
     start({ ...signedOut, available: false });
@@ -41,7 +94,7 @@ describe("AccountSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(verify).toHaveBeenCalledWith("123456");
     await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toHaveFocus());
-    expect(screen.getByRole("status")).toHaveTextContent("Signed in as me@example.com.");
+    expect(screen.getByText(/Signed in as/)).toHaveTextContent("Signed in as me@example.com.");
   });
 
   it("shows a wrong-code error and keeps the code form", async () => {
@@ -156,6 +209,8 @@ describe("AccountSection", () => {
     let receive: (view: AccountView) => void = () => undefined;
     vi.spyOn(api, "account").mockResolvedValue(signedOut);
     vi.spyOn(api, "onAccount").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
+    vi.spyOn(api, "settingsSync").mockResolvedValue({ status: "upToDate", lastSyncedAt: null, message: null });
+    vi.spyOn(api, "onSettingsSync").mockResolvedValue(() => undefined);
     render(<><button>Elsewhere</button><AccountSection /></>);
     await screen.findByLabelText("Email");
     const elsewhere = screen.getByRole("button", { name: "Elsewhere" });
@@ -181,6 +236,8 @@ describe("AccountSection", () => {
     let receive: (view: AccountView) => void = () => undefined;
     vi.spyOn(api, "account").mockResolvedValue(signedOut);
     vi.spyOn(api, "onAccount").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
+    vi.spyOn(api, "settingsSync").mockResolvedValue({ status: "upToDate", lastSyncedAt: null, message: null });
+    vi.spyOn(api, "onSettingsSync").mockResolvedValue(() => undefined);
     render(<AccountSection />);
     await screen.findByLabelText("Email");
     receive(signedIn);

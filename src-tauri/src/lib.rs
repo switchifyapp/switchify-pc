@@ -37,6 +37,7 @@ mod scan_tile;
 mod scan_tree;
 mod scanning;
 mod scanning_runtime;
+mod settings_sync;
 mod state;
 mod storage;
 mod switch_gestures;
@@ -851,6 +852,11 @@ async fn verify_sign_in_code(
     let result = account.verify_code(&code).await;
     // Emitted on failure too: a rejected session signs out mid-action.
     account::emit(&app, &account.current_view().await);
+    if result.is_ok() {
+        if let Some(sync) = app.try_state::<std::sync::Arc<settings_sync::Engine>>() {
+            sync.wake();
+        }
+    }
     result
 }
 
@@ -872,6 +878,9 @@ async fn sign_out(
     let result = account.sign_out().await;
     // Emitted on failure too: a rejected session signs out mid-action.
     account::emit(&app, &account.current_view().await);
+    if let Some(sync) = app.try_state::<std::sync::Arc<settings_sync::Engine>>() {
+        sync.wake();
+    }
     result
 }
 
@@ -883,7 +892,37 @@ async fn delete_account(
     let result = account.delete_account().await;
     // Emitted on failure too: a rejected session signs out mid-action.
     account::emit(&app, &account.current_view().await);
+    if result.is_ok() {
+        if let Some(sync) = app.try_state::<std::sync::Arc<settings_sync::Engine>>() {
+            sync.forget();
+        }
+    }
     result
+}
+
+fn sync_engine(app: &AppHandle) -> Option<std::sync::Arc<settings_sync::Engine>> {
+    app.try_state::<std::sync::Arc<settings_sync::Engine>>()
+        .map(|engine| engine.inner().clone())
+}
+
+#[tauri::command]
+fn get_settings_sync(app: AppHandle) -> settings_sync::SyncView {
+    sync_engine(&app).map_or_else(settings_sync::SyncView::unavailable, |engine| engine.view())
+}
+
+#[tauri::command]
+async fn sync_settings_now(app: AppHandle) -> Result<settings_sync::SyncView, String> {
+    let engine = sync_engine(&app).ok_or("Settings sync is unavailable in this build.")?;
+    Ok(engine.sync(None).await)
+}
+
+#[tauri::command]
+async fn resolve_settings_sync(
+    app: AppHandle,
+    choice: settings_sync::Choice,
+) -> Result<settings_sync::SyncView, String> {
+    let engine = sync_engine(&app).ok_or("Settings sync is unavailable in this build.")?;
+    Ok(engine.sync(Some(choice)).await)
 }
 
 fn publish_update(app: &AppHandle, model: &AppModel, update: UpdateView) -> AppState {
@@ -1588,6 +1627,7 @@ pub fn run() {
             switch_runtime::install(app.handle());
             remote_scan::install(app.handle());
             point_scan_runtime::install(app.handle());
+            settings_sync::install(app.handle());
             install_tray(app)?;
             if updater_is_configured(app.config().plugins.0.get("updater")) {
                 let model = app.state::<AppModel>();
@@ -1719,7 +1759,10 @@ pub fn run() {
             verify_sign_in_code,
             cancel_sign_in,
             sign_out,
-            delete_account
+            delete_account,
+            get_settings_sync,
+            sync_settings_now,
+            resolve_settings_sync
         ])
         .run(tauri::generate_context!())
         .expect("error while running Switchify PC");

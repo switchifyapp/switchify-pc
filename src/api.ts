@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AccountView, AppSettings, AppState, SwitchProfile } from "./types";
+import type { AccountView, AppSettings, AppState, SwitchProfile, SyncView } from "./types";
 
 export type ProfileExitAction = "hide" | "quit";
 export type NavigationTarget = "home" | "settings" | "profiles";
@@ -120,6 +120,19 @@ export const api = {
   cancelSignIn: () => accountCall("cancel_sign_in"),
   signOut: () => accountCall("sign_out"),
   deleteAccount: () => accountCall("delete_account"),
+  settingsSync: () => "__TAURI_INTERNALS__" in window
+    ? invoke<SyncView>("get_settings_sync")
+    : Promise.resolve<SyncView>({ status: "off", lastSyncedAt: null, message: null }),
+  syncSettingsNow: () => invoke<SyncView>("sync_settings_now"),
+  resolveSettingsSync: (choice: "local" | "cloud") => invoke<SyncView>("resolve_settings_sync", { choice }),
+  onSettingsSync: async (handler: (view: SyncView) => void): Promise<UnlistenFn> => {
+    if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
+    return listen<SyncView>("settings-sync-changed", (event) => handler(event.payload));
+  },
+  onProfilesChanged: async (handler: () => void): Promise<UnlistenFn> => {
+    if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
+    return listen("switch-profiles-changed", () => handler());
+  },
   onAccount: async (handler: (account: AccountView) => void): Promise<UnlistenFn> => {
     if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
     return listen<AccountView>("account-changed", (event) => handler(event.payload));

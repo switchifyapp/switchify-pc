@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { SwitchAction } from "./useSwitches";
 
 // Switches forwarded from Switchify Remote. Slots are positional: slot N is
@@ -40,8 +41,20 @@ export function useRemoteSwitches() {
       .catch((e) => {
         if (alive) setError(String(e));
       });
+    // Settings sync can replace the slots; reload them unless edits are
+    // still saving, in which case those edits win and sync on afterwards.
+    const stop = listen("remote-switches-changed", () => {
+      const m = model.current;
+      if (m.pending || m.revision !== m.saved) return;
+      void invoke<RemoteConfig>("get_remote_switches").then((value) => {
+        if (!alive || m.pending || m.revision !== m.saved) return;
+        m.config = value;
+        setConfig(value);
+      });
+    });
     return () => {
       alive = false;
+      void stop.then((unlisten) => unlisten());
     };
   }, []);
   const save = (revision: number, next: RemoteConfig) => {
