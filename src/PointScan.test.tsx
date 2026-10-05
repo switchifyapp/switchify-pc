@@ -619,3 +619,20 @@ it.each(["press", "release"] as const)("reports the saved %s stop instruction du
   const instruction = mouseRepeatStopEdge === "press" ? "Press a switch to stop" : "Press and release a switch to stop";
   await screen.findByText(`Scrolling. ${instruction}.`);
 });
+
+it("defaults old settings to Medium and saves one shared panel size", async () => {
+  const oldPreferences = { ...defaultScanPreferences, panelSize: undefined };
+  mocks.invoke.mockImplementation(async (command, args) => command === "get_point_scan"
+    ? { ...initial, config: { ...initial.config, scanPreferences: oldPreferences } }
+    : { ...initial, ...args });
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  more();
+  expect(screen.getByRole("button", { name: "Medium" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByRole("button", { name: "Small" }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: expect.objectContaining({ scanPreferences: expect.objectContaining({ panelSize: "small" }) })
+  }));
+  fireEvent.click(screen.getByRole("button", { name: "Customise mouse scanning" }));
+  expect(screen.queryByText("Panel size")).not.toBeInTheDocument();
+});

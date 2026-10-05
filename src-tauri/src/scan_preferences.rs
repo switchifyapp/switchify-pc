@@ -32,6 +32,24 @@ impl Thickness {
         }
     }
 }
+/// Shared visual size for panels; never changes point scanning or pointer markers.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PanelSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+impl PanelSize {
+    pub fn scale(self) -> f64 {
+        match self {
+            Self::Small => 0.8,
+            Self::Medium => 1.0,
+            Self::Large => 1.2,
+        }
+    }
+}
 /// Whether scanning moves on by itself after a selection that performed
 /// an action.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,6 +94,7 @@ pub struct Overrides {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Preferences {
+    pub panel_size: PanelSize,
     pub direction: Direction,
     pub pass_limit: usize,
     pub pattern: Pattern,
@@ -90,6 +109,7 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            panel_size: PanelSize::Medium,
             direction: Direction::Forward,
             pass_limit: 3,
             pattern: Pattern::Grouped,
@@ -105,6 +125,7 @@ impl Default for Preferences {
 }
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Resolved {
+    pub panel_size: PanelSize,
     pub automatic: bool,
     pub interval_ms: u64,
     pub direction: Direction,
@@ -143,6 +164,7 @@ impl Preferences {
             Area::Mouse => self.mouse,
         };
         Resolved {
+            panel_size: self.panel_size,
             automatic: local.automatic.unwrap_or(automatic),
             interval_ms: local
                 .interval_ms
@@ -200,6 +222,7 @@ fn forget_unknown_choices(value: &mut serde_json::Value, optional: bool) {
         return;
     };
     fields.retain(|name, choice| match name.as_str() {
+        "panelSize" => !optional && PanelSize::deserialize(&*choice).is_ok(),
         "nextScan" => (optional && choice.is_null()) || NextScan::deserialize(&*choice).is_ok(),
         "startFrom" => (optional && choice.is_null()) || StartFrom::deserialize(&*choice).is_ok(),
         _ => true,
@@ -212,6 +235,37 @@ mod tests {
     fn read(value: serde_json::Value) -> Preferences {
         deserialize_preferences(value).unwrap()
     }
+    #[test]
+    fn shared_panel_size_defaults_round_trips_and_ignores_local_overrides() {
+        for value in [
+            serde_json::json!({}),
+            serde_json::json!({"panelSize":"future", "direction":"reverse"}),
+        ] {
+            let preferences = read(value.clone());
+            assert_eq!(preferences.panel_size, PanelSize::Medium);
+            if value.get("direction").is_some() {
+                assert_eq!(preferences.direction, Direction::Reverse);
+            }
+        }
+        for size in [PanelSize::Small, PanelSize::Medium, PanelSize::Large] {
+            let preferences = Preferences {
+                panel_size: size,
+                ..Default::default()
+            };
+            let mut value = serde_json::to_value(&preferences).unwrap();
+            value["mouse"] = serde_json::json!({"panelSize":"small"});
+            let restored = read(value);
+            for area in [Area::Menu, Area::Mouse, Area::Keyboard] {
+                assert_eq!(
+                    restored
+                        .resolve(area, false, 1000, ScannerColor::Blue)
+                        .panel_size,
+                    size
+                );
+            }
+        }
+    }
+
     #[test]
     fn after_selection_choices_default_to_standard_and_round_trip() {
         let saved = read(serde_json::json!({"direction":"reverse"}));

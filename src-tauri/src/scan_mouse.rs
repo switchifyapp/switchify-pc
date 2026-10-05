@@ -47,6 +47,10 @@ pub struct MousePanel {
 }
 
 impl MousePanel {
+    pub fn set_panel_size(&mut self, size: crate::scan_preferences::PanelSize) {
+        self.scan.options.panel_size = size;
+    }
+
     pub fn new(options: Resolved, displays: usize, speed_percent: u16) -> Self {
         let rows = Self::rows(false, false, displays);
         let scan = ItemScanner::configured_rows(&rows, Policy::KEYBOARD, options);
@@ -258,6 +262,8 @@ impl MousePanel {
         };
         let scanning = repeating.is_none() && !self.scan.suspended;
         Panel {
+            key_width: 128.0,
+            size: self.scan.options.panel_size,
             rows: self
                 .rows
                 .iter()
@@ -296,6 +302,64 @@ impl MousePanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compact_geometry_scales_uniformly_and_keeps_direction_columns() {
+        use crate::scan_preferences::PanelSize;
+        for size in [PanelSize::Small, PanelSize::Medium, PanelSize::Large] {
+            for units in [1.0, 1.5, 2.0] {
+                for (width, height) in [(1920.0, 1080.0), (320.0, 240.0)] {
+                    let screen = Rect {
+                        x: -1920.0,
+                        y: -100.0,
+                        width,
+                        height,
+                    };
+                    let mut mouse = MousePanel::new(
+                        Resolved {
+                            panel_size: size,
+                            ..Default::default()
+                        },
+                        1,
+                        100,
+                    );
+                    for row in 0..3 {
+                        for column in 0..3 {
+                            mouse.dock = Dock { row, column };
+                            let frame = mouse.frame(screen, units, ScannerColor::default(), None);
+                            let bounds = frame.tiles[0].rect;
+                            let scale = (units * size.scale())
+                                .min(width / 568.0)
+                                .min(height / 392.0);
+                            assert!((bounds.width - 568.0 * scale).abs() < 1e-8);
+                            assert!((bounds.height - 392.0 * scale).abs() < 1e-8);
+                            for tile in &frame.tiles {
+                                assert!(
+                                    tile.rect.x >= screen.x - 1e-8
+                                        && tile.rect.y >= screen.y - 1e-8
+                                );
+                                assert!(tile.rect.x + tile.rect.width <= screen.x + width + 1e-8);
+                                assert!(tile.rect.y + tile.rect.height <= screen.y + height + 1e-8);
+                            }
+                            // Background, four actions, four upper directions, then left/right.
+                            assert_eq!(frame.tiles[5].rect.x, frame.tiles[9].rect.x);
+                            assert_eq!(frame.tiles[7].rect.x, frame.tiles[10].rect.x);
+                            assert!((frame.tiles[1].scale - scale).abs() < 1e-8);
+                            mouse.error = true;
+                            assert_eq!(
+                                mouse
+                                    .frame(screen, units, ScannerColor::default(), None)
+                                    .tiles[0]
+                                    .rect,
+                                bounds
+                            );
+                            mouse.error = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn pages_and_monitor_controls_follow_available_displays() {
@@ -530,7 +594,7 @@ mod tests {
     }
 
     #[test]
-    fn panel_matches_keyboard_geometry_and_reports_its_state() {
+    fn panel_is_narrower_than_keyboard_and_reports_its_state() {
         let screen = Rect {
             x: 0.0,
             y: 0.0,
@@ -541,12 +605,13 @@ mod tests {
         let mut panel = MousePanel::new(Resolved::default(), 1, 100);
         let frame = panel.frame(screen, 1.0, color, None);
         let keyboard = crate::scan_keyboard::Keyboard::new(false).frame(screen, 1.0, color);
-        assert_eq!(frame.tiles[0].rect, keyboard.tiles[0].rect);
+        assert!(frame.tiles[0].rect.width < keyboard.tiles[0].rect.width);
+        assert_eq!(frame.tiles[0].rect.width, 568.0);
         assert!(frame.label.is_none());
         let status = frame.tiles.last().unwrap();
         assert_eq!(status.style.unwrap().role, TileRole::Status);
         assert_eq!(status.text, "Movement · Select a row");
-        assert_eq!(status.rect.x, keyboard.tiles.last().unwrap().rect.x);
+        assert_eq!(status.rect.x, frame.tiles[0].rect.x + 16.0);
         let close = &frame.tiles[frame.tiles.len() - 2];
         assert_eq!(close.text, "Switch to Point");
         assert_eq!(close.style.unwrap().role, TileRole::Toolbar);

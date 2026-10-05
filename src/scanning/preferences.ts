@@ -1,4 +1,5 @@
 import type { PointScanConfig, ScannerColor } from './useScanning';
+export type PanelSize = 'small' | 'medium' | 'large';
 export type ScanArea = 'point' | 'menu' | 'keyboard' | 'mouse';
 export type ScanOptions = {
   automatic: boolean;
@@ -13,9 +14,9 @@ export type ScanOptions = {
   startFrom: 'standard' | 'beginning' | 'selection';
 };
 export type ScanPreferences = Pick<ScanOptions, 'direction' | 'passLimit' | 'pattern' | 'thickness'>
-  & Partial<Pick<ScanOptions, 'nextScan' | 'startFrom'>> & Record<ScanArea, Partial<ScanOptions>>;
+  & { panelSize?: PanelSize } & Partial<Pick<ScanOptions, 'nextScan' | 'startFrom'>> & Record<ScanArea, Partial<ScanOptions>>;
 export const defaultScanPreferences: ScanPreferences = {
-  direction: 'forward', passLimit: 3, pattern: 'grouped', thickness: 'standard',
+  panelSize: 'medium', direction: 'forward', passLimit: 3, pattern: 'grouped', thickness: 'standard',
   point: {}, menu: {}, keyboard: {}, mouse: {},
 };
 /** Wait after typing, saved before the choice existed for every scanner, is still in effect. */
