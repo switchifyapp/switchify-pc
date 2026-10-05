@@ -783,7 +783,9 @@ fn save_switch_profile(
         }
         if data.profiles.iter().any(|candidate| {
             candidate.id != profile.id && candidate.name.eq_ignore_ascii_case(profile.name.trim())
-        }) {
+        }) || state::reserved_profile_names()
+            .any(|reserved| reserved.eq_ignore_ascii_case(profile.name.trim()))
+        {
             return Err("Profile names must be unique.".into());
         }
         profile.name = profile.name.trim().into();

@@ -191,10 +191,22 @@ pub fn parse(value: Value, schema_version: u32) -> Result<Document, ParseError> 
             "unsupported version {schema_version}"
         )));
     }
-    let document: Document =
-        serde_json::from_value(value).map_err(|error| ParseError::Invalid(error.to_string()))?;
+    let document: Document = serde_json::from_value(value.clone())
+        .map_err(|error| ParseError::Invalid(error.to_string()))?;
     if document.schema_version != schema_version {
         return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    // Some sections deserialize leniently (defaults for missing fields,
+    // ignored unknown fields, scan preferences falling back to defaults).
+    // Requiring an exact round trip means a partial document, or one with
+    // fields this build does not know, is rejected instead of silently
+    // resetting settings. Any change to a synced type needs a schema bump.
+    let canonical =
+        serde_json::to_value(&document).map_err(|error| ParseError::Invalid(error.to_string()))?;
+    if canonical != value {
+        return Err(ParseError::Invalid(
+            "it does not match this version's settings".into(),
+        ));
     }
     Ok(document)
 }
@@ -265,10 +277,9 @@ fn merge_profiles(
         return Err("No more than 32 custom profiles can be saved.".into());
     }
     let mut ids = HashSet::new();
-    let mut names: HashSet<String> = local
-        .iter()
-        .filter(|profile| profile.built_in)
-        .map(|profile| profile.name.to_lowercase())
+    // Compared like save_switch_profile does (ASCII case-insensitive).
+    let mut names: HashSet<String> = crate::state::reserved_profile_names()
+        .map(str::to_ascii_lowercase)
         .collect();
     let mut merged = Vec::with_capacity(incoming.len());
     for mut profile in incoming {
@@ -277,7 +288,15 @@ fn merge_profiles(
         if !ids.insert(profile.id.clone()) {
             return Err("Custom profile identity is invalid.".into());
         }
-        if !names.insert(profile.name.to_lowercase()) {
+        // Installs saved before built-in names were reserved on every
+        // platform may hold e.g. a custom "Grid 3" from a Mac. Rename it
+        // rather than rejecting the whole document on Windows.
+        if crate::state::reserved_profile_names()
+            .any(|reserved| reserved.eq_ignore_ascii_case(&profile.name))
+        {
+            profile.name = format!("{} (custom)", profile.name);
+        }
+        if !names.insert(profile.name.to_ascii_lowercase()) {
             return Err("Profile names must be unique.".into());
         }
         if let Some(existing) = local
@@ -323,7 +342,12 @@ pub struct Applied {
 
 /// Reads this install, plans the incoming document against it and applies
 /// the differences. Must run on the main thread, like the settings commands
-/// it shares paths with.
+/// it shares paths with (dispatch with `run_on_main_thread`).
+///
+/// Validation happens up front, but a later step can still fail (a file
+/// write, an active switch capture). Sections applied before the failure
+/// stay applied; because each call re-plans from current state, retrying
+/// the same document converges.
 pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
     if crate::switch_practice::active(app) {
         return Err("Finish practice before synced settings can be applied.".into());
@@ -584,7 +608,11 @@ mod tests {
         let invalid: [fn(&mut Document); 4] = [
             |d| d.profiles[0].built_in = true,
             |d| d.profiles[0].id = "not-a-uuid".into(),
-            |d| d.profiles[0].name = "Generic keyboard".into(),
+            |d| {
+                let mut other = custom_profile(PROFILE_B, "DESK", "Tab");
+                other.version = 1;
+                d.profiles.push(other);
+            },
             |d| {
                 let copy = d.profiles[0].clone();
                 d.profiles.push(copy);
@@ -641,5 +669,103 @@ mod tests {
         let profiles = plan(&local, incoming).unwrap().profiles.unwrap();
         assert!(profiles.iter().all(|profile| profile.built_in));
         assert!(!profiles.is_empty());
+    }
+
+    #[test]
+    fn reserved_names_cover_every_platform_built_in() {
+        let mut reserved: Vec<_> = crate::state::reserved_profile_names().collect();
+        let mut built_in: Vec<_> = built_in_profiles(true)
+            .into_iter()
+            .map(|profile| profile.name)
+            .collect();
+        reserved.sort_unstable();
+        built_in.sort_unstable();
+        assert_eq!(reserved, built_in);
+    }
+
+    #[test]
+    fn profile_named_after_another_platforms_built_in_is_renamed() {
+        // A Mac has no built-in "Grid 3", so a custom one could exist there.
+        let local = local();
+        let mut incoming = local.document();
+        incoming.profiles[0].name = "grid 3".into();
+        let profiles = plan(&local, incoming).unwrap().profiles.unwrap();
+        let desk = profiles.iter().find(|p| p.id == PROFILE_A).unwrap();
+        assert_eq!(desk.name, "grid 3 (custom)");
+    }
+
+    #[test]
+    fn profile_names_compare_like_local_saves() {
+        // save_switch_profile compares ASCII case-insensitively, so both of
+        // these can exist on one install and must sync.
+        let local = local();
+        let mut incoming = local.document();
+        incoming.profiles[0].name = "Été".into();
+        let mut second = custom_profile(PROFILE_B, "été", "Tab");
+        second.version = 1;
+        incoming.profiles.push(second);
+        assert!(plan(&local, incoming).unwrap().profiles.is_some());
+    }
+
+    #[test]
+    fn parse_rejects_lossy_point_scan_sections() {
+        let document = serde_json::to_value(local().document()).unwrap();
+        let lossy: [fn(&mut Value); 4] = [
+            // Partial section: missing fields would silently become defaults.
+            |v| v["pointScan"] = json!({}),
+            // A field from a newer build would be dropped without a trace.
+            |v| v["pointScan"]["futureSetting"] = json!(true),
+            // An unknown scan preference value resets all scan preferences.
+            |v| v["pointScan"]["scanPreferences"] = json!("garbage"),
+            |v| v["pointScan"]["scanPreferences"]["pattern"] = json!("spiral"),
+        ];
+        for corrupt in lossy {
+            let mut value = document.clone();
+            corrupt(&mut value);
+            assert!(
+                matches!(parse(value.clone(), 1), Err(ParseError::Invalid(_))),
+                "accepted {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn synced_point_scan_fields_are_deliberate() {
+        // Changing point_scan::Config changes what syncs. Update this list
+        // and bump SCHEMA_VERSION together.
+        let value = serde_json::to_value(local().document()).unwrap();
+        let mut fields: Vec<_> = value["pointScan"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        fields.sort_unstable();
+        assert_eq!(
+            fields,
+            [
+                "autoSelectDelayMs",
+                "autoSelectEnabled",
+                "automatic",
+                "backKey",
+                "blockIntervalMs",
+                "controlMode",
+                "enhancedWordPrediction",
+                "gridSize",
+                "keyboardLayout",
+                "keyboardWaitAfterTyping",
+                "mode",
+                "mouseRepeatStopEdge",
+                "nextKey",
+                "panelAvoidsPointer",
+                "pauseKey",
+                "scanPreferences",
+                "scannerColor",
+                "selectKey",
+                "speed",
+                "startWith",
+                "wordPrediction",
+            ]
+        );
     }
 }

@@ -252,6 +252,12 @@ fn default_profile_version() -> u32 {
     1
 }
 
+/// Built-in profile names on any platform. Custom profiles may not use them,
+/// so a profile synced from another platform never clashes with a built-in.
+pub fn reserved_profile_names() -> impl Iterator<Item = &'static str> {
+    ["Generic keyboard", "Grid 3"].into_iter()
+}
+
 pub fn built_in_profiles(include_grid3: bool) -> Vec<SwitchProfile> {
     let none = |id| SwitchBinding {
         switch_id: id,
