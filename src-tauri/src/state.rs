@@ -252,6 +252,44 @@ fn default_profile_version() -> u32 {
     1
 }
 
+/// Built-in profile names on any platform. Custom profiles may not use them,
+/// so a profile synced from another platform never clashes with a built-in.
+pub fn reserved_profile_names() -> impl Iterator<Item = &'static str> {
+    ["Generic keyboard", "Grid 3"].into_iter()
+}
+
+fn is_reserved_profile_name(name: &str) -> bool {
+    reserved_profile_names().any(|reserved| reserved.eq_ignore_ascii_case(name.trim()))
+}
+
+/// Renames custom profiles saved before built-in names were reserved (e.g. a
+/// custom "Grid 3" made on a Mac) to the first free "<name> (custom)",
+/// "<name> (custom 2)", ... The result depends only on the list, so every
+/// install renames the same profiles the same way.
+pub fn rename_reserved_profiles(profiles: &mut [SwitchProfile]) {
+    for index in 0..profiles.len() {
+        if profiles[index].built_in || !is_reserved_profile_name(&profiles[index].name) {
+            continue;
+        }
+        let base = profiles[index].name.trim().to_string();
+        let name = (1..)
+            .map(|n| match n {
+                1 => format!("{base} (custom)"),
+                n => format!("{base} (custom {n})"),
+            })
+            .find(|candidate| {
+                !is_reserved_profile_name(candidate)
+                    && !profiles
+                        .iter()
+                        .any(|profile| profile.name.trim().eq_ignore_ascii_case(candidate))
+            })
+            .expect("an unused suffix always exists");
+        let profile = &mut profiles[index];
+        profile.name = name;
+        profile.version = profile.version.saturating_add(1);
+    }
+}
+
 pub fn built_in_profiles(include_grid3: bool) -> Vec<SwitchProfile> {
     let none = |id| SwitchBinding {
         switch_id: id,
@@ -373,6 +411,7 @@ impl AppModel {
                 .into_iter()
                 .filter(|profile| !profile.built_in),
         );
+        rename_reserved_profiles(&mut profiles);
         let mut engine = ProtocolEngine::new(desktop_id.clone());
         let saved_pairing_count = saved.paired_devices.len();
         let saved_paired_devices = saved.paired_devices;
