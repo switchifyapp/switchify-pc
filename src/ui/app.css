@@ -623,6 +623,8 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
   .toggle-row[data-disabled="true"] input:checked + .toggle::after { background: Canvas; }
   /* Opting out of forced colours would also keep the page's focus blue. */
   .toggle-row input:focus-visible + .toggle { outline-color: CanvasText; }
+  /* Native :disabled is greyed by the system; aria-disabled is not. */
+  .btn[aria-disabled="true"] { color: GrayText; border-color: GrayText; }
   .color-swatch, .scanner-sample { forced-color-adjust: none; }
   /* A white or yellow swatch would vanish on a light Canvas without an edge. */
   .color-swatch, .color-swatch.white { border: 2px solid CanvasText; }

@@ -7,6 +7,15 @@ import { SettingGroup } from "./controls";
 const description = "Sign in with the same account as Switchify on Android. We email you a code; there is no password.";
 
 type FocusTarget = "email" | "code" | "signOut" | "deleteAccount" | "keepAccount";
+type Screen = "loading" | "unavailable" | "keychain" | "signedIn" | "pending" | "signedOut";
+
+function screenOf(account: AccountView | null): Screen {
+  if (!account) return "loading";
+  if (!account.available) return "unavailable";
+  if (account.keychainUnavailable) return "keychain";
+  if (account.signedIn) return "signedIn";
+  return account.pendingEmail ? "pending" : "signedOut";
+}
 
 export function AccountSection() {
   const [account, setAccount] = useState<AccountView | null>(null);
@@ -36,6 +45,31 @@ export function AccountSection() {
     const unlisten = api.onAccount((view) => setAccount(view));
     return () => { active = false; void unlisten.then((stop) => stop()); };
   }, []);
+
+  // The backend can change screens on its own, e.g. a session rejected in the
+  // middle of an action. Never carry a delete confirmation or a code into
+  // another screen, and if the focused control vanished, focus the new
+  // screen instead of leaving focus on the page. Focus that is still on a
+  // control (such as the tabs) is left alone.
+  const keychainRef = useRef<HTMLParagraphElement>(null);
+  const screen = screenOf(account);
+  const previousScreen = useRef<Screen>(screen);
+  useEffect(() => {
+    const previous = previousScreen.current;
+    previousScreen.current = screen;
+    if (previous === screen) return;
+    if (screen !== "signedIn") setConfirmDelete(false);
+    if (screen !== "pending") setCode("");
+    const active = document.activeElement;
+    if (previous === "loading" || (active && active !== document.body)) return;
+    const first: Partial<Record<Screen, () => HTMLElement | null>> = {
+      signedOut: () => emailRef.current,
+      pending: () => codeRef.current,
+      signedIn: () => signOutRef.current,
+      keychain: () => keychainRef.current,
+    };
+    first[screen]?.()?.focus();
+  }, [screen]);
 
   useEffect(() => {
     if (!focusNext) return;
@@ -85,7 +119,7 @@ export function AccountSection() {
   }
 
   if (account.keychainUnavailable) {
-    return <SettingGroup title="Account" description={description}><p className="setting-note" role="status">Your saved sign-in can't be read because this computer's keychain is locked or unavailable. Unlock it, then reopen this tab.</p></SettingGroup>;
+    return <SettingGroup title="Account" description={description}><p ref={keychainRef} tabIndex={-1} className="setting-note" role="status">Your saved sign-in can't be read because this computer's keychain is locked or unavailable. Unlock it, then reopen this tab.</p></SettingGroup>;
   }
 
   if (account.signedIn) {

@@ -256,6 +256,13 @@ impl Account {
         data
     }
 
+    /// The view without re-reading the keychain, for reporting state after an
+    /// action (a second read could prompt again on a locked keychain).
+    pub async fn current_view(&self) -> AccountView {
+        let data = self.lock(false).await;
+        self.view_of(&data)
+    }
+
     pub async fn view(&self) -> AccountView {
         let data = self.lock(true).await;
         self.view_of(&data)

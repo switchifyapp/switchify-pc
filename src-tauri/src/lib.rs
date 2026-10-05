@@ -827,7 +827,7 @@ async fn request_sign_in_code(
 ) -> Result<account::AccountView, String> {
     let result = account.request_code(&email).await;
     // Emitted on failure too: a rejected session signs out mid-action.
-    account::emit(&app, &account.view().await);
+    account::emit(&app, &account.current_view().await);
     result
 }
 
@@ -839,7 +839,7 @@ async fn verify_sign_in_code(
 ) -> Result<account::AccountView, String> {
     let result = account.verify_code(&code).await;
     // Emitted on failure too: a rejected session signs out mid-action.
-    account::emit(&app, &account.view().await);
+    account::emit(&app, &account.current_view().await);
     result
 }
 
@@ -860,7 +860,7 @@ async fn sign_out(
 ) -> Result<account::AccountView, String> {
     let result = account.sign_out().await;
     // Emitted on failure too: a rejected session signs out mid-action.
-    account::emit(&app, &account.view().await);
+    account::emit(&app, &account.current_view().await);
     result
 }
 
@@ -871,7 +871,7 @@ async fn delete_account(
 ) -> Result<account::AccountView, String> {
     let result = account.delete_account().await;
     // Emitted on failure too: a rejected session signs out mid-action.
-    account::emit(&app, &account.view().await);
+    account::emit(&app, &account.current_view().await);
     result
 }
 

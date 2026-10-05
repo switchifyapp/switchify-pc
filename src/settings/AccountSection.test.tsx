@@ -118,6 +118,53 @@ describe("AccountSection", () => {
     await waitFor(() => expect(screen.getByLabelText("Code from the email")).toHaveFocus());
   });
 
+  it("never carries a delete confirmation into the next sign-in after a rejected session", async () => {
+    let receive: (view: AccountView) => void = () => undefined;
+    vi.spyOn(api, "account").mockResolvedValue(signedIn);
+    vi.spyOn(api, "onAccount").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
+    // The backend signs out (and emits) before the command fails.
+    vi.spyOn(api, "deleteAccount").mockImplementation(async () => {
+      receive(signedOut);
+      throw "You were signed out. Sign in again.";
+    });
+    render(<AccountSection />);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete account…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You were signed out.");
+    await waitFor(() => expect(screen.getByLabelText("Email")).toHaveFocus());
+    receive(signedIn);
+    expect(await screen.findByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete permanently" })).not.toBeInTheDocument();
+  });
+
+  it("focuses the keychain notice when a request finds the keychain locked", async () => {
+    let receive: (view: AccountView) => void = () => undefined;
+    vi.spyOn(api, "account").mockResolvedValue(signedOut);
+    vi.spyOn(api, "onAccount").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
+    vi.spyOn(api, "requestSignInCode").mockImplementation(async () => {
+      receive({ ...signedOut, keychainUnavailable: true });
+      throw "This computer's keychain is unavailable. Unlock it, then try again.";
+    });
+    render(<AccountSection />);
+    const field = await screen.findByLabelText("Email");
+    fireEvent.change(field, { target: { value: "me@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Email me a code" }));
+    await waitFor(() => expect(screen.getByText(/keychain is locked or unavailable/)).toHaveFocus());
+  });
+
+  it("leaves focus alone when the backend changes screens while focus is elsewhere", async () => {
+    let receive: (view: AccountView) => void = () => undefined;
+    vi.spyOn(api, "account").mockResolvedValue(signedOut);
+    vi.spyOn(api, "onAccount").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
+    render(<><button>Elsewhere</button><AccountSection /></>);
+    await screen.findByLabelText("Email");
+    const elsewhere = screen.getByRole("button", { name: "Elsewhere" });
+    elsewhere.focus();
+    receive(signedIn);
+    await screen.findByRole("button", { name: "Sign out" });
+    expect(elsewhere).toHaveFocus();
+  });
+
   it("does not move focus when the tab opens with a pending code", async () => {
     start(pending);
     const field = await screen.findByLabelText("Code from the email");
