@@ -39,6 +39,12 @@
     "allow-download-update",
     "allow-cancel-update-download",
     "allow-install-update",
-    "allow-export-diagnostics"
+    "allow-export-diagnostics",
+    "allow-get-account",
+    "allow-request-sign-in-code",
+    "allow-verify-sign-in-code",
+    "allow-cancel-sign-in",
+    "allow-sign-out",
+    "allow-delete-account"
   ]
 }

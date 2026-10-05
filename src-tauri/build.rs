@@ -40,6 +40,12 @@ fn main() {
         "cancel_update_download",
         "install_update",
         "export_diagnostics",
+        "get_account",
+        "request_sign_in_code",
+        "verify_sign_in_code",
+        "cancel_sign_in",
+        "sign_out",
+        "delete_account",
     ]);
     let mut attributes = tauri_build::Attributes::new().app_manifest(app_manifest);
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {

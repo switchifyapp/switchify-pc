@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-verify-sign-in-code"
+description = "Enables the verify_sign_in_code command without any pre-configured scope."
+commands.allow = ["verify_sign_in_code"]
+
+[[permission]]
+identifier = "deny-verify-sign-in-code"
+description = "Denies the verify_sign_in_code command without any pre-configured scope."
+commands.deny = ["verify_sign_in_code"]
