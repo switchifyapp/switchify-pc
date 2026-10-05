@@ -1140,6 +1140,17 @@ mod tests {
                     return Ok(None);
                 }
                 self.applied.lock().unwrap().push(document.clone());
+                // Profiles are stored the way the app stores them (version
+                // rules included), which is what can make computers drift.
+                let mut document = document;
+                if let Some(profiles) =
+                    portable_settings::merge_profiles(&expected.profiles, document.profiles.clone())
+                        .unwrap()
+                {
+                    document.profiles = profiles;
+                } else {
+                    document.profiles = expected.profiles.clone();
+                }
                 let transform = self.transform.lock().unwrap().take();
                 let stored = transform.map_or(document.clone(), |t| t(document));
                 self.set_local(stored.clone());
@@ -1424,6 +1435,50 @@ mod tests {
             &with_profiles(untouched(), vec![]),
         );
         assert!(merged.profiles.is_empty());
+    }
+
+    #[tokio::test]
+    async fn two_computers_settle_after_losing_profile_races() {
+        // The review sequence: each computer loses one same-profile race,
+        // which bumps its version for that profile. Afterwards any change
+        // must settle instead of the two uploading to each other forever.
+        let start = with_profiles(untouched(), vec![profile(A, "P"), profile(B, "Q")]);
+        let remote = Arc::new(FakeRemote::default());
+        let host_a = Arc::new(FakeHost::new(start.clone()));
+        let host_b = Arc::new(FakeHost::new(start.clone()));
+        let (a, b) = (engine(&remote, &host_a), engine(&remote, &host_b));
+        a.sync(None).await;
+        b.sync(None).await;
+        let rename = |host: &FakeHost, index: usize, name: &str| {
+            let mut document = host.local_now();
+            document.profiles[index].name = name.into();
+            document.profiles[index].version += 1;
+            host.set_local(document);
+        };
+        // Both edit P; A uploads first and B loses.
+        rename(&host_a, 0, "P from A");
+        rename(&host_b, 0, "P from B");
+        a.sync(None).await;
+        b.sync(None).await;
+        a.sync(None).await;
+        // Both edit Q; B uploads first and A loses.
+        rename(&host_b, 1, "Q from B");
+        rename(&host_a, 1, "Q from A");
+        b.sync(None).await;
+        a.sync(None).await;
+        b.sync(None).await;
+        // One unrelated change, then many periodic checks on both.
+        host_a.set_local(with_dwell(host_a.local_now(), true));
+        let writes_before = remote.writes.lock().unwrap().len();
+        for _ in 0..10 {
+            a.sync(None).await;
+            b.sync(None).await;
+        }
+        let writes = remote.writes.lock().unwrap().len() - writes_before;
+        assert!(writes <= 2, "settled after {writes} uploads, not a loop");
+        assert_eq!(host_a.local_now(), host_b.local_now());
+        assert_eq!(remote.document(), Some(host_a.local_now()));
+        assert_eq!(names(&host_a.local_now()), ["P from A", "Q from B"]);
     }
 
     #[tokio::test]
