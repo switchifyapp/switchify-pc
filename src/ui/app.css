@@ -669,3 +669,8 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 }
 
 }
+
+/* Buttons that stay focusable while unavailable (aria-disabled) look the same
+   as disabled ones. */
+.btn[aria-disabled="true"] { cursor: default; }
+.btn[aria-disabled="true"]:not(fieldset:disabled *) { border-color: var(--border); color: var(--ink-disabled); background: var(--surface-disabled); }

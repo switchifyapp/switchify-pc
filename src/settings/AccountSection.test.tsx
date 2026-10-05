@@ -99,6 +99,25 @@ describe("AccountSection", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Could not send a sign-in code.");
   });
 
+  it("ignores repeat presses and keeps focus while a request is running", async () => {
+    start(signedOut);
+    let finish: (view: AccountView) => void = () => undefined;
+    const request = vi.spyOn(api, "requestSignInCode").mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const field = await screen.findByLabelText("Email");
+    fireEvent.change(field, { target: { value: "me@example.com" } });
+    field.focus();
+    const send = screen.getByRole("button", { name: "Email me a code" });
+    fireEvent.click(send);
+    await waitFor(() => expect(send).toHaveAttribute("aria-disabled", "true"));
+    expect(field).toHaveFocus();
+    expect(field).toHaveAttribute("readonly");
+    fireEvent.click(send);
+    fireEvent.submit(field.closest("form")!);
+    expect(request).toHaveBeenCalledTimes(1);
+    finish(pending);
+    await waitFor(() => expect(screen.getByLabelText("Code from the email")).toHaveFocus());
+  });
+
   it("does not move focus when the tab opens with a pending code", async () => {
     start(pending);
     const field = await screen.findByLabelText("Code from the email");

@@ -825,9 +825,10 @@ async fn request_sign_in_code(
     account: State<'_, account::Account>,
     email: String,
 ) -> Result<account::AccountView, String> {
-    let view = account.request_code(&email).await?;
-    account::emit(&app, &view);
-    Ok(view)
+    let result = account.request_code(&email).await;
+    // Emitted on failure too: a rejected session signs out mid-action.
+    account::emit(&app, &account.view().await);
+    result
 }
 
 #[tauri::command]
@@ -836,9 +837,10 @@ async fn verify_sign_in_code(
     account: State<'_, account::Account>,
     code: String,
 ) -> Result<account::AccountView, String> {
-    let view = account.verify_code(&code).await?;
-    account::emit(&app, &view);
-    Ok(view)
+    let result = account.verify_code(&code).await;
+    // Emitted on failure too: a rejected session signs out mid-action.
+    account::emit(&app, &account.view().await);
+    result
 }
 
 #[tauri::command]
@@ -856,9 +858,10 @@ async fn sign_out(
     app: AppHandle,
     account: State<'_, account::Account>,
 ) -> Result<account::AccountView, String> {
-    let view = account.sign_out().await?;
-    account::emit(&app, &view);
-    Ok(view)
+    let result = account.sign_out().await;
+    // Emitted on failure too: a rejected session signs out mid-action.
+    account::emit(&app, &account.view().await);
+    result
 }
 
 #[tauri::command]
@@ -866,9 +869,10 @@ async fn delete_account(
     app: AppHandle,
     account: State<'_, account::Account>,
 ) -> Result<account::AccountView, String> {
-    let view = account.delete_account().await?;
-    account::emit(&app, &view);
-    Ok(view)
+    let result = account.delete_account().await;
+    // Emitted on failure too: a rejected session signs out mid-action.
+    account::emit(&app, &account.view().await);
+    result
 }
 
 fn publish_update(app: &AppHandle, model: &AppModel, update: UpdateView) -> AppState {

@@ -119,11 +119,21 @@ impl KeyringSessionStore {
 }
 
 impl SessionStore for KeyringSessionStore {
+    /// Only an unreachable keychain is an error (retried later). An entry
+    /// that cannot be decoded or is ambiguous is removed and treated as
+    /// signed out, so it can never lock the user out of signing in.
     fn load(&self) -> Result<Option<String>, String> {
-        match Self::entry()?.get_password() {
+        let entry = Self::entry()?;
+        match entry.get_password() {
             Ok(value) => Ok(Some(value)),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(error) => Err(error.to_string()),
+            Err(
+                error @ (keyring::Error::PlatformFailure(_) | keyring::Error::NoStorageAccess(_)),
+            ) => Err(error.to_string()),
+            Err(_) => {
+                let _ = entry.delete_credential();
+                Ok(None)
+            }
         }
     }
 
@@ -236,14 +246,18 @@ impl Account {
         }
     }
 
-    async fn lock(&self) -> tokio::sync::MutexGuard<'_, Data> {
+    /// `retry_keychain` re-reads a keychain that was unreadable. Only user
+    /// actions retry, so background calls never trigger keychain prompts.
+    async fn lock(&self, retry_keychain: bool) -> tokio::sync::MutexGuard<'_, Data> {
         let mut data = self.data.lock().await;
-        self.load(&mut data);
+        if retry_keychain {
+            self.load(&mut data);
+        }
         data
     }
 
     pub async fn view(&self) -> AccountView {
-        let data = self.lock().await;
+        let data = self.lock(true).await;
         self.view_of(&data)
     }
 
@@ -258,8 +272,10 @@ impl Account {
     }
 
     /// Forgets the session on this install. Memory is cleared first so the
-    /// app never shows a session that is gone. A keychain that cannot delete
-    /// leaves a refresh token that the server has revoked or will reject.
+    /// app never shows a session that is gone. If the keychain also cannot
+    /// delete, the refresh token stays behind: it is dead after a server
+    /// sign-out or account deletion, but if that call failed too (offline)
+    /// the next launch can restore the session. Both failing is rare.
     fn forget(&self, data: &mut Data) {
         data.session = None;
         data.pending_email = None;
@@ -275,7 +291,7 @@ impl Account {
     pub async fn request_code(&self, email: &str) -> Result<AccountView, String> {
         let config = self.config()?;
         let email = normalize_email(email)?;
-        let mut data = self.lock().await;
+        let mut data = self.lock(true).await;
         if !data.loaded {
             return Err(KEYCHAIN_UNAVAILABLE.into());
         }
@@ -307,7 +323,7 @@ impl Account {
         if !(6..=10).contains(&code.len()) || !code.chars().all(|c| c.is_ascii_digit()) {
             return Err("Enter the code from the email.".into());
         }
-        let mut data = self.lock().await;
+        let mut data = self.lock(false).await;
         let email = data
             .pending_email
             .clone()
@@ -335,7 +351,7 @@ impl Account {
     }
 
     pub async fn cancel_code(&self) -> AccountView {
-        let mut data = self.lock().await;
+        let mut data = self.lock(false).await;
         data.pending_email = None;
         self.view_of(&data)
     }
@@ -344,7 +360,7 @@ impl Account {
     /// refresh token signs this install out.
     pub async fn authorize(&self) -> Result<Authorized, String> {
         let config = self.config()?;
-        let mut data = self.lock().await;
+        let mut data = self.lock(false).await;
         let session = data.session.as_ref().ok_or("Sign in first.")?;
         if let Some((token, expires)) = &session.access {
             if Instant::now() + REFRESH_MARGIN < *expires {
@@ -406,7 +422,7 @@ impl Account {
                 )
                 .await;
         }
-        let mut data = self.lock().await;
+        let mut data = self.lock(false).await;
         self.forget(&mut data);
         Ok(self.view_of(&data))
     }
@@ -428,7 +444,7 @@ impl Account {
         if !(200..=299).contains(&response.status) {
             return Err("Could not delete the account. Try again.".into());
         }
-        let mut data = self.lock().await;
+        let mut data = self.lock(false).await;
         self.forget(&mut data);
         Ok(self.view_of(&data))
     }
@@ -849,6 +865,10 @@ mod tests {
             "no sign-in over a hidden session"
         );
         store.fail_load.store(false, Ordering::SeqCst);
+        // Background calls never re-read the keychain (no prompts)...
+        assert!(account.authorize().await.is_err());
+        assert!(transport.requests().is_empty());
+        // ...but opening the Account tab does.
         let view = account.view().await;
         assert!(view.signed_in && !view.keychain_unavailable);
     }
@@ -869,9 +889,13 @@ mod tests {
         store.fail_delete.store(true, Ordering::SeqCst);
         transport.respond(204, Value::Null);
         assert!(!account.delete_account().await.unwrap().signed_in);
-        let (account, transport) = signed_in(Arc::new(MemoryStore::default())).await;
+        let store = Arc::new(MemoryStore::default());
+        let (account, transport) = signed_in(store.clone()).await;
+        store.fail_delete.store(true, Ordering::SeqCst);
         transport.respond(200, json!({}));
-        assert!(!account.sign_out().await.unwrap().signed_in);
+        let view = account.sign_out().await.unwrap();
+        assert!(!view.signed_in && view.email.is_none());
+        assert!(account.authorize().await.is_err(), "memory session is gone");
     }
 
     #[tokio::test]
@@ -956,10 +980,13 @@ mod tests {
                     .await
                     .unwrap();
                 let text = message["Text"].as_str().unwrap_or_default();
-                code = text
-                    .split(|c: char| !c.is_ascii_digit())
-                    .find(|part| part.len() == 6)
-                    .map(str::to_owned);
+                // The magic-link URL's token can contain digit runs too, so
+                // read only what follows "enter the code:".
+                code = text.rsplit_once("code:").map(|(_, rest)| {
+                    rest.chars()
+                        .filter(char::is_ascii_digit)
+                        .collect::<String>()
+                });
                 break;
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
