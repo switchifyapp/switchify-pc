@@ -4,9 +4,9 @@ import { api } from "../api";
 import type { AccountView } from "../types";
 import { AccountSection } from "./AccountSection";
 
-const signedOut: AccountView = { available: true, signedIn: false, email: null, pendingEmail: null };
+const signedOut: AccountView = { available: true, signedIn: false, email: null, pendingEmail: null, keychainUnavailable: false };
 const pending: AccountView = { ...signedOut, pendingEmail: "me@example.com" };
-const signedIn: AccountView = { available: true, signedIn: true, email: "me@example.com", pendingEmail: null };
+const signedIn: AccountView = { ...signedOut, signedIn: true, email: "me@example.com" };
 
 function start(view: AccountView) {
   vi.spyOn(api, "account").mockResolvedValue(view);
@@ -28,7 +28,9 @@ describe("AccountSection", () => {
     const request = vi.spyOn(api, "requestSignInCode").mockResolvedValue(pending);
     const verify = vi.spyOn(api, "verifySignInCode").mockResolvedValue(signedIn);
     const send = await screen.findByRole("button", { name: "Email me a code" });
-    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(send);
+    expect(request).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "me@example.com" } });
     fireEvent.click(send);
     expect(request).toHaveBeenCalledWith("me@example.com");
@@ -38,7 +40,7 @@ describe("AccountSection", () => {
     fireEvent.change(codeField, { target: { value: "123456" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(verify).toHaveBeenCalledWith("123456");
-    expect(await screen.findByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toHaveFocus());
     expect(screen.getByRole("status")).toHaveTextContent("Signed in as me@example.com.");
   });
 
@@ -56,7 +58,7 @@ describe("AccountSection", () => {
     const cancel = vi.spyOn(api, "cancelSignIn").mockResolvedValue(signedOut);
     fireEvent.click(await screen.findByRole("button", { name: "Use a different email" }));
     expect(cancel).toHaveBeenCalled();
-    expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("Email")).toHaveFocus());
   });
 
   it("signs out", async () => {
@@ -64,7 +66,7 @@ describe("AccountSection", () => {
     const signOut = vi.spyOn(api, "signOut").mockResolvedValue(signedOut);
     fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
     expect(signOut).toHaveBeenCalled();
-    expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("Email")).toHaveFocus());
   });
 
   it("asks for confirmation before deleting the account", async () => {
@@ -73,12 +75,40 @@ describe("AccountSection", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Delete account…" }));
     expect(remove).not.toHaveBeenCalled();
     expect(screen.getByText(/removes it and its saved settings from every device/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Keep account" })).toHaveFocus());
     fireEvent.click(screen.getByRole("button", { name: "Keep account" }));
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete account…" })).toHaveFocus());
     fireEvent.click(screen.getByRole("button", { name: "Delete account…" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
     expect(remove).toHaveBeenCalled();
-    expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("Email")).toHaveFocus());
+  });
+
+  it("keeps focus on the field when a request fails, and repeats the same error", async () => {
+    start(signedOut);
+    vi.spyOn(api, "requestSignInCode").mockRejectedValue("Could not send a sign-in code. Try again.");
+    const field = await screen.findByLabelText("Email");
+    fireEvent.change(field, { target: { value: "me@example.com" } });
+    field.focus();
+    fireEvent.submit(field.closest("form")!);
+    const first = await screen.findByRole("alert");
+    expect(field).toHaveFocus();
+    expect(field).not.toBeDisabled();
+    fireEvent.submit(field.closest("form")!);
+    await waitFor(() => expect(screen.getByRole("alert")).not.toBe(first));
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not send a sign-in code.");
+  });
+
+  it("does not move focus when the tab opens with a pending code", async () => {
+    start(pending);
+    const field = await screen.findByLabelText("Code from the email");
+    expect(field).not.toHaveFocus();
+  });
+
+  it("explains a locked keychain instead of offering sign-in", async () => {
+    start({ ...signedOut, keychainUnavailable: true });
+    expect(await screen.findByText(/keychain is locked or unavailable/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
   });
 
   it("follows account changes from the backend", async () => {

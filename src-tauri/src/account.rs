@@ -17,6 +17,8 @@ const KEYRING_USER: &str = "session";
 pub const ACCOUNT_EVENT: &str = "account-changed";
 /// Refresh this long before the access token expires.
 const REFRESH_MARGIN: Duration = Duration::from_secs(60);
+const KEYCHAIN_UNAVAILABLE: &str =
+    "This computer's keychain is unavailable. Unlock it, then try again.";
 
 #[derive(Clone)]
 struct Config {
@@ -157,6 +159,9 @@ struct Session {
 struct Data {
     session: Option<Session>,
     pending_email: Option<String>,
+    /// False while the keychain could not be read (e.g. locked at login);
+    /// reading is retried on the next account call.
+    loaded: bool,
 }
 
 /// Sanitized state for the webview. Never includes tokens.
@@ -167,6 +172,8 @@ pub struct AccountView {
     pub signed_in: bool,
     pub email: Option<String>,
     pub pending_email: Option<String>,
+    /// The saved sign-in could not be read from the keychain yet.
+    pub keychain_unavailable: bool,
 }
 
 /// A usable access token for the signed-in user.
@@ -201,27 +208,42 @@ impl Account {
         transport: Arc<dyn Transport>,
         store: Arc<dyn SessionStore>,
     ) -> Self {
-        let session = config
-            .as_ref()
-            .and_then(|_| store.load().ok().flatten())
-            .and_then(|value| serde_json::from_str::<StoredSession>(&value).ok())
-            .map(|stored| Session {
-                stored,
-                access: None,
-            });
-        Self {
+        let account = Self {
             config,
             transport,
             store,
-            data: tokio::sync::Mutex::new(Data {
-                session,
-                pending_email: None,
-            }),
+            data: tokio::sync::Mutex::new(Data::default()),
+        };
+        account.load(account.data.try_lock().as_deref_mut().expect("new lock"));
+        account
+    }
+
+    /// Reads the saved session once. An unreadable keychain is retried later;
+    /// an absent or corrupt entry counts as signed out (the next sign-in
+    /// overwrites it).
+    fn load(&self, data: &mut Data) {
+        if data.loaded || self.config.is_none() {
+            return;
+        }
+        if let Ok(value) = self.store.load() {
+            data.session = value
+                .and_then(|value| serde_json::from_str::<StoredSession>(&value).ok())
+                .map(|stored| Session {
+                    stored,
+                    access: None,
+                });
+            data.loaded = true;
         }
     }
 
+    async fn lock(&self) -> tokio::sync::MutexGuard<'_, Data> {
+        let mut data = self.data.lock().await;
+        self.load(&mut data);
+        data
+    }
+
     pub async fn view(&self) -> AccountView {
-        let data = self.data.lock().await;
+        let data = self.lock().await;
         self.view_of(&data)
     }
 
@@ -231,7 +253,17 @@ impl Account {
             signed_in: data.session.is_some(),
             email: data.session.as_ref().map(|s| s.stored.email.clone()),
             pending_email: data.pending_email.clone(),
+            keychain_unavailable: self.config.is_some() && !data.loaded,
         }
+    }
+
+    /// Forgets the session on this install. Memory is cleared first so the
+    /// app never shows a session that is gone. A keychain that cannot delete
+    /// leaves a refresh token that the server has revoked or will reject.
+    fn forget(&self, data: &mut Data) {
+        data.session = None;
+        data.pending_email = None;
+        let _ = self.store.delete();
     }
 
     fn config(&self) -> Result<&Config, String> {
@@ -243,7 +275,10 @@ impl Account {
     pub async fn request_code(&self, email: &str) -> Result<AccountView, String> {
         let config = self.config()?;
         let email = normalize_email(email)?;
-        let mut data = self.data.lock().await;
+        let mut data = self.lock().await;
+        if !data.loaded {
+            return Err(KEYCHAIN_UNAVAILABLE.into());
+        }
         if data.session.is_some() {
             return Err("Sign out before signing in with another email.".into());
         }
@@ -272,7 +307,7 @@ impl Account {
         if !(6..=10).contains(&code.len()) || !code.chars().all(|c| c.is_ascii_digit()) {
             return Err("Enter the code from the email.".into());
         }
-        let mut data = self.data.lock().await;
+        let mut data = self.lock().await;
         let email = data
             .pending_email
             .clone()
@@ -300,7 +335,7 @@ impl Account {
     }
 
     pub async fn cancel_code(&self) -> AccountView {
-        let mut data = self.data.lock().await;
+        let mut data = self.lock().await;
         data.pending_email = None;
         self.view_of(&data)
     }
@@ -309,7 +344,7 @@ impl Account {
     /// refresh token signs this install out.
     pub async fn authorize(&self) -> Result<Authorized, String> {
         let config = self.config()?;
-        let mut data = self.data.lock().await;
+        let mut data = self.lock().await;
         let session = data.session.as_ref().ok_or("Sign in first.")?;
         if let Some((token, expires)) = &session.access {
             if Instant::now() + REFRESH_MARGIN < *expires {
@@ -331,15 +366,18 @@ impl Account {
         match response.status {
             200..=299 => {}
             400 | 401 | 403 => {
-                self.store.delete()?;
-                data.session = None;
+                self.forget(&mut data);
                 return Err("You were signed out. Sign in again.".into());
             }
             _ => return Err("Could not reach Switchify. Try again later.".into()),
         }
         let previous = session.stored.clone();
         let refreshed = parse_session(&response.body, Some(&previous))?;
-        self.persist(&refreshed.stored)?;
+        // The server has already rotated the refresh token, so the new one
+        // must be kept in memory even if the keychain write fails; reusing the
+        // old one later would revoke the session. Only a restart before the
+        // next successful save falls back to the old token.
+        let _ = self.persist(&refreshed.stored);
         let authorized = Authorized {
             user_id: refreshed.stored.user_id.clone(),
             access_token: refreshed
@@ -368,10 +406,8 @@ impl Account {
                 )
                 .await;
         }
-        let mut data = self.data.lock().await;
-        self.store.delete()?;
-        data.session = None;
-        data.pending_email = None;
+        let mut data = self.lock().await;
+        self.forget(&mut data);
         Ok(self.view_of(&data))
     }
 
@@ -392,10 +428,8 @@ impl Account {
         if !(200..=299).contains(&response.status) {
             return Err("Could not delete the account. Try again.".into());
         }
-        let mut data = self.data.lock().await;
-        self.store.delete()?;
-        data.session = None;
-        data.pending_email = None;
+        let mut data = self.lock().await;
+        self.forget(&mut data);
         Ok(self.view_of(&data))
     }
 
@@ -463,6 +497,7 @@ pub fn emit(app: &AppHandle, view: &AccountView) {
 mod tests {
     use super::*;
     use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Mutex;
 
     #[derive(Default)]
@@ -514,21 +549,35 @@ mod tests {
     #[derive(Default)]
     struct MemoryStore {
         value: Mutex<Option<String>>,
-        fail_save: bool,
+        fail_load: AtomicBool,
+        fail_save: AtomicBool,
+        fail_delete: AtomicBool,
+    }
+
+    impl MemoryStore {
+        fn stored(&self) -> Option<String> {
+            self.value.lock().unwrap().clone()
+        }
     }
 
     impl SessionStore for MemoryStore {
         fn load(&self) -> Result<Option<String>, String> {
-            Ok(self.value.lock().unwrap().clone())
+            if self.fail_load.load(Ordering::SeqCst) {
+                return Err("locked".into());
+            }
+            Ok(self.stored())
         }
         fn save(&self, value: &str) -> Result<(), String> {
-            if self.fail_save {
+            if self.fail_save.load(Ordering::SeqCst) {
                 return Err("locked".into());
             }
             *self.value.lock().unwrap() = Some(value.into());
             Ok(())
         }
         fn delete(&self) -> Result<(), String> {
+            if self.fail_delete.load(Ordering::SeqCst) {
+                return Err("locked".into());
+            }
             *self.value.lock().unwrap() = None;
             Ok(())
         }
@@ -632,6 +681,7 @@ mod tests {
                 signed_in: true,
                 email: Some("me@example.com".into()),
                 pending_email: None,
+                keychain_unavailable: false,
             }
         );
         let requests = transport.requests();
@@ -682,10 +732,8 @@ mod tests {
 
     #[tokio::test]
     async fn keychain_failure_does_not_sign_in() {
-        let store = Arc::new(MemoryStore {
-            fail_save: true,
-            ..MemoryStore::default()
-        });
+        let store = Arc::new(MemoryStore::default());
+        store.fail_save.store(true, Ordering::SeqCst);
         let (account, transport) = account(store);
         transport.respond(200, json!({}));
         account.request_code("me@example.com").await.unwrap();
@@ -753,11 +801,77 @@ mod tests {
     async fn refresh_for_a_different_user_is_rejected() {
         let store = Arc::new(MemoryStore::default());
         signed_in(store.clone()).await;
-        let (account, transport) = account(store);
+        let (account, transport) = account(store.clone());
+        let saved = store.stored();
         let mut body = session_body("a", "r", 3600);
         body["user"]["id"] = json!("someone-else");
         transport.respond(200, body);
         assert!(account.authorize().await.is_err());
+        assert_eq!(store.stored(), saved, "mismatched session is not saved");
+        assert_eq!(
+            account.view().await.email.as_deref(),
+            Some("me@example.com")
+        );
+    }
+
+    #[tokio::test]
+    async fn rotated_refresh_token_is_kept_when_the_keychain_save_fails() {
+        let store = Arc::new(MemoryStore::default());
+        let (account, transport) = signed_in(store.clone()).await;
+        let saved = store.stored();
+        store.fail_save.store(true, Ordering::SeqCst);
+        // Force a refresh by expiring the cached access token.
+        account.data.lock().await.session.as_mut().unwrap().access = None;
+        transport.respond(200, session_body("access-2", "refresh-2", 3600));
+        assert_eq!(account.authorize().await.unwrap().access_token, "access-2");
+        assert_eq!(store.stored(), saved, "keychain keeps the last saved copy");
+        // The next refresh must use the rotated token, not the revoked one.
+        account.data.lock().await.session.as_mut().unwrap().access = None;
+        transport.respond(200, session_body("access-3", "refresh-3", 3600));
+        account.authorize().await.unwrap();
+        assert_eq!(
+            transport.requests().last().unwrap().2,
+            json!({"refresh_token": "refresh-2"})
+        );
+    }
+
+    #[tokio::test]
+    async fn locked_keychain_at_startup_is_retried() {
+        let store = Arc::new(MemoryStore::default());
+        signed_in(store.clone()).await;
+        store.fail_load.store(true, Ordering::SeqCst);
+        let (account, transport) = account(store.clone());
+        let view = account.view().await;
+        assert!(!view.signed_in && view.keychain_unavailable);
+        assert!(account.request_code("me@example.com").await.is_err());
+        assert!(
+            transport.requests().is_empty(),
+            "no sign-in over a hidden session"
+        );
+        store.fail_load.store(false, Ordering::SeqCst);
+        let view = account.view().await;
+        assert!(view.signed_in && !view.keychain_unavailable);
+    }
+
+    #[tokio::test]
+    async fn corrupt_keychain_entry_counts_as_signed_out() {
+        let store = Arc::new(MemoryStore::default());
+        *store.value.lock().unwrap() = Some("not json".into());
+        let (account, _) = account(store);
+        let view = account.view().await;
+        assert!(!view.signed_in && !view.keychain_unavailable);
+    }
+
+    #[tokio::test]
+    async fn keychain_delete_failure_still_signs_out_and_deletes() {
+        let store = Arc::new(MemoryStore::default());
+        let (account, transport) = signed_in(store.clone()).await;
+        store.fail_delete.store(true, Ordering::SeqCst);
+        transport.respond(204, Value::Null);
+        assert!(!account.delete_account().await.unwrap().signed_in);
+        let (account, transport) = signed_in(Arc::new(MemoryStore::default())).await;
+        transport.respond(200, json!({}));
+        assert!(!account.sign_out().await.unwrap().signed_in);
     }
 
     #[tokio::test]
@@ -805,7 +919,7 @@ mod tests {
     /// cargo test account::tests::local_stack -- --ignored
     #[tokio::test]
     #[ignore = "needs a local Supabase stack"]
-    async fn local_stack_sign_in_refresh_sign_out_and_delete() {
+    async fn local_stack_sign_in_refresh_and_delete() {
         let url = std::env::var("SWITCHIFY_LOCAL_SUPABASE_URL").unwrap();
         let key = std::env::var("SWITCHIFY_LOCAL_SUPABASE_KEY").unwrap();
         let mailpit = std::env::var("SWITCHIFY_LOCAL_MAILPIT_URL")

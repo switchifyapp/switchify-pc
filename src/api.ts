@@ -40,7 +40,7 @@ const emptyBindings = () => Array.from({ length: 8 }, (_, index) => ({
 }));
 
 // Browser previews have no backend, so the account is shown as unavailable.
-const browserAccount: AccountView = { available: false, signedIn: false, email: null, pendingEmail: null };
+const browserAccount: AccountView = { available: false, signedIn: false, email: null, pendingEmail: null, keychainUnavailable: false };
 const accountCall = (command: string, args?: Record<string, unknown>) => "__TAURI_INTERNALS__" in window
   ? invoke<AccountView>(command, args)
   : Promise.resolve(structuredClone(browserAccount));

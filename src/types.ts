@@ -86,4 +86,5 @@ export type AccountView = {
   signedIn: boolean;
   email: string | null;
   pendingEmail: string | null;
+  keychainUnavailable: boolean;
 };
