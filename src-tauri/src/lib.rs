@@ -21,6 +21,7 @@ mod point_scan;
 mod point_scan_activation;
 mod point_scan_runtime;
 mod point_workflow;
+mod portable_settings;
 mod prediction;
 mod protocol;
 mod remote_scan;
@@ -451,9 +452,18 @@ fn forget_device(model: State<'_, AppModel>, device_id: String) -> Result<AppSta
 fn save_settings(
     app: AppHandle,
     model: State<'_, AppModel>,
-    overlay: State<'_, overlay::CursorOverlay>,
     settings: AppSettings,
 ) -> Result<AppState, String> {
+    apply_app_settings(&app, settings)?;
+    state::set_activity(&model.shared, ActivityKind::Success, "Settings saved.");
+    Ok(model.snapshot())
+}
+
+/// Validates, persists and applies app settings with their side effects
+/// (startup registration, telemetry consent, dwell, repeats, cursor overlay).
+fn apply_app_settings(app: &AppHandle, settings: AppSettings) -> Result<(), String> {
+    let model = app.state::<AppModel>();
+    let overlay = app.state::<overlay::CursorOverlay>();
     let settings = settings.normalized()?;
     let (
         previous_start_with_system,
@@ -480,7 +490,7 @@ fn save_settings(
         )
     };
     if settings.start_with_system != previous_start_with_system {
-        update_startup_registration(&app, settings.start_with_system)?;
+        update_startup_registration(app, settings.start_with_system)?;
     }
     let next_consent = if settings.share_diagnostics != previous_share_diagnostics {
         if settings.share_diagnostics {
@@ -495,7 +505,7 @@ fn save_settings(
     if settings.dwell_click_enabled != previous_dwell_enabled
         || settings.dwell_click_delay_ms != previous_dwell_delay
     {
-        app.state::<dwell::DwellController>().cancel(&app);
+        app.state::<dwell::DwellController>().cancel(app);
     }
     // Turning either repeat off stops whatever is in flight, so the runtime
     // loops end deliberately instead of erroring out on their next tick. Only a
@@ -504,11 +514,10 @@ fn save_settings(
     if (previous_mouse_repeat_enabled && !settings.mouse_repeat_enabled)
         || (previous_key_repeat_enabled && !settings.key_repeat_enabled)
     {
-        platform_stop_mouse_repeat(&app);
+        platform_stop_mouse_repeat(app);
     }
     overlay.apply_settings(settings);
-    state::set_activity(&model.shared, ActivityKind::Success, "Settings saved.");
-    Ok(model.snapshot())
+    Ok(())
 }
 
 #[tauri::command]
@@ -775,7 +784,9 @@ fn save_switch_profile(
         }
         if data.profiles.iter().any(|candidate| {
             candidate.id != profile.id && candidate.name.eq_ignore_ascii_case(profile.name.trim())
-        }) {
+        }) || state::reserved_profile_names()
+            .any(|reserved| reserved.eq_ignore_ascii_case(profile.name.trim()))
+        {
             return Err("Profile names must be unique.".into());
         }
         profile.name = profile.name.trim().into();

@@ -14,7 +14,7 @@ use std::{
 use tauri::{AppHandle, Manager};
 pub const PROFILE_ID: &str = "builtin.switchify-scanning";
 const MAX_EVENTS: usize = 64;
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Slot {
     pub press_action: Option<Action>,
@@ -32,7 +32,7 @@ impl Slot {
             .map_or_else(|| format!("Remote switch {}", index + 1), str::to_string)
     }
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Config {
     pub schema_version: u32,
