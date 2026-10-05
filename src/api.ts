@@ -39,7 +39,7 @@ const emptyBindings = () => Array.from({ length: 8 }, (_, index) => ({
   type: "none" as const,
 }));
 
-// Browser previews have no backend, so the account is shown as unavailable.
+// Plain browser builds have no backend, so the account is shown as unavailable.
 const browserAccount: AccountView = { available: false, signedIn: false, email: null, pendingEmail: null, keychainUnavailable: false };
 const accountCall = (command: string, args?: Record<string, unknown>) => "__TAURI_INTERNALS__" in window
   ? invoke<AccountView>(command, args)
