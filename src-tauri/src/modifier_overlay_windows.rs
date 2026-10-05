@@ -938,13 +938,16 @@ mod tests {
             keyboard.dock = mouse.dock;
             keyboard.set_panel_size(size);
             keyboard.enable_predictions(true);
+            let keyboard_frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+            keyboard.fixture_page(crate::scan_keyboard::Key::Dock);
             for (name, frame) in [
                 (
                     "mouse",
                     mouse.frame(screen, 1.0, ScannerColor::default(), None),
                 ),
+                ("keyboard", keyboard_frame),
                 (
-                    "keyboard",
+                    "keyboard-position",
                     keyboard.frame(screen, 1.0, ScannerColor::default()),
                 ),
             ] {

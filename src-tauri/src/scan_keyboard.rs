@@ -315,6 +315,11 @@ pub struct Keyboard {
     pending_typed: Option<PendingTyped>,
 }
 impl Keyboard {
+    #[cfg(all(test, target_os = "windows"))]
+    pub(crate) fn fixture_page(&mut self, key: Key) {
+        self.choose(key);
+    }
+
     pub fn set_panel_size(&mut self, size: crate::scan_preferences::PanelSize) {
         self.scan.options.panel_size = size;
     }
@@ -1008,7 +1013,7 @@ impl Keyboard {
             )
         };
         crate::scan_panel::Panel {
-            key_width: 68.0,
+            key_width: if self.positioning { 128.0 } else { 68.0 },
             size: self.scan.options.panel_size,
             rows: self
                 .rows
@@ -2359,6 +2364,10 @@ mod tests {
         };
         let frame = k.frame(screen, 1.0, ScannerColor::default());
         assert_eq!(frame.tiles.last().unwrap().text, "Position · Select a row");
+        assert_eq!(
+            frame.tiles[1].rect.width, 128.0,
+            "position labels use utility cells rather than character cells"
+        );
         assert!(frame.tiles.iter().any(|tile| tile.text == "Bottom •"));
 
         k.choose(Key::Back);
