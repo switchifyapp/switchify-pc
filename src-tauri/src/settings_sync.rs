@@ -294,8 +294,8 @@ fn merge_profiles(
             .filter(|p| !cloud.iter().any(|c| c.id == p.id))
             .map(|p| p.id.clone()),
     );
-    // Versions drift between computers (applying keeps the local version
-    // when content matches), so only content counts as a change.
+    // Versions can differ between computers (e.g. after a lost race bumps one
+    // copy), so only content counts as a change.
     let content = |p: &Option<SwitchProfile>| {
         p.as_ref()
             .map(|p| (p.name.clone(), p.provider.clone(), p.bindings.clone()))
