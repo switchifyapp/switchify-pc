@@ -9,6 +9,7 @@
 
 use crate::account::{Account, Authorized};
 use crate::portable_settings::{self, Document, Local, ParseError, SCHEMA_VERSION};
+use crate::state::SwitchProfile;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::future::Future;
@@ -43,13 +44,18 @@ pub struct Row {
     pub payload: Value,
 }
 
-/// The last document synced with an account: the merge base.
+/// The last sync with an account: the merge base. The account's copy and
+/// this install's copy are kept apart because applying can normalize values
+/// (e.g. profile versions), so the two need not be equal.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Base {
     user_id: String,
     revision: i64,
-    document: Document,
+    /// The account's document at `revision`.
+    cloud: Document,
+    /// This install's document right after that sync.
+    local: Document,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,9 +130,15 @@ pub trait Host: Send + Sync {
     /// `Ok(None)` when no one is signed in.
     fn authorize(&self) -> BoxFuture<'_, Result<Option<Authorized>, String>>;
     fn local(&self) -> BoxFuture<'_, Result<Document, String>>;
-    /// Applies a document and returns the resulting local document, which
-    /// can differ (e.g. profile versions) and becomes the merge base.
-    fn apply(&self, document: Document) -> BoxFuture<'_, Result<Document, String>>;
+    /// Applies `document` if this install still matches `expected` (the
+    /// settings the merge was computed from), returning the resulting local
+    /// document, which can differ (e.g. profile versions). `Ok(None)` means
+    /// the user changed something meanwhile; the sync re-reads and retries.
+    fn apply(
+        &self,
+        expected: Document,
+        document: Document,
+    ) -> BoxFuture<'_, Result<Option<Document>, String>>;
     /// The document of an install whose settings were never changed.
     fn untouched(&self) -> Document;
     fn load_state(&self) -> State;
@@ -158,10 +170,11 @@ enum Step {
         revision: i64,
         document: Document,
     },
-    /// Apply `document` locally, then upload it if the account differs.
+    /// Apply `document` locally, then upload the result if it differs from
+    /// the account's copy.
     Apply {
         document: Document,
-        upload_over: Option<i64>,
+        upload: bool,
     },
     NeedsChoice,
 }
@@ -185,13 +198,13 @@ fn decide(
             },
             Choice::Cloud => Step::Apply {
                 document: cloud.clone(),
-                upload_over: None,
+                upload: false,
             },
         };
     }
     match base {
         Some(base) if base.revision == row.revision => {
-            if *local == base.document {
+            if *local == base.local {
                 Step::InSync
             } else {
                 Step::Upload {
@@ -201,12 +214,12 @@ fn decide(
             }
         }
         Some(base) => {
-            let merged = merge(&base.document, local, cloud);
+            let merged = merge(base, local, cloud);
             if merged == *local && merged == *cloud {
                 Step::Adopt
             } else {
                 Step::Apply {
-                    upload_over: (merged != *cloud).then_some(row.revision),
+                    upload: merged != *cloud,
                     document: merged,
                 }
             }
@@ -215,36 +228,98 @@ fn decide(
         // Nothing to lose on a computer that was never set up differently.
         None if local == untouched => Step::Apply {
             document: cloud.clone(),
-            upload_over: None,
+            upload: false,
         },
         None => Step::NeedsChoice,
     }
 }
 
-/// Three-way merge by section. A section changed on only one side takes
-/// that side; changed on both, the account's copy wins.
-fn merge(base: &Document, local: &Document, cloud: &Document) -> Document {
-    fn pick<T: Clone + PartialEq>(base: &T, local: &T, cloud: &T) -> T {
-        if local == base {
-            cloud.clone()
-        } else if cloud == base {
-            local.clone()
-        } else {
-            cloud.clone()
-        }
+/// Picks between this install's and the account's version of one value.
+/// Local changes are measured against the local base and account changes
+/// against the account base, so normalization on one side (e.g. a profile
+/// version bump on apply) never looks like a change on the other. Changed
+/// on both sides, the account's copy wins.
+fn pick<T: Clone + PartialEq>(base_local: &T, base_cloud: &T, local: &T, cloud: &T) -> T {
+    if local == base_local {
+        cloud.clone()
+    } else if cloud == base_cloud {
+        local.clone()
+    } else {
+        cloud.clone()
     }
+}
+
+/// Three-way merge by section; profiles merge one by one.
+fn merge(base: &Base, local: &Document, cloud: &Document) -> Document {
+    let (bl, bc) = (&base.local, &base.cloud);
     Document {
         schema_version: SCHEMA_VERSION,
-        app: pick(&base.app, &local.app, &cloud.app),
-        profiles: pick(&base.profiles, &local.profiles, &cloud.profiles),
-        switches: pick(&base.switches, &local.switches, &cloud.switches),
-        point_scan: pick(&base.point_scan, &local.point_scan, &cloud.point_scan),
+        app: pick(&bl.app, &bc.app, &local.app, &cloud.app),
+        profiles: merge_profiles(&bl.profiles, &bc.profiles, &local.profiles, &cloud.profiles),
+        switches: pick(&bl.switches, &bc.switches, &local.switches, &cloud.switches),
+        point_scan: pick(
+            &bl.point_scan,
+            &bc.point_scan,
+            &local.point_scan,
+            &cloud.point_scan,
+        ),
         remote_switches: pick(
-            &base.remote_switches,
+            &bl.remote_switches,
+            &bc.remote_switches,
             &local.remote_switches,
             &cloud.remote_switches,
         ),
     }
+}
+
+/// Merges custom profiles by id, so profiles added or edited on different
+/// computers at the same time are all kept. A profile deleted on one side
+/// stays deleted unless the other side changed it since the last sync.
+/// Names made equal by the merge get a numbered suffix, since names must
+/// stay unique.
+fn merge_profiles(
+    base_local: &[SwitchProfile],
+    base_cloud: &[SwitchProfile],
+    local: &[SwitchProfile],
+    cloud: &[SwitchProfile],
+) -> Vec<SwitchProfile> {
+    let find = |list: &[SwitchProfile], id: &str| list.iter().find(|p| p.id == id).cloned();
+    let mut ids: Vec<String> = cloud.iter().map(|p| p.id.clone()).collect();
+    ids.extend(
+        local
+            .iter()
+            .filter(|p| !cloud.iter().any(|c| c.id == p.id))
+            .map(|p| p.id.clone()),
+    );
+    let mut merged: Vec<SwitchProfile> = ids
+        .iter()
+        .filter_map(|id| {
+            let (bl, bc) = (find(base_local, id), find(base_cloud, id));
+            let (l, c) = (find(local, id), find(cloud, id));
+            let local_changed = l != bl;
+            let cloud_changed = c != bc;
+            match (local_changed, cloud_changed) {
+                (false, _) => c,
+                (true, false) => l,
+                // Both changed: the account wins, but an edit is never lost
+                // to a deletion on the other side.
+                (true, true) => c.or(l),
+            }
+        })
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    for profile in &mut merged {
+        if !seen.insert(profile.name.to_ascii_lowercase()) {
+            let base: String = profile.name.chars().take(44).collect();
+            let name = (2..)
+                .map(|n| format!("{base} ({n})"))
+                .find(|candidate| !seen.contains(&candidate.to_ascii_lowercase()))
+                .expect("an unused suffix always exists");
+            seen.insert(name.to_ascii_lowercase());
+            profile.name = name;
+        }
+    }
+    merged
 }
 
 fn now_ms() -> i64 {
@@ -263,23 +338,26 @@ enum Outcome {
 pub struct Engine {
     remote: Arc<dyn Remote>,
     host: Arc<dyn Host>,
-    // Only one sync runs at a time.
+    // Only one sync (or forget) runs at a time.
     running: tokio::sync::Mutex<()>,
+    // Mirrors the state file, so polling never re-reads it.
+    state: Mutex<State>,
     view: Mutex<SyncView>,
     wake: tokio::sync::Notify,
 }
 
 impl Engine {
     pub fn new(remote: Arc<dyn Remote>, host: Arc<dyn Host>) -> Self {
-        let last_synced_at = host.load_state().last_synced_at;
+        let state = host.load_state();
         Self {
             remote,
             host,
             running: tokio::sync::Mutex::new(()),
             view: Mutex::new(SyncView {
-                last_synced_at,
+                last_synced_at: state.last_synced_at,
                 ..SyncView::off()
             }),
+            state: Mutex::new(state),
             wake: tokio::sync::Notify::new(),
         }
     }
@@ -288,9 +366,24 @@ impl Engine {
         self.view.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
+    fn state(&self) -> State {
+        self.state.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    fn save(&self, state: &State) -> Result<(), String> {
+        self.host.save_state(state)?;
+        *self.state.lock().unwrap_or_else(|p| p.into_inner()) = state.clone();
+        Ok(())
+    }
+
     fn set(&self, status: Status, message: Option<String>) {
         let view = {
             let mut view = self.view.lock().unwrap_or_else(|p| p.into_inner());
+            // Repeated identical states (e.g. staying signed out) are not
+            // re-announced.
+            if view.status == status && view.message == message && status != Status::UpToDate {
+                return;
+            }
             view.status = status;
             view.message = message;
             if status == Status::UpToDate {
@@ -309,12 +402,14 @@ impl Engine {
         self.wake.notify_one();
     }
 
-    /// Forgets the merge base, e.g. after the account is deleted.
-    pub fn forget(&self) {
-        let mut state = self.host.load_state();
+    /// Forgets the merge base, e.g. after the account is deleted. Waits for
+    /// any running sync so it cannot write the base back.
+    pub async fn forget(&self) {
+        let _running = self.running.lock().await;
+        let mut state = self.state();
         state.base = None;
         state.last_synced_at = None;
-        let _ = self.host.save_state(&state);
+        let _ = self.save(&state);
         self.set(Status::Off, None);
     }
 
@@ -322,10 +417,7 @@ impl Engine {
     pub async fn sync(&self, choice: Option<Choice>) -> SyncView {
         let _running = self.running.lock().await;
         match self.host.authorize().await {
-            Ok(None) => {
-                self.set(Status::Off, None);
-                return self.view();
-            }
+            Ok(None) => self.set(Status::Off, None),
             Ok(Some(auth)) => {
                 self.set(Status::Syncing, None);
                 match self.sync_as(&auth, choice).await {
@@ -343,10 +435,10 @@ impl Engine {
     }
 
     async fn sync_as(&self, auth: &Authorized, choice: Option<Choice>) -> Result<Outcome, String> {
-        let mut state = self.host.load_state();
+        let mut state = self.state();
         if state.install_id.is_empty() {
             state.install_id = uuid::Uuid::new_v4().to_string();
-            self.host.save_state(&state)?;
+            self.save(&state)?;
         }
         for _ in 0..MAX_ATTEMPTS {
             // A base from another account is never merged with this one.
@@ -379,8 +471,8 @@ impl Engine {
                 Step::InSync => true,
                 Step::NeedsChoice => return Ok(Outcome::NeedsChoice),
                 Step::Adopt => {
-                    let (row, _) = remote.expect("adopt needs a row");
-                    self.record(&mut state, auth, row.revision, local)?;
+                    let (row, cloud) = remote.expect("adopt needs a row");
+                    self.record(&mut state, auth, row.revision, cloud.clone(), local)?;
                     true
                 }
                 Step::Create(document) => {
@@ -390,7 +482,13 @@ impl Engine {
                         .await?
                     {
                         Some(row) => {
-                            self.record(&mut state, auth, row.revision, document)?;
+                            self.record(
+                                &mut state,
+                                auth,
+                                row.revision,
+                                document.clone(),
+                                document,
+                            )?;
                             true
                         }
                         None => false,
@@ -399,20 +497,33 @@ impl Engine {
                 Step::Upload { revision, document } => {
                     self.upload(&mut state, auth, revision, document).await?
                 }
-                Step::Apply {
-                    document,
-                    upload_over,
-                } => {
+                Step::Apply { document, upload } => {
+                    let (row, cloud) = remote.expect("apply needs a row");
                     let applied = if document == local {
-                        local
+                        Some(local.clone())
                     } else {
-                        self.host.apply(document).await?
+                        self.host.apply(local.clone(), document).await?
                     };
-                    match upload_over {
-                        Some(revision) => self.upload(&mut state, auth, revision, applied).await?,
-                        None => {
-                            let (row, _) = remote.expect("apply needs a row");
-                            self.record(&mut state, auth, row.revision, applied)?;
+                    match applied {
+                        // The user changed something meanwhile: start over.
+                        None => false,
+                        Some(applied) if upload && applied != *cloud => {
+                            // Recorded before uploading with the account's copy
+                            // on both sides: if the upload fails, sections taken
+                            // from the account do not look like local changes,
+                            // while this install's own changes still do and are
+                            // uploaded on the next sync.
+                            self.record(
+                                &mut state,
+                                auth,
+                                row.revision,
+                                cloud.clone(),
+                                cloud.clone(),
+                            )?;
+                            self.upload(&mut state, auth, row.revision, applied).await?
+                        }
+                        Some(applied) => {
+                            self.record(&mut state, auth, row.revision, cloud.clone(), applied)?;
                             true
                         }
                     }
@@ -421,7 +532,8 @@ impl Engine {
             if synced {
                 return Ok(Outcome::Synced);
             }
-            // Another computer wrote first: re-read and merge again.
+            // Another computer wrote first, or the user changed something:
+            // re-read and merge again.
         }
         Err("Settings changed on another computer at the same time. They will sync shortly.".into())
     }
@@ -439,7 +551,7 @@ impl Engine {
             .await?
         {
             Some(row) => {
-                self.record(state, auth, row.revision, document)?;
+                self.record(state, auth, row.revision, document.clone(), document)?;
                 Ok(true)
             }
             None => Ok(false),
@@ -451,28 +563,30 @@ impl Engine {
         state: &mut State,
         auth: &Authorized,
         revision: i64,
-        document: Document,
+        cloud: Document,
+        local: Document,
     ) -> Result<(), String> {
         state.base = Some(Base {
             user_id: auth.user_id.clone(),
             revision,
-            document,
+            cloud,
+            local,
         });
         state.last_synced_at = Some(now_ms());
-        self.host.save_state(state)
+        self.save(state)
     }
 
-    /// Whether this install has changed since the last sync with `user_id`.
+    /// Whether this install has changed since its last sync.
     async fn changed_since_sync(&self) -> bool {
-        let Some(base) = self.host.load_state().base else {
+        let Some(base) = self.state().base else {
             return false;
         };
-        matches!(self.host.local().await, Ok(local) if local != base.document)
+        matches!(self.host.local().await, Ok(local) if local != base.local)
     }
 
     /// Background loop: syncs at start, after `wake`, when local settings
-    /// have changed and settled, and periodically for other computers'
-    /// changes. Failures back off.
+    /// have changed and settled, when a failed sync is due a retry, and
+    /// periodically for other computers' changes. Failures back off.
     pub async fn run(self: Arc<Self>) {
         let mut next_remote_check = Instant::now();
         let mut retry_at: Option<Instant> = None;
@@ -485,16 +599,25 @@ impl Engine {
             };
             let now = Instant::now();
             let status = self.view().status;
-            let waiting_for_user = matches!(status, Status::NeedsChoice | Status::UpdateRequired);
-            let local = self.host.local().await.ok();
+            // Signed out, or waiting for the user: only a wake or the
+            // periodic check (which notices a sign-in) runs a sync.
+            let idle = matches!(
+                status,
+                Status::Off | Status::NeedsChoice | Status::UpdateRequired
+            );
+            let local = if idle {
+                None
+            } else {
+                self.host.local().await.ok()
+            };
             // Upload once local changes have settled for one poll.
-            let settled_change = local.is_some()
-                && local == previous
-                && !waiting_for_user
-                && self.changed_since_sync().await;
+            let settled_change =
+                local.is_some() && local == previous && self.changed_since_sync().await;
             previous = local;
+            let retry_due = status == Status::Error && retry_at.is_some_and(|at| now >= at);
             let due = woken
                 || now >= next_remote_check
+                || retry_due
                 || (settled_change && retry_at.is_none_or(|at| now >= at));
             if !due {
                 continue;
@@ -555,7 +678,7 @@ impl HttpRemote {
             .header("Prefer", "return=representation")
     }
 
-    async fn rows(request: reqwest::RequestBuilder) -> Result<(u16, Vec<Row>), String> {
+    async fn rows(request: reqwest::RequestBuilder) -> Result<(u16, Vec<Row>, Value), String> {
         let unreachable = |_| "Could not reach Switchify to sync settings.".to_string();
         let response = request.send().await.map_err(unreachable)?;
         let status = response.status().as_u16();
@@ -574,7 +697,7 @@ impl HttpRemote {
                     .collect()
             })
             .unwrap_or_default();
-        Ok((status, rows))
+        Ok((status, rows, body))
     }
 }
 
@@ -591,7 +714,7 @@ impl Remote for HttpRemote {
     fn fetch<'a>(&'a self, auth: &'a Authorized) -> BoxFuture<'a, Result<Option<Row>, String>> {
         Box::pin(async move {
             let query = format!("{COLUMNS}&user_id=eq.{}", auth.user_id);
-            let (status, mut rows) =
+            let (status, mut rows, _) =
                 Self::rows(self.request(reqwest::Method::GET, &query, auth)).await?;
             match status {
                 200 => Ok(rows.pop()),
@@ -616,9 +739,13 @@ impl Remote for HttpRemote {
             let request = self
                 .request(reqwest::Method::POST, COLUMNS, auth)
                 .json(&body);
-            let (status, mut rows) = Self::rows(request).await?;
+            let (status, mut rows, body) = Self::rows(request).await?;
             match status {
                 200 | 201 => rows.pop().map(Some).ok_or_else(|| http_error(status)),
+                // 23503: the account no longer exists (deleted elsewhere).
+                409 if body["code"] == "23503" => {
+                    Err("This account no longer exists. Sign in again.".into())
+                }
                 409 => Ok(None),
                 _ => Err(http_error(status)),
             }
@@ -645,7 +772,7 @@ impl Remote for HttpRemote {
             let request = self
                 .request(reqwest::Method::PATCH, &query, auth)
                 .json(&body);
-            let (status, mut rows) = Self::rows(request).await?;
+            let (status, mut rows, _) = Self::rows(request).await?;
             match status {
                 200 => Ok(rows.pop()),
                 _ => Err(http_error(status)),
@@ -694,25 +821,39 @@ impl Host for AppHost {
         Box::pin(async move { Ok(Local::read(&self.app).document()) })
     }
 
-    fn apply(&self, document: Document) -> BoxFuture<'_, Result<Document, String>> {
+    fn apply(
+        &self,
+        expected: Document,
+        document: Document,
+    ) -> BoxFuture<'_, Result<Option<Document>, String>> {
         Box::pin(async move {
             let (tx, rx) = tokio::sync::oneshot::channel();
             let handle = self.app.clone();
             self.app
                 .run_on_main_thread(move || {
-                    let _ = tx.send(portable_settings::apply(&handle, document));
+                    // Checked on the main thread, where settings commands run,
+                    // so no edit can slip in between the check and the apply.
+                    let result = if Local::read(&handle).document() == expected {
+                        portable_settings::apply(&handle, document).map(Some)
+                    } else {
+                        Ok(None)
+                    };
+                    let _ = tx.send(result);
                 })
                 .map_err(|error| error.to_string())?;
-            let applied = rx
+            let Some(applied) = rx
                 .await
-                .map_err(|_| "Applying synced settings was cancelled.".to_string())??;
+                .map_err(|_| "Applying synced settings was cancelled.".to_string())??
+            else {
+                return Ok(None);
+            };
             if applied.profiles {
                 let _ = self.app.emit(PROFILES_EVENT, ());
             }
             if applied.remote {
                 let _ = self.app.emit(REMOTE_SWITCHES_EVENT, ());
             }
-            Ok(Local::read(&self.app).document())
+            Ok(Some(Local::read(&self.app).document()))
         })
     }
 
@@ -812,6 +953,7 @@ mod tests {
         /// Simulates another computer writing just before our next write.
         interleave: Mutex<VecDeque<Value>>,
         fail: Mutex<bool>,
+        fail_update: Mutex<bool>,
     }
 
     impl FakeRemote {
@@ -893,6 +1035,9 @@ mod tests {
             updated_by: &'a str,
         ) -> BoxFuture<'a, Result<Option<Row>, String>> {
             Box::pin(async move {
+                if *self.fail_update.lock().unwrap() {
+                    return Err("offline".into());
+                }
                 self.interleave();
                 self.writes.lock().unwrap().push((
                     "update",
@@ -913,14 +1058,20 @@ mod tests {
         }
     }
 
+    type Normalize = fn(Document) -> Document;
+
     struct FakeHost {
         user: Mutex<Option<String>>,
         local: Mutex<Document>,
         state: Mutex<State>,
         applied: Mutex<Vec<Document>>,
         published: Mutex<Vec<SyncView>>,
-        /// Mimics apply normalizing what it stores (e.g. profile versions).
-        transform: fn(Document) -> Document,
+        /// Mimics the next apply normalizing what it stores (e.g. profile
+        /// versions). Used once.
+        transform: Mutex<Option<Normalize>>,
+        /// Edits the user makes while a sync is in flight, landing just
+        /// before the next apply.
+        edits: Mutex<VecDeque<Document>>,
     }
 
     impl FakeHost {
@@ -931,7 +1082,8 @@ mod tests {
                 state: Mutex::default(),
                 applied: Mutex::default(),
                 published: Mutex::default(),
-                transform: |document| document,
+                transform: Mutex::default(),
+                edits: Mutex::default(),
             }
         }
         fn local_now(&self) -> Document {
@@ -952,12 +1104,23 @@ mod tests {
         fn local(&self) -> BoxFuture<'_, Result<Document, String>> {
             Box::pin(async move { Ok(self.local_now()) })
         }
-        fn apply(&self, document: Document) -> BoxFuture<'_, Result<Document, String>> {
+        fn apply(
+            &self,
+            expected: Document,
+            document: Document,
+        ) -> BoxFuture<'_, Result<Option<Document>, String>> {
             Box::pin(async move {
+                if let Some(edit) = self.edits.lock().unwrap().pop_front() {
+                    self.set_local(edit);
+                }
+                if self.local_now() != expected {
+                    return Ok(None);
+                }
                 self.applied.lock().unwrap().push(document.clone());
-                let stored = (self.transform)(document);
+                let transform = self.transform.lock().unwrap().take();
+                let stored = transform.map_or(document.clone(), |t| t(document));
                 self.set_local(stored.clone());
-                Ok(stored)
+                Ok(Some(stored))
             })
         }
         fn untouched(&self) -> Document {
@@ -1122,12 +1285,169 @@ mod tests {
         assert_eq!(remote.revision(), Some(3));
     }
 
+    fn base_of(document: &Document) -> Base {
+        Base {
+            user_id: "user-1".into(),
+            revision: 1,
+            cloud: document.clone(),
+            local: document.clone(),
+        }
+    }
+
     #[test]
     fn the_account_wins_a_section_changed_on_both_sides() {
         let base = untouched();
         let local = with_speed(base.clone(), 4);
         let cloud = with_speed(base.clone(), 1);
-        assert_eq!(merge(&base, &local, &cloud).point_scan.speed, 1);
+        assert_eq!(merge(&base_of(&base), &local, &cloud).point_scan.speed, 1);
+    }
+
+    fn profile(id: &str, name: &str) -> SwitchProfile {
+        SwitchProfile {
+            id: id.into(),
+            version: 1,
+            name: name.into(),
+            provider: "mapped".into(),
+            built_in: false,
+            bindings: (1..=8)
+                .map(|switch_id| crate::state::SwitchBinding {
+                    switch_id,
+                    binding_type: "none".into(),
+                    value: None,
+                    keys: None,
+                    click_count: None,
+                })
+                .collect(),
+        }
+    }
+    const A: &str = "6f1c1a52-6a0e-4c2b-9d0f-2f8a7b9e4c11";
+    const B: &str = "0b7e2d4a-1c3f-4e5a-8b9c-7d6e5f4a3b22";
+    const C: &str = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+
+    fn with_profiles(mut document: Document, profiles: Vec<SwitchProfile>) -> Document {
+        document.profiles = profiles;
+        document
+    }
+
+    fn names(document: &Document) -> Vec<String> {
+        document.profiles.iter().map(|p| p.name.clone()).collect()
+    }
+
+    #[test]
+    fn profiles_added_on_two_computers_are_both_kept() {
+        let base = with_profiles(untouched(), vec![profile(A, "Desk")]);
+        let local = with_profiles(untouched(), vec![profile(A, "Desk"), profile(B, "Laptop")]);
+        let cloud = with_profiles(untouched(), vec![profile(A, "Desk"), profile(C, "Tablet")]);
+        let merged = merge(&base_of(&base), &local, &cloud);
+        assert_eq!(names(&merged), ["Desk", "Tablet", "Laptop"]);
+    }
+
+    #[test]
+    fn profile_deletions_merge_with_edits() {
+        let base = with_profiles(untouched(), vec![profile(A, "Desk"), profile(B, "Laptop")]);
+        // The account deleted both. This computer renamed A and left B alone.
+        let local = with_profiles(
+            untouched(),
+            vec![profile(A, "Desk 2"), profile(B, "Laptop")],
+        );
+        let cloud = with_profiles(untouched(), vec![]);
+        let merged = merge(&base_of(&base), &local, &cloud);
+        assert_eq!(names(&merged), ["Desk 2"], "an edit survives a deletion");
+        // Deleted here and untouched in the account: stays deleted.
+        let local = with_profiles(untouched(), vec![profile(B, "Laptop")]);
+        let merged = merge(&base_of(&base), &local, &base);
+        assert_eq!(names(&merged), ["Laptop"]);
+    }
+
+    #[test]
+    fn merged_profile_names_stay_unique() {
+        let base = untouched();
+        let local = with_profiles(untouched(), vec![profile(B, "Desk")]);
+        let cloud = with_profiles(untouched(), vec![profile(A, "desk")]);
+        let merged = merge(&base_of(&base), &local, &cloud);
+        assert_eq!(names(&merged), ["desk", "Desk (2)"]);
+    }
+
+    #[tokio::test]
+    async fn normalization_on_apply_never_hides_a_later_local_edit() {
+        // The review case: an apply stores a normalized value, another
+        // computer then changes a different section, and the user edits the
+        // normalized section here. The edit must survive.
+        let mut cloud = with_dwell(untouched(), true);
+        let remote = Arc::new(FakeRemote::holding(&cloud, 2));
+        let host = Arc::new(FakeHost::new(untouched()));
+        *host.transform.lock().unwrap() = Some(|document| with_speed(document, 3));
+        let engine = engine(&remote, &host);
+        engine.sync(None).await;
+        assert_eq!(host.local_now().point_scan.speed, 3);
+        // Another computer changes only the cursor.
+        cloud.app.cursor_crosshairs = true;
+        *remote.row.lock().unwrap() = Some(Row {
+            revision: 3,
+            schema_version: SCHEMA_VERSION,
+            payload: serde_json::to_value(&cloud).unwrap(),
+        });
+        // The user changes scan speed here.
+        host.set_local(with_speed(host.local_now(), 4));
+        assert_eq!(engine.sync(None).await.status, Status::UpToDate);
+        let local = host.local_now();
+        assert_eq!(local.point_scan.speed, 4, "local edit kept");
+        assert!(
+            local.app.cursor_crosshairs,
+            "other computer's change applied"
+        );
+        assert_eq!(remote.document().unwrap().point_scan.speed, 4);
+    }
+
+    #[tokio::test]
+    async fn an_edit_made_during_a_sync_is_not_reverted() {
+        let remote = Arc::new(FakeRemote::default());
+        let host = Arc::new(FakeHost::new(untouched()));
+        let engine = engine(&remote, &host);
+        engine.sync(None).await;
+        *remote.row.lock().unwrap() = Some(Row {
+            revision: 2,
+            schema_version: SCHEMA_VERSION,
+            payload: serde_json::to_value(with_dwell(untouched(), true)).unwrap(),
+        });
+        // While the account is being read, the user changes scan speed.
+        host.edits
+            .lock()
+            .unwrap()
+            .push_back(with_speed(untouched(), 4));
+        assert_eq!(engine.sync(None).await.status, Status::UpToDate);
+        let merged = with_speed(with_dwell(untouched(), true), 4);
+        assert_eq!(host.local_now(), merged);
+        assert_eq!(remote.document(), Some(merged));
+    }
+
+    #[tokio::test]
+    async fn a_failed_upload_after_apply_keeps_local_changes_pending() {
+        let remote = Arc::new(FakeRemote::default());
+        let host = Arc::new(FakeHost::new(untouched()));
+        let engine = engine(&remote, &host);
+        engine.sync(None).await;
+        *remote.row.lock().unwrap() = Some(Row {
+            revision: 2,
+            schema_version: SCHEMA_VERSION,
+            payload: serde_json::to_value(with_dwell(untouched(), true)).unwrap(),
+        });
+        host.set_local(with_speed(untouched(), 4));
+        *remote.fail_update.lock().unwrap() = true;
+        assert_eq!(engine.sync(None).await.status, Status::Error);
+        assert_eq!(
+            host.local_now(),
+            with_speed(with_dwell(untouched(), true), 4)
+        );
+        assert!(
+            engine.changed_since_sync().await,
+            "speed change still to upload"
+        );
+        *remote.fail_update.lock().unwrap() = false;
+        assert_eq!(engine.sync(None).await.status, Status::UpToDate);
+        let uploaded = remote.document().unwrap();
+        assert_eq!(uploaded.point_scan.speed, 4);
+        assert!(uploaded.app.dwell_click_enabled);
     }
 
     #[tokio::test]
@@ -1224,14 +1544,13 @@ mod tests {
     async fn normalized_apply_becomes_the_base_so_nothing_ping_pongs() {
         let cloud = with_dwell(untouched(), true);
         let remote = Arc::new(FakeRemote::holding(&cloud, 2));
-        let mut host = FakeHost::new(untouched());
+        let host = Arc::new(FakeHost::new(untouched()));
         // Applying stores something slightly different (like a profile
-        // version bump); that stored copy must become the base.
-        host.transform = |document| with_speed(document, 3);
-        let host = Arc::new(host);
+        // version bump); that stored copy must become the local base.
+        *host.transform.lock().unwrap() = Some(|document| with_speed(document, 3));
         let engine = engine(&remote, &host);
         engine.sync(None).await;
-        assert_eq!(host.base().unwrap().document, host.local_now());
+        assert_eq!(host.base().unwrap().local, host.local_now());
         assert!(!engine.changed_since_sync().await);
         engine.sync(None).await;
         assert!(remote.writes.lock().unwrap().is_empty());
@@ -1253,7 +1572,7 @@ mod tests {
         let host = Arc::new(FakeHost::new(untouched()));
         let engine = engine(&remote, &host);
         engine.sync(None).await;
-        engine.forget();
+        engine.forget().await;
         assert!(host.base().is_none());
         assert_eq!(engine.view().status, Status::Off);
         assert!(

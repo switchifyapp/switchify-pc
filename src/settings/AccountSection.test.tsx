@@ -38,6 +38,15 @@ describe("AccountSection", () => {
       await waitFor(() => expect(screen.getByRole("button", { name: "Sync now" })).toHaveFocus());
     });
 
+    it("moves focus to the choice when Sync now finds different settings", async () => {
+      start(signedIn);
+      vi.spyOn(api, "syncSettingsNow").mockResolvedValue({ status: "needsChoice", lastSyncedAt: null, message: null });
+      const now = await screen.findByRole("button", { name: "Sync now" });
+      now.focus();
+      fireEvent.click(now);
+      await waitFor(() => expect(screen.getByRole("button", { name: "Use my account's settings" })).toHaveFocus());
+    });
+
     it("can take the account settings instead", async () => {
       start(signedIn, { status: "needsChoice", lastSyncedAt: null, message: null });
       const resolve = vi.spyOn(api, "resolveSettingsSync").mockResolvedValue({ status: "upToDate", lastSyncedAt: Date.now(), message: null });

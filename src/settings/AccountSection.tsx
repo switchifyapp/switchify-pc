@@ -188,7 +188,9 @@ function SyncPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const syncNowRef = useRef<HTMLButtonElement>(null);
+  const firstChoiceRef = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
+  const previousStatus = useRef(sync?.status);
 
   useEffect(() => {
     let active = true;
@@ -203,6 +205,17 @@ function SyncPanel() {
       syncNowRef.current?.focus();
     }
   });
+
+  // Entering or leaving the choice swaps the buttons; if the focused one
+  // went with them, focus the buttons that replaced it.
+  useEffect(() => {
+    const previous = previousStatus.current;
+    previousStatus.current = sync?.status;
+    if (!previous || previous === sync?.status) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    (sync?.status === "needsChoice" ? firstChoiceRef : syncNowRef).current?.focus();
+  }, [sync?.status]);
 
   const run = async (action: () => Promise<SyncView>, fromChoice = false) => {
     if (busy) return;
@@ -227,7 +240,7 @@ function SyncPanel() {
     </p>
     {sync.status === "needsChoice"
       ? <div className="privacy-choice" role="group" aria-label="Choose which settings to keep">
-        <Button className="secondary" aria-disabled={busy} onClick={() => void run(() => api.resolveSettingsSync("cloud"), true)}>Use my account&apos;s settings</Button>
+        <Button ref={firstChoiceRef} className="secondary" aria-disabled={busy} onClick={() => void run(() => api.resolveSettingsSync("cloud"), true)}>Use my account&apos;s settings</Button>
         <Button className="secondary" aria-disabled={busy} onClick={() => void run(() => api.resolveSettingsSync("local"), true)}>Keep this computer&apos;s settings</Button>
       </div>
       : <div className="privacy-choice">

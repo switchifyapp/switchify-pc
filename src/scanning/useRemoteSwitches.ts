@@ -50,6 +50,8 @@ export function useRemoteSwitches() {
         if (!alive || m.pending || m.revision !== m.saved) return;
         m.config = value;
         setConfig(value);
+      }).catch((e) => {
+        if (alive) setError(String(e));
       });
     });
     return () => {

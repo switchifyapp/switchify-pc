@@ -827,8 +827,20 @@ fn delete_switch_profile(
 }
 
 #[tauri::command]
-async fn get_account(account: State<'_, account::Account>) -> Result<account::AccountView, String> {
-    Ok(account.view().await)
+async fn get_account(
+    app: AppHandle,
+    account: State<'_, account::Account>,
+) -> Result<account::AccountView, String> {
+    let view = account.view().await;
+    // Opening the tab can find a session a locked keychain hid at startup.
+    if view.signed_in {
+        if let Some(sync) = sync_engine(&app) {
+            if sync.view().status == settings_sync::Status::Off {
+                sync.wake();
+            }
+        }
+    }
+    Ok(view)
 }
 
 #[tauri::command]
@@ -893,8 +905,8 @@ async fn delete_account(
     // Emitted on failure too: a rejected session signs out mid-action.
     account::emit(&app, &account.current_view().await);
     if result.is_ok() {
-        if let Some(sync) = app.try_state::<std::sync::Arc<settings_sync::Engine>>() {
-            sync.forget();
+        if let Some(sync) = sync_engine(&app) {
+            sync.forget().await;
         }
     }
     result
