@@ -271,30 +271,26 @@ pub fn plan(local: &Local, incoming: Document) -> Result<Plan, String> {
 /// notice the new bindings. Returns `None` when nothing would change.
 fn merge_profiles(
     local: &[SwitchProfile],
-    incoming: Vec<SwitchProfile>,
+    mut incoming: Vec<SwitchProfile>,
 ) -> Result<Option<Vec<SwitchProfile>>, String> {
     if incoming.len() > MAX_CUSTOM_PROFILES {
         return Err("No more than 32 custom profiles can be saved.".into());
     }
+    for profile in &mut incoming {
+        crate::validate_profile(profile)?;
+        profile.name = profile.name.trim().into();
+    }
+    // A document from an install saved before built-in names were reserved
+    // on every platform may hold e.g. a custom "Grid 3" from a Mac. Rename it
+    // (as that install does on load) rather than rejecting the document.
+    crate::state::rename_reserved_profiles(&mut incoming);
     let mut ids = HashSet::new();
     // Compared like save_switch_profile does (ASCII case-insensitive).
-    let mut names: HashSet<String> = crate::state::reserved_profile_names()
-        .map(str::to_ascii_lowercase)
-        .collect();
+    let mut names = HashSet::new();
     let mut merged = Vec::with_capacity(incoming.len());
     for mut profile in incoming {
-        crate::validate_profile(&profile)?;
-        profile.name = profile.name.trim().into();
         if !ids.insert(profile.id.clone()) {
             return Err("Custom profile identity is invalid.".into());
-        }
-        // Installs saved before built-in names were reserved on every
-        // platform may hold e.g. a custom "Grid 3" from a Mac. Rename it
-        // rather than rejecting the whole document on Windows.
-        if crate::state::reserved_profile_names()
-            .any(|reserved| reserved.eq_ignore_ascii_case(&profile.name))
-        {
-            profile.name = format!("{} (custom)", profile.name);
         }
         if !names.insert(profile.name.to_ascii_lowercase()) {
             return Err("Profile names must be unique.".into());
@@ -692,6 +688,36 @@ mod tests {
         let profiles = plan(&local, incoming).unwrap().profiles.unwrap();
         let desk = profiles.iter().find(|p| p.id == PROFILE_A).unwrap();
         assert_eq!(desk.name, "grid 3 (custom)");
+    }
+
+    #[test]
+    fn reserved_rename_skips_names_already_in_use() {
+        // Both were valid custom names on a Mac before names were reserved.
+        let local = local();
+        let mut incoming = local.document();
+        incoming.profiles[0].name = "Grid 3".into();
+        incoming
+            .profiles
+            .push(custom_profile(PROFILE_B, "Grid 3 (custom)", "Tab"));
+        let profiles = plan(&local, incoming).unwrap().profiles.unwrap();
+        let name = |id| &profiles.iter().find(|p| p.id == id).unwrap().name;
+        assert_eq!(name(PROFILE_A), "Grid 3 (custom 2)");
+        assert_eq!(name(PROFILE_B), "Grid 3 (custom)");
+    }
+
+    #[test]
+    fn load_and_merge_rename_the_same_way() {
+        // An install renames on load; its next document must then plan
+        // nothing on another install that renamed the same profile.
+        let mut renamed = local();
+        renamed.profiles[1].name = "Grid 3".into();
+        crate::state::rename_reserved_profiles(&mut renamed.profiles);
+        assert_eq!(renamed.profiles[1].name, "Grid 3 (custom)");
+        assert!(renamed.profiles[0].built_in && renamed.profiles[0].name == "Generic keyboard");
+
+        let mut legacy = renamed.document();
+        legacy.profiles[0].name = "Grid 3".into();
+        assert!(plan(&renamed, legacy).unwrap().profiles.is_none());
     }
 
     #[test]
