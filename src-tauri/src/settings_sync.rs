@@ -31,6 +31,9 @@ const MAX_BACKOFF: Duration = Duration::from_secs(300);
 const MAX_ATTEMPTS: usize = 3;
 /// Well under the server's 256 KiB limit.
 const MAX_PAYLOAD_BYTES: usize = 200 * 1024;
+/// The custom profile limit enforced when settings are applied.
+const MAX_SYNCED_PROFILES: usize = 32;
+const TOO_MANY_PROFILES: &str = "Your computers have more than 32 switch profiles between them. Delete some on this computer, then sync again.";
 const UPDATE_REQUIRED: &str =
     "Your synced settings were saved by a newer Switchify PC. Update Switchify PC on this computer to keep syncing.";
 
@@ -291,20 +294,34 @@ fn merge_profiles(
             .filter(|p| !cloud.iter().any(|c| c.id == p.id))
             .map(|p| p.id.clone()),
     );
+    // Versions drift between computers (applying keeps the local version
+    // when content matches), so only content counts as a change.
+    let content = |p: &Option<SwitchProfile>| {
+        p.as_ref()
+            .map(|p| (p.name.clone(), p.provider.clone(), p.bindings.clone()))
+    };
     let mut merged: Vec<SwitchProfile> = ids
         .iter()
         .filter_map(|id| {
             let (bl, bc) = (find(base_local, id), find(base_cloud, id));
             let (l, c) = (find(local, id), find(cloud, id));
-            let local_changed = l != bl;
-            let cloud_changed = c != bc;
-            match (local_changed, cloud_changed) {
-                (false, _) => c,
-                (true, false) => l,
+            let local_changed = content(&l) != content(&bl);
+            let cloud_changed = content(&c) != content(&bc);
+            let mut chosen = match (local_changed, cloud_changed) {
+                (false, _) => c.clone(),
+                (true, false) => l.clone(),
                 // Both changed: the account wins, but an edit is never lost
                 // to a deletion on the other side.
-                (true, true) => c.or(l),
-            }
+                (true, true) => c.clone().or(l.clone()),
+            }?;
+            // Never move a version backwards, so connected phones notice.
+            chosen.version = [&l, &c]
+                .into_iter()
+                .flatten()
+                .map(|p| p.version)
+                .max()
+                .unwrap_or(chosen.version);
+            Some(chosen)
         })
         .collect();
     let mut seen = std::collections::HashSet::new();
@@ -499,6 +516,9 @@ impl Engine {
                 }
                 Step::Apply { document, upload } => {
                     let (row, cloud) = remote.expect("apply needs a row");
+                    if document.profiles.len() > MAX_SYNCED_PROFILES {
+                        return Err(TOO_MANY_PROFILES.into());
+                    }
                     let applied = if document == local {
                         Some(local.clone())
                     } else {
@@ -833,15 +853,18 @@ impl Host for AppHost {
                 .run_on_main_thread(move || {
                     // Checked on the main thread, where settings commands run,
                     // so no edit can slip in between the check and the apply.
+                    // The result is read here too, before any later command
+                    // can change settings and have its edit taken as synced.
                     let result = if Local::read(&handle).document() == expected {
-                        portable_settings::apply(&handle, document).map(Some)
+                        portable_settings::apply(&handle, document)
+                            .map(|applied| Some((applied, Local::read(&handle).document())))
                     } else {
                         Ok(None)
                     };
                     let _ = tx.send(result);
                 })
                 .map_err(|error| error.to_string())?;
-            let Some(applied) = rx
+            let Some((applied, result)) = rx
                 .await
                 .map_err(|_| "Applying synced settings was cancelled.".to_string())??
             else {
@@ -853,7 +876,7 @@ impl Host for AppHost {
             if applied.remote {
                 let _ = self.app.emit(REMOTE_SWITCHES_EVENT, ());
             }
-            Ok(Some(Local::read(&self.app).document()))
+            Ok(Some(result))
         })
     }
 
@@ -1366,6 +1389,69 @@ mod tests {
         let cloud = with_profiles(untouched(), vec![profile(A, "desk")]);
         let merged = merge(&base_of(&base), &local, &cloud);
         assert_eq!(names(&merged), ["desk", "Desk (2)"]);
+    }
+
+    #[test]
+    fn a_version_only_difference_is_not_an_edit() {
+        // The review case: the account's copy differs from the base only in
+        // version; the local copy was renamed. The rename must win.
+        let mut base_p = profile(A, "Desk");
+        base_p.version = 3;
+        let mut local_p = profile(A, "Desk renamed");
+        local_p.version = 4;
+        let mut cloud_p = profile(A, "Desk");
+        cloud_p.version = 2;
+        let base = with_profiles(untouched(), vec![base_p]);
+        let merged = merge(
+            &base_of(&base),
+            &with_profiles(untouched(), vec![local_p]),
+            &with_profiles(untouched(), vec![cloud_p]),
+        );
+        assert_eq!(names(&merged), ["Desk renamed"]);
+        assert_eq!(merged.profiles[0].version, 4, "versions never go backwards");
+    }
+
+    #[test]
+    fn a_version_only_difference_does_not_resurrect_a_deletion() {
+        let mut base_p = profile(A, "Desk");
+        base_p.version = 3;
+        let mut local_p = base_p.clone();
+        local_p.version = 5;
+        let base = with_profiles(untouched(), vec![base_p]);
+        let merged = merge(
+            &base_of(&base),
+            &with_profiles(untouched(), vec![local_p]),
+            &with_profiles(untouched(), vec![]),
+        );
+        assert!(merged.profiles.is_empty());
+    }
+
+    #[tokio::test]
+    async fn too_many_profiles_after_a_merge_is_a_clear_error() {
+        let make = |prefix: u32| -> Vec<SwitchProfile> {
+            (0..20)
+                .map(|n| {
+                    profile(
+                        &format!("{prefix:08x}-0000-4000-8000-{n:012x}"),
+                        &format!("P{prefix}-{n}"),
+                    )
+                })
+                .collect()
+        };
+        let remote = Arc::new(FakeRemote::default());
+        let host = Arc::new(FakeHost::new(untouched()));
+        let engine = engine(&remote, &host);
+        engine.sync(None).await;
+        *remote.row.lock().unwrap() = Some(Row {
+            revision: 2,
+            schema_version: SCHEMA_VERSION,
+            payload: serde_json::to_value(with_profiles(untouched(), make(1))).unwrap(),
+        });
+        host.set_local(with_profiles(untouched(), make(2)));
+        let view = engine.sync(None).await;
+        assert_eq!(view.status, Status::Error);
+        assert_eq!(view.message.as_deref(), Some(TOO_MANY_PROFILES));
+        assert!(host.applied.lock().unwrap().is_empty(), "nothing applied");
     }
 
     #[tokio::test]
