@@ -5,8 +5,6 @@
 //! registration never leave this install. Incoming documents are fully
 //! validated before anything is applied, and each section is applied through
 //! the same path as a local save so runtime state and overlays stay in step.
-// Wired up by the sync engine (#986).
-#![allow(dead_code)]
 
 use crate::{
     point_scan, remote_scan,
@@ -224,6 +222,7 @@ pub struct Plan {
 }
 
 impl Plan {
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
@@ -268,8 +267,9 @@ pub fn plan(local: &Local, incoming: Document) -> Result<Plan, String> {
 
 /// Replaces the custom profiles with the incoming set, keeping built-ins.
 /// A changed profile gets a version above both copies so connected phones
-/// notice the new bindings. Returns `None` when nothing would change.
-fn merge_profiles(
+/// notice the new bindings; an unchanged one keeps the higher of the two.
+/// Returns `None` when nothing would change.
+pub(crate) fn merge_profiles(
     local: &[SwitchProfile],
     mut incoming: Vec<SwitchProfile>,
 ) -> Result<Option<Vec<SwitchProfile>>, String> {
@@ -299,8 +299,11 @@ fn merge_profiles(
             .iter()
             .find(|candidate| candidate.id == profile.id && !candidate.built_in)
         {
+            // Same content: never lower the version, so computers that synced
+            // the same profile converge on one version instead of trading
+            // their own back and forth.
             profile.version = if same_profile(existing, &profile) {
-                existing.version
+                existing.version.max(profile.version)
             } else {
                 profile.version.max(existing.version.saturating_add(1))
             };

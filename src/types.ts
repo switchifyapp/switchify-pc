@@ -88,3 +88,11 @@ export type AccountView = {
   pendingEmail: string | null;
   keychainUnavailable: boolean;
 };
+
+export type SyncStatus = "off" | "syncing" | "upToDate" | "needsChoice" | "updateRequired" | "error";
+
+export type SyncView = {
+  status: SyncStatus;
+  lastSyncedAt: number | null;
+  message: string | null;
+};

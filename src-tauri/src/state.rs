@@ -266,7 +266,9 @@ fn is_reserved_profile_name(name: &str) -> bool {
 /// custom "Grid 3" made on a Mac) to the first free "<name> (custom)",
 /// "<name> (custom 2)", ... The result depends only on the list, so every
 /// install renames the same profiles the same way.
-pub fn rename_reserved_profiles(profiles: &mut [SwitchProfile]) {
+/// Returns the indexes renamed.
+pub fn rename_reserved_profiles(profiles: &mut [SwitchProfile]) -> Vec<usize> {
+    let mut renamed = Vec::new();
     for index in 0..profiles.len() {
         if profiles[index].built_in || !is_reserved_profile_name(&profiles[index].name) {
             continue;
@@ -284,10 +286,10 @@ pub fn rename_reserved_profiles(profiles: &mut [SwitchProfile]) {
                         .any(|profile| profile.name.trim().eq_ignore_ascii_case(candidate))
             })
             .expect("an unused suffix always exists");
-        let profile = &mut profiles[index];
-        profile.name = name;
-        profile.version = profile.version.saturating_add(1);
+        profiles[index].name = name;
+        renamed.push(index);
     }
+    renamed
 }
 
 pub fn built_in_profiles(include_grid3: bool) -> Vec<SwitchProfile> {
@@ -411,7 +413,10 @@ impl AppModel {
                 .into_iter()
                 .filter(|profile| !profile.built_in),
         );
-        rename_reserved_profiles(&mut profiles);
+        // A renamed profile is a changed profile for connected phones.
+        for index in rename_reserved_profiles(&mut profiles) {
+            profiles[index].version = profiles[index].version.saturating_add(1);
+        }
         let mut engine = ProtocolEngine::new(desktop_id.clone());
         let saved_pairing_count = saved.paired_devices.len();
         let saved_paired_devices = saved.paired_devices;
