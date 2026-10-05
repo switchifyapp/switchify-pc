@@ -1,3 +1,4 @@
+mod account;
 mod ble_lifecycle;
 mod diagnostics;
 mod display_navigation;
@@ -813,6 +814,63 @@ fn delete_switch_profile(
     Ok(list_switch_profiles(model))
 }
 
+#[tauri::command]
+async fn get_account(account: State<'_, account::Account>) -> Result<account::AccountView, String> {
+    Ok(account.view().await)
+}
+
+#[tauri::command]
+async fn request_sign_in_code(
+    app: AppHandle,
+    account: State<'_, account::Account>,
+    email: String,
+) -> Result<account::AccountView, String> {
+    let view = account.request_code(&email).await?;
+    account::emit(&app, &view);
+    Ok(view)
+}
+
+#[tauri::command]
+async fn verify_sign_in_code(
+    app: AppHandle,
+    account: State<'_, account::Account>,
+    code: String,
+) -> Result<account::AccountView, String> {
+    let view = account.verify_code(&code).await?;
+    account::emit(&app, &view);
+    Ok(view)
+}
+
+#[tauri::command]
+async fn cancel_sign_in(
+    app: AppHandle,
+    account: State<'_, account::Account>,
+) -> Result<account::AccountView, String> {
+    let view = account.cancel_code().await;
+    account::emit(&app, &view);
+    Ok(view)
+}
+
+#[tauri::command]
+async fn sign_out(
+    app: AppHandle,
+    account: State<'_, account::Account>,
+) -> Result<account::AccountView, String> {
+    let view = account.sign_out().await?;
+    account::emit(&app, &view);
+    Ok(view)
+}
+
+#[tauri::command]
+async fn delete_account(
+    app: AppHandle,
+    account: State<'_, account::Account>,
+) -> Result<account::AccountView, String> {
+    let view = account.delete_account().await?;
+    account::emit(&app, &view);
+    Ok(view)
+}
+
 fn publish_update(app: &AppHandle, model: &AppModel, update: UpdateView) -> AppState {
     model
         .shared
@@ -1509,6 +1567,7 @@ pub fn run() {
         .manage(UpdateManager::<tauri_plugin_updater::Update>::default())
         .manage(PendingProfileExit::default())
         .manage(PendingNavigation::default())
+        .manage(account::Account::install())
         .setup(move |app| {
             app.manage(switch_practice::Controller::default());
             switch_runtime::install(app.handle());
@@ -1639,7 +1698,13 @@ pub fn run() {
             download_update,
             cancel_update_download,
             install_update,
-            export_diagnostics
+            export_diagnostics,
+            get_account,
+            request_sign_in_code,
+            verify_sign_in_code,
+            cancel_sign_in,
+            sign_out,
+            delete_account
         ])
         .run(tauri::generate_context!())
         .expect("error while running Switchify PC");

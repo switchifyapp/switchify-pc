@@ -141,6 +141,8 @@ jobs:
       APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       SWITCHIFY_TELEMETRY_ENDPOINT: ${{ vars.TIMBERLOGS_ENDPOINT }}
+      SWITCHIFY_SUPABASE_URL: ${{ vars.SWITCHIFY_SUPABASE_URL }}
+      SWITCHIFY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.SWITCHIFY_SUPABASE_PUBLISHABLE_KEY }}
     steps:
       - name: Checkout release tag
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -193,7 +195,8 @@ jobs:
           fi
           for required_name in APPLE_API_ISSUER APPLE_API_KEY TIMBERLOGS_API_KEY \
             SWITCHIFY_TELEMETRY_ENDPOINT TAURI_SIGNING_PRIVATE_KEY \
-            TAURI_SIGNING_PRIVATE_KEY_PASSWORD SWITCHIFY_UPDATER_PUBLIC_KEY; do
+            TAURI_SIGNING_PRIVATE_KEY_PASSWORD SWITCHIFY_UPDATER_PUBLIC_KEY \
+            SWITCHIFY_SUPABASE_URL SWITCHIFY_SUPABASE_PUBLISHABLE_KEY; do
             if [[ -z "${!required_name:-}" ]]; then
               echo "Missing macOS release configuration: $required_name" >&2
               exit 1
@@ -320,6 +323,8 @@ jobs:
       SWITCHIFY_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
       SWITCHIFY_CERTUM_CERT_THUMBPRINT: ${{ vars.CERTUM_CERT_THUMBPRINT }}
       SWITCHIFY_TELEMETRY_ENDPOINT: ${{ vars.TIMBERLOGS_ENDPOINT }}
+      SWITCHIFY_SUPABASE_URL: ${{ vars.SWITCHIFY_SUPABASE_URL }}
+      SWITCHIFY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.SWITCHIFY_SUPABASE_PUBLISHABLE_KEY }}
     steps:
       - name: Checkout release tag
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -368,6 +373,8 @@ jobs:
             'SWITCHIFY_UPDATER_PUBLIC_KEY',
             'SWITCHIFY_CERTUM_CERT_THUMBPRINT',
             'SWITCHIFY_TELEMETRY_ENDPOINT',
+            'SWITCHIFY_SUPABASE_URL',
+            'SWITCHIFY_SUPABASE_PUBLISHABLE_KEY',
             'TIMBERLOGS_API_KEY',
             'TAURI_SIGNING_PRIVATE_KEY',
             'TAURI_SIGNING_PRIVATE_KEY_PASSWORD'

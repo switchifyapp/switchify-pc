@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AppSettings, AppState, SwitchProfile } from "./types";
+import type { AccountView, AppSettings, AppState, SwitchProfile } from "./types";
 
 export type ProfileExitAction = "hide" | "quit";
 export type NavigationTarget = "home" | "settings" | "profiles";
@@ -38,6 +38,12 @@ const emptyBindings = () => Array.from({ length: 8 }, (_, index) => ({
   switchId: index + 1,
   type: "none" as const,
 }));
+
+// Browser previews have no backend, so the account is shown as unavailable.
+const browserAccount: AccountView = { available: false, signedIn: false, email: null, pendingEmail: null };
+const accountCall = (command: string, args?: Record<string, unknown>) => "__TAURI_INTERNALS__" in window
+  ? invoke<AccountView>(command, args)
+  : Promise.resolve(structuredClone(browserAccount));
 
 let browserProfiles: SwitchProfile[] = [{
   id: "builtin.keyboard",
@@ -108,6 +114,16 @@ export const api = {
   cancelUpdateDownload: () => call<AppState>("cancel_update_download"),
   installUpdate: () => call<AppState>("install_update"),
   exportDiagnostics: () => call<AppState>("export_diagnostics"),
+  account: () => accountCall("get_account"),
+  requestSignInCode: (email: string) => accountCall("request_sign_in_code", { email }),
+  verifySignInCode: (code: string) => accountCall("verify_sign_in_code", { code }),
+  cancelSignIn: () => accountCall("cancel_sign_in"),
+  signOut: () => accountCall("sign_out"),
+  deleteAccount: () => accountCall("delete_account"),
+  onAccount: async (handler: (account: AccountView) => void): Promise<UnlistenFn> => {
+    if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
+    return listen<AccountView>("account-changed", (event) => handler(event.payload));
+  },
   onState: async (handler: (state: AppState) => void): Promise<UnlistenFn> => {
     if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
     return listen<AppState>("app-state-changed", (event) => handler(event.payload));

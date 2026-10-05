@@ -80,3 +80,10 @@ export type SwitchProfile = {
   builtIn: boolean;
   bindings: SwitchBinding[];
 };
+
+export type AccountView = {
+  available: boolean;
+  signedIn: boolean;
+  email: string | null;
+  pendingEmail: string | null;
+};
