@@ -119,7 +119,7 @@ export function AccountSection() {
   }
 
   if (account.keychainUnavailable) {
-    return <SettingGroup id="account" title="Switchify account" description={description}><p ref={keychainRef} tabIndex={-1} className="setting-note" role="status">Your saved sign-in can't be read because this computer's keychain is locked or unavailable. Unlock it, then reopen this tab.</p></SettingGroup>;
+    return <SettingGroup id="account" title="Switchify account" description={description}><p ref={keychainRef} tabIndex={-1} className="setting-note" role="status">Your saved sign-in can't be read because this computer's keychain is locked or unavailable. Unlock it, then open this page again.</p></SettingGroup>;
   }
 
   if (account.signedIn) {
