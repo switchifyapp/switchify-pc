@@ -82,7 +82,7 @@ Anonymous diagnostic telemetry is disabled until the user explicitly opts in. Op
 
 ## Accounts and settings sync
 
-Signing in under Settings → Account (or the account entry at the bottom of the sidebar) brings a user's settings to their other computers. It uses the same Supabase accounts as Switchify on Android: the user enters their email and the 6-digit code it receives; there is no password. The schema, migrations, and database tests live in the private `switchifyapp/switchify-supabase` repository.
+Signing in on the Account page (the account entry at the bottom of the sidebar) brings a user's settings to their other computers. It uses the same Supabase accounts as Switchify on Android: the user enters their email and the 6-digit code it receives; there is no password. The schema, migrations, and database tests live in the private `switchifyapp/switchify-supabase` repository.
 
 - **What syncs:** pointer, repeat, dwell and cursor settings; custom switch profiles; switch bindings including their keys; point scan and scan preferences; keyboard layout; and remote switch slots. The document is versioned and parsed strictly; a copy written by a newer Switchify PC is never overwritten, and this install asks to be updated instead.
 - **What never syncs:** the BLE desktop ID, paired devices and pairing tokens, telemetry consent and install ID, setup progress, and start with system.
