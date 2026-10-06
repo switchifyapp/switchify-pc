@@ -253,11 +253,10 @@ describe("AccountSection", () => {
     expect(await screen.findByRole("button", { name: "Sign out" })).toBeInTheDocument();
   });
 
-  it("is reachable from the Settings tabs", async () => {
+  it("is not a Settings tab", async () => {
     const { App } = await import("../App");
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Account" }));
-    expect(await screen.findByRole("heading", { name: "Account" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Account" })).not.toBeInTheDocument();
   });
 });

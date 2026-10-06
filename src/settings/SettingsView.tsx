@@ -5,19 +5,17 @@ import { GeneralSection } from "./GeneralSection";
 import { InputSection } from "./InputSection";
 import { CursorSection } from "./CursorSection";
 import { PrivacySection } from "./PrivacySection";
-import { AccountSection } from "./AccountSection";
 import { UpdatesSection, type UpdateAction } from "./UpdatesSection";
 
 
-type SettingsTabId = "general" | "input" | "cursor" | "account" | "privacy" | "updates";
+type SettingsTabId = "general" | "input" | "cursor" | "privacy" | "updates";
 
-export function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, focusAccount = false, onAccountFocused = () => undefined, updateAttention, onUpdatesShown }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; focusAccount?: boolean; onAccountFocused?: () => void; updateAttention: string | null; onUpdatesShown: (shown: boolean) => void }) {
+export function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, updateAttention, onUpdatesShown }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; updateAttention: string | null; onUpdatesShown: (shown: boolean) => void }) {
   const updatesRef = useRef<HTMLElement>(null);
-  const accountRef = useRef<HTMLElement>(null);
   // Opening straight to Updates starts there, rather than committing General
   // for one frame and letting App announce a failure for a tab already being
   // opened.
-  const [active, setActive] = useState<SettingsTabId>(focusUpdates ? "updates" : focusAccount ? "account" : "general");
+  const [active, setActive] = useState<SettingsTabId>(focusUpdates ? "updates" : "general");
 
   // App owns the standing update failure and what has been said about it; this
   // view only reports whether the Updates panel, which shows it, is on screen.
@@ -30,7 +28,6 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
     { id: "general" as const, label: "General" },
     { id: "input" as const, label: "Input" },
     ...(state.capabilities.cursorOverlay ? [{ id: "cursor" as const, label: "Cursor appearance" }] : []),
-    { id: "account" as const, label: "Account" },
     { id: "privacy" as const, label: "Privacy" },
     // On the Updates tab the panel itself shows the reason, so no marker there.
     { id: "updates" as const, label: "Updates", attention: updateAttention && active !== "updates" ? updateAttention : undefined },
@@ -44,20 +41,6 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
     if (focusUpdates) setActive("updates");
   }, [focusUpdates]);
 
-  useEffect(() => {
-    if (focusAccount) setActive("account");
-  }, [focusAccount]);
-
-  // Opened from the sidebar account entry: land on the account section once
-  // the Account tab has rendered it.
-  useEffect(() => {
-    if (!focusAccount || active !== "account") return;
-    const section = accountRef.current;
-    if (!section) return;
-    section.scrollIntoView?.({ block: "start" });
-    section.focus({ preventScroll: true });
-    onAccountFocused();
-  });
 
   useEffect(() => {
     if (!focusUpdates || active !== "updates") return;
@@ -74,7 +57,6 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
       {active === "general" && <GeneralSection settings={settings} update={update} />}
       {active === "input" && <InputSection settings={settings} update={update} />}
       {active === "cursor" && <CursorSection settings={settings} update={update} />}
-      {active === "account" && <AccountSection sectionRef={accountRef} />}
       {active === "privacy" && <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />}
       {active === "updates" && <UpdatesSection state={state} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />}
     </TabPanel>

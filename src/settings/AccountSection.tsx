@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent, type Ref } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "../api";
 import { Button, Input } from "../ui/controls";
 import type { AccountView, SyncView } from "../types";
 import { SettingGroup } from "./controls";
 
-const description = "Sign in to bring your settings to your other computers. It is the same account as Switchify on Android. We email you a code; there is no password.";
+const description = "The same account as Switchify on Android. We email you a code to sign in; there is no password.";
 
 type FocusTarget = "email" | "code" | "signOut" | "deleteAccount" | "keepAccount";
 type Screen = "loading" | "unavailable" | "keychain" | "signedIn" | "pending" | "signedOut";
@@ -17,7 +17,7 @@ function screenOf(account: AccountView | null): Screen {
   return account.pendingEmail ? "pending" : "signedOut";
 }
 
-export function AccountSection({ sectionRef }: { sectionRef?: Ref<HTMLElement> } = {}) {
+export function AccountSection() {
   const [account, setAccount] = useState<AccountView | null>(null);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -108,22 +108,22 @@ export function AccountSection({ sectionRef }: { sectionRef?: Ref<HTMLElement> }
     void run(() => api.verifySignInCode(code), () => "signOut").then((ok) => { if (ok) setCode(""); });
   };
 
-  if (!account) return <SettingGroup id="settings-account" sectionRef={sectionRef} focusable title="Account" description={description}><p className="setting-note">Loading…</p></SettingGroup>;
+  if (!account) return <SettingGroup id="account" title="Switchify account" description={description}><p className="setting-note">Loading…</p></SettingGroup>;
 
   // Keyed by occurrence so the same message is announced again.
   const errorText = error && <span key={error.id} className="field-error" id="account-error" role="alert">{error.text}</span>;
   const errorProps = { "aria-invalid": Boolean(error), "aria-describedby": error ? "account-error" : undefined };
 
   if (!account.available) {
-    return <SettingGroup id="settings-account" sectionRef={sectionRef} focusable title="Account" description={description}><p className="setting-note">Accounts are unavailable in this build.</p></SettingGroup>;
+    return <SettingGroup id="account" title="Switchify account" description={description}><p className="setting-note">Accounts are unavailable in this build.</p></SettingGroup>;
   }
 
   if (account.keychainUnavailable) {
-    return <SettingGroup id="settings-account" sectionRef={sectionRef} focusable title="Account" description={description}><p ref={keychainRef} tabIndex={-1} className="setting-note" role="status">Your saved sign-in can't be read because this computer's keychain is locked or unavailable. Unlock it, then reopen this tab.</p></SettingGroup>;
+    return <SettingGroup id="account" title="Switchify account" description={description}><p ref={keychainRef} tabIndex={-1} className="setting-note" role="status">Your saved sign-in can't be read because this computer's keychain is locked or unavailable. Unlock it, then reopen this tab.</p></SettingGroup>;
   }
 
   if (account.signedIn) {
-    return <SettingGroup id="settings-account" sectionRef={sectionRef} focusable title="Account" description={description}>
+    return <SettingGroup id="account" title="Switchify account" description={description}>
       <p className="setting-note" role="status">Signed in as <strong>{account.email}</strong>.</p>
       {!confirmDelete && <SyncPanel />}
       {confirmDelete
@@ -143,7 +143,7 @@ export function AccountSection({ sectionRef }: { sectionRef?: Ref<HTMLElement> }
   }
 
   if (account.pendingEmail) {
-    return <SettingGroup id="settings-account" sectionRef={sectionRef} focusable title="Account" description={description}>
+    return <SettingGroup id="account" title="Switchify account" description={description}>
       <form onSubmit={verifyCode} aria-busy={busy}>
         <p className="setting-note" role="status">We sent a code to <strong>{account.pendingEmail}</strong>. It can take a minute to arrive.</p>
         <label className="field"><span>Code from the email</span>
@@ -159,7 +159,7 @@ export function AccountSection({ sectionRef }: { sectionRef?: Ref<HTMLElement> }
     </SettingGroup>;
   }
 
-  return <SettingGroup id="settings-account" sectionRef={sectionRef} focusable title="Account" description={description}>
+  return <SettingGroup id="account" title="Switchify account" description={description}>
     <form onSubmit={requestCode} aria-busy={busy}>
       <label className="field"><span>Email</span>
         <Input ref={emailRef} type="email" value={email} autoComplete="email" maxLength={254} readOnly={busy}

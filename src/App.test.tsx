@@ -615,14 +615,15 @@ describe("Switchify PC shell", () => {
       expect(await (await sidebar()).findByRole("button", { name: "Account, signed in as me@example.com" })).toBeInTheDocument();
     });
 
-    it("opens Settings on the Account section", async () => {
+    it("opens the Account page and marks the entry current", async () => {
       mockAccount(signedIn);
       render(<App />);
-      fireEvent.click(await (await sidebar()).findByRole("button", { name: /^Account, signed in/ }));
-      expect(screen.getByRole("tab", { name: "Account" })).toHaveAttribute("aria-selected", "true");
-      const section = await screen.findByRole("region", { name: "Account" });
-      await waitFor(() => expect(section).toHaveFocus());
-      expect(screen.getByText(/Signed in as/)).toBeInTheDocument();
+      const entry = await (await sidebar()).findByRole("button", { name: /^Account, signed in/ });
+      fireEvent.click(entry);
+      expect(await screen.findByRole("heading", { name: "Account", level: 1 })).toBeInTheDocument();
+      expect(await screen.findByText(/Signed in as/)).toBeInTheDocument();
+      expect(entry).toHaveAttribute("aria-current", "page");
+      expect(screen.queryByRole("tablist", { name: "Settings sections" })).not.toBeInTheDocument();
     });
 
     it("reads the account without the keychain-retrying command", async () => {
@@ -642,14 +643,15 @@ describe("Switchify PC shell", () => {
       expect(entry).not.toHaveTextContent("Sign in");
     });
 
-    it("switches to the Account tab when Settings is already open", async () => {
+    it("leaves the Account page from the sidebar like any other page", async () => {
       mockAccount(signedIn);
       render(<App />);
-      fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-      fireEvent.click(screen.getByRole("tab", { name: "Privacy" }));
-      fireEvent.click(await (await sidebar()).findByRole("button", { name: /^Account, signed in/ }));
-      expect(screen.getByRole("tab", { name: "Account" })).toHaveAttribute("aria-selected", "true");
-      await waitFor(() => expect(screen.getByRole("region", { name: "Account" })).toHaveFocus());
+      const entry = await (await sidebar()).findByRole("button", { name: /^Account, signed in/ });
+      fireEvent.click(entry);
+      await screen.findByRole("heading", { name: "Account", level: 1 });
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      expect(await screen.findByRole("heading", { name: "Settings", level: 1 })).toBeInTheDocument();
+      expect(entry).not.toHaveAttribute("aria-current");
     });
 
     it("keeps an unsaved profile edit when navigation is cancelled", async () => {
@@ -663,7 +665,7 @@ describe("Switchify PC shell", () => {
       fireEvent.click(await (await sidebar()).findByRole("button", { name: /^Account, signed in/ }));
       expect(window.confirm).toHaveBeenCalledWith("Discard unsaved profile changes?");
       expect(screen.getByLabelText("Profile name")).toHaveValue("Unsaved");
-      expect(screen.queryByRole("tab", { name: "Account" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Account", level: 1 })).not.toBeInTheDocument();
     });
 
     it("keeps the version in builds without accounts", async () => {
