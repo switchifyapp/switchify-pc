@@ -440,7 +440,7 @@ describe("Switchify PC settings", () => {
 
     const tablist = screen.getByRole("tablist", { name: "Settings sections" });
     expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["General", "Input", "Cursor appearance", "Account", "Privacy", "Updates"]);
+      .toEqual(["General", "Input", "Cursor appearance", "Privacy", "Updates"]);
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel")).toHaveAccessibleName("General");
   });
@@ -489,7 +489,7 @@ describe("Switchify PC settings", () => {
 
     expect(screen.queryByRole("tab", { name: "Cursor appearance" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["General", "Input", "Account", "Privacy", "Updates"]);
+      .toEqual(["General", "Input", "Privacy", "Updates"]);
     selectTab("Input");
     expect(screen.queryByRole("checkbox", { name: "Show cursor overlay" })).not.toBeInTheDocument();
   });
@@ -558,7 +558,7 @@ describe("Switchify PC settings", () => {
     const general = screen.getByRole("tab", { name: "General" });
     expect(general).toHaveAttribute("aria-controls", "settings-panel-general");
     expect(document.getElementById("settings-panel-general")).toBeInTheDocument();
-    for (const name of ["Input", "Cursor appearance", "Account", "Privacy", "Updates"]) {
+    for (const name of ["Input", "Cursor appearance", "Privacy", "Updates"]) {
       expect(screen.getByRole("tab", { name })).not.toHaveAttribute("aria-controls");
     }
     // The panel is not a tab stop of its own; its controls are.

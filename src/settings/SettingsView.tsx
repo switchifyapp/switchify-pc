@@ -5,11 +5,10 @@ import { GeneralSection } from "./GeneralSection";
 import { InputSection } from "./InputSection";
 import { CursorSection } from "./CursorSection";
 import { PrivacySection } from "./PrivacySection";
-import { AccountSection } from "./AccountSection";
 import { UpdatesSection, type UpdateAction } from "./UpdatesSection";
 
 
-type SettingsTabId = "general" | "input" | "cursor" | "account" | "privacy" | "updates";
+type SettingsTabId = "general" | "input" | "cursor" | "privacy" | "updates";
 
 export function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, updateAttention, onUpdatesShown }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; updateAttention: string | null; onUpdatesShown: (shown: boolean) => void }) {
   const updatesRef = useRef<HTMLElement>(null);
@@ -29,7 +28,6 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
     { id: "general" as const, label: "General" },
     { id: "input" as const, label: "Input" },
     ...(state.capabilities.cursorOverlay ? [{ id: "cursor" as const, label: "Cursor appearance" }] : []),
-    { id: "account" as const, label: "Account" },
     { id: "privacy" as const, label: "Privacy" },
     // On the Updates tab the panel itself shows the reason, so no marker there.
     { id: "updates" as const, label: "Updates", attention: updateAttention && active !== "updates" ? updateAttention : undefined },
@@ -42,6 +40,7 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
   useEffect(() => {
     if (focusUpdates) setActive("updates");
   }, [focusUpdates]);
+
 
   useEffect(() => {
     if (!focusUpdates || active !== "updates") return;
@@ -58,7 +57,6 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
       {active === "general" && <GeneralSection settings={settings} update={update} />}
       {active === "input" && <InputSection settings={settings} update={update} />}
       {active === "cursor" && <CursorSection settings={settings} update={update} />}
-      {active === "account" && <AccountSection />}
       {active === "privacy" && <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />}
       {active === "updates" && <UpdatesSection state={state} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />}
     </TabPanel>

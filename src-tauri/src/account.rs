@@ -881,7 +881,7 @@ mod tests {
         // Background calls never re-read the keychain (no prompts)...
         assert!(account.authorize().await.is_err());
         assert!(transport.requests().is_empty());
-        // ...but opening the Account tab does.
+        // ...but opening the Account page does.
         let view = account.view().await;
         assert!(view.signed_in && !view.keychain_unavailable);
     }
