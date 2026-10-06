@@ -24,7 +24,7 @@ export function AccountSection() {
   const [error, setError] = useState<{ text: string; id: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  // Set only by the user's own actions, so opening the tab never moves focus.
+  // Set only by the user's own actions, so opening the page never moves focus.
   const [focusNext, setFocusNext] = useState<FocusTarget | null>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
@@ -50,7 +50,7 @@ export function AccountSection() {
   // middle of an action. Never carry a delete confirmation or a code into
   // another screen, and if the focused control vanished, focus the new
   // screen instead of leaving focus on the page. Focus that is still on a
-  // control (such as the tabs) is left alone.
+  // control (such as the sidebar) is left alone.
   const keychainRef = useRef<HTMLParagraphElement>(null);
   const screen = screenOf(account);
   const previousScreen = useRef<Screen>(screen);

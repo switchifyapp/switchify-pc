@@ -229,7 +229,7 @@ describe("AccountSection", () => {
     expect(elsewhere).toHaveFocus();
   });
 
-  it("does not move focus when the tab opens with a pending code", async () => {
+  it("does not move focus when the page opens with a pending code", async () => {
     start(pending);
     const field = await screen.findByLabelText("Code from the email");
     expect(field).not.toHaveFocus();
