@@ -86,7 +86,7 @@ Signing in under Settings → Account (or the account entry at the bottom of the
 
 - **What syncs:** pointer, repeat, dwell and cursor settings; custom switch profiles; switch bindings including their keys; point scan and scan preferences; keyboard layout; and remote switch slots. The document is versioned and parsed strictly; a copy written by a newer Switchify PC is never overwritten, and this install asks to be updated instead.
 - **What never syncs:** the BLE desktop ID, paired devices and pairing tokens, telemetry consent and install ID, setup progress, and start with system.
-- **How:** changes upload a few seconds after they settle, other computers' changes are checked every five minutes and on Sync now, and every write is conditional on the server-owned revision, so concurrent changes merge by section (profiles by ID) instead of overwriting each other. The first sync on a computer whose settings differ from the account asks which to keep.
+- **How:** changes upload a few seconds after they settle, other computers' changes are checked every five minutes and on Sync now, and every write is conditional on the server-owned revision, so concurrent changes merge by section (profiles by ID) instead of overwriting each other; if both computers change the same section (or profile), the account's copy wins, though an edit is never lost to a deletion. The first sync on a computer whose settings differ from the account asks which to keep.
 - **Secrets:** requests are made from Rust, so the webview's content security policy stays closed. The refresh token is kept in the OS keychain (service `com.enaboapps.switchify.pc.account`); access tokens stay in memory. Tokens and codes are never logged or sent to the webview. The merge base is kept in `settings-sync.json` in the application configuration folder and contains no secrets.
 
 Accounts are compiled in from two build-time variables, which release builds require:
@@ -98,7 +98,7 @@ Accounts are compiled in from two build-time variables, which release builds req
 
 Both are public values (the Android app embeds them too) and are set as repository variables. Builds without them, including ordinary development builds, show "Accounts are unavailable in this build" and keep the version in the sidebar. To try accounts locally, export both variables before `npm run tauri dev`; note that a dev build signs in against whichever project they name.
 
-Automated tests use fake transports and never touch the network or the keychain. Two ignored tests run end to end against a local stack from `switchify-supabase` (`supabase start`), reading sign-in codes from its Mailpit inbox:
+Automated tests use fake transports and never touch the network or the keychain. Two ignored tests run end to end against a local stack from `switchify-supabase` (`supabase start`). The account test reads its sign-in code from the stack's Mailpit inbox (`SWITCHIFY_LOCAL_MAILPIT_URL`, default `http://127.0.0.1:54324`); the sync test signs up test users with a password:
 
 ```bash
 SWITCHIFY_LOCAL_SUPABASE_URL=http://127.0.0.1:54321 \
