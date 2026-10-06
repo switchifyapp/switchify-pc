@@ -676,3 +676,9 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
    as disabled ones. */
 .btn[aria-disabled="true"] { cursor: default; }
 .btn[aria-disabled="true"]:not(fieldset:disabled *) { border-color: var(--border); color: var(--ink-disabled); background: var(--surface-disabled); }
+
+/* The sidebar account entry replaces the version label: a full-size control
+   whose email shortens with an ellipsis rather than widening the sidebar. */
+.sidebar-footer .sidebar-account { width: 100%; }
+.sidebar-account-text { display: flex; flex-direction: column; min-width: 0; text-align: start; }
+.sidebar-account-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }

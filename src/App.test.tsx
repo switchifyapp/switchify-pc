@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { api, browserState } from "./api";
-import type { BluetoothState, SwitchProfile } from "./types";
+import type { AccountView, BluetoothState, SwitchProfile } from "./types";
 
 import * as switchHooks from "./scanning/useSwitches";
 import * as scanHooks from "./scanning/useScanning";
@@ -578,6 +578,56 @@ describe("Switchify PC shell", () => {
     expect(within(confirmation).getByRole("button", { name: "Keep editing" })).toHaveFocus();
     fireEvent.click(within(confirmation).getByRole("button", { name: "Discard changes" }));
     await waitFor(() => expect(opener).toHaveFocus());
+  });
+
+  describe("sidebar account", () => {
+    const signedIn: AccountView = { available: true, signedIn: true, email: "me@example.com", pendingEmail: null, keychainUnavailable: false };
+    const signedOut: AccountView = { ...signedIn, signedIn: false, email: null };
+    const sidebar = async () => {
+      await screen.findByRole("navigation");
+      return within(document.querySelector("aside") as HTMLElement);
+    };
+    const mockAccount = (view: AccountView) => {
+      let receive: (next: AccountView) => void = () => undefined;
+      vi.spyOn(api, "account").mockResolvedValue(view);
+      vi.spyOn(api, "onAccount").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
+      vi.spyOn(api, "settingsSync").mockResolvedValue({ status: "upToDate", lastSyncedAt: null, message: null });
+      vi.spyOn(api, "onSettingsSync").mockResolvedValue(() => undefined);
+      return (next: AccountView) => receive(next);
+    };
+
+    it("replaces the version with the signed-in account", async () => {
+      mockAccount(signedIn);
+      render(<App />);
+      const entry = await (await sidebar()).findByRole("button", { name: "Account, signed in as me@example.com" });
+      expect(entry).toHaveTextContent("Accountme@example.com");
+      expect((await sidebar()).queryByText(/^v\d/)).not.toBeInTheDocument();
+    });
+
+    it("offers sign-in when signed out and follows account changes", async () => {
+      const receive = mockAccount(signedOut);
+      render(<App />);
+      expect(await (await sidebar()).findByRole("button", { name: "Sign in to your account" })).toHaveTextContent("Sign in");
+      act(() => receive(signedIn));
+      expect(await (await sidebar()).findByRole("button", { name: "Account, signed in as me@example.com" })).toBeInTheDocument();
+    });
+
+    it("opens Settings on the Account section", async () => {
+      mockAccount(signedIn);
+      render(<App />);
+      fireEvent.click(await (await sidebar()).findByRole("button", { name: /^Account, signed in/ }));
+      expect(screen.getByRole("tab", { name: "Account" })).toHaveAttribute("aria-selected", "true");
+      const section = await screen.findByRole("region", { name: "Account" });
+      await waitFor(() => expect(section).toHaveFocus());
+      expect(screen.getByText(/Signed in as/)).toBeInTheDocument();
+    });
+
+    it("keeps the version in builds without accounts", async () => {
+      mockAccount({ ...signedOut, available: false });
+      render(<App />);
+      expect(await (await sidebar()).findByText(`v${browserState.version}`)).toBeInTheDocument();
+      expect((await sidebar()).queryByRole("button", { name: /account/i })).not.toBeInTheDocument();
+    });
   });
 
   it("refreshes Switch Forwarding profiles when settings sync changes them", async () => {

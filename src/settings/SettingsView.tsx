@@ -11,12 +11,13 @@ import { UpdatesSection, type UpdateAction } from "./UpdatesSection";
 
 type SettingsTabId = "general" | "input" | "cursor" | "account" | "privacy" | "updates";
 
-export function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, updateAttention, onUpdatesShown }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; updateAttention: string | null; onUpdatesShown: (shown: boolean) => void }) {
+export function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, focusAccount = false, onAccountFocused = () => undefined, updateAttention, onUpdatesShown }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; focusAccount?: boolean; onAccountFocused?: () => void; updateAttention: string | null; onUpdatesShown: (shown: boolean) => void }) {
   const updatesRef = useRef<HTMLElement>(null);
+  const accountRef = useRef<HTMLElement>(null);
   // Opening straight to Updates starts there, rather than committing General
   // for one frame and letting App announce a failure for a tab already being
   // opened.
-  const [active, setActive] = useState<SettingsTabId>(focusUpdates ? "updates" : "general");
+  const [active, setActive] = useState<SettingsTabId>(focusUpdates ? "updates" : focusAccount ? "account" : "general");
 
   // App owns the standing update failure and what has been said about it; this
   // view only reports whether the Updates panel, which shows it, is on screen.
@@ -44,6 +45,21 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
   }, [focusUpdates]);
 
   useEffect(() => {
+    if (focusAccount) setActive("account");
+  }, [focusAccount]);
+
+  // Opened from the sidebar account entry: land on the account section.
+  // It renders after loading, so wait for it before handing focus over.
+  useEffect(() => {
+    if (!focusAccount || active !== "account") return;
+    const section = accountRef.current;
+    if (!section) return;
+    section.scrollIntoView?.({ block: "start" });
+    section.focus({ preventScroll: true });
+    onAccountFocused();
+  });
+
+  useEffect(() => {
     if (!focusUpdates || active !== "updates") return;
     updatesRef.current?.scrollIntoView?.({ block: "start" });
     updatesRef.current?.focus({ preventScroll: true });
@@ -58,7 +74,7 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
       {active === "general" && <GeneralSection settings={settings} update={update} />}
       {active === "input" && <InputSection settings={settings} update={update} />}
       {active === "cursor" && <CursorSection settings={settings} update={update} />}
-      {active === "account" && <AccountSection />}
+      {active === "account" && <AccountSection sectionRef={accountRef} />}
       {active === "privacy" && <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />}
       {active === "updates" && <UpdatesSection state={state} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />}
     </TabPanel>
