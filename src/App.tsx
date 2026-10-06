@@ -2,12 +2,13 @@ import { Button, Input, Select } from "./ui/controls";
 import { Demonstration, DemonstrationProvider } from "./help/Demonstration";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  Accessibility, Bluetooth, ChevronRight, CircleHelp, Download,
+  Accessibility, Bluetooth, ChevronRight, CircleHelp, CircleUserRound, Download,
   Copy, Home, Keyboard, MousePointer2, Plus, Power, RefreshCw, Save, Settings,
   SlidersHorizontal, Smartphone, Trash2, Wrench, X,
 } from "lucide-react";
 import { api, type ProfileExitAction } from "./api";
-import type { AppSettings, AppState, PendingPairing, SwitchProfile, UpdateState } from "./types";
+import { AccountSection } from "./settings/AccountSection";
+import type { AccountView, AppSettings, AppState, PendingPairing, SwitchProfile, UpdateState } from "./types";
 import { applyLocalSettings, changedSettingKeys } from "./settings/diff";
 import { SettingsView } from "./settings/SettingsView";
 import { MouseSettingsView } from "./settings/MouseSettingsView";
@@ -22,7 +23,7 @@ import { interfaceModeAdvice, reservedKeyAdvice } from "./help/keyAvailability";
 import { SwitchesSection } from "./settings/SwitchesSection";
 import { ScanningSection } from "./settings/ScanningSection";
 
-type View = "switches" | "scanning" | "mouse" | "mobile" | "home" | "devices" | "profiles" | "settings" | "support";
+type View = "switches" | "scanning" | "mouse" | "mobile" | "home" | "devices" | "profiles" | "settings" | "support" | "account";
 
 const brandIconUrl = new URL("../src-tauri/icons/icon.png", import.meta.url).href;
 const mobileQrUrl = new URL("./assets/mobile-download-qr.png", import.meta.url).href;
@@ -44,6 +45,23 @@ const bluetoothDescriptions: Record<AppState["bluetooth"], string> = {
   unsupported: "This computer does not support the required Bluetooth features.",
   error: "Bluetooth could not start. Try restarting Switchify PC.",
 };
+
+// Replaces the version label: who is signed in, and the way to the Account
+// page. Builds without accounts keep the version, which Settings → Updates
+// also shows.
+function SidebarAccount({ account, version, active, onOpen }: { account: AccountView | null; version: string; active: boolean; onOpen: () => void }) {
+  if (!account?.available) return <span>v{version}</span>;
+  // A locked keychain may hide a saved sign-in, so stay neutral then.
+  const signedOut = !account.signedIn && !account.keychainUnavailable;
+  const label = account.signedIn && account.email ? `Account, signed in as ${account.email}` : signedOut ? "Sign in to your account" : "Account";
+  return <Button className="nav-button sidebar-account" data-active={active} aria-current={active ? "page" : undefined} aria-label={label} onClick={onOpen}>
+    <CircleUserRound size={19} aria-hidden="true" />
+    <span className="sidebar-account-text">
+      <span>{signedOut ? "Sign in" : "Account"}</span>
+      {account.signedIn && account.email && <small title={account.email}>{account.email}</small>}
+    </span>
+  </Button>;
+}
 
 function NavButton({ active, icon, children, onClick }: { active: boolean; icon: ReactNode; children: ReactNode; onClick: () => void }) {
   return <Button className="nav-button" data-active={active} aria-current={active ? "page" : undefined} onClick={onClick}>{icon}<span>{children}</span></Button>;
@@ -508,6 +526,7 @@ export function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [focusUpdates, setFocusUpdates] = useState(false);
+  const [account, setAccount] = useState<AccountView | null>(null);
   // --- Update failures away from the Updates tab ------------------------------
   // Failed and cancelled are the updater states with something to act on that
   // the global banner deliberately leaves out: the scheduled check fails for
@@ -696,6 +715,14 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    // Read-only: loading the sidebar must never prompt for the keychain.
+    void api.accountStatus().then((view) => { if (active) setAccount(view); }).catch(() => undefined);
+    const stop = api.onAccount((view) => setAccount(view));
+    return () => { active = false; void stop.then((unlisten) => unlisten()); };
+  }, []);
+
+  useEffect(() => {
     let unlisten: () => void = () => {};
     let disposed = false;
     void api.onNavigateRequested((target) => {
@@ -792,7 +819,7 @@ export function App() {
 
   if (!state || !settings) return <div className="loading"><RefreshCw className="spin" size={24} /><span>Starting Switchify PC...</span></div>;
   return <DemonstrationProvider platform={state.capabilities.platform} suspended={state.pendingPairings.length > 0 || switches.capturing || !!switches.state?.capture.active}><div className="app-shell">
-    <aside inert={setupOpen || state.pendingPairings.length > 0}><div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id || (id === "mobile" && (view === "devices" || view === "profiles"))} icon={icon} onClick={() => selectView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><span>v{state.version}</span></div></aside>
+    <aside inert={setupOpen || state.pendingPairings.length > 0}><div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id || (id === "mobile" && (view === "devices" || view === "profiles"))} icon={icon} onClick={() => selectView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><SidebarAccount account={account} version={state.version} active={view === "account"} onOpen={() => selectView("account")} /></div></aside>
     <DemonstrationProvider platform={state.capabilities.platform} suspended={setupOpen || state.pendingPairings.length > 0 || switches.capturing || !!switches.state?.capture.active}><main inert={setupOpen || state.pendingPairings.length > 0}>
       {error && <div className="error-banner" role="alert">{error}<Button onClick={() => setError(null)}>Dismiss</Button></div>}
       <UpdateBanner update={state.updater} openUpdates={openUpdates} />
@@ -807,6 +834,7 @@ export function App() {
       {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} nativeExitRequest={profileExitRequest} onConfirmNativeExit={confirmProfileExit} onCancelNativeExit={cancelProfileExit} />}
       </TabPanel></div>}
       {view === "settings" && <SettingsView state={state} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} focusUpdates={focusUpdates} onUpdatesFocused={() => setFocusUpdates(false)} updateAttention={updateFailure?.text ?? null} onUpdatesShown={setUpdatesShown} />}
+      {view === "account" && <div className="view"><header className="page-header"><div><h1>Account</h1><p>Bring your settings to your other computers.</p></div></header><AccountSection /></div>}
       {view === "support" && <SupportView state={state} switches={switches} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} openUpdates={openUpdates} />}
     </main></DemonstrationProvider>
     {setupOpen && <SetupGuide state={state} switches={switches} suspended={state.pendingPairings.length > 0} busy={busy} error={error} skip={skipSetup} finish={finishSetup} accessibility={() => perform(() => api.checkAccessibility(true))} />}
