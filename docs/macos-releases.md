@@ -36,6 +36,8 @@ Configure these environment variables:
 | `APPLE_SIGNING_IDENTITY` | Full `Developer ID Application: … (TEAMID)` identity |
 | `APPLE_TEAM_ID` | Apple Developer team ID from the identity |
 | `TIMBERLOGS_ENDPOINT` | Production HTTPS telemetry endpoint |
+| `SWITCHIFY_SUPABASE_URL` | Supabase project URL for accounts and settings sync (HTTPS) |
+| `SWITCHIFY_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key (public, `sb_publishable_…`) |
 
 Configure `TAURI_UPDATER_PUBLIC_KEY` as a repository variable. Keep an encrypted offline backup of the updater private key and password: installed applications cannot accept future updates if that key is lost.
 
