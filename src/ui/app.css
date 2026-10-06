@@ -680,5 +680,11 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 /* The sidebar account entry replaces the version label: a full-size control
    whose email shortens with an ellipsis rather than widening the sidebar. */
 .sidebar-footer .sidebar-account { width: 100%; }
+/* Holding the account entry, the footer lines up with the nav buttons. */
+.sidebar-footer:has(.sidebar-account) { padding: 12px 0 0; }
+/* Compact layout hides the footer; the account entry stays reachable. */
+@media (max-width: 800px) {
+  .app-shell .sidebar-footer:has(.sidebar-account) { display: block; }
+}
 .sidebar-account-text { display: flex; flex-direction: column; min-width: 0; text-align: start; }
 .sidebar-account-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }

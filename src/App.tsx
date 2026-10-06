@@ -49,11 +49,13 @@ const bluetoothDescriptions: Record<AppState["bluetooth"], string> = {
 // Builds without accounts keep the version, which Settings → Updates also shows.
 function SidebarAccount({ account, version, onOpen }: { account: AccountView | null; version: string; onOpen: () => void }) {
   if (!account?.available) return <span>v{version}</span>;
-  const label = account.signedIn && account.email ? `Account, signed in as ${account.email}` : "Sign in to your account";
+  // A locked keychain may hide a saved sign-in, so stay neutral then.
+  const signedOut = !account.signedIn && !account.keychainUnavailable;
+  const label = account.signedIn && account.email ? `Account, signed in as ${account.email}` : signedOut ? "Sign in to your account" : "Account";
   return <Button className="nav-button sidebar-account" aria-label={label} onClick={onOpen}>
     <CircleUserRound size={19} aria-hidden="true" />
     <span className="sidebar-account-text">
-      <span>{account.signedIn ? "Account" : "Sign in"}</span>
+      <span>{signedOut ? "Sign in" : "Account"}</span>
       {account.signedIn && account.email && <small title={account.email}>{account.email}</small>}
     </span>
   </Button>;
@@ -713,7 +715,8 @@ export function App() {
 
   useEffect(() => {
     let active = true;
-    void api.account().then((view) => { if (active) setAccount(view); }).catch(() => undefined);
+    // Read-only: loading the sidebar must never prompt for the keychain.
+    void api.accountStatus().then((view) => { if (active) setAccount(view); }).catch(() => undefined);
     const stop = api.onAccount((view) => setAccount(view));
     return () => { active = false; void stop.then((unlisten) => unlisten()); };
   }, []);

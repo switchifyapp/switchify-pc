@@ -587,10 +587,13 @@ describe("Switchify PC shell", () => {
       await screen.findByRole("navigation");
       return within(document.querySelector("aside") as HTMLElement);
     };
+    let lastStatus: ReturnType<typeof vi.spyOn> | undefined;
     const mockAccount = (view: AccountView) => {
       let receive: (next: AccountView) => void = () => undefined;
+      const status = vi.spyOn(api, "accountStatus").mockResolvedValue(view);
       vi.spyOn(api, "account").mockResolvedValue(view);
       vi.spyOn(api, "onAccount").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
+      lastStatus = status;
       vi.spyOn(api, "settingsSync").mockResolvedValue({ status: "upToDate", lastSyncedAt: null, message: null });
       vi.spyOn(api, "onSettingsSync").mockResolvedValue(() => undefined);
       return (next: AccountView) => receive(next);
@@ -620,6 +623,47 @@ describe("Switchify PC shell", () => {
       const section = await screen.findByRole("region", { name: "Account" });
       await waitFor(() => expect(section).toHaveFocus());
       expect(screen.getByText(/Signed in as/)).toBeInTheDocument();
+    });
+
+    it("reads the account without the keychain-retrying command", async () => {
+      mockAccount(signedIn);
+      const retrying = vi.mocked(api.account);
+      render(<App />);
+      await (await sidebar()).findByRole("button", { name: /^Account, signed in/ });
+      expect(lastStatus).toHaveBeenCalled();
+      expect(retrying).not.toHaveBeenCalled();
+    });
+
+    it("stays neutral while the keychain is locked", async () => {
+      mockAccount({ ...signedOut, keychainUnavailable: true });
+      render(<App />);
+      const entry = await (await sidebar()).findByRole("button", { name: "Account" });
+      expect(entry).toHaveTextContent("Account");
+      expect(entry).not.toHaveTextContent("Sign in");
+    });
+
+    it("switches to the Account tab when Settings is already open", async () => {
+      mockAccount(signedIn);
+      render(<App />);
+      fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+      fireEvent.click(screen.getByRole("tab", { name: "Privacy" }));
+      fireEvent.click(await (await sidebar()).findByRole("button", { name: /^Account, signed in/ }));
+      expect(screen.getByRole("tab", { name: "Account" })).toHaveAttribute("aria-selected", "true");
+      await waitFor(() => expect(screen.getByRole("region", { name: "Account" })).toHaveFocus());
+    });
+
+    it("keeps an unsaved profile edit when navigation is cancelled", async () => {
+      mockAccount(signedIn);
+      vi.spyOn(window, "confirm").mockReturnValue(false);
+      render(<App />);
+      fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
+      fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
+      fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+      fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Unsaved" } });
+      fireEvent.click(await (await sidebar()).findByRole("button", { name: /^Account, signed in/ }));
+      expect(window.confirm).toHaveBeenCalledWith("Discard unsaved profile changes?");
+      expect(screen.getByLabelText("Profile name")).toHaveValue("Unsaved");
+      expect(screen.queryByRole("tab", { name: "Account" })).not.toBeInTheDocument();
     });
 
     it("keeps the version in builds without accounts", async () => {

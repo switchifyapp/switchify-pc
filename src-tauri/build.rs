@@ -41,6 +41,7 @@ fn main() {
         "install_update",
         "export_diagnostics",
         "get_account",
+        "get_account_status",
         "request_sign_in_code",
         "verify_sign_in_code",
         "cancel_sign_in",

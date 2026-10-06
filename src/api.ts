@@ -115,6 +115,8 @@ export const api = {
   installUpdate: () => call<AppState>("install_update"),
   exportDiagnostics: () => call<AppState>("export_diagnostics"),
   account: () => accountCall("get_account"),
+  /** The account without re-reading the keychain, for background views. */
+  accountStatus: () => accountCall("get_account_status"),
   requestSignInCode: (email: string) => accountCall("request_sign_in_code", { email }),
   verifySignInCode: (code: string) => accountCall("verify_sign_in_code", { code }),
   cancelSignIn: () => accountCall("cancel_sign_in"),

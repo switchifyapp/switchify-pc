@@ -41,6 +41,7 @@
     "allow-install-update",
     "allow-export-diagnostics",
     "allow-get-account",
+    "allow-get-account-status",
     "allow-request-sign-in-code",
     "allow-verify-sign-in-code",
     "allow-cancel-sign-in",

@@ -48,8 +48,8 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
     if (focusAccount) setActive("account");
   }, [focusAccount]);
 
-  // Opened from the sidebar account entry: land on the account section.
-  // It renders after loading, so wait for it before handing focus over.
+  // Opened from the sidebar account entry: land on the account section once
+  // the Account tab has rendered it.
   useEffect(() => {
     if (!focusAccount || active !== "account") return;
     const section = accountRef.current;

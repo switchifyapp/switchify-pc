@@ -832,7 +832,9 @@ async fn get_account(
     account: State<'_, account::Account>,
 ) -> Result<account::AccountView, String> {
     let view = account.view().await;
-    // Opening the tab can find a session a locked keychain hid at startup.
+    // Opening the tab can recover a session a locked keychain hid at startup;
+    // tell the rest of the UI (e.g. the sidebar) too.
+    account::emit(&app, &view);
     if view.signed_in {
         if let Some(sync) = sync_engine(&app) {
             if sync.view().status == settings_sync::Status::Off {
@@ -841,6 +843,15 @@ async fn get_account(
         }
     }
     Ok(view)
+}
+
+/// The account as currently known, without re-reading the keychain, for
+/// views that load without the user asking (such as the sidebar).
+#[tauri::command]
+async fn get_account_status(
+    account: State<'_, account::Account>,
+) -> Result<account::AccountView, String> {
+    Ok(account.current_view().await)
 }
 
 #[tauri::command]
@@ -1767,6 +1778,7 @@ pub fn run() {
             install_update,
             export_diagnostics,
             get_account,
+            get_account_status,
             request_sign_in_code,
             verify_sign_in_code,
             cancel_sign_in,
