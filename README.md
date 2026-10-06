@@ -96,7 +96,7 @@ Accounts are compiled in from two build-time variables, which release builds req
 | `SWITCHIFY_SUPABASE_URL` | `https://<project-ref>.supabase.co` (must be HTTPS) |
 | `SWITCHIFY_SUPABASE_PUBLISHABLE_KEY` | The project's `sb_publishable_…` key |
 
-Both are public values (the Android app embeds them too) and are set as repository variables. Builds without them, including ordinary development builds, show "Accounts are unavailable in this build" and keep the version in the sidebar. To try accounts locally, export both variables before `npm run tauri dev`; note that a dev build signs in against whichever project they name.
+Both are public values (the Android app embeds them too) and are set as repository variables. Builds without them, including ordinary development builds, have no Account page and show the version in the sidebar instead. To try accounts locally, export both variables before `npm run tauri dev`; note that a dev build signs in against whichever project they name.
 
 Automated tests use fake transports and never touch the network or the keychain. Two ignored tests run end to end against a local stack from `switchify-supabase` (`supabase start`). The account test reads its sign-in code from the stack's Mailpit inbox (`SWITCHIFY_LOCAL_MAILPIT_URL`, default `http://127.0.0.1:54324`); the sync test signs up test users with a password:
 
