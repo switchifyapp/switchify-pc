@@ -688,3 +688,15 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 }
 .sidebar-account-text { display: flex; flex-direction: column; min-width: 0; text-align: start; }
 .sidebar-account-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+
+/* Account page: the Home status band and grouped rows. */
+.account-page { display: grid; gap: 16px; }
+.account-page > .connection-band + .status-list { margin-top: 8px; }
+.account-page .status-list + .status-list { margin-top: 0; }
+.account-band h2 .account-email { overflow-wrap: anywhere; }
+.account-form { display: grid; gap: 16px; padding: 20px; }
+.account-form .field { max-width: 32rem; }
+/* Rows whose choice is two buttons put them under the text, so the text
+   keeps its width instead of wrapping beside them. */
+.status-list > article.stacked-row { grid-auto-flow: row; }
+.status-list > article.stacked-row > .row-actions { grid-column: 2; justify-self: start; }

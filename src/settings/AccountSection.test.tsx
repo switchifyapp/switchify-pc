@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
 import type { AccountView, SyncView } from "../types";
@@ -59,6 +59,19 @@ describe("AccountSection", () => {
       expect(await screen.findByText(/saved by a newer Switchify PC/)).toBeInTheDocument();
     });
 
+    it("announces the sync status only once it is known", async () => {
+      vi.spyOn(api, "account").mockResolvedValue(signedIn);
+      vi.spyOn(api, "onAccount").mockResolvedValue(() => undefined);
+      let resolve: (view: SyncView) => void = () => undefined;
+      vi.spyOn(api, "settingsSync").mockImplementation(() => new Promise((done) => { resolve = done; }));
+      vi.spyOn(api, "onSettingsSync").mockResolvedValue(() => undefined);
+      render(<AccountSection />);
+      const placeholder = await screen.findByText("Checking settings sync…");
+      expect(placeholder).not.toHaveAttribute("role", "status");
+      act(() => resolve({ status: "upToDate", lastSyncedAt: null, message: null }));
+      expect(await screen.findByText("Settings are up to date.")).toHaveAttribute("role", "status");
+    });
+
     it("follows sync changes from the backend", async () => {
       let receive: (view: SyncView) => void = () => undefined;
       vi.spyOn(api, "account").mockResolvedValue(signedIn);
@@ -71,17 +84,20 @@ describe("AccountSection", () => {
       expect(await screen.findByText("Could not reach Switchify to sync settings.")).toBeInTheDocument();
     });
 
-    it("is hidden while confirming account deletion", async () => {
+    it("stays in its own row while deletion is confirmed in another", async () => {
       start(signedIn);
       await screen.findByRole("button", { name: "Sync now" });
       fireEvent.click(screen.getByRole("button", { name: "Delete account…" }));
-      expect(screen.queryByRole("button", { name: "Sync now" })).not.toBeInTheDocument();
+      const confirm = screen.getByRole("group", { name: "Confirm account deletion" });
+      expect(within(confirm).getByRole("button", { name: "Delete permanently" })).toBeInTheDocument();
+      expect(within(confirm).queryByRole("button", { name: "Sync now" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Sync now" })).toBeInTheDocument();
     });
   });
 
   it("says when accounts are unavailable in this build", async () => {
     start({ ...signedOut, available: false });
-    expect(await screen.findByText("Accounts are unavailable in this build.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Accounts are unavailable in this build" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
@@ -103,7 +119,8 @@ describe("AccountSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(verify).toHaveBeenCalledWith("123456");
     await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toHaveFocus());
-    expect(screen.getByText(/Signed in as/)).toHaveTextContent("Signed in as me@example.com.");
+    expect(screen.getByRole("heading", { name: "me@example.com" })).toBeInTheDocument();
+    expect(screen.getByText(/^Signed in./)).toHaveTextContent("Signed in. It's the same account as Switchify on Android.");
   });
 
   it("shows a wrong-code error and keeps the code form", async () => {
@@ -136,7 +153,7 @@ describe("AccountSection", () => {
     const remove = vi.spyOn(api, "deleteAccount").mockResolvedValue(signedOut);
     fireEvent.click(await screen.findByRole("button", { name: "Delete account…" }));
     expect(remove).not.toHaveBeenCalled();
-    expect(screen.getByText(/removes it and its saved settings from every device/)).toBeInTheDocument();
+    expect(screen.getByText(/removes your account and its saved settings from every device/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Keep account" })).toHaveFocus());
     fireEvent.click(screen.getByRole("button", { name: "Keep account" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Delete account…" })).toHaveFocus());
@@ -237,8 +254,27 @@ describe("AccountSection", () => {
 
   it("explains a locked keychain instead of offering sign-in", async () => {
     start({ ...signedOut, keychainUnavailable: true });
+    expect(await screen.findByRole("heading", { name: "Can't read your saved sign-in" })).toBeInTheDocument();
     expect(await screen.findByText(/keychain is locked or unavailable/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+  });
+
+  it("shows a sign-out failure beside Sign out", async () => {
+    start(signedIn);
+    vi.spyOn(api, "signOut").mockRejectedValue("Could not reach Switchify.");
+    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not reach Switchify.");
+    expect(alert.closest("section")).toContainElement(screen.getByRole("button", { name: "Sign out" }));
+  });
+
+  it("shows a delete failure inside the confirmation", async () => {
+    start(signedIn);
+    vi.spyOn(api, "deleteAccount").mockRejectedValue("Could not delete the account. Try again.");
+    fireEvent.click(await screen.findByRole("button", { name: "Delete account…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+    const confirm = screen.getByRole("group", { name: "Confirm account deletion" });
+    expect(await within(confirm).findByRole("alert")).toHaveTextContent("Could not delete the account.");
   });
 
   it("follows account changes from the backend", async () => {

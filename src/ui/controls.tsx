@@ -6,6 +6,11 @@ const classes = (...names: (string | false)[]) => names.filter(Boolean).join(" "
 export function Button({ className = "", type = "button", ...props }: ComponentProps<"button">) {
   return <button type={type} className={classes("btn", className)} {...props} />;
 }
+// A status tile: green with a tick when done, amber with a mark when
+// something needs doing; `ok` omitted marks a row with only a subject.
+export function StatusIcon({ ok, children }: { ok?: boolean; children: ReactNode }) {
+  return <span className="status-icon" data-ok={ok} aria-hidden="true">{children}</span>;
+}
 export function Input({ className = "", type, ...props }: ComponentProps<"input">) {
   const visible = type !== "checkbox" && type !== "radio" && type !== "hidden";
   return <input type={type} className={classes(visible && "field-control", className)} {...props} />;

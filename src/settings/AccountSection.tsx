@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { CircleUserRound, ListChecks, LockKeyhole, MailCheck, RefreshCw, Trash2 } from "lucide-react";
 import { api } from "../api";
-import { Button, Input } from "../ui/controls";
+import { Button, Input, StatusIcon } from "../ui/controls";
 import type { AccountView, SyncView } from "../types";
-import { SettingGroup } from "./controls";
 
-const description = "The same account as Switchify on Android. We email you a code to sign in; there is no password.";
+const sameAccount = "It's the same account as Switchify on Android.";
+const whatSyncs = "Pointer, repeat, dwell and cursor settings; your switches and their keys; scanning and keyboard layout; your switch profiles; and remote switches. Pairings, diagnostics sharing, setup progress and starting with your computer stay on each computer.";
 
 type FocusTarget = "email" | "code" | "signOut" | "deleteAccount" | "keepAccount";
 type Screen = "loading" | "unavailable" | "keychain" | "signedIn" | "pending" | "signedOut";
@@ -17,11 +18,30 @@ function screenOf(account: AccountView | null): Screen {
   return account.pendingEmail ? "pending" : "signedOut";
 }
 
+// The status band and grouped rows used on Home, so the page reads like the
+// rest of the app.
+function Band({ tone, ok, icon, title, children, action }: { tone: "ready" | "attention" | "neutral"; ok?: boolean; icon: ReactNode; title: ReactNode; children: ReactNode; action?: ReactNode }) {
+  return <section className="connection-band status-hero account-band" data-tone={tone} aria-labelledby="account-title">
+    <StatusIcon ok={ok}>{icon}</StatusIcon>
+    <div><h2 id="account-title">{title}</h2>{children}</div>
+    {action}
+  </section>;
+}
+
+function WhatSyncs() {
+  return <div className="status-list">
+    <article><StatusIcon><ListChecks size={19} /></StatusIcon><div><h3>What syncs</h3><p>{whatSyncs}</p></div></article>
+  </div>;
+}
+
 export function AccountSection() {
   const [account, setAccount] = useState<AccountView | null>(null);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [error, setError] = useState<{ text: string; id: number } | null>(null);
+  // Where an error is shown: beside the control that failed, so it is seen
+  // by whoever pressed it, not off screen at the bottom of the page.
+  type ErrorPlace = "form" | "signOut" | "delete";
+  const [error, setError] = useState<{ text: string; id: number; place: ErrorPlace } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // Set only by the user's own actions, so opening the page never moves focus.
@@ -79,7 +99,7 @@ export function AccountSection() {
 
   // Controls stay enabled while busy so focus is never dropped to the page;
   // repeated presses are ignored instead.
-  const run = async (action: () => Promise<AccountView>, next: (view: AccountView) => FocusTarget | null) => {
+  const run = async (action: () => Promise<AccountView>, next: (view: AccountView) => FocusTarget | null, place: ErrorPlace = "form") => {
     if (busy) return false;
     setBusy(true);
     setError(null);
@@ -89,7 +109,7 @@ export function AccountSection() {
       setFocusNext(next(view));
       return true;
     } catch (failure) {
-      setError({ text: failure instanceof Error ? failure.message : String(failure), id: Date.now() });
+      setError({ text: failure instanceof Error ? failure.message : String(failure), id: Date.now(), place });
       return false;
     } finally {
       setBusy(false);
@@ -108,69 +128,92 @@ export function AccountSection() {
     void run(() => api.verifySignInCode(code), () => "signOut").then((ok) => { if (ok) setCode(""); });
   };
 
-  if (!account) return <SettingGroup id="account" title="Switchify account" description={description}><p className="setting-note">Loading…</p></SettingGroup>;
+  if (!account) return <p className="setting-note">Loading…</p>;
 
   // Keyed by occurrence so the same message is announced again.
-  const errorText = error && <span key={error.id} className="field-error" id="account-error" role="alert">{error.text}</span>;
+  // Off the signed-in screen (e.g. a session rejected mid-delete) the
+  // failed control is gone, so the error joins the form that replaced it.
+  const errorAt = (place: ErrorPlace) => error && (account.signedIn ? error.place : "form") === place && <span key={error.id} className="field-error" id="account-error" role="alert">{error.text}</span>;
+  const errorText = errorAt("form");
   const errorProps = { "aria-invalid": Boolean(error), "aria-describedby": error ? "account-error" : undefined };
 
   if (!account.available) {
-    return <SettingGroup id="account" title="Switchify account" description={description}><p className="setting-note">Accounts are unavailable in this build.</p></SettingGroup>;
+    return <Band tone="neutral" icon={<CircleUserRound size={26} />} title="Accounts are unavailable in this build"><p>This build was made without account support.</p></Band>;
   }
 
   if (account.keychainUnavailable) {
-    return <SettingGroup id="account" title="Switchify account" description={description}><p ref={keychainRef} tabIndex={-1} className="setting-note" role="status">Your saved sign-in can't be read because this computer's keychain is locked or unavailable. Unlock it, then open this page again.</p></SettingGroup>;
+    return <Band tone="attention" ok={false} icon={<LockKeyhole size={26} />} title="Can't read your saved sign-in">
+      <p ref={keychainRef} tabIndex={-1} role="status">Your saved sign-in can't be read because this computer's keychain is locked or unavailable. Unlock it, then open this page again.</p>
+    </Band>;
   }
 
   if (account.signedIn) {
-    return <SettingGroup id="account" title="Switchify account" description={description}>
-      <p className="setting-note" role="status">Signed in as <strong>{account.email}</strong>.</p>
-      {!confirmDelete && <SyncPanel />}
-      {confirmDelete
-        ? <div role="group" aria-label="Confirm account deletion">
-          <p className="setting-note">Deleting your account removes it and its saved settings from every device, including Switchify on Android. This cannot be undone.</p>
-          <div className="privacy-choice">
-            <Button className="secondary" aria-disabled={busy} onClick={() => void run(api.deleteAccount, afterSignOut).then((ok) => { if (ok) setConfirmDelete(false); })}>Delete permanently</Button>
-            <Button ref={keepRef} className="secondary" aria-disabled={busy} onClick={() => { if (busy) return; setConfirmDelete(false); setFocusNext("deleteAccount"); }}>Keep account</Button>
-          </div>
-        </div>
-        : <div className="privacy-choice">
-          <Button ref={signOutRef} className="secondary" aria-disabled={busy} onClick={() => void run(api.signOut, afterSignOut)}>Sign out</Button>
-          <Button ref={deleteRef} className="secondary" aria-disabled={busy} onClick={() => { if (busy) return; setError(null); setConfirmDelete(true); setFocusNext("keepAccount"); }}>Delete account…</Button>
-        </div>}
-      {errorText}
-    </SettingGroup>;
+    return <div className="account-page">
+      <Band tone="ready" ok icon={<CircleUserRound size={26} />} title={<span className="account-email">{account.email}</span>}
+        action={<Button ref={signOutRef} className="secondary" aria-disabled={busy} onClick={() => void run(api.signOut, afterSignOut, "signOut")}>Sign out</Button>}>
+        <p role="status">Signed in. {sameAccount}</p>
+        {errorAt("signOut")}
+      </Band>
+      <div className="status-list"><SyncRow /></div>
+      <WhatSyncs />
+      <div className="status-list">
+        {confirmDelete
+          ? <article className="stacked-row" role="group" aria-label="Confirm account deletion">
+            <StatusIcon ok={false}><Trash2 size={19} /></StatusIcon>
+            <div><h3>Delete your account?</h3><p>This removes your account and its saved settings from every device, including Switchify on Android. It cannot be undone.</p>{errorAt("delete")}</div>
+            <div className="privacy-choice row-actions">
+              <Button className="primary danger" aria-disabled={busy} onClick={() => void run(api.deleteAccount, afterSignOut, "delete").then((ok) => { if (ok) setConfirmDelete(false); })}>Delete permanently</Button>
+              <Button ref={keepRef} className="secondary" aria-disabled={busy} onClick={() => { if (busy) return; setError(null); setConfirmDelete(false); setFocusNext("deleteAccount"); }}>Keep account</Button>
+            </div>
+          </article>
+          : <article>
+            <StatusIcon><Trash2 size={19} /></StatusIcon>
+            <div><h3>Delete account</h3><p>Remove your account and its saved settings from every device.</p></div>
+            <Button ref={deleteRef} className="secondary danger" aria-disabled={busy} onClick={() => { if (busy) return; setError(null); setConfirmDelete(true); setFocusNext("keepAccount"); }}>Delete account…</Button>
+          </article>}
+      </div>
+    </div>;
   }
 
   if (account.pendingEmail) {
-    return <SettingGroup id="account" title="Switchify account" description={description}>
-      <form onSubmit={verifyCode} aria-busy={busy}>
-        <p className="setting-note" role="status">We sent a code to <strong>{account.pendingEmail}</strong>. It can take a minute to arrive.</p>
-        <label className="field"><span>Code from the email</span>
-          <Input ref={codeRef} value={code} inputMode="numeric" autoComplete="one-time-code" maxLength={12} readOnly={busy}
-            {...errorProps} onChange={(event) => setCode(event.target.value)} />
+    return <div className="account-page">
+      <Band tone="neutral" icon={<MailCheck size={26} />} title="Check your email">
+        <p role="status">We sent a code to <strong>{account.pendingEmail}</strong>. It can take a minute to arrive.</p>
+      </Band>
+      <div className="status-list">
+        <form className="account-form" onSubmit={verifyCode} aria-busy={busy}>
+          <label className="field"><span>Code from the email</span>
+            <Input ref={codeRef} value={code} inputMode="numeric" autoComplete="one-time-code" maxLength={12} readOnly={busy}
+              {...errorProps} onChange={(event) => setCode(event.target.value)} />
+          </label>
+          {errorText}
+          <div className="privacy-choice">
+            <Button className="primary" type="submit" aria-disabled={busy || !code.trim()}>Sign in</Button>
+            <Button className="secondary" aria-disabled={busy} onClick={() => void run(api.cancelSignIn, () => "email")}>Use a different email</Button>
+          </div>
+        </form>
+      </div>
+    </div>;
+  }
+
+  return <div className="account-page">
+    <Band tone="neutral" icon={<CircleUserRound size={26} />} title="Sign in to sync your settings">
+      <p>{sameAccount} We email you a code to sign in; there is no password.</p>
+    </Band>
+    <div className="status-list">
+      <form className="account-form" onSubmit={requestCode} aria-busy={busy}>
+        <label className="field"><span>Email</span>
+          <Input ref={emailRef} type="email" value={email} autoComplete="email" maxLength={254} readOnly={busy}
+            {...errorProps} onChange={(event) => setEmail(event.target.value)} />
         </label>
         {errorText}
         <div className="privacy-choice">
-          <Button className="secondary" type="submit" aria-disabled={busy || !code.trim()}>Sign in</Button>
-          <Button className="secondary" aria-disabled={busy} onClick={() => void run(api.cancelSignIn, () => "email")}>Use a different email</Button>
+          <Button className="primary" type="submit" aria-disabled={busy || !email.trim()}>Email me a code</Button>
         </div>
       </form>
-    </SettingGroup>;
-  }
-
-  return <SettingGroup id="account" title="Switchify account" description={description}>
-    <form onSubmit={requestCode} aria-busy={busy}>
-      <label className="field"><span>Email</span>
-        <Input ref={emailRef} type="email" value={email} autoComplete="email" maxLength={254} readOnly={busy}
-          {...errorProps} onChange={(event) => setEmail(event.target.value)} />
-      </label>
-      {errorText}
-      <div className="privacy-choice">
-        <Button className="secondary" type="submit" aria-disabled={busy || !email.trim()}>Email me a code</Button>
-      </div>
-    </form>
-  </SettingGroup>;
+    </div>
+    <WhatSyncs />
+  </div>;
 }
 
 const syncText: Record<SyncView["status"], string> = {
@@ -182,8 +225,14 @@ const syncText: Record<SyncView["status"], string> = {
   error: "",
 };
 
-/** Sync status for the signed-in account, with the first-sync choice. */
-function SyncPanel() {
+function syncOk(status: SyncView["status"]): boolean | undefined {
+  if (status === "upToDate") return true;
+  if (status === "error" || status === "updateRequired" || status === "needsChoice") return false;
+  return undefined;
+}
+
+/** The settings sync row: status, last sync, Sync now or the first-sync choice. */
+function SyncRow() {
   const [sync, setSync] = useState<SyncView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -231,21 +280,23 @@ function SyncPanel() {
     }
   };
 
-  if (!sync) return null;
-  const last = sync.lastSyncedAt ? new Date(sync.lastSyncedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : null;
-  const text = sync.message ?? syncText[sync.status];
-  return <div className="sync-panel" aria-busy={busy || sync.status === "syncing"}>
-    <p className="setting-note" role="status">
-      {text}{sync.status === "upToDate" && last && <> Last synced {last}.</>}
-    </p>
-    {sync.status === "needsChoice"
-      ? <div className="privacy-choice" role="group" aria-label="Choose which settings to keep">
+  const status = sync?.status ?? "off";
+  const last = sync?.lastSyncedAt ? new Date(sync.lastSyncedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : null;
+  const text = sync ? sync.message ?? syncText[status] : "Checking settings sync…";
+  return <article className={status === "needsChoice" ? "sync-row stacked-row" : "sync-row"} aria-busy={busy || status === "syncing"}>
+    <StatusIcon ok={sync ? syncOk(status) : undefined}><RefreshCw size={19} /></StatusIcon>
+    <div>
+      <h3>Settings sync</h3>
+      {sync
+        ? <p role="status">{text}{status === "upToDate" && last && <> Last synced {last}.</>}</p>
+        : <p>{text}</p>}
+      {error && <span className="field-error" role="alert">{error}</span>}
+    </div>
+    {sync && (status === "needsChoice"
+      ? <div className="privacy-choice row-actions" role="group" aria-label="Choose which settings to keep">
         <Button ref={firstChoiceRef} className="secondary" aria-disabled={busy} onClick={() => void run(() => api.resolveSettingsSync("cloud"), true)}>Use my account&apos;s settings</Button>
         <Button className="secondary" aria-disabled={busy} onClick={() => void run(() => api.resolveSettingsSync("local"), true)}>Keep this computer&apos;s settings</Button>
       </div>
-      : <div className="privacy-choice">
-        <Button ref={syncNowRef} className="secondary" aria-disabled={busy || sync.status === "syncing"} onClick={() => { if (sync.status !== "syncing") void run(api.syncSettingsNow); }}>Sync now</Button>
-      </div>}
-    {error && <span className="field-error" role="alert">{error}</span>}
-  </div>;
+      : <Button ref={syncNowRef} className="secondary" aria-disabled={busy || status === "syncing"} onClick={() => { if (status !== "syncing") void run(api.syncSettingsNow); }}>Sync now</Button>)}
+  </article>;
 }
