@@ -678,7 +678,8 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 /* Native :disabled is greyed by the system in forced colours; aria-disabled
    is not, so match the rule above and come after it. */
 @media (forced-colors: active) {
-  .btn[aria-disabled="true"]:not(fieldset:disabled *) { color: GrayText; border-color: GrayText; }
+  .btn[aria-disabled="true"]:not(fieldset:disabled *),
+  .btn[aria-disabled="true"]:not(fieldset:disabled *):hover { color: GrayText; border-color: GrayText; }
 }
 
 /* The sidebar account entry replaces the version label: a full-size control
