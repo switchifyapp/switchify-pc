@@ -624,8 +624,6 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
   .toggle-row[data-disabled="true"] input:checked + .toggle::after { background: Canvas; }
   /* Opting out of forced colours would also keep the page's focus blue. */
   .toggle-row input:focus-visible + .toggle { outline-color: CanvasText; }
-  /* Native :disabled is greyed by the system; aria-disabled is not. */
-  .btn[aria-disabled="true"] { color: GrayText; border-color: GrayText; }
   .color-swatch, .scanner-sample { forced-color-adjust: none; }
   /* A white or yellow swatch would vanish on a light Canvas without an edge. */
   .color-swatch, .color-swatch.white { border: 2px solid CanvasText; }
@@ -671,12 +669,15 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
   .setup-dialog .setup-content { overflow: visible; }
 }
 
-}
-
 /* Buttons that stay focusable while unavailable (aria-disabled) look the same
    as disabled ones. */
 .btn[aria-disabled="true"] { cursor: default; }
 .btn[aria-disabled="true"]:not(fieldset:disabled *) { border-color: var(--border); color: var(--ink-disabled); background: var(--surface-disabled); }
+/* Native :disabled is greyed by the system in forced colours; aria-disabled
+   is not, so match the rule above and come after it. */
+@media (forced-colors: active) {
+  .btn[aria-disabled="true"]:not(fieldset:disabled *) { color: GrayText; border-color: GrayText; }
+}
 
 /* The sidebar account entry replaces the version label: a full-size control
    whose email shortens with an ellipsis rather than widening the sidebar. */
@@ -731,5 +732,9 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
   .account-page > .connection-band + .status-list { margin-top: 0; }
   .account-page > .what-syncs { grid-column: 2; grid-row: 2; }
   .account-page:has(> .status-list:nth-child(4)) > .what-syncs { grid-row: 2 / span 2; }
+  /* Waiting for a code there is only the form, so it gets the full width. */
+  .account-page:not(:has(> .what-syncs)) { grid-template-columns: minmax(0, 1fr); }
   .scanner-panel-heading > p { max-width: 80ch; }
 }
+
+} /* end @layer components */
