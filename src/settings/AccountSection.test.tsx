@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
 import type { AccountView, SyncView } from "../types";
@@ -71,17 +71,20 @@ describe("AccountSection", () => {
       expect(await screen.findByText("Could not reach Switchify to sync settings.")).toBeInTheDocument();
     });
 
-    it("is hidden while confirming account deletion", async () => {
+    it("stays in its own row while deletion is confirmed in another", async () => {
       start(signedIn);
       await screen.findByRole("button", { name: "Sync now" });
       fireEvent.click(screen.getByRole("button", { name: "Delete account…" }));
-      expect(screen.queryByRole("button", { name: "Sync now" })).not.toBeInTheDocument();
+      const confirm = screen.getByRole("group", { name: "Confirm account deletion" });
+      expect(within(confirm).getByRole("button", { name: "Delete permanently" })).toBeInTheDocument();
+      expect(within(confirm).queryByRole("button", { name: "Sync now" })).not.toBeInTheDocument();
+      expect(within(screen.getByRole("region", { name: "Settings sync" })).getByRole("button", { name: "Sync now" })).toBeInTheDocument();
     });
   });
 
   it("says when accounts are unavailable in this build", async () => {
     start({ ...signedOut, available: false });
-    expect(await screen.findByText("Accounts are unavailable in this build.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Accounts are unavailable in this build" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
@@ -103,7 +106,8 @@ describe("AccountSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(verify).toHaveBeenCalledWith("123456");
     await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toHaveFocus());
-    expect(screen.getByText(/Signed in as/)).toHaveTextContent("Signed in as me@example.com.");
+    expect(screen.getByRole("heading", { name: "me@example.com" })).toBeInTheDocument();
+    expect(screen.getByText(/^Signed in./)).toHaveTextContent("Signed in. It's the same account as Switchify on Android.");
   });
 
   it("shows a wrong-code error and keeps the code form", async () => {
@@ -136,7 +140,7 @@ describe("AccountSection", () => {
     const remove = vi.spyOn(api, "deleteAccount").mockResolvedValue(signedOut);
     fireEvent.click(await screen.findByRole("button", { name: "Delete account…" }));
     expect(remove).not.toHaveBeenCalled();
-    expect(screen.getByText(/removes it and its saved settings from every device/)).toBeInTheDocument();
+    expect(screen.getByText(/removes your account and its saved settings from every device/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Keep account" })).toHaveFocus());
     fireEvent.click(screen.getByRole("button", { name: "Keep account" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Delete account…" })).toHaveFocus());

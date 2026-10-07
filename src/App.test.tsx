@@ -621,7 +621,7 @@ describe("Switchify PC shell", () => {
       const entry = await (await sidebar()).findByRole("button", { name: /^Account, signed in/ });
       fireEvent.click(entry);
       expect(await screen.findByRole("heading", { name: "Account", level: 1 })).toBeInTheDocument();
-      expect(await screen.findByText(/Signed in as/)).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "me@example.com" })).toBeInTheDocument();
       expect(entry).toHaveAttribute("aria-current", "page");
       expect(screen.queryByRole("tablist", { name: "Settings sections" })).not.toBeInTheDocument();
     });
