@@ -78,7 +78,7 @@ describe("AccountSection", () => {
       const confirm = screen.getByRole("group", { name: "Confirm account deletion" });
       expect(within(confirm).getByRole("button", { name: "Delete permanently" })).toBeInTheDocument();
       expect(within(confirm).queryByRole("button", { name: "Sync now" })).not.toBeInTheDocument();
-      expect(within(screen.getByRole("region", { name: "Settings sync" })).getByRole("button", { name: "Sync now" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Sync now" })).toBeInTheDocument();
     });
   });
 
@@ -243,6 +243,24 @@ describe("AccountSection", () => {
     start({ ...signedOut, keychainUnavailable: true });
     expect(await screen.findByText(/keychain is locked or unavailable/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+  });
+
+  it("shows a sign-out failure beside Sign out", async () => {
+    start(signedIn);
+    vi.spyOn(api, "signOut").mockRejectedValue("Could not reach Switchify.");
+    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not reach Switchify.");
+    expect(alert.closest("section")).toContainElement(screen.getByRole("button", { name: "Sign out" }));
+  });
+
+  it("shows a delete failure inside the confirmation", async () => {
+    start(signedIn);
+    vi.spyOn(api, "deleteAccount").mockRejectedValue("Could not delete the account. Try again.");
+    fireEvent.click(await screen.findByRole("button", { name: "Delete account…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+    const confirm = screen.getByRole("group", { name: "Confirm account deletion" });
+    expect(await within(confirm).findByRole("alert")).toHaveTextContent("Could not delete the account.");
   });
 
   it("follows account changes from the backend", async () => {

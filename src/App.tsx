@@ -1,4 +1,4 @@
-import { Button, Input, Select } from "./ui/controls";
+import { Button, Input, Select, StatusIcon } from "./ui/controls";
 import { Demonstration, DemonstrationProvider } from "./help/Demonstration";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -67,10 +67,6 @@ function NavButton({ active, icon, children, onClick }: { active: boolean; icon:
   return <Button className="nav-button" data-active={active} aria-current={active ? "page" : undefined} onClick={onClick}>{icon}<span>{children}</span></Button>;
 }
 
-// `ok` omitted marks a row that has no state to report, only a subject.
-function StatusIcon({ ok, children }: { ok?: boolean; children: ReactNode }) {
-  return <span className="status-icon" data-ok={ok} aria-hidden="true">{children}</span>;
-}
 
 function AccessibilityCopy({ state, detailed = false }: { state: AppState; detailed?: boolean }) {
   if (state.accessibility === "granted") return <p>Ready</p>;

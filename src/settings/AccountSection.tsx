@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { CircleUserRound, ListChecks, LockKeyhole, MailCheck, RefreshCw, Trash2 } from "lucide-react";
 import { api } from "../api";
-import { Button, Input } from "../ui/controls";
+import { Button, Input, StatusIcon } from "../ui/controls";
 import type { AccountView, SyncView } from "../types";
 
 const sameAccount = "It's the same account as Switchify on Android.";
-const whatSyncs = "Pointer, repeat, dwell and cursor settings; your switches and their keys; scanning and keyboard layout; switch profiles; and remote switches. Pairings, diagnostics and starting with your computer stay on each computer.";
+const whatSyncs = "Pointer, repeat, dwell and cursor settings; your switches and their keys; scanning and keyboard layout; your switch profiles; and remote switches. Pairings, diagnostics sharing, setup progress and starting with your computer stay on each computer.";
 
 type FocusTarget = "email" | "code" | "signOut" | "deleteAccount" | "keepAccount";
 type Screen = "loading" | "unavailable" | "keychain" | "signedIn" | "pending" | "signedOut";
@@ -19,11 +19,7 @@ function screenOf(account: AccountView | null): Screen {
 }
 
 // The status band and grouped rows used on Home, so the page reads like the
-// rest of the app: a colour-and-shape cue (tick or mark) on the icon.
-function StatusIcon({ ok, children }: { ok?: boolean; children: ReactNode }) {
-  return <span className="status-icon" data-ok={ok} aria-hidden="true">{children}</span>;
-}
-
+// rest of the app.
 function Band({ tone, ok, icon, title, children, action }: { tone: "ready" | "attention" | "neutral"; ok?: boolean; icon: ReactNode; title: ReactNode; children: ReactNode; action?: ReactNode }) {
   return <section className="connection-band status-hero account-band" data-tone={tone} aria-labelledby="account-title">
     <StatusIcon ok={ok}>{icon}</StatusIcon>
@@ -33,16 +29,19 @@ function Band({ tone, ok, icon, title, children, action }: { tone: "ready" | "at
 }
 
 function WhatSyncs() {
-  return <section className="status-list" aria-label="What syncs">
+  return <div className="status-list">
     <article><StatusIcon><ListChecks size={19} /></StatusIcon><div><h3>What syncs</h3><p>{whatSyncs}</p></div></article>
-  </section>;
+  </div>;
 }
 
 export function AccountSection() {
   const [account, setAccount] = useState<AccountView | null>(null);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [error, setError] = useState<{ text: string; id: number } | null>(null);
+  // Where an error is shown: beside the control that failed, so it is seen
+  // by whoever pressed it, not off screen at the bottom of the page.
+  type ErrorPlace = "form" | "signOut" | "delete";
+  const [error, setError] = useState<{ text: string; id: number; place: ErrorPlace } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // Set only by the user's own actions, so opening the page never moves focus.
@@ -100,7 +99,7 @@ export function AccountSection() {
 
   // Controls stay enabled while busy so focus is never dropped to the page;
   // repeated presses are ignored instead.
-  const run = async (action: () => Promise<AccountView>, next: (view: AccountView) => FocusTarget | null) => {
+  const run = async (action: () => Promise<AccountView>, next: (view: AccountView) => FocusTarget | null, place: ErrorPlace = "form") => {
     if (busy) return false;
     setBusy(true);
     setError(null);
@@ -110,7 +109,7 @@ export function AccountSection() {
       setFocusNext(next(view));
       return true;
     } catch (failure) {
-      setError({ text: failure instanceof Error ? failure.message : String(failure), id: Date.now() });
+      setError({ text: failure instanceof Error ? failure.message : String(failure), id: Date.now(), place });
       return false;
     } finally {
       setBusy(false);
@@ -132,7 +131,10 @@ export function AccountSection() {
   if (!account) return <p className="setting-note">Loading…</p>;
 
   // Keyed by occurrence so the same message is announced again.
-  const errorText = error && <span key={error.id} className="field-error" id="account-error" role="alert">{error.text}</span>;
+  // Off the signed-in screen (e.g. a session rejected mid-delete) the
+  // failed control is gone, so the error joins the form that replaced it.
+  const errorAt = (place: ErrorPlace) => error && (account.signedIn ? error.place : "form") === place && <span key={error.id} className="field-error" id="account-error" role="alert">{error.text}</span>;
+  const errorText = errorAt("form");
   const errorProps = { "aria-invalid": Boolean(error), "aria-describedby": error ? "account-error" : undefined };
 
   if (!account.available) {
@@ -140,7 +142,7 @@ export function AccountSection() {
   }
 
   if (account.keychainUnavailable) {
-    return <Band tone="attention" ok={false} icon={<LockKeyhole size={26} />} title="Your keychain is locked">
+    return <Band tone="attention" ok={false} icon={<LockKeyhole size={26} />} title="Can't read your saved sign-in">
       <p ref={keychainRef} tabIndex={-1} role="status">Your saved sign-in can't be read because this computer's keychain is locked or unavailable. Unlock it, then open this page again.</p>
     </Band>;
   }
@@ -148,18 +150,19 @@ export function AccountSection() {
   if (account.signedIn) {
     return <div className="account-page">
       <Band tone="ready" ok icon={<CircleUserRound size={26} />} title={<span className="account-email">{account.email}</span>}
-        action={<Button ref={signOutRef} className="secondary" aria-disabled={busy} onClick={() => void run(api.signOut, afterSignOut)}>Sign out</Button>}>
+        action={<Button ref={signOutRef} className="secondary" aria-disabled={busy} onClick={() => void run(api.signOut, afterSignOut, "signOut")}>Sign out</Button>}>
         <p role="status">Signed in. {sameAccount}</p>
+        {errorAt("signOut")}
       </Band>
-      <section className="status-list" aria-label="Settings sync"><SyncRow /></section>
+      <div className="status-list"><SyncRow /></div>
       <WhatSyncs />
-      <section className="status-list" aria-label="Delete account">
+      <div className="status-list">
         {confirmDelete
           ? <article className="stacked-row" role="group" aria-label="Confirm account deletion">
             <StatusIcon ok={false}><Trash2 size={19} /></StatusIcon>
-            <div><h3>Delete your account?</h3><p>This removes your account and its saved settings from every device, including Switchify on Android. It cannot be undone.</p></div>
+            <div><h3>Delete your account?</h3><p>This removes your account and its saved settings from every device, including Switchify on Android. It cannot be undone.</p>{errorAt("delete")}</div>
             <div className="privacy-choice row-actions">
-              <Button className="primary danger" aria-disabled={busy} onClick={() => void run(api.deleteAccount, afterSignOut).then((ok) => { if (ok) setConfirmDelete(false); })}>Delete permanently</Button>
+              <Button className="primary danger" aria-disabled={busy} onClick={() => void run(api.deleteAccount, afterSignOut, "delete").then((ok) => { if (ok) setConfirmDelete(false); })}>Delete permanently</Button>
               <Button ref={keepRef} className="secondary" aria-disabled={busy} onClick={() => { if (busy) return; setConfirmDelete(false); setFocusNext("deleteAccount"); }}>Keep account</Button>
             </div>
           </article>
@@ -168,8 +171,7 @@ export function AccountSection() {
             <div><h3>Delete account</h3><p>Remove your account and its saved settings from every device.</p></div>
             <Button ref={deleteRef} className="secondary danger" aria-disabled={busy} onClick={() => { if (busy) return; setError(null); setConfirmDelete(true); setFocusNext("keepAccount"); }}>Delete account…</Button>
           </article>}
-      </section>
-      {errorText}
+      </div>
     </div>;
   }
 
@@ -178,7 +180,7 @@ export function AccountSection() {
       <Band tone="neutral" icon={<MailCheck size={26} />} title="Check your email">
         <p role="status">We sent a code to <strong>{account.pendingEmail}</strong>. It can take a minute to arrive.</p>
       </Band>
-      <section className="status-list" aria-label="Enter your code">
+      <div className="status-list">
         <form className="account-form" onSubmit={verifyCode} aria-busy={busy}>
           <label className="field"><span>Code from the email</span>
             <Input ref={codeRef} value={code} inputMode="numeric" autoComplete="one-time-code" maxLength={12} readOnly={busy}
@@ -190,7 +192,7 @@ export function AccountSection() {
             <Button className="secondary" aria-disabled={busy} onClick={() => void run(api.cancelSignIn, () => "email")}>Use a different email</Button>
           </div>
         </form>
-      </section>
+      </div>
     </div>;
   }
 
@@ -198,7 +200,7 @@ export function AccountSection() {
     <Band tone="neutral" icon={<CircleUserRound size={26} />} title="Sign in to sync your settings">
       <p>{sameAccount} We email you a code to sign in; there is no password.</p>
     </Band>
-    <section className="status-list" aria-label="Sign in">
+    <div className="status-list">
       <form className="account-form" onSubmit={requestCode} aria-busy={busy}>
         <label className="field"><span>Email</span>
           <Input ref={emailRef} type="email" value={email} autoComplete="email" maxLength={254} readOnly={busy}
@@ -209,7 +211,7 @@ export function AccountSection() {
           <Button className="primary" type="submit" aria-disabled={busy || !email.trim()}>Email me a code</Button>
         </div>
       </form>
-    </section>
+    </div>
     <WhatSyncs />
   </div>;
 }
@@ -285,7 +287,9 @@ function SyncRow() {
     <StatusIcon ok={sync ? syncOk(status) : undefined}><RefreshCw size={19} /></StatusIcon>
     <div>
       <h3>Settings sync</h3>
-      <p role="status">{text}{status === "upToDate" && last && <> Last synced {last}.</>}</p>
+      {sync
+        ? <p role="status">{text}{status === "upToDate" && last && <> Last synced {last}.</>}</p>
+        : <p>{text}</p>}
       {error && <span className="field-error" role="alert">{error}</span>}
     </div>
     {sync && (status === "needsChoice"
