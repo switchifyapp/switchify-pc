@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
 import type { AccountView, SyncView } from "../types";
@@ -57,6 +57,19 @@ describe("AccountSection", () => {
     it("shows the backend message for errors and newer app versions", async () => {
       start(signedIn, { status: "updateRequired", lastSyncedAt: null, message: "Your synced settings were saved by a newer Switchify PC." });
       expect(await screen.findByText(/saved by a newer Switchify PC/)).toBeInTheDocument();
+    });
+
+    it("announces the sync status only once it is known", async () => {
+      vi.spyOn(api, "account").mockResolvedValue(signedIn);
+      vi.spyOn(api, "onAccount").mockResolvedValue(() => undefined);
+      let resolve: (view: SyncView) => void = () => undefined;
+      vi.spyOn(api, "settingsSync").mockImplementation(() => new Promise((done) => { resolve = done; }));
+      vi.spyOn(api, "onSettingsSync").mockResolvedValue(() => undefined);
+      render(<AccountSection />);
+      const placeholder = await screen.findByText("Checking settings sync…");
+      expect(placeholder).not.toHaveAttribute("role", "status");
+      act(() => resolve({ status: "upToDate", lastSyncedAt: null, message: null }));
+      expect(await screen.findByText("Settings are up to date.")).toHaveAttribute("role", "status");
     });
 
     it("follows sync changes from the backend", async () => {
@@ -241,6 +254,7 @@ describe("AccountSection", () => {
 
   it("explains a locked keychain instead of offering sign-in", async () => {
     start({ ...signedOut, keychainUnavailable: true });
+    expect(await screen.findByRole("heading", { name: "Can't read your saved sign-in" })).toBeInTheDocument();
     expect(await screen.findByText(/keychain is locked or unavailable/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
   });

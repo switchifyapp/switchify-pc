@@ -163,7 +163,7 @@ export function AccountSection() {
             <div><h3>Delete your account?</h3><p>This removes your account and its saved settings from every device, including Switchify on Android. It cannot be undone.</p>{errorAt("delete")}</div>
             <div className="privacy-choice row-actions">
               <Button className="primary danger" aria-disabled={busy} onClick={() => void run(api.deleteAccount, afterSignOut, "delete").then((ok) => { if (ok) setConfirmDelete(false); })}>Delete permanently</Button>
-              <Button ref={keepRef} className="secondary" aria-disabled={busy} onClick={() => { if (busy) return; setConfirmDelete(false); setFocusNext("deleteAccount"); }}>Keep account</Button>
+              <Button ref={keepRef} className="secondary" aria-disabled={busy} onClick={() => { if (busy) return; setError(null); setConfirmDelete(false); setFocusNext("deleteAccount"); }}>Keep account</Button>
             </div>
           </article>
           : <article>

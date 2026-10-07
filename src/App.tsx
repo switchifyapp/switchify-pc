@@ -67,7 +67,6 @@ function NavButton({ active, icon, children, onClick }: { active: boolean; icon:
   return <Button className="nav-button" data-active={active} aria-current={active ? "page" : undefined} onClick={onClick}>{icon}<span>{children}</span></Button>;
 }
 
-
 function AccessibilityCopy({ state, detailed = false }: { state: AppState; detailed?: boolean }) {
   if (state.accessibility === "granted") return <p>Ready</p>;
   if (state.accessibility === "unavailable") return <p>Unavailable on this system</p>;
