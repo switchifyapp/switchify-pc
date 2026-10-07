@@ -672,7 +672,9 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 /* Buttons that stay focusable while unavailable (aria-disabled) look the same
    as disabled ones. */
 .btn[aria-disabled="true"] { cursor: default; }
-.btn[aria-disabled="true"]:not(fieldset:disabled *) { border-color: var(--border); color: var(--ink-disabled); background: var(--surface-disabled); }
+/* The :hover form outranks variant hover rules such as .btn.secondary.danger:hover. */
+.btn[aria-disabled="true"]:not(fieldset:disabled *),
+.btn[aria-disabled="true"]:not(fieldset:disabled *):hover { border-color: var(--border); color: var(--ink-disabled); background: var(--surface-disabled); }
 /* Native :disabled is greyed by the system in forced colours; aria-disabled
    is not, so match the rule above and come after it. */
 @media (forced-colors: active) {
