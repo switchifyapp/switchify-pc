@@ -188,7 +188,7 @@ h1, h2, h3, p { margin: 0; letter-spacing: 0; }
 .sidebar-footer { margin-top: auto; padding: 12px 16px 0; color: var(--muted); }
 
 main { min-width: 0; }
-.view { width: min(100%, 1100px); margin: 0 auto; padding: 32px; container-type: inline-size; }
+.view { width: min(100%, 1760px); margin: 0 auto; padding: 32px clamp(32px, 3vw, 56px); container-type: inline-size; }
 .page-header, .section-header { display: flex; align-items: center; justify-content: space-between; gap: 16px 24px; }
 .page-header { margin-bottom: 24px; }
 .page-header h1 { font-size: 30px; line-height: 1.2; font-weight: 700; }
@@ -443,6 +443,7 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 
 /* --- Scanning ---------------------------------------------------------------- */
 .scanner-settings { max-width: 920px; }
+@container (min-width: 1200px) { .scanner-settings { max-width: none; } }
 .scanner-status { margin-bottom: 28px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 16px 20px; background: var(--surface-muted); }
 .scanner-help { margin: 24px 0 16px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); color: var(--muted); }
 .scanner-help summary { justify-content: space-between; gap: 12px; padding: 12px 20px; color: var(--text); list-style: none; }
@@ -700,3 +701,29 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
    keeps its width instead of wrapping beside them. */
 .status-list > article.stacked-row { grid-auto-flow: row; }
 .status-list > article.stacked-row > .row-actions { grid-column: 2; justify-self: start; }
+
+/* --- Wide windows ----------------------------------------------------------
+   A maximised window gives pages far more width than one column can use
+   well. From 1200px of page width: settings sections put their title beside
+   their controls, lists of rows become two columns of tiles, and tabs stop
+   stretching. Paragraphs keep their reading width throughout. */
+@container (min-width: 1200px) {
+  .tab-bar .btn { flex: 0 1 auto; min-width: 160px; }
+
+  .setting-group { grid-template-columns: minmax(220px, 1fr) minmax(0, 2.4fr); align-items: start; column-gap: 48px; }
+  .setting-group > header { position: sticky; top: 24px; }
+  .setting-group > .setting-controls { max-width: 1040px; }
+
+  :is(.status-list, .task-list, .profile-list):has(> :nth-child(2)) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :is(.status-list, .task-list) > article:nth-child(odd),
+  .profile-list > .profile-row:nth-child(odd) { border-right: 1px solid var(--border); }
+  :is(.status-list, .task-list) > article:nth-last-child(2):nth-child(odd),
+  .profile-list > .profile-row:nth-last-child(2):nth-child(odd) { border-bottom: 0; }
+
+  .account-page { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .account-page > .connection-band { grid-column: 1 / -1; }
+  /* What syncs sits beside the actions instead of leaving a ragged gap. */
+  .account-page > .what-syncs { grid-column: 2; grid-row: 2 / span 2; }
+  .scanner-panel-heading > p { max-width: 80ch; }
+  .account-page > .field-error { grid-column: 1 / -1; }
+}

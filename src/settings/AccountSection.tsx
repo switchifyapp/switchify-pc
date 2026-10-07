@@ -29,7 +29,7 @@ function Band({ tone, ok, icon, title, children, action }: { tone: "ready" | "at
 }
 
 function WhatSyncs() {
-  return <div className="status-list">
+  return <div className="status-list what-syncs">
     <article><StatusIcon><ListChecks size={19} /></StatusIcon><div><h3>What syncs</h3><p>{whatSyncs}</p></div></article>
   </div>;
 }

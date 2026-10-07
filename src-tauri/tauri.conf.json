@@ -20,7 +20,8 @@
         "minHeight": 520,
         "resizable": true,
         "zoomHotkeysEnabled": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "maximized": true
       }
     ],
     "security": {
