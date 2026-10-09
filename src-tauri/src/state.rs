@@ -70,6 +70,10 @@ pub struct AppSettings {
     pub key_repeat_interval_ms: u32,
     #[serde(default = "default_key_repeat_initial_delay")]
     pub key_repeat_initial_delay_ms: u32,
+    /// Navigation keys chosen on the scanned keyboard repeat until a switch
+    /// stops them, at the key repeat delay and interval above.
+    #[serde(default)]
+    pub scan_key_repeat_enabled: bool,
     #[serde(default)]
     pub dwell_click_enabled: bool,
     #[serde(default = "default_dwell_click_delay")]
@@ -95,6 +99,7 @@ impl Default for AppSettings {
             key_repeat_enabled: default_key_repeat_enabled(),
             key_repeat_interval_ms: default_key_repeat_interval(),
             key_repeat_initial_delay_ms: default_key_repeat_initial_delay(),
+            scan_key_repeat_enabled: false,
             dwell_click_enabled: false,
             dwell_click_delay_ms: default_dwell_click_delay(),
             cursor_overlay_enabled: true,

@@ -600,7 +600,7 @@ impl Keyboard {
         None
     }
     #[cfg(test)]
-    fn choose(&mut self, key: Key) -> Option<Output> {
+    pub(crate) fn choose(&mut self, key: Key) -> Option<Output> {
         self.choose_with_context(key, None)
     }
     fn stroke(&self, key: Key) -> Stroke {
@@ -815,14 +815,22 @@ impl Keyboard {
                 Some(PendingTyped::Prediction) | None => {}
             }
             self.activation = None;
-            self.restart_after_typing();
-            if self.wait_after_typing && self.scan.options.automatic {
-                self.waiting_after_typing = true;
-                self.prefer_predictions = false;
-                self.scan.suspended = true;
-            }
+            self.continue_after_typing();
         }
         completed
+    }
+    fn continue_after_typing(&mut self) {
+        self.restart_after_typing();
+        if self.wait_after_typing && self.scan.options.automatic {
+            self.waiting_after_typing = true;
+            self.prefer_predictions = false;
+            self.scan.suspended = true;
+        }
+    }
+    /// A repeating key was stopped by a switch. Scanning carries on as it
+    /// does after typing.
+    pub fn repeat_stopped(&mut self) {
+        self.continue_after_typing();
     }
     pub fn prediction_inserted(
         &mut self,
@@ -947,6 +955,18 @@ impl Keyboard {
             Key::Close => "Close keyboard".into(),
         }
     }
+    fn repeat_name(key: Key) -> &'static str {
+        match key {
+            Key::Named("ArrowUp") => "Up arrow",
+            Key::Named("ArrowDown") => "Down arrow",
+            Key::Named("ArrowLeft") => "Left arrow",
+            Key::Named("ArrowRight") => "Right arrow",
+            Key::Named("PageUp") => "Page Up",
+            Key::Named("PageDown") => "Page Down",
+            Key::Named(name) => name,
+            _ => "key",
+        }
+    }
     fn weight(key: Key) -> f64 {
         match key {
             Key::Character(' ', _) => 4.0,
@@ -979,6 +999,17 @@ impl Keyboard {
         }
     }
     pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor) -> Frame {
+        self.frame_repeating(screen, units, color, None)
+    }
+    /// Draws the keyboard, with the stop instruction while `repeating` names
+    /// a key that repeats.
+    pub fn frame_repeating(
+        &self,
+        screen: Rect,
+        units: f64,
+        color: ScannerColor,
+        repeating: Option<(Key, &str)>,
+    ) -> Frame {
         let row_scan = self.scan.row_scan();
         let escaping = self.scan.nav.escaping();
         let highlight_row = row_scan || escaping;
@@ -995,7 +1026,9 @@ impl Keyboard {
             Page::Functions => "Navigation",
             Page::Numbers => "Numbers",
         };
-        let status = if self.error {
+        let status = if let Some((key, instruction)) = repeating {
+            format!("Repeating {} · {instruction}", Self::repeat_name(key))
+        } else if self.error {
             "Input failed · Select to try again".to_owned()
         } else if self.waiting_after_typing {
             "Press Select to continue typing.".to_owned()
@@ -1040,7 +1073,7 @@ impl Keyboard {
                 self.prediction_note()
             },
             dock: self.dock,
-            selected: (!self.scan.suspended && !self.disabled())
+            selected: (repeating.is_none() && !self.scan.suspended && !self.disabled())
                 .then_some((active_row, active_column)),
             row_scan: highlight_row,
             thickness: Default::default(),

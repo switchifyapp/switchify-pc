@@ -1419,6 +1419,64 @@ mod repeat_stop_tests {
     }
 
     #[test]
+    fn both_stop_choices_stop_a_scanned_key_repeat_and_consume_the_switch() {
+        use crate::{
+            point_scan::{
+                Config,
+                MouseRepeatStopEdge::{Press, Release},
+            },
+            point_workflow::{Request, Workflow},
+            scan_keyboard::Key,
+            scanning::{Rect, Session, Technique},
+        };
+        for edge in [Press, Release] {
+            for id in ["one", "remote:1"] {
+                let config = Config {
+                    automatic: false,
+                    mouse_repeat_stop_edge: edge,
+                    ..Config::default()
+                };
+                let screen = Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1280.0,
+                    height: 720.0,
+                };
+                let mut session =
+                    Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), false);
+                assert_eq!(
+                    session.action(Action::OpenKeyboard),
+                    Some(Request::OpenKeyboard)
+                );
+                session.technique.execution_succeeded();
+                session.technique.set_key_repeat_settings(true, 100, 0);
+                assert!(matches!(
+                    session.technique.choose_key(Key::Named("ArrowLeft")),
+                    Some(Request::Keyboard(_))
+                ));
+                session.technique.execution_succeeded();
+                assert!(session.technique.mouse_repeating());
+
+                let mut stop = RepeatStop::default();
+                assert_eq!(
+                    stop.press(id, Some(&mut session.technique)),
+                    Some(edge == Press)
+                );
+                assert_eq!(session.technique.mouse_repeating(), edge == Release);
+                assert_eq!(
+                    stop.release(id, Some(&mut session.technique)),
+                    Some(edge == Release)
+                );
+                assert!(!session.technique.mouse_repeating());
+                session.tick(250, false);
+                assert!(session.take_selection().is_none());
+                // The next press is an ordinary one again.
+                assert_eq!(stop.press(id, Some(&mut session.technique)), None);
+            }
+        }
+    }
+
+    #[test]
     fn repeat_off_leaves_switch_gestures_available_for_both_choices() {
         use crate::{
             point_scan::MouseRepeatStopEdge::{Press, Release},

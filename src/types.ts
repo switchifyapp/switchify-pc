@@ -29,6 +29,7 @@ export type AppSettings = {
   keyRepeatEnabled: boolean;
   keyRepeatIntervalMs: number;
   keyRepeatInitialDelayMs: number;
+  scanKeyRepeatEnabled: boolean;
   dwellClickEnabled: boolean;
   dwellClickDelayMs: number;
   cursorOverlayEnabled: boolean;

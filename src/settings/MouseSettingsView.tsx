@@ -13,7 +13,7 @@ export function MouseSettingsView({ settings, onChange, scanning }: { settings: 
       <OptionGroup legend="Stop repeating" value={scanning.config.mouseRepeatStopEdge ?? "release"} disabled={!scanning.state?.supported || !!scanning.pending}
         options={[{ value: "press" as const, label: "On switch press" }, { value: "release" as const, label: "On switch release" }]}
         onChange={value => scanning.update("mouseRepeatStopEdge", value)}
-        note={{ summary: "Applies to movement and scrolling in Mouse scanning, including switches forwarded by Remote. On switch release keeps repeating while you hold the switch. The stop gesture ignores assigned switch actions." }} />
+        note={{ summary: "Applies to movement and scrolling in Mouse scanning, and to keys repeating on the scanned keyboard, including switches forwarded by Remote. On switch release keeps repeating while you hold the switch. The stop gesture ignores assigned switch actions." }} />
       <p role="status" className="setting-note">{scanning.pending ? "Saving scanning settings..." : scanning.unsaved ? "Scanning settings have unsaved changes." : "Saved automatically."}</p>
       {scanning.error && <p role="alert">{scanning.error}</p>}
       {scanning.error && scanning.unsaved && <Button type="button" className="secondary" disabled={!!scanning.pending || !validSwitches(scanning.config)} onClick={scanning.retry}>Retry save</Button>}

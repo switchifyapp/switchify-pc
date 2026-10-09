@@ -314,6 +314,12 @@ impl Adapter for PointScan {
                     technique.typing_moved();
                     environment.foreground = foreground;
                 }
+                let settings = app.state::<crate::state::AppModel>().snapshot().settings;
+                technique.set_key_repeat_settings(
+                    settings.scan_key_repeat_enabled,
+                    settings.key_repeat_interval_ms,
+                    settings.key_repeat_initial_delay_ms,
+                );
                 environment.panel = true;
                 // The keyboard moves to fit its display rather than closing.
                 // While the displays cannot be read it stays where it is.

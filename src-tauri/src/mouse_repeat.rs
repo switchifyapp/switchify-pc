@@ -165,6 +165,48 @@ pub struct ScanScrollRepeat {
     elapsed_ms: u64,
 }
 
+/// Repeats a key chosen on the scanned keyboard with Remote's key cadence.
+/// Choosing the key was the first press; the second follows the initial delay
+/// and every later one the interval. A delayed scanner tick never bursts
+/// several presses into the foreground app.
+pub struct ScanKeyRepeat {
+    elapsed_ms: u64,
+    taps: u32,
+}
+
+impl Default for ScanKeyRepeat {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ScanKeyRepeat {
+    pub fn new() -> Self {
+        Self {
+            elapsed_ms: 0,
+            taps: 1,
+        }
+    }
+
+    pub fn advance(&mut self, elapsed_ms: u64, initial_delay_ms: u32, interval_ms: u32) -> bool {
+        let delay = u64::from(
+            if self.taps <= 1 {
+                initial_delay_ms
+            } else {
+                interval_ms
+            }
+            .max(1),
+        );
+        self.elapsed_ms = self.elapsed_ms.saturating_add(elapsed_ms);
+        if self.elapsed_ms < delay {
+            return false;
+        }
+        self.taps = self.taps.saturating_add(1);
+        self.elapsed_ms = (self.elapsed_ms - delay) % u64::from(interval_ms.max(1));
+        true
+    }
+}
+
 impl ScanScrollRepeat {
     pub fn new(direction: i8) -> Self {
         Self {
@@ -765,6 +807,26 @@ mod tests {
         assert!(repeat.advance(250, 80));
         assert!(!repeat.advance(69, 80));
         assert!(repeat.advance(1, 80));
+    }
+
+    #[test]
+    fn scanned_key_repeat_waits_the_initial_delay_then_the_interval_without_bursting() {
+        let mut repeat = ScanKeyRepeat::new();
+        assert!(!repeat.advance(499, 500, 250));
+        assert!(repeat.advance(1, 500, 250));
+        assert!(!repeat.advance(249, 500, 250));
+        assert!(repeat.advance(1, 500, 250));
+        // A stalled tick presses once and keeps only the remainder.
+        assert!(repeat.advance(1000, 500, 250));
+        assert!(!repeat.advance(249, 500, 250));
+        assert!(repeat.advance(1, 500, 250));
+
+        // No initial delay still waits for the next tick.
+        let mut immediate = ScanKeyRepeat::new();
+        assert!(!immediate.advance(0, 0, 100));
+        assert!(immediate.advance(1, 0, 100));
+        assert!(!immediate.advance(99, 0, 100));
+        assert!(immediate.advance(1, 0, 100));
     }
 
     #[test]
