@@ -1034,6 +1034,9 @@ fn tick<A: Adapter>(app: &AppHandle) {
     }
     let result = (|| -> Result<(), String> {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+        // Read before anything below can change it: settling the
+        // environment and dispatching can end a repeat, for example.
+        let before = d.engine.as_ref().map(|engine| engine.technique.phase());
         let Data {
             display, engine, ..
         } = &mut *d;
@@ -1060,15 +1063,11 @@ fn tick<A: Adapter>(app: &AppHandle) {
         let prompt = d.pressed.prompt(now_ms);
         let mut request = None;
         let captured_keys = prediction_captured_keys(d.remote, &d.switches);
-        let phase_changed = if let Some(engine) = d.engine.as_mut() {
+        if let Some(engine) = d.engine.as_mut() {
             A::poll(app, &mut engine.technique, &captured_keys);
-            let before = engine.technique.phase();
             engine.tick(elapsed, held);
             request = engine.take_selection();
-            before != engine.technique.phase()
-        } else {
-            false
-        };
+        }
         let environment = d.display.clone();
         let input_generation = d.input_generation;
         let remote = d.remote;
@@ -1076,7 +1075,14 @@ fn tick<A: Adapter>(app: &AppHandle) {
         if let Some(request) = request {
             dispatch::<A>(app, request, environment.as_ref(), input_generation, remote)?;
         }
-        if phase_changed {
+        let after = c
+            .data
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .engine
+            .as_ref()
+            .map(|engine| engine.technique.phase());
+        if before != after {
             publish::<A>(app);
         }
         render::<A>(app, prompt.as_ref())

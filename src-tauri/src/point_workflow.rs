@@ -67,12 +67,16 @@ pub fn default_click(point: Point) -> Request {
     }
 }
 /// Only navigation keys repeat, never text, Space, Enter or a modifier.
+/// Shift and Ctrl may come along (selecting, deleting words), but not Alt or
+/// the Windows/Command key, whose shortcuts switch and move windows.
 fn repeatable(stroke: crate::scan_keyboard::Stroke) -> bool {
-    matches!(
-        stroke.key,
-        crate::scan_keyboard::Key::Named(name)
-            if crate::mouse_repeat::RepeatKey::parse(name).is_some()
-    )
+    !stroke.modifiers[2]
+        && !stroke.modifiers[3]
+        && matches!(
+            stroke.key,
+            crate::scan_keyboard::Key::Named(name)
+                if crate::mouse_repeat::RepeatKey::parse(name).is_some()
+        )
 }
 fn selection_policy(point: Point, options: crate::scan_preferences::Resolved) -> (Point, Menu) {
     (point, Menu::configured(Kind::Actions, options))
@@ -1213,7 +1217,7 @@ impl Technique for Workflow {
                     .filter(|_| self.key_repeating())
                     .map(|repeat| {
                         (
-                            repeat.stroke.key,
+                            repeat.stroke,
                             self.point.config.mouse_repeat_stop_edge.instruction(),
                         )
                     }),
@@ -2870,6 +2874,43 @@ mod tests {
         for _ in 0..8 {
             s.tick(250, false);
             assert!(s.take_selection().is_none());
+        }
+    }
+    #[test]
+    fn shift_and_ctrl_repeat_with_the_key_but_window_shortcuts_never_do() {
+        use crate::scan_keyboard::Key;
+        let mut s = keyboard_session(Default::default());
+        assert_eq!(s.technique.choose_key(Key::Modifier(0)), None);
+        assert!(matches!(
+            s.technique.choose_key(Key::Named("ArrowLeft")),
+            Some(Request::Keyboard(stroke)) if stroke.modifiers == [true, false, false, false]
+        ));
+        s.technique.execution_succeeded();
+        assert!(s.technique.mouse_repeating());
+        assert!(s
+            .frame()
+            .tiles
+            .last()
+            .unwrap()
+            .text
+            .starts_with("Repeating Shift+Left arrow · "));
+        // The one-shot Shift goes with every repeated press.
+        s.tick(250, false);
+        s.tick(250, false);
+        assert!(matches!(
+            s.take_selection(),
+            Some(Request::Keyboard(stroke)) if stroke.modifiers[0]
+        ));
+
+        for modifier in [2, 3] {
+            let mut s = keyboard_session(Default::default());
+            assert_eq!(s.technique.choose_key(Key::Modifier(modifier)), None);
+            assert!(typed(
+                s.technique.choose_key(Key::Named("ArrowRight")),
+                "ArrowRight"
+            ));
+            s.technique.execution_succeeded();
+            assert!(!s.technique.mouse_repeating(), "{modifier}");
         }
     }
     #[test]

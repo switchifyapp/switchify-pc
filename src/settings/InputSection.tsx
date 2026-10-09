@@ -17,7 +17,7 @@ export function InputSection({ settings, update }: { settings: AppSettings; upda
     </div>
     <div className="repeat-settings">
       <Toggle label="Repeat keys on the scanned keyboard" checked={settings.scanKeyRepeatEnabled} onChange={(value) => update("scanKeyRepeatEnabled", value)} />
-      <p className="setting-note">Backspace, Delete, the arrow keys, Tab, Page Up and Page Down keep repeating after you choose them, until you press a switch. Choose whether that is on press or release under Mouse, Stop repeating.</p>
+      <p className="setting-note">Backspace, Delete, the arrow keys, Tab, Page Up and Page Down keep repeating after you choose them, until you press a switch. They use the key repeat timing under More options below. Choose whether a press or a release stops them under Mouse, Stop repeating.</p>
     </div>
     <MoreOptions><div className="repeat-settings">
       <Toggle label="Repeat held keys" checked={settings.keyRepeatEnabled} onChange={(value) => update("keyRepeatEnabled", value)} />

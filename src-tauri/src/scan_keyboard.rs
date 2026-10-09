@@ -955,6 +955,23 @@ impl Keyboard {
             Key::Close => "Close keyboard".into(),
         }
     }
+    /// The repeating key with any modifiers that go with it, such as
+    /// "Shift+Left arrow".
+    fn repeat_label(&self, stroke: Stroke) -> String {
+        let names = [
+            "Shift",
+            "Ctrl",
+            if self.mac { "Option" } else { "Alt" },
+            if self.mac { "Command" } else { "Windows" },
+        ];
+        let mut parts: Vec<&str> = names
+            .into_iter()
+            .zip(stroke.modifiers)
+            .filter_map(|(name, held)| held.then_some(name))
+            .collect();
+        parts.push(Self::repeat_name(stroke.key));
+        parts.join("+")
+    }
     fn repeat_name(key: Key) -> &'static str {
         match key {
             Key::Named("ArrowUp") => "Up arrow",
@@ -1008,7 +1025,7 @@ impl Keyboard {
         screen: Rect,
         units: f64,
         color: ScannerColor,
-        repeating: Option<(Key, &str)>,
+        repeating: Option<(Stroke, &str)>,
     ) -> Frame {
         let row_scan = self.scan.row_scan();
         let escaping = self.scan.nav.escaping();
@@ -1026,8 +1043,8 @@ impl Keyboard {
             Page::Functions => "Navigation",
             Page::Numbers => "Numbers",
         };
-        let status = if let Some((key, instruction)) = repeating {
-            format!("Repeating {} · {instruction}", Self::repeat_name(key))
+        let status = if let Some((stroke, instruction)) = repeating {
+            format!("Repeating {} · {instruction}", self.repeat_label(stroke))
         } else if self.error {
             "Input failed · Select to try again".to_owned()
         } else if self.waiting_after_typing {
