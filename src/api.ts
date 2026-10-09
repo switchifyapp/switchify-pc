@@ -18,6 +18,7 @@ export const browserState: AppState = {
     moveRepeatIntervalMs: 250, scrollRepeatIntervalMs: 250,
     mouseRepeatAccelerationDurationMs: 1000,
     keyRepeatEnabled: true, keyRepeatIntervalMs: 250, keyRepeatInitialDelayMs: 500,
+    scanKeyRepeatEnabled: false,
     dwellClickEnabled: false, dwellClickDelayMs: 1000,
     cursorOverlayEnabled: true, cursorOverlaySize: "medium", cursorOverlayColor: "red",
     cursorOverlayVisibility: "whileControlling",

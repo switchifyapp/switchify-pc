@@ -1034,6 +1034,9 @@ fn tick<A: Adapter>(app: &AppHandle) {
     }
     let result = (|| -> Result<(), String> {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+        // Read before anything below can change it: settling the
+        // environment and dispatching can end a repeat, for example.
+        let before = d.engine.as_ref().map(|engine| engine.technique.phase());
         let Data {
             display, engine, ..
         } = &mut *d;
@@ -1060,15 +1063,11 @@ fn tick<A: Adapter>(app: &AppHandle) {
         let prompt = d.pressed.prompt(now_ms);
         let mut request = None;
         let captured_keys = prediction_captured_keys(d.remote, &d.switches);
-        let phase_changed = if let Some(engine) = d.engine.as_mut() {
+        if let Some(engine) = d.engine.as_mut() {
             A::poll(app, &mut engine.technique, &captured_keys);
-            let before = engine.technique.phase();
             engine.tick(elapsed, held);
             request = engine.take_selection();
-            before != engine.technique.phase()
-        } else {
-            false
-        };
+        }
         let environment = d.display.clone();
         let input_generation = d.input_generation;
         let remote = d.remote;
@@ -1076,7 +1075,14 @@ fn tick<A: Adapter>(app: &AppHandle) {
         if let Some(request) = request {
             dispatch::<A>(app, request, environment.as_ref(), input_generation, remote)?;
         }
-        if phase_changed {
+        let after = c
+            .data
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .engine
+            .as_ref()
+            .map(|engine| engine.technique.phase());
+        if before != after {
             publish::<A>(app);
         }
         render::<A>(app, prompt.as_ref())
@@ -1414,6 +1420,64 @@ mod repeat_stop_tests {
                     assert_eq!(stop.release(id, Some(&mut session.technique)), None);
                     assert_eq!(stop.press(id, Some(&mut session.technique)), None);
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn both_stop_choices_stop_a_scanned_key_repeat_and_consume_the_switch() {
+        use crate::{
+            point_scan::{
+                Config,
+                MouseRepeatStopEdge::{Press, Release},
+            },
+            point_workflow::{Request, Workflow},
+            scan_keyboard::Key,
+            scanning::{Rect, Session, Technique},
+        };
+        for edge in [Press, Release] {
+            for id in ["one", "remote:1"] {
+                let config = Config {
+                    automatic: false,
+                    mouse_repeat_stop_edge: edge,
+                    ..Config::default()
+                };
+                let screen = Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1280.0,
+                    height: 720.0,
+                };
+                let mut session =
+                    Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), false);
+                assert_eq!(
+                    session.action(Action::OpenKeyboard),
+                    Some(Request::OpenKeyboard)
+                );
+                session.technique.execution_succeeded();
+                session.technique.set_key_repeat_settings(true, 100, 0);
+                assert!(matches!(
+                    session.technique.choose_key(Key::Named("ArrowLeft")),
+                    Some(Request::Keyboard(_))
+                ));
+                session.technique.execution_succeeded();
+                assert!(session.technique.mouse_repeating());
+
+                let mut stop = RepeatStop::default();
+                assert_eq!(
+                    stop.press(id, Some(&mut session.technique)),
+                    Some(edge == Press)
+                );
+                assert_eq!(session.technique.mouse_repeating(), edge == Release);
+                assert_eq!(
+                    stop.release(id, Some(&mut session.technique)),
+                    Some(edge == Release)
+                );
+                assert!(!session.technique.mouse_repeating());
+                session.tick(250, false);
+                assert!(session.take_selection().is_none());
+                // The next press is an ordinary one again.
+                assert_eq!(stop.press(id, Some(&mut session.technique)), None);
             }
         }
     }

@@ -16,7 +16,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -43,6 +43,10 @@ pub struct PortableAppSettings {
     pub key_repeat_enabled: bool,
     pub key_repeat_interval_ms: u32,
     pub key_repeat_initial_delay_ms: u32,
+    /// Added in version 2. The default only fills in a merge base saved by an
+    /// older build; documents must still carry it (see `parse`).
+    #[serde(default)]
+    pub scan_key_repeat_enabled: bool,
     pub dwell_click_enabled: bool,
     pub dwell_click_delay_ms: u32,
     pub cursor_overlay_enabled: bool,
@@ -63,6 +67,7 @@ impl PortableAppSettings {
             key_repeat_enabled: settings.key_repeat_enabled,
             key_repeat_interval_ms: settings.key_repeat_interval_ms,
             key_repeat_initial_delay_ms: settings.key_repeat_initial_delay_ms,
+            scan_key_repeat_enabled: settings.scan_key_repeat_enabled,
             dwell_click_enabled: settings.dwell_click_enabled,
             dwell_click_delay_ms: settings.dwell_click_delay_ms,
             cursor_overlay_enabled: settings.cursor_overlay_enabled,
@@ -86,6 +91,7 @@ impl PortableAppSettings {
             key_repeat_enabled: self.key_repeat_enabled,
             key_repeat_interval_ms: self.key_repeat_interval_ms,
             key_repeat_initial_delay_ms: self.key_repeat_initial_delay_ms,
+            scan_key_repeat_enabled: self.scan_key_repeat_enabled,
             dwell_click_enabled: self.dwell_click_enabled,
             dwell_click_delay_ms: self.dwell_click_delay_ms,
             cursor_overlay_enabled: self.cursor_overlay_enabled,
@@ -180,18 +186,22 @@ impl std::fmt::Display for ParseError {
     }
 }
 
-pub fn parse(value: Value, schema_version: u32) -> Result<Document, ParseError> {
+pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseError> {
     if schema_version > SCHEMA_VERSION {
         return Err(ParseError::Newer(schema_version));
     }
-    if schema_version != SCHEMA_VERSION {
-        return Err(ParseError::Invalid(format!(
-            "unsupported version {schema_version}"
-        )));
+    match schema_version {
+        1 => value = upgrade_v1(value)?,
+        SCHEMA_VERSION => {}
+        _ => {
+            return Err(ParseError::Invalid(format!(
+                "unsupported version {schema_version}"
+            )))
+        }
     }
     let document: Document = serde_json::from_value(value.clone())
         .map_err(|error| ParseError::Invalid(error.to_string()))?;
-    if document.schema_version != schema_version {
+    if document.schema_version != SCHEMA_VERSION {
         return Err(ParseError::Invalid("version mismatch".into()));
     }
     // Some sections deserialize leniently (defaults for missing fields,
@@ -207,6 +217,21 @@ pub fn parse(value: Value, schema_version: u32) -> Result<Document, ParseError> 
         ));
     }
     Ok(document)
+}
+
+/// Version 1 had no scanned key repeat, which is off unless chosen.
+fn upgrade_v1(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(1)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    let app = value
+        .get_mut("app")
+        .and_then(Value::as_object_mut)
+        .filter(|app| !app.contains_key("scanKeyRepeatEnabled"))
+        .ok_or_else(|| ParseError::Invalid("it does not match version 1 settings".into()))?;
+    app.insert("scanKeyRepeatEnabled".into(), Value::Bool(false));
+    value["schemaVersion"] = Value::from(SCHEMA_VERSION);
+    Ok(value)
 }
 
 /// The sections of a document that differ from this install, already merged
@@ -519,12 +544,55 @@ mod tests {
         );
         assert!(matches!(parse(value, 0), Err(ParseError::Invalid(_))));
         assert!(matches!(
-            parse(json!({"schemaVersion": 1}), 1),
+            parse(json!({"schemaVersion": SCHEMA_VERSION}), SCHEMA_VERSION),
             Err(ParseError::Invalid(_))
         ));
         let mut extra = serde_json::to_value(local().document()).unwrap();
         extra["app"]["startWithSystem"] = json!(true);
-        assert!(matches!(parse(extra, 1), Err(ParseError::Invalid(_))));
+        assert!(matches!(
+            parse(extra, SCHEMA_VERSION),
+            Err(ParseError::Invalid(_))
+        ));
+    }
+
+    /// A document as written by version 1, before scanned key repeat.
+    fn version_one() -> Value {
+        let mut value = serde_json::to_value(local().document()).unwrap();
+        value["schemaVersion"] = json!(1);
+        value["app"]
+            .as_object_mut()
+            .unwrap()
+            .remove("scanKeyRepeatEnabled");
+        value
+    }
+
+    #[test]
+    fn version_one_documents_read_with_scanned_key_repeat_off() {
+        let mut local = local();
+        local.settings.scan_key_repeat_enabled = true;
+        let parsed = parse(version_one(), 1).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert!(!parsed.app.scan_key_repeat_enabled);
+        let settings = plan(&local, parsed).unwrap().settings.unwrap();
+        assert!(!settings.scan_key_repeat_enabled);
+
+        // Version 1 never had the field, and a version 2 document needs it.
+        let mut early = version_one();
+        early["app"]["scanKeyRepeatEnabled"] = json!(true);
+        assert!(matches!(parse(early, 1), Err(ParseError::Invalid(_))));
+        let mut missing = version_one();
+        missing["schemaVersion"] = json!(SCHEMA_VERSION);
+        assert!(matches!(
+            parse(missing.clone(), SCHEMA_VERSION),
+            Err(ParseError::Invalid(_))
+        ));
+        assert!(matches!(parse(missing, 1), Err(ParseError::Invalid(_))));
+    }
+
+    #[test]
+    fn a_merge_base_saved_by_version_one_still_loads() {
+        let base: Document = serde_json::from_value(version_one()).unwrap();
+        assert!(!base.app.scan_key_repeat_enabled);
     }
 
     #[test]
@@ -752,7 +820,10 @@ mod tests {
             let mut value = document.clone();
             corrupt(&mut value);
             assert!(
-                matches!(parse(value.clone(), 1), Err(ParseError::Invalid(_))),
+                matches!(
+                    parse(value.clone(), SCHEMA_VERSION),
+                    Err(ParseError::Invalid(_))
+                ),
                 "accepted {value}"
             );
         }

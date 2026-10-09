@@ -218,6 +218,7 @@ it.each([
   ["keyboard", "Choose a keyboard row, then a key."],
   ["keyboardSuspended", "Select to resume the keyboard."],
   ["keyboardOpening", "Opening the keyboard."],
+  ["keyboardRepeating", "Repeating a key. Press and release a switch to stop."],
 ])("explains the %s workflow phase", async (phase, message) => {
   mocks.invoke.mockResolvedValue({ ...initial, enabled: true, phase });
   render(<PointScan />);

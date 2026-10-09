@@ -171,6 +171,14 @@ describe("Switchify PC settings", () => {
     fireEvent.click(toggle);
     expect(screen.getByRole("group", { name: "Delay before repeating" })).toBeDisabled();
     expect(screen.getByRole("group", { name: "Key interval" })).toBeDisabled();
+
+    // Scanned keyboard repeat is off by default and shares the same timing.
+    const scanned = screen.getByRole("checkbox", { name: "Repeat keys on the scanned keyboard" });
+    expect(scanned).not.toBeChecked();
+    fireEvent.click(scanned);
+    expect(scanned).toBeChecked();
+    expect(screen.getByRole("group", { name: "Delay before repeating" })).not.toBeDisabled();
+    expect(screen.getByRole("group", { name: "Key interval" })).not.toBeDisabled();
   });
 
   it("opens Mouse settings from the sidebar and keeps Input settings separate", async () => {

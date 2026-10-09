@@ -66,6 +66,18 @@ pub fn default_click(point: Point) -> Request {
         count: 1,
     }
 }
+/// Only navigation keys repeat, never text, Space, Enter or a modifier.
+/// Shift and Ctrl may come along (selecting, deleting words), but not Alt or
+/// the Windows/Command key, whose shortcuts switch and move windows.
+fn repeatable(stroke: crate::scan_keyboard::Stroke) -> bool {
+    !stroke.modifiers[2]
+        && !stroke.modifiers[3]
+        && matches!(
+            stroke.key,
+            crate::scan_keyboard::Key::Named(name)
+                if crate::mouse_repeat::RepeatKey::parse(name).is_some()
+        )
+}
 fn selection_policy(point: Point, options: crate::scan_preferences::Resolved) -> (Point, Menu) {
     (point, Menu::configured(Kind::Actions, options))
 }
@@ -86,6 +98,7 @@ pub enum WorkflowPhase {
     Keyboard,
     KeyboardSuspended,
     KeyboardOpening,
+    KeyboardRepeating,
     Mouse,
     MouseSuspended,
     MouseMoving,
@@ -110,6 +123,13 @@ enum Stage {
     Menu,
     Destination,
     Executing,
+}
+/// A navigation key chosen on the scanned keyboard. It repeats once choosing
+/// it has typed it, until a switch stops it.
+struct KeyRepeat {
+    stroke: crate::scan_keyboard::Stroke,
+    timer: crate::mouse_repeat::ScanKeyRepeat,
+    running: bool,
 }
 pub struct Workflow {
     keyboard: crate::scan_keyboard::Keyboard,
@@ -138,6 +158,10 @@ pub struct Workflow {
     mouse_move_interval_ms: u32,
     mouse_scroll_interval_ms: u32,
     mouse_acceleration_ms: u32,
+    key_repeat: Option<KeyRepeat>,
+    scan_key_repeat_enabled: bool,
+    key_repeat_interval_ms: u32,
+    key_repeat_initial_delay_ms: u32,
     point: Engine,
     stage: Stage,
     menu: Menu,
@@ -183,6 +207,10 @@ impl Workflow {
             mouse_move_interval_ms: 250,
             mouse_scroll_interval_ms: 250,
             mouse_acceleration_ms: 1000,
+            key_repeat: None,
+            scan_key_repeat_enabled: false,
+            key_repeat_interval_ms: 250,
+            key_repeat_initial_delay_ms: 500,
             point: Engine::new(config, screen, scale)?,
             stage: Stage::Idle,
             menu: Menu::configured(Kind::Actions, menu_options),
@@ -263,6 +291,7 @@ impl Workflow {
             self.mouse_actions_open = false;
             self.move_repeat = None;
             self.scroll_repeat = None;
+            self.key_repeat = None;
             self.parent_menu.clear();
             self.begin_point();
         }
@@ -354,6 +383,40 @@ impl Workflow {
             self.mouse.restart();
         }
     }
+    pub fn set_key_repeat_settings(
+        &mut self,
+        enabled: bool,
+        interval_ms: u32,
+        initial_delay_ms: u32,
+    ) {
+        let changed = self.scan_key_repeat_enabled != enabled
+            || self.key_repeat_interval_ms != interval_ms
+            || self.key_repeat_initial_delay_ms != initial_delay_ms;
+        self.scan_key_repeat_enabled = enabled;
+        self.key_repeat_interval_ms = interval_ms;
+        self.key_repeat_initial_delay_ms = initial_delay_ms;
+        if changed {
+            self.end_key_repeat();
+        }
+    }
+    fn key_repeating(&self) -> bool {
+        self.stage == Stage::Keyboard
+            && self
+                .key_repeat
+                .as_ref()
+                .is_some_and(|repeat| repeat.running)
+    }
+    /// Ends a key repeat, returning whether one was running. Each press was
+    /// released as it was typed, so nothing is left held down.
+    fn end_key_repeat(&mut self) -> bool {
+        let running = self.key_repeating();
+        self.key_repeat = None;
+        if running {
+            self.pending = None;
+            self.keyboard.repeat_stopped();
+        }
+        running
+    }
     pub fn mouse_feedback(&self) -> Option<crate::input::PointerFeedback> {
         use crate::input::PointerFeedback;
         if self.mouse.error {
@@ -378,6 +441,7 @@ impl Workflow {
         }
     }
     pub fn typing_moved(&mut self) {
+        self.end_key_repeat();
         self.keyboard.typing_moved();
     }
     pub fn prediction_enabled(&self) -> bool {
@@ -593,6 +657,46 @@ impl Workflow {
             Key::More | Key::Movement | Key::Dock | Key::Position(_) | Key::Back => None,
         }
     }
+    /// What the scanned keyboard's choice asks for. A navigation key also
+    /// prepares a repeat when that is turned on.
+    fn keyboard_output(&mut self, output: Option<crate::scan_keyboard::Output>) -> Option<Request> {
+        match output {
+            Some(crate::scan_keyboard::Output::Stroke(stroke)) => {
+                if self.scan_key_repeat_enabled && repeatable(stroke) {
+                    self.key_repeat = Some(KeyRepeat {
+                        stroke,
+                        timer: crate::mouse_repeat::ScanKeyRepeat::new(),
+                        running: false,
+                    });
+                }
+                Some(Request::Keyboard(stroke))
+            }
+            Some(crate::scan_keyboard::Output::Punctuation(punctuation)) => {
+                Some(Request::KeyboardPunctuation(punctuation))
+            }
+            Some(crate::scan_keyboard::Output::Prediction { token, index }) => {
+                Some(Request::Prediction { token, index })
+            }
+            Some(crate::scan_keyboard::Output::RetryPrediction) => Some(Request::PredictionRetry),
+            Some(crate::scan_keyboard::Output::Layout(layout)) => {
+                self.keyboard_layout_pending = true;
+                Some(Request::Setting(crate::scan_menu::Setting::KeyboardLayout(
+                    layout,
+                )))
+            }
+            Some(crate::scan_keyboard::Output::Close) => {
+                self.keyboard_closed();
+                None
+            }
+            None => None,
+        }
+    }
+    /// Chooses a key on the open keyboard without scanning to it.
+    #[cfg(test)]
+    pub(crate) fn choose_key(&mut self, key: crate::scan_keyboard::Key) -> Option<Request> {
+        let output = self.keyboard.choose(key);
+        self.keyboard_output(output)
+    }
     fn return_to_mouse_panel(&mut self) {
         self.parent_menu.clear();
         self.mouse_actions_open = false;
@@ -765,6 +869,8 @@ impl Technique for Workflow {
     type Phase = Phase;
     fn execution_failed(&mut self, message: String) {
         if self.stage == Stage::Keyboard {
+            self.key_repeat = None;
+            self.pending = None;
             if self.keyboard_layout_pending {
                 self.keyboard_layout_pending = false;
                 self.keyboard.layout_change_failed();
@@ -809,8 +915,20 @@ impl Technique for Workflow {
             self.stage = Stage::Keyboard;
         } else if self.stage == Stage::Keyboard {
             self.keyboard_layout_pending = false;
-            self.keyboard
+            let typed = self
+                .keyboard
                 .succeeded_with_context(crate::prediction::keyboard_input_context());
+            // The chosen key repeats only once it has been typed.
+            if self
+                .key_repeat
+                .as_ref()
+                .is_some_and(|repeat| !repeat.running)
+            {
+                match self.key_repeat.as_mut() {
+                    Some(repeat) if typed => repeat.running = true,
+                    _ => self.key_repeat = None,
+                }
+            }
         }
     }
     fn start(&mut self) {
@@ -832,6 +950,7 @@ impl Technique for Workflow {
         self.mouse_actions_open = false;
         self.move_repeat = None;
         self.scroll_repeat = None;
+        self.key_repeat = None;
         self.stage = Stage::Idle;
         self.parent_menu.clear();
         self.pending = None;
@@ -852,12 +971,15 @@ impl Technique for Workflow {
         self.active_preferences().automatic
     }
     fn mouse_repeating(&self) -> bool {
-        matches!(self.stage, Stage::MouseMoving | Stage::MouseScrolling)
+        matches!(self.stage, Stage::MouseMoving | Stage::MouseScrolling) || self.key_repeating()
     }
     fn mouse_repeat_stop_edge(&self) -> crate::point_scan::MouseRepeatStopEdge {
         self.point.config.mouse_repeat_stop_edge
     }
     fn stop_mouse_repeat(&mut self) -> bool {
+        if self.end_key_repeat() {
+            return true;
+        }
         if !matches!(self.stage, Stage::MouseMoving | Stage::MouseScrolling) {
             return false;
         }
@@ -877,6 +999,17 @@ impl Technique for Workflow {
     fn handle(&mut self, action: Action) -> Option<Request> {
         self.following = false;
         self.leaving_home = false;
+        // Anything that reaches a repeating key stops it, and only an
+        // explicit change of mode goes on to act.
+        if self.end_key_repeat()
+            && !matches!(
+                action,
+                Action::OpenPoint | Action::OpenMouse | Action::OpenKeyboard
+            )
+        {
+            return None;
+        }
+        self.key_repeat = None;
         if action == Action::OpenPoint {
             return self.open_point();
         }
@@ -898,28 +1031,7 @@ impl Technique for Workflow {
                     .keyboard
                     .handle_with_context(action, crate::prediction::keyboard_input_context());
                 self.set_dock(self.keyboard.dock);
-                match output {
-                    Some(crate::scan_keyboard::Output::Stroke(stroke)) => {
-                        return Some(Request::Keyboard(stroke))
-                    }
-                    Some(crate::scan_keyboard::Output::Punctuation(punctuation)) => {
-                        return Some(Request::KeyboardPunctuation(punctuation))
-                    }
-                    Some(crate::scan_keyboard::Output::Prediction { token, index }) => {
-                        return Some(Request::Prediction { token, index })
-                    }
-                    Some(crate::scan_keyboard::Output::RetryPrediction) => {
-                        return Some(Request::PredictionRetry)
-                    }
-                    Some(crate::scan_keyboard::Output::Layout(layout)) => {
-                        self.keyboard_layout_pending = true;
-                        return Some(Request::Setting(crate::scan_menu::Setting::KeyboardLayout(
-                            layout,
-                        )));
-                    }
-                    Some(crate::scan_keyboard::Output::Close) => self.keyboard_closed(),
-                    None => {}
-                }
+                return self.keyboard_output(output);
             }
             Stage::KeyboardOpening => {}
             Stage::Mouse => {
@@ -992,6 +1104,22 @@ impl Technique for Workflow {
         }
     }
     fn update(&mut self, ms: u64, context: UpdateContext) {
+        if self.key_repeating() {
+            if context.paused {
+                self.end_key_repeat();
+                return;
+            }
+            let (delay, interval) = (
+                self.key_repeat_initial_delay_ms,
+                self.key_repeat_interval_ms,
+            );
+            if let Some(repeat) = self.key_repeat.as_mut() {
+                if repeat.timer.advance(ms, delay, interval) {
+                    self.pending = Some(Request::Keyboard(repeat.stroke));
+                }
+            }
+            return;
+        }
         if self.stage == Stage::MouseMoving {
             let (dx, dy) = self.move_repeat.as_mut().map_or((0, 0), |repeat| {
                 repeat.advance(
@@ -1053,7 +1181,9 @@ impl Technique for Workflow {
             }),
             Stage::MouseMoving => Phase::Workflow(WorkflowPhase::MouseMoving),
             Stage::MouseScrolling => Phase::Workflow(WorkflowPhase::MouseScrolling),
-            Stage::Keyboard => Phase::Workflow(if self.keyboard.suspended() {
+            Stage::Keyboard => Phase::Workflow(if self.key_repeating() {
+                WorkflowPhase::KeyboardRepeating
+            } else if self.keyboard.suspended() {
                 WorkflowPhase::KeyboardSuspended
             } else {
                 WorkflowPhase::Keyboard
@@ -1078,10 +1208,19 @@ impl Technique for Workflow {
             _ => self.mouse_area,
         };
         let mut frame = match self.stage {
-            Stage::Keyboard => self.keyboard.frame(
+            Stage::Keyboard => self.keyboard.frame_repeating(
                 self.keyboard_area,
                 self.point.units_per_logical_pixel,
                 self.point.config.scanner_color,
+                self.key_repeat
+                    .as_ref()
+                    .filter(|_| self.key_repeating())
+                    .map(|repeat| {
+                        (
+                            repeat.stroke,
+                            self.point.config.mouse_repeat_stop_edge.instruction(),
+                        )
+                    }),
             ),
             Stage::Mouse | Stage::MouseMoving | Stage::MouseScrolling => self.mouse.frame(
                 self.mouse_area,
@@ -2583,6 +2722,236 @@ mod tests {
         assert!(w.handle(Action::Select).is_none());
         w.reset();
         assert_eq!(w.phase(), Phase::default());
+    }
+    fn keyboard_session(edge: crate::point_scan::MouseRepeatStopEdge) -> Session<Workflow> {
+        let config = Config {
+            automatic: false,
+            mouse_repeat_stop_edge: edge,
+            ..last_mode()
+        };
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut s = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), false);
+        assert_eq!(s.action(Action::OpenKeyboard), Some(Request::OpenKeyboard));
+        s.technique.execution_succeeded();
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::Keyboard)
+        );
+        s.technique.set_key_repeat_settings(true, 250, 500);
+        s
+    }
+    fn typed(request: Option<Request>, name: &'static str) -> bool {
+        matches!(
+            request,
+            Some(Request::Keyboard(stroke))
+                if stroke.key == crate::scan_keyboard::Key::Named(name)
+        )
+    }
+    /// Chooses Backspace and lets the first press succeed.
+    fn repeating_backspace(edge: crate::point_scan::MouseRepeatStopEdge) -> Session<Workflow> {
+        let mut s = keyboard_session(edge);
+        let request = s
+            .technique
+            .choose_key(crate::scan_keyboard::Key::Named("Backspace"));
+        assert!(typed(request, "Backspace"));
+        // Nothing repeats until the first press has been typed.
+        assert!(!s.technique.mouse_repeating());
+        s.technique.execution_succeeded();
+        assert!(s.technique.mouse_repeating());
+        s
+    }
+    #[test]
+    fn chosen_navigation_keys_repeat_until_a_switch_stops_them() {
+        use crate::point_scan::MouseRepeatStopEdge::{Press, Release};
+        for edge in [Press, Release] {
+            let mut s = repeating_backspace(edge);
+            assert_eq!(
+                s.technique.phase(),
+                Phase::Workflow(WorkflowPhase::KeyboardRepeating)
+            );
+            assert_eq!(s.technique.mouse_repeat_stop_edge(), edge);
+            let frame = s.frame();
+            assert!(frame.tiles.iter().all(|tile| !tile.selected));
+            assert_eq!(
+                frame.tiles.last().unwrap().text,
+                format!("Repeating Backspace · {}", edge.instruction())
+            );
+
+            s.tick(250, false);
+            s.tick(249, false);
+            assert!(s.take_selection().is_none());
+            s.tick(1, false);
+            assert!(typed(s.take_selection(), "Backspace"));
+            s.technique.execution_succeeded();
+            assert!(s.technique.mouse_repeating());
+            s.tick(249, false);
+            assert!(s.take_selection().is_none());
+            s.tick(1, false);
+            assert!(typed(s.take_selection(), "Backspace"));
+            s.technique.execution_succeeded();
+
+            assert!(s.technique.stop_mouse_repeat());
+            assert!(!s.technique.stop_mouse_repeat());
+            assert_eq!(
+                s.technique.phase(),
+                Phase::Workflow(WorkflowPhase::Keyboard)
+            );
+            for _ in 0..4 {
+                s.tick(250, false);
+                assert!(s.take_selection().is_none());
+            }
+            assert!(!s.technique.mouse_repeating());
+        }
+    }
+    #[test]
+    fn every_navigation_key_repeats_but_text_enter_and_other_keys_never_do() {
+        use crate::scan_keyboard::Key;
+        for name in [
+            "ArrowUp",
+            "ArrowDown",
+            "ArrowLeft",
+            "ArrowRight",
+            "Tab",
+            "Backspace",
+            "Delete",
+            "PageUp",
+            "PageDown",
+        ] {
+            let mut s = keyboard_session(Default::default());
+            assert!(typed(s.technique.choose_key(Key::Named(name)), name));
+            s.technique.execution_succeeded();
+            assert!(s.technique.mouse_repeating(), "{name}");
+            let text = s.frame().tiles.last().unwrap().text.clone();
+            assert!(text.starts_with("Repeating "), "{text}");
+            assert!(!text.contains("Arrow"), "{text}");
+        }
+        for key in [
+            Key::Named("Enter"),
+            Key::Named("Escape"),
+            Key::Named("Home"),
+            Key::Named("End"),
+            Key::Named("F5"),
+            Key::Character('a', 'A'),
+            Key::Character(' ', ' '),
+        ] {
+            let mut s = keyboard_session(Default::default());
+            assert!(matches!(
+                s.technique.choose_key(key),
+                Some(Request::Keyboard(_))
+            ));
+            s.technique.execution_succeeded();
+            assert!(!s.technique.mouse_repeating(), "{key:?}");
+            for _ in 0..8 {
+                s.tick(250, false);
+                assert!(s.take_selection().is_none(), "{key:?}");
+            }
+        }
+
+        // Turned off, a navigation key is typed once as before.
+        let mut s = keyboard_session(Default::default());
+        s.technique.set_key_repeat_settings(false, 250, 500);
+        assert!(typed(
+            s.technique.choose_key(Key::Named("ArrowDown")),
+            "ArrowDown"
+        ));
+        s.technique.execution_succeeded();
+        assert!(!s.technique.mouse_repeating());
+        for _ in 0..8 {
+            s.tick(250, false);
+            assert!(s.take_selection().is_none());
+        }
+
+        // A first press that fails never starts repeating.
+        let mut s = keyboard_session(Default::default());
+        s.technique.choose_key(Key::Named("Delete"));
+        s.execution_failed("Input failed.".into());
+        assert!(!s.technique.mouse_repeating());
+        for _ in 0..8 {
+            s.tick(250, false);
+            assert!(s.take_selection().is_none());
+        }
+    }
+    #[test]
+    fn shift_and_ctrl_repeat_with_the_key_but_window_shortcuts_never_do() {
+        use crate::scan_keyboard::Key;
+        let mut s = keyboard_session(Default::default());
+        assert_eq!(s.technique.choose_key(Key::Modifier(0)), None);
+        assert!(matches!(
+            s.technique.choose_key(Key::Named("ArrowLeft")),
+            Some(Request::Keyboard(stroke)) if stroke.modifiers == [true, false, false, false]
+        ));
+        s.technique.execution_succeeded();
+        assert!(s.technique.mouse_repeating());
+        assert!(s
+            .frame()
+            .tiles
+            .last()
+            .unwrap()
+            .text
+            .starts_with("Repeating Shift+Left arrow · "));
+        // The one-shot Shift goes with every repeated press.
+        s.tick(250, false);
+        s.tick(250, false);
+        assert!(matches!(
+            s.take_selection(),
+            Some(Request::Keyboard(stroke)) if stroke.modifiers[0]
+        ));
+
+        for modifier in [2, 3] {
+            let mut s = keyboard_session(Default::default());
+            assert_eq!(s.technique.choose_key(Key::Modifier(modifier)), None);
+            assert!(typed(
+                s.technique.choose_key(Key::Named("ArrowRight")),
+                "ArrowRight"
+            ));
+            s.technique.execution_succeeded();
+            assert!(!s.technique.mouse_repeating(), "{modifier}");
+        }
+    }
+    #[test]
+    fn a_key_repeat_ends_with_failure_settings_pause_window_and_scanning_changes() {
+        for reason in [
+            "failure", "off", "timing", "pause", "window", "select", "stop", "reset", "mouse",
+            "config",
+        ] {
+            let mut s = repeating_backspace(Default::default());
+            s.tick(250, false);
+            s.tick(250, false);
+            assert!(s.take_selection().is_some());
+            s.technique.execution_succeeded();
+            match reason {
+                "failure" => s.execution_failed("Input failed.".into()),
+                "off" => s.technique.set_key_repeat_settings(false, 250, 500),
+                "timing" => s.technique.set_key_repeat_settings(true, 100, 500),
+                "pause" => assert!(s.action(Action::Pause).is_none()),
+                "window" => s.technique.typing_moved(),
+                "select" => assert!(s.action(Action::Select).is_none()),
+                "stop" => assert!(s.action(Action::Stop).is_none()),
+                "reset" => s.reset(),
+                "mouse" => assert!(s.action(Action::OpenMouse).is_some()),
+                _ => s.technique.apply_config(last_mode().point(), true),
+            }
+            s.tick(250, false);
+            assert!(!s.technique.mouse_repeating(), "{reason}");
+            assert_ne!(
+                s.technique.phase(),
+                Phase::Workflow(WorkflowPhase::KeyboardRepeating),
+                "{reason}"
+            );
+            for _ in 0..8 {
+                s.tick(250, false);
+                assert!(s.take_selection().is_none(), "{reason}");
+            }
+        }
+        // The same settings arriving again leave the repeat running.
+        let mut s = repeating_backspace(Default::default());
+        s.technique.set_key_repeat_settings(true, 250, 500);
+        assert!(s.technique.mouse_repeating());
     }
     fn open(s: &mut Session<Workflow>) {
         for _ in 0..3 {

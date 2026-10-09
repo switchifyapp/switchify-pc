@@ -365,7 +365,15 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(remote: Arc<dyn Remote>, host: Arc<dyn Host>) -> Self {
-        let state = host.load_state();
+        let mut state = host.load_state();
+        // A base saved by an older build has already been read into this
+        // version's settings, so it only differs by its version number.
+        // Left alone, that alone would upload a newer document and stop
+        // computers still on the older build syncing.
+        if let Some(base) = state.base.as_mut() {
+            base.cloud.schema_version = SCHEMA_VERSION;
+            base.local.schema_version = SCHEMA_VERSION;
+        }
         Self {
             remote,
             host,
@@ -1679,6 +1687,36 @@ mod tests {
         host.set_local(with_speed(untouched(), 4));
         // Same revision number as the old base, but it must not count.
         assert_eq!(engine.sync(None).await.status, Status::NeedsChoice);
+    }
+
+    #[tokio::test]
+    async fn updating_from_version_one_uploads_nothing_until_a_change() {
+        let local = with_dwell(untouched(), true);
+        let remote = Arc::new(FakeRemote::default());
+        let host = Arc::new(FakeHost::new(local));
+        engine(&remote, &host).sync(None).await;
+        // What the older build saved and uploaded.
+        {
+            let mut state = host.state.lock().unwrap();
+            let base = state.base.as_mut().unwrap();
+            base.cloud.schema_version = 1;
+            base.local.schema_version = 1;
+        }
+        {
+            let mut row = remote.row.lock().unwrap();
+            let row = row.as_mut().unwrap();
+            row.schema_version = 1;
+            row.payload["schemaVersion"] = serde_json::json!(1);
+            row.payload["app"]
+                .as_object_mut()
+                .unwrap()
+                .remove("scanKeyRepeatEnabled");
+        }
+        let writes = remote.writes.lock().unwrap().len();
+        let updated = engine(&remote, &host);
+        assert!(!updated.changed_since_sync().await);
+        assert_eq!(updated.sync(None).await.status, Status::UpToDate);
+        assert_eq!(remote.writes.lock().unwrap().len(), writes);
     }
 
     #[tokio::test]
