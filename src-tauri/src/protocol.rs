@@ -301,12 +301,22 @@ pub struct PendingPairingSummary {
     pub expires_at: i64,
 }
 
+/// What a Supabase pairing intent must match for the PC to approve a request
+/// without the manual prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairingIntent {
+    pub desktop_id: String,
+    pub device_id: String,
+    pub nonce: String,
+}
+
 #[derive(Debug, Clone)]
 struct PendingPairing {
     request_id: String,
     device_id: String,
     device_name: String,
     verification_code: String,
+    nonce: String,
     expires_at: i64,
 }
 
@@ -447,6 +457,20 @@ impl ProtocolEngine {
                 .then_with(|| left.request_id.cmp(&right.request_id))
         });
         pending
+    }
+
+    /// The identifiers an account pairing intent must match for a pending
+    /// request. Kept out of `PendingPairingSummary` so the nonce never reaches
+    /// app state.
+    pub fn pairing_intent(&self, request_id: &str, now_ms: i64) -> Option<PairingIntent> {
+        self.pending_pairings
+            .get(request_id)
+            .filter(|pending| now_ms < pending.expires_at)
+            .map(|pending| PairingIntent {
+                desktop_id: self.desktop_id.clone(),
+                device_id: pending.device_id.clone(),
+                nonce: pending.nonce.clone(),
+            })
     }
 
     pub fn cancel_pairing(&mut self, request_id: &str) -> bool {
@@ -819,6 +843,7 @@ impl ProtocolEngine {
         let pending = PendingPairing {
             request_id: id,
             verification_code: verification_code(&self.desktop_id, &device_id, &nonce),
+            nonce,
             device_id,
             device_name,
             expires_at: now_ms + PAIRING_TIMEOUT_MS,
@@ -1905,7 +1930,24 @@ mod tests {
                 ..
             }
         ));
+        assert_eq!(
+            engine.pairing_intent("pair-1", NOW + 1),
+            Some(PairingIntent {
+                desktop_id: "desktop-1".into(),
+                device_id: "android-1".into(),
+                nonce: "nonce-1".into(),
+            })
+        );
+        assert_eq!(engine.pairing_intent("pair-unknown", NOW + 1), None);
+        assert_eq!(
+            engine.pairing_intent("pair-1", NOW + PAIRING_TIMEOUT_MS),
+            None
+        );
+        assert!(!serde_json::to_string(&engine.pending_pairings())
+            .unwrap()
+            .contains("nonce-1"));
         let response = engine.approve_pairing("pair-1", NOW + 1).unwrap();
+        assert_eq!(engine.pairing_intent("pair-1", NOW + 1), None);
         let response: Value = serde_json::from_str(&response).unwrap();
         assert_eq!(response["type"], "pairing.complete");
         assert_eq!(response["payload"]["token"].as_str().unwrap().len(), 43);

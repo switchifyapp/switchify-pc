@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { CircleUserRound, ListChecks, LockKeyhole, MailCheck, RefreshCw, Trash2 } from "lucide-react";
+import { CircleUserRound, ListChecks, LockKeyhole, MailCheck, RefreshCw, Smartphone, Trash2 } from "lucide-react";
 import { api } from "../api";
 import { Button, Input, StatusIcon } from "../ui/controls";
-import type { AccountView, SyncView } from "../types";
+import type { AccountView, AppSettings, SyncView } from "../types";
+import { Toggle } from "./controls";
 
 const sameAccount = "It's the same account as Switchify on Android.";
 const whatSyncs = "Pointer, repeat, dwell and cursor settings; your switches and their keys; scanning and keyboard layout; your switch profiles; and remote switches. Pairings, diagnostics sharing, setup progress and starting with your computer stay on each computer.";
@@ -34,7 +35,17 @@ function WhatSyncs() {
   </div>;
 }
 
-export function AccountSection() {
+/** Approves pairing from phones that prove they are signed into this account. */
+function AccountPairingRow({ settings, onChange }: { settings: AppSettings; onChange: (next: AppSettings) => void }) {
+  return <article className="stacked-row">
+    <StatusIcon><Smartphone size={19} /></StatusIcon>
+    <div><h3>Pair your phones automatically</h3><p>When Switchify on a phone signed into this account pairs with this computer, it&apos;s approved without comparing codes. Turn this off if other people share this account.</p>
+      <Toggle label="Approve phones on this account automatically" checked={settings.autoApproveAccountDevices} onChange={(value) => onChange({ ...settings, autoApproveAccountDevices: value })} />
+    </div>
+  </article>;
+}
+
+export function AccountSection({ settings, onSettingsChange }: { settings?: AppSettings; onSettingsChange?: (next: AppSettings) => void } = {}) {
   const [account, setAccount] = useState<AccountView | null>(null);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -156,6 +167,7 @@ export function AccountSection() {
       </Band>
       <div className="status-list"><SyncRow /></div>
       <WhatSyncs />
+      {settings && onSettingsChange && <div className="status-list"><AccountPairingRow settings={settings} onChange={onSettingsChange} /></div>}
       <div className="status-list">
         {confirmDelete
           ? <article className="stacked-row" role="group" aria-label="Confirm account deletion">

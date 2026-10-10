@@ -301,6 +301,15 @@ async fn approve_pairing(
     model: State<'_, AppModel>,
     request_id: String,
 ) -> Result<AppState, String> {
+    approve_pending_pairing(app, request_id).await?;
+    Ok(model.snapshot())
+}
+
+/// Approves a pending request and saves its token. Manual and account
+/// approval share this so both pair a device identically. Returns the
+/// device's name.
+async fn approve_pending_pairing(app: AppHandle, request_id: String) -> Result<String, String> {
+    let model = app.state::<AppModel>();
     let pending = model
         .snapshot()
         .pending_pairings
@@ -309,7 +318,7 @@ async fn approve_pairing(
         .ok_or_else(|| "Pairing request is no longer pending.".to_string())?;
     let shared = model.shared.clone();
     let operation_app = app.clone();
-    on_main_thread(app, move || {
+    on_main_thread(app.clone(), move || {
         platform_approve_pairing(&operation_app, &shared, &request_id)
     })
     .await?;
@@ -336,13 +345,59 @@ async fn approve_pairing(
             .retain(|device| device.device_id != pending.device_id);
         data.state.paired_devices.push(PairedDeviceView {
             device_id: pending.device_id,
-            device_name: pending.device_name,
+            device_name: pending.device_name.clone(),
             paired_at: state::now_ms(),
             last_seen_at: None,
         });
     }
     model.persist()?;
-    Ok(model.snapshot())
+    Ok(pending.device_name)
+}
+
+/// Approves a new pairing request without the prompt when this install is
+/// signed in with the setting on and a phone on the same account recorded a
+/// matching intent. Otherwise the prompt stays for manual approval, which also
+/// remains available while the check runs.
+pub(crate) fn spawn_account_pairing(
+    app: &AppHandle,
+    shared: &state::SharedModel,
+    request_id: String,
+) {
+    let intent = {
+        let data = shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !data.state.settings.auto_approve_account_devices {
+            return;
+        }
+        data.engine.pairing_intent(&request_id, state::now_ms())
+    };
+    let Some(intent) = intent else {
+        return;
+    };
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if !app
+            .state::<account::Account>()
+            .consume_pairing_intent(&intent)
+            .await
+        {
+            return;
+        }
+        // Approval fails harmlessly if the request was answered, expired or
+        // replaced while the account was checked.
+        if let Ok(device_name) = approve_pending_pairing(app.clone(), request_id).await {
+            let model = app.state::<AppModel>();
+            state::set_activity(
+                &model.shared,
+                ActivityKind::Success,
+                format!(
+                    "Paired {device_name} automatically because it is signed into your account."
+                ),
+            );
+            state::emit_state(&app, &model.shared);
+        }
+    });
 }
 
 #[tauri::command]

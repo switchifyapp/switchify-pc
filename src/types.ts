@@ -38,6 +38,7 @@ export type AppSettings = {
   cursorOverlayVisibility: "onInput" | "whileControlling";
   cursorCrosshairs: boolean;
   shareDiagnostics: boolean;
+  autoApproveAccountDevices: boolean;
 };
 
 export type PlatformCapabilities = {
