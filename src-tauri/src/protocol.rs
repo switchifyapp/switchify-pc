@@ -22,6 +22,8 @@ pub const MAX_PENDING_PAIRINGS: usize = 8;
 pub const MAX_IDENTIFIER_BYTES: usize = 128;
 pub const PARTIAL_TIMEOUT_MS: i64 = 10_000;
 pub const PAIRING_TIMEOUT_MS: i64 = 2 * 60 * 1_000;
+pub const PAIRING_NOT_PENDING: &str = "Pairing request is no longer pending.";
+pub const PAIRING_EXPIRED: &str = "Pairing request has expired.";
 pub const COMMAND_TIMESTAMP_TOLERANCE_MS: i64 = 2 * 60 * 1_000;
 pub const MAX_TEXT_UTF16_UNITS: usize = 2_000;
 pub const MAX_POINTER_DELTA: f64 = 500.0;
@@ -521,9 +523,9 @@ impl ProtocolEngine {
         let pending = self
             .pending_pairings
             .remove(request_id)
-            .ok_or_else(|| "Pairing request is no longer pending.".to_string())?;
+            .ok_or_else(|| PAIRING_NOT_PENDING.to_string())?;
         if now_ms >= pending.expires_at {
-            return Err("Pairing request has expired.".into());
+            return Err(PAIRING_EXPIRED.into());
         }
 
         let mut token_bytes = [0_u8; 32];
@@ -549,7 +551,7 @@ impl ProtocolEngine {
         let pending = self
             .pending_pairings
             .remove(request_id)
-            .ok_or_else(|| "Pairing request is no longer pending.".to_string())?;
+            .ok_or_else(|| PAIRING_NOT_PENDING.to_string())?;
         Ok(error_response(
             Some(&pending.request_id),
             "invalid_auth",
@@ -634,7 +636,11 @@ impl ProtocolEngine {
         }
     }
 
-    fn process_message(&mut self, raw: &str, now_ms: i64) -> Result<EngineEvent, String> {
+    pub(crate) fn process_message(
+        &mut self,
+        raw: &str,
+        now_ms: i64,
+    ) -> Result<EngineEvent, String> {
         let value: Value = serde_json::from_str(raw).map_err(|_| "invalid_json".to_string())?;
         let request_id = value
             .get("id")
