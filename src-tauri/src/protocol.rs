@@ -22,6 +22,8 @@ pub const MAX_PENDING_PAIRINGS: usize = 8;
 pub const MAX_IDENTIFIER_BYTES: usize = 128;
 pub const PARTIAL_TIMEOUT_MS: i64 = 10_000;
 pub const PAIRING_TIMEOUT_MS: i64 = 2 * 60 * 1_000;
+pub const PAIRING_NOT_PENDING: &str = "Pairing request is no longer pending.";
+pub const PAIRING_EXPIRED: &str = "Pairing request has expired.";
 pub const COMMAND_TIMESTAMP_TOLERANCE_MS: i64 = 2 * 60 * 1_000;
 pub const MAX_TEXT_UTF16_UNITS: usize = 2_000;
 pub const MAX_POINTER_DELTA: f64 = 500.0;
@@ -301,12 +303,22 @@ pub struct PendingPairingSummary {
     pub expires_at: i64,
 }
 
+/// What a Supabase pairing intent must match for the PC to approve a request
+/// without the manual prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairingIntent {
+    pub desktop_id: String,
+    pub device_id: String,
+    pub nonce: String,
+}
+
 #[derive(Debug, Clone)]
 struct PendingPairing {
     request_id: String,
     device_id: String,
     device_name: String,
     verification_code: String,
+    nonce: String,
     expires_at: i64,
 }
 
@@ -449,6 +461,20 @@ impl ProtocolEngine {
         pending
     }
 
+    /// The identifiers an account pairing intent must match for a pending
+    /// request. Kept out of `PendingPairingSummary` so the nonce never reaches
+    /// app state.
+    pub fn pairing_intent(&self, request_id: &str, now_ms: i64) -> Option<PairingIntent> {
+        self.pending_pairings
+            .get(request_id)
+            .filter(|pending| now_ms < pending.expires_at)
+            .map(|pending| PairingIntent {
+                desktop_id: self.desktop_id.clone(),
+                device_id: pending.device_id.clone(),
+                nonce: pending.nonce.clone(),
+            })
+    }
+
     pub fn cancel_pairing(&mut self, request_id: &str) -> bool {
         self.pending_pairings.remove(request_id).is_some()
     }
@@ -497,9 +523,9 @@ impl ProtocolEngine {
         let pending = self
             .pending_pairings
             .remove(request_id)
-            .ok_or_else(|| "Pairing request is no longer pending.".to_string())?;
+            .ok_or_else(|| PAIRING_NOT_PENDING.to_string())?;
         if now_ms >= pending.expires_at {
-            return Err("Pairing request has expired.".into());
+            return Err(PAIRING_EXPIRED.into());
         }
 
         let mut token_bytes = [0_u8; 32];
@@ -525,7 +551,7 @@ impl ProtocolEngine {
         let pending = self
             .pending_pairings
             .remove(request_id)
-            .ok_or_else(|| "Pairing request is no longer pending.".to_string())?;
+            .ok_or_else(|| PAIRING_NOT_PENDING.to_string())?;
         Ok(error_response(
             Some(&pending.request_id),
             "invalid_auth",
@@ -610,7 +636,11 @@ impl ProtocolEngine {
         }
     }
 
-    fn process_message(&mut self, raw: &str, now_ms: i64) -> Result<EngineEvent, String> {
+    pub(crate) fn process_message(
+        &mut self,
+        raw: &str,
+        now_ms: i64,
+    ) -> Result<EngineEvent, String> {
         let value: Value = serde_json::from_str(raw).map_err(|_| "invalid_json".to_string())?;
         let request_id = value
             .get("id")
@@ -819,6 +849,7 @@ impl ProtocolEngine {
         let pending = PendingPairing {
             request_id: id,
             verification_code: verification_code(&self.desktop_id, &device_id, &nonce),
+            nonce,
             device_id,
             device_name,
             expires_at: now_ms + PAIRING_TIMEOUT_MS,
@@ -1905,7 +1936,24 @@ mod tests {
                 ..
             }
         ));
+        assert_eq!(
+            engine.pairing_intent("pair-1", NOW + 1),
+            Some(PairingIntent {
+                desktop_id: "desktop-1".into(),
+                device_id: "android-1".into(),
+                nonce: "nonce-1".into(),
+            })
+        );
+        assert_eq!(engine.pairing_intent("pair-unknown", NOW + 1), None);
+        assert_eq!(
+            engine.pairing_intent("pair-1", NOW + PAIRING_TIMEOUT_MS),
+            None
+        );
+        assert!(!serde_json::to_string(&engine.pending_pairings())
+            .unwrap()
+            .contains("nonce-1"));
         let response = engine.approve_pairing("pair-1", NOW + 1).unwrap();
+        assert_eq!(engine.pairing_intent("pair-1", NOW + 1), None);
         let response: Value = serde_json::from_str(&response).unwrap();
         assert_eq!(response["type"], "pairing.complete");
         assert_eq!(response["payload"]["token"].as_str().unwrap().len(), 43);

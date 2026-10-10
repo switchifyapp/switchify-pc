@@ -85,6 +85,10 @@ pub struct AppSettings {
     pub cursor_overlay_visibility: String,
     pub cursor_crosshairs: bool,
     pub share_diagnostics: bool,
+    /// Approve pairing without the prompt when the phone proves it is signed
+    /// into the same account. Local to this install, like pairing itself.
+    #[serde(default = "default_auto_approve_account_devices")]
+    pub auto_approve_account_devices: bool,
 }
 
 impl Default for AppSettings {
@@ -108,6 +112,7 @@ impl Default for AppSettings {
             cursor_overlay_visibility: default_cursor_overlay_visibility(),
             cursor_crosshairs: false,
             share_diagnostics: false,
+            auto_approve_account_devices: default_auto_approve_account_devices(),
         }
     }
 }
@@ -164,6 +169,10 @@ fn default_cursor_overlay_visibility() -> String {
 
 fn default_mouse_repeat_acceleration() -> u32 {
     1000
+}
+
+fn default_auto_approve_account_devices() -> bool {
+    true
 }
 
 fn default_key_repeat_enabled() -> bool {
@@ -1385,6 +1394,7 @@ mod tests {
         assert!(settings.key_repeat_enabled);
         assert_eq!(settings.key_repeat_interval_ms, 250);
         assert_eq!(settings.key_repeat_initial_delay_ms, 500);
+        assert!(settings.auto_approve_account_devices);
 
         // Everything that was stored survives untouched.
         assert_eq!(settings.pointer_scale_percent, 150);

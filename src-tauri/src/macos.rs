@@ -1071,8 +1071,9 @@ impl MacRuntime {
                     ActivityKind::Info,
                     "Review the pairing code before approving this device.",
                 );
-                self.schedule_pairing_expiration(request_id, delay_ms);
+                self.schedule_pairing_expiration(request_id.clone(), delay_ms);
                 emit_state(&self.app, &self.shared);
+                crate::spawn_account_pairing(&self.app, &self.shared, request_id);
             }
             Ok(Some(EngineEvent::Response(response))) => {
                 if let Err(error) = self.enqueue_message(&response) {

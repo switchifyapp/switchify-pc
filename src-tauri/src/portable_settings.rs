@@ -30,8 +30,9 @@ pub struct Document {
     pub remote_switches: Vec<remote_scan::Slot>,
 }
 
-/// `AppSettings` without `start_with_system` (registered with this OS) and
-/// `share_diagnostics` (consent must be given on each install).
+/// `AppSettings` without `start_with_system` (registered with this OS),
+/// `share_diagnostics` (consent must be given on each install) and
+/// `auto_approve_account_devices` (pairing is per install).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PortableAppSettings {
@@ -83,6 +84,7 @@ impl PortableAppSettings {
         AppSettings {
             start_with_system: local.start_with_system,
             share_diagnostics: local.share_diagnostics,
+            auto_approve_account_devices: local.auto_approve_account_devices,
             pointer_scale_percent: self.pointer_scale_percent,
             mouse_repeat_enabled: self.mouse_repeat_enabled,
             move_repeat_interval_ms: self.move_repeat_interval_ms,
@@ -466,6 +468,7 @@ mod tests {
             settings: AppSettings {
                 start_with_system: true,
                 share_diagnostics: true,
+                auto_approve_account_devices: false,
                 ..AppSettings::default()
             },
             profiles,
@@ -496,6 +499,7 @@ mod tests {
         for field in [
             "startWithSystem",
             "shareDiagnostics",
+            "autoApproveAccountDevices",
             "telemetry",
             "desktopId",
             "pairedDevices",
@@ -605,6 +609,7 @@ mod tests {
         assert!(settings.dwell_click_enabled);
         assert!(settings.start_with_system);
         assert!(settings.share_diagnostics);
+        assert!(!settings.auto_approve_account_devices);
         assert!(plan.switches.is_none() && plan.point_scan.is_none() && plan.remote.is_none());
     }
 

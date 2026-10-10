@@ -4,6 +4,7 @@
 //! access tokens stay in memory. Neither, nor the code, is ever logged or
 //! sent to the webview.
 
+use crate::protocol::PairingIntent;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::future::Future;
@@ -17,6 +18,9 @@ const KEYRING_USER: &str = "session";
 pub const ACCOUNT_EVENT: &str = "account-changed";
 /// Refresh this long before the access token expires.
 const REFRESH_MARGIN: Duration = Duration::from_secs(60);
+/// Pairing waits on these, so they are much shorter than the HTTP timeout.
+const PAIRING_INTENT_TIMEOUT: Duration = Duration::from_secs(5);
+const PAIRING_INTENT_RETRY_DELAY: Duration = Duration::from_secs(1);
 const KEYCHAIN_UNAVAILABLE: &str =
     "This computer's keychain is unavailable. Unlock it, then try again.";
 
@@ -462,6 +466,61 @@ impl Account {
         Ok(self.view_of(&data))
     }
 
+    /// Whether a phone signed into this account vouched for the pairing
+    /// request by recording a matching intent. A match is consumed, so it
+    /// approves once. Signed out, offline or any server error is `false`, which
+    /// leaves the request for manual approval.
+    pub async fn consume_pairing_intent(&self, intent: &PairingIntent) -> bool {
+        self.consume_pairing_intent_after(intent, PAIRING_INTENT_RETRY_DELAY)
+            .await
+    }
+
+    async fn consume_pairing_intent_after(
+        &self,
+        intent: &PairingIntent,
+        retry_delay: Duration,
+    ) -> bool {
+        let Ok(config) = self.config().cloned() else {
+            return false;
+        };
+        for attempt in 0..2 {
+            if attempt > 0 {
+                tokio::time::sleep(retry_delay).await;
+            }
+            let Ok(authorized) = self.authorize().await else {
+                return false;
+            };
+            let request = self.transport.post(
+                &config,
+                "/rest/v1/rpc/consume_pairing_intent",
+                Some(&authorized.access_token),
+                json!({
+                    "p_desktop_id": intent.desktop_id,
+                    "p_device_id": intent.device_id,
+                    "p_nonce": intent.nonce,
+                }),
+            );
+            match tokio::time::timeout(PAIRING_INTENT_TIMEOUT, request).await {
+                Ok(Ok(response)) if (200..=299).contains(&response.status) => {
+                    // A sign-out or account change while the request was in
+                    // flight withdraws the account's approval.
+                    return response.body == Value::Bool(true)
+                        && self
+                            .lock(false)
+                            .await
+                            .session
+                            .as_ref()
+                            .is_some_and(|session| session.stored.user_id == authorized.user_id);
+                }
+                // The server answered; retrying would not change a refusal or
+                // a missing function.
+                Ok(Ok(response)) if response.status < 500 => return false,
+                _ => {}
+            }
+        }
+        false
+    }
+
     fn persist(&self, stored: &StoredSession) -> Result<(), String> {
         let value = serde_json::to_string(stored).map_err(|error| error.to_string())?;
         self.store
@@ -533,6 +592,8 @@ mod tests {
     struct FakeTransport {
         requests: Mutex<Vec<(String, Option<String>, Value)>>,
         responses: Mutex<VecDeque<Result<Response, String>>>,
+        /// Holds the next response until the sender fires.
+        gate: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
     }
 
     impl FakeTransport {
@@ -571,7 +632,13 @@ mod tests {
                 .unwrap()
                 .pop_front()
                 .expect("unexpected request");
-            Box::pin(async move { response })
+            let gate = self.gate.lock().unwrap().take();
+            Box::pin(async move {
+                if let Some(gate) = gate {
+                    let _ = gate.await;
+                }
+                response
+            })
         }
     }
 
@@ -942,6 +1009,113 @@ mod tests {
         assert_eq!(rpc.1.as_deref(), Some("access-1"));
     }
 
+    fn intent() -> PairingIntent {
+        PairingIntent {
+            desktop_id: "desktop-1".into(),
+            device_id: "android-1".into(),
+            nonce: "nonce-1".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn pairing_intent_is_consumed_with_the_user_session() {
+        let (account, transport) = signed_in(Arc::default()).await;
+        transport.respond(200, json!(true));
+        assert!(
+            account
+                .consume_pairing_intent_after(&intent(), Duration::ZERO)
+                .await
+        );
+        let rpc = transport.requests().pop().unwrap();
+        assert_eq!(rpc.0, "/rest/v1/rpc/consume_pairing_intent");
+        assert_eq!(rpc.1.as_deref(), Some("access-1"));
+        assert_eq!(
+            rpc.2,
+            json!({ "p_desktop_id": "desktop-1", "p_device_id": "android-1", "p_nonce": "nonce-1" })
+        );
+    }
+
+    #[tokio::test]
+    async fn pairing_intent_without_a_match_or_function_is_not_retried() {
+        let (account, transport) = signed_in(Arc::default()).await;
+        let before = transport.requests().len();
+        transport.respond(200, json!(false));
+        assert!(
+            !account
+                .consume_pairing_intent_after(&intent(), Duration::ZERO)
+                .await
+        );
+        transport.respond(404, json!({ "code": "PGRST202" }));
+        assert!(
+            !account
+                .consume_pairing_intent_after(&intent(), Duration::ZERO)
+                .await
+        );
+        assert_eq!(transport.requests().len(), before + 2);
+    }
+
+    #[tokio::test]
+    async fn pairing_intent_retries_once_after_a_network_or_server_error() {
+        let (account, transport) = signed_in(Arc::default()).await;
+        transport.fail();
+        transport.respond(200, json!(true));
+        assert!(
+            account
+                .consume_pairing_intent_after(&intent(), Duration::ZERO)
+                .await
+        );
+        let before = transport.requests().len();
+        transport.respond(503, json!({}));
+        transport.fail();
+        assert!(
+            !account
+                .consume_pairing_intent_after(&intent(), Duration::ZERO)
+                .await
+        );
+        assert_eq!(transport.requests().len(), before + 2);
+    }
+
+    #[tokio::test]
+    async fn signing_out_during_the_check_withdraws_the_approval() {
+        let (account, transport) = signed_in(Arc::default()).await;
+        let (release, gate) = tokio::sync::oneshot::channel();
+        *transport.gate.lock().unwrap() = Some(gate);
+        transport.respond(200, json!(true));
+        transport.respond(200, json!({}));
+        let pairing = intent();
+        let (approved, _) = tokio::join!(
+            account.consume_pairing_intent_after(&pairing, Duration::ZERO),
+            async {
+                account.sign_out().await.unwrap();
+                release.send(()).unwrap();
+            }
+        );
+        assert!(!approved);
+    }
+
+    #[tokio::test]
+    async fn signed_out_install_never_checks_pairing_intents() {
+        let transport = Arc::new(FakeTransport::default());
+        let account = Account::new(
+            config(),
+            transport.clone(),
+            Arc::new(MemoryStore::default()),
+        );
+        assert!(
+            !account
+                .consume_pairing_intent_after(&intent(), Duration::ZERO)
+                .await
+        );
+        assert!(transport.requests().is_empty());
+        let unconfigured = Account::new(None, transport.clone(), Arc::new(MemoryStore::default()));
+        assert!(
+            !unconfigured
+                .consume_pairing_intent_after(&intent(), Duration::ZERO)
+                .await
+        );
+        assert!(transport.requests().is_empty());
+    }
+
     #[tokio::test]
     async fn signed_in_install_cannot_request_another_code() {
         let (account, transport) = signed_in(Arc::default()).await;
@@ -1019,6 +1193,29 @@ mod tests {
         );
         let authorized = restarted.authorize().await.unwrap();
         assert!(!authorized.user_id.is_empty());
+
+        // A phone on the same account records an intent; it approves once.
+        let pairing = PairingIntent {
+            desktop_id: "desktop-it".into(),
+            device_id: "android-it".into(),
+            nonce: uuid::Uuid::new_v4().to_string(),
+        };
+        assert!(!restarted.consume_pairing_intent(&pairing).await);
+        let created = client
+            .post(format!("{}/rest/v1/rpc/create_pairing_intent", config.url))
+            .header("apikey", &config.key)
+            .bearer_auth(&authorized.access_token)
+            .json(&json!({
+                "p_desktop_id": pairing.desktop_id,
+                "p_device_id": pairing.device_id,
+                "p_nonce": pairing.nonce,
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert!(created.status().is_success());
+        assert!(restarted.consume_pairing_intent(&pairing).await);
+        assert!(!restarted.consume_pairing_intent(&pairing).await);
 
         // The access token works for the shared delete RPC.
         assert!(!restarted.delete_account().await.unwrap().signed_in);

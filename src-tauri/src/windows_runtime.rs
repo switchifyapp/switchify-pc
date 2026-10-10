@@ -1434,7 +1434,8 @@ fn process_frame(
                 ActivityKind::Info,
                 "Review the pairing code before approving this device.",
             );
-            schedule_pairing_expiration(app, shared, request_id, delay_ms);
+            schedule_pairing_expiration(app, shared, request_id.clone(), delay_ms);
+            crate::spawn_account_pairing(app, shared, request_id);
             replaced_response
         }
         Some(EngineEvent::Response(response)) => Some(response),

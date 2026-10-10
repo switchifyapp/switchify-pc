@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "../api";
+import { api, browserState } from "../api";
 import type { AccountView, SyncView } from "../types";
 import { AccountSection } from "./AccountSection";
 
@@ -287,6 +287,28 @@ describe("AccountSection", () => {
     await screen.findByLabelText("Email");
     receive(signedIn);
     expect(await screen.findByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  });
+
+  it("lets a signed-in user turn off automatic pairing for this account", async () => {
+    vi.spyOn(api, "account").mockResolvedValue(signedIn);
+    vi.spyOn(api, "onAccount").mockResolvedValue(() => undefined);
+    vi.spyOn(api, "settingsSync").mockResolvedValue({ status: "upToDate", lastSyncedAt: null, message: null });
+    vi.spyOn(api, "onSettingsSync").mockResolvedValue(() => undefined);
+    const onSettingsChange = vi.fn();
+    render(<AccountSection settings={browserState.settings} onSettingsChange={onSettingsChange} />);
+    const toggle = await screen.findByRole("checkbox", { name: "Approve phones on this account automatically" });
+    expect(toggle).toBeChecked();
+    expect(screen.getByText(/Turn this off if other people share this account/)).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(onSettingsChange).toHaveBeenCalledWith({ ...browserState.settings, autoApproveAccountDevices: false });
+  });
+
+  it("hides automatic pairing while signed out", async () => {
+    vi.spyOn(api, "account").mockResolvedValue(signedOut);
+    vi.spyOn(api, "onAccount").mockResolvedValue(() => undefined);
+    render(<AccountSection settings={browserState.settings} onSettingsChange={vi.fn()} />);
+    await screen.findByLabelText("Email");
+    expect(screen.queryByRole("checkbox", { name: "Approve phones on this account automatically" })).not.toBeInTheDocument();
   });
 
   it("is not a Settings tab", async () => {

@@ -56,6 +56,7 @@ mod windows_security;
 #[cfg(target_os = "windows")]
 mod windows_startup;
 
+use protocol::{PairingIntent, PAIRING_EXPIRED, PAIRING_NOT_PENDING};
 use state::{
     snapshot, ActivityKind, AppModel, AppSettings, AppState, PairedDeviceView, SwitchProfile,
 };
@@ -301,15 +302,38 @@ async fn approve_pairing(
     model: State<'_, AppModel>,
     request_id: String,
 ) -> Result<AppState, String> {
+    approve_pending_pairing(app, request_id, None).await?;
+    Ok(model.snapshot())
+}
+
+/// Approves a pending request and saves its token. Manual and account
+/// approval share this so both pair a device identically. Account approval
+/// passes the intent it consumed, and only approves if the request still
+/// matches it and the setting is still on when approval happens. Returns the
+/// device's name.
+async fn approve_pending_pairing(
+    app: AppHandle,
+    request_id: String,
+    expected: Option<PairingIntent>,
+) -> Result<String, String> {
+    let model = app.state::<AppModel>();
     let pending = model
         .snapshot()
         .pending_pairings
         .into_iter()
         .find(|pending| pending.request_id == request_id)
-        .ok_or_else(|| "Pairing request is no longer pending.".to_string())?;
+        .ok_or_else(|| PAIRING_NOT_PENDING.to_string())?;
     let shared = model.shared.clone();
     let operation_app = app.clone();
-    on_main_thread(app, move || {
+    on_main_thread(app.clone(), move || {
+        if let Some(expected) = expected {
+            let data = shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if account_pairing_intent(&data, &request_id, state::now_ms()) != Some(expected) {
+                return Err(PAIRING_NOT_PENDING.to_string());
+            }
+        }
         platform_approve_pairing(&operation_app, &shared, &request_id)
     })
     .await?;
@@ -336,13 +360,78 @@ async fn approve_pairing(
             .retain(|device| device.device_id != pending.device_id);
         data.state.paired_devices.push(PairedDeviceView {
             device_id: pending.device_id,
-            device_name: pending.device_name,
+            device_name: pending.device_name.clone(),
             paired_at: state::now_ms(),
             last_seen_at: None,
         });
     }
     model.persist()?;
-    Ok(model.snapshot())
+    Ok(pending.device_name)
+}
+
+/// What a pending request must match to be approved through the account:
+/// `None` when the setting is off or the request is not pending.
+fn account_pairing_intent(
+    data: &state::ModelData,
+    request_id: &str,
+    now_ms: i64,
+) -> Option<PairingIntent> {
+    if !data.state.settings.auto_approve_account_devices {
+        return None;
+    }
+    data.engine.pairing_intent(request_id, now_ms)
+}
+
+/// Approves a new pairing request without the prompt when this install is
+/// signed in with the setting on and a phone on the same account recorded a
+/// matching intent. Otherwise the prompt stays for manual approval, which also
+/// remains available while the check runs.
+pub(crate) fn spawn_account_pairing(
+    app: &AppHandle,
+    shared: &state::SharedModel,
+    request_id: String,
+) {
+    let intent = account_pairing_intent(
+        &shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        &request_id,
+        state::now_ms(),
+    );
+    let Some(intent) = intent else {
+        return;
+    };
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let account = app.state::<account::Account>();
+        let was_signed_in = account.current_view().await.signed_in;
+        if !account.consume_pairing_intent(&intent).await {
+            // A rejected session refresh signs this install out; show it.
+            let view = account.current_view().await;
+            if was_signed_in && !view.signed_in {
+                account::emit(&app, &view);
+            }
+            return;
+        }
+        let model = app.state::<AppModel>();
+        match approve_pending_pairing(app.clone(), request_id, Some(intent)).await {
+            Ok(device_name) => state::set_activity(
+                &model.shared,
+                ActivityKind::Success,
+                format!(
+                    "Paired {device_name} automatically because it is signed into your account."
+                ),
+            ),
+            // Answered, expired, replaced or switched off during the check.
+            Err(error) if error == PAIRING_NOT_PENDING || error == PAIRING_EXPIRED => return,
+            Err(_) => state::set_activity(
+                &model.shared,
+                ActivityKind::Error,
+                "Automatic pairing did not finish. Pair the phone again.",
+            ),
+        }
+        state::emit_state(&app, &model.shared);
+    });
 }
 
 #[tauri::command]
@@ -1873,9 +1962,9 @@ fn platform_disconnect_all(app: &AppHandle, shared: &state::SharedModel) -> Resu
 #[cfg(test)]
 mod tests {
     use super::{
-        has_start_hidden_argument, record_update_failure, show_tray_menu_on_left_click,
-        updater_is_configured, validate_profile, PendingNavigation, PendingProfileExit,
-        ProfileExitAction, TraySnapshot, NAVIGATE_REQUESTED_EVENT,
+        account_pairing_intent, has_start_hidden_argument, record_update_failure,
+        show_tray_menu_on_left_click, updater_is_configured, validate_profile, PendingNavigation,
+        PendingProfileExit, ProfileExitAction, TraySnapshot, NAVIGATE_REQUESTED_EVENT,
     };
     use crate::state::{AppModel, BluetoothState, SwitchBinding, SwitchProfile};
     use crate::storage::AppStorage;
@@ -2052,5 +2141,57 @@ mod tests {
     #[test]
     fn windows_tray_menu_does_not_open_on_left_click() {
         assert!(!show_tray_menu_on_left_click());
+    }
+
+    #[test]
+    fn account_approval_requires_the_setting_and_the_consumed_request() {
+        let root = std::env::temp_dir().join(format!(
+            "switchify-account-pairing-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let model = AppModel::with_storage_for_test(AppStorage::at(root.join("state.json")));
+        let mut data = model.shared.lock().unwrap();
+        let desktop_id = data.state.desktop_id.clone();
+        let request = |device_id: &str, nonce: &str| {
+            json!({
+                "version": 1,
+                "id": "pair-1",
+                "type": "pairing.request",
+                "payload": {
+                    "deviceId": device_id,
+                    "deviceName": "Pixel",
+                    "desktopId": desktop_id,
+                    "requestNonce": nonce
+                }
+            })
+            .to_string()
+        };
+        let now = crate::state::now_ms();
+        data.engine
+            .process_message(&request("android-1", "nonce-1"), now)
+            .unwrap();
+        let consumed = account_pairing_intent(&data, "pair-1", now).unwrap();
+        assert_eq!(consumed.device_id, "android-1");
+        assert_eq!(consumed.nonce, "nonce-1");
+
+        data.state.settings.auto_approve_account_devices = false;
+        assert_eq!(account_pairing_intent(&data, "pair-1", now), None);
+        data.state.settings.auto_approve_account_devices = true;
+
+        // A request that reuses the ID after the first was cancelled does not
+        // match the intent consumed for the first.
+        data.engine.cancel_all_pairings();
+        data.engine
+            .process_message(&request("android-2", "nonce-2"), now)
+            .unwrap();
+        assert_ne!(
+            account_pairing_intent(&data, "pair-1", now),
+            Some(consumed.clone())
+        );
+
+        data.engine.approve_pairing("pair-1", now).unwrap();
+        assert_eq!(account_pairing_intent(&data, "pair-1", now), None);
+        drop(data);
+        let _ = std::fs::remove_dir_all(root);
     }
 }
