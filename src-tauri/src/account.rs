@@ -502,7 +502,15 @@ impl Account {
             );
             match tokio::time::timeout(PAIRING_INTENT_TIMEOUT, request).await {
                 Ok(Ok(response)) if (200..=299).contains(&response.status) => {
-                    return response.body == Value::Bool(true);
+                    // A sign-out or account change while the request was in
+                    // flight withdraws the account's approval.
+                    return response.body == Value::Bool(true)
+                        && self
+                            .lock(false)
+                            .await
+                            .session
+                            .as_ref()
+                            .is_some_and(|session| session.stored.user_id == authorized.user_id);
                 }
                 // The server answered; retrying would not change a refusal or
                 // a missing function.
@@ -584,6 +592,8 @@ mod tests {
     struct FakeTransport {
         requests: Mutex<Vec<(String, Option<String>, Value)>>,
         responses: Mutex<VecDeque<Result<Response, String>>>,
+        /// Holds the next response until the sender fires.
+        gate: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
     }
 
     impl FakeTransport {
@@ -622,7 +632,13 @@ mod tests {
                 .unwrap()
                 .pop_front()
                 .expect("unexpected request");
-            Box::pin(async move { response })
+            let gate = self.gate.lock().unwrap().take();
+            Box::pin(async move {
+                if let Some(gate) = gate {
+                    let _ = gate.await;
+                }
+                response
+            })
         }
     }
 
@@ -1057,6 +1073,24 @@ mod tests {
                 .await
         );
         assert_eq!(transport.requests().len(), before + 2);
+    }
+
+    #[tokio::test]
+    async fn signing_out_during_the_check_withdraws_the_approval() {
+        let (account, transport) = signed_in(Arc::default()).await;
+        let (release, gate) = tokio::sync::oneshot::channel();
+        *transport.gate.lock().unwrap() = Some(gate);
+        transport.respond(200, json!(true));
+        transport.respond(200, json!({}));
+        let pairing = intent();
+        let (approved, _) = tokio::join!(
+            account.consume_pairing_intent_after(&pairing, Duration::ZERO),
+            async {
+                account.sign_out().await.unwrap();
+                release.send(()).unwrap();
+            }
+        );
+        assert!(!approved);
     }
 
     #[tokio::test]
