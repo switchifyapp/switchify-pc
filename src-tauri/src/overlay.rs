@@ -1471,6 +1471,17 @@ mod tests {
     }
 
     #[test]
+    fn scanner_colours_match_the_cursor_overlay_colours() {
+        for name in ["red", "green", "blue", "yellow", "white", "purple"] {
+            assert_eq!(
+                crate::scanning::ScannerColor::from_cursor_overlay(name).rgb(),
+                color_for(name),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn dwell_progress_fills_the_native_countdown_ring() {
         let early = render_marker(
             &ring_frame(PointerFeedback::DwellProgress { permille: 250 }),

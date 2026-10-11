@@ -9,6 +9,8 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
     Move(i8, i8),
+    /// Chooses a target with a radar sweep from the pointer.
+    Radar,
     Click,
     RightClick,
     DoubleClick,
@@ -80,7 +82,7 @@ impl MousePanel {
             vec![
                 vec![Click, RightClick, DoubleClick, Drag],
                 vec![Move(-1, -1), Move(0, -1), Move(1, -1), Scroll(1)],
-                vec![Move(-1, 0), Move(1, 0)],
+                vec![Move(-1, 0), Radar, Move(1, 0)],
                 vec![Move(-1, 1), Move(0, 1), Move(1, 1), Scroll(-1)],
                 vec![Actions, More, Keyboard, Close],
             ]
@@ -116,10 +118,12 @@ impl MousePanel {
             }
             // The panel is left behind.
             Key::Actions | Key::Keyboard | Key::Close => self.scan.restart(),
+            // The radar returns through `repeat_stopped` or `restart`.
+            Key::Radar => {}
             _ => self.scan.continue_after_selection(),
         }
     }
-    /// A repeating move or scroll was stopped by a switch.
+    /// A repeating move or scroll was stopped by a switch, or the radar moved the pointer.
     pub fn repeat_stopped(&mut self) {
         self.scan.continue_after_selection();
     }
@@ -177,6 +181,7 @@ impl MousePanel {
             Move(0, 1) => "↓".into(),
             Move(1, 1) => "↘".into(),
             Move(..) => "Move".into(),
+            Radar => "Radar".into(),
             Click => "Left click".into(),
             RightClick => "Right click".into(),
             DoubleClick => "Double click".into(),
@@ -281,8 +286,8 @@ impl MousePanel {
                                 },
                                 blank: false,
                             };
-                            // Keep ← and → under the diagonal arrows.
-                            let blank = matches!(key, Key::Move(_, 0)).then(PanelKey::blank);
+                            // Keep → under its diagonal arrow, with Radar between.
+                            let blank = matches!(key, Key::Move(1, 0)).then(PanelKey::blank);
                             std::iter::once(tile).chain(blank)
                         })
                         .collect()
@@ -341,9 +346,10 @@ mod tests {
                                 assert!(tile.rect.x + tile.rect.width <= screen.x + width + 1e-8);
                                 assert!(tile.rect.y + tile.rect.height <= screen.y + height + 1e-8);
                             }
-                            // Background, four actions, four upper directions, then left/right.
+                            // Background, four actions, four upper directions, then left, Radar, right.
                             assert_eq!(frame.tiles[5].rect.x, frame.tiles[9].rect.x);
-                            assert_eq!(frame.tiles[7].rect.x, frame.tiles[10].rect.x);
+                            assert_eq!(frame.tiles[6].rect.x, frame.tiles[10].rect.x);
+                            assert_eq!(frame.tiles[7].rect.x, frame.tiles[11].rect.x);
                             assert!((frame.tiles[1].scale - scale).abs() < 1e-8);
                             mouse.error = true;
                             assert_eq!(
@@ -370,7 +376,7 @@ mod tests {
             [
                 vec![Click, RightClick, DoubleClick, Drag],
                 vec![Move(-1, -1), Move(0, -1), Move(1, -1), Scroll(1)],
-                vec![Move(-1, 0), Move(1, 0)],
+                vec![Move(-1, 0), Radar, Move(1, 0)],
                 vec![Move(-1, 1), Move(0, 1), Move(1, 1), Scroll(-1)],
                 vec![Actions, More, Keyboard, Close],
             ]
@@ -580,11 +586,14 @@ mod tests {
         assert_eq!(tile(&frame, "←").width, tile(&frame, "↖").width);
         assert_eq!(tile(&frame, "→").x, tile(&frame, "↗").x);
         assert_eq!(tile(&frame, "→").width, tile(&frame, "↗").width);
-        assert_eq!(frame.tiles.len(), 1 + 18 + 1, "spacers draw no tiles");
+        assert_eq!(frame.tiles.len(), 1 + 19 + 1, "spacers draw no tiles");
+        assert_eq!(tile(&frame, "Radar").x, tile(&frame, "↑").x);
 
         panel.handle(Action::Next);
         panel.handle(Action::Next);
         panel.handle(Action::Select);
+        panel.handle(Action::Next);
+        assert_eq!(panel.handle(Action::Select), Some(Key::Radar));
         panel.handle(Action::Next);
         let frame = panel.frame(screen, 1.0, ScannerColor::default(), None);
         let selected: Vec<_> = frame.tiles.iter().filter(|tile| tile.selected).collect();

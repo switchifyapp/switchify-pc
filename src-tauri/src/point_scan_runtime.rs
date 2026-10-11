@@ -299,6 +299,9 @@ impl Adapter for PointScan {
                     settings.scroll_repeat_interval_ms,
                     settings.mouse_repeat_enabled,
                 );
+                technique.set_cursor_color(crate::scanning::ScannerColor::from_cursor_overlay(
+                    &settings.cursor_overlay_color,
+                ));
             } else if technique.follows_foreground() {
                 environment.foreground = crate::scan_host::foreground().ok();
                 environment.panel = false;

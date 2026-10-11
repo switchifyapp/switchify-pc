@@ -126,6 +126,16 @@ pub enum ScannerColor {
     White,
 }
 impl ScannerColor {
+    /// The cursor overlay's saved colour name, which falls back to red as the overlay does.
+    pub fn from_cursor_overlay(name: &str) -> Self {
+        match name {
+            "green" => Self::Green,
+            "blue" => Self::Blue,
+            "yellow" => Self::Yellow,
+            "white" => Self::White,
+            _ => Self::Red,
+        }
+    }
     pub fn rgb(self) -> [u8; 3] {
         match self {
             Self::Red => [211, 47, 47],

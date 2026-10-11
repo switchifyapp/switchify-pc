@@ -103,6 +103,7 @@ pub enum WorkflowPhase {
     MouseSuspended,
     MouseMoving,
     MouseScrolling,
+    MouseRadar,
     Menu,
     MenuSuspended,
     AutoSelecting,
@@ -117,6 +118,7 @@ enum Stage {
     Mouse,
     MouseMoving,
     MouseScrolling,
+    MouseRadar,
     Idle,
     Countdown,
     Point,
@@ -154,6 +156,10 @@ pub struct Workflow {
     mouse_actions_open: bool,
     move_repeat: Option<crate::mouse_repeat::ScanMoveRepeat>,
     scroll_repeat: Option<crate::mouse_repeat::ScanScrollRepeat>,
+    /// Chooses a pointer target for the mouse panel, which it hides meanwhile.
+    radar: Option<crate::scan_radar::Radar>,
+    /// The radar is drawn in the cursor overlay's colour once it is known.
+    cursor_color: Option<crate::scanning::ScannerColor>,
     mouse_repeat_enabled: bool,
     mouse_move_interval_ms: u32,
     mouse_scroll_interval_ms: u32,
@@ -203,6 +209,8 @@ impl Workflow {
             mouse_actions_open: false,
             move_repeat: None,
             scroll_repeat: None,
+            radar: None,
+            cursor_color: None,
             mouse_repeat_enabled: true,
             mouse_move_interval_ms: 250,
             mouse_scroll_interval_ms: 250,
@@ -253,7 +261,7 @@ impl Workflow {
     fn active_preferences(&self) -> crate::scan_preferences::Resolved {
         match self.stage {
             Stage::Keyboard | Stage::KeyboardOpening => self.point.config.keyboard_scan,
-            Stage::Mouse | Stage::MouseMoving | Stage::MouseScrolling => {
+            Stage::Mouse | Stage::MouseMoving | Stage::MouseScrolling | Stage::MouseRadar => {
                 self.point.config.mouse_scan
             }
             Stage::Menu => self.point.config.menu_scan,
@@ -291,6 +299,7 @@ impl Workflow {
             self.mouse_actions_open = false;
             self.move_repeat = None;
             self.scroll_repeat = None;
+            self.radar = None;
             self.key_repeat = None;
             self.parent_menu.clear();
             self.begin_point();
@@ -311,7 +320,7 @@ impl Workflow {
     pub fn mouse_open(&self) -> bool {
         matches!(
             self.stage,
-            Stage::Mouse | Stage::MouseMoving | Stage::MouseScrolling
+            Stage::Mouse | Stage::MouseMoving | Stage::MouseScrolling | Stage::MouseRadar
         ) || (self.stage == Stage::Menu && self.mouse_actions_open)
     }
     pub fn control_mode(&self) -> crate::point_scan::ControlMode {
@@ -344,11 +353,15 @@ impl Workflow {
     }
     pub fn set_mouse_area(&mut self, area: Rect, screen: Rect, scale: f64, displays: usize) {
         if self.point.screen != screen
-            && matches!(self.stage, Stage::MouseMoving | Stage::MouseScrolling)
+            && matches!(
+                self.stage,
+                Stage::MouseMoving | Stage::MouseScrolling | Stage::MouseRadar
+            )
         {
             self.stage = Stage::Mouse;
             self.move_repeat = None;
             self.scroll_repeat = None;
+            self.radar = None;
             self.pending = None;
             self.mouse.restart();
         }
@@ -382,6 +395,9 @@ impl Workflow {
             self.pending = None;
             self.mouse.restart();
         }
+    }
+    pub fn set_cursor_color(&mut self, color: crate::scanning::ScannerColor) {
+        self.cursor_color = Some(color);
     }
     pub fn set_key_repeat_settings(
         &mut self,
@@ -437,6 +453,8 @@ impl Workflow {
                 PointerFeedback::Move
             }),
             Stage::Menu if self.mouse_actions_open => Some(PointerFeedback::Move),
+            // A drag stays held while the radar chooses where to drop it.
+            Stage::MouseRadar if self.mouse.dragging => Some(PointerFeedback::Drag),
             _ => None,
         }
     }
@@ -550,6 +568,7 @@ impl Workflow {
         self.return_to_home = false;
         self.move_repeat = None;
         self.scroll_repeat = None;
+        self.radar = None;
         self.mouse = self.new_mouse();
         self.pending = None;
         self.parent_menu.clear();
@@ -578,6 +597,22 @@ impl Workflow {
                 self.mouse.block_actions("Pointer unavailable · Try again");
                 return None;
             }
+        }
+        if key == Key::Radar {
+            let Some(origin) = self.pointer else {
+                self.mouse.block_actions("Pointer unavailable · Try again");
+                return None;
+            };
+            self.mouse.choose(key);
+            self.radar = Some(crate::scan_radar::Radar::new(
+                self.point.config.mouse_scan,
+                self.point.config.speed,
+                self.point.screen,
+                self.point.units_per_logical_pixel,
+                origin,
+            ));
+            self.stage = Stage::MouseRadar;
+            return None;
         }
         self.mouse.choose(key);
         self.set_dock(self.mouse.dock);
@@ -654,7 +689,19 @@ impl Workflow {
                 self.open(Kind::MouseActions);
                 None
             }
-            Key::More | Key::Movement | Key::Dock | Key::Position(_) | Key::Back => None,
+            Key::Radar | Key::More | Key::Movement | Key::Dock | Key::Position(_) | Key::Back => {
+                None
+            }
+        }
+    }
+    /// Leaves the radar for the mouse panel. A chosen target is an action.
+    fn end_radar(&mut self, chosen: bool) {
+        self.radar = None;
+        self.stage = Stage::Mouse;
+        if chosen {
+            self.mouse.repeat_stopped();
+        } else {
+            self.mouse.restart();
         }
     }
     /// What the scanned keyboard's choice asks for. A navigation key also
@@ -698,6 +745,7 @@ impl Workflow {
         self.keyboard_output(output)
     }
     fn return_to_mouse_panel(&mut self) {
+        self.radar = None;
         self.parent_menu.clear();
         self.mouse_actions_open = false;
         self.stage = Stage::Mouse;
@@ -744,6 +792,7 @@ impl Workflow {
                     self.mouse.dragging = false;
                 }
                 self.mouse_actions_open = false;
+                self.radar = None;
                 self.stage = Stage::KeyboardOpening;
                 self.keyboard = self.new_keyboard();
                 self.pending = None;
@@ -888,6 +937,7 @@ impl Technique for Workflow {
             self.parent_menu.clear();
             self.move_repeat = None;
             self.scroll_repeat = None;
+            self.radar = None;
             self.mouse.dragging = false;
             self.mouse.failed();
             self.error = None;
@@ -950,6 +1000,7 @@ impl Technique for Workflow {
         self.mouse_actions_open = false;
         self.move_repeat = None;
         self.scroll_repeat = None;
+        self.radar = None;
         self.key_repeat = None;
         self.stage = Stage::Idle;
         self.parent_menu.clear();
@@ -1014,6 +1065,10 @@ impl Technique for Workflow {
             return self.open_point();
         }
         if action == Action::OpenMouse {
+            if self.stage == Stage::MouseRadar {
+                self.end_radar(false);
+                return None;
+            }
             if self.mouse_open() {
                 return None;
             }
@@ -1040,6 +1095,12 @@ impl Technique for Workflow {
                 }
             }
             Stage::MouseMoving | Stage::MouseScrolling => {}
+            Stage::MouseRadar => {
+                if let Some((x, y)) = self.radar.as_mut().and_then(|radar| radar.handle(action)) {
+                    self.end_radar(true);
+                    return Some(Request::MouseMoveAbsolute { x, y });
+                }
+            }
             Stage::Point | Stage::Destination => {
                 if let Some(point) = self.point.handle(action) {
                     if self.stage == Stage::Destination {
@@ -1086,6 +1147,14 @@ impl Technique for Workflow {
             Stage::Mouse => self
                 .mouse
                 .advance(ms, self.point.config.mouse_scan.interval_ms),
+            Stage::MouseRadar => {
+                if let Some(radar) = self.radar.as_mut() {
+                    radar.advance(ms);
+                    if radar.exhausted() {
+                        self.end_radar(false);
+                    }
+                }
+            }
             Stage::Point | Stage::Destination => {
                 self.point.advance(ms);
                 if self.point.exhausted() {
@@ -1181,6 +1250,7 @@ impl Technique for Workflow {
             }),
             Stage::MouseMoving => Phase::Workflow(WorkflowPhase::MouseMoving),
             Stage::MouseScrolling => Phase::Workflow(WorkflowPhase::MouseScrolling),
+            Stage::MouseRadar => Phase::Workflow(WorkflowPhase::MouseRadar),
             Stage::Keyboard => Phase::Workflow(if self.key_repeating() {
                 WorkflowPhase::KeyboardRepeating
             } else if self.keyboard.suspended() {
@@ -1262,6 +1332,11 @@ impl Technique for Workflow {
                     ..Frame::default()
                 }
             }
+            Stage::MouseRadar => self
+                .radar
+                .as_ref()
+                .map(crate::scan_radar::Radar::frame)
+                .unwrap_or_default(),
             Stage::Point | Stage::Destination => self.point.frame(),
             Stage::Menu if self.home_open() => self
                 .menu
@@ -1321,7 +1396,10 @@ impl Technique for Workflow {
             }
         }
         let preferences = self.active_preferences();
-        frame.color = preferences.color;
+        frame.color = match (&self.stage, self.cursor_color) {
+            (Stage::MouseRadar, Some(color)) => color,
+            _ => preferences.color,
+        };
         for tile in &mut frame.tiles {
             tile.color = frame.color;
             tile.thickness = preferences.thickness;
@@ -1556,6 +1634,115 @@ mod tests {
     }
 
     #[test]
+    fn radar_moves_the_pointer_from_where_it_is_and_returns_to_the_mouse_panel() {
+        use crate::scan_mouse::Key;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        workflow.handle(Action::OpenMouse);
+        // Without a pointer there is nothing to sweep from.
+        assert_eq!(workflow.mouse_key(Key::Radar), None);
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert_eq!(
+            workflow
+                .mouse
+                .frame(screen, 1.0, Default::default(), None)
+                .tiles
+                .last()
+                .unwrap()
+                .text,
+            "Pointer unavailable · Try again"
+        );
+
+        workflow.set_pointer(Some((640.0, 360.0)));
+        assert_eq!(workflow.mouse_key(Key::Radar), None);
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::MouseRadar));
+        assert!(workflow.mouse_open());
+        // Drawn in the mouse panel's colour until the cursor colour is known.
+        assert_eq!(
+            workflow.frame().color,
+            workflow.point.config.mouse_scan.color
+        );
+        workflow.set_cursor_color(crate::scanning::ScannerColor::Yellow);
+        let frame = workflow.frame();
+        assert_eq!(frame.color, crate::scanning::ScannerColor::Yellow);
+        assert!(frame.tiles.is_empty(), "the panel is hidden");
+        assert_eq!(frame.label.unwrap().text, "Radar · Select a direction");
+        // A pointer moving the panel out of its way does not move the radar.
+        workflow.set_pointer(Some((10.0, 10.0)));
+
+        // Straight up, then four manual steps out.
+        assert_eq!(workflow.handle(Action::Select), None);
+        for _ in 0..4 {
+            assert_eq!(workflow.handle(Action::Next), None);
+        }
+        assert_eq!(
+            workflow.handle(Action::Select),
+            Some(Request::MouseMoveAbsolute { x: 640, y: 280 })
+        );
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert!(workflow.radar.is_none());
+
+        // A change of display ends the radar without moving the pointer.
+        workflow.mouse_key(Key::Radar);
+        workflow.set_mouse_area(
+            screen,
+            Rect {
+                x: 1280.0,
+                ..screen
+            },
+            1.0,
+            2,
+        );
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert!(workflow.radar.is_none());
+
+        // A held drag keeps its cue, and Open Mouse goes back without moving.
+        // (The runtime rebuilds the engine for Open Mouse, which also releases the drag.)
+        workflow.mouse.dragging = true;
+        workflow.mouse_key(Key::Radar);
+        assert_eq!(
+            workflow.mouse_feedback(),
+            Some(crate::input::PointerFeedback::Drag)
+        );
+        assert_eq!(workflow.handle(Action::OpenMouse), None);
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert!(workflow.radar.is_none());
+    }
+
+    #[test]
+    fn radar_returns_to_the_panel_after_unattended_passes() {
+        use crate::scan_mouse::Key;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut s = Session::new(
+            Workflow::new(last_mode().point(), screen, 1.0).unwrap(),
+            false,
+        );
+        s.action(Action::Select);
+        s.technique.handle(Action::OpenMouse);
+        s.technique.set_pointer(Some((640.0, 360.0)));
+        s.technique.mouse_key(Key::Radar);
+        for _ in 0..100_000 {
+            if s.technique.stage != Stage::MouseRadar {
+                break;
+            }
+            s.tick(100, false);
+            assert_eq!(s.take_selection(), None);
+        }
+        assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert!(s.active());
+    }
+
+    #[test]
     fn mouse_actions_use_the_current_pointer_and_return_to_mouse() {
         use crate::scan_menu::Command;
         use crate::scan_mouse::Key;
@@ -1757,7 +1944,13 @@ mod tests {
         };
         let mut session = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
         session.action(Action::OpenMouse);
-        for action in [Action::Next, Action::Next, Action::Select, Action::Next] {
+        for action in [
+            Action::Next,
+            Action::Next,
+            Action::Select,
+            Action::Next,
+            Action::Next,
+        ] {
             assert_eq!(session.action(action), None);
         }
         assert!(matches!(
