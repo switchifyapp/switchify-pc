@@ -154,7 +154,7 @@ unsafe extern "system" fn window(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -
             if let Ok(mut slot) = slot.try_borrow_mut() {
                 if let Some(input) = slot.as_mut() {
                     let now = input.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                    input.state.interrupted(&input.shared, now);
+                    input.state.device_removed(&input.shared, now);
                 }
             }
         });

@@ -290,6 +290,14 @@ impl State {
             self.observe(shared, code, pressed, true, ms);
         }
     }
+    /// A removed keyboard can only strand a switch that is held and
+    /// suppressed. Other removals, such as an unrelated Bluetooth keyboard
+    /// reconnecting, leave the hook and every switch intact.
+    pub fn device_removed(&mut self, shared: &Shared, ms: u64) {
+        if shared.has_owned() {
+            self.interrupted(shared, ms);
+        }
+    }
     pub fn interrupted(&mut self, shared: &Shared, ms: u64) {
         self.observations.clear();
         self.quarantine = false;
@@ -449,6 +457,19 @@ mod tests {
             core,
             names,
         )
+    }
+    #[test]
+    fn device_removal_interrupts_only_while_a_switch_is_held() {
+        let (mut state, shared, mut core, names) = setup(Mode::Active);
+        state.device_removed(&shared, 1);
+        shared.drain_into(&mut core, &names, 2);
+        assert_eq!(core.status.mode, Mode::Active);
+        assert!(core.events.is_empty());
+        assert!(state.key(&shared, 32, true, false, 3));
+        state.device_removed(&shared, 4);
+        shared.drain_into(&mut core, &names, 5);
+        assert_eq!(core.status.reason, Some(StopReason::CaptureLost));
+        assert!(shared.recovering.load(Acquire));
     }
     #[test]
     fn missing_hook_edges_cancel_actions_and_require_a_separate_recovery_gesture() {
