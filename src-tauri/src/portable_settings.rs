@@ -16,7 +16,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -193,7 +193,8 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
         return Err(ParseError::Newer(schema_version));
     }
     match schema_version {
-        1 => value = upgrade_v1(value)?,
+        1 => value = upgrade_v2(upgrade_v1(value)?)?,
+        2 => value = upgrade_v2(value)?,
         SCHEMA_VERSION => {}
         _ => {
             return Err(ParseError::Invalid(format!(
@@ -232,6 +233,31 @@ fn upgrade_v1(mut value: Value) -> Result<Value, ParseError> {
         .filter(|app| !app.contains_key("scanKeyRepeatEnabled"))
         .ok_or_else(|| ParseError::Invalid("it does not match version 1 settings".into()))?;
     app.insert("scanKeyRepeatEnabled".into(), Value::Bool(false));
+    value["schemaVersion"] = Value::from(2);
+    Ok(value)
+}
+
+/// Version 2 had no row groups, which are off unless chosen, and an area
+/// without its own choice follows the shared one.
+fn upgrade_v2(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(2)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    let invalid = || ParseError::Invalid("it does not match version 2 settings".into());
+    let preferences = value
+        .pointer_mut("/pointScan/scanPreferences")
+        .and_then(Value::as_object_mut)
+        .filter(|preferences| !preferences.contains_key("rowGroups"))
+        .ok_or_else(invalid)?;
+    preferences.insert("rowGroups".into(), Value::Bool(false));
+    for area in ["point", "menu", "keyboard", "mouse"] {
+        preferences
+            .get_mut(area)
+            .and_then(Value::as_object_mut)
+            .filter(|overrides| !overrides.contains_key("rowGroups"))
+            .ok_or_else(invalid)?
+            .insert("rowGroups".into(), Value::Null);
+    }
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -422,6 +448,32 @@ pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
     Ok(applied)
 }
 
+/// A current document as an older version wrote it.
+#[cfg(test)]
+pub(crate) fn written_by(mut value: Value, version: u32) -> Value {
+    if version < 3 {
+        let preferences = value
+            .pointer_mut("/pointScan/scanPreferences")
+            .and_then(Value::as_object_mut)
+            .unwrap();
+        preferences.remove("rowGroups");
+        for area in ["point", "menu", "keyboard", "mouse"] {
+            preferences[area]
+                .as_object_mut()
+                .unwrap()
+                .remove("rowGroups");
+        }
+    }
+    if version < 2 {
+        value["app"]
+            .as_object_mut()
+            .unwrap()
+            .remove("scanKeyRepeatEnabled");
+    }
+    value["schemaVersion"] = Value::from(version);
+    value
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -561,13 +613,96 @@ mod tests {
 
     /// A document as written by version 1, before scanned key repeat.
     fn version_one() -> Value {
-        let mut value = serde_json::to_value(local().document()).unwrap();
-        value["schemaVersion"] = json!(1);
-        value["app"]
-            .as_object_mut()
-            .unwrap()
-            .remove("scanKeyRepeatEnabled");
-        value
+        written_by(serde_json::to_value(local().document()).unwrap(), 1)
+    }
+
+    #[test]
+    fn version_two_documents_read_with_row_groups_off_and_inherited() {
+        let mut local = local();
+        local.point_scan.scan_preferences.row_groups = true;
+        local.point_scan.scan_preferences.keyboard.row_groups = Some(true);
+        let mut cloud = local.clone();
+        cloud.point_scan.scan_preferences = Default::default();
+        let version_two = written_by(serde_json::to_value(cloud.document()).unwrap(), 2);
+        let parsed = parse(version_two.clone(), 2).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        let preferences = &parsed.point_scan.scan_preferences;
+        assert!(!preferences.row_groups);
+        for area in [
+            &preferences.point,
+            &preferences.menu,
+            &preferences.keyboard,
+            &preferences.mouse,
+        ] {
+            assert_eq!(area.row_groups, None);
+        }
+        let point_scan = plan(&local, parsed).unwrap().point_scan.unwrap();
+        assert_eq!(point_scan.scan_preferences, Default::default());
+
+        // Version 2 never had row groups, and a version 3 document needs them.
+        let mut early = version_two.clone();
+        early["pointScan"]["scanPreferences"]["menu"]["rowGroups"] = json!(true);
+        assert!(matches!(parse(early, 2), Err(ParseError::Invalid(_))));
+        let mut missing = version_two;
+        missing["schemaVersion"] = json!(SCHEMA_VERSION);
+        assert!(matches!(
+            parse(missing, SCHEMA_VERSION),
+            Err(ParseError::Invalid(_))
+        ));
+        // A merge base saved by version 2 still loads.
+        let base: Document = serde_json::from_value(written_by(
+            serde_json::to_value(local.document()).unwrap(),
+            2,
+        ))
+        .unwrap();
+        assert!(!base.point_scan.scan_preferences.row_groups);
+    }
+
+    #[test]
+    fn synced_scan_preferences_are_deliberate() {
+        // Changing scan_preferences::Preferences changes what syncs. Update
+        // this list and bump SCHEMA_VERSION together.
+        let value = serde_json::to_value(local().document()).unwrap();
+        let preferences = &value["pointScan"]["scanPreferences"];
+        let keys = |value: &Value| {
+            let mut keys: Vec<_> = value.as_object().unwrap().keys().cloned().collect();
+            keys.sort_unstable();
+            keys
+        };
+        assert_eq!(
+            keys(preferences),
+            [
+                "direction",
+                "keyboard",
+                "menu",
+                "mouse",
+                "nextScan",
+                "panelSize",
+                "passLimit",
+                "pattern",
+                "point",
+                "rowGroups",
+                "startFrom",
+                "thickness",
+            ]
+        );
+        for area in ["point", "menu", "keyboard", "mouse"] {
+            assert_eq!(
+                keys(&preferences[area]),
+                [
+                    "automatic",
+                    "color",
+                    "direction",
+                    "intervalMs",
+                    "nextScan",
+                    "passLimit",
+                    "pattern",
+                    "rowGroups",
+                    "startFrom",
+                    "thickness",
+                ]
+            );
+        }
     }
 
     #[test]

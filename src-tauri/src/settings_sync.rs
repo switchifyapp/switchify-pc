@@ -1690,33 +1690,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn updating_from_version_one_uploads_nothing_until_a_change() {
-        let local = with_dwell(untouched(), true);
-        let remote = Arc::new(FakeRemote::default());
-        let host = Arc::new(FakeHost::new(local));
-        engine(&remote, &host).sync(None).await;
-        // What the older build saved and uploaded.
-        {
-            let mut state = host.state.lock().unwrap();
-            let base = state.base.as_mut().unwrap();
-            base.cloud.schema_version = 1;
-            base.local.schema_version = 1;
+    async fn updating_from_an_older_version_uploads_nothing_until_a_change() {
+        for version in 1..SCHEMA_VERSION {
+            let local = with_dwell(untouched(), true);
+            let remote = Arc::new(FakeRemote::default());
+            let host = Arc::new(FakeHost::new(local));
+            engine(&remote, &host).sync(None).await;
+            // What the older build saved and uploaded.
+            {
+                let mut state = host.state.lock().unwrap();
+                let base = state.base.as_mut().unwrap();
+                base.cloud.schema_version = version;
+                base.local.schema_version = version;
+            }
+            {
+                let mut row = remote.row.lock().unwrap();
+                let row = row.as_mut().unwrap();
+                row.schema_version = version;
+                row.payload = portable_settings::written_by(row.payload.clone(), version);
+            }
+            let writes = remote.writes.lock().unwrap().len();
+            let updated = engine(&remote, &host);
+            assert!(!updated.changed_since_sync().await);
+            assert_eq!(updated.sync(None).await.status, Status::UpToDate);
+            assert_eq!(remote.writes.lock().unwrap().len(), writes);
         }
-        {
-            let mut row = remote.row.lock().unwrap();
-            let row = row.as_mut().unwrap();
-            row.schema_version = 1;
-            row.payload["schemaVersion"] = serde_json::json!(1);
-            row.payload["app"]
-                .as_object_mut()
-                .unwrap()
-                .remove("scanKeyRepeatEnabled");
-        }
-        let writes = remote.writes.lock().unwrap().len();
-        let updated = engine(&remote, &host);
-        assert!(!updated.changed_since_sync().await);
-        assert_eq!(updated.sync(None).await.status, Status::UpToDate);
-        assert_eq!(remote.writes.lock().unwrap().len(), writes);
     }
 
     #[tokio::test]
