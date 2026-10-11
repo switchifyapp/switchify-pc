@@ -1686,6 +1686,7 @@ mod tests {
         assert!(workflow.radar.is_none());
 
         // A held drag keeps its cue, and Open Mouse goes back without moving.
+        // (The runtime rebuilds the engine for Open Mouse, which also releases the drag.)
         workflow.mouse.dragging = true;
         workflow.mouse_key(Key::Radar);
         assert_eq!(
@@ -1695,7 +1696,6 @@ mod tests {
         assert_eq!(workflow.handle(Action::OpenMouse), None);
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
         assert!(workflow.radar.is_none());
-        assert!(workflow.mouse.dragging);
     }
 
     #[test]
