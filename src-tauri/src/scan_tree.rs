@@ -73,6 +73,14 @@ impl<T: Clone> Navigator<T> {
     pub fn escaping(&self) -> bool {
         self.escaping
     }
+    /// The highlighted node, or `None` while offering to leave a group.
+    pub fn current(&self) -> Option<&Node<T>> {
+        if self.escaping {
+            None
+        } else {
+            self.siblings().get(self.index)
+        }
+    }
     pub fn start_at_end(&mut self) {
         self.index = self.siblings().len().saturating_sub(1);
         self.escaping = false;

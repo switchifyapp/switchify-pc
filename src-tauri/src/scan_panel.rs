@@ -1,6 +1,7 @@
 //! Shared layout for switch-scanned panels: a docked background, a status tile
 //! and weighted rows of keys. Panels supply content; geometry lives here.
 use crate::{
+    scan_items::ItemScanner,
     scan_menu::Item,
     scan_preferences::{PanelSize, Thickness},
     scanning::{Frame, FrameTile, Rect, ScannerColor, TileRole, TileStyle},
@@ -150,8 +151,9 @@ pub struct Panel {
     /// Passive feedback beside the scanning prompt; never a scan target.
     pub note: Option<String>,
     pub dock: Dock,
-    /// Scanner position to highlight, or `None` when no key may be chosen.
-    pub selected: Option<(usize, Option<usize>)>,
+    /// Row and keys to highlight, all of the row when `None`, or `None` when no
+    /// key may be chosen.
+    pub selected: Option<(usize, Option<std::ops::Range<usize>>)>,
     pub row_scan: bool,
     pub thickness: Thickness,
 }
@@ -228,8 +230,8 @@ impl Panel {
                         height: (row_height - gap).max(1.0),
                     },
                     scale,
-                    selected: self.selected.is_some_and(|(active_row, active_column)| {
-                        r == active_row && active_column.is_none_or(|column| c == column)
+                    selected: self.selected.as_ref().is_some_and(|(active_row, columns)| {
+                        r == *active_row && columns.as_ref().is_none_or(|keys| keys.contains(&c))
                     }),
                 });
                 left += key_width + gap;
@@ -289,7 +291,24 @@ pub fn scanning_status(page: &str, row_scan: bool, key: &str) -> String {
         format!("{page} · Select {}", key.replace('\n', " "))
     }
 }
+/// `scanning_status` for an item scanner, which may be choosing a group.
+pub fn item_status<T: Clone>(page: &str, scan: &ItemScanner<T>, key: &str) -> String {
+    if scan.group_scan() {
+        format!("{page} · Select a group")
+    } else {
+        scanning_status(page, scan.row_scan(), key)
+    }
+}
+/// The status while an item scanner offers to go back.
+pub fn back_status<T: Clone>(scan: &ItemScanner<T>) -> &'static str {
+    if scan.escaping_to_groups() {
+        BACK_TO_GROUPS
+    } else {
+        BACK_TO_ROWS
+    }
+}
 pub const BACK_TO_ROWS: &str = "Back to rows · Select to return";
+pub const BACK_TO_GROUPS: &str = "Back to groups · Select to return";
 
 #[cfg(test)]
 mod tests {

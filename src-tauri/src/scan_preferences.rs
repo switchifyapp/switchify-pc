@@ -8,6 +8,8 @@ pub enum Direction {
     Forward,
     Reverse,
 }
+/// Row groups are saved as a separate `rowGroups` choice, which only applies to
+/// `Grouped`, so versions without them still read the pattern.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Pattern {
@@ -86,6 +88,9 @@ pub struct Overrides {
     pub direction: Option<Direction>,
     pub pass_limit: Option<usize>,
     pub pattern: Option<Pattern>,
+    /// Missing beside an area's own pattern means no row groups, as an area's
+    /// pattern chosen before row groups existed meant.
+    pub row_groups: Option<bool>,
     pub color: Option<ScannerColor>,
     pub thickness: Option<Thickness>,
     pub next_scan: Option<NextScan>,
@@ -98,6 +103,7 @@ pub struct Preferences {
     pub direction: Direction,
     pub pass_limit: usize,
     pub pattern: Pattern,
+    pub row_groups: bool,
     pub thickness: Thickness,
     pub next_scan: NextScan,
     pub start_from: StartFrom,
@@ -113,6 +119,7 @@ impl Default for Preferences {
             direction: Direction::Forward,
             pass_limit: 3,
             pattern: Pattern::Grouped,
+            row_groups: false,
             thickness: Thickness::Standard,
             next_scan: NextScan::Standard,
             start_from: StartFrom::Standard,
@@ -131,6 +138,8 @@ pub struct Resolved {
     pub direction: Direction,
     pub pass_limit: usize,
     pub pattern: Pattern,
+    /// Long rows are split into groups. Only used with `Pattern::Grouped`.
+    pub row_groups: bool,
     pub color: ScannerColor,
     pub thickness: Thickness,
     pub next_scan: NextScan,
@@ -183,6 +192,10 @@ impl Preferences {
             } else {
                 local.pattern.unwrap_or(self.pattern)
             },
+            row_groups: area != Area::Point
+                && local
+                    .row_groups
+                    .unwrap_or(local.pattern.is_none() && self.row_groups),
             color: local.color.unwrap_or(color),
             thickness: local.thickness.unwrap_or(self.thickness),
             next_scan: local.next_scan.unwrap_or(self.next_scan),
@@ -225,6 +238,8 @@ fn forget_unknown_choices(value: &mut serde_json::Value, optional: bool) {
         "panelSize" => !optional && PanelSize::deserialize(&*choice).is_ok(),
         "nextScan" => (optional && choice.is_null()) || NextScan::deserialize(&*choice).is_ok(),
         "startFrom" => (optional && choice.is_null()) || StartFrom::deserialize(&*choice).is_ok(),
+        "pattern" => (optional && choice.is_null()) || Pattern::deserialize(&*choice).is_ok(),
+        "rowGroups" => (optional && choice.is_null()) || choice.is_boolean(),
         _ => true,
     });
 }
@@ -318,6 +333,59 @@ mod tests {
         let saved = read(serde_json::json!({"passLimit": 5, "nextScan": "sometimes"}));
         assert_eq!(saved.pass_limit, 5);
         assert_eq!(saved.next_scan, NextScan::Standard);
+    }
+    #[test]
+    fn row_groups_are_saved_beside_the_pattern_older_versions_read() {
+        // Saved before row groups existed.
+        let saved =
+            read(serde_json::json!({"pattern": "grouped", "keyboard": {"pattern": "grouped"}}));
+        assert!(!saved.row_groups);
+        for area in [Area::Menu, Area::Keyboard, Area::Mouse] {
+            assert!(
+                !saved
+                    .resolve(area, true, 1000, ScannerColor::Blue)
+                    .row_groups
+            );
+        }
+        let mut chosen = Preferences {
+            row_groups: true,
+            ..Default::default()
+        };
+        chosen.menu.pattern = Some(Pattern::Linear);
+        chosen.mouse.pattern = Some(Pattern::Grouped);
+        let stored = serde_json::to_value(&chosen).unwrap();
+        // The pattern stays one that versions without row groups know.
+        assert_eq!(stored["pattern"], "grouped");
+        assert_eq!(stored["rowGroups"], true);
+        assert_eq!(read(stored), chosen);
+        let resolve =
+            |chosen: &Preferences, area| chosen.resolve(area, true, 1000, ScannerColor::Blue);
+        // The keyboard inherits row groups with the shared pattern.
+        assert!(resolve(&chosen, Area::Keyboard).row_groups);
+        assert_eq!(resolve(&chosen, Area::Menu).pattern, Pattern::Linear);
+        // An area's own pattern, saved without row groups, has none.
+        assert!(!resolve(&chosen, Area::Mouse).row_groups);
+        chosen.mouse.row_groups = Some(true);
+        assert!(resolve(&chosen, Area::Mouse).row_groups);
+        chosen.row_groups = false;
+        assert!(resolve(&chosen, Area::Mouse).row_groups);
+        assert!(!resolve(&chosen, Area::Keyboard).row_groups);
+        // Point scanning has no rows of items.
+        chosen.point.row_groups = Some(true);
+        assert!(!resolve(&chosen, Area::Point).row_groups);
+        // A value this version does not know is dropped alone.
+        let saved = read(serde_json::json!({
+            "passLimit": 5,
+            "pattern": "spiral",
+            "rowGroups": "yes",
+            "keyboard": {"pattern": "spiral", "rowGroups": 1, "intervalMs": 250},
+        }));
+        assert_eq!(saved.pass_limit, 5);
+        assert_eq!(saved.pattern, Pattern::Grouped);
+        assert!(!saved.row_groups);
+        assert_eq!(saved.keyboard.pattern, None);
+        assert_eq!(saved.keyboard.row_groups, None);
+        assert_eq!(saved.keyboard.interval_ms, Some(250));
     }
     #[test]
     fn areas_inherit_and_override_independently() {

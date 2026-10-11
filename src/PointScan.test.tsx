@@ -637,3 +637,31 @@ it("defaults old settings to Medium and saves one shared panel size", async () =
   fireEvent.click(screen.getByRole("button", { name: "Customise mouse scanning" }));
   expect(screen.queryByText("Panel size")).not.toBeInTheDocument();
 });
+
+it("saves row groups beside the pattern older versions read and lets an area choose its own", async () => {
+  // The keyboard's own pattern was saved before row groups existed.
+  const saved = { ...initial, config: { ...initial.config, scanPreferences: { ...defaultScanPreferences, keyboard: { pattern: "grouped" as const } } } };
+  mocks.invoke.mockImplementation(async (command, args) => command === "get_point_scan" ? saved : { ...initial, config: args.config });
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  more();
+  expect(screen.getByRole("button", { name: "Groups, then items" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByRole("button", { name: "Rows, groups, then items" }));
+  await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences).toMatchObject({ pattern: "grouped", rowGroups: true }));
+  expect(screen.getByRole("button", { name: "Rows, groups, then items" })).toHaveAttribute("aria-pressed", "true");
+  const card = (name: string) => screen.getByRole("button", { name: `Customise ${name}` });
+  // Menus follow the shared choice; the keyboard keeps the pattern it saved.
+  expect(card("menus")).toHaveTextContent("Rows, groups, then items");
+  expect(card("keyboard")).toHaveTextContent("Groups, then items");
+  expect(card("keyboard")).toHaveTextContent("1 custom setting");
+  fireEvent.click(card("menus"));
+  more();
+  expect(screen.getByRole("button", { name: "Rows, groups, then items" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByRole("button", { name: "One item at a time" }));
+  await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.menu).toEqual({ pattern: "linear", rowGroups: false }));
+  fireEvent.click(screen.getByRole("button", { name: "Rows, groups, then items" }));
+  await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.menu).toEqual({ pattern: "grouped", rowGroups: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Use default for item scanning" }));
+  await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.menu).toStrictEqual({ pattern: undefined, rowGroups: undefined }));
+  expect(screen.getByRole("button", { name: "Rows, groups, then items" })).toHaveAttribute("aria-pressed", "true");
+});

@@ -405,7 +405,7 @@ impl Keyboard {
         if self.prediction_enabled && self.prediction_failed && !self.positioning {
             self.rows.last_mut().unwrap().push(Key::RetryPrediction);
         }
-        self.scan.replace(ItemScanner::nodes(&self.rows));
+        self.scan.replace_rows(&self.rows);
         self.scan.restart();
         self.activation = None;
         self.skip_disabled(false);
@@ -1027,9 +1027,8 @@ impl Keyboard {
         color: ScannerColor,
         repeating: Option<(Stroke, &str)>,
     ) -> Frame {
-        let row_scan = self.scan.row_scan();
         let escaping = self.scan.nav.escaping();
-        let highlight_row = row_scan || escaping;
+        let highlight_row = self.scan.row_scan() || self.scan.group_scan() || escaping;
         let (active_row, active_column) = self.scan.position(&self.rows);
         let page = match self.page {
             _ if self.positioning => crate::scan_panel::POSITION_PAGE,
@@ -1052,13 +1051,13 @@ impl Keyboard {
         } else if self.scan.suspended {
             "Keyboard paused · Select to resume".to_owned()
         } else if escaping {
-            crate::scan_panel::BACK_TO_ROWS.to_owned()
+            crate::scan_panel::back_status(&self.scan).to_owned()
         } else if self.disabled() {
             "Suggestions updating · Select to continue".to_owned()
         } else {
-            crate::scan_panel::scanning_status(
+            crate::scan_panel::item_status(
                 page,
-                row_scan,
+                &self.scan,
                 &self.label(self.rows[active_row][active_column.unwrap_or(0)]),
             )
         };
@@ -1091,7 +1090,7 @@ impl Keyboard {
             },
             dock: self.dock,
             selected: (repeating.is_none() && !self.scan.suspended && !self.disabled())
-                .then_some((active_row, active_column)),
+                .then(|| self.scan.highlight(&self.rows)),
             row_scan: highlight_row,
             thickness: Default::default(),
         }
@@ -2623,5 +2622,59 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn row_groups_highlight_a_group_of_keys_and_offer_to_go_back_to_groups() {
+        use crate::scan_preferences::Resolved;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let mut k = Keyboard::configured(
+            false,
+            Resolved {
+                row_groups: true,
+                ..Default::default()
+            },
+        );
+        let frame = |k: &Keyboard| {
+            let mut frame = k.frame(screen, 1.0, ScannerColor::default());
+            let status = frame.tiles.pop().unwrap().text;
+            let selected = frame.tiles.iter().filter(|tile| tile.selected).count();
+            (status, selected)
+        };
+        let groups = crate::scan_items::row_groups(k.rows[0].len());
+        assert!(groups.len() > 1);
+        assert_eq!(
+            frame(&k),
+            ("Letters · QWERTY · Select a row".into(), k.rows[0].len())
+        );
+        k.handle(Action::Select);
+        assert_eq!(
+            frame(&k),
+            ("Letters · QWERTY · Select a group".into(), groups[0].len())
+        );
+        k.handle(Action::Select);
+        let first = k.label(k.rows[0][0]).replace('\n', " ");
+        assert_eq!(frame(&k), (format!("Letters · QWERTY · Select {first}"), 1));
+        for _ in 0..groups[0].len() {
+            k.handle(Action::Next);
+        }
+        assert_eq!(
+            frame(&k),
+            (crate::scan_panel::BACK_TO_GROUPS.into(), groups[0].len())
+        );
+        k.handle(Action::Select);
+        assert_eq!(frame(&k).0, "Letters · QWERTY · Select a group");
+        for _ in 0..groups.len() {
+            k.handle(Action::Next);
+        }
+        assert_eq!(
+            frame(&k),
+            (crate::scan_panel::BACK_TO_ROWS.into(), k.rows[0].len())
+        );
     }
 }
