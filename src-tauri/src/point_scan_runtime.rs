@@ -35,6 +35,25 @@ fn keyboard_display<'a>(
         .or_else(|| displays.iter().find(|display| display.name == current.name))
         .or_else(|| display_navigation::current_display(cursor, displays))
 }
+/// On macOS the work area leaves out the menu bar and Dock only while they
+/// show, so it changes whenever an auto-hidden one comes and goes, as in a
+/// full-screen app. Windows keeps its work area when the taskbar hides.
+const WORK_AREA_FOLLOWS_AUTO_HIDE: bool = cfg!(target_os = "macos");
+/// The area for panels on `display`. Where the work area follows auto-hidden
+/// bars, the area this scan already has is kept while it stays on the same
+/// display, so panels never jump as the bars show and hide.
+fn steady_area(
+    follows_auto_hide: bool,
+    environment: &Environment,
+    display: &Display,
+    area: Rect,
+) -> Rect {
+    if follows_auto_hide && environment.display == *display {
+        environment.keyboard_area
+    } else {
+        area
+    }
+}
 fn bounds(display: &Display) -> Rect {
     Rect {
         x: display.x.into(),
@@ -275,6 +294,8 @@ impl Adapter for PointScan {
                             Some((cursor, displays.len(), current, area))
                         });
                 if let Some((cursor, displays, current, area)) = placed {
+                    let area =
+                        steady_area(WORK_AREA_FOLLOWS_AUTO_HIDE, environment, &current, area);
                     technique.set_mouse_area(
                         area,
                         bounds(&current),
@@ -333,6 +354,8 @@ impl Adapter for PointScan {
                     })
                     .and_then(|display| {
                         let area = crate::scan_host::work_area(bounds(&display)).ok()?;
+                        let area =
+                            steady_area(WORK_AREA_FOLLOWS_AUTO_HIDE, environment, &display, area);
                         Some((display, area))
                     });
                 if let Some((current, area)) = fitted.filter(|(display, area)| {
@@ -431,7 +454,14 @@ fn validate_display(app: &AppHandle, display: Option<&Environment>) -> Result<()
         if !displays.contains(&expected.display) {
             return Err("Display geometry changed. Scanning restarts.".into());
         }
-        if crate::scan_host::work_area(bounds(&expected.display))? != expected.keyboard_area {
+        let area = crate::scan_host::work_area(bounds(&expected.display))?;
+        if steady_area(
+            WORK_AREA_FOLLOWS_AUTO_HIDE,
+            expected,
+            &expected.display,
+            area,
+        ) != expected.keyboard_area
+        {
             return Err("Display work area changed. Scanning restarts.".into());
         }
     }
@@ -566,6 +596,44 @@ mod tests {
                 );
             }
         }
+    }
+    #[test]
+    fn panels_keep_their_area_while_auto_hidden_bars_show_and_hide() {
+        let one = display("one", 0, 1920);
+        // Opened in a full-screen app, with the menu bar and Dock hidden.
+        let environment = Environment {
+            display: one.clone(),
+            foreground: None,
+            panel: true,
+            following: false,
+            keyboard_area: bounds(&one),
+        };
+        let menu_bar_showing = Rect {
+            y: 24.0,
+            height: 1056.0,
+            ..bounds(&one)
+        };
+        assert_eq!(
+            steady_area(true, &environment, &one, menu_bar_showing),
+            bounds(&one)
+        );
+        // Windows keeps its work area when the taskbar hides, so a change is real.
+        assert_eq!(
+            steady_area(false, &environment, &one, menu_bar_showing),
+            menu_bar_showing
+        );
+        // Another display, or this one at a new size, is fitted straight away.
+        for moved in [display("two", 1920, 1280), display("one", 0, 2560)] {
+            let area = Rect {
+                y: 24.0,
+                height: 1056.0,
+                ..bounds(&moved)
+            };
+            for follows in [true, false] {
+                assert_eq!(steady_area(follows, &environment, &moved, area), area);
+            }
+        }
+        assert_eq!(WORK_AREA_FOLLOWS_AUTO_HIDE, cfg!(target_os = "macos"));
     }
     #[test]
     fn the_keyboard_stays_on_its_display_while_that_exists() {
