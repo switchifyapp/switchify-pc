@@ -68,19 +68,61 @@ impl<T: Clone> ItemScanner<T> {
         Self::new(Self::nodes(rows), policy)
     }
     pub fn configured_rows(rows: &[Vec<T>], policy: Policy, options: Resolved) -> Self {
-        let nodes = if options.pattern == Pattern::Linear {
-            rows.iter().flatten().cloned().map(Node::Leaf).collect()
-        } else {
-            Self::nodes(rows)
-        };
-        let mut scanner = Self::new(nodes, policy);
+        let mut scanner = Self::new(vec![], policy);
         scanner.options = options;
+        scanner.nav = Navigator::new(scanner.configured_nodes(rows));
         scanner.restart();
         scanner
+    }
+    /// Rows as this scanner's pattern scans them.
+    pub fn configured_nodes(&self, rows: &[Vec<T>]) -> Vec<Node<T>> {
+        if self.options.pattern == Pattern::Linear {
+            return rows.iter().flatten().cloned().map(Node::Leaf).collect();
+        }
+        let mut nodes = Self::nodes(rows);
+        if self.splits_rows() {
+            for (index, node) in nodes.iter_mut().enumerate() {
+                let Node::Group { children, .. } = node else {
+                    continue;
+                };
+                let groups = row_groups(children.len());
+                if groups.len() > 1 {
+                    let mut leaves = std::mem::take(children).into_iter();
+                    *children = groups
+                        .into_iter()
+                        .enumerate()
+                        .map(|(group, range)| Node::Group {
+                            id: format!("row-{index}-group-{group}"),
+                            children: leaves.by_ref().take(range.len()).collect(),
+                        })
+                        .collect();
+                }
+            }
+        }
+        nodes
+    }
+    fn splits_rows(&self) -> bool {
+        self.options.pattern == Pattern::Grouped && self.options.row_groups
+    }
+    fn groups(&self, rows: &[Vec<T>], row: usize) -> Option<Vec<std::ops::Range<usize>>> {
+        let groups = row_groups(rows.get(row)?.len());
+        (self.splits_rows() && groups.len() > 1).then_some(groups)
     }
     pub fn row_scan(&self) -> bool {
         self.options.pattern == Pattern::Grouped && self.nav.path().is_empty()
     }
+    /// Choosing among the groups of a long row.
+    pub fn group_scan(&self) -> bool {
+        self.splits_rows()
+            && self.nav.path().len() == 1
+            && !self.nav.escaping()
+            && matches!(self.nav.current(), Some(Node::Group { .. }))
+    }
+    /// Offering to leave a group for the rest of its row.
+    pub fn escaping_to_groups(&self) -> bool {
+        self.nav.escaping() && self.nav.path().len() > 1
+    }
+    /// The highlighted row, and its single highlighted item if there is one.
     pub fn position(&self, rows: &[Vec<T>]) -> (usize, Option<usize>) {
         if self.options.pattern == Pattern::Linear {
             let mut index = self.nav.index();
@@ -92,15 +134,37 @@ impl<T: Clone> ItemScanner<T> {
             }
             (0, None)
         } else {
-            (
-                self.nav.path().first().copied().unwrap_or(self.nav.index()),
-                if self.nav.path().is_empty() || self.nav.escaping() {
-                    None
-                } else {
-                    Some(self.nav.index())
-                },
-            )
+            let (row, columns) = self.highlight(rows);
+            (row, columns.filter(|c| c.len() == 1).map(|c| c.start))
         }
+    }
+    /// The highlighted row, and the highlighted items in it when they are not
+    /// the whole row: one item, or a group of a long row.
+    pub fn highlight(&self, rows: &[Vec<T>]) -> (usize, Option<std::ops::Range<usize>>) {
+        if self.options.pattern == Pattern::Linear {
+            let (row, column) = self.position(rows);
+            return (row, column.map(|c| c..c + 1));
+        }
+        let index = self.nav.index();
+        let path = self.nav.path();
+        let Some(&row) = path.first() else {
+            return (index, None);
+        };
+        let escaping = self.nav.escaping();
+        let columns = match (path.get(1), self.groups(rows, row)) {
+            (None, _) if escaping => None,
+            (None, Some(groups)) => groups.get(index).cloned(),
+            (None, None) => Some(index..index + 1),
+            (Some(&group), Some(groups)) => groups.get(group).map(|group| {
+                if escaping {
+                    group.clone()
+                } else {
+                    group.start + index..group.start + index + 1
+                }
+            }),
+            (Some(_), None) => None,
+        };
+        (row, columns)
     }
     pub fn pending(&self) -> bool {
         self.pending
@@ -243,7 +307,32 @@ impl<T: Clone> ItemScanner<T> {
     }
 }
 
+/// Splits a row the way Switchify for Android's Group Scan does: a row of seven
+/// or more items becomes about √n groups, two to four, of at least two items,
+/// sized as evenly as possible with any larger groups first. Shorter rows stay
+/// whole.
+pub fn row_groups(len: usize) -> Vec<std::ops::Range<usize>> {
+    if len < 7 {
+        return std::iter::once(0..len).collect();
+    }
+    let count = ((len as f64).sqrt().round() as usize).clamp(2, 4.min(len / 2));
+    let (size, larger) = (len / count, len % count);
+    let mut start = 0;
+    (0..count)
+        .map(|group| {
+            let end = start + size + usize::from(group < larger);
+            let range = start..end;
+            start = end;
+            range
+        })
+        .collect()
+}
+
 impl<T: Clone + PartialEq> ItemScanner<T> {
+    /// Replaces the rows, scanned as this scanner's pattern scans them.
+    pub fn replace_rows(&mut self, rows: &[Vec<T>]) -> bool {
+        self.replace(self.configured_nodes(rows))
+    }
     pub fn replace(&mut self, nodes: Vec<Node<T>>) -> bool {
         fn leaves<T>(nodes: Vec<Node<T>>, output: &mut Vec<Node<T>>) {
             for node in nodes {
@@ -696,5 +785,146 @@ mod tests {
                 assert!(!scan.suspended);
             }
         }
+    }
+
+    #[test]
+    fn long_rows_split_into_balanced_groups_as_android_does() {
+        // A short row stays whole.
+        for len in [0, 6] {
+            assert!(row_groups(len).into_iter().eq(std::iter::once(0..len)));
+        }
+        assert_eq!(row_groups(7), vec![0..3, 3..5, 5..7]);
+        assert_eq!(row_groups(10), vec![0..4, 4..7, 7..10]);
+        assert_eq!(row_groups(12), vec![0..4, 4..8, 8..12]);
+        assert_eq!(row_groups(13), vec![0..4, 4..7, 7..10, 10..13]);
+        assert_eq!(row_groups(40).len(), 4);
+        for len in 7..=60 {
+            let groups = row_groups(len);
+            assert!((2..=4).contains(&groups.len()));
+            assert!(groups.iter().all(|group| group.len() >= 2));
+            assert_eq!(groups.first().unwrap().start, 0);
+            assert_eq!(groups.last().unwrap().end, len);
+            assert!(groups.windows(2).all(|pair| pair[0].end == pair[1].start
+                && pair[0].len() >= pair[1].len()
+                && pair[0].len() - pair[1].len() <= 1));
+        }
+    }
+
+    fn row_groups_scan(
+        rows: &[Vec<&'static str>],
+        direction: Direction,
+    ) -> ItemScanner<&'static str> {
+        ItemScanner::configured_rows(
+            rows,
+            Policy::KEYBOARD,
+            Resolved {
+                row_groups: true,
+                direction,
+                ..Default::default()
+            },
+        )
+    }
+
+    #[test]
+    fn row_groups_choose_a_row_then_a_group_then_an_item() {
+        let rows = vec![
+            vec!["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+            vec!["shift", "space"],
+        ];
+        let mut scan = row_groups_scan(&rows, Direction::Forward);
+        assert!(scan.row_scan() && !scan.group_scan());
+        assert_eq!(scan.highlight(&rows), (0, None));
+        assert_eq!(scan.handle(Action::Select), None);
+        assert!(scan.group_scan() && !scan.row_scan());
+        assert_eq!(scan.highlight(&rows), (0, Some(0..4)));
+        assert_eq!(scan.position(&rows), (0, None));
+        scan.handle(Action::Next);
+        assert_eq!(scan.highlight(&rows), (0, Some(4..7)));
+        assert_eq!(scan.handle(Action::Select), None);
+        assert!(!scan.group_scan());
+        assert_eq!(scan.highlight(&rows), (0, Some(4..5)));
+        assert_eq!(scan.position(&rows), (0, Some(4)));
+        scan.handle(Action::Next);
+        assert_eq!(scan.position(&rows), (0, Some(5)));
+        assert_eq!(scan.handle(Action::Select), Some("y"));
+        // The scanner starts again at the rows, as the keyboard always has.
+        scan.continue_after_selection();
+        assert_eq!(scan.highlight(&rows), (0, None));
+        // A short row has no groups.
+        scan.handle(Action::Next);
+        scan.handle(Action::Select);
+        assert!(!scan.group_scan());
+        assert_eq!(scan.highlight(&rows), (1, Some(0..1)));
+        assert_eq!(scan.handle(Action::Select), Some("shift"));
+    }
+
+    #[test]
+    fn leaving_a_group_returns_to_its_row_and_leaving_the_row_returns_to_the_rows() {
+        let rows = vec![vec!["a", "b", "c", "d", "e", "f", "g"], vec!["x"]];
+        let mut scan = row_groups_scan(&rows, Direction::Forward);
+        scan.handle(Action::Select);
+        scan.handle(Action::Next);
+        scan.handle(Action::Select);
+        assert_eq!(scan.highlight(&rows), (0, Some(3..4)));
+        scan.handle(Action::Next);
+        assert_eq!(scan.highlight(&rows), (0, Some(4..5)));
+        scan.handle(Action::Next);
+        assert!(scan.escaping_to_groups());
+        // The whole group is highlighted while offering to leave it.
+        assert_eq!(scan.highlight(&rows), (0, Some(3..5)));
+        assert_eq!(scan.position(&rows), (0, None));
+        assert_eq!(scan.handle(Action::Select), None);
+        assert!(scan.group_scan());
+        assert_eq!(scan.highlight(&rows), (0, Some(3..5)));
+        scan.handle(Action::Next);
+        scan.handle(Action::Next);
+        assert!(scan.nav.escaping() && !scan.escaping_to_groups());
+        assert_eq!(scan.highlight(&rows), (0, None));
+        assert_eq!(scan.handle(Action::Select), None);
+        assert!(scan.row_scan());
+        assert_eq!(scan.highlight(&rows), (0, None));
+        scan.handle(Action::Next);
+        assert_eq!(scan.handle(Action::Select), Some("x"));
+    }
+
+    #[test]
+    fn row_groups_start_at_the_end_in_reverse() {
+        let rows = vec![vec!["a", "b", "c", "d", "e", "f", "g"], vec!["x"]];
+        let mut scan = row_groups_scan(&rows, Direction::Reverse);
+        assert_eq!(scan.highlight(&rows), (1, None));
+        scan.handle(Action::Back);
+        scan.handle(Action::Select);
+        assert_eq!(scan.highlight(&rows), (0, Some(5..7)));
+        scan.handle(Action::Select);
+        assert_eq!(scan.handle(Action::Select), Some("g"));
+    }
+
+    #[test]
+    fn row_groups_need_grouped_scanning_and_survive_replacing_the_rows() {
+        let rows = vec![vec!["a", "b", "c", "d", "e", "f", "g"], vec!["x"]];
+        let mut linear = ItemScanner::configured_rows(
+            &rows,
+            Policy::KEYBOARD,
+            Resolved {
+                pattern: Pattern::Linear,
+                row_groups: true,
+                ..Default::default()
+            },
+        );
+        assert!(!linear.group_scan());
+        assert_eq!(linear.handle(Action::Select), Some("a"));
+        let mut plain = ItemScanner::configured_rows(&rows, Policy::KEYBOARD, Resolved::default());
+        plain.handle(Action::Select);
+        assert_eq!(plain.highlight(&rows), (0, Some(0..1)));
+
+        let mut scan = row_groups_scan(&rows, Direction::Forward);
+        scan.handle(Action::Select);
+        scan.handle(Action::Next);
+        assert!(!scan.replace_rows(&rows));
+        assert_eq!(scan.highlight(&rows), (0, Some(3..5)));
+        let longer = vec![vec!["a", "b", "c", "d", "e", "f", "g", "h"], vec!["x"]];
+        assert!(scan.replace_rows(&longer));
+        assert!(scan.group_scan());
+        assert_eq!(scan.highlight(&longer), (0, Some(3..6)));
     }
 }

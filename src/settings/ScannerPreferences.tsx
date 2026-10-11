@@ -2,7 +2,7 @@ import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { lastModeName, mouseRepeatStopInstruction, selectOpensHome, type ScanningController, type ScannerColor, type PointScanConfig } from '../scanning/useScanning';
-import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, savedKeyboardWait, type PanelSize, type ScanArea, type ScanOptions } from '../scanning/preferences';
+import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, savedKeyboardWait, itemScanning, itemScanningLabels, type ItemScanning, type PanelSize, type ScanArea, type ScanOptions } from '../scanning/preferences';
 import { SettingGroup, Toggle, OptionGroup } from './controls';
 
 export function ScannerPreferences({ controller }: { controller: ScanningController }) {
@@ -53,12 +53,17 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
   const usualOption = area === 'shared' ? [{ value: 'standard' as const, label: 'Usual for each scanner' }] : [];
   const change = <K extends keyof ScanOptions>(key: K, value: ScanOptions[K] | undefined) => {
     if (area !== 'shared') {
-      const overrides = { ...(settings[area] ?? {}), [key]: value };
+      // Row groups belong to the area's item scanning choice.
+      const overrides = { ...(settings[area] ?? {}), [key]: value, ...(key === 'pattern' && value == null ? { rowGroups: undefined } : {}) };
       update('scanPreferences', { ...settings, [area]: overrides });
     } else if (key === 'automatic') update('automatic', value as boolean);
     else if (key === 'intervalMs') update('blockIntervalMs', value as number);
     else if (key === 'color') update('scannerColor', value as ScannerColor);
     else update('scanPreferences', { ...settings, [key]: value });
+  };
+  const chooseItemScanning = (choice: ItemScanning) => {
+    const chosen = { pattern: choice === 'linear' ? 'linear' as const : 'grouped' as const, rowGroups: choice === 'rowGroups' };
+    update('scanPreferences', area === 'shared' ? { ...settings, ...chosen } : { ...settings, [area]: { ...(settings[area] ?? {}), ...chosen } });
   };
   const field = (key: keyof ScanOptions, label: string, children: (locked: boolean) => ReactNode) => {
     const custom = area !== 'shared' && settings[area]?.[key] != null;
@@ -206,8 +211,8 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     {field('direction', 'Initial direction', locked => <OptionGroup<ScanOptions['direction']> legend="Initial direction" disabled={locked} value={effective.direction} options={[{ value: 'forward', label: 'Forward' }, { value: 'reverse', label: 'Reverse' }]} onChange={value => change('direction', value)} />)}
     {field('passLimit', 'Pass limit', locked => <OptionGroup<number> legend="Pass limit" disabled={locked} value={effective.passLimit} options={[1, 2, 3, 5, 0].map(value => ({ value, label: value ? `${value} ${value === 1 ? 'pass' : 'passes'}` : 'Unlimited' }))} onChange={value => change('passLimit', value)}
       note={{ summary: 'After this many automatic passes, scanning waits for Select. Unlimited keeps scanning until you pause or stop.' }} />)}
-    {area !== 'point' && field('pattern', 'Item scanning', locked => <OptionGroup<ScanOptions['pattern']> legend="Item scanning" disabled={locked} value={effective.pattern} options={[{ value: 'grouped', label: 'Groups, then items' }, { value: 'linear', label: 'One item at a time' }]} onChange={value => change('pattern', value)}
-      note={{ summary: 'Grouped scanning chooses a row or group before an item. Linear scanning visits each item directly. Point scanning uses its own line and grid modes.' }} />)}
+    {area !== 'point' && field('pattern', 'Item scanning', locked => <OptionGroup<ItemScanning> legend="Item scanning" columns="three" disabled={locked} value={itemScanning(effective)} options={(['grouped', 'rowGroups', 'linear'] as const).map(value => ({ value, label: itemScanningLabels[value] }))} onChange={chooseItemScanning}
+      note={{ summary: 'Groups, then items chooses a row before an item. Rows, groups, then items also splits a row of seven or more items, such as a keyboard row, into two to four smaller groups. One item at a time visits each item directly. Point scanning uses its own line and grid modes.' }} />)}
 
     <SettingGroup title="Appearance" description="Choose a highlight that is easy to see.">
     {area === 'shared' && <OptionGroup<PanelSize>
@@ -228,11 +233,12 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
       <header><h2 id="scanner-areas-title">Advanced panel settings</h2><p>Menus and Keyboard can use different scan settings from the shared defaults.</p></header>
       <div className="scanner-area-cards">{(['menu', 'keyboard'] as const).map(key => {
         const options = areaOptions(config, key);
-        const count = Object.values(settings[key] ?? {}).filter(value => value != null).length;
+        // Row groups are part of the item scanning setting, not one of their own.
+        const count = Object.entries(settings[key] ?? {}).filter(([name, value]) => value != null && name !== 'rowGroups').length;
         return <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}>
           <strong>{names[key]}<ChevronRight size={22} aria-hidden="true" /></strong>
           <span>{options.automatic ? `Automatic · ${options.intervalMs / 1000}s` : 'Manual'} · {options.direction === 'forward' ? 'Forward' : 'Reverse'}</span>
-          <span>{options.pattern === 'grouped' ? 'Groups, then items' : 'One item at a time'}</span>
+          <span>{itemScanningLabels[itemScanning(options)]}</span>
           <span className="scanner-area-appearance"><i className={`color-swatch ${options.color}`} aria-hidden="true" />{options.color} · {options.thickness}</span>
           <span className="scanner-area-badge">{count ? `${count} custom ${count === 1 ? 'setting' : 'settings'}` : 'Using defaults'}</span>
         </Button>;

@@ -231,10 +231,9 @@ impl MousePanel {
         color: ScannerColor,
         repeating: Option<RepeatPrompt>,
     ) -> Frame {
-        let row_scan = self.scan.row_scan();
         let (active_row, active_column) = self.scan.position(&self.rows);
         let escaping = self.scan.nav.escaping();
-        let highlight_row = row_scan || escaping;
+        let highlight_row = self.scan.row_scan() || self.scan.group_scan() || escaping;
         let status = if let Some(repeating) = repeating {
             let action = match repeating {
                 RepeatPrompt::Moving => "Moving pointer",
@@ -251,9 +250,9 @@ impl MousePanel {
         } else if self.scan.suspended {
             "Mouse paused · Select to resume".to_owned()
         } else if escaping {
-            crate::scan_panel::BACK_TO_ROWS.to_owned()
+            crate::scan_panel::back_status(&self.scan).to_owned()
         } else {
-            crate::scan_panel::scanning_status(
+            crate::scan_panel::item_status(
                 if self.positioning {
                     crate::scan_panel::POSITION_PAGE
                 } else if self.more {
@@ -261,7 +260,7 @@ impl MousePanel {
                 } else {
                     "Movement"
                 },
-                row_scan,
+                &self.scan,
                 &self.label(self.rows[active_row][active_column.unwrap_or(0)]),
             )
         };
@@ -296,7 +295,7 @@ impl MousePanel {
             status,
             note: None,
             dock: self.dock,
-            selected: scanning.then_some((active_row, active_column)),
+            selected: scanning.then(|| self.scan.highlight(&self.rows)),
             row_scan: highlight_row,
             thickness: self.scan.options.thickness,
         }

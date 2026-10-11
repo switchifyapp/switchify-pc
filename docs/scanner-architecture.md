@@ -71,6 +71,14 @@ if any area is manual. Pass limit zero means unlimited; grouped and linear item
 scanning share the same navigator and execution revision. Keyboard skipping of
 unavailable predictions counts automatic wraps but never manual passes.
 
+### Row groups
+
+Item scanning offers three choices: **Groups, then items**, **Rows, groups, then items** and **One item at a time**. The middle choice is saved as `pattern: "grouped"` with `rowGroups: true`, shared or for one area. Versions without row groups ignore `rowGroups` and read the pattern as Groups, then items. An area that has its own `pattern` but no `rowGroups`, as saved before row groups existed, has no row groups. Choosing the area's default clears both. Point scanning ignores row groups.
+
+With row groups on, `ItemScanner::configured_rows` and `replace_rows` split any row of seven or more items into groups, as Switchify for Android's Group Scan does (`RowGroupingPolicy`). A row of n items gets round(√n) groups, at least two and at most four, each with at least two items. Groups are as even as possible, with the larger ones first: 10 keys split 4, 3, 3. Android also moves a cut next to a wide gap between items. Panel keys have no such gaps, so this is left out. Shorter rows are scanned as before.
+
+Scanning goes row, then group, then item. Each group is an identified `scan_tree` group, so its highlight survives replacing the rows. Panels highlight the whole group with the row style and show "Select a group". After a group's last item, **Back to groups** highlights the group and returns to it. After a row's last group, **Back to rows** works as before. Menus never have more than three columns, so they never split.
+
 ### After a selection
 
 Two preferences decide how scanning continues after a selection that does something, such as typing a key, clicking or scrolling. Each has a shared value and an optional value for each area.
