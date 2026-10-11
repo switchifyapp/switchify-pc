@@ -463,6 +463,16 @@ fn prediction_captured_keys(remote: bool, settings: &Settings) -> Vec<String> {
     }
     keys
 }
+/// Remote input never passes through local switch capture, so a capture
+/// failure only restarts remote scanning in place. Escape and the local
+/// emergency hold still end the session.
+fn local_stop_ends_remote(reason: crate::switch_input::StopReason) -> bool {
+    use crate::switch_input::StopReason;
+    !matches!(
+        reason,
+        StopReason::CaptureLost | StopReason::HeartbeatTimeout | StopReason::QueueOverflow
+    )
+}
 fn source_is_current(remote: bool, remote_current: bool, local_current: bool) -> bool {
     if remote {
         remote_current
@@ -934,7 +944,11 @@ fn tick<A: Adapter>(app: &AppHandle) {
         }
         match event {
             Event::Stopped { reason, .. } => {
-                crate::remote_scan::cancel(app);
+                // Read before reset_scanner_for_capture clears the flag.
+                let remote = c.data.lock().unwrap_or_else(|p| p.into_inner()).remote;
+                if !remote || local_stop_ends_remote(reason) {
+                    crate::remote_scan::cancel(app);
+                }
                 reset_scanner_for_capture::<A>(
                     app,
                     switch_runtime::stop_message(reason),
@@ -1703,6 +1717,16 @@ mod ownership_tests {
         };
         assert_eq!(prediction_captured_keys(false, &settings), ["Escape", "F9"]);
         assert_eq!(prediction_captured_keys(true, &settings), ["Escape"]);
+    }
+    #[test]
+    fn only_user_stops_end_remote_scanning() {
+        use crate::switch_input::StopReason;
+        assert!(super::local_stop_ends_remote(StopReason::Escape));
+        assert!(super::local_stop_ends_remote(StopReason::HoldEscape));
+        assert!(super::local_stop_ends_remote(StopReason::Disabled));
+        assert!(!super::local_stop_ends_remote(StopReason::CaptureLost));
+        assert!(!super::local_stop_ends_remote(StopReason::HeartbeatTimeout));
+        assert!(!super::local_stop_ends_remote(StopReason::QueueOverflow));
     }
     #[test]
     fn stopped_remote_input_cannot_fall_back_to_a_matching_local_generation() {
