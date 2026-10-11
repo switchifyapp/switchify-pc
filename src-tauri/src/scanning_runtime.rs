@@ -944,6 +944,7 @@ fn tick<A: Adapter>(app: &AppHandle) {
         }
         match event {
             Event::Stopped { reason, .. } => {
+                // Read before reset_scanner_for_capture clears the flag.
                 let remote = c.data.lock().unwrap_or_else(|p| p.into_inner()).remote;
                 if !remote || local_stop_ends_remote(reason) {
                     crate::remote_scan::cancel(app);
