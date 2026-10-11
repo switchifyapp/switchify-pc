@@ -200,30 +200,25 @@ impl Radar {
         let t = 2.0 * self.units * self.options.thickness.scale();
         let reach = self.reach();
         let dots = ((reach / (DOT_SPACING * self.units)).ceil() as usize).clamp(1, MAX_DOTS);
-        let beam: Vec<Rect> = (1..=dots)
-            .map(|dot| self.square(self.at(reach * dot as f64 / dots as f64), t * 2.0))
-            .collect();
-        let origin = self.square(self.origin, t * 4.0);
-        let mut strips = vec![];
-        let mut fills = vec![];
+        let spacing = reach / dots as f64;
+        let mut strips = vec![self.square(self.origin, t * 4.0)];
         match self.phase {
-            Phase::Angle => {
-                strips.push(origin);
-                strips.extend(beam);
-            }
+            Phase::Angle => strips
+                .extend((1..=dots).map(|dot| self.square(self.at(spacing * dot as f64), t * 2.0))),
             Phase::Distance => {
-                // The chosen direction stays faint while the marker moves.
-                fills.push(origin);
-                fills.extend(beam);
-                strips.extend(crate::scan_menu::outline(
-                    self.square(self.at(self.distance), 20.0 * self.units),
-                    t,
-                ));
+                // The beam grows out from the pointer to its tip, where the pointer goes.
+                strips.extend(
+                    (1..=dots)
+                        .map(|dot| spacing * dot as f64)
+                        // Leave room so no dot sits on the tip.
+                        .take_while(|&along| along < self.distance - spacing / 2.0)
+                        .map(|along| self.square(self.at(along), t * 2.0)),
+                );
+                strips.push(self.square(self.at(self.distance), t * 3.0));
             }
         }
         let width = (480.0 * self.units).min(self.screen.width);
         Frame {
-            fills,
             strips,
             label: Some(FrameLabel {
                 text: match self.phase {
@@ -381,12 +376,32 @@ mod tests {
             frame.label.as_ref().unwrap().text,
             "Radar · Select a direction"
         );
+        let full = frame.strips.len();
         r.handle(Action::Select);
         let frame = r.frame();
-        assert_eq!(frame.strips.len(), 4, "marker outline");
-        assert!(!frame.fills.is_empty());
+        assert_eq!(
+            frame.strips.len(),
+            2,
+            "the beam starts as the origin and its tip"
+        );
+        assert!(frame.fills.is_empty());
         assert_eq!(frame.label.unwrap().text, "Radar · Select a distance");
-        for rect in frame.fills.iter().chain(&frame.strips) {
+
+        // It grows with the distance, and its tip is where the pointer goes.
+        r.distance = r.reach() / 2.0;
+        let half = r.frame();
+        assert!(half.strips.len() > 2 && half.strips.len() < full);
+        let tip = half.strips.last().unwrap();
+        let (x, y) = r.target();
+        assert!((tip.x + tip.width / 2.0 - f64::from(x)).abs() <= 1.0);
+        assert!((tip.y + tip.height / 2.0 - f64::from(y)).abs() <= 1.0);
+        r.distance = r.reach();
+        assert_eq!(
+            r.frame().strips.len(),
+            full,
+            "the full beam ends in its tip"
+        );
+        for rect in &r.frame().strips {
             assert!(rect.x + rect.width / 2.0 >= SCREEN.x - 1e-6);
             assert!(rect.y + rect.height / 2.0 >= SCREEN.y - 1e-6);
         }
