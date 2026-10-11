@@ -36,6 +36,8 @@ pub struct Radar {
     direction: f64,
     /// Full automatic passes of the current phase since it began.
     cycles: usize,
+    /// Time since the last counted pass, so a short beam is not used up at once.
+    pass_ms: u64,
 }
 
 impl Radar {
@@ -61,6 +63,7 @@ impl Radar {
             distance: 0.0,
             direction: 1.0,
             cycles: 0,
+            pass_ms: 0,
         };
         radar.direction = radar.initial_direction();
         radar
@@ -115,6 +118,7 @@ impl Radar {
         match action {
             Action::Select => {
                 self.cycles = 0;
+                self.pass_ms = 0;
                 self.direction = self.initial_direction();
                 match self.phase {
                     Phase::Angle => {
@@ -144,8 +148,10 @@ impl Radar {
         }
         None
     }
-    /// Moves automatically. Only these passes count towards the pass limit.
+    /// Moves automatically. Only these passes count towards the pass limit,
+    /// and a pass lasts at least one scan interval, however short the beam.
     pub fn advance(&mut self, ms: u64) {
+        self.pass_ms = self.pass_ms.saturating_add(ms);
         let seconds = ms as f64 / 1000.0;
         let wrapped = match self.phase {
             Phase::Angle => self.turn(self.direction * self.speed / SWEEP_RADIUS * seconds),
@@ -154,8 +160,9 @@ impl Radar {
                 self.extend(self.direction * amount)
             }
         };
-        if wrapped {
+        if wrapped && self.pass_ms >= self.options.interval_ms {
             self.cycles += 1;
+            self.pass_ms = 0;
         }
     }
     /// Turns the beam and reports whether it passed straight up. Leaving
@@ -324,6 +331,22 @@ mod tests {
         }
         assert_eq!(r.cycles, 1, "400 pixels up at 120 per second wraps once");
         assert!(r.distance < 120.0);
+    }
+
+    #[test]
+    fn a_beam_with_no_room_still_gives_each_pass_a_full_interval() {
+        // On the top edge, straight up reaches nowhere.
+        let mut r = radar((-500.0, 100.0));
+        r.handle(Action::Select);
+        assert_eq!(r.reach(), 0.0);
+        for _ in 0..29 {
+            r.advance(100);
+        }
+        assert_eq!(r.cycles, 2, "one pass per 1000 ms interval");
+        assert!(!r.exhausted());
+        r.advance(100);
+        assert!(r.exhausted());
+        assert_eq!(r.handle(Action::Select), Some((-500, 100)));
     }
 
     #[test]

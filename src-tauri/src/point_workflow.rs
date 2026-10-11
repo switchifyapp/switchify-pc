@@ -447,6 +447,8 @@ impl Workflow {
                 PointerFeedback::Move
             }),
             Stage::Menu if self.mouse_actions_open => Some(PointerFeedback::Move),
+            // A drag stays held while the radar chooses where to drop it.
+            Stage::MouseRadar if self.mouse.dragging => Some(PointerFeedback::Drag),
             _ => None,
         }
     }
@@ -737,6 +739,7 @@ impl Workflow {
         self.keyboard_output(output)
     }
     fn return_to_mouse_panel(&mut self) {
+        self.radar = None;
         self.parent_menu.clear();
         self.mouse_actions_open = false;
         self.stage = Stage::Mouse;
@@ -783,6 +786,7 @@ impl Workflow {
                     self.mouse.dragging = false;
                 }
                 self.mouse_actions_open = false;
+                self.radar = None;
                 self.stage = Stage::KeyboardOpening;
                 self.keyboard = self.new_keyboard();
                 self.pending = None;
@@ -1055,6 +1059,10 @@ impl Technique for Workflow {
             return self.open_point();
         }
         if action == Action::OpenMouse {
+            if self.stage == Stage::MouseRadar {
+                self.end_radar(false);
+                return None;
+            }
             if self.mouse_open() {
                 return None;
             }
@@ -1676,6 +1684,18 @@ mod tests {
         );
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
         assert!(workflow.radar.is_none());
+
+        // A held drag keeps its cue, and Open Mouse goes back without moving.
+        workflow.mouse.dragging = true;
+        workflow.mouse_key(Key::Radar);
+        assert_eq!(
+            workflow.mouse_feedback(),
+            Some(crate::input::PointerFeedback::Drag)
+        );
+        assert_eq!(workflow.handle(Action::OpenMouse), None);
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert!(workflow.radar.is_none());
+        assert!(workflow.mouse.dragging);
     }
 
     #[test]
