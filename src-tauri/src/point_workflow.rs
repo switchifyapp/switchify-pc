@@ -158,6 +158,8 @@ pub struct Workflow {
     scroll_repeat: Option<crate::mouse_repeat::ScanScrollRepeat>,
     /// Chooses a pointer target for the mouse panel, which it hides meanwhile.
     radar: Option<crate::scan_radar::Radar>,
+    /// The radar is drawn in the cursor overlay's colour once it is known.
+    cursor_color: Option<crate::scanning::ScannerColor>,
     mouse_repeat_enabled: bool,
     mouse_move_interval_ms: u32,
     mouse_scroll_interval_ms: u32,
@@ -208,6 +210,7 @@ impl Workflow {
             move_repeat: None,
             scroll_repeat: None,
             radar: None,
+            cursor_color: None,
             mouse_repeat_enabled: true,
             mouse_move_interval_ms: 250,
             mouse_scroll_interval_ms: 250,
@@ -392,6 +395,9 @@ impl Workflow {
             self.pending = None;
             self.mouse.restart();
         }
+    }
+    pub fn set_cursor_color(&mut self, color: crate::scanning::ScannerColor) {
+        self.cursor_color = Some(color);
     }
     pub fn set_key_repeat_settings(
         &mut self,
@@ -1390,7 +1396,10 @@ impl Technique for Workflow {
             }
         }
         let preferences = self.active_preferences();
-        frame.color = preferences.color;
+        frame.color = match (&self.stage, self.cursor_color) {
+            (Stage::MouseRadar, Some(color)) => color,
+            _ => preferences.color,
+        };
         for tile in &mut frame.tiles {
             tile.color = frame.color;
             tile.thickness = preferences.thickness;
@@ -1653,7 +1662,14 @@ mod tests {
         assert_eq!(workflow.mouse_key(Key::Radar), None);
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::MouseRadar));
         assert!(workflow.mouse_open());
+        // Drawn in the mouse panel's colour until the cursor colour is known.
+        assert_eq!(
+            workflow.frame().color,
+            workflow.point.config.mouse_scan.color
+        );
+        workflow.set_cursor_color(crate::scanning::ScannerColor::Yellow);
         let frame = workflow.frame();
+        assert_eq!(frame.color, crate::scanning::ScannerColor::Yellow);
         assert!(frame.tiles.is_empty(), "the panel is hidden");
         assert_eq!(frame.label.unwrap().text, "Radar · Select a direction");
         // A pointer moving the panel out of its way does not move the radar.
