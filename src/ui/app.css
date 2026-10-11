@@ -178,7 +178,7 @@ h1, h2, h3, p { margin: 0; letter-spacing: 0; }
 .brand { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 8px 16px; }
 .brand-mark { display: block; width: 36px; height: 36px; border-radius: 8px; object-fit: contain; }
 .brand strong, .brand small { display: block; }
-.brand strong { color: var(--brand-label); line-height: 1.2; }
+.brand strong { color: var(--text); line-height: 1.2; }
 .brand small { margin-top: 2px; color: var(--muted); line-height: 1.2; }
 .app-shell nav { display: grid; gap: 4px; }
 .btn.nav-button { justify-content: flex-start; width: 100%; border-color: transparent; padding: 12px 16px; color: var(--muted); background: transparent; text-align: left; }
