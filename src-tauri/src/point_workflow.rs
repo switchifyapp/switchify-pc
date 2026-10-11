@@ -1,7 +1,7 @@
 //! Point selection policy, menu navigation and execution requests. No OS input.
 use crate::{
     point_scan::{Engine, PointSettings},
-    scan_menu::{outline, Item, Kind, Menu},
+    scan_menu::{Item, Kind, Menu},
     scanning::{Action, Frame, FrameLabel, Rect, Technique, UpdateContext},
 };
 use serde::Serialize;
@@ -1369,15 +1369,9 @@ impl Technique for Workflow {
         }
         if matches!(self.stage, Stage::Menu | Stage::Destination) && !self.home_open() {
             let s = self.point.units_per_logical_pixel;
-            frame.strips.extend(outline(
-                Rect {
-                    x: self.source.0 as f64 - 5.0 * s,
-                    y: self.source.1 as f64 - 5.0 * s,
-                    width: 10.0 * s,
-                    height: 10.0 * s,
-                },
-                2.0 * s,
-            ));
+            frame
+                .strips
+                .extend(crosshair(self.source, self.point.screen, s));
             if self.stage == Stage::Destination {
                 frame.label = Some(FrameLabel {
                     text: "Choose drag destination".into(),
@@ -1406,6 +1400,43 @@ impl Technique for Workflow {
         }
         frame
     }
+}
+/// Four arms around a chosen point, leaving its centre clear so the exact spot
+/// stays visible. Arms keep their full thickness on screen, as scan lines do, and
+/// are cut short at its edges; one too short to draw is left out.
+fn crosshair(point: Point, screen: Rect, s: f64) -> Vec<Rect> {
+    let (x, y) = (point.0 as f64, point.1 as f64);
+    let (gap, reach, t) = (4.0 * s, 16.0 * s, 2.0 * s);
+    let (right, bottom) = (screen.x + screen.width, screen.y + screen.height);
+    let across_x = (x - t / 2.0).clamp(screen.x, (right - t).max(screen.x));
+    let across_y = (y - t / 2.0).clamp(screen.y, (bottom - t).max(screen.y));
+    let horizontal = |from: f64, to: f64| {
+        let from = from.max(screen.x);
+        Rect {
+            x: from,
+            y: across_y,
+            width: to.min(right) - from,
+            height: t,
+        }
+    };
+    let vertical = |from: f64, to: f64| {
+        let from = from.max(screen.y);
+        Rect {
+            x: across_x,
+            y: from,
+            width: t,
+            height: to.min(bottom) - from,
+        }
+    };
+    [
+        horizontal(x - reach, x - gap),
+        horizontal(x + gap, x + reach),
+        vertical(y - reach, y - gap),
+        vertical(y + gap, y + reach),
+    ]
+    .into_iter()
+    .filter(|arm| arm.valid())
+    .collect()
 }
 
 #[cfg(test)]
@@ -3151,6 +3182,41 @@ mod tests {
             assert_eq!(s.action(Action::Select), None);
         }
         assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Menu));
+    }
+    #[test]
+    fn a_chosen_point_is_marked_by_a_crosshair_that_stays_on_screen() {
+        let mut s = session(false);
+        open(&mut s);
+        s.technique.source = (-500, 400);
+        let rect = |x, y, width, height| Rect {
+            x,
+            y,
+            width,
+            height,
+        };
+        // The menu draws no strips of its own, so these are the whole marker.
+        assert_eq!(
+            s.technique.frame().strips,
+            vec![
+                rect(-516.0, 399.0, 12.0, 2.0),
+                rect(-496.0, 399.0, 12.0, 2.0),
+                rect(-501.0, 384.0, 2.0, 12.0),
+                rect(-501.0, 404.0, 2.0, 12.0),
+            ]
+        );
+        // At the top-left corner only the arms pointing into the screen are
+        // drawn, at full thickness along its edges.
+        s.technique.source = (-1000, 20);
+        assert_eq!(
+            s.technique.frame().strips,
+            vec![
+                rect(-996.0, 20.0, 12.0, 2.0),
+                rect(-1000.0, 24.0, 2.0, 12.0)
+            ]
+        );
+        // Home marks no point.
+        s.technique.selected(Item::Home);
+        assert!(s.technique.frame().strips.is_empty());
     }
     fn choose(s: &mut Session<Workflow>, row: usize, column: usize) -> Option<Request> {
         for _ in 0..row {

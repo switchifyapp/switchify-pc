@@ -256,22 +256,6 @@ impl Menu {
         frame
     }
 }
-pub fn outline(r: Rect, t: f64) -> [Rect; 4] {
-    [
-        Rect { height: t, ..r },
-        Rect {
-            y: r.y + r.height - t,
-            height: t,
-            ..r
-        },
-        Rect { width: t, ..r },
-        Rect {
-            x: r.x + r.width - t,
-            width: t,
-            ..r
-        },
-    ]
-}
 fn place(point: (i32, i32), screen: Rect, width: f64, height: f64, gap: f64) -> Rect {
     let (x, y) = (point.0 as f64, point.1 as f64);
     let candidates = [
