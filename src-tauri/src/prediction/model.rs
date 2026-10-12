@@ -240,7 +240,10 @@ mod tests {
         model.learn("I need hummus. I need hummus.");
         assert_eq!(first(&mut model).as_deref(), Some("help"));
         let mut model = open(true);
-        model.learn("I need hummus. I need hummus.");
+        // A word the baseline lacks counts once learned twice.
+        model.learn("I need hummus.");
+        assert_eq!(first(&mut model).as_deref(), Some("help"));
+        model.learn("I need hummus.");
         assert_eq!(first(&mut model).as_deref(), Some("hummus"));
         // Learning persists for the next worker.
         assert_eq!(first(&mut open(true)).as_deref(), Some("hummus"));
