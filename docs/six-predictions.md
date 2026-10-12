@@ -15,8 +15,10 @@ instant slots available, with explicit retry or keyboard reopening required.
 
 ## Release assets
 
-The build downloads checksum-pinned v0.2.1 companion release archives from
-GitHub. Worker provenance is pinned to the release commit. The Rust libraries are pinned to a later commit that adds personal learning; see word prediction.
+The build downloads checksum-pinned v0.2.2 companion release archives from
+GitHub. Both libraries and worker provenance are pinned to the release commit.
+Only the workers and notices are extracted; the companion CLI in each archive is
+not pinned and never unpacked.
 Verified local caches work offline, and installed applications need no network
 access or model setup. Model, tokenizer and statistical database bytes remain
 unchanged.
