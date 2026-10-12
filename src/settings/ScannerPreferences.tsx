@@ -185,7 +185,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
     </SettingGroup>}
     {area === 'keyboard' && <SettingGroup title="Suggestions" description="Show word suggestions while typing with the scanning keyboard.">
       <Toggle label="Word prediction" checked={config.wordPrediction} disabled={disabled} onChange={value => update('wordPrediction', value)} />
-      <p className="setting-note">Uses an offline English word database. Suggestions appear as you type and after a space. The keyboard shows when suggestions are loading, unavailable, or have no match. If prediction fails, choose Retry predictions on the keyboard; typing still works. Your typing never leaves this computer.</p>
+      <p className="setting-note">Uses an offline English word database and an on-device language model. Suggestions appear as you type and after a space. The keyboard shows when suggestions are loading, unavailable, or have no match. If prediction fails, choose Retry predictions on the keyboard; typing still works. Your typing never leaves this computer.</p>
       {appSettings && onSettingsChange && <LearnedWords settings={appSettings} onSettingsChange={onSettingsChange} disabled={!config.wordPrediction} />}
     </SettingGroup>}
     <SettingGroup title="Movement" description="">
