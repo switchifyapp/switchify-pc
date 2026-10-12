@@ -7,7 +7,7 @@ scan direction. The entire displayed row stays stable until scanning leaves it.
 The worker retains exact displayed/latest batch tokens and validates acceptance
 against the edit revision, generation, activity epoch and foreground target.
 Capitalization, prefix replacement and trailing spaces use the existing path.
-No focused-field capture, personal learning or new settings are introduced.
+No focused-field capture or new settings are introduced. Learning from typing, described in word prediction, changes only slots 1–3.
 
 The companion uses protocol 2. Model and tokenizer bytes are unchanged. Startup
 remains bounded to 30 seconds and each reply to two seconds. Failure leaves the

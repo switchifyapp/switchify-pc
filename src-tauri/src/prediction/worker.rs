@@ -25,6 +25,17 @@ pub enum Edit {
     Append(String),
     Backspace,
     Reset,
+    /// Like `Reset`, after text that is finished, such as before Enter or
+    /// Tab: its last word is complete.
+    End,
+}
+
+fn sentence_end(c: char) -> bool {
+    matches!(c, '.' | '!' | '?' | '\n' | '\r')
+}
+/// Letters, digits and apostrophes continue a word; anything else ends it.
+fn word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '\'' || c == '\u{2019}'
 }
 
 // Each edit is scoped before injection begins. Queued edits from before an
@@ -117,6 +128,9 @@ pub struct Engine {
     activity: u64,
     tracked: bool,
     buffer: String,
+    /// Bytes at the start of `buffer` already learned. Learning sees each
+    /// piece of typed text once.
+    learned: usize,
     clipped: bool,
     revision: u64,
     snapshot: Option<String>,
@@ -140,6 +154,7 @@ impl Engine {
             target: None,
             activity: 0,
             buffer: String::new(),
+            learned: 0,
             clipped: false,
             revision: 0,
             snapshot: None,
@@ -151,7 +166,48 @@ impl Engine {
             generation: 0,
         }
     }
+    /// Learn `buffer[learned..end]`.
+    fn learn_to(&mut self, end: usize) {
+        if end > self.learned {
+            let text = &self.buffer[self.learned..end];
+            if text.chars().any(char::is_alphanumeric) {
+                self.database.learn(text);
+            }
+            self.learned = end;
+        }
+    }
+    /// Learn the sentences that ended before the latest word began. Waiting
+    /// for the next word leaves a correction just after the punctuation
+    /// unlearned.
+    fn learn_sentences(&mut self) {
+        let rest = &self.buffer[self.learned..];
+        let Some(word) = rest.rfind(char::is_alphanumeric) else {
+            return;
+        };
+        if let Some(end) = rest[..word].rfind(sentence_end) {
+            self.learn_to(self.learned + end + 1);
+        }
+    }
+    /// Learn what is typed before the context is lost. Unless the text is
+    /// finished, a word still in progress may be incomplete and is left out.
+    fn learn_words(&mut self, finished: bool) {
+        let end = if finished {
+            self.buffer.len()
+        } else {
+            match self.buffer[self.learned..]
+                .char_indices()
+                .rev()
+                .find(|(_, c)| !word_char(*c))
+            {
+                Some((i, c)) => self.learned + i + c.len_utf8(),
+                None => return,
+            }
+        };
+        self.learn_to(end);
+    }
     fn clear(&mut self) {
+        self.learn_words(false);
+        self.learned = 0;
         self.database.reset();
         self.displayed = None;
         self.buffer.clear();
@@ -166,21 +222,41 @@ impl Engine {
     fn apply_edit(&mut self, edit: Edit) {
         match edit {
             Edit::Reset => self.clear(),
+            Edit::End => {
+                self.learn_words(true);
+                self.clear();
+            }
             Edit::Append(text) => {
                 if text.chars().count() > 512 {
                     self.clear();
                     return;
                 }
                 self.buffer.push_str(&text);
+                if self.buffer.chars().count() > 512 {
+                    // Clipping drops the oldest text; learn its words first.
+                    self.learn_words(false);
+                }
                 while self.buffer.chars().count() > 512 {
                     let n = self.buffer.graphemes(true).next().unwrap().len();
                     self.buffer.drain(..n);
+                    self.learned = self.learned.saturating_sub(n);
                     self.clipped = true;
                 }
+                self.learn_sentences();
             }
             Edit::Backspace => {
                 if let Some((start, _)) = self.buffer.grapheme_indices(true).next_back() {
                     self.buffer.truncate(start);
+                    if self.learned > start {
+                        // A learned word is being corrected: learn it again
+                        // whole rather than its corrected ending alone.
+                        self.learned = self
+                            .buffer
+                            .char_indices()
+                            .rev()
+                            .find(|(_, c)| !word_char(*c))
+                            .map_or(0, |(i, c)| i + c.len_utf8());
+                    }
                 } else {
                     self.clear();
                 }
@@ -495,10 +571,12 @@ pub fn run_from_args() -> bool {
         return false;
     }
     let work = || -> Result<(), ()> {
-        if args.len() != 4 {
+        if args.len() != 5 {
             return Err(());
         }
         let path = PathBuf::from(&args[2]);
+        // Empty when learning is off.
+        let personal = Some(PathBuf::from(&args[4])).filter(|p| !p.as_os_str().is_empty());
         let ignored: Vec<u32> = serde_json::from_str(&args[3].to_string_lossy()).map_err(|_| ())?;
         if ignored.len() > 129 {
             return Err(());
@@ -522,7 +600,7 @@ pub fn run_from_args() -> bool {
         activity::set_ignored(ignored);
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
-            let database = Database::open(&path);
+            let database = Database::open(&path, personal.as_deref());
             let mut engine = Engine::new(database, false);
             serve(
                 &mut engine,
@@ -640,7 +718,7 @@ mod tests {
         // reporting every failed attempt, including failures during warmup.
         for session in 0..5 {
             let mut e = engine();
-            e.database = Database::open(&path);
+            e.database = Database::open(&path, None);
             let cold = Instant::now();
             while e.database.status() == Status::Loading {
                 assert!(cold.elapsed() < Duration::from_secs(30));
@@ -1337,5 +1415,103 @@ mod tests {
             sentence_start: false,
         };
         assert!(send(&mut Vec::new(), &request).is_err());
+    }
+
+    struct Learner(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+    impl super::super::model::Predict for Learner {
+        fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
+            Ok(Default::default())
+        }
+        fn learn(&mut self, text: &str) {
+            self.0.lock().unwrap().push(text.to_owned());
+        }
+    }
+    /// An engine whose model records what it is asked to learn.
+    fn learner() -> (Engine, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        let learned = std::sync::Arc::default();
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(Learner(std::sync::Arc::clone(&learned))));
+        (e, learned)
+    }
+    /// Types each character, then the edits, one query at a time.
+    fn typing(e: &mut Engine, revision: &mut u64, text: &str, then: &[Edit]) {
+        let edits = text
+            .chars()
+            .map(|c| Edit::Append(c.to_string()))
+            .chain(then.iter().cloned());
+        for edit in edits {
+            *revision += 1;
+            e.query(
+                vec![super::tests::edit(edit)],
+                *revision,
+                Shift::Off,
+                false,
+                false,
+            );
+        }
+    }
+    fn learned(log: &std::sync::Arc<std::sync::Mutex<Vec<String>>>) -> Vec<String> {
+        std::mem::take(&mut *log.lock().unwrap())
+    }
+
+    #[test]
+    fn a_sentence_is_learned_once_when_the_next_one_begins() {
+        let (mut e, log) = learner();
+        let mut revision = 0;
+        typing(&mut e, &mut revision, "I need hummus. ", &[]);
+        assert!(learned(&log).is_empty(), "a correction is still possible");
+        typing(&mut e, &mut revision, "See you", &[]);
+        assert_eq!(learned(&log), ["I need hummus."]);
+        typing(&mut e, &mut revision, " soon", &[Edit::End]);
+        assert_eq!(
+            learned(&log),
+            [" See you soon"],
+            "Enter finishes the last word"
+        );
+        typing(&mut e, &mut revision, "ok", &[Edit::End]);
+        assert_eq!(learned(&log), ["ok"]);
+    }
+
+    #[test]
+    fn a_correction_after_the_punctuation_is_learned_corrected() {
+        let (mut e, log) = learner();
+        let mut revision = 0;
+        typing(
+            &mut e,
+            &mut revision,
+            "Helo.",
+            &[Edit::Backspace, Edit::Backspace],
+        );
+        typing(&mut e, &mut revision, "lo. Ok", &[]);
+        assert_eq!(learned(&log), ["Hello."]);
+        // Deleting into learned text learns the corrected word whole.
+        typing(&mut e, &mut revision, "", &vec![Edit::Backspace; 5]);
+        assert_eq!(e.buffer, "Hell");
+        typing(&mut e, &mut revision, "o! Bye", &[]);
+        assert_eq!(learned(&log), ["Hello!"]);
+    }
+
+    #[test]
+    fn lost_context_learns_completed_words_but_not_the_one_in_progress() {
+        let (mut e, log) = learner();
+        let mut revision = 0;
+        typing(&mut e, &mut revision, "call Siob", &[Edit::Reset]);
+        assert_eq!(learned(&log), ["call "]);
+        typing(&mut e, &mut revision, "...", &[Edit::Reset]);
+        assert!(learned(&log).is_empty(), "no words, nothing to learn");
+    }
+
+    #[test]
+    fn text_clipped_from_the_buffer_is_learned_in_whole_words() {
+        let (mut e, log) = learner();
+        let mut revision = 0;
+        for _ in 0..110 {
+            typing(&mut e, &mut revision, "abcd ", &[]);
+        }
+        typing(&mut e, &mut revision, "", &[Edit::End]);
+        let learned = learned(&log).concat();
+        let words: Vec<_> = learned.split_whitespace().collect();
+        assert_eq!(words.len(), 110);
+        assert!(words.iter().all(|w| *w == "abcd"));
     }
 }

@@ -23,13 +23,29 @@ A passive observer records only an activity counter and timestamp, never externa
 
 ## On-device model
 
-One Word prediction setting controls the English `en-aac-oanc-v1` SQLite database through the pinned `switchify-prediction` Rust library. The saved `enhancedWordPrediction` field remains compatible but does not choose an engine. Only the isolated worker opens the read-only baseline; there is no personal database, saved learning, import, or runtime download.
+One Word prediction setting controls the English `en-aac-oanc-v1` SQLite database through the pinned `switchify-prediction` Rust library. The saved `enhancedWordPrediction` field remains compatible but does not choose an engine. Only the isolated worker opens the read-only baseline and the personal file described in [Learning from typing](#learning-from-typing); there is no import or runtime download.
 
 The worker ranks up to five words using interpolated trigram/bigram/unigram probabilities (0.6/0.3/0.1, renormalized when context is unavailable). Suggestions begin with the first typed character and continue after a space as next-word suggestions. An untouched keyboard remains empty. The prefix and preceding text are supplied separately, and sentence punctuation resets language context. There are no generated phrases. Unknown prefixes yield no suggestions. The vocabulary can contain names, disfluencies and inappropriate words; it is English-only and is not a clinical recommendation system.
 
 Loading is asynchronous and typing remains available. The existing badge distinguishes loading, waiting for typed context, held suggestions, no match, available suggestions, paused activity tracking, and failure. **Retry predictions** replaces the worker without closing the keyboard. A clipped buffer without a complete earlier word yields no suggestions. Repeated calls exceeding 1.5 seconds mark prediction unavailable; a missed two-second reply deadline triggers the existing worker replacement policy. Errors never expose buffered text.
 
 The loader checks the pinned database SHA-256 before opening it. Missing, corrupt or incompatible resources fail closed. `npm run prediction-model` obtains the versioned upstream release, verifies its archive and individual file hashes, and installs only allowlisted resources after verification. Verified local files work without network access. Bundles carry the source manifests, attribution and separate corpus notices; see [model provenance](../src-tauri/resources/PROVENANCE.md).
+
+## Learning from typing
+
+**Learn from my typing**, under Suggestions in the keyboard's scanning settings, is on by default. It belongs to this computer: it is saved with this computer's app settings, is not part of synced settings, and changing it does not change the synced settings schema. Words and phrases learned this way are suggested sooner in slots 1–3. The AI slots do not learn, but they exclude the instant words, so they offer different words as learned ones fill the first three.
+
+Learning uses only the prediction buffer, which is successful Switchify keyboard input, never existing, pasted or hardware-keyboard text. The worker gives each piece of text to the library once:
+
+- A sentence is learned once the next sentence begins, so a correction typed just after its punctuation is learned corrected. Backspacing into learned text learns the corrected word again whole.
+- Enter or Tab finishes the text, and everything typed so far is learned.
+- When context is lost any other way, the completed words are learned but a word still in progress is not, because it may be unfinished.
+- Text about to be clipped from the 512-character buffer has its completed words learned first.
+- An unfinished sentence is not learned when the keyboard closes, since closing kills the worker that held it.
+
+The personal file is `prediction/personal.sqlite` in this computer's app data. It holds counts of words and of the one or two words before them, weighted five times the built-in counts. It is not a copy of the text, but it is unencrypted and can reveal what was typed, including names or passwords. Nothing learned is logged or synced. Each sentence costs about 10 ms in the worker, because the library adds only its counts. A personal file that cannot be opened leaves prediction working without learning.
+
+Turning learning on or off replaces the worker at the next keyboard update, so a worker never learns against the setting. **Forget learned words** asks for confirmation, then replaces any worker that holds the file and deletes the file and its SQLite journals. If a worker still holds it, the deletion completes as soon as that worker is gone, and no worker reopens the file before then.
 
 ## Casing
 

@@ -25,6 +25,7 @@ fn main() {
         "modifier_overlay_ready",
         "modifier_overlay_present",
         "forget_device",
+        "forget_learned_words",
         "save_settings",
         "set_telemetry_consent",
         "mark_setup_shown",
