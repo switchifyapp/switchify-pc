@@ -686,7 +686,9 @@ it("learns from typing by default, keeps the choice local and forgets only after
   fireEvent.click(screen.getByRole("button", { name: "Keep them" }));
   expect(mocks.invoke).not.toHaveBeenCalledWith("forget_learned_words");
   fireEvent.click(screen.getByRole("button", { name: "Forget learned words…" }));
+  mocks.invoke.mockImplementation(async (command, args) =>
+    command === "forget_learned_words" ? false : command === "get_point_scan" ? initial : { ...initial, ...args });
   fireEvent.click(screen.getByRole("button", { name: "Forget learned words" }));
   expect(mocks.invoke).toHaveBeenCalledWith("forget_learned_words");
-  expect(await screen.findByText("Learned words forgotten.")).toBeInTheDocument();
+  expect(await screen.findByText(/will be forgotten as soon as the keyboard stops using them/)).toBeInTheDocument();
 });

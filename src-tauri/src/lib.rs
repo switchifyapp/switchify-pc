@@ -616,9 +616,10 @@ fn apply_app_settings(app: &AppHandle, settings: AppSettings) -> Result<(), Stri
     Ok(())
 }
 
-/// Deletes the words prediction learned on this computer.
+/// Deletes the words prediction learned on this computer. Returns whether
+/// they are gone already, rather than once prediction stops using them.
 #[tauri::command]
-fn forget_learned_words(app: AppHandle) -> Result<(), String> {
+fn forget_learned_words(app: AppHandle) -> Result<bool, String> {
     prediction::forget_learned(&app)
 }
 

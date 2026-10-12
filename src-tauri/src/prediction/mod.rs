@@ -11,7 +11,7 @@ use std::{
     cell::RefCell,
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
-    sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
+    sync::atomic::{AtomicU64, AtomicU8, Ordering},
     sync::mpsc,
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -190,9 +190,14 @@ fn adopt(
 /// Bumped when learning is switched on or off or learned words are
 /// forgotten. Workers started before then are replaced.
 static LEARNING: AtomicU64 = AtomicU64::new(0);
-/// Learned words wait to be deleted until no worker has the file open.
-static FORGET: AtomicBool = AtomicBool::new(false);
-static FORGET_PATH: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+thread_local! {
+    /// Learned words waiting to be deleted once no worker holds them. Like
+    /// the workers it waits for, it belongs to the main thread.
+    static FORGETTING: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+}
+fn forgetting() -> bool {
+    FORGETTING.with(|f| f.borrow().is_some())
+}
 
 fn personal_file(app: &AppHandle) -> Option<PathBuf> {
     Some(
@@ -201,6 +206,13 @@ fn personal_file(app: &AppHandle) -> Option<PathBuf> {
             .ok()?
             .join("prediction/personal.sqlite"),
     )
+}
+/// Present while a request to forget is unfinished, so a restart finishes it
+/// before any worker opens the file.
+fn forget_marker(path: &Path) -> PathBuf {
+    let mut marker = path.as_os_str().to_owned();
+    marker.push(".forget");
+    PathBuf::from(marker)
 }
 /// Removes the personal file and its SQLite journals. Missing files are
 /// already gone.
@@ -219,29 +231,36 @@ fn delete_personal(path: &Path) -> bool {
 pub fn learning_changed() {
     LEARNING.fetch_add(1, Ordering::SeqCst);
 }
-/// Forget everything learned. A worker holding the file is replaced first,
-/// so it cannot write again; the file is deleted now if nothing holds it,
-/// otherwise as soon as its worker is gone.
-pub fn forget_learned(app: &AppHandle) -> Result<(), String> {
+/// Forget everything learned. The request is recorded on disk first. A spare
+/// worker is killed now; a keyboard's worker is replaced at its next update,
+/// so neither writes again. Returns whether the words are already deleted;
+/// otherwise they are as soon as no worker holds them, which a restart also
+/// finishes before any worker opens the file.
+pub fn forget_learned(app: &AppHandle) -> Result<bool, String> {
     let path = personal_file(app).ok_or("The learned words could not be found.")?;
-    *FORGET_PATH.lock().unwrap_or_else(|e| e.into_inner()) = Some(path.clone());
-    FORGET.store(true, Ordering::SeqCst);
+    let unrecorded = "The request to forget learned words could not be saved.";
+    std::fs::create_dir_all(path.parent().ok_or(unrecorded)?).map_err(|_| unrecorded)?;
+    std::fs::write(forget_marker(&path), b"").map_err(|_| unrecorded)?;
+    pend_forgetting(path);
     learning_changed();
-    // If a worker holds the file, it is removed once that worker is gone.
-    delete_personal(&path);
-    Ok(())
+    // Commands and prediction updates share the main thread, and its spare.
+    SPARE.with(|s| *s.borrow_mut() = None);
+    Ok(finish_forgetting())
 }
-/// Deletes forgotten learned words. Called when no worker holds them.
-fn finish_forgetting() {
-    let path = FORGET_PATH
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
-    if let Some(path) = path {
-        if FORGET.load(Ordering::SeqCst) && delete_personal(&path) {
-            FORGET.store(false, Ordering::SeqCst);
-        }
+fn pend_forgetting(path: PathBuf) {
+    FORGETTING.with(|f| *f.borrow_mut() = Some(path));
+}
+/// Deletes forgotten learned words, and then the record of the request.
+/// Called whenever no worker may hold them. Returns whether none are pending.
+fn finish_forgetting() -> bool {
+    let Some(path) = FORGETTING.with(|f| f.borrow().clone()) else {
+        return true;
+    };
+    let done = delete_personal(&path) && delete_personal(&forget_marker(&path));
+    if done {
+        FORGETTING.with(|f| *f.borrow_mut() = None);
     }
+    done
 }
 fn expire(spare: &mut Option<Spare>, now: Instant) {
     if spare
@@ -635,6 +654,11 @@ fn close_with(start: impl FnOnce(&Path, Option<&Path>, Vec<u32>) -> Result<Clien
     } = service;
     let worked = client.is_some();
     drop(client);
+    // A spare never reopens words being forgotten, or learns against a
+    // changed setting.
+    let current = LEARNING.load(Ordering::SeqCst);
+    let personal = personal.filter(|_| learning == current && !forgetting());
+    let learning = current;
     SPARE.with(|s| {
         let mut spare = s.borrow_mut();
         if let (true, Some(model)) = (worked, model) {
@@ -650,6 +674,19 @@ fn close_with(start: impl FnOnce(&Path, Option<&Path>, Vec<u32>) -> Result<Clien
         }
         expire(&mut spare, Instant::now());
     });
+    finish_forgetting();
+}
+/// Replaces a worker started before learning changed. A suggestion being
+/// accepted fails, as when a worker misses its deadline, so the keyboard
+/// does not wait on the old worker.
+fn replace_stale(keyboard: &mut Keyboard) {
+    SERVICE.with(|s| {
+        let s = s.borrow();
+        if s.accepting || s.accept.is_some() {
+            keyboard.failed();
+        }
+    });
+    retry();
 }
 /// Restart only prediction. The keyboard and its scan session remain open,
 /// while the old worker and its private text context are discarded.
@@ -758,7 +795,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
         s.client.is_some() && s.learning != learning
     });
     if stale {
-        retry();
+        replace_stale(keyboard);
     }
     SPARE.with(|s| {
         let mut spare = s.borrow_mut();
@@ -798,10 +835,14 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
             ignored.dedup();
             let model = resource(app).ok();
             let file = personal_file(app);
+            // A request to forget left unfinished, even before a restart.
+            if let Some(file) = file.as_ref().filter(|f| forget_marker(f).exists()) {
+                pend_forgetting(file.clone());
+            }
             // No worker runs here: the spare is adopted or replaced below.
             SPARE.with(|spare| {
                 let mut spare = spare.borrow_mut();
-                if FORGET.load(Ordering::SeqCst) {
+                if forgetting() {
                     *spare = None;
                 }
             });
@@ -812,12 +853,10 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 .settings
                 .learn_word_prediction;
             // Learned words still waiting to be deleted are not reopened.
-            let personal = file
-                .filter(|_| learn && !FORGET.load(Ordering::SeqCst))
-                .filter(|file| {
-                    file.parent()
-                        .is_some_and(|dir| std::fs::create_dir_all(dir).is_ok())
-                });
+            let personal = file.filter(|_| learn && !forgetting()).filter(|file| {
+                file.parent()
+                    .is_some_and(|dir| std::fs::create_dir_all(dir).is_ok())
+            });
             s.client = SPARE
                 .with(|spare| {
                     adopt(
@@ -1626,27 +1665,72 @@ mod tests {
     }
 
     #[test]
+    fn replacing_a_stale_worker_fails_a_suggestion_being_accepted() {
+        for accepting in [false, true] {
+            stop();
+            SERVICE.with(|slot| {
+                *slot.borrow_mut() = Service {
+                    client: Some(sleeper()),
+                    accept: accepting.then_some((1, 0)),
+                    ..Default::default()
+                };
+            });
+            let mut keyboard = Keyboard::new(false);
+            replace_stale(&mut keyboard);
+            assert_eq!(keyboard.error, accepting);
+            SERVICE.with(|slot| {
+                let s = slot.borrow();
+                assert!(s.client.is_none() && s.accept.is_none() && !s.accepting);
+            });
+        }
+        stop();
+    }
+    #[test]
+    fn a_spare_started_while_forgetting_does_not_open_the_personal_file() {
+        stop();
+        let dir = std::env::temp_dir().join(format!("switchify-spare-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("personal.sqlite");
+        std::fs::write(forget_marker(&path), b"").unwrap();
+        pend_forgetting(path.clone());
+        SERVICE.with(|slot| {
+            *slot.borrow_mut() = Service {
+                client: Some(sleeper()),
+                model: Some(PathBuf::from("model")),
+                personal: Some(path.clone()),
+                learning: LEARNING.load(Ordering::SeqCst),
+                ..Default::default()
+            };
+        });
+        close_with(|_, personal, _| {
+            assert_eq!(personal, None);
+            Ok(sleeper())
+        });
+        // With the worker gone, the forgetting finished, marker included.
+        assert!(!forgetting());
+        assert!(!forget_marker(&path).exists());
+        stop();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
     fn forgetting_deletes_the_personal_file_and_journals_once_nothing_holds_them() {
         let dir = std::env::temp_dir().join(format!("switchify-forget-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("personal.sqlite");
-        let files = ["", "-journal", "-wal"].map(|suffix| {
+        let files = ["", "-journal", "-wal", ".forget"].map(|suffix| {
             let file = PathBuf::from(format!("{}{suffix}", path.display()));
             std::fs::write(&file, "counts").unwrap();
             file
         });
         // Nothing is deleted unless forgetting was asked for.
-        *FORGET_PATH.lock().unwrap() = Some(path.clone());
-        FORGET.store(false, Ordering::SeqCst);
-        finish_forgetting();
+        assert!(finish_forgetting());
         assert!(files.iter().all(|f| f.exists()));
-        FORGET.store(true, Ordering::SeqCst);
+        pend_forgetting(path.clone());
         stop();
         assert!(files.iter().all(|f| !f.exists()));
-        assert!(!FORGET.load(Ordering::SeqCst));
+        assert!(!forgetting());
         // Already gone is done.
         assert!(delete_personal(&path));
         std::fs::remove_dir_all(&dir).unwrap();
-        *FORGET_PATH.lock().unwrap() = None;
     }
 }

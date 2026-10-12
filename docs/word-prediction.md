@@ -37,15 +37,15 @@ The loader checks the pinned database SHA-256 before opening it. Missing, corrup
 
 Learning uses only the prediction buffer, which is successful Switchify keyboard input, never existing, pasted or hardware-keyboard text. The worker gives each piece of text to the library once:
 
-- A sentence is learned once the next sentence begins, so a correction typed just after its punctuation is learned corrected. Backspacing into learned text learns the corrected word again whole.
+- A sentence is learned once the next sentence begins, so a correction typed just after its punctuation is learned corrected. Backspacing into learned text learns again from the start of the corrected word, so that word and the text after it count twice.
 - Enter or Tab finishes the text, and everything typed so far is learned.
 - When context is lost any other way, the completed words are learned but a word still in progress is not, because it may be unfinished.
-- Text about to be clipped from the 512-character buffer has its completed words learned first.
+- A stretch longer than the 512-character buffer is learned in long pieces before it is clipped. The latest 256 characters are held back so they can still be corrected.
 - An unfinished sentence is not learned when the keyboard closes, since closing kills the worker that held it.
 
 The personal file is `prediction/personal.sqlite` in this computer's app data. It holds counts of words and of the one or two words before them, weighted five times the built-in counts. It is not a copy of the text, but it is unencrypted and can reveal what was typed, including names or passwords. Nothing learned is logged or synced. Each sentence costs about 10 ms in the worker, because the library adds only its counts. A personal file that cannot be opened leaves prediction working without learning.
 
-Turning learning on or off replaces the worker at the next keyboard update, so a worker never learns against the setting. **Forget learned words** asks for confirmation, then replaces any worker that holds the file and deletes the file and its SQLite journals. If a worker still holds it, the deletion completes as soon as that worker is gone, and no worker reopens the file before then.
+Turning learning on or off replaces the worker at the next keyboard update, so a worker never learns against the setting. A suggestion being accepted at that moment fails, as it does when a worker misses its deadline. **Forget learned words** asks for confirmation, then records the request on disk, kills any spare worker and replaces the keyboard's worker in the same way. The file and its SQLite journals are deleted as soon as no worker holds them. Until then no worker opens the file, and after a restart the deletion finishes before any worker starts. The settings page says whether the words are already gone.
 
 ## Casing
 

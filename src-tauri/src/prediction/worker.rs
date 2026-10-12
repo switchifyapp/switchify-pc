@@ -34,9 +34,22 @@ fn sentence_end(c: char) -> bool {
     matches!(c, '.' | '!' | '?' | '\n' | '\r')
 }
 /// Letters, digits and apostrophes continue a word; anything else ends it.
-fn word_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '\'' || c == '\u{2019}'
+/// Whole graphemes are tested, so a combining accent stays with its letter.
+fn word_grapheme(g: &str) -> bool {
+    g.chars()
+        .next()
+        .is_some_and(|c| c.is_alphanumeric() || c == '\'' || c == '\u{2019}')
 }
+/// The end of the last grapheme in `text` that ends a word, if any.
+fn last_boundary(text: &str) -> Option<usize> {
+    text.grapheme_indices(true)
+        .rev()
+        .find(|(_, g)| !word_grapheme(g))
+        .map(|(i, g)| i + g.len())
+}
+/// Unlearned text is kept back this many characters from the end of a full
+/// buffer, so the latest words can still be corrected before they are learned.
+const RECENT: usize = 256;
 
 // Each edit is scoped before injection begins. Queued edits from before an
 // external activity or window change cannot become context for the new target.
@@ -194,16 +207,31 @@ impl Engine {
         let end = if finished {
             self.buffer.len()
         } else {
-            match self.buffer[self.learned..]
-                .char_indices()
-                .rev()
-                .find(|(_, c)| !word_char(*c))
-            {
-                Some((i, c)) => self.learned + i + c.len_utf8(),
+            match last_boundary(&self.buffer[self.learned..]) {
+                Some(end) => self.learned + end,
                 None => return,
             }
         };
         self.learn_to(end);
+    }
+    /// Before clipping drops text that is not learned yet, learn through the
+    /// last word boundary at least `RECENT` characters from the end. A long
+    /// stretch without punctuation is learned in long pieces that keep their
+    /// phrases, and the latest words can still be corrected.
+    fn learn_before_clipping(&mut self) {
+        let total = self.buffer.chars().count();
+        let dropped = total.saturating_sub(512);
+        if self.buffer[..self.learned].chars().count() >= dropped {
+            return;
+        }
+        let keep = self
+            .buffer
+            .char_indices()
+            .nth(total.saturating_sub(RECENT).max(dropped))
+            .map_or(self.buffer.len(), |(i, _)| i);
+        if let Some(end) = last_boundary(&self.buffer[self.learned..keep]) {
+            self.learn_to(self.learned + end);
+        }
     }
     fn clear(&mut self) {
         self.learn_words(false);
@@ -233,8 +261,7 @@ impl Engine {
                 }
                 self.buffer.push_str(&text);
                 if self.buffer.chars().count() > 512 {
-                    // Clipping drops the oldest text; learn its words first.
-                    self.learn_words(false);
+                    self.learn_before_clipping();
                 }
                 while self.buffer.chars().count() > 512 {
                     let n = self.buffer.graphemes(true).next().unwrap().len();
@@ -250,12 +277,7 @@ impl Engine {
                     if self.learned > start {
                         // A learned word is being corrected: learn it again
                         // whole rather than its corrected ending alone.
-                        self.learned = self
-                            .buffer
-                            .char_indices()
-                            .rev()
-                            .find(|(_, c)| !word_char(*c))
-                            .map_or(0, |(i, c)| i + c.len_utf8());
+                        self.learned = last_boundary(&self.buffer).unwrap_or(0);
                     }
                 } else {
                     self.clear();
@@ -1502,16 +1524,35 @@ mod tests {
     }
 
     #[test]
-    fn text_clipped_from_the_buffer_is_learned_in_whole_words() {
+    fn text_clipped_from_the_buffer_is_learned_in_long_whole_pieces() {
         let (mut e, log) = learner();
         let mut revision = 0;
-        for _ in 0..110 {
+        for _ in 0..240 {
             typing(&mut e, &mut revision, "abcd ", &[]);
         }
+        // Long pieces keep their phrases; the latest words are not learned
+        // yet, so they can still be corrected.
+        let pieces = learned(&log);
+        assert!(!pieces.is_empty());
+        assert!(
+            pieces.iter().all(|p| p.chars().count() >= RECENT - 5),
+            "{pieces:?}"
+        );
+        assert!(pieces.concat().chars().count() <= 1200 - RECENT + 5);
         typing(&mut e, &mut revision, "", &[Edit::End]);
-        let learned = learned(&log).concat();
-        let words: Vec<_> = learned.split_whitespace().collect();
-        assert_eq!(words.len(), 110);
+        let all = [pieces, learned(&log)].concat().concat();
+        let words: Vec<_> = all.split_whitespace().collect();
+        assert_eq!(words.len(), 240);
         assert!(words.iter().all(|w| *w == "abcd"));
+    }
+
+    #[test]
+    fn a_combining_accent_stays_with_its_word() {
+        let (mut e, log) = learner();
+        let mut revision = 0;
+        typing(&mut e, &mut revision, "cafe\u{301}", &[Edit::Reset]);
+        assert!(learned(&log).is_empty(), "the word was in progress");
+        typing(&mut e, &mut revision, "cafe\u{301} ", &[Edit::Reset]);
+        assert_eq!(learned(&log), ["cafe\u{301} "]);
     }
 }

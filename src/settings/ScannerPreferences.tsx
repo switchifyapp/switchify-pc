@@ -259,8 +259,8 @@ function LearnedWords({ settings, onSettingsChange, disabled }: { settings: AppS
   const forget = async () => {
     setConfirming(false);
     try {
-      await api.forgetLearnedWords();
-      setStatus('Learned words forgotten.');
+      const done = await api.forgetLearnedWords();
+      setStatus(done ? 'Learned words forgotten.' : 'Learned words will be forgotten as soon as the keyboard stops using them.');
     } catch (error) {
       setStatus(String(error));
     }
