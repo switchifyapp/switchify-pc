@@ -89,6 +89,10 @@ pub struct AppSettings {
     /// into the same account. Local to this install, like pairing itself.
     #[serde(default = "default_auto_approve_account_devices")]
     pub auto_approve_account_devices: bool,
+    /// Word prediction learns from what is typed with the scanning keyboard.
+    /// What it learns stays on this computer, like the setting.
+    #[serde(default = "default_learn_word_prediction")]
+    pub learn_word_prediction: bool,
 }
 
 impl Default for AppSettings {
@@ -113,6 +117,7 @@ impl Default for AppSettings {
             cursor_crosshairs: false,
             share_diagnostics: false,
             auto_approve_account_devices: default_auto_approve_account_devices(),
+            learn_word_prediction: default_learn_word_prediction(),
         }
     }
 }
@@ -172,6 +177,10 @@ fn default_mouse_repeat_acceleration() -> u32 {
 }
 
 fn default_auto_approve_account_devices() -> bool {
+    true
+}
+
+fn default_learn_word_prediction() -> bool {
     true
 }
 
@@ -1395,6 +1404,7 @@ mod tests {
         assert_eq!(settings.key_repeat_interval_ms, 250);
         assert_eq!(settings.key_repeat_initial_delay_ms, 500);
         assert!(settings.auto_approve_account_devices);
+        assert!(settings.learn_word_prediction);
 
         // Everything that was stored survives untouched.
         assert_eq!(settings.pointer_scale_percent, 150);

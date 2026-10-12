@@ -23,6 +23,7 @@ export const browserState: AppState = {
     cursorOverlayEnabled: true, cursorOverlaySize: "medium", cursorOverlayColor: "red",
     cursorOverlayVisibility: "whileControlling",
     cursorCrosshairs: false, shareDiagnostics: false, autoApproveAccountDevices: true,
+    learnWordPrediction: true,
   },
   capabilities: {
     platform: navigator.userAgent.includes("Mac") ? "macos" : "windows",
@@ -62,6 +63,7 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 
 export const api = {
   state: () => call<AppState>("get_app_state"),
+  forgetLearnedWords: () => "__TAURI_INTERNALS__" in window ? invoke<boolean>("forget_learned_words") : Promise.resolve(true),
   approvePairing: (requestId: string) => call<AppState>("approve_pairing", { requestId }),
   rejectPairing: (requestId: string) => call<AppState>("reject_pairing", { requestId }),
   checkAccessibility: (prompt: boolean) => call<AppState>("check_accessibility", { prompt }),

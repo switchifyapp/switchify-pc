@@ -665,3 +665,30 @@ it("saves row groups beside the pattern older versions read and lets an area cho
   await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.menu).toStrictEqual({ pattern: undefined, rowGroups: undefined }));
   expect(screen.getByRole("button", { name: "Rows, groups, then items" })).toHaveAttribute("aria-pressed", "true");
 });
+
+it("learns from typing by default, keeps the choice local and forgets only after confirming", async () => {
+  const onSettingsChange = vi.fn();
+  function WithSettings() {
+    const controller = useScanning();
+    return <ScanningSection controller={controller} settings={browserState.settings} onSettingsChange={onSettingsChange} />;
+  }
+  render(<WithSettings />);
+  await screen.findByText(initial.message);
+  more();
+  fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
+  const learn = screen.getByRole("checkbox", { name: "Learn from my typing" });
+  expect(learn).toBeChecked();
+  fireEvent.click(learn);
+  expect(onSettingsChange).toHaveBeenCalledWith({ ...browserState.settings, learnWordPrediction: false });
+  expect(mocks.invoke).not.toHaveBeenCalledWith("configure_point_scan", expect.anything());
+  fireEvent.click(screen.getByRole("button", { name: "Forget learned words…" }));
+  expect(mocks.invoke).not.toHaveBeenCalledWith("forget_learned_words");
+  fireEvent.click(screen.getByRole("button", { name: "Keep them" }));
+  expect(mocks.invoke).not.toHaveBeenCalledWith("forget_learned_words");
+  fireEvent.click(screen.getByRole("button", { name: "Forget learned words…" }));
+  mocks.invoke.mockImplementation(async (command, args) =>
+    command === "forget_learned_words" ? false : command === "get_point_scan" ? initial : { ...initial, ...args });
+  fireEvent.click(screen.getByRole("button", { name: "Forget learned words" }));
+  expect(mocks.invoke).toHaveBeenCalledWith("forget_learned_words");
+  expect(await screen.findByText(/will be forgotten in a moment/)).toBeInTheDocument();
+});

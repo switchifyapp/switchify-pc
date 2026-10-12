@@ -4217,7 +4217,7 @@ dependencies = [
 [[package]]
 name = "switchify-prediction"
 version = "0.2.1"
-source = "git+https://github.com/switchifyapp/switchify-prediction?rev=2a2ed0c2b0013663ffa9317dba3389ec96b6f14b#2a2ed0c2b0013663ffa9317dba3389ec96b6f14b"
+source = "git+https://github.com/switchifyapp/switchify-prediction?rev=e5223aa8af58d982278db110b70293546db1cdd7#e5223aa8af58d982278db110b70293546db1cdd7"
 dependencies = [
  "clap",
  "rusqlite",
@@ -4233,7 +4233,7 @@ dependencies = [
 [[package]]
 name = "switchify-prediction-neural"
 version = "0.2.1"
-source = "git+https://github.com/switchifyapp/switchify-prediction?rev=2a2ed0c2b0013663ffa9317dba3389ec96b6f14b#2a2ed0c2b0013663ffa9317dba3389ec96b6f14b"
+source = "git+https://github.com/switchifyapp/switchify-prediction?rev=e5223aa8af58d982278db110b70293546db1cdd7#e5223aa8af58d982278db110b70293546db1cdd7"
 dependencies = [
  "clap",
  "serde",

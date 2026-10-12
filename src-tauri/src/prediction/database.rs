@@ -42,11 +42,12 @@ impl Database {
             _ => None,
         }
     }
-    pub fn open(model: &Path) -> Self {
+    pub fn open(model: &Path, personal: Option<&Path>) -> Self {
         let model = model.to_path_buf();
+        let personal = personal.map(Path::to_path_buf);
         let (tx, rx) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
-            let _ = tx.send(Model::open(&model));
+            let _ = tx.send(Model::open(&model, personal.as_deref()));
         });
         Self {
             state: State::Loading(rx),
@@ -81,6 +82,12 @@ impl Database {
     pub fn reset(&mut self) {
         if let State::Ready(model) = &mut self.state {
             model.reset();
+        }
+    }
+    /// Text completed before the model is ready is not learned.
+    pub fn learn(&mut self, text: &str) {
+        if let State::Ready(model) = &mut self.state {
+            model.learn(text);
         }
     }
     pub fn predict(&mut self, context: &Context) -> (Status, Prediction) {
@@ -189,7 +196,7 @@ mod tests {
         );
         let missing =
             std::env::temp_dir().join(format!("switchify-missing-model-{}", std::process::id()));
-        let mut db = Database::open(&missing);
+        let mut db = Database::open(&missing, None);
         let end = Instant::now() + Duration::from_secs(5);
         while db.status() == Status::Loading && Instant::now() < end {
             std::thread::sleep(Duration::from_millis(10));

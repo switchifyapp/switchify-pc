@@ -7,7 +7,7 @@ scan direction. The entire displayed row stays stable until scanning leaves it.
 The worker retains exact displayed/latest batch tokens and validates acceptance
 against the edit revision, generation, activity epoch and foreground target.
 Capitalization, prefix replacement and trailing spaces use the existing path.
-No focused-field capture, personal learning or new settings are introduced.
+No focused-field capture or new settings are introduced. Learning from typing, described in word prediction, changes only slots 1–3.
 
 The companion uses protocol 2. Model and tokenizer bytes are unchanged. Startup
 remains bounded to 30 seconds and each reply to two seconds. Failure leaves the
@@ -16,7 +16,7 @@ instant slots available, with explicit retry or keyboard reopening required.
 ## Release assets
 
 The build downloads checksum-pinned v0.2.1 companion release archives from
-GitHub. Both libraries and worker provenance are pinned to the release commit.
+GitHub. Worker provenance is pinned to the release commit. The Rust libraries are pinned to a later commit that adds personal learning; see word prediction.
 Verified local caches work offline, and installed applications need no network
 access or model setup. Model, tokenizer and statistical database bytes remain
 unchanged.

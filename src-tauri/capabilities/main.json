@@ -25,6 +25,7 @@
     "allow-reject-pairing",
     "allow-disconnect-all",
     "allow-forget-device",
+    "allow-forget-learned-words",
     "allow-save-settings",
     "allow-set-telemetry-consent",
     "allow-mark-setup-shown",

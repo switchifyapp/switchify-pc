@@ -4,8 +4,10 @@ import { ChevronRight } from 'lucide-react';
 import { lastModeName, mouseRepeatStopInstruction, selectOpensHome, type ScanningController, type ScannerColor, type PointScanConfig } from '../scanning/useScanning';
 import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, savedKeyboardWait, itemScanning, itemScanningLabels, type ItemScanning, type PanelSize, type ScanArea, type ScanOptions } from '../scanning/preferences';
 import { SettingGroup, Toggle, OptionGroup } from './controls';
+import { api } from '../api';
+import type { AppSettings } from '../types';
 
-export function ScannerPreferences({ controller }: { controller: ScanningController }) {
+export function ScannerPreferences({ controller, settings: appSettings, onSettingsChange }: { controller: ScanningController; settings?: AppSettings; onSettingsChange?: (next: AppSettings) => void }) {
   const { config, state, update, chooseKeyboardLayout, pending } = controller;
   const [area, setArea] = useState<'shared' | ScanArea>('shared');
   const heading = useRef<HTMLHeadingElement>(null);
@@ -183,7 +185,8 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     </SettingGroup>}
     {area === 'keyboard' && <SettingGroup title="Suggestions" description="Show word suggestions while typing with the scanning keyboard.">
       <Toggle label="Word prediction" checked={config.wordPrediction} disabled={disabled} onChange={value => update('wordPrediction', value)} />
-      <p className="setting-note">Uses an offline English word database and an on-device language model. Suggestions appear as you type and after a space. The keyboard shows when suggestions are loading, unavailable, or have no match. If prediction fails, choose Retry predictions on the keyboard; typing still works. Your typing never leaves this computer and is not used for learning.</p>
+      <p className="setting-note">Uses an offline English word database and an on-device language model. Suggestions appear as you type and after a space. The keyboard shows when suggestions are loading, unavailable, or have no match. If prediction fails, choose Retry predictions on the keyboard; typing still works. Your typing never leaves this computer.</p>
+      {appSettings && onSettingsChange && <LearnedWords settings={appSettings} onSettingsChange={onSettingsChange} disabled={!config.wordPrediction} />}
     </SettingGroup>}
     <SettingGroup title="Movement" description="">
     {field('automatic', 'Automatic scanning', locked => <Toggle label="Automatic scanning" checked={effective.automatic} disabled={locked} onChange={value => change('automatic', value)} />)}
@@ -248,4 +251,29 @@ export function ScannerPreferences({ controller }: { controller: ScanningControl
     {area !== 'shared' && <Button type="button" className="secondary" disabled={disabled || Object.values(settings[area] ?? {}).every(value => value == null)} onClick={() => update('scanPreferences', { ...settings, [area]: {} })}>Reset scanning overrides</Button>}
     <p className="setting-note scanner-save-note">Press Select to scan again.</p>
   </div>;
+}
+
+function LearnedWords({ settings, onSettingsChange, disabled }: { settings: AppSettings; onSettingsChange: (next: AppSettings) => void; disabled: boolean }) {
+  const [confirming, setConfirming] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const forget = async () => {
+    setConfirming(false);
+    try {
+      const done = await api.forgetLearnedWords();
+      setStatus(done ? 'Learned words forgotten.' : 'Learned words will be forgotten in a moment, as soon as the keyboard stops using them.');
+    } catch (error) {
+      setStatus(String(error));
+    }
+  };
+  return <>
+    <Toggle label="Learn from my typing" checked={settings.learnWordPrediction} disabled={disabled} onChange={value => onSettingsChange({ ...settings, learnWordPrediction: value })} />
+    <p className="setting-note">Words and phrases you type with the scanning keyboard are suggested sooner. What is learned stays on this computer and is not synced. It is word counts, not a copy of your text, but it can include anything you type, such as names or passwords.</p>
+    {confirming
+      ? <div role="group" aria-label="Confirm forgetting learned words">
+        <p className="setting-note">Forget every word learned on this computer? Suggestions return to the built-in English words. This cannot be undone.</p>
+        <div className="row-actions"><Button type="button" className="primary danger" onClick={() => void forget()}>Forget learned words</Button><Button type="button" className="secondary" onClick={() => setConfirming(false)}>Keep them</Button></div>
+      </div>
+      : <Button type="button" className="secondary danger" onClick={() => { setStatus(null); setConfirming(true); }}>Forget learned words…</Button>}
+    {status && <p role="status" className="setting-note">{status}</p>}
+  </>;
 }

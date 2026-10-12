@@ -2,6 +2,7 @@ import { Button } from "../ui/controls";
 import { Demonstration } from "../help/Demonstration";
 import { type ScanningController, validSwitches, mouseRepeatStopInstruction } from "../scanning/useScanning";
 import { ScannerPreferences } from "./ScannerPreferences";
+import type { AppSettings } from "../types";
 
 const phases = {
   keyboard: "Choose a keyboard row, then a key",
@@ -27,7 +28,7 @@ const phases = {
   y: "Choose the vertical position",
 };
 
-export function ScanningSection({ controller }: { controller: ScanningController }) {
+export function ScanningSection({ controller, settings, onSettingsChange }: { controller: ScanningController; settings?: AppSettings; onSettingsChange?: (next: AppSettings) => void }) {
   const { state, config, pending, error, retry, unsaved } = controller;
   return <div className="scanner-settings">
     <div className="scanner-status">
@@ -37,7 +38,7 @@ export function ScanningSection({ controller }: { controller: ScanningController
       {error && unsaved && <Button type="button" className="secondary" disabled={!!pending || !validSwitches(config)} onClick={retry}>Retry save</Button>}
       {!validSwitches(config) && <p role="alert">Each switch action needs a different key. Escape is reserved for cancel.</p>}
     </div>
-    <ScannerPreferences controller={controller} />
+    <ScannerPreferences controller={controller} settings={settings} onSettingsChange={onSettingsChange} />
     <details className="scanner-help"><summary>How scanning works</summary>
       <p>Point scanning chooses a screen location with a moving line or grid, then opens actions for clicks, scrolling and dragging. Mouse scanning moves a visible pointer ring and offers directions, clicks, dragging, scrolling and Keyboard in a persistent panel.</p>
       <p>Select opens Home, unless you chose Last mode used. Home offers Point, Mouse and Keyboard, plus Apps and windows, Editing, Browser and Media commands that act on the app in front, so you can bring the right app forward with switches instead of focusing it first. After a click or other action, Select carries on in the same mode; Close menu, Stop scanning or Escape means the next Select opens Home. Home is also a tile in the Point action menu and Mouse Actions.</p>

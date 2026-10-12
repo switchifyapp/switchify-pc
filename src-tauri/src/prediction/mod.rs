@@ -65,12 +65,13 @@ struct Client {
     _job: Job,
 }
 impl Client {
-    fn start(path: &Path, ignored: Vec<u32>) -> Result<Self, ()> {
+    fn start(path: &Path, personal: Option<&Path>, ignored: Vec<u32>) -> Result<Self, ()> {
         let mut command = Command::new(std::env::current_exe().map_err(|_| ())?);
         command
             .arg(worker::ARG)
             .arg(path)
             .arg(serde_json::to_string(&ignored).map_err(|_| ())?)
+            .arg(personal.unwrap_or(Path::new("")))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -161,20 +162,129 @@ const SPARE_IDLE: Duration = Duration::from_secs(120);
 struct Spare {
     client: Client,
     ignored: Vec<u32>,
+    personal: Option<PathBuf>,
+    /// `LEARNING` when it started.
+    learning: u64,
     since: Instant,
 }
 impl Spare {
-    fn usable(&mut self, ignored: &[u32], now: Instant) -> bool {
+    fn usable(&mut self, ignored: &[u32], personal: Option<&Path>, now: Instant) -> bool {
         self.ignored == ignored
+            && self.personal.as_deref() == personal
             && now.duration_since(self.since) < SPARE_IDLE
             && matches!(self.client.child.try_wait(), Ok(None))
     }
 }
 /// The spare worker for this keyboard open, if one is still usable. Any
 /// other spare is killed and reaped.
-fn adopt(spare: &mut Option<Spare>, ignored: &[u32], now: Instant) -> Option<Client> {
+fn adopt(
+    spare: &mut Option<Spare>,
+    ignored: &[u32],
+    personal: Option<&Path>,
+    now: Instant,
+) -> Option<Client> {
     let mut spare = spare.take()?;
-    spare.usable(ignored, now).then_some(spare.client)
+    spare.usable(ignored, personal, now).then_some(spare.client)
+}
+
+thread_local! {
+    /// Bumped when learning is switched on or off or learned words are
+    /// forgotten. Workers started before then are replaced. Settings are
+    /// saved, and workers run, on the main thread.
+    static LEARNING: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+fn learning_generation() -> u64 {
+    LEARNING.with(std::cell::Cell::get)
+}
+thread_local! {
+    /// Learned words waiting to be deleted once no worker holds them. Like
+    /// the workers it waits for, it belongs to the main thread.
+    static FORGETTING: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+}
+fn forgetting() -> bool {
+    FORGETTING.with(|f| f.borrow().is_some())
+}
+
+fn personal_file(app: &AppHandle) -> Option<PathBuf> {
+    Some(
+        app.path()
+            .app_config_dir()
+            .ok()?
+            .join("prediction/personal.sqlite"),
+    )
+}
+/// Present while a request to forget is unfinished, so a restart finishes it
+/// before any worker opens the file.
+fn forget_marker(path: &Path) -> PathBuf {
+    let mut marker = path.as_os_str().to_owned();
+    marker.push(".forget");
+    PathBuf::from(marker)
+}
+/// Removes the personal file and its SQLite journals. Missing files are
+/// already gone.
+fn delete_personal(path: &Path) -> bool {
+    ["", "-journal", "-wal", "-shm"].iter().all(|suffix| {
+        let mut file = path.as_os_str().to_owned();
+        file.push(suffix);
+        match std::fs::remove_file(PathBuf::from(file)) {
+            Ok(()) => true,
+            Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+        }
+    })
+}
+/// Learning was switched on or off: the next keyboard starts a worker that
+/// matches.
+pub fn learning_changed() {
+    LEARNING.with(|l| l.set(l.get().wrapping_add(1)));
+}
+/// Forget everything learned. The request is recorded on disk first. A spare
+/// worker is killed now; a keyboard's worker is replaced at its next update,
+/// so neither writes again. Returns whether the words are already deleted;
+/// otherwise they are as soon as no worker holds them, which a restart also
+/// finishes before any worker opens the file.
+///
+/// It must run on the main thread, where prediction updates run, so it must
+/// stay a synchronous command.
+pub fn forget_learned(app: &AppHandle) -> Result<bool, String> {
+    forget_at(personal_file(app).ok_or("The learned words could not be found.")?)
+}
+fn forget_at(path: PathBuf) -> Result<bool, String> {
+    let unrecorded = "The request to forget learned words could not be saved.";
+    std::fs::create_dir_all(path.parent().ok_or(unrecorded)?).map_err(|_| unrecorded)?;
+    std::fs::write(forget_marker(&path), b"").map_err(|_| unrecorded)?;
+    pend_forgetting(path);
+    learning_changed();
+    SPARE.with(|s| *s.borrow_mut() = None);
+    // The keyboard's worker may hold the file even where deleting an open
+    // file succeeds, and could still write to it; it goes at its next update.
+    let held = SERVICE.with(|s| {
+        let s = s.borrow();
+        s.client.is_some() && s.personal.is_some()
+    });
+    Ok(!held && finish_forgetting())
+}
+/// Finishes a request to forget left by an earlier run. Nothing holds the
+/// file at startup.
+pub fn resume_forgetting(app: &AppHandle) {
+    if let Some(file) = personal_file(app).filter(|f| forget_marker(f).exists()) {
+        pend_forgetting(file);
+        finish_forgetting();
+    }
+}
+fn pend_forgetting(path: PathBuf) {
+    FORGETTING.with(|f| *f.borrow_mut() = Some(path));
+}
+/// Deletes forgotten learned words, and then the record of the request.
+/// Called whenever no worker may hold them. Returns whether none are pending.
+fn finish_forgetting() -> bool {
+    let Some(path) = FORGETTING.with(|f| f.borrow().clone()) else {
+        return true;
+    };
+    let done = delete_personal(&path) && delete_personal(&forget_marker(&path));
+    if done {
+        FORGETTING.with(|f| *f.borrow_mut() = None);
+    }
+    done
 }
 fn expire(spare: &mut Option<Spare>, now: Instant) {
     if spare
@@ -208,6 +318,8 @@ struct Service {
     known: usize,
     /// What the worker was started with, to start its replacement.
     model: Option<PathBuf>,
+    personal: Option<PathBuf>,
+    learning: u64,
     ignored: Vec<u32>,
     failed: bool,
     generation: u64,
@@ -284,7 +396,7 @@ impl Service {
                     self.beyond = true;
                 }
             }
-            Edit::Reset => {}
+            Edit::Reset | Edit::End => {}
         }
     }
     fn forget(&mut self) {
@@ -314,6 +426,15 @@ impl Service {
         self.beyond = false;
         self.held = false;
         self.forget();
+    }
+    /// Enter or Tab: the text so far is finished, so its last word is
+    /// complete, and typing continues on a new line or field.
+    fn finish(&mut self, scope: InputScope) {
+        self.shape.clear();
+        self.beyond = false;
+        self.held = false;
+        self.known = 0;
+        self.queue_edit(Edit::End, scope);
     }
     /// The context is lost and the caret has not moved. Inside a word,
     /// suggestions wait for the next one.
@@ -345,7 +466,7 @@ impl Service {
         match &edit {
             Edit::Append(text) => self.known = (self.known + text.chars().count()).min(512),
             Edit::Backspace => self.known -= 1,
-            Edit::Reset => {}
+            Edit::Reset | Edit::End => {}
         }
         self.queue_edit(edit, scope);
     }
@@ -382,7 +503,7 @@ impl Service {
         match edit {
             Some(edit) => self.typed(edit, scope),
             // Enter and Tab start a new line or field.
-            None if matches!(stroke.key, Key::Named("Enter" | "Tab")) => self.moved(),
+            None if matches!(stroke.key, Key::Named("Enter" | "Tab")) => self.finish(scope),
             None => self.displaced(true),
         }
     }
@@ -537,6 +658,7 @@ pub fn keyboard_input_context() -> Option<crate::scan_keyboard::TypingContext> {
 pub fn stop() {
     SERVICE.with(|s| *s.borrow_mut() = Service::default());
     SPARE.with(|s| *s.borrow_mut() = None);
+    finish_forgetting();
 }
 /// The keyboard closed. The worker and its private text context are killed
 /// and reaped as in `stop`, then a fresh worker loads the model for the next
@@ -544,27 +666,51 @@ pub fn stop() {
 pub fn close() {
     close_with(Client::start);
 }
-fn close_with(start: impl FnOnce(&Path, Vec<u32>) -> Result<Client, ()>) {
+fn close_with(start: impl FnOnce(&Path, Option<&Path>, Vec<u32>) -> Result<Client, ()>) {
     let service = SERVICE.with(|s| std::mem::take(&mut *s.borrow_mut()));
     let Service {
         client,
         model,
+        personal,
+        learning,
         ignored,
         ..
     } = service;
     let worked = client.is_some();
     drop(client);
+    // A spare never reopens words being forgotten, or learns against a
+    // changed setting.
+    let current = learning_generation();
+    let personal = personal.filter(|_| learning == current && !forgetting());
+    let learning = current;
     SPARE.with(|s| {
         let mut spare = s.borrow_mut();
         if let (true, Some(model)) = (worked, model) {
-            *spare = start(&model, ignored.clone()).ok().map(|client| Spare {
-                client,
-                ignored,
-                since: Instant::now(),
-            });
+            *spare = start(&model, personal.as_deref(), ignored.clone())
+                .ok()
+                .map(|client| Spare {
+                    client,
+                    ignored,
+                    personal,
+                    learning,
+                    since: Instant::now(),
+                });
         }
         expire(&mut spare, Instant::now());
     });
+    finish_forgetting();
+}
+/// Replaces a worker started before learning changed. A suggestion being
+/// accepted fails, as when a worker misses its deadline, so the keyboard
+/// does not wait on the old worker.
+fn replace_stale(keyboard: &mut Keyboard) {
+    SERVICE.with(|s| {
+        let s = s.borrow();
+        if s.accepting || s.accept.is_some() {
+            keyboard.failed();
+        }
+    });
+    retry();
 }
 /// Restart only prediction. The keyboard and its scan session remain open,
 /// while the old worker and its private text context are discarded.
@@ -666,6 +812,24 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
         close();
         return;
     };
+    // A worker started before learning changed may hold the personal file.
+    let learning = learning_generation();
+    let stale = SERVICE.with(|s| {
+        let s = s.borrow();
+        s.client.is_some() && s.learning != learning
+    });
+    if stale {
+        replace_stale(keyboard);
+    }
+    SPARE.with(|s| {
+        let mut spare = s.borrow_mut();
+        if spare
+            .as_ref()
+            .is_some_and(|spare| spare.learning != learning)
+        {
+            *spare = None;
+        }
+    });
     SERVICE.with(|slot| {
         let mut s = slot.borrow_mut();
         s.observe(activity::snapshot());
@@ -694,10 +858,44 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
             ignored.sort_unstable();
             ignored.dedup();
             let model = resource(app).ok();
+            let file = personal_file(app);
+            // A request to forget left unfinished, even before a restart.
+            if let Some(file) = file.as_ref().filter(|f| forget_marker(f).exists()) {
+                pend_forgetting(file.clone());
+            }
+            // No worker runs here: the spare is adopted or replaced below.
+            SPARE.with(|spare| {
+                let mut spare = spare.borrow_mut();
+                if forgetting() {
+                    *spare = None;
+                }
+            });
+            finish_forgetting();
+            let learn = app
+                .state::<crate::state::AppModel>()
+                .snapshot()
+                .settings
+                .learn_word_prediction;
+            // Learned words still waiting to be deleted are not reopened.
+            let personal = file.filter(|_| learn && !forgetting()).filter(|file| {
+                file.parent()
+                    .is_some_and(|dir| std::fs::create_dir_all(dir).is_ok())
+            });
             s.client = SPARE
-                .with(|spare| adopt(&mut spare.borrow_mut(), &ignored, Instant::now()))
-                .or_else(|| Client::start(model.as_deref()?, ignored.clone()).ok());
+                .with(|spare| {
+                    adopt(
+                        &mut spare.borrow_mut(),
+                        &ignored,
+                        personal.as_deref(),
+                        Instant::now(),
+                    )
+                })
+                .or_else(|| {
+                    Client::start(model.as_deref()?, personal.as_deref(), ignored.clone()).ok()
+                });
             s.model = model;
+            s.personal = personal;
+            s.learning = learning;
             s.ignored = ignored;
             if s.client.is_none() {
                 s.failed = true;
@@ -1061,6 +1259,7 @@ mod tests {
                 Edit::Append(text) => text,
                 Edit::Backspace => "<".into(),
                 Edit::Reset => "|".into(),
+                Edit::End => "$".into(),
             })
             .collect()
     }
@@ -1185,10 +1384,12 @@ mod tests {
         let mut s = service("hel");
         s.stroke(key('l'), true, false, scope);
         assert!(!s.held && s.reset && !s.in_word());
+        // A new line or field finishes the text, so its last word is complete.
         for name in ["Enter", "Tab"] {
             let mut s = service("hel");
             s.stroke(named(name), true, true, scope);
-            assert!(!s.held && s.reset);
+            assert!(!s.held && !s.in_word() && s.known == 0);
+            assert!(matches!(s.edit.last().map(|e| &e.edit), Some(Edit::End)));
         }
         let mut s = service("hel");
         s.observe((4, true));
@@ -1343,6 +1544,8 @@ mod tests {
         Some(Spare {
             client: sleeper(),
             ignored: ignored.to_vec(),
+            personal: None,
+            learning: 0,
             since,
         })
     }
@@ -1351,7 +1554,7 @@ mod tests {
         let now = Instant::now();
         let mut slot = spare(&[32], now);
         let id = slot.as_ref().unwrap().client.child.id();
-        let mut client = adopt(&mut slot, &[32], now + Duration::from_secs(5)).unwrap();
+        let mut client = adopt(&mut slot, &[32], None, now + Duration::from_secs(5)).unwrap();
         assert!(slot.is_none());
         assert_eq!(client.child.id(), id);
         assert!(client.child.try_wait().unwrap().is_none());
@@ -1361,18 +1564,21 @@ mod tests {
         let now = Instant::now();
         // Started for other switch keys.
         let mut slot = spare(&[32], now);
-        assert!(adopt(&mut slot, &[13], now).is_none());
+        assert!(adopt(&mut slot, &[13], None, now).is_none());
         assert!(slot.is_none());
         // Waited too long.
         let mut slot = spare(&[32], now);
-        assert!(adopt(&mut slot, &[32], now + SPARE_IDLE).is_none());
+        assert!(adopt(&mut slot, &[32], None, now + SPARE_IDLE).is_none());
         assert!(slot.is_none());
         // Already exited.
         let mut slot = spare(&[32], now);
         let child = &mut slot.as_mut().unwrap().client.child;
         child.kill().unwrap();
         child.wait().unwrap();
-        assert!(adopt(&mut slot, &[32], now).is_none());
+        assert!(adopt(&mut slot, &[32], None, now).is_none());
+        // Started without learning, or learning into another file.
+        let mut slot = spare(&[32], now);
+        assert!(adopt(&mut slot, &[32], Some(Path::new("personal")), now).is_none());
     }
     #[test]
     fn an_idle_spare_worker_expires() {
@@ -1413,12 +1619,14 @@ mod tests {
             *slot.borrow_mut() = Service {
                 client: Some(worker),
                 model: Some(PathBuf::from("model")),
+                personal: Some(PathBuf::from("personal")),
                 ignored: vec![13, 32],
                 edit: vec![InputScope::capture().record(Edit::Append("test".into()))],
                 ..Default::default()
             };
         });
-        close_with(|model, ignored| {
+        close_with(|model, personal, ignored| {
+            assert_eq!(personal, Some(Path::new("personal")));
             assert!(
                 !alive(held),
                 "the old worker is gone before the spare starts"
@@ -1437,6 +1645,7 @@ mod tests {
             let spare = slot.as_mut().unwrap();
             assert_ne!(spare.client.child.id(), held);
             assert_eq!(spare.ignored, [13, 32]);
+            assert_eq!(spare.personal.as_deref(), Some(Path::new("personal")));
             assert!(spare.client.child.try_wait().unwrap().is_none());
         });
         // A spare that could not start is not retried.
@@ -1445,9 +1654,9 @@ mod tests {
             s.client = Some(sleeper());
             s.model = Some(PathBuf::from("model"));
         });
-        close_with(|_, _| Err(()));
+        close_with(|_, _, _| Err(()));
         SPARE.with(|slot| assert!(slot.borrow().is_none()));
-        close_with(|_, _| panic!("no worker closed, so none is started"));
+        close_with(|_, _, _| panic!("no worker closed, so none is started"));
         stop();
     }
     #[test]
@@ -1477,5 +1686,115 @@ mod tests {
             worker::receive::<Request>(&mut std::io::Cursor::new(u32::MAX.to_le_bytes())).is_err()
         );
         assert!(worker::receive::<Request>(&mut std::io::Cursor::new([0u8; 4])).is_err());
+    }
+
+    #[test]
+    fn replacing_a_stale_worker_fails_a_suggestion_being_accepted() {
+        for accepting in [false, true] {
+            stop();
+            SERVICE.with(|slot| {
+                *slot.borrow_mut() = Service {
+                    client: None,
+                    accept: accepting.then_some((1, 0)),
+                    ..Default::default()
+                };
+            });
+            let mut keyboard = Keyboard::new(false);
+            replace_stale(&mut keyboard);
+            assert_eq!(keyboard.error, accepting);
+            // An acceptance whose reply is awaited fails too.
+            SERVICE.with(|slot| {
+                *slot.borrow_mut() = Service {
+                    client: None,
+                    accepting,
+                    ..Default::default()
+                };
+            });
+            let mut keyboard = Keyboard::new(false);
+            replace_stale(&mut keyboard);
+            assert_eq!(keyboard.error, accepting);
+            SERVICE.with(|slot| {
+                let s = slot.borrow();
+                assert!(s.client.is_none() && s.accept.is_none() && !s.accepting);
+            });
+        }
+        stop();
+    }
+    #[test]
+    fn a_spare_started_while_forgetting_does_not_open_the_personal_file() {
+        stop();
+        let dir = std::env::temp_dir().join(format!("switchify-spare-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("personal.sqlite");
+        std::fs::write(forget_marker(&path), b"").unwrap();
+        pend_forgetting(path.clone());
+        SERVICE.with(|slot| {
+            *slot.borrow_mut() = Service {
+                client: Some(sleeper()),
+                model: Some(PathBuf::from("model")),
+                personal: Some(path.clone()),
+                learning: learning_generation(),
+                ..Default::default()
+            };
+        });
+        close_with(|_, personal, _| {
+            assert_eq!(personal, None);
+            Err(())
+        });
+        // With the worker gone, the forgetting finished, marker included.
+        assert!(!forgetting());
+        assert!(!forget_marker(&path).exists());
+        stop();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn forgetting_waits_for_the_keyboard_worker_that_holds_the_file() {
+        stop();
+        let dir = std::env::temp_dir().join(format!("switchify-held-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("personal.sqlite");
+        std::fs::write(&path, "counts").unwrap();
+        SERVICE.with(|slot| {
+            *slot.borrow_mut() = Service {
+                client: Some(sleeper()),
+                personal: Some(path.clone()),
+                ..Default::default()
+            };
+        });
+        SPARE.with(|slot| *slot.borrow_mut() = spare(&[], Instant::now()));
+        // Not deleted while the keyboard's worker could still write to it,
+        // even where deleting an open file would succeed.
+        assert!(!forget_at(path.clone()).unwrap());
+        assert!(path.exists() && forget_marker(&path).exists());
+        SPARE.with(|slot| assert!(slot.borrow().is_none(), "the spare is killed at once"));
+        // The worker is replaced at the next update; then the words go.
+        stop();
+        assert!(!path.exists() && !forget_marker(&path).exists());
+        // With no worker holding the file, it goes at once.
+        std::fs::write(&path, "counts").unwrap();
+        assert!(forget_at(path.clone()).unwrap());
+        assert!(!path.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn forgetting_deletes_the_personal_file_and_journals_once_nothing_holds_them() {
+        let dir = std::env::temp_dir().join(format!("switchify-forget-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("personal.sqlite");
+        let files = ["", "-journal", "-wal", ".forget"].map(|suffix| {
+            let file = PathBuf::from(format!("{}{suffix}", path.display()));
+            std::fs::write(&file, "counts").unwrap();
+            file
+        });
+        // Nothing is deleted unless forgetting was asked for.
+        assert!(finish_forgetting());
+        assert!(files.iter().all(|f| f.exists()));
+        pend_forgetting(path.clone());
+        stop();
+        assert!(files.iter().all(|f| !f.exists()));
+        assert!(!forgetting());
+        // Already gone is done.
+        assert!(delete_personal(&path));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

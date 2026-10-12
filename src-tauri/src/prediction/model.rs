@@ -1,4 +1,5 @@
-//! Read-only English word prediction. Only the isolated worker holds context.
+//! English word prediction, with optional personal learning. Only the
+//! isolated worker holds context.
 use sha2::{Digest, Sha256};
 use std::{fs::File, io::Read, path::Path};
 use switchify_prediction::{Options, Predictor};
@@ -29,6 +30,8 @@ pub trait Predict: Send {
         false
     }
     fn reset(&mut self) {}
+    /// Learn one completed, non-overlapping piece of typed text.
+    fn learn(&mut self, _text: &str) {}
 }
 
 pub struct Model {
@@ -37,10 +40,14 @@ pub struct Model {
     request: Option<u64>,
     instant: [Option<String>; 3],
     config: Option<switchify_prediction_neural::Config>,
+    learning: bool,
 }
 
 impl Model {
-    pub fn open(path: &Path) -> Result<Self, ()> {
+    /// Opens the verified baseline, and the personal file when given. A
+    /// personal file that cannot be opened leaves prediction working without
+    /// learning.
+    pub fn open(path: &Path, personal: Option<&Path>) -> Result<Self, ()> {
         let mut file = File::open(path).map_err(|_| ())?;
         let mut hash = Sha256::new();
         let mut buffer = [0; 65536];
@@ -54,7 +61,10 @@ impl Model {
         if format!("{:x}", hash.finalize()) != DATABASE_SHA256 {
             return Err(());
         }
-        let predictor = Predictor::open(path, None).map_err(|_| ())?;
+        let (predictor, learning) = match personal.map(|p| Predictor::open(path, Some(p))) {
+            Some(Ok(predictor)) => (predictor, true),
+            _ => (Predictor::open(path, None).map_err(|_| ())?, false),
+        };
         let config = (|| {
             let bundle = path.parent()?.parent()?.join("prediction-neural");
             let executable = std::env::current_exe().ok()?;
@@ -103,6 +113,7 @@ impl Model {
             config,
             request: None,
             instant: Default::default(),
+            learning,
         })
     }
 }
@@ -177,6 +188,12 @@ impl Predict for Model {
             n.reset();
         }
     }
+    fn learn(&mut self, text: &str) {
+        // A failed write keeps the previous snapshot; prediction carries on.
+        if self.learning {
+            let _ = self.predictor.learn(text);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -199,6 +216,41 @@ mod tests {
         }
     }
     #[test]
+    fn learning_writes_only_the_personal_file_and_ranks_learned_words() {
+        let dir = Fixture::new();
+        let path = dir.0.join("english.sqlite");
+        let personal = dir.0.join("personal.sqlite");
+        switchify_prediction::build(
+            &path,
+            "I need help. I need help. I drink water.",
+            "synthetic test",
+        )
+        .unwrap();
+        let original = fs::read(&path).unwrap();
+        let open = |learning| Model {
+            predictor: Predictor::open(&path, Some(&personal)).unwrap(),
+            neural: None,
+            config: None,
+            request: None,
+            instant: Default::default(),
+            learning,
+        };
+        let first = |model: &mut Model| model.predict("I need ", "h").unwrap().words[0].clone();
+        let mut model = open(false);
+        model.learn("I need hummus. I need hummus.");
+        assert_eq!(first(&mut model).as_deref(), Some("help"));
+        let mut model = open(true);
+        // A word the baseline lacks counts once learned twice.
+        model.learn("I need hummus.");
+        assert_eq!(first(&mut model).as_deref(), Some("help"));
+        model.learn("I need hummus.");
+        assert_eq!(first(&mut model).as_deref(), Some("hummus"));
+        // Learning persists for the next worker.
+        assert_eq!(first(&mut open(true)).as_deref(), Some("hummus"));
+        assert_eq!(fs::read(&path).unwrap(), original);
+    }
+
+    #[test]
     fn sqlite_adapter_ranks_context_and_preserves_read_only_baseline() {
         let dir = Fixture::new();
         let path = dir.0.join("english.sqlite");
@@ -211,6 +263,7 @@ mod tests {
             config: None,
             request: None,
             instant: Default::default(),
+            learning: false,
         };
         model.config = Some(switchify_prediction_neural::Config {
             bundle: dir.0.join("missing"),
@@ -269,10 +322,10 @@ mod tests {
         assert_eq!(fs::read(&path).unwrap(), original);
         assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
         // A structurally valid custom database is not the pinned production model.
-        assert!(Model::open(&path).is_err());
+        assert!(Model::open(&path, None).is_err());
         fs::write(&path, "corrupt").unwrap();
-        assert!(Model::open(&path).is_err());
-        assert!(Model::open(&dir.0.join("missing")).is_err());
+        assert!(Model::open(&path, None).is_err());
+        assert!(Model::open(&dir.0.join("missing"), None).is_err());
     }
 
     fn rss_bytes() -> u64 {
@@ -315,7 +368,7 @@ mod tests {
             });
         let before = rss_bytes();
         let start = Instant::now();
-        let mut model = Model::open(&path).unwrap();
+        let mut model = Model::open(&path, None).unwrap();
         let cold_ms = start.elapsed().as_secs_f64() * 1000.0;
         let loaded = rss_bytes();
         let mut samples = Vec::new();
