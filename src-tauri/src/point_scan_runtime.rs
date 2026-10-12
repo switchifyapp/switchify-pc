@@ -6,6 +6,13 @@ use crate::{
     scanning::Rect,
     scanning_runtime::{self, Adapter},
 };
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
+    time::{Duration, Instant},
+};
 use tauri::{AppHandle, Manager};
 #[derive(Clone)]
 pub struct Environment {
@@ -17,6 +24,8 @@ pub struct Environment {
     /// Nothing is chosen yet in the point scan, which takes up any window.
     following: bool,
     keyboard_area: Rect,
+    /// The Space `keyboard_area` was read on, counted by `space_changed`.
+    space: u64,
 }
 /// A point is chosen over one window and must not be used on another.
 fn window_changed(environment: &Environment, foreground: Option<usize>) -> bool {
@@ -34,6 +43,55 @@ fn keyboard_display<'a>(
         .find(|display| *display == current)
         .or_else(|| displays.iter().find(|display| display.name == current.name))
         .or_else(|| display_navigation::current_display(cursor, displays))
+}
+/// On macOS the work area leaves out the menu bar and Dock only while they
+/// show, so it changes whenever an auto-hidden one comes and goes, as in a
+/// full-screen app. Windows keeps its work area when the taskbar hides.
+const WORK_AREA_FOLLOWS_AUTO_HIDE: bool = cfg!(target_os = "macos");
+/// How long the work area may still be moving after the Space changes.
+const SPACE_SETTLING: Duration = Duration::from_millis(1000);
+static SPACE_CHANGES: AtomicU64 = AtomicU64::new(0);
+static SPACE_CHANGED_AT: Mutex<Option<Instant>> = Mutex::new(None);
+/// The active macOS Space changed: a full-screen app was entered or left, or
+/// another desktop was chosen. Its menu bar and Dock may differ.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn space_changed() {
+    *SPACE_CHANGED_AT.lock().unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
+    SPACE_CHANGES.fetch_add(1, Ordering::SeqCst);
+}
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Space {
+    changes: u64,
+    /// Just changed, so the work area is still read as it moves.
+    settling: bool,
+}
+fn space() -> Space {
+    let changed_at = *SPACE_CHANGED_AT.lock().unwrap_or_else(|p| p.into_inner());
+    Space {
+        changes: SPACE_CHANGES.load(Ordering::SeqCst),
+        settling: changed_at.is_some_and(|at| at.elapsed() < SPACE_SETTLING),
+    }
+}
+/// The area for panels on `display`. Where the work area follows auto-hidden
+/// bars, the area this scan already has is kept on the same display and
+/// Space, so panels never jump as the bars show and hide. A new Space is read
+/// afresh, since entering or leaving full screen changes what the bars take.
+fn steady_area(
+    follows_auto_hide: bool,
+    environment: &Environment,
+    display: &Display,
+    area: Rect,
+    space: Space,
+) -> Rect {
+    if follows_auto_hide
+        && environment.display == *display
+        && environment.space == space.changes
+        && !space.settling
+    {
+        environment.keyboard_area
+    } else {
+        area
+    }
 }
 fn bounds(display: &Display) -> Rect {
     Rect {
@@ -260,6 +318,10 @@ impl Adapter for PointScan {
         technique: Option<&mut Workflow>,
     ) -> Result<bool, String> {
         if let (Some(environment), Some(technique)) = (environment, technique) {
+            let space = space();
+            // Whether this update read the work area, so a new Space is only
+            // settled once its area is known.
+            let mut read = false;
             environment.following = false;
             if technique.mouse_open() {
                 environment.foreground = crate::scan_host::foreground().ok();
@@ -275,6 +337,14 @@ impl Adapter for PointScan {
                             Some((cursor, displays.len(), current, area))
                         });
                 if let Some((cursor, displays, current, area)) = placed {
+                    read = true;
+                    let area = steady_area(
+                        WORK_AREA_FOLLOWS_AUTO_HIDE,
+                        environment,
+                        &current,
+                        area,
+                        space,
+                    );
                     technique.set_mouse_area(
                         area,
                         bounds(&current),
@@ -333,8 +403,16 @@ impl Adapter for PointScan {
                     })
                     .and_then(|display| {
                         let area = crate::scan_host::work_area(bounds(&display)).ok()?;
+                        let area = steady_area(
+                            WORK_AREA_FOLLOWS_AUTO_HIDE,
+                            environment,
+                            &display,
+                            area,
+                            space,
+                        );
                         Some((display, area))
                     });
+                read = fitted.is_some();
                 if let Some((current, area)) = fitted.filter(|(display, area)| {
                     environment.display != *display || environment.keyboard_area != *area
                 }) {
@@ -364,6 +442,21 @@ impl Adapter for PointScan {
                     environment.foreground = crate::scan_host::foreground().ok();
                 }
                 technique.set_pointer(None);
+            }
+            // Point scanning ignores the work area, but a keyboard it opens
+            // fits the one for the Space it is on now.
+            if !environment.panel
+                && WORK_AREA_FOLLOWS_AUTO_HIDE
+                && (environment.space != space.changes || space.settling)
+            {
+                if let Ok(area) = crate::scan_host::work_area(bounds(&environment.display)) {
+                    read = true;
+                    environment.keyboard_area = area;
+                    technique.set_keyboard_area(area);
+                }
+            }
+            if read && !space.settling {
+                environment.space = space.changes;
             }
         }
         Ok(true)
@@ -417,6 +510,7 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
             panel: false,
             following: false,
             keyboard_area,
+            space: space().changes,
         },
     ))
 }
@@ -431,7 +525,11 @@ fn validate_display(app: &AppHandle, display: Option<&Environment>) -> Result<()
         if !displays.contains(&expected.display) {
             return Err("Display geometry changed. Scanning restarts.".into());
         }
-        if crate::scan_host::work_area(bounds(&expected.display))? != expected.keyboard_area {
+        // On macOS the work area changes as the menu bar and Dock show, and
+        // the environment reads it again for each Space instead.
+        if !WORK_AREA_FOLLOWS_AUTO_HIDE
+            && crate::scan_host::work_area(bounds(&expected.display))? != expected.keyboard_area
+        {
             return Err("Display work area changed. Scanning restarts.".into());
         }
     }
@@ -555,6 +653,7 @@ mod tests {
             panel,
             following,
             keyboard_area: bounds(&display("one", 0, 1920)),
+            space: 0,
         };
         for now in [None, Some(1), Some(2)] {
             for held in [None, Some(1)] {
@@ -566,6 +665,82 @@ mod tests {
                 );
             }
         }
+    }
+    #[test]
+    fn panels_keep_their_area_while_auto_hidden_bars_show_and_hide() {
+        let one = display("one", 0, 1920);
+        // Opened in a full-screen app, with the menu bar and Dock hidden.
+        let environment = Environment {
+            display: one.clone(),
+            foreground: None,
+            panel: true,
+            following: false,
+            keyboard_area: bounds(&one),
+            space: 4,
+        };
+        let menu_bar_showing = Rect {
+            y: 24.0,
+            height: 1056.0,
+            ..bounds(&one)
+        };
+        let same_space = Space {
+            changes: 4,
+            settling: false,
+        };
+        assert_eq!(
+            steady_area(true, &environment, &one, menu_bar_showing, same_space),
+            bounds(&one)
+        );
+        // Windows keeps its work area when the taskbar hides, so a change is real.
+        assert_eq!(
+            steady_area(false, &environment, &one, menu_bar_showing, same_space),
+            menu_bar_showing
+        );
+        // Leaving full screen, or another desktop, is read afresh, including
+        // while its bars are still moving into place.
+        for space in [
+            Space {
+                changes: 5,
+                settling: false,
+            },
+            Space {
+                changes: 4,
+                settling: true,
+            },
+        ] {
+            assert_eq!(
+                steady_area(true, &environment, &one, menu_bar_showing, space),
+                menu_bar_showing
+            );
+        }
+        // Another display, or this one at a new size, is fitted straight away.
+        for moved in [display("two", 1920, 1280), display("one", 0, 2560)] {
+            let area = Rect {
+                y: 24.0,
+                height: 1056.0,
+                ..bounds(&moved)
+            };
+            for follows in [true, false] {
+                assert_eq!(
+                    steady_area(follows, &environment, &moved, area, same_space),
+                    area
+                );
+            }
+        }
+        assert_eq!(WORK_AREA_FOLLOWS_AUTO_HIDE, cfg!(target_os = "macos"));
+    }
+    #[test]
+    fn a_space_change_is_counted_and_settles() {
+        let before = space();
+        space_changed();
+        let changed = space();
+        assert!(changed.changes > before.changes);
+        assert!(changed.settling);
+        let Some(settled) = Instant::now().checked_sub(SPACE_SETTLING) else {
+            return;
+        };
+        *SPACE_CHANGED_AT.lock().unwrap() = Some(settled);
+        assert!(!space().settling);
     }
     #[test]
     fn the_keyboard_stays_on_its_display_while_that_exists() {

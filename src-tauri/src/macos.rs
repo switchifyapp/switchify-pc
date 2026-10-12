@@ -10,7 +10,8 @@ use enigo::{Enigo, Settings};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
 use objc2_app_kit::{
-    NSWorkspace, NSWorkspaceDidWakeNotification, NSWorkspaceWillSleepNotification,
+    NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification, NSWorkspaceDidWakeNotification,
+    NSWorkspaceWillSleepNotification,
 };
 #[allow(deprecated)]
 use objc2_foundation::{NSHost, NSNotification, NSNotificationCenter, NSString, NSURL};
@@ -543,8 +544,20 @@ impl MacRuntime {
                 &wake_block,
             )
         };
+        // Scanning panels read the work area again for each Space.
+        let space_block = RcBlock::new(|_notification: NonNull<NSNotification>| {
+            crate::point_scan_runtime::space_changed();
+        });
+        let space_observer = unsafe {
+            center.addObserverForName_object_queue_usingBlock(
+                Some(NSWorkspaceActiveSpaceDidChangeNotification),
+                None,
+                None,
+                &space_block,
+            )
+        };
         self.notification_center = Some(center);
-        self.power_observers = vec![sleep_observer, wake_observer];
+        self.power_observers = vec![sleep_observer, wake_observer, space_observer];
     }
 
     fn handle_system_suspend(&mut self) -> Result<(), String> {
