@@ -1694,7 +1694,7 @@ mod tests {
             stop();
             SERVICE.with(|slot| {
                 *slot.borrow_mut() = Service {
-                    client: Some(sleeper()),
+                    client: None,
                     accept: accepting.then_some((1, 0)),
                     ..Default::default()
                 };
@@ -1705,7 +1705,7 @@ mod tests {
             // An acceptance whose reply is awaited fails too.
             SERVICE.with(|slot| {
                 *slot.borrow_mut() = Service {
-                    client: Some(sleeper()),
+                    client: None,
                     accepting,
                     ..Default::default()
                 };
@@ -1739,7 +1739,7 @@ mod tests {
         });
         close_with(|_, personal, _| {
             assert_eq!(personal, None);
-            Ok(sleeper())
+            Err(())
         });
         // With the worker gone, the forgetting finished, marker included.
         assert!(!forgetting());
