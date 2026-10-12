@@ -319,6 +319,9 @@ impl Adapter for PointScan {
     ) -> Result<bool, String> {
         if let (Some(environment), Some(technique)) = (environment, technique) {
             let space = space();
+            // Whether this update read the work area, so a new Space is only
+            // settled once its area is known.
+            let mut read = false;
             environment.following = false;
             if technique.mouse_open() {
                 environment.foreground = crate::scan_host::foreground().ok();
@@ -334,6 +337,7 @@ impl Adapter for PointScan {
                             Some((cursor, displays.len(), current, area))
                         });
                 if let Some((cursor, displays, current, area)) = placed {
+                    read = true;
                     let area = steady_area(
                         WORK_AREA_FOLLOWS_AUTO_HIDE,
                         environment,
@@ -408,6 +412,7 @@ impl Adapter for PointScan {
                         );
                         Some((display, area))
                     });
+                read = fitted.is_some();
                 if let Some((current, area)) = fitted.filter(|(display, area)| {
                     environment.display != *display || environment.keyboard_area != *area
                 }) {
@@ -445,11 +450,12 @@ impl Adapter for PointScan {
                 && (environment.space != space.changes || space.settling)
             {
                 if let Ok(area) = crate::scan_host::work_area(bounds(&environment.display)) {
+                    read = true;
                     environment.keyboard_area = area;
                     technique.set_keyboard_area(area);
                 }
             }
-            if !space.settling {
+            if read && !space.settling {
                 environment.space = space.changes;
             }
         }
@@ -730,7 +736,10 @@ mod tests {
         let changed = space();
         assert!(changed.changes > before.changes);
         assert!(changed.settling);
-        *SPACE_CHANGED_AT.lock().unwrap() = Some(Instant::now() - SPACE_SETTLING);
+        let Some(settled) = Instant::now().checked_sub(SPACE_SETTLING) else {
+            return;
+        };
+        *SPACE_CHANGED_AT.lock().unwrap() = Some(settled);
         assert!(!space().settling);
     }
     #[test]
