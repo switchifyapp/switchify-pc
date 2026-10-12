@@ -11,7 +11,7 @@ use std::{
     cell::RefCell,
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
-    sync::atomic::{AtomicU64, AtomicU8, Ordering},
+    sync::atomic::{AtomicU8, Ordering},
     sync::mpsc,
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -187,9 +187,15 @@ fn adopt(
     spare.usable(ignored, personal, now).then_some(spare.client)
 }
 
-/// Bumped when learning is switched on or off or learned words are
-/// forgotten. Workers started before then are replaced.
-static LEARNING: AtomicU64 = AtomicU64::new(0);
+thread_local! {
+    /// Bumped when learning is switched on or off or learned words are
+    /// forgotten. Workers started before then are replaced. Settings are
+    /// saved, and workers run, on the main thread.
+    static LEARNING: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+fn learning_generation() -> u64 {
+    LEARNING.with(std::cell::Cell::get)
+}
 thread_local! {
     /// Learned words waiting to be deleted once no worker holds them. Like
     /// the workers it waits for, it belongs to the main thread.
@@ -229,23 +235,41 @@ fn delete_personal(path: &Path) -> bool {
 /// Learning was switched on or off: the next keyboard starts a worker that
 /// matches.
 pub fn learning_changed() {
-    LEARNING.fetch_add(1, Ordering::SeqCst);
+    LEARNING.with(|l| l.set(l.get().wrapping_add(1)));
 }
 /// Forget everything learned. The request is recorded on disk first. A spare
 /// worker is killed now; a keyboard's worker is replaced at its next update,
 /// so neither writes again. Returns whether the words are already deleted;
 /// otherwise they are as soon as no worker holds them, which a restart also
 /// finishes before any worker opens the file.
+///
+/// It must run on the main thread, where prediction updates run, so it must
+/// stay a synchronous command.
 pub fn forget_learned(app: &AppHandle) -> Result<bool, String> {
-    let path = personal_file(app).ok_or("The learned words could not be found.")?;
+    forget_at(personal_file(app).ok_or("The learned words could not be found.")?)
+}
+fn forget_at(path: PathBuf) -> Result<bool, String> {
     let unrecorded = "The request to forget learned words could not be saved.";
     std::fs::create_dir_all(path.parent().ok_or(unrecorded)?).map_err(|_| unrecorded)?;
     std::fs::write(forget_marker(&path), b"").map_err(|_| unrecorded)?;
     pend_forgetting(path);
     learning_changed();
-    // Commands and prediction updates share the main thread, and its spare.
     SPARE.with(|s| *s.borrow_mut() = None);
-    Ok(finish_forgetting())
+    // The keyboard's worker may hold the file even where deleting an open
+    // file succeeds, and could still write to it; it goes at its next update.
+    let held = SERVICE.with(|s| {
+        let s = s.borrow();
+        s.client.is_some() && s.personal.is_some()
+    });
+    Ok(!held && finish_forgetting())
+}
+/// Finishes a request to forget left by an earlier run. Nothing holds the
+/// file at startup.
+pub fn resume_forgetting(app: &AppHandle) {
+    if let Some(file) = personal_file(app).filter(|f| forget_marker(f).exists()) {
+        pend_forgetting(file);
+        finish_forgetting();
+    }
 }
 fn pend_forgetting(path: PathBuf) {
     FORGETTING.with(|f| *f.borrow_mut() = Some(path));
@@ -656,7 +680,7 @@ fn close_with(start: impl FnOnce(&Path, Option<&Path>, Vec<u32>) -> Result<Clien
     drop(client);
     // A spare never reopens words being forgotten, or learns against a
     // changed setting.
-    let current = LEARNING.load(Ordering::SeqCst);
+    let current = learning_generation();
     let personal = personal.filter(|_| learning == current && !forgetting());
     let learning = current;
     SPARE.with(|s| {
@@ -789,7 +813,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
         return;
     };
     // A worker started before learning changed may hold the personal file.
-    let learning = LEARNING.load(Ordering::SeqCst);
+    let learning = learning_generation();
     let stale = SERVICE.with(|s| {
         let s = s.borrow();
         s.client.is_some() && s.learning != learning
@@ -1678,6 +1702,17 @@ mod tests {
             let mut keyboard = Keyboard::new(false);
             replace_stale(&mut keyboard);
             assert_eq!(keyboard.error, accepting);
+            // An acceptance whose reply is awaited fails too.
+            SERVICE.with(|slot| {
+                *slot.borrow_mut() = Service {
+                    client: Some(sleeper()),
+                    accepting,
+                    ..Default::default()
+                };
+            });
+            let mut keyboard = Keyboard::new(false);
+            replace_stale(&mut keyboard);
+            assert_eq!(keyboard.error, accepting);
             SERVICE.with(|slot| {
                 let s = slot.borrow();
                 assert!(s.client.is_none() && s.accept.is_none() && !s.accepting);
@@ -1698,7 +1733,7 @@ mod tests {
                 client: Some(sleeper()),
                 model: Some(PathBuf::from("model")),
                 personal: Some(path.clone()),
-                learning: LEARNING.load(Ordering::SeqCst),
+                learning: learning_generation(),
                 ..Default::default()
             };
         });
@@ -1710,6 +1745,35 @@ mod tests {
         assert!(!forgetting());
         assert!(!forget_marker(&path).exists());
         stop();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn forgetting_waits_for_the_keyboard_worker_that_holds_the_file() {
+        stop();
+        let dir = std::env::temp_dir().join(format!("switchify-held-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("personal.sqlite");
+        std::fs::write(&path, "counts").unwrap();
+        SERVICE.with(|slot| {
+            *slot.borrow_mut() = Service {
+                client: Some(sleeper()),
+                personal: Some(path.clone()),
+                ..Default::default()
+            };
+        });
+        SPARE.with(|slot| *slot.borrow_mut() = spare(&[], Instant::now()));
+        // Not deleted while the keyboard's worker could still write to it,
+        // even where deleting an open file would succeed.
+        assert!(!forget_at(path.clone()).unwrap());
+        assert!(path.exists() && forget_marker(&path).exists());
+        SPARE.with(|slot| assert!(slot.borrow().is_none(), "the spare is killed at once"));
+        // The worker is replaced at the next update; then the words go.
+        stop();
+        assert!(!path.exists() && !forget_marker(&path).exists());
+        // With no worker holding the file, it goes at once.
+        std::fs::write(&path, "counts").unwrap();
+        assert!(forget_at(path.clone()).unwrap());
+        assert!(!path.exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
     #[test]

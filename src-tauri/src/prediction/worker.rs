@@ -227,7 +227,7 @@ impl Engine {
         let keep = self
             .buffer
             .char_indices()
-            .nth(total.saturating_sub(RECENT).max(dropped))
+            .nth(total.saturating_sub(RECENT))
             .map_or(self.buffer.len(), |(i, _)| i);
         if let Some(end) = last_boundary(&self.buffer[self.learned..keep]) {
             self.learn_to(self.learned + end);

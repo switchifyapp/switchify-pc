@@ -1751,6 +1751,7 @@ pub fn run() {
             app.manage(switch_practice::Controller::default());
             switch_runtime::install(app.handle());
             remote_scan::install(app.handle());
+            prediction::resume_forgetting(app.handle());
             point_scan_runtime::install(app.handle());
             settings_sync::install(app.handle());
             install_tray(app)?;

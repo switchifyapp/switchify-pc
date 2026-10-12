@@ -690,5 +690,5 @@ it("learns from typing by default, keeps the choice local and forgets only after
     command === "forget_learned_words" ? false : command === "get_point_scan" ? initial : { ...initial, ...args });
   fireEvent.click(screen.getByRole("button", { name: "Forget learned words" }));
   expect(mocks.invoke).toHaveBeenCalledWith("forget_learned_words");
-  expect(await screen.findByText(/will be forgotten as soon as the keyboard stops using them/)).toBeInTheDocument();
+  expect(await screen.findByText(/will be forgotten in a moment/)).toBeInTheDocument();
 });
