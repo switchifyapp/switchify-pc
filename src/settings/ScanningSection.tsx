@@ -13,7 +13,7 @@ const phases = {
   mouseSuspended: "Select to resume the mouse",
   mouseMoving: "Moving pointer",
   mouseScrolling: "Scrolling",
-  mouseRadar: "Choose a direction, then a distance, to move the pointer",
+  mouseRadar: "Choose an area, then a direction, then a distance, to move the pointer",
   idle: "Ready to begin",
   autoSelecting: "Waiting to click. Press a switch for the action menu",
   menu: "Choose an action at the selected point",
