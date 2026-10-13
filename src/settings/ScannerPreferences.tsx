@@ -158,7 +158,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
 
     </>}
     {area === 'keyboard' && <>
-      <SettingGroup title="Keyboard layout" description="Choose the Letters page layout. Simple QWERTY puts punctuation on its Numbers page; Navigation stays the same.">
+      <SettingGroup title="Keyboard layout" description="Choose the Letters page layout. Simple QWERTY has a full stop on its Letters page and other punctuation on its Numbers page; Navigation stays the same.">
         <OptionGroup<PointScanConfig['keyboardLayout']>
           legend="Keyboard layout"
           disabled={disabled || !!pending}
@@ -177,7 +177,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
         />
         <p className="setting-note">Simple QWERTY keeps the letter order with fewer keys on its Letters page. Common letters first puts frequent English letters and Space early in row scanning. The keyboard footer cycles through all three layouts; the choice is saved.</p>
       </SettingGroup>
-      <p className="setting-note">The scanning keyboard spaces prose punctuation for you. In Simple QWERTY, those marks are on Numbers; the separate numeric period stays a decimal point. Period, question mark, and exclamation mark capitalize the next letter.</p>
+      <p className="setting-note">The scanning keyboard spaces prose punctuation for you. In Simple QWERTY, the full stop is also on Letters and the other marks are on Numbers; the separate numeric period stays a decimal point. Period, question mark, and exclamation mark capitalize the next letter.</p>
     </>}
     {(area === 'keyboard' || area === 'mouse' || area === 'menu') && <SettingGroup title="Panel position" description="The keyboard, the mouse panel, Home and the action menus share one position. Choose it from Position on the keyboard or mouse panel.">
       <Toggle label="Move away from the pointer" checked={config.panelAvoidsPointer} disabled={disabled} onChange={value => update('panelAvoidsPointer', value)} />
