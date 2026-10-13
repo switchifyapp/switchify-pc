@@ -168,13 +168,14 @@ impl Menu {
         self.scan.handle(action)
     }
 
-    /// Draws the menu as a docked panel, showing `error` in place of the scanning status.
-    pub fn frame(&self, screen: Rect, units: f64, dock: Dock, error: Option<&str>) -> Frame {
+    /// Draws the menu as a docked panel. While an action has `failed`, the status
+    /// stays short so it fits one line; the workflow shows the message beside it.
+    pub fn frame(&self, screen: Rect, units: f64, dock: Dock, failed: bool) -> Frame {
         let (row, column) = self.scan.position(&self.rows);
         let escaping = self.scan.nav.escaping();
         let title = self.kind.label();
-        let status = if let Some(error) = error {
-            format!("{} · Select to return", error.trim_end_matches('.'))
+        let status = if failed {
+            format!("{title} · Action failed · Select to return")
         } else if self.scan.waiting() {
             format!("{title} · Select to continue")
         } else if self.suspended() {
@@ -211,8 +212,7 @@ impl Menu {
             note: None,
             dock,
             // Nothing can be chosen while an error or pause waits for Select.
-            selected: (error.is_none() && !self.suspended())
-                .then(|| self.scan.highlight(&self.rows)),
+            selected: (!failed && !self.suspended()).then(|| self.scan.highlight(&self.rows)),
             row_scan: self.scan.row_scan() || self.scan.group_scan() || escaping,
             thickness: options.thickness,
         }
@@ -581,7 +581,7 @@ mod tests {
                         let mut menu = Menu::new(kind, 250);
                         menu.set_panel_size(size);
                         for &dock in docks[..3].iter().flatten() {
-                            let frame = menu.frame(screen, units, dock, None);
+                            let frame = menu.frame(screen, units, dock, false);
                             assert!(frame.label.is_none(), "the status tile is the header");
                             let panel = frame.tiles[0].rect;
                             assert!(frame.tiles[0].is_panel_background());
@@ -794,7 +794,7 @@ mod tests {
                 .collect()
         };
         let mut menu = Menu::new(Kind::Actions, 250);
-        let row = menu.frame(screen, 1.0, Dock::default(), None);
+        let row = menu.frame(screen, 1.0, Dock::default(), false);
         assert!(row.tiles[0].is_panel_background());
         assert_eq!(status(&row), "Actions · Select a row");
         let selected: Vec<_> = keys(&row).into_iter().filter(|t| t.selected).collect();
@@ -804,7 +804,7 @@ mod tests {
         );
         assert!(selected.iter().all(|t| t.style.unwrap().row_scan));
         menu.handle(Action::Select);
-        let item = menu.frame(screen, 1.0, Dock::default(), None);
+        let item = menu.frame(screen, 1.0, Dock::default(), false);
         assert_eq!(status(&item), "Actions · Select Left click");
         let selected: Vec<_> = keys(&item).into_iter().filter(|t| t.selected).collect();
         assert_eq!(selected.len(), 1);
@@ -827,20 +827,12 @@ mod tests {
             height: 720.0,
         };
         let mut menu = Menu::new(Kind::Home, 250);
-        let error = menu.frame(
-            screen,
-            1.0,
-            Dock::default(),
-            Some("Pointer unavailable. Try again."),
-        );
-        assert_eq!(
-            status(&error),
-            "Pointer unavailable. Try again · Select to return"
-        );
+        let error = menu.frame(screen, 1.0, Dock::default(), true);
+        assert_eq!(status(&error), "Home · Action failed · Select to return");
         assert!(error.tiles.iter().all(|tile| !tile.selected));
         assert!(error.tiles.iter().any(|tile| tile.text == "Close menu"));
         menu.suspend();
-        let paused = menu.frame(screen, 1.0, Dock::default(), None);
+        let paused = menu.frame(screen, 1.0, Dock::default(), false);
         assert_eq!(status(&paused), "Home paused · Select to resume");
         assert!(paused.tiles.iter().all(|tile| !tile.selected));
     }
@@ -854,7 +846,7 @@ mod tests {
         };
         for kind in [Kind::Actions, Kind::Scroll, Kind::ConfirmDrag] {
             for scale in [1.0, 1.5, 2.0] {
-                let frame = Menu::new(kind, 250).frame(screen, scale, Dock::default(), None);
+                let frame = Menu::new(kind, 250).frame(screen, scale, Dock::default(), false);
                 let panel = &frame.tiles[0];
                 assert!(panel.is_panel_background());
                 let content = &frame.tiles[1..];

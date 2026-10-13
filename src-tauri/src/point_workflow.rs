@@ -537,8 +537,34 @@ impl Workflow {
             self.menu_area(),
             self.point.units_per_logical_pixel,
             self.dock,
-            self.error.as_deref(),
+            self.error.is_some(),
         )
+    }
+    /// Why the open menu's action failed, in a prompt at whichever end of the
+    /// screen the menu panel leaves clear.
+    fn error_label(&self, error: &str, panel: Option<Rect>) -> FrameLabel {
+        let s = self.point.units_per_logical_pixel;
+        let screen = self.point.screen;
+        let width = (640.0 * s).min(screen.width);
+        let height = (154.0 * s).min(screen.height);
+        let panel_above_middle = panel
+            .is_some_and(|panel| panel.y + panel.height / 2.0 < screen.y + screen.height / 2.0);
+        FrameLabel {
+            text: format!("{error}\nSelect to return"),
+            rect: Rect {
+                x: screen.x + (screen.width - width) / 2.0,
+                y: if panel_above_middle {
+                    screen.y + screen.height - height - 20.0 * s
+                } else {
+                    screen.y + 20.0 * s
+                }
+                .max(screen.y),
+                width,
+                height,
+            },
+            scale: s,
+            hud: Some(crate::scanning::HudPresentation { screen, scale: s }),
+        }
     }
     /// Dock to draw the open panel at instead of `dock`, while the pointer is over it.
     fn avoiding(&self) -> Option<crate::scan_panel::Dock> {
@@ -1398,6 +1424,14 @@ impl Technique for Workflow {
         };
         if let Some(moved) = self.avoiding() {
             crate::scan_panel::move_frame(&mut frame, moved, panel_area);
+        }
+        if let (Stage::Menu, Some(error)) = (&self.stage, &self.error) {
+            let panel = frame
+                .tiles
+                .iter()
+                .find(|tile| tile.is_panel_background())
+                .map(|tile| tile.rect);
+            frame.label = Some(self.error_label(error, panel));
         }
         if matches!(self.stage, Stage::Menu | Stage::Destination) && !self.home_open() {
             let s = self.point.units_per_logical_pixel;
@@ -3539,11 +3573,12 @@ mod tests {
         advance_auto(&mut session, 1000, false);
         assert!(session.take_selection().is_some());
         session.execution_failed("Cleanup failed".into());
-        assert!(session
-            .frame()
+        let frame = session.frame();
+        assert!(frame
             .tiles
             .iter()
-            .any(|tile| tile.text == "Cleanup failed · Select to return"));
+            .any(|tile| tile.text.ends_with("Action failed · Select to return")));
+        assert!(frame.label.unwrap().text.starts_with("Cleanup failed"));
         assert_eq!(session.action(Action::Select), None);
         assert_eq!(
             session.technique.phase(),
@@ -3634,21 +3669,45 @@ mod tests {
             w.selected(Item::Command(crate::scan_menu::Command::Copy)),
             Some(Request::Command { .. })
         ));
-        w.execution_failed("Action failed.".into());
-        // The error is the menu panel's status, and nothing is offered until Select.
-        let frame = w.frame();
-        assert!(frame.label.is_none());
-        let status = frame
-            .tiles
-            .iter()
-            .find(|tile| {
-                tile.style
-                    .is_some_and(|style| style.role == crate::scanning::TileRole::Status)
-            })
-            .unwrap();
-        assert_eq!(status.text, "Action failed · Select to return");
-        assert!(frame.tiles.iter().all(|tile| !tile.selected));
-        assert!(w.handle(Action::Select).is_none());
+        w.point.config.menu_scan.panel_size = crate::scan_preferences::PanelSize::Small;
+        // The longest messages an action can fail with.
+        for message in [
+            "Release modifiers and end switch forwarding before selecting an action.",
+            "Typing with the keyboard. Resume switch control in Switches when finished.",
+        ] {
+            for dock in [
+                crate::scan_panel::Dock { column: 1, row: 0 },
+                crate::scan_panel::Dock::default(),
+            ] {
+                w.set_dock(dock);
+                w.stage = Stage::Menu;
+                w.execution_failed(message.into());
+                // The status stays one short line, and the message is shown clear of the panel.
+                let frame = w.frame();
+                let status = frame
+                    .tiles
+                    .iter()
+                    .find(|tile| {
+                        tile.style
+                            .is_some_and(|style| style.role == crate::scanning::TileRole::Status)
+                    })
+                    .unwrap();
+                assert_eq!(status.text, "Actions · Action failed · Select to return");
+                assert!(frame.tiles.iter().all(|tile| !tile.selected));
+                let label = frame.label.unwrap();
+                assert_eq!(label.text, format!("{message}\nSelect to return"));
+                assert!(label.hud.is_some());
+                let panel = frame.tiles[0].rect;
+                assert!(
+                    label.rect.y + label.rect.height <= panel.y
+                        || label.rect.y >= panel.y + panel.height,
+                    "{dock:?}"
+                );
+                assert!(label.rect.y >= 0.0 && label.rect.y + label.rect.height <= 720.0);
+                assert!(w.handle(Action::Select).is_none());
+                assert!(w.frame().label.is_none());
+            }
+        }
         assert_eq!(w.selected(Item::LeftClick), Some(default_click((120, 80))));
     }
     #[test]
