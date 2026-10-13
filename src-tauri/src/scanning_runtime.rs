@@ -26,6 +26,8 @@ pub trait Adapter: Send + Sync + 'static {
     fn carry_over(_previous: &Self::Technique, _next: &mut Self::Technique) {}
     /// Carries state the runtime owns, such as the saved mode, into settings saved by the UI.
     fn keep_runtime_config(_next: &mut Self::Config, _current: &Self::Config) {}
+    /// Saves local, unsynced state an action changed, such as the panel position.
+    fn remember(_app: &AppHandle, _technique: &mut Self::Technique) {}
     fn cursor_action_feedback(
         _request: &<Self::Technique as Technique>::Selection,
     ) -> Option<crate::input::PointerFeedback> {
@@ -543,6 +545,9 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
         }
         A::validate_environment(app, d.display.as_ref())?;
         let point = d.engine.as_mut().and_then(|e| e.action(action));
+        if let Some(engine) = d.engine.as_mut() {
+            A::remember(app, &mut engine.technique);
+        }
         if let Some(mode) = d.engine.as_ref().map(|e| &e.technique) {
             let mut config = d.config.clone();
             if A::sync_mode(&mut config, mode) {

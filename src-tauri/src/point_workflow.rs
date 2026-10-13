@@ -141,6 +141,8 @@ pub struct Workflow {
     mouse_area: Rect,
     /// Shared by the keyboard and mouse panels and the menus, and kept when any is rebuilt.
     dock: crate::scan_panel::Dock,
+    /// The dock last loaded or saved, so only a newly chosen dock is saved.
+    saved_dock: crate::scan_panel::Dock,
     /// Latest pointer position, used to move an open panel out of the pointer's way.
     pointer: Option<(f64, f64)>,
     /// Where the open panel is drawn while it avoids the pointer.
@@ -200,6 +202,7 @@ impl Workflow {
                 .with_repeat_stop_edge(config.mouse_repeat_stop_edge),
             mouse_area: screen,
             dock: Default::default(),
+            saved_dock: Default::default(),
             pointer: None,
             moved: None,
             return_to_mouse: false,
@@ -252,6 +255,20 @@ impl Workflow {
         .with_repeat_stop_edge(self.point.config.mouse_repeat_stop_edge);
         mouse.dock = self.dock;
         mouse
+    }
+    /// Starts with the panels at a previously saved dock.
+    pub fn with_dock(mut self, dock: crate::scan_panel::Dock) -> Self {
+        self.set_dock(dock);
+        self.saved_dock = dock;
+        self
+    }
+    /// The dock chosen since it was last loaded or saved, until it is saved.
+    /// A panel moved out of the pointer's way keeps its chosen dock.
+    pub fn unsaved_dock(&self) -> Option<crate::scan_panel::Dock> {
+        (self.dock != self.saved_dock).then_some(self.dock)
+    }
+    pub fn dock_saved(&mut self, dock: crate::scan_panel::Dock) {
+        self.saved_dock = dock;
     }
     fn set_dock(&mut self, dock: crate::scan_panel::Dock) {
         self.dock = dock;
@@ -330,9 +347,13 @@ impl Workflow {
     pub fn control_mode(&self) -> crate::point_scan::ControlMode {
         self.point.config.control_mode
     }
-    /// Carries over whether the scan that came before ended with an action.
+    /// Carries over whether the scan that came before ended with an action,
+    /// and the dock it chose.
     pub fn resume_from(&mut self, previous: &Self) {
         self.resume = previous.resume;
+        // The chosen dock stays even when it could not be saved.
+        self.set_dock(previous.dock);
+        self.saved_dock = previous.saved_dock;
     }
     /// Home, or a menu opened from it, is showing. Nothing in it acts at a point.
     pub fn home_open(&self) -> bool {
@@ -2504,6 +2525,56 @@ mod tests {
         workflow.reset();
         workflow.open_mouse();
         assert_eq!((workflow.keyboard.dock, workflow.mouse.dock), (dock, dock));
+    }
+
+    #[test]
+    fn a_saved_panel_position_is_restored_and_only_chosen_positions_are_saved() {
+        use crate::{scan_mouse::Key, scan_panel::Dock};
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let config = Config {
+            panel_avoids_pointer: true,
+            ..last_mode()
+        };
+        let saved = Dock { column: 1, row: 0 };
+        let mut workflow = Workflow::new(config.point(), screen, 1.0)
+            .unwrap()
+            .with_dock(saved);
+        assert_eq!(workflow.unsaved_dock(), None, "a loaded dock is saved");
+        workflow.open_mouse();
+        assert_eq!(
+            (workflow.keyboard.dock, workflow.mouse.dock),
+            (saved, saved)
+        );
+        let panel = workflow.frame().tiles[0].rect;
+        assert_eq!(panel, saved.rect(screen, (panel.width, panel.height)));
+
+        // Moving out of the pointer's way is not a choice.
+        workflow.set_pointer(Some((640.0, 20.0)));
+        assert!(workflow.moved.is_some());
+        assert_eq!(workflow.unsaved_dock(), None);
+
+        let chosen = Dock { column: 2, row: 2 };
+        assert_eq!(workflow.mouse_key(Key::Dock), None);
+        assert_eq!(workflow.mouse_key(Key::Position(chosen)), None);
+        assert_eq!(workflow.unsaved_dock(), Some(chosen));
+        // A failed save leaves it to retry after the next action.
+        assert_eq!(workflow.unsaved_dock(), Some(chosen));
+        workflow.dock_saved(chosen);
+        assert_eq!(workflow.unsaved_dock(), None, "saved once");
+
+        // The next scan keeps the chosen dock.
+        let mut next = Workflow::new(config.point(), screen, 1.0)
+            .unwrap()
+            .with_dock(Dock::default());
+        next.resume_from(&workflow);
+        next.open_mouse();
+        assert_eq!(next.mouse.dock, chosen);
+        assert_eq!(next.unsaved_dock(), None);
     }
 
     #[test]
