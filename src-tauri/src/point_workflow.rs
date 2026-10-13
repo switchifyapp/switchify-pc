@@ -843,6 +843,12 @@ impl Workflow {
             self.end_radar(false);
         }
     }
+    /// Takes the pointer to the radar's chosen centre, then along with its
+    /// marker, only when that has moved. A held drag drags along with it.
+    fn radar_follow(&mut self) -> Option<Request> {
+        let (x, y) = self.radar.as_mut()?.follow()?;
+        Some(Request::MouseMoveAbsolute { x, y })
+    }
     /// What the scanned keyboard's choice asks for. A navigation key also
     /// prepares a repeat when that is turned on.
     fn keyboard_output(&mut self, output: Option<crate::scan_keyboard::Output>) -> Option<Request> {
@@ -1253,6 +1259,7 @@ impl Technique for Workflow {
                     self.end_radar(true);
                     return Some(Request::MouseMoveAbsolute { x, y });
                 }
+                return self.radar_follow();
             }
             Stage::Point | Stage::Destination => {
                 if let Some(point) = self.point.handle(action) {
@@ -1305,6 +1312,9 @@ impl Technique for Workflow {
                     radar.advance(ms);
                     if radar.exhausted() {
                         self.radar_back();
+                    } else if let Some(request) = self.radar_follow() {
+                        // At most one move each tick, as the marker moves.
+                        self.pending = Some(request);
                     }
                 }
             }
@@ -1867,15 +1877,22 @@ mod tests {
         for _ in 0..3 {
             assert_eq!(workflow.handle(Action::Next), None);
         }
-        assert_eq!(workflow.handle(Action::Select), None);
+        // The pointer goes to its centre and stays there while the beam turns.
+        assert_eq!(
+            workflow.handle(Action::Select),
+            Some(Request::MouseMoveAbsolute { x: 960, y: 540 })
+        );
         assert_eq!(
             workflow.frame().label.unwrap().text,
             "Radar · Select a direction"
         );
-        // Straight up, then four manual steps out.
+        // Straight up, then four manual steps out, each taking the pointer along.
         assert_eq!(workflow.handle(Action::Select), None);
-        for _ in 0..4 {
-            assert_eq!(workflow.handle(Action::Next), None);
+        for y in [520, 500, 480, 460] {
+            assert_eq!(
+                workflow.handle(Action::Next),
+                Some(Request::MouseMoveAbsolute { x: 960, y })
+            );
         }
         assert_eq!(
             workflow.handle(Action::Select),
