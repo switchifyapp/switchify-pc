@@ -550,20 +550,138 @@ mod tests {
             workflow.choose_mouse_key(crate::scan_mouse::Key::Radar),
             None
         );
-        // The top right quarter, around (-320, 180), then straight down.
-        workflow.handle(Action::Next);
-        workflow.handle(Action::Select);
-        for _ in 0..36 {
-            workflow.handle(Action::Next);
-        }
-        workflow.handle(Action::Select);
-        for _ in 0..5 {
-            workflow.handle(Action::Next);
-        }
-        let request = workflow.handle(Action::Select).unwrap();
         let mut input = DesktopInput::new(Fake::default());
-        execute(&mut input, request, true).unwrap();
-        assert_eq!(input.injector.events, ["move -320 280"]);
+        let mut run = |request: Option<Request>| {
+            if let Some(request) = request {
+                execute(&mut input, request, true).unwrap();
+            }
+        };
+        // The top right quarter, around (-320, 180), then straight down.
+        run(workflow.handle(Action::Next));
+        run(workflow.handle(Action::Select));
+        for _ in 0..36 {
+            run(workflow.handle(Action::Next));
+        }
+        run(workflow.handle(Action::Select));
+        for _ in 0..5 {
+            run(workflow.handle(Action::Next));
+        }
+        run(workflow.handle(Action::Select));
+        assert_eq!(
+            input.injector.events,
+            [
+                "move -320 180",
+                "move -320 200",
+                "move -320 220",
+                "move -320 240",
+                "move -320 260",
+                "move -320 280",
+                "move -320 280",
+            ]
+        );
+    }
+    #[test]
+    fn radar_takes_the_fake_pointer_along_and_never_snaps_it_back() {
+        use crate::point_workflow::Workflow;
+        use crate::scanning::{Action, Rect, Session, Technique};
+        let screen = Rect {
+            x: -1280.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let config = crate::point_scan::Config {
+            start_with: crate::point_scan::StartWith::LastMode,
+            ..Default::default()
+        };
+        let radar = || {
+            let mut s = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), false);
+            s.action(Action::Select);
+            s.technique.handle(Action::OpenMouse);
+            s.technique.set_pointer(Some((-1000.0, 100.0)));
+            s.technique.choose_mouse_key(crate::scan_mouse::Key::Radar);
+            s
+        };
+        fn run(input: &mut DesktopInput<Fake>, request: Option<Request>) {
+            if let Some(request) = request {
+                execute(input, request, true).unwrap();
+            }
+        }
+        fn tick(input: &mut DesktopInput<Fake>, s: &mut Session<Workflow>, ticks: usize) {
+            for _ in 0..ticks {
+                s.tick(100, false);
+                run(input, s.take_selection());
+            }
+        }
+        let mut input = DesktopInput::new(Fake::default());
+        let mut s = radar();
+
+        // Nothing moves while an area is highlighted.
+        tick(&mut input, &mut s, 5);
+        run(&mut input, s.action(Action::Next));
+        assert!(input.injector.events.is_empty());
+        // Choosing the top right quarter takes the pointer to its centre,
+        // where it stays while the beam turns.
+        run(&mut input, s.action(Action::Select));
+        assert_eq!(input.injector.events, ["move -320 180"]);
+        tick(&mut input, &mut s, 5);
+        run(&mut input, s.action(Action::Next));
+        assert_eq!(input.injector.events, ["move -320 180"]);
+        // Open Mouse steps back to choosing an area and leaves the pointer.
+        run(&mut input, s.action(Action::OpenMouse));
+        tick(&mut input, &mut s, 5);
+        assert_eq!(input.injector.events, ["move -320 180"]);
+
+        // The bottom left quarter, around (-960, 540), then due right.
+        run(&mut input, s.action(Action::Next));
+        run(&mut input, s.action(Action::Next));
+        run(&mut input, s.action(Action::Select));
+        for _ in 0..18 {
+            run(&mut input, s.action(Action::Next));
+        }
+        // The marker starts at the centre, where the pointer already is.
+        run(&mut input, s.action(Action::Select));
+        assert_eq!(input.injector.events, ["move -320 180", "move -960 540"]);
+        input.injector.events.clear();
+        // At speed 2 the pointer follows 12 pixels a tick, and a step is 20.
+        tick(&mut input, &mut s, 3);
+        run(&mut input, s.action(Action::Next));
+        // Paused, nothing moves.
+        s.action(Action::Pause);
+        tick(&mut input, &mut s, 5);
+        s.action(Action::Pause);
+        run(&mut input, s.action(Action::Select));
+        assert_eq!(
+            input.injector.events,
+            [
+                "move -948 540",
+                "move -936 540",
+                "move -924 540",
+                "move -904 540",
+                "move -904 540",
+            ]
+        );
+        assert!(s.technique.mouse_open());
+        tick(&mut input, &mut s, 5);
+        assert_eq!(input.injector.events.len(), 5, "the panel moves nothing");
+
+        // A held drag drags along, and cancelling leaves the pointer where it is.
+        let mut s = radar();
+        execute(&mut input, Request::DragStart((-1000, 100)), true).unwrap();
+        input.injector.events.clear();
+        run(&mut input, s.action(Action::Select));
+        run(&mut input, s.action(Action::Select));
+        tick(&mut input, &mut s, 2);
+        assert!(input.has_active_drag());
+        s.action(Action::Cancel);
+        tick(&mut input, &mut s, 5);
+        assert_eq!(
+            input.injector.events,
+            ["move -960 180", "move -960 168", "move -960 156"]
+        );
+        // The existing cleanup still releases the drag.
+        execute(&mut input, Request::OpenPoint, true).unwrap();
+        assert!(!input.has_active_drag());
     }
     #[test]
     fn keyboard_text_chords_and_current_focus_use_fake_input() {

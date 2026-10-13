@@ -1,6 +1,7 @@
 //! Radar pointer targeting for the mouse panel. A quarter of the display, or
 //! all of it, is chosen first. A beam then turns around that area's centre,
-//! and a marker travels out along it to the area's edge. Pure geometry; no OS input.
+//! and the pointer follows a marker out along it to the area's edge. Pure
+//! geometry; no OS input: it only says where the pointer should go.
 use crate::{
     point_scan::outline,
     scan_preferences::{Direction, Resolved},
@@ -79,6 +80,8 @@ pub struct Radar {
     /// Time since the last counted pass, so a short beam is not used up at
     /// once. While an area is being chosen, time since the highlight moved.
     pass_ms: u64,
+    /// Where the pointer was last sent since an area was chosen.
+    placed: Option<(i32, i32)>,
 }
 
 impl Radar {
@@ -98,6 +101,7 @@ impl Radar {
             direction: 1.0,
             cycles: 0,
             pass_ms: 0,
+            placed: None,
         };
         radar.choose_area();
         radar
@@ -113,6 +117,8 @@ impl Radar {
         self.distance = 0.0;
         self.cycles = 0;
         self.pass_ms = 0;
+        // The pointer stays where it is until another area is chosen.
+        self.placed = None;
     }
     /// Goes back to choosing an area. False when an area is already being
     /// chosen, so the radar should end.
@@ -163,6 +169,19 @@ impl Radar {
             x.round().min(a.x + a.width - 1.0).max(a.x) as i32,
             y.round().min(a.y + a.height - 1.0).max(a.y) as i32,
         )
+    }
+    /// Where the pointer should go, only when it was not sent there already:
+    /// the chosen area's centre while the beam turns, then the marker.
+    /// Nothing while an area is being chosen.
+    pub fn follow(&mut self) -> Option<(i32, i32)> {
+        if self.phase == Phase::Area {
+            return None;
+        }
+        let target = self.target();
+        (self.placed != Some(target)).then(|| {
+            self.placed = Some(target);
+            target
+        })
     }
     pub fn exhausted(&self) -> bool {
         self.options.exhausted(self.cycles)
@@ -320,15 +339,14 @@ impl Radar {
             strips
                 .extend((1..=dots).map(|dot| self.square(self.at(spacing * dot as f64), t * 2.0)));
         } else {
-            // The beam grows out from the centre to its tip, where the pointer goes.
+            // The beam grows out from the centre to the pointer, which is its tip.
             strips.extend(
                 (1..=dots)
                     .map(|dot| spacing * dot as f64)
-                    // Leave room so no dot sits on the tip.
+                    // Leave room so no dot sits under the pointer.
                     .take_while(|&along| along < self.distance - spacing / 2.0)
                     .map(|along| self.square(self.at(along), t * 2.0)),
             );
-            strips.push(self.square(self.at(self.distance), t * 3.0));
         }
         strips
     }
@@ -709,30 +727,77 @@ mod tests {
         let frame = r.frame();
         assert_eq!(
             frame.strips.len(),
-            2,
-            "the beam starts as the origin and its tip"
+            1,
+            "the beam starts as the origin, under the pointer"
         );
         assert!(frame.fills.is_empty());
         assert_eq!(frame.label.unwrap().text, "Radar · Select a distance");
 
-        // It grows with the distance, and its tip is where the pointer goes.
+        // It grows with the distance up to the pointer, which is its tip,
+        // and draws no marker of its own there.
         r.distance = r.reach() / 2.0;
         let half = r.frame();
         assert!(half.strips.len() > 2 && half.strips.len() < full);
-        let tip = half.strips.last().unwrap();
         let (x, y) = r.target();
-        assert!((tip.x + tip.width / 2.0 - f64::from(x)).abs() <= 1.0);
-        assert!((tip.y + tip.height / 2.0 - f64::from(y)).abs() <= 1.0);
+        for dot in &half.strips {
+            let gap = (dot.x + dot.width / 2.0 - f64::from(x))
+                .hypot(dot.y + dot.height / 2.0 - f64::from(y));
+            assert!(gap > dot.width, "nothing is drawn under the pointer");
+        }
         r.distance = r.reach();
         assert_eq!(
             r.frame().strips.len(),
-            full,
-            "the full beam ends in its tip"
+            full - 1,
+            "the full beam stops short of the pointer at its tip"
         );
         for rect in &r.frame().strips {
             assert!(rect.x + rect.width / 2.0 >= SCREEN.x - 1e-6);
             assert!(rect.y + rect.height / 2.0 >= SCREEN.y - 1e-6);
         }
+    }
+
+    #[test]
+    fn the_pointer_follows_the_centre_then_the_marker_only_when_it_moves() {
+        let mut r = radar();
+        assert_eq!(r.follow(), None, "the pointer stays while choosing an area");
+        r.advance(1000);
+        assert_eq!(r.follow(), None);
+
+        // The top right quarter, around (-250, 300).
+        r.handle(Action::Select);
+        assert_eq!(r.follow(), Some((-250, 300)), "to the chosen centre");
+        assert_eq!(r.follow(), None, "only once");
+        // The beam turning leaves the pointer at the centre.
+        for _ in 0..20 {
+            r.advance(100);
+            r.handle(Action::Next);
+            assert_eq!(r.follow(), None);
+        }
+        r.angle = TAU / 4.0;
+        r.handle(Action::Select);
+        assert_eq!(r.follow(), None, "the marker starts at the centre");
+        r.handle(Action::Next);
+        assert_eq!(r.follow(), Some((-230, 300)));
+        assert_eq!(r.follow(), None);
+        // Less than a unit along moves nothing.
+        r.distance += 0.2;
+        assert_eq!(r.follow(), None);
+        r.advance(100);
+        assert_eq!(r.follow(), Some((-218, 300)));
+        assert_eq!(r.handle(Action::Select), Some((-218, 300)));
+
+        // Choosing an area again sends the pointer to its centre again,
+        // having left it where it was meanwhile.
+        let mut r = chosen(SCREEN, 1.0, 1);
+        assert_eq!(r.follow(), Some((-250, 300)));
+        r.handle(Action::Select);
+        r.handle(Action::Back);
+        assert!(r.follow().is_some());
+        assert!(r.back());
+        assert_eq!(r.follow(), None);
+        r.handle(Action::Next);
+        r.handle(Action::Select);
+        assert_eq!(r.follow(), Some((-250, 300)));
     }
 
     #[test]
