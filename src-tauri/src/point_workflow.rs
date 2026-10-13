@@ -540,26 +540,60 @@ impl Workflow {
             self.error.is_some(),
         )
     }
-    /// Why the open menu's action failed, in a prompt in the larger space the
-    /// menu panel leaves in its work area. Windows always draws a two-line
-    /// prompt 154 units tall, so that is the height kept clear.
+    /// Why the open menu's action failed, in a prompt in the space the menu panel
+    /// leaves in its work area: above or below it, or else beside it. Windows
+    /// always draws a two-line prompt 154 units tall, so that is the height kept
+    /// clear. Only when no space fits does the prompt overlap the panel.
     fn error_label(&self, error: &str, panel: Option<Rect>) -> FrameLabel {
         let s = self.point.units_per_logical_pixel;
         let area = self.menu_area();
-        let width = (640.0 * s).min(area.width);
+        let full_width = (640.0 * s).min(area.width);
+        let narrowest = 240.0 * s;
         let height = (154.0 * s).min(area.height);
         let margin = 20.0 * s;
-        let (above, below) = panel.map_or((0.0, area.height), |panel| {
-            (
-                panel.y - area.y,
-                area.y + area.height - (panel.y + panel.height),
-            )
-        });
-        let y = if above > below {
-            // At the edge of the area, or against the panel when the space is short.
-            (area.y + margin).min(area.y + above - height)
-        } else {
-            (area.y + area.height - margin - height).max(area.y + area.height - below)
+        let (right, bottom) = (area.x + area.width, area.y + area.height);
+        let centred = area.x + (area.width - full_width) / 2.0;
+        let rect = match panel {
+            None => Rect {
+                x: centred,
+                y: area.y + margin,
+                width: full_width,
+                height,
+            },
+            Some(panel) => {
+                let above = panel.y - area.y;
+                let below = bottom - (panel.y + panel.height);
+                let left = panel.x - area.x;
+                let beside = right - (panel.x + panel.width);
+                let vertical = |above_panel: bool| Rect {
+                    x: centred,
+                    // At the edge of the area, or against the panel when the space is short.
+                    y: if above_panel {
+                        (area.y + margin).min(panel.y - height)
+                    } else {
+                        (bottom - margin - height).max(panel.y + panel.height)
+                    },
+                    width: full_width,
+                    height,
+                };
+                if above.max(below) >= height || left.max(beside) < narrowest {
+                    vertical(above > below)
+                } else {
+                    let space = left.max(beside);
+                    let width = (space - 2.0 * margin).max(narrowest).min(full_width);
+                    let start = if left > beside {
+                        area.x
+                    } else {
+                        panel.x + panel.width
+                    };
+                    Rect {
+                        x: start + (space - width) / 2.0,
+                        y: panel.y + (panel.height - height) / 2.0,
+                        width,
+                        height,
+                    }
+                }
+            }
         };
         let error = error.trim();
         FrameLabel {
@@ -572,10 +606,9 @@ impl Workflow {
                 }
             ),
             rect: Rect {
-                x: area.x + (area.width - width) / 2.0,
-                y: y.clamp(area.y, area.y + area.height - height),
-                width,
-                height,
+                x: rect.x.clamp(area.x, right - rect.width),
+                y: rect.y.clamp(area.y, bottom - rect.height),
+                ..rect
             },
             scale: s,
             hud: Some(crate::scanning::HudPresentation {
@@ -3672,34 +3705,24 @@ mod tests {
     fn menu_errors_stay_clear_of_the_panel_inside_the_work_area() {
         use crate::{scan_panel::Dock, scan_preferences::PanelSize};
         let message = "Release modifiers and end switch forwarding before selecting an action.";
+        let display = |x: f64, y: f64, width: f64, height: f64, scale: f64| {
+            (
+                Rect {
+                    x,
+                    y,
+                    width: width * scale,
+                    height: height * scale,
+                },
+                scale,
+            )
+        };
+        let mut moved = 0;
         for (screen, scale) in [
-            (
-                Rect {
-                    x: -1920.0,
-                    y: -200.0,
-                    width: 1920.0,
-                    height: 1080.0,
-                },
-                1.5,
-            ),
-            (
-                Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 1366.0,
-                    height: 768.0,
-                },
-                1.5,
-            ),
-            (
-                Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 1280.0,
-                    height: 720.0,
-                },
-                1.0,
-            ),
+            display(-1920.0, -200.0, 1280.0, 720.0, 1.5),
+            display(0.0, 0.0, 1280.0, 720.0, 1.0),
+            display(0.0, 0.0, 1280.0, 720.0, 2.0),
+            display(0.0, 0.0, 1366.0, 768.0, 1.0),
+            display(0.0, 0.0, 1920.0, 1080.0, 1.0),
         ] {
             // A taskbar along the bottom.
             let area = Rect {
@@ -3707,7 +3730,11 @@ mod tests {
                 ..screen
             };
             for size in [PanelSize::Small, PanelSize::Medium, PanelSize::Large] {
-                for row in 0..3 {
+                for dock in crate::scan_panel::position_rows(|dock| dock, Dock::default())[..3]
+                    .iter()
+                    .flatten()
+                    .copied()
+                {
                     for pointer in [false, true] {
                         let mut config = Config {
                             panel_avoids_pointer: true,
@@ -3716,35 +3743,46 @@ mod tests {
                         config.scan_preferences.panel_size = size;
                         let mut w = Workflow::new(config.point(), screen, scale).unwrap();
                         w.set_keyboard_area(area);
-                        w.set_dock(Dock { column: 1, row });
+                        w.set_dock(dock);
                         w.stage = Stage::Menu;
                         w.execution_failed(message.into());
+                        let docked = w.frame().tiles[0].rect;
                         if pointer {
-                            // Over the docked panel, which then moves away.
-                            let panel = w.frame().tiles[0].rect;
-                            w.set_pointer(Some((panel.x + 1.0, panel.y + panel.height / 2.0)));
+                            // Over the docked panel, which then moves out of the way.
+                            w.set_pointer(Some((docked.x + 1.0, docked.y + docked.height / 2.0)));
+                            if w.moved.is_some() {
+                                moved += 1;
+                                assert_ne!(w.frame().tiles[0].rect, docked);
+                            }
                         }
                         let frame = w.frame();
                         let panel = frame.tiles[0].rect;
                         let label = frame.label.unwrap();
                         let rect = label.rect;
-                        let case = format!("{screen:?} {size:?} row {row} pointer {pointer}");
-                        assert!(rect.y >= area.y && rect.y + rect.height <= area.y + area.height);
-                        assert!(rect.x >= area.x && rect.x + rect.width <= area.x + area.width);
-                        let space =
-                            (panel.y - area.y).max(area.y + area.height - (panel.y + panel.height));
-                        if space >= rect.height {
-                            assert!(
-                                rect.y + rect.height <= panel.y + 0.001
-                                    || rect.y >= panel.y + panel.height - 0.001,
-                                "{case}"
-                            );
-                        }
+                        let case = format!("{screen:?} {size:?} {dock:?} pointer {pointer}");
+                        assert!(
+                            rect.y >= area.y - 0.001
+                                && rect.y + rect.height <= area.y + area.height + 0.001,
+                            "{case}"
+                        );
+                        assert!(
+                            rect.x >= area.x - 0.001
+                                && rect.x + rect.width <= area.x + area.width + 0.001,
+                            "{case}"
+                        );
+                        // Every one of these displays has room beside or around the panel.
+                        let apart = rect.y + rect.height <= panel.y + 0.001
+                            || rect.y >= panel.y + panel.height - 0.001
+                            || rect.x + rect.width <= panel.x + 0.001
+                            || rect.x >= panel.x + panel.width - 0.001;
+                        assert!(apart, "{case}: {rect:?} over {panel:?}");
+                        assert!(rect.width >= 240.0 * scale - 0.001, "{case}");
                         assert_eq!(label.hud.unwrap().screen, screen);
                     }
                 }
             }
         }
+        assert!(moved > 0, "some panels moved away from the pointer");
         // An empty message still says what happened.
         let mut w = Workflow::new(
             last_mode().point(),
