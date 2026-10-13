@@ -540,30 +540,48 @@ impl Workflow {
             self.error.is_some(),
         )
     }
-    /// Why the open menu's action failed, in a prompt at whichever end of the
-    /// screen the menu panel leaves clear.
+    /// Why the open menu's action failed, in a prompt in the larger space the
+    /// menu panel leaves in its work area. Windows always draws a two-line
+    /// prompt 154 units tall, so that is the height kept clear.
     fn error_label(&self, error: &str, panel: Option<Rect>) -> FrameLabel {
         let s = self.point.units_per_logical_pixel;
-        let screen = self.point.screen;
-        let width = (640.0 * s).min(screen.width);
-        let height = (154.0 * s).min(screen.height);
-        let panel_above_middle = panel
-            .is_some_and(|panel| panel.y + panel.height / 2.0 < screen.y + screen.height / 2.0);
+        let area = self.menu_area();
+        let width = (640.0 * s).min(area.width);
+        let height = (154.0 * s).min(area.height);
+        let margin = 20.0 * s;
+        let (above, below) = panel.map_or((0.0, area.height), |panel| {
+            (
+                panel.y - area.y,
+                area.y + area.height - (panel.y + panel.height),
+            )
+        });
+        let y = if above > below {
+            // At the edge of the area, or against the panel when the space is short.
+            (area.y + margin).min(area.y + above - height)
+        } else {
+            (area.y + area.height - margin - height).max(area.y + area.height - below)
+        };
+        let error = error.trim();
         FrameLabel {
-            text: format!("{error}\nSelect to return"),
-            rect: Rect {
-                x: screen.x + (screen.width - width) / 2.0,
-                y: if panel_above_middle {
-                    screen.y + screen.height - height - 20.0 * s
+            text: format!(
+                "{}\nSelect to return",
+                if error.is_empty() {
+                    "Action failed."
                 } else {
-                    screen.y + 20.0 * s
+                    error
                 }
-                .max(screen.y),
+            ),
+            rect: Rect {
+                x: area.x + (area.width - width) / 2.0,
+                y: y.clamp(area.y, area.y + area.height - height),
                 width,
                 height,
             },
             scale: s,
-            hud: Some(crate::scanning::HudPresentation { screen, scale: s }),
+            hud: Some(crate::scanning::HudPresentation {
+                screen: self.point.screen,
+                scale: s,
+            }),
         }
     }
     /// Dock to draw the open panel at instead of `dock`, while the pointer is over it.
@@ -3649,6 +3667,102 @@ mod tests {
         assert!(w.handle(Action::Select).is_none());
         assert!(!w.menu.suspended());
         assert_eq!(w.source, (120, 80));
+    }
+    #[test]
+    fn menu_errors_stay_clear_of_the_panel_inside_the_work_area() {
+        use crate::{scan_panel::Dock, scan_preferences::PanelSize};
+        let message = "Release modifiers and end switch forwarding before selecting an action.";
+        for (screen, scale) in [
+            (
+                Rect {
+                    x: -1920.0,
+                    y: -200.0,
+                    width: 1920.0,
+                    height: 1080.0,
+                },
+                1.5,
+            ),
+            (
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1366.0,
+                    height: 768.0,
+                },
+                1.5,
+            ),
+            (
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1280.0,
+                    height: 720.0,
+                },
+                1.0,
+            ),
+        ] {
+            // A taskbar along the bottom.
+            let area = Rect {
+                height: screen.height - 48.0 * scale,
+                ..screen
+            };
+            for size in [PanelSize::Small, PanelSize::Medium, PanelSize::Large] {
+                for row in 0..3 {
+                    for pointer in [false, true] {
+                        let mut config = Config {
+                            panel_avoids_pointer: true,
+                            ..last_mode()
+                        };
+                        config.scan_preferences.panel_size = size;
+                        let mut w = Workflow::new(config.point(), screen, scale).unwrap();
+                        w.set_keyboard_area(area);
+                        w.set_dock(Dock { column: 1, row });
+                        w.stage = Stage::Menu;
+                        w.execution_failed(message.into());
+                        if pointer {
+                            // Over the docked panel, which then moves away.
+                            let panel = w.frame().tiles[0].rect;
+                            w.set_pointer(Some((panel.x + 1.0, panel.y + panel.height / 2.0)));
+                        }
+                        let frame = w.frame();
+                        let panel = frame.tiles[0].rect;
+                        let label = frame.label.unwrap();
+                        let rect = label.rect;
+                        let case = format!("{screen:?} {size:?} row {row} pointer {pointer}");
+                        assert!(rect.y >= area.y && rect.y + rect.height <= area.y + area.height);
+                        assert!(rect.x >= area.x && rect.x + rect.width <= area.x + area.width);
+                        let space =
+                            (panel.y - area.y).max(area.y + area.height - (panel.y + panel.height));
+                        if space >= rect.height {
+                            assert!(
+                                rect.y + rect.height <= panel.y + 0.001
+                                    || rect.y >= panel.y + panel.height - 0.001,
+                                "{case}"
+                            );
+                        }
+                        assert_eq!(label.hud.unwrap().screen, screen);
+                    }
+                }
+            }
+        }
+        // An empty message still says what happened.
+        let mut w = Workflow::new(
+            last_mode().point(),
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1280.0,
+                height: 720.0,
+            },
+            1.0,
+        )
+        .unwrap();
+        w.stage = Stage::Menu;
+        w.execution_failed(String::new());
+        assert_eq!(
+            w.frame().label.unwrap().text,
+            "Action failed.\nSelect to return"
+        );
     }
     #[test]
     fn command_failure_preserves_point_and_requires_acknowledgement() {
