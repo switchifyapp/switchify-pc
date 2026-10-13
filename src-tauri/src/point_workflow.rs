@@ -731,17 +731,17 @@ impl Workflow {
             }
         }
         if key == Key::Radar {
-            let Some(origin) = self.pointer else {
+            // Without the pointer, the display it is on may not be known.
+            if self.pointer.is_none() {
                 self.mouse.block_actions("Pointer unavailable · Try again");
                 return None;
-            };
+            }
             self.mouse.choose(key);
             self.radar = Some(crate::scan_radar::Radar::new(
                 self.point.config.mouse_scan,
                 self.point.config.speed,
                 self.point.screen,
                 self.point.units_per_logical_pixel,
-                origin,
             ));
             self.stage = Stage::MouseRadar;
             return None;
@@ -836,6 +836,13 @@ impl Workflow {
             self.mouse.restart();
         }
     }
+    /// Goes back from a direction or distance to choosing an area, and from
+    /// choosing an area to the mouse panel, without moving the pointer.
+    fn radar_back(&mut self) {
+        if !self.radar.as_mut().is_some_and(|radar| radar.back()) {
+            self.end_radar(false);
+        }
+    }
     /// What the scanned keyboard's choice asks for. A navigation key also
     /// prepares a repeat when that is turned on.
     fn keyboard_output(&mut self, output: Option<crate::scan_keyboard::Output>) -> Option<Request> {
@@ -869,6 +876,11 @@ impl Workflow {
             }
             None => None,
         }
+    }
+    /// Chooses a key on the open mouse panel without scanning to it.
+    #[cfg(test)]
+    pub(crate) fn choose_mouse_key(&mut self, key: crate::scan_mouse::Key) -> Option<Request> {
+        self.mouse_key(key)
     }
     /// Chooses a key on the open keyboard without scanning to it.
     #[cfg(test)]
@@ -1090,6 +1102,16 @@ impl Technique for Workflow {
         self.menu.suspend();
         self.error = Some(message);
     }
+    /// Open Mouse takes the radar from a direction or distance back to
+    /// picking an area. From picking an area it opens the panel afresh.
+    fn steps_back(&self, action: Action) -> bool {
+        action == Action::OpenMouse
+            && self.stage == Stage::MouseRadar
+            && self
+                .radar
+                .as_ref()
+                .is_some_and(|radar| radar.phase != crate::scan_radar::Phase::Area)
+    }
     fn execution_succeeded(&mut self) {
         self.leaving_home = false;
         if self.stage == Stage::KeyboardOpening {
@@ -1197,7 +1219,7 @@ impl Technique for Workflow {
         }
         if action == Action::OpenMouse {
             if self.stage == Stage::MouseRadar {
-                self.end_radar(false);
+                self.radar_back();
                 return None;
             }
             if self.mouse_open() {
@@ -1282,7 +1304,7 @@ impl Technique for Workflow {
                 if let Some(radar) = self.radar.as_mut() {
                     radar.advance(ms);
                     if radar.exhausted() {
-                        self.end_radar(false);
+                        self.radar_back();
                     }
                 }
             }
@@ -1791,7 +1813,7 @@ mod tests {
     }
 
     #[test]
-    fn radar_moves_the_pointer_from_where_it_is_and_returns_to_the_mouse_panel() {
+    fn radar_sweeps_from_the_chosen_area_and_returns_to_the_mouse_panel() {
         use crate::scan_mouse::Key;
         let screen = Rect {
             x: 0.0,
@@ -1801,7 +1823,7 @@ mod tests {
         };
         let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         workflow.handle(Action::OpenMouse);
-        // Without a pointer there is nothing to sweep from.
+        // Without a pointer the display it is on may not be known.
         assert_eq!(workflow.mouse_key(Key::Radar), None);
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
         assert_eq!(
@@ -1828,10 +1850,28 @@ mod tests {
         let frame = workflow.frame();
         assert_eq!(frame.color, crate::scanning::ScannerColor::Yellow);
         assert!(frame.tiles.is_empty(), "the panel is hidden");
-        assert_eq!(frame.label.unwrap().text, "Radar · Select a direction");
+        assert_eq!(frame.label.unwrap().text, "Radar · Select an area");
+        assert_eq!(
+            frame.fills,
+            [Rect {
+                width: 640.0,
+                height: 360.0,
+                ..screen
+            }],
+            "the top left quarter is highlighted first"
+        );
         // A pointer moving the panel out of its way does not move the radar.
         workflow.set_pointer(Some((10.0, 10.0)));
 
+        // The bottom right quarter, around (960, 540).
+        for _ in 0..3 {
+            assert_eq!(workflow.handle(Action::Next), None);
+        }
+        assert_eq!(workflow.handle(Action::Select), None);
+        assert_eq!(
+            workflow.frame().label.unwrap().text,
+            "Radar · Select a direction"
+        );
         // Straight up, then four manual steps out.
         assert_eq!(workflow.handle(Action::Select), None);
         for _ in 0..4 {
@@ -1839,7 +1879,7 @@ mod tests {
         }
         assert_eq!(
             workflow.handle(Action::Select),
-            Some(Request::MouseMoveAbsolute { x: 640, y: 280 })
+            Some(Request::MouseMoveAbsolute { x: 960, y: 460 })
         );
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
         assert!(workflow.radar.is_none());
@@ -1858,7 +1898,8 @@ mod tests {
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
         assert!(workflow.radar.is_none());
 
-        // A held drag keeps its cue, and Open Mouse goes back without moving.
+        // A held drag keeps its cue. Open Mouse goes back to choosing an area,
+        // then to the panel, without moving the pointer.
         // (The runtime rebuilds the engine for Open Mouse, which also releases the drag.)
         workflow.mouse.dragging = true;
         workflow.mouse_key(Key::Radar);
@@ -1866,9 +1907,85 @@ mod tests {
             workflow.mouse_feedback(),
             Some(crate::input::PointerFeedback::Drag)
         );
+        assert!(!workflow.steps_back(Action::OpenMouse));
+        workflow.handle(Action::Next);
+        workflow.handle(Action::Select);
+        workflow.handle(Action::Select);
+        assert_eq!(
+            workflow.frame().label.unwrap().text,
+            "Radar · Select a distance"
+        );
+        // The runtime keeps this scan for Open Mouse instead of starting afresh.
+        assert!(workflow.steps_back(Action::OpenMouse));
+        assert!(!workflow.steps_back(Action::OpenKeyboard));
+        assert!(!workflow.steps_back(Action::OpenPoint));
+        assert_eq!(workflow.handle(Action::OpenMouse), None);
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::MouseRadar));
+        let frame = workflow.frame();
+        assert_eq!(frame.label.unwrap().text, "Radar · Select an area");
+        // On the display the pointer moved to, from the top left quarter again.
+        assert_eq!(
+            (frame.fills[0].x, frame.fills[0].width),
+            (1280.0, 640.0),
+            "areas are highlighted from the start"
+        );
         assert_eq!(workflow.handle(Action::OpenMouse), None);
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
         assert!(workflow.radar.is_none());
+    }
+
+    #[test]
+    fn radar_divides_a_scaled_display_left_of_the_main_one() {
+        use crate::scan_mouse::Key;
+        let main = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let left = Rect {
+            x: -2561.0,
+            y: -301.0,
+            width: 2561.0,
+            height: 1441.0,
+        };
+        let mut workflow = Workflow::new(last_mode().point(), main, 1.0).unwrap();
+        workflow.handle(Action::OpenMouse);
+        workflow.set_mouse_area(left, left, 1.5, 2);
+        workflow.set_pointer(Some((-100.0, 1000.0)));
+        workflow.mouse_key(Key::Radar);
+        let frame = workflow.frame();
+        assert_eq!(
+            frame.fills,
+            [Rect {
+                width: 1280.0,
+                height: 720.0,
+                ..left
+            }]
+        );
+        assert!(frame
+            .grid
+            .iter()
+            .all(|rect| rect.x >= left.x && rect.x + rect.width <= left.x + left.width));
+
+        // The bottom left quarter is -2561..-1282 by 419..1139, around (-1921, 779.5).
+        workflow.handle(Action::Next);
+        workflow.handle(Action::Next);
+        workflow.handle(Action::Select);
+        // Due left, in steps of 20 logical pixels (30 units). The quarter's
+        // edge is 640 units away, so the 22nd step wraps back to the centre.
+        for _ in 0..18 {
+            workflow.handle(Action::Back);
+        }
+        workflow.handle(Action::Select);
+        for _ in 0..30 {
+            workflow.handle(Action::Next);
+        }
+        let Some(Request::MouseMoveAbsolute { x, y }) = workflow.handle(Action::Select) else {
+            panic!("the radar chooses a point");
+        };
+        assert_eq!(x, -1921 - 8 * 30);
+        assert!((419..=1139).contains(&y));
     }
 
     #[test]
@@ -1888,13 +2005,21 @@ mod tests {
         s.technique.handle(Action::OpenMouse);
         s.technique.set_pointer(Some((640.0, 360.0)));
         s.technique.mouse_key(Key::Radar);
+        s.action(Action::Select);
+        // An unattended direction goes back to choosing an area, and that back to the panel.
+        let mut phases = vec![];
         for _ in 0..100_000 {
-            if s.technique.stage != Stage::MouseRadar {
+            let Some(radar) = s.technique.radar.as_ref() else {
                 break;
+            };
+            if phases.last() != Some(&radar.phase) {
+                phases.push(radar.phase);
             }
             s.tick(100, false);
             assert_eq!(s.take_selection(), None);
         }
+        use crate::scan_radar::Phase::{Angle, Area};
+        assert_eq!(phases, [Angle, Area]);
         assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Mouse));
         assert!(s.active());
     }

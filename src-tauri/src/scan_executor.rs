@@ -530,6 +530,42 @@ mod tests {
         assert!(input.injector.events.contains(&"button Left false".into()));
     }
     #[test]
+    fn radar_moves_the_fake_pointer_inside_the_chosen_quarter() {
+        use crate::scanning::{Action, Rect, Technique};
+        let screen = Rect {
+            x: -1280.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let config = crate::point_scan::Config {
+            start_with: crate::point_scan::StartWith::LastMode,
+            ..Default::default()
+        };
+        let mut workflow =
+            crate::point_workflow::Workflow::new(config.point(), screen, 1.0).unwrap();
+        workflow.handle(Action::OpenMouse);
+        workflow.set_pointer(Some((-1000.0, 100.0)));
+        assert_eq!(
+            workflow.choose_mouse_key(crate::scan_mouse::Key::Radar),
+            None
+        );
+        // The top right quarter, around (-320, 180), then straight down.
+        workflow.handle(Action::Next);
+        workflow.handle(Action::Select);
+        for _ in 0..36 {
+            workflow.handle(Action::Next);
+        }
+        workflow.handle(Action::Select);
+        for _ in 0..5 {
+            workflow.handle(Action::Next);
+        }
+        let request = workflow.handle(Action::Select).unwrap();
+        let mut input = DesktopInput::new(Fake::default());
+        execute(&mut input, request, true).unwrap();
+        assert_eq!(input.injector.events, ["move -320 280"]);
+    }
+    #[test]
     fn keyboard_text_chords_and_current_focus_use_fake_input() {
         use crate::scan_keyboard::{Key, Stroke};
         let mut input = DesktopInput::new(Fake::default());

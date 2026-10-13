@@ -499,7 +499,7 @@ impl Engine {
         result
     }
 }
-fn outline(r: Rect, t: f64) -> [Rect; 4] {
+pub(crate) fn outline(r: Rect, t: f64) -> [Rect; 4] {
     let t = t.min(r.width).min(r.height);
     [
         Rect { height: t, ..r },

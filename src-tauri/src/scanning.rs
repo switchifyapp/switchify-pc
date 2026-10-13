@@ -343,6 +343,11 @@ pub trait Technique {
     }
     fn execution_failed(&mut self, _message: String) {}
     fn execution_succeeded(&mut self) {}
+    /// Takes a change of mode as a step back within the current scan, which
+    /// is kept instead of starting afresh.
+    fn steps_back(&self, _action: Action) -> bool {
+        false
+    }
     fn start(&mut self);
     fn advance(&mut self, elapsed_ms: u64);
     fn handle(&mut self, action: Action) -> Option<Self::Selection>;
