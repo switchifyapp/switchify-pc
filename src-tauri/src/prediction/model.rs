@@ -124,6 +124,16 @@ fn display_word(word: String) -> String {
         _ => word,
     }
 }
+
+/// Generated words follow the instant ones, taking any slot they left free.
+fn merged(instant: &[Option<String>; 3], generated: Vec<String>) -> [Option<String>; 6] {
+    let mut words = instant
+        .iter()
+        .flatten()
+        .cloned()
+        .chain(generated.into_iter().take(3).map(display_word));
+    std::array::from_fn(|_| words.next())
+}
 impl Predict for Model {
     #[cfg(test)]
     fn neural_status(&self) -> Option<switchify_prediction_neural::Status> {
@@ -162,13 +172,7 @@ impl Predict for Model {
         }
         self.request = None;
         Some(Prediction {
-            words: std::array::from_fn(|i| {
-                if i < 3 {
-                    self.instant[i].clone()
-                } else {
-                    result.words.get(i - 3).cloned().map(display_word)
-                }
-            }),
+            words: merged(&self.instant, result.words),
         })
     }
     fn pending(&self) -> bool {
@@ -215,6 +219,31 @@ mod tests {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
+    #[test]
+    fn generated_words_take_the_next_free_slot() {
+        let instant = |words: &[&str]| std::array::from_fn(|i| words.get(i).map(|w| w.to_string()));
+        let generated = || vec!["i'm".to_owned(), "here".to_owned(), "home".to_owned()];
+        assert_eq!(
+            merged(&instant(&["help"]), generated()),
+            slots(["help", "I'm", "here", "home"])
+        );
+        assert_eq!(
+            merged(&instant(&[]), generated()),
+            slots(["I'm", "here", "home"])
+        );
+        assert_eq!(
+            merged(&instant(&["a", "b", "c"]), generated()),
+            slots(["a", "b", "c", "I'm", "here", "home"])
+        );
+        assert_eq!(
+            merged(
+                &instant(&["a"]),
+                vec!["b".into(), "c".into(), "d".into(), "e".into()]
+            ),
+            slots(["a", "b", "c", "d"])
+        );
+    }
+
     #[test]
     fn learning_writes_only_the_personal_file_and_ranks_learned_words() {
         let dir = Fixture::new();
