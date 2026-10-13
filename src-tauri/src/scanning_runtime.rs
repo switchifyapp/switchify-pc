@@ -805,7 +805,7 @@ fn render<A: Adapter>(
     })?;
     render_tiles(&frame.tiles)?;
     render_countdown(frame.countdown.as_ref())?;
-    render_label(frame.label_for_prompt(prompt.is_some()), &frame.tiles)?;
+    render_label(frame.label_for_prompt(prompt.is_some()))?;
     show_prompt(app, prompt)?;
     Ok(())
 }
@@ -1140,19 +1140,14 @@ pub fn install<A: Adapter>(app: &AppHandle) {
     });
 }
 
-fn render_label(
-    label: Option<&crate::scanning::FrameLabel>,
-    tiles: &[crate::scanning::FrameTile],
-) -> Result<(), String> {
+fn render_label(label: Option<&crate::scanning::FrameLabel>) -> Result<(), String> {
     LABEL.with(|slot| {
         let mut host = slot.borrow_mut();
         if let Some(label) = label {
             if host.is_none() {
                 *host = Some(Host::new()?);
             }
-            host.as_mut()
-                .unwrap()
-                .label(label, crate::scan_host::menu_title_geometry(label, tiles))?;
+            host.as_mut().unwrap().label(label)?;
         } else if let Some(host) = host.as_mut() {
             host.hide();
         }
@@ -1161,7 +1156,7 @@ fn render_label(
 }
 fn hide_prompt() {
     let _ = render_countdown(None);
-    let _ = render_label(None, &[]);
+    let _ = render_label(None);
     hide_hold_prompt();
 }
 fn hide_hold_prompt() {

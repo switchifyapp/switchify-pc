@@ -427,7 +427,7 @@ it("brings the area header into view with help expanded and restores the overvie
   }
 });
 
-it("saves the shared panel pointer-avoidance choice from the mouse and keyboard pages", async () => {
+it("saves the shared panel pointer-avoidance choice from the mouse, keyboard and menu pages", async () => {
   mocks.invoke.mockImplementation(async (command, args) => command === "get_point_scan" ? initial : { ...initial, config: args.config });
   render(<PointScan />);
   await screen.findByText(initial.message);
@@ -440,6 +440,11 @@ it("saves the shared panel pointer-avoidance choice from the mouse and keyboard 
   more();
   fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
   expect(screen.getByRole("checkbox", { name: "Move away from the pointer" })).toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: /Back to scanning settings/ }));
+  more();
+  fireEvent.click(screen.getByRole("button", { name: "Customise menus" }));
+  expect(screen.getByRole("checkbox", { name: "Move away from the pointer" })).toBeChecked();
+  expect(screen.getByText(/Home and the action menus share one position/)).toBeInTheDocument();
 });
 
 it("shows what each scanner does after a selection and saves a choice for one", async () => {

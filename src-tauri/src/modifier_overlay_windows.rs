@@ -647,47 +647,23 @@ pub(crate) fn present_scan_tile(
     tile: &crate::scanning::FrameTile,
 ) -> Result<(), String> {
     let pixmap = crate::scan_tile::bitmap(tile)?;
-    if tile.is_panel_background() || tile.icon == crate::scan_menu::Item::KeyboardKey {
-        let width = pixmap.width() as i32;
-        let height = pixmap.height() as i32;
-        let horizontal_padding = (8.0 * tile.scale).round().max(1.0) as i32;
-        let vertical_padding = (6.0 * tile.scale).round().max(1.0) as i32;
-        let horizontal_padding = horizontal_padding.min((width - 1).max(0) / 2);
-        let vertical_padding = vertical_padding.min((height - 1).max(0) / 2);
-        let layout = Layout {
-            x: tile.rect.x.round() as i32,
-            y: tile.rect.y.round() as i32,
-            width,
-            height,
-            scale: tile.scale * crate::scan_tile::keyboard_font_size(tile) / FONT_SIZE,
-            chips: vec![RECT {
-                left: horizontal_padding,
-                top: vertical_padding,
-                right: width - horizontal_padding,
-                bottom: height - vertical_padding,
-            }],
-        };
-        return present_pixmap_with_text(
-            window,
-            std::slice::from_ref(&tile.text),
-            &layout,
-            pixmap.data(),
-            true,
-            true,
-        );
-    }
-    let size = pixmap.width() as i32;
+    let width = pixmap.width() as i32;
+    let height = pixmap.height() as i32;
+    let horizontal_padding = (8.0 * tile.scale).round().max(1.0) as i32;
+    let vertical_padding = (6.0 * tile.scale).round().max(1.0) as i32;
+    let horizontal_padding = horizontal_padding.min((width - 1).max(0) / 2);
+    let vertical_padding = vertical_padding.min((height - 1).max(0) / 2);
     let layout = Layout {
         x: tile.rect.x.round() as i32,
         y: tile.rect.y.round() as i32,
-        width: size,
-        height: size,
-        scale: tile.scale * 15.0 / FONT_SIZE,
+        width,
+        height,
+        scale: tile.scale * crate::scan_tile::keyboard_font_size(tile) / FONT_SIZE,
         chips: vec![RECT {
-            left: (6.0 * tile.scale) as i32,
-            top: (116.0 * tile.scale) as i32,
-            right: size - (6.0 * tile.scale) as i32,
-            bottom: size - (12.0 * tile.scale) as i32,
+            left: horizontal_padding,
+            top: vertical_padding,
+            right: width - horizontal_padding,
+            bottom: height - vertical_padding,
         }],
     };
     present_pixmap_with_text(
@@ -696,7 +672,7 @@ pub(crate) fn present_scan_tile(
         &layout,
         pixmap.data(),
         true,
-        false,
+        true,
     )
 }
 

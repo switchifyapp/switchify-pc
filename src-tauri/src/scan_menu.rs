@@ -1,7 +1,8 @@
 //! Menu rows and navigation are independent of native windows and input.
 use crate::{
     scan_items::{ItemScanner, Policy},
-    scanning::{Action, Frame, FrameLabel, FrameTile, Rect, ScannerColor},
+    scan_panel::{Dock, Panel, PanelKey},
+    scanning::{Action, Frame, Rect, TileRole},
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
@@ -10,7 +11,6 @@ pub enum Item {
     Switchify,
     Keyboard,
     MousePanel,
-    KeyboardKey,
     More,
     Group(Kind),
     Command(Command),
@@ -42,7 +42,6 @@ impl Item {
             Self::Switchify => "Switchify",
             Self::Keyboard => "Keyboard",
             Self::MousePanel => "Mouse",
-            Self::KeyboardKey => "Key",
             Self::More => "More",
             Self::Group(kind) => kind.label(),
             Self::Command(command) => command.label(),
@@ -66,6 +65,13 @@ impl Item {
             Self::DragHere => "Drag here",
             Self::DestinationAgain => "New destination",
             Self::CancelDrag => "Cancel drag",
+        }
+    }
+    /// Keys that leave or close the menu are drawn like the panels' toolbar keys.
+    fn role(self) -> TileRole {
+        match self {
+            Self::Back | Self::Cancel | Self::CancelDrag | Self::Home => TileRole::Toolbar,
+            _ => TileRole::Utility,
         }
     }
 }
@@ -162,122 +168,55 @@ impl Menu {
         self.scan.handle(action)
     }
 
-    /// Draws the menu beside the point it acts on.
-    pub fn frame(&self, point: (i32, i32), screen: Rect, units: f64) -> Frame {
-        self.frame_placed(screen, units, |width, height, gap| {
-            place(point, screen, width, height, gap)
-        })
-    }
-    /// Draws a menu that acts on no point in the middle of the screen.
-    pub fn centered_frame(&self, screen: Rect, units: f64) -> Frame {
-        self.frame_placed(screen, units, |width, height, _| Rect {
-            x: screen.x + (screen.width - width) / 2.0,
-            y: screen.y + (screen.height - height) / 2.0,
-            width,
-            height,
-        })
-    }
-    fn frame_placed(
-        &self,
-        screen: Rect,
-        units: f64,
-        placed: impl FnOnce(f64, f64, f64) -> Rect,
-    ) -> Frame {
-        let columns = self.rows.iter().map(Vec::len).max().unwrap_or(1) as f64;
-        let logical_width = 16.0 + columns * 180.0;
-        let logical_height = 56.0 + 180.0 * self.rows.len() as f64;
-        let scale = crate::scan_panel::fit_scale(
-            screen,
-            units,
-            self.scan.options.panel_size,
-            logical_width,
-            logical_height,
-        );
-        let width = logical_width * scale;
-        let height = logical_height * scale;
-        let panel = placed(width, height, 20.0 * scale);
-        let mut frame = Frame::default();
-        frame.tiles.push(FrameTile::panel_background(
-            panel,
-            scale,
-            ScannerColor::default(),
-        ));
-        let (active_row, active_column) = self.scan.position(&self.rows);
-        for (r, row) in self.rows.iter().enumerate() {
-            let tile_width = 180.0 * scale;
-            for (c, item) in row.iter().enumerate() {
-                let rect = Rect {
-                    // Center the grid, excluding the unused trailing cell gap.
-                    x: panel.x + 14.0 * scale + c as f64 * tile_width,
-                    y: panel.y + (56.0 + 180.0 * r as f64) * scale,
-                    width: 168.0 * scale,
-                    height: 168.0 * scale,
-                };
-                let selected = r == active_row && active_column.is_none_or(|column| column == c);
-                frame.tiles.push(FrameTile {
-                    thickness: Default::default(),
-                    style: None,
-                    color: Default::default(),
-                    text: item.label().into(),
-                    rect,
-                    scale,
-                    icon: *item,
-                    selected,
-                });
-            }
-        }
-        let text = if self.scan.waiting() {
-            "Select to continue"
+    /// Draws the menu as a docked panel. While an action has `failed`, the status
+    /// stays short so it fits one line; the workflow shows the message beside it.
+    pub fn frame(&self, screen: Rect, units: f64, dock: Dock, failed: bool) -> Frame {
+        let (row, column) = self.scan.position(&self.rows);
+        let escaping = self.scan.nav.escaping();
+        let title = self.kind.label();
+        let status = if failed {
+            format!("{title} · Action failed · Select to return")
+        } else if self.scan.waiting() {
+            format!("{title} · Select to continue")
         } else if self.suspended() {
-            "Select to resume"
-        } else if self.scan.nav.escaping() {
-            "Back to rows"
+            format!("{title} paused · Select to resume")
+        } else if escaping {
+            crate::scan_panel::back_status(&self.scan).to_owned()
         } else {
-            match self.kind {
-                Kind::Home => "Choose what to control",
-                Kind::Actions => "Choose an action",
-                Kind::Scroll => "Scroll at selected point",
-                Kind::ConfirmDrag => "Confirm drag",
-                kind => kind.label(),
-            }
+            crate::scan_panel::item_status(
+                title,
+                &self.scan,
+                self.rows[row][column.unwrap_or(0)].label(),
+            )
         };
-        frame.label = Some(FrameLabel {
-            text: text.into(),
-            rect: Rect {
-                // Keep the opaque title inside the rounded panel silhouette.
-                x: panel.x + 14.0 * scale,
-                y: panel.y + 4.0 * scale,
-                width: panel.width - 28.0 * scale,
-                height: 48.0 * scale,
-            },
-            scale: scale * 0.75,
-            hud: None,
-        });
-        frame
-    }
-}
-fn place(point: (i32, i32), screen: Rect, width: f64, height: f64, gap: f64) -> Rect {
-    let (x, y) = (point.0 as f64, point.1 as f64);
-    let candidates = [
-        (x + gap, y - height / 2.0),
-        (x - gap - width, y - height / 2.0),
-        (x - width / 2.0, y + gap),
-        (x - width / 2.0, y - gap - height),
-    ];
-    let (x, y) = candidates
-        .into_iter()
-        .find(|(x, y)| {
-            *x >= screen.x
-                && *y >= screen.y
-                && *x + width <= screen.x + screen.width
-                && *y + height <= screen.y + screen.height
-        })
-        .unwrap_or(candidates[0]);
-    Rect {
-        x: x.clamp(screen.x, (screen.x + screen.width - width).max(screen.x)),
-        y: y.clamp(screen.y, (screen.y + screen.height - height).max(screen.y)),
-        width,
-        height,
+        let options = self.scan.options;
+        Panel {
+            key_width: 176.0,
+            size: options.panel_size,
+            rows: self
+                .rows
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|item| PanelKey {
+                            text: item.label().into(),
+                            weight: 1.0,
+                            role: item.role(),
+                            active: false,
+                            blank: false,
+                        })
+                        .collect()
+                })
+                .collect(),
+            status,
+            note: None,
+            dock,
+            // Nothing can be chosen while an error or pause waits for Select.
+            selected: (!failed && !self.suspended()).then(|| self.scan.highlight(&self.rows)),
+            row_scan: self.scan.row_scan() || self.scan.group_scan() || escaping,
+            thickness: options.thickness,
+        }
+        .frame(screen, units, options.color)
     }
 }
 
@@ -448,7 +387,7 @@ impl Kind {
     pub fn label(self) -> &'static str {
         match self {
             Self::Home => "Home",
-            Self::Actions => "Choose an action",
+            Self::Actions => "Actions",
             Self::Scroll => "Scroll",
             Self::ConfirmDrag => "Confirm drag",
             Self::More => "More actions",
@@ -609,35 +548,62 @@ impl Kind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scanning::FrameTile;
+
+    fn is_status(tile: &FrameTile) -> bool {
+        tile.style
+            .is_some_and(|style| style.role == TileRole::Status)
+    }
+    fn status(frame: &Frame) -> String {
+        frame
+            .tiles
+            .iter()
+            .find(|tile| is_status(tile))
+            .unwrap()
+            .text
+            .clone()
+    }
 
     #[test]
-    fn every_menu_uses_the_shared_preset_and_fits_the_screen() {
+    fn every_menu_is_a_docked_panel_that_fits_every_screen_size_and_scale() {
         use crate::scan_preferences::PanelSize;
+        let docks = crate::scan_panel::position_rows(|dock| dock, Dock::default());
         for kind in ALL_MENU_KINDS {
             for size in [PanelSize::Small, PanelSize::Medium, PanelSize::Large] {
-                for units in [1.0, 1.5, 2.0] {
+                for (width, height) in [(320.0, 240.0), (800.0, 600.0), (1920.0, 1080.0)] {
                     let screen = Rect {
-                        x: -800.0,
+                        x: -width,
                         y: -200.0,
-                        width: 800.0,
-                        height: 600.0,
+                        width,
+                        height,
                     };
-                    let mut menu = Menu::new(kind, 250);
-                    menu.set_panel_size(size);
-                    for frame in [
-                        menu.frame((-799, -199), screen, units),
-                        menu.centered_frame(screen, units),
-                    ] {
-                        for tile in frame.tiles {
-                            assert!(
-                                tile.rect.x >= screen.x - 0.01 && tile.rect.y >= screen.y - 0.01
+                    for units in [1.0, 1.5, 2.0] {
+                        let mut menu = Menu::new(kind, 250);
+                        menu.set_panel_size(size);
+                        for &dock in docks[..3].iter().flatten() {
+                            let frame = menu.frame(screen, units, dock, false);
+                            assert!(frame.label.is_none(), "the status tile is the header");
+                            let panel = frame.tiles[0].rect;
+                            assert!(frame.tiles[0].is_panel_background());
+                            assert_eq!(panel, dock.rect(screen, (panel.width, panel.height)));
+                            for tile in &frame.tiles {
+                                let rect = tile.rect;
+                                assert!(rect.width > 0.0 && rect.height > 0.0);
+                                assert!(rect.x >= screen.x - 0.01 && rect.y >= screen.y - 0.01);
+                                assert!(rect.x + rect.width <= screen.x + screen.width + 0.01);
+                                assert!(rect.y + rect.height <= screen.y + screen.height + 0.01);
+                            }
+                            // Every item is a text key, Close menu included.
+                            let texts: Vec<_> =
+                                frame.tiles.iter().map(|tile| tile.text.as_str()).collect();
+                            for item in kind.rows().into_iter().flatten() {
+                                assert!(texts.contains(&item.label()), "{kind:?} {item:?}");
+                            }
+                            assert_eq!(
+                                frame.tiles.len(),
+                                kind.rows().iter().map(Vec::len).sum::<usize>() + 2
                             );
-                            assert!(
-                                tile.rect.x + tile.rect.width <= screen.x + screen.width + 0.01
-                            );
-                            assert!(
-                                tile.rect.y + tile.rect.height <= screen.y + screen.height + 0.01
-                            );
+                            assert!(status(&frame).starts_with(kind.label()));
                         }
                     }
                 }
@@ -727,42 +693,6 @@ mod tests {
     }
 
     #[test]
-    fn every_page_including_four_row_pages_fits_small_scaled_displays() {
-        for kind in ALL_MENU_KINDS {
-            for (width, height) in [(320., 240.), (1920., 1080.)] {
-                let screen = Rect {
-                    x: -1920.,
-                    y: -200.,
-                    width,
-                    height,
-                };
-                for units in [1., 1.5, 2.] {
-                    for point in [
-                        (-1920, -200),
-                        (
-                            (screen.x + width - 1.) as i32,
-                            (screen.y + height - 1.) as i32,
-                        ),
-                    ] {
-                        let frame = Menu::new(kind, 250).frame(point, screen, units);
-                        assert!(frame.tiles.iter().any(|tile| tile.text == "Close menu"));
-                        for rect in frame
-                            .tiles
-                            .iter()
-                            .map(|tile| tile.rect)
-                            .chain(frame.label.iter().map(|label| label.rect))
-                        {
-                            assert!(rect.width > 0. && rect.height > 0.);
-                            assert!(rect.x >= screen.x && rect.y >= screen.y);
-                            assert!(rect.x + rect.width <= screen.x + screen.width + 0.001);
-                            assert!(rect.y + rect.height <= screen.y + screen.height + 0.001);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    #[test]
     fn every_submenu_is_reachable_and_fits_three_columns_and_four_rows() {
         let mut pending = vec![Kind::Actions, Kind::Home];
         let mut visited = vec![];
@@ -794,7 +724,7 @@ mod tests {
         assert!(visited.contains(&Kind::Zoom));
     }
     #[test]
-    fn home_offers_modes_and_point_free_actions_in_the_middle_of_the_screen() {
+    fn home_offers_modes_and_point_free_actions() {
         let home = Kind::Home.rows().into_iter().flatten().collect::<Vec<_>>();
         assert_eq!(
             home,
@@ -824,17 +754,6 @@ mod tests {
         for kind in [Kind::Actions, Kind::MouseActions] {
             assert!(kind.rows().iter().flatten().any(|item| *item == Item::Home));
         }
-        let screen = Rect {
-            x: -1280.0,
-            y: -100.0,
-            width: 1280.0,
-            height: 720.0,
-        };
-        for kind in [Kind::Home, Kind::Windows] {
-            let panel = Menu::new(kind, 250).centered_frame(screen, 1.5).tiles[0].rect;
-            assert!((panel.x + panel.width / 2.0 + 640.0).abs() < 0.001);
-            assert!((panel.y + panel.height / 2.0 - 260.0).abs() < 0.001);
-        }
     }
     #[test]
     fn settings_step_tenths_and_clamp_at_limits() {
@@ -859,92 +778,66 @@ mod tests {
         c.validate().unwrap();
     }
     #[test]
-    fn grid_keeps_square_columns_and_highlights_the_current_row_or_item() {
+    fn panel_highlights_the_current_row_or_item_with_panel_status() {
         let screen = Rect {
             x: 0.0,
             y: 0.0,
-            width: 320.0,
-            height: 240.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let keys = |frame: &Frame| -> Vec<FrameTile> {
+            frame
+                .tiles
+                .iter()
+                .filter(|tile| !tile.is_panel_background() && !is_status(tile))
+                .cloned()
+                .collect()
         };
         let mut menu = Menu::new(Kind::Actions, 250);
-        let row = menu.frame((10, 10), screen, 2.0);
-        let actions: Vec<_> = row
-            .tiles
-            .iter()
-            .filter(|tile| !tile.is_panel_background())
-            .collect();
+        let row = menu.frame(screen, 1.0, Dock::default(), false);
         assert!(row.tiles[0].is_panel_background());
-        assert_eq!(actions.iter().filter(|t| t.selected).count(), 3);
-        assert_eq!(actions[0].rect.x, actions[3].rect.x);
-        assert_eq!(actions[1].rect.x, actions[4].rect.x);
-        for tile in &actions {
-            assert_eq!(tile.rect.width, tile.rect.height);
-        }
+        assert_eq!(status(&row), "Actions · Select a row");
+        let selected: Vec<_> = keys(&row).into_iter().filter(|t| t.selected).collect();
+        assert_eq!(
+            selected.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(),
+            ["Left click", "Right click", "Double click"]
+        );
+        assert!(selected.iter().all(|t| t.style.unwrap().row_scan));
         menu.handle(Action::Select);
-        let item = menu.frame((10, 10), screen, 2.0);
-        let actions: Vec<_> = item
-            .tiles
-            .iter()
-            .filter(|tile| !tile.is_panel_background())
-            .collect();
-        assert_eq!(actions.iter().filter(|t| t.selected).count(), 1);
-        assert!(actions[0].selected);
+        let item = menu.frame(screen, 1.0, Dock::default(), false);
+        assert_eq!(status(&item), "Actions · Select Left click");
+        let selected: Vec<_> = keys(&item).into_iter().filter(|t| t.selected).collect();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].text, "Left click");
+        assert!(!selected[0].style.unwrap().row_scan);
+        // Keys in a row share its width, in the panels' text style.
+        let keys = keys(&item);
+        assert_eq!(keys[0].rect.width, keys[1].rect.width);
+        assert_eq!(keys[0].rect.y, keys[2].rect.y);
+        assert!(keys.iter().all(|t| t.style.is_some()));
+        let close = keys.iter().find(|t| t.text == "Close menu").unwrap();
+        assert_eq!(close.style.unwrap().role, TileRole::Toolbar);
     }
     #[test]
-    fn rounded_panel_has_clear_corners_and_insets_all_actions() {
+    fn errors_pauses_and_waits_show_in_the_status_without_a_highlight() {
         let screen = Rect {
-            x: -1280.0,
+            x: 0.0,
             y: 0.0,
             width: 1280.0,
             height: 720.0,
         };
-        let frame = Menu::new(Kind::Actions, 250).frame((0, 0), screen, 1.0);
-        let panel = &frame.tiles[0];
-        assert!(panel.is_panel_background());
-        for tile in frame
-            .tiles
-            .iter()
-            .filter(|tile| !tile.is_panel_background())
-        {
-            assert!(tile.rect.x > panel.rect.x);
-            assert!(tile.rect.y > panel.rect.y);
-            assert!(tile.rect.x + tile.rect.width < panel.rect.x + panel.rect.width);
-            assert!(tile.rect.y + tile.rect.height < panel.rect.y + panel.rect.height);
-        }
-        let pixels = crate::scan_tile::bitmap(panel).unwrap();
-        assert_eq!(pixels.data()[3], 0);
-        let center = ((pixels.height() / 2 * pixels.width() + pixels.width() / 2) * 4 + 3) as usize;
-        assert_eq!(pixels.data()[center], 255);
+        let mut menu = Menu::new(Kind::Home, 250);
+        let error = menu.frame(screen, 1.0, Dock::default(), true);
+        assert_eq!(status(&error), "Home · Action failed · Select to return");
+        assert!(error.tiles.iter().all(|tile| !tile.selected));
+        assert!(error.tiles.iter().any(|tile| tile.text == "Close menu"));
+        menu.suspend();
+        let paused = menu.frame(screen, 1.0, Dock::default(), false);
+        assert_eq!(status(&paused), "Home paused · Select to resume");
+        assert!(paused.tiles.iter().all(|tile| !tile.selected));
     }
     #[test]
-    fn menu_header_stays_inside_rounded_panel_and_above_buttons() {
-        let screen = Rect {
-            x: -1280.0,
-            y: -100.0,
-            width: 1280.0,
-            height: 720.0,
-        };
-        for scale in [1.0, 1.5, 2.0] {
-            for kind in [Kind::Actions, Kind::Scroll, Kind::ConfirmDrag] {
-                let frame = Menu::new(kind, 250).frame((-100, 100), screen, scale);
-                let panel = &frame.tiles[0];
-                let label = frame.label.as_ref().unwrap().rect;
-                let pixels = crate::scan_tile::bitmap(panel).unwrap();
-                for x in [label.x, label.x + label.width - 1.0] {
-                    for y in [label.y, label.y + label.height - 1.0] {
-                        let px = (x - panel.rect.x).round() as u32;
-                        let py = (y - panel.rect.y).round() as u32;
-                        assert_eq!(pixels.pixel(px, py).unwrap().alpha(), 255);
-                    }
-                }
-                assert!(label.y > panel.rect.y);
-                assert!(label.y + label.height < frame.tiles[1].rect.y);
-                assert_eq!(label.x, frame.tiles[1].rect.x);
-            }
-        }
-    }
-    #[test]
-    fn action_grid_has_equal_horizontal_panel_margins() {
+    fn rounded_panel_has_clear_corners_and_insets_all_keys() {
         let screen = Rect {
             x: -1280.0,
             y: 0.0,
@@ -953,48 +846,39 @@ mod tests {
         };
         for kind in [Kind::Actions, Kind::Scroll, Kind::ConfirmDrag] {
             for scale in [1.0, 1.5, 2.0] {
-                let frame = Menu::new(kind, 250).frame((-100, 100), screen, scale);
-                let panel = frame.tiles[0].rect;
-                let actions = &frame.tiles[1..];
-                let left = actions
+                let frame = Menu::new(kind, 250).frame(screen, scale, Dock::default(), false);
+                let panel = &frame.tiles[0];
+                assert!(panel.is_panel_background());
+                let content = &frame.tiles[1..];
+                for tile in content {
+                    assert!(tile.rect.x > panel.rect.x);
+                    assert!(tile.rect.y > panel.rect.y);
+                    assert!(tile.rect.x + tile.rect.width < panel.rect.x + panel.rect.width);
+                    assert!(tile.rect.y + tile.rect.height < panel.rect.y + panel.rect.height);
+                }
+                // The status header sits above every key, with equal side margins.
+                let header = content.iter().find(|tile| is_status(tile)).unwrap();
+                assert!(content
+                    .iter()
+                    .filter(|tile| !is_status(tile))
+                    .all(|tile| header.rect.y + header.rect.height < tile.rect.y));
+                let left = content
                     .iter()
                     .map(|t| t.rect.x)
                     .fold(f64::INFINITY, f64::min);
-                let right = actions
+                let right = content
                     .iter()
                     .map(|t| t.rect.x + t.rect.width)
                     .fold(f64::NEG_INFINITY, f64::max);
-                assert!(((left - panel.x) - (panel.x + panel.width - right)).abs() < 0.001);
-            }
-        }
-    }
-    #[test]
-    fn layouts_fit_edges_negative_coordinates_and_scaling() {
-        let screen = Rect {
-            x: -1920.0,
-            y: -200.0,
-            width: 1920.0,
-            height: 1080.0,
-        };
-        for point in [
-            (-1920, -200),
-            (-1, -200),
-            (-1920, 879),
-            (-1, 879),
-            (-900, 300),
-        ] {
-            for scale in [1.0, 1.5, 2.0] {
-                let frame = Menu::new(Kind::Actions, 250).frame(point, screen, scale);
-                for rect in frame
-                    .tiles
-                    .iter()
-                    .map(|tile| tile.rect)
-                    .chain(frame.label.iter().map(|label| label.rect))
-                {
-                    assert!(rect.x >= screen.x && rect.y >= screen.y);
-                    assert!(rect.x + rect.width <= screen.x + screen.width + 0.001);
-                    assert!(rect.y + rect.height <= screen.y + screen.height + 0.001);
-                }
+                assert!(
+                    ((left - panel.rect.x) - (panel.rect.x + panel.rect.width - right)).abs()
+                        < 0.001
+                );
+                let pixels = crate::scan_tile::bitmap(panel).unwrap();
+                assert_eq!(pixels.data()[3], 0);
+                let center =
+                    ((pixels.height() / 2 * pixels.width() + pixels.width() / 2) * 4 + 3) as usize;
+                assert_eq!(pixels.data()[center], 255);
             }
         }
     }
