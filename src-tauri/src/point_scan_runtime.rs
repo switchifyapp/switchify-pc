@@ -165,6 +165,18 @@ impl Adapter for PointScan {
         config.control_mode = next;
         true
     }
+    fn remember(app: &AppHandle, technique: &mut Workflow) {
+        // A failed save is retried after the next switch action.
+        if let Some(dock) = technique.unsaved_dock() {
+            let saved = crate::panel_position::path(app)
+                .ok_or_else(|| "No settings directory.".to_string())
+                .and_then(|path| crate::panel_position::save(&path, dock));
+            match saved {
+                Ok(()) => technique.dock_saved(dock),
+                Err(_) => eprintln!("Switchify could not save the panel position."),
+            }
+        }
+    }
     fn carry_over(previous: &Workflow, next: &mut Workflow) {
         next.resume_from(previous);
     }
@@ -499,7 +511,10 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
     } else {
         1.0
     };
-    let mut e = Workflow::new(config.point(), bounds(&display), units)?;
+    let mut e = Workflow::new(config.point(), bounds(&display), units)?.with_dock(
+        crate::panel_position::path(app)
+            .map_or_else(Default::default, |path| crate::panel_position::load(&path)),
+    );
     let keyboard_area = crate::scan_host::work_area(bounds(&display))?;
     e.set_keyboard_area(keyboard_area);
     Ok((

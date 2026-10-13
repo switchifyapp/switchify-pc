@@ -36,7 +36,7 @@ impl PanelKey {
 }
 
 /// One of nine screen positions. `column` and `row` are 0 (start), 1 (middle) or 2 (end).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Dock {
     pub column: u8,
     pub row: u8,
