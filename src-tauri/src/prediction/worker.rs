@@ -352,10 +352,9 @@ impl Engine {
         self.token = self.token.wrapping_add(1);
         self.inserts = Default::default();
         let mut labels = std::array::from_fn(|_| None);
-        for (index, word) in words.into_iter().enumerate() {
-            let Some(word) = word else {
-                continue;
-            };
+        // Each shown word takes the next free slot, so none leaves a gap.
+        let mut index = 0;
+        for word in words.into_iter().flatten() {
             let Some(offset) = prefix_offset(&word, &ctx.prefix) else {
                 continue;
             };
@@ -389,6 +388,7 @@ impl Engine {
                     self.inserts[index] = Some((0, suffix + " "));
                 }
             }
+            index += 1;
         }
         if !self.stable(target, epoch) {
             self.clear();
@@ -765,7 +765,8 @@ mod tests {
                     revision,
                     None,
                 )));
-                assert!(first.words[3..].iter().all(Option::is_none));
+                let instant = first.words.iter().flatten().count();
+                assert!(instant <= 3 && first.words[instant..].iter().all(Option::is_none));
                 let first_ms = start.elapsed().as_secs_f64() * 1000.;
                 let mut success = false;
                 while e.database.pending() {
@@ -774,9 +775,9 @@ mod tests {
                     let next =
                         response_batch(e.respond(request(vec![], revision, Some(first.token))));
                     if next.refined {
-                        assert_eq!(&first.words[..3], &next.words[..3]);
+                        assert_eq!(&first.words[..instant], &next.words[..instant]);
                         if i >= 20 {
-                            generated_words += next.words[3..].iter().flatten().count();
+                            generated_words += next.words.iter().flatten().count() - instant;
                         }
                         success = true;
                         break;
@@ -825,7 +826,7 @@ mod tests {
             "sessions":session_reports,"maximum_sessions":5,
             "retry_policy":"Benchmark simulates explicit keyboard reopenings after failure; production never retries automatically",
             "scope":"Production Engine and model adapter, real neural child IPC, 20ms polling, fake input/activity; excludes outer desktop pipe and rendering",
-            "policy":"three instant plus three generated optional slots",
+            "policy":"up to three instant words first, then up to three generated words in the next free slots",
             "generated_words":generated_words,
             "neural_slot_fill_rate":generated_words as f64 / (refined.len().max(1) * 3) as f64,
             "production_qualified":false});
@@ -840,6 +841,63 @@ mod tests {
         );
     }
     #[test]
+    fn unshown_words_leave_no_gap() {
+        struct Gappy;
+        impl super::super::model::Predict for Gappy {
+            fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
+                Ok(super::super::model::Prediction {
+                    words: [
+                        None,
+                        Some("water".into()),
+                        Some("tree".into()),
+                        Some("walk".into()),
+                        None,
+                        Some("wavy".into()),
+                    ],
+                })
+            }
+        }
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(Gappy));
+        let b = response_batch(e.respond(request(vec![append("wa")], 1, None)));
+        assert_eq!(b.words, crate::prediction::slots(["water", "walk", "wavy"]));
+        assert_eq!(e.accept(b.token, 1), Some((0, "lk ".into())));
+    }
+    #[test]
+    fn generated_words_fill_slots_the_instant_words_left() {
+        struct Sparse {
+            pending: bool,
+        }
+        impl super::super::model::Predict for Sparse {
+            fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
+                self.pending = true;
+                Ok(super::super::model::Prediction {
+                    words: crate::prediction::slots(["water"]),
+                })
+            }
+            fn poll(&mut self) -> Option<super::super::model::Prediction> {
+                std::mem::take(&mut self.pending).then(|| super::super::model::Prediction {
+                    words: crate::prediction::slots(["water", "walnut", "wavy"]),
+                })
+            }
+            fn pending(&self) -> bool {
+                self.pending
+            }
+        }
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(Sparse { pending: false }));
+        let immediate = response_batch(e.respond(request(vec![append("wa")], 1, None)));
+        assert_eq!(immediate.words, crate::prediction::slots(["water"]));
+        let refined = response_batch(e.respond(request(vec![], 1, Some(immediate.token))));
+        assert!(refined.refined);
+        assert_eq!(
+            refined.words,
+            crate::prediction::slots(["water", "walnut", "wavy"])
+        );
+        e.respond(request(vec![], 1, Some(refined.token)));
+        assert_eq!(e.accept(refined.token, 1), Some((0, "lnut ".into())));
+    }
+    #[test]
     fn refinement_preserves_the_displayed_acceptance_and_retires_it_on_ack() {
         for accept_old in [true, false] {
             let mut e = engine();
@@ -850,14 +908,16 @@ mod tests {
             assert!(refined.refined);
             assert_eq!(&refined.words[..3], &immediate.words[..3]);
             assert_eq!(refined.words[3].as_deref(), Some("walnut"));
-            assert!(e.accept(refined.token, 4).is_none());
+            // The generated word after the gap takes the next free slot.
+            assert_eq!(refined.words[4].as_deref(), Some("wavy"));
+            assert!(e.accept(refined.token, 5).is_none());
             if accept_old {
                 assert_eq!(e.accept(immediate.token, 0), Some((0, "ter ".into())));
                 assert!(e.accept(refined.token, 0).is_none());
             } else {
                 e.respond(request(vec![], 1, Some(refined.token)));
                 assert!(e.accept(immediate.token, 0).is_none());
-                assert_eq!(e.accept(refined.token, 5), Some((0, "vy ".into())));
+                assert_eq!(e.accept(refined.token, 4), Some((0, "vy ".into())));
             }
         }
     }
