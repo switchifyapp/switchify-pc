@@ -352,10 +352,9 @@ impl Engine {
         self.token = self.token.wrapping_add(1);
         self.inserts = Default::default();
         let mut labels = std::array::from_fn(|_| None);
-        for (index, word) in words.into_iter().enumerate() {
-            let Some(word) = word else {
-                continue;
-            };
+        // Each shown word takes the next free slot, so none leaves a gap.
+        let mut index = 0;
+        for word in words.into_iter().flatten() {
             let Some(offset) = prefix_offset(&word, &ctx.prefix) else {
                 continue;
             };
@@ -389,6 +388,7 @@ impl Engine {
                     self.inserts[index] = Some((0, suffix + " "));
                 }
             }
+            index += 1;
         }
         if !self.stable(target, epoch) {
             self.clear();
@@ -840,6 +840,29 @@ mod tests {
         );
     }
     #[test]
+    fn unshown_words_leave_no_gap() {
+        struct Gappy;
+        impl super::super::model::Predict for Gappy {
+            fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
+                Ok(super::super::model::Prediction {
+                    words: [
+                        None,
+                        Some("water".into()),
+                        Some("tree".into()),
+                        Some("walk".into()),
+                        None,
+                        Some("wavy".into()),
+                    ],
+                })
+            }
+        }
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(Gappy));
+        let b = response_batch(e.respond(request(vec![append("wa")], 1, None)));
+        assert_eq!(b.words, crate::prediction::slots(["water", "walk", "wavy"]));
+        assert_eq!(e.accept(b.token, 1), Some((0, "lk ".into())));
+    }
+    #[test]
     fn refinement_preserves_the_displayed_acceptance_and_retires_it_on_ack() {
         for accept_old in [true, false] {
             let mut e = engine();
@@ -850,14 +873,16 @@ mod tests {
             assert!(refined.refined);
             assert_eq!(&refined.words[..3], &immediate.words[..3]);
             assert_eq!(refined.words[3].as_deref(), Some("walnut"));
-            assert!(e.accept(refined.token, 4).is_none());
+            // The generated word after the gap takes the next free slot.
+            assert_eq!(refined.words[4].as_deref(), Some("wavy"));
+            assert!(e.accept(refined.token, 5).is_none());
             if accept_old {
                 assert_eq!(e.accept(immediate.token, 0), Some((0, "ter ".into())));
                 assert!(e.accept(refined.token, 0).is_none());
             } else {
                 e.respond(request(vec![], 1, Some(refined.token)));
                 assert!(e.accept(immediate.token, 0).is_none());
-                assert_eq!(e.accept(refined.token, 5), Some((0, "vy ".into())));
+                assert_eq!(e.accept(refined.token, 4), Some((0, "vy ".into())));
             }
         }
     }
