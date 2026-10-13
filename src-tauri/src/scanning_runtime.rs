@@ -520,10 +520,15 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
     hide_prompt();
     let result = (|| -> Result<(), String> {
         let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
-        if matches!(
+        let steps_back = d
+            .engine
+            .as_ref()
+            .is_some_and(|e| e.technique.steps_back(action));
+        if (matches!(
             action,
             Action::OpenKeyboard | Action::OpenPoint | Action::OpenMouse
-        ) || (d.engine.as_ref().is_none_or(|e| !e.active()) && action == Action::Select)
+        ) && !steps_back)
+            || (d.engine.as_ref().is_none_or(|e| !e.active()) && action == Action::Select)
         {
             let (mut engine, display) = A::create(app, d.config.clone())?;
             if let Some(previous) = d.engine.as_ref() {

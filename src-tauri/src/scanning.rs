@@ -343,6 +343,11 @@ pub trait Technique {
     }
     fn execution_failed(&mut self, _message: String) {}
     fn execution_succeeded(&mut self) {}
+    /// Takes a change of mode as a step back within the current scan, which
+    /// is kept instead of starting afresh.
+    fn steps_back(&self, _action: Action) -> bool {
+        false
+    }
     fn start(&mut self);
     fn advance(&mut self, elapsed_ms: u64);
     fn handle(&mut self, action: Action) -> Option<Self::Selection>;
@@ -408,8 +413,10 @@ impl<T: Technique> Session<T> {
             action,
             Action::OpenKeyboard | Action::OpenPoint | Action::OpenMouse
         ) {
+            // A step back kept in place resumes, as starting afresh would.
+            let steps_back = self.technique.steps_back(action);
             let selection = self.technique.handle(action);
-            if selection.is_some() {
+            if selection.is_some() || steps_back {
                 self.active = true;
                 self.paused = false;
             }

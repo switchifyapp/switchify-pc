@@ -9,7 +9,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
     Move(i8, i8),
-    /// Chooses a target with a radar sweep from the pointer.
+    /// Chooses a target with a radar sweep from the centre of a chosen screen area.
     Radar,
     Click,
     RightClick,
