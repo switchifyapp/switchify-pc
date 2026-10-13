@@ -2575,6 +2575,13 @@ mod tests {
         next.open_mouse();
         assert_eq!(next.mouse.dock, chosen);
         assert_eq!(next.unsaved_dock(), None);
+        // Home and the action menus open at the same dock, which they never change.
+        next.open_home();
+        let menu = next.frame().tiles[0].rect;
+        assert_eq!(menu, chosen.rect(screen, (menu.width, menu.height)));
+        next.set_pointer(Some((menu.x + 1.0, menu.y + 1.0)));
+        assert_ne!(next.frame().tiles[0].rect, menu, "Home avoids the pointer");
+        assert_eq!(next.unsaved_dock(), None);
     }
 
     #[test]
