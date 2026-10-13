@@ -17,6 +17,7 @@ mod macos_relaunch;
 mod modifier_overlay;
 mod mouse_repeat;
 mod overlay;
+mod panel_position;
 mod point_scan;
 mod point_scan_activation;
 mod point_scan_runtime;
