@@ -229,7 +229,8 @@ fn rows_for(page: Page, mac: bool, layout: crate::point_scan::KeyboardLayout) ->
         middle.push(N("Enter"));
         let mut bottom = vec![Key::Modifier(0)];
         bottom.extend(letters("zxcvbnm"));
-        bottom.push(C(' ', ' '));
+        // A full stop that stays one with Shift or Caps on.
+        bottom.extend([C('.', '.'), C(' ', ' ')]);
         return vec![
             top,
             middle,
@@ -2107,7 +2108,7 @@ mod tests {
         middle.push(Key::Named("Enter"));
         let mut bottom = vec![Key::Modifier(0)];
         bottom.extend(line("zxcvbnm"));
-        bottom.push(Key::Character(' ', ' '));
+        bottom.extend([Key::Character('.', '.'), Key::Character(' ', ' ')]);
         assert_eq!(&letters[..3], &[top, middle, bottom]);
         assert_eq!(letters.len(), 4);
         assert!(letters[3].contains(&Key::Layout));
@@ -2164,6 +2165,45 @@ mod tests {
         assert_eq!(keyboard.rows[0][0], Key::Prediction(0));
         assert_eq!(keyboard.rows[1][0], Key::Character('q', 'Q'));
         assert_eq!(keyboard.rows.len(), 5);
+    }
+    #[test]
+    fn simple_qwerty_letters_full_stop_stays_a_full_stop_and_starts_a_sentence() {
+        use crate::point_scan::KeyboardLayout;
+        let full_stop = Key::Character('.', '.');
+        let mut keyboard = Keyboard::new(false).with_layout(KeyboardLayout::SimpleQwerty);
+        assert!(keyboard.rows.iter().flatten().any(|key| *key == full_stop));
+        let expect_full_stop = |keyboard: &mut Keyboard| {
+            assert_eq!(keyboard.label(full_stop), ".");
+            assert!(matches!(
+                keyboard.choose_with_context(full_stop, context(1)),
+                Some(Output::Punctuation(p)) if p.mark == '.'
+            ));
+            keyboard.succeeded_with_context(context(1));
+        };
+        // Plain, then at a sentence start with the automatic Shift on.
+        expect_full_stop(&mut keyboard);
+        assert!(keyboard.capitalize_next);
+        assert_eq!(keyboard.modifiers[0], Modifier::Once);
+        expect_full_stop(&mut keyboard);
+        assert!(matches!(
+            keyboard.choose_with_context(Key::Character('a', 'A'), context(1)),
+            Some(Output::Stroke(stroke)) if stroke.character() == Some('A')
+        ));
+        keyboard.succeeded_with_context(context(1));
+        assert!(!keyboard.capitalize_next);
+        // With a Shift the user chose.
+        keyboard.choose_with_context(Key::Modifier(0), context(1));
+        expect_full_stop(&mut keyboard);
+        assert!(matches!(
+            keyboard.choose_with_context(Key::Character('b', 'B'), context(1)),
+            Some(Output::Stroke(stroke)) if stroke.character() == Some('B')
+        ));
+        keyboard.succeeded_with_context(context(1));
+        // With Caps on.
+        keyboard.reset_context();
+        keyboard.choose_with_context(Key::Caps, context(1));
+        expect_full_stop(&mut keyboard);
+        assert!(keyboard.capitalize_next);
     }
     #[test]
     fn simple_qwerty_prose_punctuation_on_numbers_keeps_decimal_literal() {
