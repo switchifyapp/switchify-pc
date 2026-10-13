@@ -281,18 +281,16 @@ pub struct FrameTile {
     pub text: String,
     pub rect: Rect,
     pub scale: f64,
-    pub icon: crate::scan_menu::Item,
     pub style: Option<TileStyle>,
     pub selected: bool,
 }
 impl FrameTile {
-    /// Dark rounded panel behind keyboard keys or menu action tiles.
+    /// Dark rounded panel behind a panel's keys.
     pub fn panel_background(rect: Rect, scale: f64, color: ScannerColor) -> Self {
         Self {
             thickness: Default::default(),
             color,
             text: String::new(),
-            icon: crate::scan_menu::Item::KeyboardKey,
             style: Some(TileStyle {
                 role: TileRole::Panel,
                 active: false,

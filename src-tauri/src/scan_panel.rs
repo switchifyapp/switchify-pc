@@ -2,12 +2,11 @@
 //! and weighted rows of keys. Panels supply content; geometry lives here.
 use crate::{
     scan_items::ItemScanner,
-    scan_menu::Item,
     scan_preferences::{PanelSize, Thickness},
     scanning::{Frame, FrameTile, Rect, ScannerColor, TileRole, TileStyle},
 };
 
-/// One scale for the complete panel, including text and artwork.
+/// One scale for the complete panel, including its text.
 pub fn fit_scale(screen: Rect, units: f64, size: PanelSize, width: f64, height: f64) -> f64 {
     (units * size.scale())
         .min(screen.width.max(1.0) / width)
@@ -217,7 +216,6 @@ impl Panel {
                     thickness: self.thickness,
                     color,
                     text: key.text.clone(),
-                    icon: Item::KeyboardKey,
                     style: Some(TileStyle {
                         role: key.role,
                         active: key.active,
@@ -244,7 +242,6 @@ impl Panel {
                 thickness: self.thickness,
                 color,
                 text: note.clone(),
-                icon: Item::KeyboardKey,
                 style: Some(TileStyle {
                     role: TileRole::Status,
                     active: false,
@@ -264,7 +261,6 @@ impl Panel {
             thickness: self.thickness,
             color,
             text: self.status.clone(),
-            icon: Item::KeyboardKey,
             style: Some(TileStyle {
                 role: TileRole::Status,
                 active: false,

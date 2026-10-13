@@ -40,7 +40,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
   const descriptions = {
     point: 'Choose a place on the screen with a moving line or grid, then choose what to do there.',
     mouse: 'Move the pointer with direction controls and a visible ring. Click, drag, scroll, open Actions for other commands, or open the keyboard from the mouse panel.',
-    menu: 'Choose actions after selecting a point.',
+    menu: 'Choose what to control in Home, and actions after selecting a point. Menus sit where the keyboard and mouse panels do.',
     keyboard: 'Choose keys and word suggestions when the scanning keyboard is open.',
   };
   const disabled = !state?.supported;
@@ -179,9 +179,9 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
       </SettingGroup>
       <p className="setting-note">The scanning keyboard spaces prose punctuation for you. In Simple QWERTY, those marks are on Numbers; the separate numeric period stays a decimal point. Period, question mark, and exclamation mark capitalize the next letter.</p>
     </>}
-    {(area === 'keyboard' || area === 'mouse') && <SettingGroup title="Panel position" description="Choose where the keyboard and mouse panels sit from Position on either panel.">
+    {(area === 'keyboard' || area === 'mouse' || area === 'menu') && <SettingGroup title="Panel position" description="The keyboard, the mouse panel, Home and the action menus share one position. Choose it from Position on the keyboard or mouse panel.">
       <Toggle label="Move away from the pointer" checked={config.panelAvoidsPointer} disabled={disabled} onChange={value => update('panelAvoidsPointer', value)} />
-      <p className="setting-note">While the pointer is over the panel, it moves to the other side of the screen. It returns when the pointer moves away.</p>
+      <p className="setting-note">While the pointer is over a panel or menu, it moves to the other side of the screen. It returns when the pointer moves away.</p>
     </SettingGroup>}
     {area === 'keyboard' && <SettingGroup title="Suggestions" description="Show word suggestions while typing with the scanning keyboard.">
       <Toggle label="Word prediction" checked={config.wordPrediction} disabled={disabled} onChange={value => update('wordPrediction', value)} />
@@ -222,7 +222,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
       legend="Panel size" disabled={disabled} value={settings.panelSize ?? 'medium'}
       options={[{ value: 'small', label: 'Small' }, { value: 'medium', label: 'Medium' }, { value: 'large', label: 'Large' }]}
       onChange={panelSize => update('scanPreferences', { ...settings, panelSize })}
-      note={{ summary: 'Sizes the mouse panel, keyboard, Home and action menus. Panels fit their controls and shrink to fit the screen.' }}
+      note={{ summary: 'Sizes the keyboard, the mouse panel, Home and the action menus. Each panel fits its controls and shrinks to fit the screen.' }}
     />}
     {field('color', 'Scanner colour', locked => <fieldset disabled={locked}><legend>Scanner colour</legend><div className="scanner-colours">
       {(['red', 'green', 'blue', 'yellow', 'white'] as const).map(colour => <label key={colour}><Input type="radio" name="scanner-colour" value={colour} checked={effective.color === colour} onChange={() => change('color', colour)} /><span className={`color-swatch ${colour}`} aria-hidden="true" /><span>{colour[0].toUpperCase() + colour.slice(1)}</span></label>)}

@@ -163,7 +163,7 @@ mod platform {
                 rect.width as i32,
                 scale,
             )?;
-            // The label host can predate the menu panel. Showing an already
+            // The prompt host can predate an open panel. Showing an already
             // visible window does not put it above newly created tile hosts.
             unsafe {
                 SetWindowPos(
@@ -218,7 +218,7 @@ mod platform {
         use super::*;
 
         #[test]
-        fn reused_menu_title_stays_above_panel_without_taking_focus() {
+        fn reused_prompt_stays_above_panel_without_taking_focus() {
             let rect = Rect {
                 x: 0.0,
                 y: 0.0,
@@ -227,7 +227,7 @@ mod platform {
             };
             let foreground = unsafe { GetForegroundWindow() };
             let mut title = Host::new().unwrap();
-            title.prompt("Choose an action", rect, 1.0).unwrap();
+            title.prompt("Hold Select", rect, 1.0).unwrap();
             let mut panel = Host::new().unwrap();
             panel
                 .tile(&crate::scanning::FrameTile::panel_background(
@@ -239,9 +239,9 @@ mod platform {
                     Default::default(),
                 ))
                 .unwrap();
-            // Reuse the title created before the opaque panel, including an
-            // unchanged title on the next scan tick and a submenu transition.
-            for text in ["Choose an action", "Choose an action", "Confirm drag"] {
+            // Reuse the prompt created before the opaque panel, including an
+            // unchanged prompt on the next scan tick and a change of text.
+            for text in ["Hold Select", "Hold Select", "Choose drag destination"] {
                 title.prompt(text, rect, 1.0).unwrap();
                 unsafe {
                     let mut above = GetWindow(panel.windows[0], GW_HWNDPREV).unwrap();
@@ -322,9 +322,6 @@ mod platform {
             self.last_rects = rects.to_vec();
             Ok(())
         }
-        pub fn menu_title(&mut self, text: &str, rect: Rect, scale: f64) -> Result<(), String> {
-            self.text_panel(text, rect, scale, None)
-        }
         pub fn text_panel(
             &mut self,
             text: &str,
@@ -351,7 +348,7 @@ mod platform {
                 }
                 return Ok(());
             }
-            let mtm = MainThreadMarker::new().ok_or("Menu title requires the main thread.")?;
+            let mtm = MainThreadMarker::new().ok_or("Scan prompt requires the main thread.")?;
             let mut rect =
                 screen.map_or(requested, |screen| hud_rect(requested, screen, 0.0, scale));
             let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(rect.width, rect.height));
@@ -377,7 +374,7 @@ mod platform {
             let width = (rect.width - 24.0 * scale).max(1.0);
             let measured = label
                 .cell()
-                .ok_or("Menu title text is unavailable.")?
+                .ok_or("Scan prompt text is unavailable.")?
                 .cellSizeForBounds(NSRect::new(
                     NSPoint::new(0.0, 0.0),
                     NSSize::new(width, f64::MAX),
@@ -392,7 +389,7 @@ mod platform {
             ));
             let layer = view
                 .layer()
-                .ok_or("Menu title background is unavailable.")?;
+                .ok_or("Scan prompt background is unavailable.")?;
             layer.setBackgroundColor(Some(
                 &NSColor::colorWithSRGBRed_green_blue_alpha(
                     30.0 / 255.0,
@@ -479,22 +476,18 @@ mod platform {
                 NSSize::new(tile.rect.width, tile.rect.height),
             );
             let view = NSView::initWithFrame(NSView::alloc(mtm), bounds);
-            let artwork = NSImageView::initWithFrame(NSImageView::alloc(mtm), bounds);
-            artwork.setImage(Some(&image));
-            view.addSubview(&artwork);
-            let label = NSTextField::wrappingLabelWithString(&NSString::from_str(&tile.text), mtm);
-            let key =
-                !tile.is_panel_background() && tile.icon == crate::scan_menu::Item::KeyboardKey;
-            label.setFont(Some(&NSFont::boldSystemFontOfSize(
-                if key {
-                    crate::scan_tile::keyboard_font_size(tile)
-                } else {
-                    15.0
-                } * tile.scale,
-            )));
-            label.setTextColor(Some(&NSColor::whiteColor()));
-            label.setAlignment(NSTextAlignment::Center);
-            label.setFrame(if key {
+            let image_view = NSImageView::initWithFrame(NSImageView::alloc(mtm), bounds);
+            image_view.setImage(Some(&image));
+            view.addSubview(&image_view);
+            // The panel background has no text; keys centre theirs.
+            if !tile.is_panel_background() {
+                let label =
+                    NSTextField::wrappingLabelWithString(&NSString::from_str(&tile.text), mtm);
+                label.setFont(Some(&NSFont::boldSystemFontOfSize(
+                    crate::scan_tile::keyboard_font_size(tile) * tile.scale,
+                )));
+                label.setTextColor(Some(&NSColor::whiteColor()));
+                label.setAlignment(NSTextAlignment::Center);
                 let padding = 8.0 * tile.scale;
                 let width = (tile.rect.width - padding * 2.0).max(1.0);
                 let measured = label
@@ -505,17 +498,12 @@ mod platform {
                         NSSize::new(width, f64::MAX),
                     ));
                 let height = measured.height.min(tile.rect.height);
-                NSRect::new(
+                label.setFrame(NSRect::new(
                     NSPoint::new(padding, (tile.rect.height - height) / 2.0),
                     NSSize::new(width, height),
-                )
-            } else {
-                NSRect::new(
-                    NSPoint::new(6.0 * tile.scale, 12.0 * tile.scale),
-                    NSSize::new(tile.rect.width - 12.0 * tile.scale, 40.0 * tile.scale),
-                )
-            });
-            view.addSubview(&label);
+                ));
+                view.addSubview(&label);
+            }
             self.panels[0].setContentView(Some(&view));
             Ok(())
         }
@@ -661,57 +649,12 @@ impl Host {
             self.prompt(text, rect, legacy_scale)
         }
     }
-    pub fn label(
-        &mut self,
-        label: &crate::scanning::FrameLabel,
-        menu_title: Option<MenuTitle>,
-    ) -> Result<(), String> {
-        #[cfg(target_os = "macos")]
-        if let Some(MenuTitle { rect, scale }) = menu_title {
-            return self.menu_title(&label.text, rect, scale);
-        }
-        #[cfg(not(target_os = "macos"))]
-        if let Some(MenuTitle { rect, scale }) = menu_title {
-            let _ = (rect, scale);
-        }
+    pub fn label(&mut self, label: &crate::scanning::FrameLabel) -> Result<(), String> {
         if let Some(hud) = &label.hud {
             return self.hud_prompt(&label.text, label.rect, label.scale, hud.clone());
         }
         self.prompt(&label.text, label.rect, label.scale)
     }
-}
-
-#[derive(Clone, Copy)]
-pub struct MenuTitle {
-    rect: Rect,
-    scale: f64,
-}
-
-pub fn menu_title_geometry(
-    label: &crate::scanning::FrameLabel,
-    tiles: &[crate::scanning::FrameTile],
-) -> Option<MenuTitle> {
-    let content: Vec<_> = tiles
-        .iter()
-        .filter(|tile| !tile.is_panel_background())
-        .collect();
-    let first = content.first()?;
-    let left = content
-        .iter()
-        .map(|tile| tile.rect.x)
-        .fold(f64::INFINITY, f64::min);
-    let right = content
-        .iter()
-        .map(|tile| tile.rect.x + tile.rect.width)
-        .fold(f64::NEG_INFINITY, f64::max);
-    Some(MenuTitle {
-        rect: Rect {
-            x: left,
-            width: right - left,
-            ..label.rect
-        },
-        scale: first.scale,
-    })
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -733,9 +676,8 @@ fn hud_rect(requested: Rect, screen: Rect, text_height: f64, scale: f64) -> Rect
 }
 
 #[cfg(test)]
-mod title_tests {
+mod hud_tests {
     use super::*;
-    use crate::scan_menu::{Kind, Menu};
 
     #[test]
     fn wrapped_hud_grows_and_stays_inside_scaled_negative_displays() {
@@ -779,55 +721,5 @@ mod title_tests {
             height: 64.0,
         };
         assert_eq!(hud_rect(requested, screen, 400.0, 1.0), screen);
-    }
-
-    #[test]
-    fn titles_follow_tile_edges_with_clear_header_spacing() {
-        for screen in [
-            Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 320.0,
-                height: 240.0,
-            },
-            Rect {
-                x: -2048.0,
-                y: -100.0,
-                width: 2048.0,
-                height: 1109.0,
-            },
-        ] {
-            for units in [1.0, 2.0] {
-                let mut menu = Menu::new(Kind::Actions, 500);
-                for paused in [false, true] {
-                    if paused {
-                        menu.suspend();
-                    }
-                    let frame = menu.frame((0, 0), screen, units);
-                    let label = frame.label.as_ref().unwrap();
-                    let MenuTitle { rect, scale } =
-                        menu_title_geometry(label, &frame.tiles).unwrap();
-                    let actions: Vec<_> = frame
-                        .tiles
-                        .iter()
-                        .filter(|tile| !tile.is_panel_background())
-                        .collect();
-                    assert!(frame.tiles[0].is_panel_background());
-                    assert_eq!(rect.x, actions[0].rect.x);
-                    let last = actions[2].rect;
-                    assert!((rect.x + rect.width - last.x - last.width).abs() < 0.001);
-                    assert_eq!(rect.y, label.rect.y);
-                    assert_eq!(rect.height, label.rect.height);
-                    assert!((actions[0].rect.y - rect.y - rect.height - 4.0 * scale).abs() < 0.001);
-                    assert!(rect.x >= screen.x && rect.x + rect.width <= screen.x + screen.width);
-                    assert!(rect.y >= screen.y && rect.y + rect.height <= screen.y + screen.height);
-                    if paused {
-                        assert_eq!(label.text, "Select to resume");
-                    }
-                    assert!(menu_title_geometry(label, &[]).is_none());
-                    assert!(menu_title_geometry(label, &frame.tiles[..1]).is_none());
-                }
-            }
-        }
     }
 }

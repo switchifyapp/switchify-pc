@@ -139,7 +139,7 @@ pub struct Workflow {
     keyboard_area: Rect,
     mouse: crate::scan_mouse::MousePanel,
     mouse_area: Rect,
-    /// Shared by the keyboard and mouse panels and kept when either is rebuilt.
+    /// Shared by the keyboard and mouse panels and the menus, and kept when any is rebuilt.
     dock: crate::scan_panel::Dock,
     /// Latest pointer position, used to move an open panel out of the pointer's way.
     pointer: Option<(f64, f64)>,
@@ -314,6 +314,10 @@ impl Workflow {
             None
         }
     }
+    /// Home or an action menu is showing.
+    pub fn menu_open(&self) -> bool {
+        self.stage == Stage::Menu
+    }
     pub fn keyboard_open(&self) -> bool {
         matches!(self.stage, Stage::Keyboard | Stage::KeyboardOpening)
     }
@@ -487,11 +491,40 @@ impl Workflow {
         }
         self.moved = self.avoiding();
     }
+    /// Menus dock in the work area of the display they act on. Each area is kept
+    /// current only while its own panel is in use, so one left on another display
+    /// is passed over.
+    fn menu_area(&self) -> Rect {
+        let screen = self.point.screen;
+        let areas = if self.mouse_actions_open {
+            [self.mouse_area, self.keyboard_area]
+        } else {
+            [self.keyboard_area, self.mouse_area]
+        };
+        areas
+            .into_iter()
+            .find(|area| {
+                area.x >= screen.x
+                    && area.y >= screen.y
+                    && area.x + area.width <= screen.x + screen.width
+                    && area.y + area.height <= screen.y + screen.height
+            })
+            .unwrap_or(screen)
+    }
+    fn menu_frame(&self) -> Frame {
+        self.menu.frame(
+            self.menu_area(),
+            self.point.units_per_logical_pixel,
+            self.dock,
+            self.error.as_deref(),
+        )
+    }
     /// Dock to draw the open panel at instead of `dock`, while the pointer is over it.
     fn avoiding(&self) -> Option<crate::scan_panel::Dock> {
         let area = match self.stage {
             Stage::Keyboard => self.keyboard_area,
             Stage::Mouse | Stage::MouseMoving | Stage::MouseScrolling => self.mouse_area,
+            Stage::Menu => self.menu_area(),
             _ => return None,
         };
         if !self.point.config.panel_avoids_pointer {
@@ -504,6 +537,7 @@ impl Workflow {
                 self.point.units_per_logical_pixel,
                 self.point.config.scanner_color,
             ),
+            Stage::Menu => self.menu_frame(),
             _ => self.mouse.frame(
                 area,
                 self.point.units_per_logical_pixel,
@@ -801,7 +835,6 @@ impl Workflow {
                 self.error = None;
                 return Some(Request::OpenKeyboard);
             }
-            Item::KeyboardKey => {}
             Item::MousePanel => return self.open_mouse(),
             Item::More | Item::Group(_) => {
                 let kind = if let Item::Group(kind) = item {
@@ -1275,6 +1308,7 @@ impl Technique for Workflow {
     fn frame(&self) -> Frame {
         let panel_area = match self.stage {
             Stage::Keyboard => self.keyboard_area,
+            Stage::Menu => self.menu_area(),
             _ => self.mouse_area,
         };
         let mut frame = match self.stage {
@@ -1338,40 +1372,23 @@ impl Technique for Workflow {
                 .map(crate::scan_radar::Radar::frame)
                 .unwrap_or_default(),
             Stage::Point | Stage::Destination => self.point.frame(),
-            Stage::Menu if self.home_open() => self
-                .menu
-                .centered_frame(self.point.screen, self.point.units_per_logical_pixel),
-            Stage::Menu => self.menu.frame(
-                if self.menu.kind == Kind::ConfirmDrag {
-                    self.destination
-                } else {
-                    self.source
-                },
-                self.point.screen,
-                self.point.units_per_logical_pixel,
-            ),
+            Stage::Menu => self.menu_frame(),
             _ => Frame::default(),
         };
         if let Some(moved) = self.avoiding() {
             crate::scan_panel::move_frame(&mut frame, moved, panel_area);
-        }
-        if let Some(error) = &self.error {
-            frame.tiles.clear();
-            if let Some(label) = frame.label.as_mut() {
-                label.text = format!("{error}\nSelect to return");
-                label.rect.height = 100.0 * self.point.units_per_logical_pixel;
-                label.scale *= 0.65;
-                label.hud = Some(crate::scanning::HudPresentation {
-                    screen: self.point.screen,
-                    scale: self.point.units_per_logical_pixel,
-                });
-            }
         }
         if matches!(self.stage, Stage::Menu | Stage::Destination) && !self.home_open() {
             let s = self.point.units_per_logical_pixel;
             frame
                 .strips
                 .extend(crosshair(self.source, self.point.screen, s));
+            // A docked menu is not beside the destination, so it is marked too.
+            if self.stage == Stage::Menu && self.menu.kind == Kind::ConfirmDrag {
+                frame
+                    .strips
+                    .extend(crosshair(self.destination, self.point.screen, s));
+            }
             if self.stage == Stage::Destination {
                 frame.label = Some(FrameLabel {
                     text: "Choose drag destination".into(),
@@ -1496,9 +1513,12 @@ mod tests {
         assert_eq!(s.technique.menu.kind, Kind::Home);
         assert!(s.technique.follows_foreground());
         let frame = s.technique.frame();
+        // Home is docked like the panels, at the bottom of the screen by default.
         let panel = frame.tiles[0].rect;
+        assert!(frame.tiles[0].is_panel_background());
         assert!((panel.x + panel.width / 2.0 + 500.0).abs() < 0.001);
-        assert!((panel.y + panel.height / 2.0 - 420.0).abs() < 0.001);
+        assert!((panel.y + panel.height - 820.0).abs() < 0.001);
+        assert!(frame.label.is_none());
         // No chosen point is marked, because Home has none.
         assert!(frame.strips.is_empty());
 
@@ -2589,6 +2609,63 @@ mod tests {
         assert_eq!(workflow.moved, None);
     }
     #[test]
+    fn menus_share_the_panel_dock_avoid_the_pointer_and_mark_their_points() {
+        use crate::scan_panel::Dock;
+        let screen = Rect {
+            x: -1280.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let work = Rect {
+            height: 680.0,
+            ..screen
+        };
+        let config = Config {
+            panel_avoids_pointer: true,
+            ..last_mode()
+        };
+        let mut workflow = Workflow::new(config.point(), screen, 1.0).unwrap();
+        workflow.set_keyboard_area(work);
+        let top = Dock { column: 1, row: 0 };
+        workflow.set_dock(top);
+        workflow.source = (-640, 100);
+        workflow.open(Kind::Actions);
+        let frame = workflow.frame();
+        let panel = frame.tiles[0].rect;
+        let size = (panel.width, panel.height);
+        assert_eq!(panel, top.rect(work, size), "docked in the work area");
+        assert_eq!(
+            frame.strips,
+            crosshair((-640, 100), screen, 1.0),
+            "the chosen point stays marked"
+        );
+        workflow.set_pointer(Some((panel.x + 1.0, panel.y + 1.0)));
+        assert_eq!(
+            workflow.frame().tiles[0].rect,
+            Dock { column: 1, row: 2 }.rect(work, size),
+            "the menu moves out of the pointer's way"
+        );
+        assert_eq!(workflow.dock, top, "the chosen dock is kept");
+        workflow.set_pointer(None);
+        assert_eq!(workflow.frame().tiles[0].rect, panel);
+
+        // A docked menu is not beside the destination, so both ends of a drag are marked.
+        workflow.destination = (-200, 600);
+        workflow.open(Kind::ConfirmDrag);
+        let mut ends = crosshair((-640, 100), screen, 1.0);
+        ends.extend(crosshair((-200, 600), screen, 1.0));
+        assert_eq!(workflow.frame().strips, ends);
+
+        // A work area left on another display is passed over for this display.
+        workflow.set_keyboard_area(Rect { x: 0.0, ..work });
+        workflow.open(Kind::Home);
+        let frame = workflow.frame();
+        let panel = frame.tiles[0].rect;
+        assert_eq!(panel, top.rect(screen, (panel.width, panel.height)));
+        assert!(frame.strips.is_empty(), "Home acts at no point");
+    }
+    #[test]
     fn mouse_keyboard_return_and_drag_state() {
         let screen = Rect {
             x: 0.0,
@@ -3240,14 +3317,24 @@ mod tests {
                 s.technique.destination = (40, 50);
                 s.technique.elapsed = 123;
                 s.technique.pending = Some(default_click((10, 20)));
-                let tiles = s.frame().tiles;
-                let first = tiles
+                let keys: Vec<_> = s
+                    .frame()
+                    .tiles
+                    .into_iter()
+                    .filter(|tile| {
+                        tile.style.is_some_and(|style| {
+                            !matches!(
+                                style.role,
+                                crate::scanning::TileRole::Panel
+                                    | crate::scanning::TileRole::Status
+                            )
+                        })
+                    })
+                    .collect();
+                let first = keys.first().expect("menu actions");
+                let rows = keys
                     .iter()
-                    .find(|tile| !tile.is_panel_background())
-                    .expect("menu actions");
-                let rows = tiles
-                    .iter()
-                    .filter(|tile| !tile.is_panel_background() && tile.rect.x == first.rect.x)
+                    .filter(|tile| tile.rect.x == first.rect.x)
                     .count();
                 let close = if kind == Kind::Home { 2 } else { 1 };
                 assert_eq!(choose(&mut s, rows - 1, close), None, "{kind:?}");
@@ -3376,10 +3463,9 @@ mod tests {
         session.execution_failed("Cleanup failed".into());
         assert!(session
             .frame()
-            .label
-            .unwrap()
-            .text
-            .contains("Select to return"));
+            .tiles
+            .iter()
+            .any(|tile| tile.text == "Cleanup failed · Select to return"));
         assert_eq!(session.action(Action::Select), None);
         assert_eq!(
             session.technique.phase(),
@@ -3471,11 +3557,19 @@ mod tests {
             Some(Request::Command { .. })
         ));
         w.execution_failed("Action failed.".into());
-        let label = w.frame().label.unwrap();
-        assert!(label.text.contains("Select to return"));
-        assert_eq!(label.hud.as_ref().unwrap().scale, 1.0);
-        assert_eq!(label.hud.as_ref().unwrap().screen, w.point.screen);
-        assert!(label.scale < label.hud.as_ref().unwrap().scale);
+        // The error is the menu panel's status, and nothing is offered until Select.
+        let frame = w.frame();
+        assert!(frame.label.is_none());
+        let status = frame
+            .tiles
+            .iter()
+            .find(|tile| {
+                tile.style
+                    .is_some_and(|style| style.role == crate::scanning::TileRole::Status)
+            })
+            .unwrap();
+        assert_eq!(status.text, "Action failed · Select to return");
+        assert!(frame.tiles.iter().all(|tile| !tile.selected));
         assert!(w.handle(Action::Select).is_none());
         assert_eq!(w.selected(Item::LeftClick), Some(default_click((120, 80))));
     }
@@ -3503,7 +3597,8 @@ mod tests {
         for (column, right, count) in [(0, false, 1), (1, true, 1), (2, false, 2)] {
             let mut s = session(false);
             open(&mut s);
-            assert_eq!(s.frame().tiles.len(), 12);
+            // The background, eleven actions and the status header.
+            assert_eq!(s.frame().tiles.len(), 13);
             assert_eq!(
                 choose(&mut s, 0, column),
                 Some(Request::Click {

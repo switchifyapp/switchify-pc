@@ -323,6 +323,12 @@ impl Adapter for PointScan {
             // settled once its area is known.
             let mut read = false;
             environment.following = false;
+            // An open menu moves out of the pointer's way as the panels do.
+            let menu_pointer = |technique: &Workflow| {
+                (technique.menu_open() && technique.panel_avoids_pointer())
+                    .then(|| display_navigation::pointer(app).ok())
+                    .flatten()
+            };
             if technique.mouse_open() {
                 environment.foreground = crate::scan_host::foreground().ok();
                 environment.panel = true;
@@ -376,6 +382,7 @@ impl Adapter for PointScan {
                 environment.foreground = crate::scan_host::foreground().ok();
                 environment.panel = false;
                 environment.following = true;
+                technique.set_pointer(menu_pointer(technique));
             } else if technique.keyboard_open() {
                 crate::point_scan_ready(app)?;
                 // The keyboard stays as it is whatever is in front. Only what
@@ -441,10 +448,10 @@ impl Adapter for PointScan {
                     environment.panel = false;
                     environment.foreground = crate::scan_host::foreground().ok();
                 }
-                technique.set_pointer(None);
+                technique.set_pointer(menu_pointer(technique));
             }
-            // Point scanning ignores the work area, but a keyboard it opens
-            // fits the one for the Space it is on now.
+            // Point scanning ignores the work area, but a keyboard or menu it
+            // opens fits the one for the Space it is on now.
             if !environment.panel
                 && WORK_AREA_FOLLOWS_AUTO_HIDE
                 && (environment.space != space.changes || space.settling)
