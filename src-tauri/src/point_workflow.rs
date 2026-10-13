@@ -1989,6 +1989,42 @@ mod tests {
     }
 
     #[test]
+    fn stepping_back_from_a_paused_direction_resumes_picking_an_area() {
+        use crate::scan_mouse::Key;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut s = Session::new(
+            Workflow::new(last_mode().point(), screen, 1.0).unwrap(),
+            false,
+        );
+        s.action(Action::Select);
+        s.technique.handle(Action::OpenMouse);
+        s.technique.set_pointer(Some((640.0, 360.0)));
+        s.technique.mouse_key(Key::Radar);
+        s.action(Action::Select);
+        s.action(Action::Pause);
+        assert!(s.paused());
+        assert_eq!(s.action(Action::OpenMouse), None);
+        assert!(!s.paused());
+        assert!(s.active());
+        let first = s.frame().fills;
+        assert_eq!(first[0].x, 0.0, "the top left quarter is highlighted");
+        for _ in 0..10 {
+            s.tick(100, false);
+        }
+        let next = s.frame().fills;
+        assert_eq!(
+            (next[0].x, next[0].y),
+            (640.0, 0.0),
+            "the highlight moves on to the top right quarter"
+        );
+    }
+
+    #[test]
     fn radar_returns_to_the_panel_after_unattended_passes() {
         use crate::scan_mouse::Key;
         let screen = Rect {
