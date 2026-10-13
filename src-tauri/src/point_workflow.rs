@@ -262,13 +262,13 @@ impl Workflow {
         self.saved_dock = dock;
         self
     }
-    /// The dock chosen since it was last loaded or saved, once, to save it.
+    /// The dock chosen since it was last loaded or saved, until it is saved.
     /// A panel moved out of the pointer's way keeps its chosen dock.
-    pub fn take_dock_change(&mut self) -> Option<crate::scan_panel::Dock> {
-        (self.dock != self.saved_dock).then(|| {
-            self.saved_dock = self.dock;
-            self.dock
-        })
+    pub fn unsaved_dock(&self) -> Option<crate::scan_panel::Dock> {
+        (self.dock != self.saved_dock).then_some(self.dock)
+    }
+    pub fn dock_saved(&mut self, dock: crate::scan_panel::Dock) {
+        self.saved_dock = dock;
     }
     fn set_dock(&mut self, dock: crate::scan_panel::Dock) {
         self.dock = dock;
@@ -2524,7 +2524,7 @@ mod tests {
         let mut workflow = Workflow::new(config.point(), screen, 1.0)
             .unwrap()
             .with_dock(saved);
-        assert_eq!(workflow.take_dock_change(), None, "a loaded dock is saved");
+        assert_eq!(workflow.unsaved_dock(), None, "a loaded dock is saved");
         workflow.open_mouse();
         assert_eq!(
             (workflow.keyboard.dock, workflow.mouse.dock),
@@ -2536,13 +2536,16 @@ mod tests {
         // Moving out of the pointer's way is not a choice.
         workflow.set_pointer(Some((640.0, 20.0)));
         assert!(workflow.moved.is_some());
-        assert_eq!(workflow.take_dock_change(), None);
+        assert_eq!(workflow.unsaved_dock(), None);
 
         let chosen = Dock { column: 2, row: 2 };
         assert_eq!(workflow.mouse_key(Key::Dock), None);
         assert_eq!(workflow.mouse_key(Key::Position(chosen)), None);
-        assert_eq!(workflow.take_dock_change(), Some(chosen));
-        assert_eq!(workflow.take_dock_change(), None, "saved once");
+        assert_eq!(workflow.unsaved_dock(), Some(chosen));
+        // A failed save leaves it to retry after the next action.
+        assert_eq!(workflow.unsaved_dock(), Some(chosen));
+        workflow.dock_saved(chosen);
+        assert_eq!(workflow.unsaved_dock(), None, "saved once");
 
         // The next scan keeps the chosen dock.
         let mut next = Workflow::new(config.point(), screen, 1.0)
@@ -2551,7 +2554,7 @@ mod tests {
         next.resume_from(&workflow);
         next.open_mouse();
         assert_eq!(next.mouse.dock, chosen);
-        assert_eq!(next.take_dock_change(), None);
+        assert_eq!(next.unsaved_dock(), None);
     }
 
     #[test]

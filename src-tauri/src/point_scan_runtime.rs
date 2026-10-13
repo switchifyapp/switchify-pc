@@ -166,13 +166,14 @@ impl Adapter for PointScan {
         true
     }
     fn remember(app: &AppHandle, technique: &mut Workflow) {
-        // The position is a preference: a failed save keeps it for this session.
-        if let Some(dock) = technique.take_dock_change() {
+        // A failed save is retried after the next switch action.
+        if let Some(dock) = technique.unsaved_dock() {
             let saved = crate::panel_position::path(app)
                 .ok_or_else(|| "No settings directory.".to_string())
                 .and_then(|path| crate::panel_position::save(&path, dock));
-            if saved.is_err() {
-                eprintln!("Switchify could not save the panel position.");
+            match saved {
+                Ok(()) => technique.dock_saved(dock),
+                Err(_) => eprintln!("Switchify could not save the panel position."),
             }
         }
     }

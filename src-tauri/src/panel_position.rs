@@ -26,9 +26,14 @@ pub fn save(path: &Path, dock: Dock) -> Result<(), String> {
     }
     let bytes = serde_json::to_vec(&dock).map_err(|e| e.to_string())?;
     let temp = path.with_extension("json.tmp");
-    let saved = std::fs::write(&temp, bytes)
-        .map_err(|e| e.to_string())
-        .and_then(|()| crate::storage::replace_file(&temp, path));
+    let saved = (|| {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(&bytes)?;
+        file.sync_all()
+    })()
+    .map_err(|e| e.to_string())
+    .and_then(|()| crate::storage::replace_file(&temp, path));
     if saved.is_err() {
         let _ = std::fs::remove_file(&temp);
     }
