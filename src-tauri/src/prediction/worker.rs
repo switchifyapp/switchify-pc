@@ -812,9 +812,18 @@ mod tests {
                         success = true;
                     }
                 }
+                // A phrase request that failed fails this query, not the next.
+                if phrase_ms.is_none()
+                    && matches!(
+                        e.database.neural_status(),
+                        Some(switchify_prediction_neural::Status::Unavailable(_))
+                    )
+                {
+                    success = false;
+                }
                 if i >= 20 {
                     immediate.push(first_ms);
-                    if let Some(ms) = words_ms {
+                    if let (true, Some(ms)) = (success, words_ms) {
                         refined.push(ms);
                     }
                     if let Some(ms) = phrase_ms {
