@@ -298,7 +298,7 @@ describe("Switchify PC settings", () => {
     expect(screen.getByText(/Nothing is sent unless you choose Share diagnostics/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Don't share" }));
     expect(await screen.findByText("Opted out. No diagnostic reports are stored or sent.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "https://switchifyapp.com/privacy");
+    expect(screen.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "https://www.theswitchify.app/privacy");
 
     first.unmount();
     browserState.telemetry = { consent: "undecided", available: false };
