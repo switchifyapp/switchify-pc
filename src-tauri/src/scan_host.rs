@@ -285,21 +285,18 @@ mod platform {
             })
         }
         pub fn render(&mut self, rects: &[crate::scanning::PaintedRect]) -> Result<(), String> {
-            if self.last_rects == rects {
-                return Ok(());
-            }
             let mtm =
                 MainThreadMarker::new().ok_or("Point scan requires the AppKit main thread.")?;
-            let screens = NSScreen::screens(mtm);
-            let primary = screens
-                .firstObject()
-                .ok_or("No scanning display is available.")?;
-            let top = primary.frame().origin.y + primary.frame().size.height;
-            while self.panels.len() < rects.len() {
-                self.panels.push(crate::overlay::platform::make_panel(mtm));
-            }
-            for (index, panel) in self.panels.iter().enumerate() {
-                if let Some(paint) = rects.get(index) {
+            if self.last_rects != rects {
+                let screens = NSScreen::screens(mtm);
+                let primary = screens
+                    .firstObject()
+                    .ok_or("No scanning display is available.")?;
+                let top = primary.frame().origin.y + primary.frame().size.height;
+                while self.panels.len() < rects.len() {
+                    self.panels.push(crate::overlay::platform::make_panel(mtm));
+                }
+                for (panel, paint) in self.panels.iter().zip(rects) {
                     let r = &paint.rect;
                     panel.setBackgroundColor(Some(&NSColor::colorWithSRGBRed_green_blue_alpha(
                         paint.color[0] as f64 / 255.0,
@@ -314,12 +311,21 @@ mod platform {
                         ),
                         false,
                     );
+                }
+                self.last_rects = rects.to_vec();
+            }
+            // Every tile is its own panel at one window level, so a frame is
+            // presented background first and its keys after it. Order the
+            // panel front on every presentation, not only when its geometry
+            // changed: a key whose rect is unchanged must still rise above a
+            // background that was just raised, or the panel shows no keys.
+            for (index, panel) in self.panels.iter().enumerate() {
+                if index < rects.len() {
                     panel.orderFrontRegardless();
                 } else {
                     panel.orderOut(None);
                 }
             }
-            self.last_rects = rects.to_vec();
             Ok(())
         }
         pub fn text_panel(
