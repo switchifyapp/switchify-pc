@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please report security vulnerabilities by email to owen@switchifyapp.com.
+Please report security vulnerabilities by email to info@theswitchify.app.
 
 Do not open a public GitHub issue for vulnerabilities, pairing bypasses, authentication weaknesses, secret exposure, or remote command execution concerns.
 
