@@ -884,6 +884,11 @@ impl Keyboard {
         self.error = true;
         self.scan.suspended = true;
     }
+    /// Key glyphs drawn at the letter size. Shift is not here: its state text
+    /// joins the glyph, and the key must not change size between states.
+    pub const LARGE_GLYPHS: [&'static str; 8] = [
+        "\u{232B}", "\u{21A9}", "\u{21E5}", "\u{2326}", "↑", "↓", "←", "→",
+    ];
     /// The text drawn on a key. Utility keys with a standard symbol show the
     /// glyph; `label` keeps the readable name for the status line.
     fn display(&self, key: Key) -> String {
@@ -892,6 +897,7 @@ impl Keyboard {
             Key::Named("Enter") => "\u{21A9}".into(),
             Key::Named("Tab") => "\u{21E5}".into(),
             Key::Named("Delete") => "\u{2326}".into(),
+            // The suffix is shared with `label`, so tile and status agree.
             Key::Modifier(0) => format!("{}{}", self.shift_glyph(), self.modifiers[0].suffix()),
             _ => self.label(key),
         }
@@ -1323,9 +1329,18 @@ mod tests {
             assert_eq!(keyboard.display(key), glyph);
             assert_eq!(keyboard.label(key), name);
             assert_eq!(
+                Keyboard::LARGE_GLYPHS.contains(&glyph),
+                key != Key::Modifier(0),
+                "only Shift stays at the utility size"
+            );
+            assert_eq!(
                 crate::scan_panel::scanning_status("Letters", false, &keyboard.label(key)),
                 format!("Letters · Select {name}")
             );
+        }
+        for arrow in ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"] {
+            let text = keyboard.display(Key::Named(arrow));
+            assert!(Keyboard::LARGE_GLYPHS.contains(&text.as_str()), "{arrow}");
         }
         // Modifier state stays under the glyph.
         keyboard.modifiers[0] = Modifier::Once;
