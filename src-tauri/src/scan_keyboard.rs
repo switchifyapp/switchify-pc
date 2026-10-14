@@ -1336,7 +1336,7 @@ mod tests {
         mac.modifiers[0] = Modifier::Locked;
         assert_eq!(mac.display(Key::Modifier(0)), "\u{21E7}\nLocked");
         // Keys without a standard symbol keep their words on both platforms.
-        for keyboard in [&keyboard, &mac] {
+        for platform in [&keyboard, &mac] {
             for key in [
                 Key::Caps,
                 Key::Named("Escape"),
@@ -1347,8 +1347,8 @@ mod tests {
                 Key::Modifier(3),
                 Key::Character(' ', ' '),
             ] {
-                let text = keyboard.display(key);
-                assert_eq!(text, keyboard.label(key));
+                let text = platform.display(key);
+                assert_eq!(text, platform.label(key));
                 assert!(text.is_ascii(), "{text:?}");
             }
         }

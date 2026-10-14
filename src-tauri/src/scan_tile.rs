@@ -101,9 +101,12 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
 
 pub fn keyboard_font_size(tile: &FrameTile) -> f64 {
     match tile.style.map(|s| s.role) {
-        // Single characters and single key glyphs such as ⌫ share the large size.
+        // Single characters and single key glyphs such as ⌫ share the large
+        // size. The Shift glyph stays at the utility size because its state
+        // text ("Next key", "Locked") joins it, and the key must not jump.
         Some(crate::scanning::TileRole::Character | crate::scanning::TileRole::Utility)
-            if tile.text.chars().count() == 1 =>
+            if tile.text.chars().count() == 1
+                && !matches!(tile.text.as_str(), "\u{21E7}" | "\u{2B06}") =>
         {
             24.0
         }
@@ -163,10 +166,15 @@ mod tests {
         );
         assert_eq!(keyboard_font_size(&tile(TileRole::Character, "a")), 24.0);
         assert_eq!(keyboard_font_size(&tile(TileRole::Utility, "Esc")), 16.0);
-        assert_eq!(
-            keyboard_font_size(&tile(TileRole::Utility, "\u{2B06}\nNext key")),
-            16.0
-        );
+        // Shift keeps one size whether or not its state text is showing.
+        for shift in [
+            "\u{2B06}",
+            "\u{21E7}",
+            "\u{2B06}\nNext key",
+            "\u{21E7}\nLocked",
+        ] {
+            assert_eq!(keyboard_font_size(&tile(TileRole::Utility, shift)), 16.0);
+        }
         assert_eq!(keyboard_font_size(&tile(TileRole::Toolbar, "•")), 16.0);
     }
 
