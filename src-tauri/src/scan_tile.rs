@@ -156,6 +156,11 @@ mod tests {
             keyboard_font_size(&tile(TileRole::Utility, "\u{232B}")),
             24.0
         );
+        // Arrow keys on the Navigation page are single glyphs too.
+        assert_eq!(
+            keyboard_font_size(&tile(TileRole::Utility, "\u{2191}")),
+            24.0
+        );
         assert_eq!(keyboard_font_size(&tile(TileRole::Character, "a")), 24.0);
         assert_eq!(keyboard_font_size(&tile(TileRole::Utility, "Esc")), 16.0);
         assert_eq!(

@@ -892,8 +892,18 @@ impl Keyboard {
             Key::Named("Enter") => "\u{21A9}".into(),
             Key::Named("Tab") => "\u{21E5}".into(),
             Key::Named("Delete") => "\u{2326}".into(),
-            Key::Modifier(0) => format!("\u{2B06}{}", self.modifiers[0].suffix()),
+            Key::Modifier(0) => format!("{}{}", self.shift_glyph(), self.modifiers[0].suffix()),
             _ => self.label(key),
+        }
+    }
+    /// macOS shows the Apple Shift symbol, which the system font draws well.
+    /// Segoe UI Symbol draws that symbol thin and small, so Windows uses the
+    /// heavy upwards arrow instead.
+    fn shift_glyph(&self) -> &'static str {
+        if self.mac {
+            "\u{21E7}"
+        } else {
+            "\u{2B06}"
         }
     }
     fn label(&self, key: Key) -> String {
@@ -1320,16 +1330,27 @@ mod tests {
         // Modifier state stays under the glyph.
         keyboard.modifiers[0] = Modifier::Once;
         assert_eq!(keyboard.display(Key::Modifier(0)), "\u{2B06}\nNext key");
-        // Keys without a standard symbol keep their words on both.
-        for key in [
-            Key::Caps,
-            Key::Named("Escape"),
-            Key::Named("Home"),
-            Key::Named("PageUp"),
-            Key::Modifier(1),
-            Key::Character(' ', ' '),
-        ] {
-            assert_eq!(keyboard.display(key), keyboard.label(key));
+        // macOS uses the Apple Shift symbol.
+        let mut mac = Keyboard::new(true);
+        assert_eq!(mac.display(Key::Modifier(0)), "\u{21E7}");
+        mac.modifiers[0] = Modifier::Locked;
+        assert_eq!(mac.display(Key::Modifier(0)), "\u{21E7}\nLocked");
+        // Keys without a standard symbol keep their words on both platforms.
+        for keyboard in [&keyboard, &mac] {
+            for key in [
+                Key::Caps,
+                Key::Named("Escape"),
+                Key::Named("Home"),
+                Key::Named("PageUp"),
+                Key::Modifier(1),
+                Key::Modifier(2),
+                Key::Modifier(3),
+                Key::Character(' ', ' '),
+            ] {
+                let text = keyboard.display(key);
+                assert_eq!(text, keyboard.label(key));
+                assert!(text.chars().all(|c| c.is_ascii()), "{text:?}");
+            }
         }
     }
 
