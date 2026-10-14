@@ -210,11 +210,13 @@ mod tests {
     fn model_only_limit_failure_and_slow_call() {
         let mut db = Database::fixture();
         db.state = State::Ready(Box::new(Fake(
-            Ok(vec!["one", "two", "three", "four", "five", "six"]),
+            Ok(vec![
+                "one", "two", "three", "four", "five", "six", "seven", "eight",
+            ]),
             Duration::ZERO,
         )));
         let prediction = db.predict(&context()).1;
-        assert_eq!(prediction.words.len(), 6);
+        assert_eq!(prediction.words.iter().flatten().count(), 8);
         db.state = State::Ready(Box::new(Fake(Err(()), Duration::ZERO)));
         assert_eq!(
             db.predict(&context()),

@@ -8,11 +8,11 @@ const DATABASE_SHA256: &str = "222253417d0a7a705823ffb7e599a3bcf5d5d3daf4a9d7616
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Prediction {
-    pub words: [Option<String>; 6],
+    pub words: [Option<String>; SLOTS],
 }
 
 #[cfg(test)]
-pub fn slots(words: impl IntoIterator<Item = impl Into<String>>) -> [Option<String>; 6] {
+pub fn slots(words: impl IntoIterator<Item = impl Into<String>>) -> [Option<String>; SLOTS] {
     let mut words = words.into_iter();
     std::array::from_fn(|_| words.next().map(Into::into))
 }
@@ -34,19 +34,22 @@ pub trait Predict: Send {
     fn learn(&mut self, _text: &str) {}
 }
 
-/// The slot that holds a generated two-word phrase. Words never take it.
-pub const PHRASE_SLOT: usize = 5;
-/// Generated words fill slots 4 and 5 at most, leaving the phrase slot.
+/// Prediction slots: three instant words, two generated words, then three
+/// generated phrases.
+pub const SLOTS: usize = 8;
+/// The slots that hold generated two-word phrases. Words never take them.
+pub const PHRASE_SLOTS: std::ops::Range<usize> = 5..SLOTS;
+/// Generated words fill slots 4 and 5 at most, leaving the phrase slots.
 const GENERATED_WORDS: usize = 2;
 
 /// Generation for the latest prediction. The companion runs one request at a
-/// time, so the phrase is requested once the words have arrived.
+/// time, so the phrases are requested once the words have arrived.
 #[derive(Default)]
 struct Refining {
     before: String,
     prefix: String,
     words: Option<u64>,
-    phrase: Option<u64>,
+    phrases: Option<u64>,
     generated: Vec<String>,
 }
 
@@ -142,12 +145,12 @@ fn display_word(word: String) -> String {
 }
 
 /// Generated words follow the instant ones, taking any slot they left free
-/// before the phrase slot. The phrase, if any, takes the phrase slot.
+/// before the phrase slots. Phrases take the phrase slots in order.
 fn merged(
     instant: &[Option<String>; 3],
     generated: &[String],
-    phrase: Option<Vec<String>>,
-) -> [Option<String>; 6] {
+    phrases: Vec<Vec<String>>,
+) -> [Option<String>; SLOTS] {
     let mut words = instant.iter().flatten().cloned().chain(
         generated
             .iter()
@@ -155,16 +158,20 @@ fn merged(
             .cloned()
             .map(display_word),
     );
-    let mut slots: [Option<String>; 6] =
-        std::array::from_fn(|i| if i < PHRASE_SLOT { words.next() } else { None });
-    slots[PHRASE_SLOT] = phrase.map(|words| {
+    let mut phrases = phrases.into_iter().map(|words| {
         words
             .into_iter()
             .map(display_word)
             .collect::<Vec<_>>()
             .join(" ")
     });
-    slots
+    std::array::from_fn(|i| {
+        if i < PHRASE_SLOTS.start {
+            words.next()
+        } else {
+            phrases.next()
+        }
+    })
 }
 impl Predict for Model {
     #[cfg(test)]
@@ -207,27 +214,33 @@ impl Predict for Model {
         let neural = self.neural.as_mut()?;
         let result = neural.poll()?;
         let refining = &mut self.refining;
-        let phrase = if refining.words == Some(result.request_id) {
+        let phrases = if refining.words == Some(result.request_id) {
             refining.words = None;
             refining.generated = result.words;
-            // Words first, then the phrase: a new request replaces any other.
-            refining.phrase = neural
-                .generate_phrases(&refining.before, &refining.prefix, 0, &[], 1)
+            // Words first, then the phrases: a new request replaces any other.
+            refining.phrases = neural
+                .generate_phrases(
+                    &refining.before,
+                    &refining.prefix,
+                    0,
+                    &[],
+                    PHRASE_SLOTS.len(),
+                )
                 .ok()
                 .flatten();
-            None
-        } else if refining.phrase == Some(result.request_id) {
-            refining.phrase = None;
-            result.phrases.into_iter().next()
+            Vec::new()
+        } else if refining.phrases == Some(result.request_id) {
+            refining.phrases = None;
+            result.phrases
         } else {
             return None;
         };
         Some(Prediction {
-            words: merged(&self.instant, &refining.generated, phrase),
+            words: merged(&self.instant, &refining.generated, phrases),
         })
     }
     fn pending(&self) -> bool {
-        (self.refining.words.is_some() || self.refining.phrase.is_some())
+        (self.refining.words.is_some() || self.refining.phrases.is_some())
             && self.neural.as_ref().is_some_and(|n| {
                 matches!(
                     n.status(),
@@ -271,29 +284,39 @@ mod tests {
         }
     }
     #[test]
-    fn generated_words_take_the_next_free_slot_and_the_phrase_its_own() {
+    fn generated_words_take_the_next_free_slot_and_phrases_their_own() {
         let instant = |words: &[&str]| std::array::from_fn(|i| words.get(i).map(|w| w.to_string()));
         let generated = ["i'm".to_owned(), "here".to_owned(), "home".to_owned()];
-        let phrase = || Some(vec!["i".to_owned(), "am".to_owned()]);
+        let phrase = |a: &str, b: &str| vec![a.to_owned(), b.to_owned()];
+        let phrases = || {
+            vec![
+                phrase("i", "am"),
+                phrase("i", "will"),
+                phrase("it", "is"),
+                phrase("is", "extra"),
+            ]
+        };
         assert_eq!(
-            merged(&instant(&["help"]), &generated, None),
+            merged(&instant(&["help"]), &generated, Vec::new()),
             slots(["help", "I'm", "here"])
         );
         assert_eq!(
-            merged(&instant(&[]), &generated, None),
+            merged(&instant(&[]), &generated, Vec::new()),
             slots(["I'm", "here"])
         );
         assert_eq!(
-            merged(&instant(&["a", "b", "c"]), &generated, phrase()),
-            slots(["a", "b", "c", "I'm", "here", "I am"])
+            merged(&instant(&["a", "b", "c"]), &generated, phrases()),
+            slots(["a", "b", "c", "I'm", "here", "I am", "I will", "it is"])
         );
         let mut expected = slots(["a", "I'm", "here"]);
-        expected[PHRASE_SLOT] = Some("I am".into());
-        assert_eq!(merged(&instant(&["a"]), &generated, phrase()), expected);
-        let mut expected: [Option<String>; 6] = Default::default();
-        expected[PHRASE_SLOT] = Some("going to".into());
+        expected[PHRASE_SLOTS.start] = Some("I am".into());
+        expected[PHRASE_SLOTS.start + 1] = Some("I will".into());
+        expected[PHRASE_SLOTS.start + 2] = Some("it is".into());
+        assert_eq!(merged(&instant(&["a"]), &generated, phrases()), expected);
+        let mut expected: [Option<String>; SLOTS] = Default::default();
+        expected[PHRASE_SLOTS.start] = Some("going to".into());
         assert_eq!(
-            merged(&instant(&[]), &[], Some(vec!["going".into(), "to".into()])),
+            merged(&instant(&[]), &[], vec![phrase("going", "to")]),
             expected
         );
     }

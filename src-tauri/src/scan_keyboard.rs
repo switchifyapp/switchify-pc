@@ -401,7 +401,10 @@ impl Keyboard {
             rows_for(self.page, self.mac, self.layout)
         };
         if self.prediction_enabled && self.page == Page::Letters && !self.positioning {
-            self.rows.insert(0, (0..6).map(Key::Prediction).collect());
+            self.rows.insert(
+                0,
+                (0..crate::prediction::SLOTS).map(Key::Prediction).collect(),
+            );
         }
         if self.prediction_enabled && self.prediction_failed && !self.positioning {
             self.rows.last_mut().unwrap().push(Key::RetryPrediction);
@@ -1019,8 +1022,8 @@ impl Keyboard {
             Key::Named("Backspace" | "Enter") => 1.9,
             Key::Named("Tab") | Key::Caps | Key::Modifier(_) => 1.6,
             Key::Close | Key::Dock | Key::Layout | Key::RetryPrediction => 1.5,
-            // The phrase slot holds two words.
-            Key::Prediction(crate::prediction::PHRASE_SLOT) => 2.0,
+            // Phrase slots hold two words.
+            Key::Prediction(i) if crate::prediction::PHRASE_SLOTS.contains(&i) => 2.0,
             _ => 1.0,
         }
     }
@@ -1158,7 +1161,9 @@ mod tests {
                     None,
                     Some("walnut".into()),
                     None,
-                    Some("wavy".into()),
+                    Some("wavy hair".into()),
+                    None,
+                    None,
                 ],
             }),
             false,
@@ -1172,7 +1177,7 @@ mod tests {
         assert_eq!(k.scan.position(&k.rows), position);
     }
     #[test]
-    fn six_slots_skip_internal_gaps_in_both_directions() {
+    fn prediction_slots_skip_internal_gaps_in_both_directions() {
         use crate::scan_preferences::{Direction, Pattern, Resolved};
         for direction in [Direction::Forward, Direction::Reverse] {
             let mut k = Keyboard::configured(
@@ -1195,24 +1200,27 @@ mod tests {
                         None,
                         Some("four".into()),
                         None,
-                        Some("six".into()),
+                        Some("six seven".into()),
+                        None,
+                        Some("eight nine".into()),
                     ],
                 }),
                 false,
             );
             k.restart();
-            assert_eq!(k.rows[0].len(), 6);
+            assert_eq!(k.rows[0].len(), 8);
             let mut seen = std::collections::BTreeSet::new();
             for _ in 0..k.rows.iter().map(Vec::len).sum::<usize>() * 3 {
                 if let (0, Some(column)) = k.scan.position(&k.rows) {
-                    assert!([0, 3, 5].contains(&column));
+                    assert!([0, 3, 5, 7].contains(&column));
                     seen.insert(column);
                 }
                 k.handle(Action::Next);
             }
-            assert_eq!(seen, [0, 3, 5].into_iter().collect());
+            assert_eq!(seen, [0, 3, 5, 7].into_iter().collect());
             assert!(k.choose(Key::Prediction(1)).is_none());
             assert!(k.choose(Key::Prediction(4)).is_none());
+            assert!(k.choose(Key::Prediction(6)).is_none());
             let frame = k.frame(
                 Rect {
                     x: 0.,
@@ -1223,14 +1231,18 @@ mod tests {
                 1.,
                 ScannerColor::default(),
             );
-            let tiles = &frame.tiles[1..7];
-            // Word slots share a width; the phrase slot is twice as wide.
+            let tiles = &frame.tiles[1..9];
+            // Word slots share a width; phrase slots are twice as wide.
             assert!(tiles[..5]
                 .iter()
                 .all(|t| (t.rect.width - tiles[0].rect.width).abs() < 0.01));
+            assert!(tiles[5..]
+                .iter()
+                .all(|t| (t.rect.width - tiles[5].rect.width).abs() < 0.01));
             assert!(tiles[5].rect.width > tiles[0].rect.width * 1.5);
             assert_eq!(tiles[1].text, "");
             assert_eq!(tiles[3].text, "four");
+            assert_eq!(tiles[7].text, "eight nine");
         }
     }
 
@@ -2494,7 +2506,7 @@ mod tests {
                     before.tiles.iter().map(|t| t.rect).collect::<Vec<_>>(),
                     after.tiles.iter().map(|t| t.rect).collect::<Vec<_>>()
                 );
-                assert_eq!(keyboard.rows[0].len(), 6);
+                assert_eq!(keyboard.rows[0].len(), crate::prediction::SLOTS);
             }
         }
     }

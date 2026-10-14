@@ -1,19 +1,20 @@
-# Six prediction slots
+# Prediction slots
 
-Slots 1–3 are the statistical predictor's first three suggestions. Slots 4 and 5
-are up to two additional SmolLM2 words. Slot 6, twice as wide, is SmolLM2's best
-two-word phrase: the rest of the word in progress, or the next word, then the
-word after it. Accepting it types both words and a space. Generated words never
-take slot 6, and the phrase never takes another slot. Empty slots stay empty and
-cannot be selected in either scan direction. The entire displayed row stays stable until scanning leaves it.
+The row began with six slots and now has eight. Slots 1–3 are the statistical
+predictor's first three suggestions. Slots 4 and 5 are up to two additional
+SmolLM2 words. Slots 6–8, each twice as wide, are SmolLM2's three best two-word
+phrases, best first: the rest of the word in progress, or the next word, then
+the word after it. Accepting one types both words and a space. Generated words
+never take slots 6–8, and phrases never take another slot. Empty slots stay
+empty and cannot be selected in either scan direction. The entire displayed row stays stable until scanning leaves it.
 
 The worker retains exact displayed/latest batch tokens and validates acceptance
 against the edit revision, generation, activity epoch and foreground target.
 Capitalization, prefix replacement and trailing spaces use the existing path.
 No focused-field capture or new settings are introduced. Learning from typing, described in word prediction, changes only slots 1–3.
 
-The companion uses protocol 3. It runs one request at a time, so the phrase is
-requested after the generated words arrive and refines the row a second time. Model and tokenizer bytes are unchanged. Startup
+The companion uses protocol 3. It runs one request at a time, so the phrases are
+requested together after the generated words arrive and refine the row a second time. Model and tokenizer bytes are unchanged. Startup
 remains bounded to 30 seconds and each reply to two seconds. Failure leaves the
 instant slots available, with explicit retry or keyboard reopening required.
 
