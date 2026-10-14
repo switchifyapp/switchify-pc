@@ -12,6 +12,8 @@ Pages:
 - **Functions:** Esc, F1–F12, arrows, Home, End, Page Up, Page Down and Delete. Windows also has Insert, Print Screen, Scroll Lock and Pause.
 - **Numbers:** digits, decimal point, arithmetic operators, UK number-row symbols (including £), Enter and Backspace. Digits are independent of hardware Num Lock.
 
+Backspace, Enter, Tab, Delete and Shift keys show the standard symbols ⌫, ↩, ⇥, ⌦ and ⬆, drawn with the system font. The status line still names the key in words, such as "Select Backspace".
+
 The bottom control row starts with Close keyboard, followed by Letters, Navigation, Numbers and docking. Space has a dedicated wide key. Editing and modifier keys are wider than ordinary characters; duplicate Shift and Caps controls are removed from the letters page. A header names the current page and scan target. The return-to-rows slot highlights only the header. Active modifiers and the current page have an indicator separate from the scan highlight. Modifiers are available on every page. Shift, Ctrl, Alt/Option and Windows/Command cycle through **off → once → locked → off**. The label shows once or locked. Caps is a keyboard-local uppercase setting; Shift reverses its letter case. Page and position controls do not consume a one-shot modifier.
 
 Modifier keys are pressed only around each emitted shortcut and immediately released. Selecting a locked modifier does not hold that operating-system key while the scanner runs. Ordinary characters use text injection; command combinations and navigation use native key events. Native shortcuts retain the operating system's layout semantics.

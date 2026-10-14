@@ -101,7 +101,12 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
 
 pub fn keyboard_font_size(tile: &FrameTile) -> f64 {
     match tile.style.map(|s| s.role) {
-        Some(crate::scanning::TileRole::Character) if tile.text.chars().count() == 1 => 24.0,
+        // Single characters and single key glyphs such as ⌫ share the large size.
+        Some(crate::scanning::TileRole::Character | crate::scanning::TileRole::Utility)
+            if tile.text.chars().count() == 1 =>
+        {
+            24.0
+        }
         Some(crate::scanning::TileRole::Status) => 17.0,
         _ => 16.0,
     }
@@ -126,6 +131,40 @@ fn key_outline(width: f32, height: f32, inset: f32, radius: f32) -> tiny_skia::P
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn single_glyph_utility_keys_use_the_letter_font_size() {
+        use crate::scanning::{Rect, ScannerColor, TileRole, TileStyle};
+        let tile = |role, text: &str| FrameTile {
+            thickness: Default::default(),
+            style: Some(TileStyle {
+                role,
+                active: false,
+                row_scan: false,
+            }),
+            color: ScannerColor::default(),
+            text: text.into(),
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 64.0,
+                height: 56.0,
+            },
+            scale: 1.0,
+            selected: false,
+        };
+        assert_eq!(
+            keyboard_font_size(&tile(TileRole::Utility, "\u{232B}")),
+            24.0
+        );
+        assert_eq!(keyboard_font_size(&tile(TileRole::Character, "a")), 24.0);
+        assert_eq!(keyboard_font_size(&tile(TileRole::Utility, "Esc")), 16.0);
+        assert_eq!(
+            keyboard_font_size(&tile(TileRole::Utility, "\u{2B06}\nNext key")),
+            16.0
+        );
+        assert_eq!(keyboard_font_size(&tile(TileRole::Toolbar, "•")), 16.0);
+    }
+
     #[test]
     fn all_scanner_colours_tint_selected_keys_and_invalidate_frame_equality() {
         use crate::scanning::{Rect, ScannerColor::*, TileRole, TileStyle};
