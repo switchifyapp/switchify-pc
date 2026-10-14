@@ -174,6 +174,8 @@ pub fn toggle_mouse_drag(point: (i32, i32)) -> Result<(), String> {
 /// The most typed characters an accepted suggestion may delete. A prefix is
 /// part of one word, so anything longer is refused rather than trusted.
 const PREDICTION_BACKSPACES: usize = 32;
+/// The most characters an accepted suggestion may type.
+pub const PREDICTION_TEXT: usize = 64;
 
 /// Types an accepted suggestion, first deleting `backspaces` characters when
 /// the worker is restoring a capital in the typed prefix. The worker only
@@ -197,7 +199,10 @@ fn replace_text<T: crate::input::InputInjector>(
     backspaces: usize,
     text: &str,
 ) -> Result<(), String> {
-    if text.chars().count() > 64 || backspaces > PREDICTION_BACKSPACES || input.has_active_drag() {
+    if text.chars().count() > PREDICTION_TEXT
+        || backspaces > PREDICTION_BACKSPACES
+        || input.has_active_drag()
+    {
         return Err("Prediction input is unavailable.".into());
     }
     input.release_all()?;

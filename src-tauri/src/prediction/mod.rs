@@ -4,6 +4,7 @@ mod database;
 mod model;
 #[cfg(test)]
 pub(crate) use model::slots;
+pub(crate) use model::PHRASE_SLOT;
 pub mod worker;
 
 use crate::scan_keyboard::{Key, Keyboard, Modifier, Page, Stroke};
