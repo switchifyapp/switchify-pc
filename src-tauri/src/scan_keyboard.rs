@@ -512,15 +512,13 @@ impl Keyboard {
         if !self.prediction_row_active() || self.scan.nav.escaping() {
             return false;
         }
-        let words = self.predictions.as_ref().map(|b| &b.words);
-        self.scan.position(&self.rows).1.map_or_else(
-            || words.is_none_or(|w| w.iter().all(Option::is_none)),
-            |column| {
-                words
-                    .and_then(|w| w.get(column))
-                    .is_none_or(Option::is_none)
-            },
-        )
+        // The highlighted slots: one, a group of the row, or the whole row.
+        let columns = self.scan.highlight(&self.rows).1;
+        self.predictions.as_ref().is_none_or(|b| {
+            b.words
+                .get(columns.unwrap_or(0..b.words.len()))
+                .is_none_or(|slots| slots.iter().all(Option::is_none))
+        })
     }
     fn skip_disabled(&mut self, automatic: bool) {
         for _ in 0..self.rows.iter().map(Vec::len).sum::<usize>() + 1 {
@@ -2817,5 +2815,52 @@ mod tests {
             frame(&k),
             (crate::scan_panel::BACK_TO_ROWS.into(), k.rows[0].len())
         );
+    }
+
+    #[test]
+    fn row_groups_skip_prediction_groups_with_no_suggestions() {
+        use crate::scan_preferences::Resolved;
+        let groups = crate::scan_items::row_groups(crate::prediction::SLOTS);
+        assert!(groups.len() > 2);
+        let highlighted = |words: [Option<String>; crate::prediction::SLOTS]| {
+            let mut k = Keyboard::configured(
+                false,
+                Resolved {
+                    row_groups: true,
+                    ..Default::default()
+                },
+            );
+            k.enable_predictions(true);
+            k.predictions(
+                Some(crate::prediction::worker::Batch {
+                    token: 1,
+                    refined: true,
+                    words,
+                }),
+                false,
+            );
+            k.restart();
+            assert_eq!(k.scan.highlight(&k.rows), (0, None));
+            k.handle(Action::Select);
+            let mut seen = std::collections::BTreeSet::new();
+            for _ in 0..groups.len() * 3 {
+                if k.scan.group_scan() {
+                    if let (0, Some(columns)) = k.scan.highlight(&k.rows) {
+                        seen.insert(columns.start);
+                    }
+                }
+                k.handle(Action::Next);
+            }
+            seen
+        };
+        // Only the instant words have arrived: the other groups are empty.
+        assert_eq!(
+            highlighted(crate::prediction::slots(["one", "two", "three"])),
+            [0].into_iter().collect()
+        );
+        let mut words = crate::prediction::slots(["one"]);
+        words[crate::prediction::SLOTS - 1] = Some("eight nine".into());
+        let last = groups.last().unwrap().start;
+        assert_eq!(highlighted(words), [0, last].into_iter().collect());
     }
 }
