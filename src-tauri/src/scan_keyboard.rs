@@ -1349,7 +1349,7 @@ mod tests {
             ] {
                 let text = keyboard.display(key);
                 assert_eq!(text, keyboard.label(key));
-                assert!(text.chars().all(|c| c.is_ascii()), "{text:?}");
+                assert!(text.is_ascii(), "{text:?}");
             }
         }
     }
