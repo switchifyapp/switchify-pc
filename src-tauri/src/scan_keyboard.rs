@@ -991,6 +991,8 @@ impl Keyboard {
             Key::Named("Backspace" | "Enter") => 1.9,
             Key::Named("Tab") | Key::Caps | Key::Modifier(_) => 1.6,
             Key::Close | Key::Dock | Key::Layout | Key::RetryPrediction => 1.5,
+            // The phrase slot holds two words.
+            Key::Prediction(crate::prediction::PHRASE_SLOT) => 2.0,
             _ => 1.0,
         }
     }
@@ -1194,9 +1196,11 @@ mod tests {
                 ScannerColor::default(),
             );
             let tiles = &frame.tiles[1..7];
-            assert!(tiles
+            // Word slots share a width; the phrase slot is twice as wide.
+            assert!(tiles[..5]
                 .iter()
                 .all(|t| (t.rect.width - tiles[0].rect.width).abs() < 0.01));
+            assert!(tiles[5].rect.width > tiles[0].rect.width * 1.5);
             assert_eq!(tiles[1].text, "");
             assert_eq!(tiles[3].text, "four");
         }
