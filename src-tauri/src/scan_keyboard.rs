@@ -884,6 +884,34 @@ impl Keyboard {
         self.error = true;
         self.scan.suspended = true;
     }
+    /// Key glyphs drawn at the letter size. Shift is not here: its state text
+    /// joins the glyph, and the key must not change size between states.
+    pub const LARGE_GLYPHS: [&'static str; 8] = [
+        "\u{232B}", "\u{21A9}", "\u{21E5}", "\u{2326}", "↑", "↓", "←", "→",
+    ];
+    /// The text drawn on a key. Utility keys with a standard symbol show the
+    /// glyph; `label` keeps the readable name for the status line.
+    fn display(&self, key: Key) -> String {
+        match key {
+            Key::Named("Backspace") => "\u{232B}".into(),
+            Key::Named("Enter") => "\u{21A9}".into(),
+            Key::Named("Tab") => "\u{21E5}".into(),
+            Key::Named("Delete") => "\u{2326}".into(),
+            // The suffix is shared with `label`, so tile and status agree.
+            Key::Modifier(0) => format!("{}{}", self.shift_glyph(), self.modifiers[0].suffix()),
+            _ => self.label(key),
+        }
+    }
+    /// macOS shows the Apple Shift symbol, which the system font draws well.
+    /// Segoe UI Symbol draws that symbol thin and small, so Windows uses the
+    /// heavy upwards arrow instead.
+    fn shift_glyph(&self) -> &'static str {
+        if self.mac {
+            "\u{21E7}"
+        } else {
+            "\u{2B06}"
+        }
+    }
     fn label(&self, key: Key) -> String {
         match key {
             Key::Prediction(i) => self
@@ -1075,7 +1103,7 @@ impl Keyboard {
                         .map(|&key| {
                             let style = self.style(key, highlight_row);
                             crate::scan_panel::PanelKey {
-                                text: self.label(key),
+                                text: self.display(key),
                                 weight: Self::weight(key),
                                 role: style.role,
                                 active: style.active,
@@ -1289,6 +1317,59 @@ mod tests {
     }
 
     #[test]
+    fn utility_keys_draw_glyphs_but_keep_readable_names_for_status() {
+        let mut keyboard = Keyboard::new(false);
+        for (key, glyph, name) in [
+            (Key::Named("Backspace"), "\u{232B}", "Backspace"),
+            (Key::Named("Enter"), "\u{21A9}", "Enter"),
+            (Key::Named("Tab"), "\u{21E5}", "Tab"),
+            (Key::Named("Delete"), "\u{2326}", "Delete"),
+            (Key::Modifier(0), "\u{2B06}", "Shift"),
+        ] {
+            assert_eq!(keyboard.display(key), glyph);
+            assert_eq!(keyboard.label(key), name);
+            assert_eq!(
+                Keyboard::LARGE_GLYPHS.contains(&glyph),
+                key != Key::Modifier(0),
+                "only Shift stays at the utility size"
+            );
+            assert_eq!(
+                crate::scan_panel::scanning_status("Letters", false, &keyboard.label(key)),
+                format!("Letters · Select {name}")
+            );
+        }
+        for arrow in ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"] {
+            let text = keyboard.display(Key::Named(arrow));
+            assert!(Keyboard::LARGE_GLYPHS.contains(&text.as_str()), "{arrow}");
+        }
+        // Modifier state stays under the glyph.
+        keyboard.modifiers[0] = Modifier::Once;
+        assert_eq!(keyboard.display(Key::Modifier(0)), "\u{2B06}\nNext key");
+        // macOS uses the Apple Shift symbol.
+        let mut mac = Keyboard::new(true);
+        assert_eq!(mac.display(Key::Modifier(0)), "\u{21E7}");
+        mac.modifiers[0] = Modifier::Locked;
+        assert_eq!(mac.display(Key::Modifier(0)), "\u{21E7}\nLocked");
+        // Keys without a standard symbol keep their words on both platforms.
+        for platform in [&keyboard, &mac] {
+            for key in [
+                Key::Caps,
+                Key::Named("Escape"),
+                Key::Named("Home"),
+                Key::Named("PageUp"),
+                Key::Modifier(1),
+                Key::Modifier(2),
+                Key::Modifier(3),
+                Key::Character(' ', ' '),
+            ] {
+                let text = platform.display(key);
+                assert_eq!(text, platform.label(key));
+                assert!(text.is_ascii(), "{text:?}");
+            }
+        }
+    }
+
+    #[test]
     fn smart_punctuation_owns_spacing_and_capitalizes_one_letter() {
         let mut keyboard = Keyboard::new(false);
         let space = Key::Character(' ', ' ');
@@ -1485,7 +1566,7 @@ mod tests {
             frame
                 .tiles
                 .iter()
-                .find(|tile| tile.text.starts_with("Shift"))
+                .find(|tile| tile.text.starts_with('\u{2B06}'))
                 .unwrap()
                 .style
                 .unwrap()
@@ -1934,8 +2015,12 @@ mod tests {
         let space = frame.tiles.iter().find(|t| t.text == "Space").unwrap();
         let letter = frame.tiles.iter().find(|t| t.text == "a").unwrap();
         assert!(space.rect.width > letter.rect.width * 3.0);
-        let backspace = frame.tiles.iter().find(|t| t.text == "Backspace").unwrap();
+        let backspace = frame.tiles.iter().find(|t| t.text == "\u{232B}").unwrap();
         assert!(backspace.rect.width > letter.rect.width);
+        assert!(
+            !frame.tiles.iter().any(|t| t.text == "Backspace"),
+            "the Backspace tile shows the glyph, not the word"
+        );
         assert_eq!(k.rows.last().unwrap()[0], Key::Close);
     }
     #[test]
@@ -1952,7 +2037,7 @@ mod tests {
         let shift = active
             .tiles
             .iter()
-            .find(|t| t.text.starts_with("Shift"))
+            .find(|t| t.text.starts_with('\u{2B06}'))
             .unwrap();
         assert!(shift.style.unwrap().active);
         assert!(!shift.selected);
