@@ -7,6 +7,8 @@ If you use Switchify on an Android phone or tablet, you can pair it with Switchi
 
 Pairing is optional. Switchify PC works on its own with switches connected to the computer.
 
+Built-in PC control arrives with Switchify 3.1, which is still in testing and not yet on Google Play; Switchify PC 1.0 is a release candidate.
+
 ## What you need
 
 - Switchify PC running on the computer, with Bluetooth on.
