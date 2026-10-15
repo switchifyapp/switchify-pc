@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AccountView, AppSettings, AppState, SwitchProfile, SyncView } from "./types";
+import type { AccountView, AppSettings, AppState, SwitchProfile, SyncView, UpdateProgress } from "./types";
 
 export type ProfileExitAction = "hide" | "quit";
 export type NavigationTarget = "home" | "settings" | "profiles";
@@ -145,6 +145,10 @@ export const api = {
   onState: async (handler: (state: AppState) => void): Promise<UnlistenFn> => {
     if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
     return listen<AppState>("app-state-changed", (event) => handler(event.payload));
+  },
+  onUpdateProgress: async (handler: (progress: UpdateProgress) => void): Promise<UnlistenFn> => {
+    if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
+    return listen<UpdateProgress>("update-progress", (event) => handler(event.payload));
   },
   onProfileExitRequested: async (handler: (action: ProfileExitAction) => void): Promise<UnlistenFn> => {
     if (!("__TAURI_INTERNALS__" in window)) return () => undefined;

@@ -18,6 +18,8 @@ export type UpdateState = {
   error: string | null;
   retryAction: "check" | "download" | "install" | null;
 };
+// Throttled byte counts sent on the `update-progress` event while downloading.
+export type UpdateProgress = Pick<UpdateState, "downloadedBytes" | "totalBytes">;
 
 export type AppSettings = {
   startWithSystem: boolean;

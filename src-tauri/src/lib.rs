@@ -73,8 +73,8 @@ use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_updater::UpdaterExt;
 use telemetry::TelemetryConsent;
 use updater::{
-    download_with_cancel, DownloadResult, Operation as UpdateOperation, RetryAction,
-    UpdateArtifact, UpdateManager, UpdateView,
+    download_with_cancel, DownloadResult, Operation as UpdateOperation, ProgressCounter,
+    ProgressThrottle, RetryAction, UpdateArtifact, UpdateManager, UpdateView,
 };
 
 #[tauri::command]
@@ -210,16 +210,62 @@ impl TraySnapshot {
     }
 }
 
+/// What the native tray menu is known to show. A field is recorded only after
+/// its setter succeeds, so a failed call is retried on the next sync while
+/// unchanged values leave the native menu alone.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct TrayShown {
+    status: Option<String>,
+    can_disconnect: Option<bool>,
+}
+
+#[derive(Default)]
+struct TrayCache(Mutex<TrayShown>);
+
+impl TrayCache {
+    fn shown(&self) -> std::sync::MutexGuard<'_, TrayShown> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    // The lock is not held across the setters: native menu calls may
+    // dispatch to the main thread.
+    fn apply<E>(
+        &self,
+        next: TraySnapshot,
+        set_status: impl FnOnce(&str) -> Result<(), E>,
+        set_can_disconnect: impl FnOnce(bool) -> Result<(), E>,
+    ) {
+        let (status_changed, can_disconnect_changed) = {
+            let shown = self.shown();
+            (
+                shown.status.as_deref() != Some(next.status.as_str()),
+                shown.can_disconnect != Some(next.can_disconnect),
+            )
+        };
+        if status_changed && set_status(&next.status).is_ok() {
+            self.shown().status = Some(next.status);
+        }
+        if can_disconnect_changed && set_can_disconnect(next.can_disconnect).is_ok() {
+            self.shown().can_disconnect = Some(next.can_disconnect);
+        }
+    }
+}
+
 struct TrayController {
     status: MenuItem<tauri::Wry>,
     disconnect: MenuItem<tauri::Wry>,
+    cache: TrayCache,
 }
 
 impl TrayController {
     fn sync(&self, state: &AppState) {
-        let snapshot = TraySnapshot::from_state(state);
-        let _ = self.status.set_text(snapshot.status);
-        let _ = self.disconnect.set_enabled(snapshot.can_disconnect);
+        self.cache.apply(
+            TraySnapshot::from_state(state),
+            |status| self.status.set_text(status),
+            |can_disconnect| self.disconnect.set_enabled(can_disconnect),
+        );
     }
 }
 
@@ -1167,25 +1213,28 @@ async fn download_update(app: AppHandle) -> Result<AppState, String> {
         ActivityKind::Info,
         format!("Downloading Switchify PC {version}…"),
     );
+    model.record_updater("downloading", None);
     publish_update(&app, &model, UpdateView::downloading(version.clone()));
 
+    // Progress runs per network chunk, so it stays off the shared state:
+    // bytes are counted atomically and only a throttled, small progress
+    // event reaches the webview. Full state is emitted on transitions only.
+    let counter = ProgressCounter::default();
+    let mut throttle = ProgressThrottle::default();
     let progress_app = app.clone();
-    let progress_shared = model.shared.clone();
+    let progress_counter = &counter;
     let result = download_with_cancel(&update, cancel_receiver, move |chunk, total| {
-        {
-            let mut data = progress_shared
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            data.state.updater.add_progress(chunk, total);
+        let progress = progress_counter.add(chunk, total);
+        if throttle.observe(std::time::Instant::now(), progress) {
+            let _ = progress_app.emit(updater::PROGRESS_EVENT, progress);
         }
-        state::emit_state(&progress_app, &progress_shared);
     });
     let result = result.await;
     manager.finish(UpdateOperation::Download);
     match result {
         DownloadResult::Complete(Ok(bytes)) => {
             let downloaded_bytes = bytes.len() as u64;
-            let total_bytes = model.snapshot().updater.total_bytes;
+            let total_bytes = counter.current().total_bytes;
             manager.store_download(bytes);
             state::set_activity(
                 &model.shared,
@@ -1424,7 +1473,11 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
             &quit,
         ],
     )?;
-    let controller = TrayController { status, disconnect };
+    let controller = TrayController {
+        status,
+        disconnect,
+        cache: TrayCache::default(),
+    };
     controller.sync(&app.state::<AppModel>().snapshot());
     app.manage(controller);
     let mut builder = TrayIconBuilder::with_id("switchify")
@@ -1980,7 +2033,8 @@ mod tests {
     use super::{
         account_pairing_intent, has_start_hidden_argument, record_update_failure,
         show_tray_menu_on_left_click, updater_is_configured, validate_profile, PendingNavigation,
-        PendingProfileExit, ProfileExitAction, TraySnapshot, NAVIGATE_REQUESTED_EVENT,
+        PendingProfileExit, ProfileExitAction, TrayCache, TrayShown, TraySnapshot,
+        NAVIGATE_REQUESTED_EVENT,
     };
     use crate::state::{AppModel, BluetoothState, SwitchBinding, SwitchProfile};
     use crate::storage::AppStorage;
@@ -2135,6 +2189,87 @@ mod tests {
             }
         );
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn tray_sync_only_mutates_values_that_changed() {
+        let snapshot = |status: &str, can_disconnect| TraySnapshot {
+            status: status.into(),
+            can_disconnect,
+        };
+        let cache = TrayCache::default();
+        // Records the setter calls made for one sync; `fail` makes them error.
+        let sync = |next: TraySnapshot, fail: bool| {
+            let calls = std::cell::RefCell::new(Vec::new());
+            let result = |call: String| {
+                calls.borrow_mut().push(call);
+                if fail {
+                    Err(())
+                } else {
+                    Ok(())
+                }
+            };
+            cache.apply(
+                next,
+                |status| result(format!("text {status}")),
+                |enabled| result(format!("enabled {enabled}")),
+            );
+            calls.into_inner()
+        };
+        assert_eq!(
+            sync(snapshot("Status: Ready to connect", false), false),
+            ["text Status: Ready to connect", "enabled false"]
+        );
+        assert!(sync(snapshot("Status: Ready to connect", false), false).is_empty());
+        assert_eq!(
+            sync(snapshot("Status: Ready to connect", true), false),
+            ["enabled true"]
+        );
+        assert_eq!(
+            sync(snapshot("Status: Connected to Pixel", true), false),
+            ["text Status: Connected to Pixel"]
+        );
+    }
+
+    #[test]
+    fn tray_sync_retries_a_value_whose_setter_failed() {
+        let snapshot = TraySnapshot {
+            status: "Status: Bluetooth is off".into(),
+            can_disconnect: true,
+        };
+        let cache = TrayCache::default();
+        let attempts = std::cell::Cell::new(0);
+        cache.apply(
+            snapshot.clone(),
+            |_| {
+                attempts.set(attempts.get() + 1);
+                Err(())
+            },
+            |_| Ok(()),
+        );
+        assert_eq!(
+            *cache.shown(),
+            TrayShown {
+                status: None,
+                can_disconnect: Some(true),
+            }
+        );
+        cache.apply(
+            snapshot.clone(),
+            |_| {
+                attempts.set(attempts.get() + 1);
+                Ok(())
+            },
+            |_| -> Result<(), ()> { panic!("unchanged value was set again") },
+        );
+        assert_eq!(attempts.get(), 2);
+        assert_eq!(
+            *cache.shown(),
+            TrayShown {
+                status: Some(snapshot.status),
+                can_disconnect: Some(true),
+            }
+        );
     }
 
     #[test]
