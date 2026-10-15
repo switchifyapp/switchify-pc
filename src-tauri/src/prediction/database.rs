@@ -79,6 +79,14 @@ impl Database {
     pub fn pending(&self) -> bool {
         matches!(&self.state, State::Ready(model) if model.pending())
     }
+    /// Drop pending results while the same text continues. The generation
+    /// context stays, so the next request only evaluates what changed.
+    pub fn cancel(&mut self) {
+        if let State::Ready(model) = &mut self.state {
+            model.cancel();
+        }
+    }
+    /// Drop pending results and the generation context with the text.
     pub fn reset(&mut self) {
         if let State::Ready(model) = &mut self.state {
             model.reset();
@@ -99,7 +107,7 @@ impl Database {
             unreachable!()
         };
         let start = Instant::now();
-        let result = model.predict(&context.before, &context.prefix);
+        let result = model.predict(context);
         self.slow_calls = if start.elapsed() > self.slow_call {
             self.slow_calls + 1
         } else {
@@ -146,7 +154,8 @@ impl Database {
 struct FakeModel;
 #[cfg(test)]
 impl Predict for FakeModel {
-    fn predict(&mut self, _before: &str, prefix: &str) -> Result<Prediction, ()> {
+    fn predict(&mut self, context: &Context) -> Result<Prediction, ()> {
+        let prefix = &context.prefix;
         let words: Vec<String> = [
             "water", "waffle", "walk", "WhatsApp", "café", "can't", "I'm",
         ]
@@ -167,7 +176,7 @@ mod tests {
     use super::*;
     struct Fake(Result<Vec<&'static str>, ()>, Duration);
     impl Predict for Fake {
-        fn predict(&mut self, _before: &str, _prefix: &str) -> Result<Prediction, ()> {
+        fn predict(&mut self, _: &Context) -> Result<Prediction, ()> {
             std::thread::sleep(self.1);
             self.0.clone().map(|w| Prediction {
                 words: super::super::model::slots(w),
