@@ -8,10 +8,12 @@ import { SettingGroup } from "./controls";
 export type UpdateAction = "check" | "download" | "install";
 
 // Download progress arrives on its own throttled event rather than in
-// AppState, so only the components showing it re-render. AppState still
-// carries the status transitions and the final size once ready.
-export function useUpdateProgress(update: UpdateState): UpdateState {
-  const downloading = update.status === "downloading";
+// AppState, so a download no longer re-emits the whole state per chunk.
+// AppState still carries the status transitions and the final size once
+// ready. App owns the single listener so the latest sample survives views
+// and tabs mounting and unmounting.
+export function useUpdateProgress(update: UpdateState | undefined): UpdateState | undefined {
+  const downloading = update?.status === "downloading";
   const [progress, setProgress] = useState<UpdateProgress | null>(null);
   // Stay subscribed while mounted so the first samples of a download are not
   // lost to a listener that is still registering.
@@ -28,8 +30,8 @@ export function useUpdateProgress(update: UpdateState): UpdateState {
   useEffect(() => {
     if (!downloading) return;
     return () => setProgress(null);
-  }, [downloading, update.version]);
-  return downloading && progress ? { ...update, ...progress } : update;
+  }, [downloading, update?.version]);
+  return update && downloading && progress ? { ...update, ...progress } : update;
 }
 
 export function updateProgress(update: UpdateState) {
@@ -77,8 +79,7 @@ export function updateInFlight(status: UpdateStatus) {
   return status === "checking";
 }
 
-export function UpdateControls({ update: state, run, cancel }: { update: UpdateState; run: (action: UpdateAction) => void; cancel: () => void }) {
-  const update = useUpdateProgress(state);
+export function UpdateControls({ update, run, cancel }: { update: UpdateState; run: (action: UpdateAction) => void; cancel: () => void }) {
   const action = update.status === "available" || update.status === "cancelled" ? "download"
     : update.status === "readyToInstall" ? "install"
       : update.status === "failed" ? update.retryAction
@@ -96,6 +97,7 @@ export function UpdateControls({ update: state, run, cancel }: { update: UpdateS
   </div>;
 }
 
-export function UpdatesSection({ state, run, cancel, sectionRef }: { state: AppState; run: (action: UpdateAction) => void; cancel: () => void; sectionRef: Ref<HTMLElement> }) {
-  return <SettingGroup id="settings-updates" sectionRef={sectionRef} focusable title="Updates" description={`Switchify PC ${state.version}`}><UpdateControls update={state.updater} run={run} cancel={cancel} /></SettingGroup>;
+// `update` is the app's updater state merged with the latest download progress.
+export function UpdatesSection({ state, update, run, cancel, sectionRef }: { state: AppState; update: UpdateState; run: (action: UpdateAction) => void; cancel: () => void; sectionRef: Ref<HTMLElement> }) {
+  return <SettingGroup id="settings-updates" sectionRef={sectionRef} focusable title="Updates" description={`Switchify PC ${state.version}`}><UpdateControls update={update} run={run} cancel={cancel} /></SettingGroup>;
 }

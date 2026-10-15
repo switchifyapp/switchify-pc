@@ -210,37 +210,46 @@ impl TraySnapshot {
     }
 }
 
-/// The tray mutations a new snapshot needs. Each field is `None` when the
-/// menu already shows that value, so unrelated state emissions leave the
-/// native menu alone.
+/// What the native tray menu is known to show. A field is recorded only after
+/// its setter succeeds, so a failed call is retried on the next sync while
+/// unchanged values leave the native menu alone.
 #[derive(Debug, Default, PartialEq, Eq)]
-struct TrayChanges {
+struct TrayShown {
     status: Option<String>,
     can_disconnect: Option<bool>,
 }
 
 #[derive(Default)]
-struct TrayCache(Mutex<Option<TraySnapshot>>);
+struct TrayCache(Mutex<TrayShown>);
 
 impl TrayCache {
-    fn changes(&self, next: TraySnapshot) -> TrayChanges {
-        let mut last = self
-            .0
+    fn shown(&self) -> std::sync::MutexGuard<'_, TrayShown> {
+        self.0
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let changes = match last.as_ref() {
-            Some(previous) => TrayChanges {
-                status: (previous.status != next.status).then(|| next.status.clone()),
-                can_disconnect: (previous.can_disconnect != next.can_disconnect)
-                    .then_some(next.can_disconnect),
-            },
-            None => TrayChanges {
-                status: Some(next.status.clone()),
-                can_disconnect: Some(next.can_disconnect),
-            },
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    // The lock is not held across the setters: native menu calls may
+    // dispatch to the main thread.
+    fn apply<E>(
+        &self,
+        next: TraySnapshot,
+        set_status: impl FnOnce(&str) -> Result<(), E>,
+        set_can_disconnect: impl FnOnce(bool) -> Result<(), E>,
+    ) {
+        let (status_changed, can_disconnect_changed) = {
+            let shown = self.shown();
+            (
+                shown.status.as_deref() != Some(next.status.as_str()),
+                shown.can_disconnect != Some(next.can_disconnect),
+            )
         };
-        *last = Some(next);
-        changes
+        if status_changed && set_status(&next.status).is_ok() {
+            self.shown().status = Some(next.status);
+        }
+        if can_disconnect_changed && set_can_disconnect(next.can_disconnect).is_ok() {
+            self.shown().can_disconnect = Some(next.can_disconnect);
+        }
     }
 }
 
@@ -252,13 +261,11 @@ struct TrayController {
 
 impl TrayController {
     fn sync(&self, state: &AppState) {
-        let changes = self.cache.changes(TraySnapshot::from_state(state));
-        if let Some(status) = changes.status {
-            let _ = self.status.set_text(status);
-        }
-        if let Some(can_disconnect) = changes.can_disconnect {
-            let _ = self.disconnect.set_enabled(can_disconnect);
-        }
+        self.cache.apply(
+            TraySnapshot::from_state(state),
+            |status| self.status.set_text(status),
+            |can_disconnect| self.disconnect.set_enabled(can_disconnect),
+        );
     }
 }
 
@@ -2026,7 +2033,7 @@ mod tests {
     use super::{
         account_pairing_intent, has_start_hidden_argument, record_update_failure,
         show_tray_menu_on_left_click, updater_is_configured, validate_profile, PendingNavigation,
-        PendingProfileExit, ProfileExitAction, TrayCache, TrayChanges, TraySnapshot,
+        PendingProfileExit, ProfileExitAction, TrayCache, TrayShown, TraySnapshot,
         NAVIGATE_REQUESTED_EVENT,
     };
     use crate::state::{AppModel, BluetoothState, SwitchBinding, SwitchProfile};
@@ -2191,29 +2198,76 @@ mod tests {
             can_disconnect,
         };
         let cache = TrayCache::default();
+        // Records the setter calls made for one sync; `fail` makes them error.
+        let sync = |next: TraySnapshot, fail: bool| {
+            let calls = std::cell::RefCell::new(Vec::new());
+            let result = |call: String| {
+                calls.borrow_mut().push(call);
+                if fail {
+                    Err(())
+                } else {
+                    Ok(())
+                }
+            };
+            cache.apply(
+                next,
+                |status| result(format!("text {status}")),
+                |enabled| result(format!("enabled {enabled}")),
+            );
+            calls.into_inner()
+        };
         assert_eq!(
-            cache.changes(snapshot("Status: Ready to connect", false)),
-            TrayChanges {
-                status: Some("Status: Ready to connect".into()),
-                can_disconnect: Some(false),
-            }
+            sync(snapshot("Status: Ready to connect", false), false),
+            ["text Status: Ready to connect", "enabled false"]
+        );
+        assert!(sync(snapshot("Status: Ready to connect", false), false).is_empty());
+        assert_eq!(
+            sync(snapshot("Status: Ready to connect", true), false),
+            ["enabled true"]
         );
         assert_eq!(
-            cache.changes(snapshot("Status: Ready to connect", false)),
-            TrayChanges::default()
+            sync(snapshot("Status: Connected to Pixel", true), false),
+            ["text Status: Connected to Pixel"]
+        );
+    }
+
+    #[test]
+    fn tray_sync_retries_a_value_whose_setter_failed() {
+        let snapshot = TraySnapshot {
+            status: "Status: Bluetooth is off".into(),
+            can_disconnect: true,
+        };
+        let cache = TrayCache::default();
+        let attempts = std::cell::Cell::new(0);
+        cache.apply(
+            snapshot.clone(),
+            |_| {
+                attempts.set(attempts.get() + 1);
+                Err(())
+            },
+            |_| Ok(()),
         );
         assert_eq!(
-            cache.changes(snapshot("Status: Ready to connect", true)),
-            TrayChanges {
+            *cache.shown(),
+            TrayShown {
                 status: None,
                 can_disconnect: Some(true),
             }
         );
+        cache.apply(
+            snapshot.clone(),
+            |_| {
+                attempts.set(attempts.get() + 1);
+                Ok(())
+            },
+            |_| -> Result<(), ()> { panic!("unchanged value was set again") },
+        );
+        assert_eq!(attempts.get(), 2);
         assert_eq!(
-            cache.changes(snapshot("Status: Connected to Pixel", true)),
-            TrayChanges {
-                status: Some("Status: Connected to Pixel".into()),
-                can_disconnect: None,
+            *cache.shown(),
+            TrayShown {
+                status: Some(snapshot.status),
+                can_disconnect: Some(true),
             }
         );
     }

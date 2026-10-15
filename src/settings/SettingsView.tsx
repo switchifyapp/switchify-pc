@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AppSettings, AppState } from "../types";
+import type { AppSettings, AppState, UpdateState } from "../types";
 import { Tabs, TabPanel, type TabDefinition } from "../Tabs";
 import { GeneralSection } from "./GeneralSection";
 import { InputSection } from "./InputSection";
@@ -10,7 +10,7 @@ import { UpdatesSection, type UpdateAction } from "./UpdatesSection";
 
 type SettingsTabId = "general" | "input" | "cursor" | "privacy" | "updates";
 
-export function SettingsView({ state, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, updateAttention, onUpdatesShown }: { state: AppState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; updateAttention: string | null; onUpdatesShown: (shown: boolean) => void }) {
+export function SettingsView({ state, updater, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, updateAttention, onUpdatesShown }: { state: AppState; updater: UpdateState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; updateAttention: string | null; onUpdatesShown: (shown: boolean) => void }) {
   const updatesRef = useRef<HTMLElement>(null);
   // Opening straight to Updates starts there, rather than committing General
   // for one frame and letting App announce a failure for a tab already being
@@ -58,7 +58,7 @@ export function SettingsView({ state, settings, onChange, chooseTelemetry, updat
       {active === "input" && <InputSection settings={settings} update={update} />}
       {active === "cursor" && <CursorSection settings={settings} update={update} />}
       {active === "privacy" && <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />}
-      {active === "updates" && <UpdatesSection state={state} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />}
+      {active === "updates" && <UpdatesSection state={state} update={updater} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />}
     </TabPanel>
   </div>;
 }

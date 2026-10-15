@@ -83,7 +83,8 @@ describe("Switchify PC settings", () => {
     expect(cancel).toHaveBeenCalledOnce();
   });
 
-  it("follows the progress event during a download and keeps the final size from state", async () => {
+  // Fake state and progress events; the download itself never runs.
+  const fakeUpdateEvents = () => {
     let stateHandler: ((state: typeof browserState) => void) | undefined;
     const progressHandlers = new Set<(progress: { downloadedBytes: number; totalBytes: number | null }) => void>();
     vi.spyOn(api, "onState").mockImplementation(async (handler) => { stateHandler = handler; return () => undefined; });
@@ -91,14 +92,65 @@ describe("Switchify PC settings", () => {
       progressHandlers.add(handler);
       return () => { progressHandlers.delete(handler); };
     });
-    const sendProgress = (downloadedBytes: number, totalBytes: number | null) =>
-      act(() => progressHandlers.forEach((handler) => handler({ downloadedBytes, totalBytes })));
-    browserState.updater = { status: "downloading", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
+    return {
+      progressHandlers,
+      onProgress,
+      sendProgress: (downloadedBytes: number, totalBytes: number | null) =>
+        act(() => progressHandlers.forEach((handler) => handler({ downloadedBytes, totalBytes }))),
+      sendUpdater: (updater: typeof browserState.updater) =>
+        act(() => stateHandler?.({ ...structuredClone(browserState), updater })),
+    };
+  };
+  const downloadingUpdater = { status: "downloading" as const, version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
+
+  it("shows the latest progress when Updates opens mid-download", async () => {
+    const { progressHandlers, sendProgress } = fakeUpdateEvents();
+    browserState.updater = downloadingUpdater;
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    await waitFor(() => expect(progressHandlers.size).toBe(1));
+
+    sendProgress(150, 200);
+    expect(screen.getByRole("status", { name: "Application update" })).toHaveTextContent("Downloading Switchify PC 1.0.0-beta.2 — 75%");
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    selectTab("General");
+    selectTab("Updates");
+    expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "150");
+    expect(document.querySelector(".update-controls > span")).toHaveTextContent("75%");
+    expect(progressHandlers.size).toBe(1);
+  });
+
+  it.each([
+    ["cancelled", { status: "cancelled" as const, version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: "download" as const }],
+    ["failed", { status: "failed" as const, version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: "Update download failed: offline", retryAction: "download" as const }],
+  ])("starts a retried download at zero after it was %s", async (_name, ended) => {
+    const { progressHandlers, sendProgress, sendUpdater } = fakeUpdateEvents();
+    browserState.updater = downloadingUpdater;
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     selectTab("Updates");
-    await waitFor(() => expect(progressHandlers.size).toBeGreaterThan(0));
+    await waitFor(() => expect(progressHandlers.size).toBe(1));
+    sendProgress(150, 200);
+    expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "150");
+
+    sendUpdater(ended);
+    expect(screen.queryByRole("progressbar", { name: "Update download progress" })).toBeNull();
+    sendUpdater(downloadingUpdater);
+    expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "0");
+    expect(document.querySelector(".update-controls > span")).toHaveTextContent("0 bytes");
+    sendProgress(20, 200);
+    expect(document.querySelector(".update-controls > span")).toHaveTextContent("10%");
+  });
+
+  it("follows the progress event during a download and keeps the final size from state", async () => {
+    const { progressHandlers, onProgress, sendProgress, sendUpdater } = fakeUpdateEvents();
+    browserState.updater = downloadingUpdater;
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    selectTab("Updates");
+    await waitFor(() => expect(progressHandlers.size).toBe(1));
 
     sendProgress(1_000, null);
     expect(document.querySelector(".update-controls > span")).toHaveTextContent(`${(1_000).toLocaleString()} bytes`);
@@ -108,13 +160,13 @@ describe("Switchify PC settings", () => {
     expect(document.querySelector(".update-controls > span")).toHaveTextContent("75%");
     expect(screen.getByRole("status", { name: "Application update" })).toHaveTextContent("Downloading Switchify PC 1.0.0-beta.2 — 75%");
 
-    act(() => stateHandler?.({ ...structuredClone(browserState), updater: { status: "readyToInstall", version: "1.0.0-beta.2", downloadedBytes: 200, totalBytes: 200, error: null, retryAction: null } }));
+    sendUpdater({ status: "readyToInstall", version: "1.0.0-beta.2", downloadedBytes: 200, totalBytes: 200, error: null, retryAction: null });
     expect(screen.queryByRole("progressbar", { name: "Update download progress" })).toBeNull();
     expect(screen.getByText("Switchify PC 1.0.0-beta.2 is ready to install.", { selector: ".update-controls p" })).toBeInTheDocument();
-    expect(onProgress).toHaveBeenCalled();
+    expect(onProgress).toHaveBeenCalledOnce();
 
     // A new download starts from its own state, not the previous attempt's samples.
-    act(() => stateHandler?.({ ...structuredClone(browserState), updater: { status: "downloading", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null } }));
+    sendUpdater(downloadingUpdater);
     expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "0");
     sendProgress(20, 200);
     expect(document.querySelector(".update-controls > span")).toHaveTextContent("10%");
