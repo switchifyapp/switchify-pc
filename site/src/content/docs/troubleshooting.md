@@ -3,7 +3,7 @@ title: Troubleshooting
 description: The switch is not recognised, input access on a Mac, Bluetooth, and where to get help.
 ---
 
-Switchify PC's Help page has **Setup** and **Troubleshooting** tabs with the same checks as below, plus illustrated guides for connecting a switch, learning a key, assigning Select, grid and line scanning, press-hold-release, macOS access, pairing and startup.
+Switchify PC's Help page has **Setup** and **Troubleshooting** tabs with the same checks as below, plus illustrated guides for connecting a switch, learning a key, assigning Select, grid and line scanning, press-hold-release, macOS access, pairing and startup. It also links to this guide.
 
 ## Nothing happens when I press the switch
 
