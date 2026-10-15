@@ -9,7 +9,7 @@ use crate::{
 };
 use std::f64::consts::TAU;
 
-/// The beam turns as fast as a point this far out moves at the point speed.
+/// The beam turns as fast as a point this far out moves at the radar speed.
 const SWEEP_RADIUS: f64 = 300.0;
 /// Manual steps, in degrees and logical pixels.
 const ANGLE_STEP: f64 = 5.0;
@@ -60,7 +60,7 @@ fn centre(rect: Rect) -> (f64, f64) {
 
 pub struct Radar {
     options: Resolved,
-    /// Logical pixels per second, the same as point scanning.
+    /// Logical pixels per second, on point scanning's line speed scale.
     speed: f64,
     screen: Rect,
     units: f64,
@@ -85,7 +85,8 @@ pub struct Radar {
 }
 
 impl Radar {
-    /// `speed` is the point scan speed index. It starts by choosing an area of `screen`.
+    /// `speed` is the radar speed index, on the line speed scale. It starts by
+    /// choosing an area of `screen`.
     pub fn new(options: Resolved, speed: usize, screen: Rect, units: f64) -> Self {
         let mut radar = Self {
             options,

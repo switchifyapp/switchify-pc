@@ -71,6 +71,9 @@ pub struct Config {
     pub mode: Mode,
     pub automatic: bool,
     pub speed: usize,
+    /// The radar's speed on the same scale. `None`, as saved before it
+    /// existed, follows `speed`.
+    pub radar_speed: Option<usize>,
     pub grid_size: usize,
     pub block_interval_ms: u64,
     pub auto_select_enabled: bool,
@@ -96,6 +99,7 @@ impl Default for Config {
             mode: Mode::Line,
             automatic: true,
             speed: 2,
+            radar_speed: None,
             grid_size: 4,
             block_interval_ms: 1000,
             auto_select_enabled: false,
@@ -168,6 +172,7 @@ impl Config {
             scanner_color: self.resolved(crate::scan_preferences::Area::Point).color,
             mode: self.mode,
             speed: self.speed,
+            radar_speed: self.radar_speed.unwrap_or(self.speed),
             grid_size: self.grid_size,
             block_interval_ms: self
                 .resolved(crate::scan_preferences::Area::Point)
@@ -196,6 +201,7 @@ pub struct PointSettings {
     pub scanner_color: crate::scanning::ScannerColor,
     pub mode: Mode,
     pub speed: usize,
+    pub radar_speed: usize,
     pub grid_size: usize,
     pub block_interval_ms: u64,
     pub auto_select_enabled: bool,
@@ -204,6 +210,7 @@ pub struct PointSettings {
 impl PointSettings {
     fn validate(&self) -> Result<(), String> {
         if self.speed > 4
+            || self.radar_speed > 4
             || !(2..=10).contains(&self.grid_size)
             || !(100..=10000).contains(&self.block_interval_ms)
             || !(100..=100_000).contains(&self.auto_select_delay_ms)
@@ -767,6 +774,30 @@ mod tests {
         }
     }
     #[test]
+    fn radar_speed_follows_line_speed_until_chosen() {
+        let legacy: Config = serde_json::from_str(r#"{"speed":4}"#).unwrap();
+        assert_eq!(legacy.radar_speed, None);
+        assert_eq!(legacy.point().radar_speed, 4);
+        for radar_speed in [None, Some(0), Some(4)] {
+            let config = Config {
+                speed: 1,
+                radar_speed,
+                ..Default::default()
+            };
+            let restored: Config =
+                serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
+            assert_eq!(restored, config);
+            assert_eq!(restored.point().radar_speed, radar_speed.unwrap_or(1));
+            assert_eq!(restored.point().speed, 1);
+            assert!(restored.validate().is_ok());
+        }
+        let too_fast = Config {
+            radar_speed: Some(5),
+            ..Default::default()
+        };
+        assert!(too_fast.validate().is_err());
+    }
+    #[test]
     fn auto_select_delays_are_bounded_and_round_trip() {
         for delay in [100, 500, 1000, 100_000] {
             let config = Config {
@@ -1188,6 +1219,7 @@ mod tests {
         json["enhancedWordPrediction"] = serde_json::json!(false);
         json["keyboardWaitAfterTyping"] = serde_json::json!(false);
         json["panelAvoidsPointer"] = serde_json::json!(false);
+        json["radarSpeed"] = serde_json::Value::Null;
         json["scanPreferences"] =
             serde_json::to_value(crate::scan_preferences::Preferences::default()).unwrap();
         assert_eq!(serde_json::to_value(&config).unwrap(), json);
