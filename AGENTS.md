@@ -14,6 +14,7 @@ The frozen C# application is not maintained in this repository. Do not reintrodu
 - When a version is released, close its milestone if it has no open issues. If open issues remain, move unfinished work to the next open milestone (or ask) before closing the shipped one.
 - Close tracking or epic issues when every scoped child issue/PR they list is merged or closed. Do not leave completed tracking issues open with unchecked boxes.
 - Keep commits and pull requests focused on that issue.
+- Any change users can see (a feature, a setting, a menu item, a label, a behaviour) must update the docs site in `site/` in the same pull request. It is served at https://pc.theswitchify.app. Write for switch users and AT professionals in plain language, claim only what the app does, make no accuracy claims for word prediction, and check it builds (see `site/README.md`).
 - Open a draft pull request with the issue-closing reference and validation evidence. Assign the same milestone as the issue.
 - Before handoff, deploy an independent agent that did not implement the change to review the pull request's latest head, and address all actionable findings. If review fixes change the head, repeat the independent review on the new latest head.
 - Make the pull request ready for review and ensure required CI passes.
