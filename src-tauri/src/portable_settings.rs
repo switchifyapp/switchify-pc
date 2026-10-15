@@ -16,7 +16,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -195,8 +195,9 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
         return Err(ParseError::Newer(schema_version));
     }
     match schema_version {
-        1 => value = upgrade_v2(upgrade_v1(value)?)?,
-        2 => value = upgrade_v2(value)?,
+        1 => value = upgrade_v3(upgrade_v2(upgrade_v1(value)?)?)?,
+        2 => value = upgrade_v3(upgrade_v2(value)?)?,
+        3 => value = upgrade_v3(value)?,
         SCHEMA_VERSION => {}
         _ => {
             return Err(ParseError::Invalid(format!(
@@ -260,6 +261,21 @@ fn upgrade_v2(mut value: Value) -> Result<Value, ParseError> {
             .ok_or_else(invalid)?
             .insert("rowGroups".into(), Value::Null);
     }
+    value["schemaVersion"] = Value::from(3);
+    Ok(value)
+}
+
+/// Version 3 had no radar speed, so the radar follows the line speed.
+fn upgrade_v3(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(3)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    value
+        .get_mut("pointScan")
+        .and_then(Value::as_object_mut)
+        .filter(|point_scan| !point_scan.contains_key("radarSpeed"))
+        .ok_or_else(|| ParseError::Invalid("it does not match version 3 settings".into()))?
+        .insert("radarSpeed".into(), Value::Null);
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -453,6 +469,12 @@ pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
 /// A current document as an older version wrote it.
 #[cfg(test)]
 pub(crate) fn written_by(mut value: Value, version: u32) -> Value {
+    if version < 4 {
+        value["pointScan"]
+            .as_object_mut()
+            .unwrap()
+            .remove("radarSpeed");
+    }
     if version < 3 {
         let preferences = value
             .pointer_mut("/pointScan/scanPreferences")
@@ -618,6 +640,47 @@ mod tests {
     /// A document as written by version 1, before scanned key repeat.
     fn version_one() -> Value {
         written_by(serde_json::to_value(local().document()).unwrap(), 1)
+    }
+
+    #[test]
+    fn version_three_documents_read_with_the_radar_following_line_speed() {
+        let mut local = local();
+        local.point_scan.radar_speed = Some(4);
+        let mut cloud = local.clone();
+        cloud.point_scan.radar_speed = None;
+        let version_three = written_by(serde_json::to_value(cloud.document()).unwrap(), 3);
+        let parsed = parse(version_three.clone(), 3).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert_eq!(parsed.point_scan.radar_speed, None);
+        let point_scan = plan(&local, parsed).unwrap().point_scan.unwrap();
+        assert_eq!(point_scan.radar_speed, None);
+
+        // Version 3 never had a radar speed, and a version 4 document needs it.
+        let mut early = version_three.clone();
+        early["pointScan"]["radarSpeed"] = json!(4);
+        assert!(matches!(parse(early, 3), Err(ParseError::Invalid(_))));
+        let mut missing = version_three;
+        missing["schemaVersion"] = json!(SCHEMA_VERSION);
+        assert!(matches!(
+            parse(missing, SCHEMA_VERSION),
+            Err(ParseError::Invalid(_))
+        ));
+        // A merge base saved by version 3 still loads.
+        let base: Document = serde_json::from_value(written_by(
+            serde_json::to_value(local.document()).unwrap(),
+            3,
+        ))
+        .unwrap();
+        assert_eq!(base.point_scan.radar_speed, None);
+
+        // A chosen radar speed syncs, and an invalid one is refused.
+        let mut chosen = serde_json::to_value(cloud.document()).unwrap();
+        chosen["pointScan"]["radarSpeed"] = json!(0);
+        let parsed = parse(chosen.clone(), SCHEMA_VERSION).unwrap();
+        assert_eq!(parsed.point_scan.radar_speed, Some(0));
+        chosen["pointScan"]["radarSpeed"] = json!(5);
+        let parsed = parse(chosen, SCHEMA_VERSION).unwrap();
+        assert!(plan(&local, parsed).is_err());
     }
 
     #[test]
@@ -1004,6 +1067,7 @@ mod tests {
                 "nextKey",
                 "panelAvoidsPointer",
                 "pauseKey",
+                "radarSpeed",
                 "scanPreferences",
                 "scannerColor",
                 "selectKey",

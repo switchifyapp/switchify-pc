@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
@@ -425,6 +426,23 @@ it("brings the area header into view with help expanded and restores the overvie
     if (previous) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", previous);
     else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
   }
+});
+
+it("sets the radar speed on the mouse page, following line speed until chosen", async () => {
+  mocks.invoke.mockImplementation(async (command, args) => command === "get_point_scan" ? { ...initial, config: { ...defaultPointScanConfig, speed: 1, radarSpeed: undefined } } : { ...initial, config: args.config });
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  fireEvent.click(screen.getByRole("button", { name: "Customise mouse scanning" }));
+  const radar = screen.getByRole("group", { name: "Radar speed" });
+  expect(within(radar).getByRole("button", { name: "Slow" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByText(/Follows Line speed in Point scanning until you choose a speed here/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Follow line speed" })).not.toBeInTheDocument();
+  fireEvent.click(within(radar).getByRole("button", { name: "Very fast" }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", { config: { ...defaultPointScanConfig, speed: 1, radarSpeed: 4 } }));
+  expect(within(screen.getByRole("group", { name: "Radar speed" })).getByRole("button", { name: "Very fast" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByRole("button", { name: "Follow line speed" }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", { config: { ...defaultPointScanConfig, speed: 1, radarSpeed: null } }));
+  expect(within(screen.getByRole("group", { name: "Radar speed" })).getByRole("button", { name: "Slow" })).toHaveAttribute("aria-pressed", "true");
 });
 
 it("saves the shared panel pointer-avoidance choice from the mouse, keyboard and menu pages", async () => {

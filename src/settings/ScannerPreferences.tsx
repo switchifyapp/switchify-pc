@@ -7,6 +7,8 @@ import { SettingGroup, Toggle, OptionGroup } from './controls';
 import { api } from '../api';
 import type { AppSettings } from '../types';
 
+const speedOptions = ["Very slow", "Slow", "Medium", "Fast", "Very fast"].map((label, value) => ({ label, value }));
+
 export function ScannerPreferences({ controller, settings: appSettings, onSettingsChange }: { controller: ScanningController; settings?: AppSettings; onSettingsChange?: (next: AppSettings) => void }) {
   const { config, state, update, chooseKeyboardLayout, pending } = controller;
   const [area, setArea] = useState<'shared' | ScanArea>('shared');
@@ -97,6 +99,20 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
       />
     </SettingGroup>}
     {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move or a scroll tile to scroll; with Repeat mouse movement and scrolling on, {mouseRepeatStopInstruction(config).toLowerCase()} either action. Actions opens editing, window, browser, media, display and scanning commands, then returns to Mouse. Modified clicks use the current pointer. End a drag before opening Actions. Pointer speed and repeat controls are under Mouse in the sidebar. Switch to Point returns to screen selection.</p>}
+    {area === 'mouse' && <SettingGroup title="Radar" description="Radar picks an area, then a direction, then a distance to move the pointer.">
+      <OptionGroup<number>
+        legend="Radar speed"
+        columns="five"
+        disabled={disabled}
+        value={config.radarSpeed ?? config.speed}
+        onChange={value => update('radarSpeed', value)}
+        options={speedOptions}
+        note={{ summary: config.radarSpeed == null
+          ? 'How fast the beam turns and grows. Follows Line speed in Point scanning until you choose a speed here.'
+          : 'How fast the beam turns and grows. Areas move at the auto scan rate.' }}
+      />
+      {config.radarSpeed != null && <Button type="button" className="text-button" disabled={disabled} onClick={() => update('radarSpeed', null)}>Follow line speed</Button>}
+    </SettingGroup>}
     {area === 'point' && <>
       <SettingGroup
         title="Point scan"
@@ -119,9 +135,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
           disabled={disabled}
           value={config.speed}
           onChange={(value) => update("speed", value)}
-          options={["Very slow", "Slow", "Medium", "Fast", "Very fast"].map(
-            (label, value) => ({ label, value }),
-          )}
+          options={speedOptions}
         />
 
         {config.mode === "grid" && (

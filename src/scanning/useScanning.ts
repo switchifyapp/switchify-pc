@@ -18,6 +18,8 @@ export type PointScanConfig = {
   mode: "line" | "grid";
   automatic: boolean;
   speed: number;
+  /** The radar's speed on the line speed scale. Null, or missing in older saved state, follows `speed`. */
+  radarSpeed?: number | null;
   gridSize: number;
   blockIntervalMs: number;
   autoSelectEnabled: boolean;
@@ -59,6 +61,7 @@ export const defaultPointScanConfig: PointScanConfig = {
   mode: "line",
   automatic: true,
   speed: 2,
+  radarSpeed: null,
   gridSize: 4,
   blockIntervalMs: 1000,
   autoSelectEnabled: false,

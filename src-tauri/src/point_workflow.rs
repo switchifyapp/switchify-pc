@@ -739,7 +739,7 @@ impl Workflow {
             self.mouse.choose(key);
             self.radar = Some(crate::scan_radar::Radar::new(
                 self.point.config.mouse_scan,
-                self.point.config.speed,
+                self.point.config.radar_speed,
                 self.point.screen,
                 self.point.units_per_logical_pixel,
             ));
