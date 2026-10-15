@@ -102,11 +102,15 @@ jobs:
       - id: filter
         name: Check whether anything outside site/ changed
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base="origin/${{ github.base_ref }}"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="origin/$BASE_REF"
           else
-            base="${{ github.event.before }}"
+            base="$BEFORE_SHA"
           fi
           if ! files=$(git diff --name-only "$base"...HEAD 2>/dev/null); then
             echo "Could not compare with $base; running everything."
