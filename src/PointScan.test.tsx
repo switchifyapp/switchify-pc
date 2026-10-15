@@ -442,7 +442,10 @@ it("sets the radar speed on the mouse page, following line speed until chosen", 
   expect(within(screen.getByRole("group", { name: "Radar speed" })).getByRole("button", { name: "Very fast" })).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(screen.getByRole("button", { name: "Follow line speed" }));
   await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", { config: { ...defaultPointScanConfig, speed: 1, radarSpeed: null } }));
-  expect(within(screen.getByRole("group", { name: "Radar speed" })).getByRole("button", { name: "Slow" })).toHaveAttribute("aria-pressed", "true");
+  const slow = within(screen.getByRole("group", { name: "Radar speed" })).getByRole("button", { name: "Slow" });
+  expect(slow).toHaveAttribute("aria-pressed", "true");
+  // Focus stays on the speeds when the button goes.
+  await waitFor(() => expect(slow).toHaveFocus());
 });
 
 it("saves the shared panel pointer-avoidance choice from the mouse, keyboard and menu pages", async () => {

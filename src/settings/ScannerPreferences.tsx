@@ -107,11 +107,14 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
         value={config.radarSpeed ?? config.speed}
         onChange={value => update('radarSpeed', value)}
         options={speedOptions}
-        note={{ summary: config.radarSpeed == null
-          ? 'How fast the beam turns and grows. Follows Line speed in Point scanning until you choose a speed here.'
-          : 'How fast the beam turns and grows. Areas move at the auto scan rate.' }}
+        note={{ summary: 'How fast the beam turns and grows. Areas move at the auto scan rate.' + (config.radarSpeed == null ? ' Follows Line speed in Point scanning until you choose a speed here.' : '') }}
       />
-      {config.radarSpeed != null && <Button type="button" className="text-button" disabled={disabled} onClick={() => update('radarSpeed', null)}>Follow line speed</Button>}
+      {config.radarSpeed != null && <Button type="button" className="text-button" disabled={disabled} onClick={event => {
+        const group = event.currentTarget.closest<HTMLElement>('.setting-group');
+        update('radarSpeed', null);
+        // The button goes once the radar follows line speed, so keep focus on the speeds.
+        requestAnimationFrame(() => group?.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus());
+      }}>Follow line speed</Button>}
     </SettingGroup>}
     {area === 'point' && <>
       <SettingGroup
@@ -136,6 +139,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
           value={config.speed}
           onChange={(value) => update("speed", value)}
           options={speedOptions}
+          note={config.radarSpeed == null ? { summary: "Radar in Mouse scanning follows this speed until it has its own." } : undefined}
         />
 
         {config.mode === "grid" && (

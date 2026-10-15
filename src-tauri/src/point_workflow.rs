@@ -1823,6 +1823,41 @@ mod tests {
     }
 
     #[test]
+    fn radar_moves_at_the_radar_speed_or_else_the_line_speed() {
+        use crate::scan_mouse::Key;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        // Very slow is 45 logical pixels a second; very fast is 270.
+        for (radar_speed, reach) in [(None, 45), (Some(4), 270), (Some(0), 45)] {
+            let config = Config {
+                speed: 0,
+                radar_speed,
+                ..last_mode()
+            };
+            let mut workflow = Workflow::new(config.point(), screen, 1.0).unwrap();
+            workflow.handle(Action::OpenMouse);
+            workflow.set_pointer(Some((640.0, 360.0)));
+            workflow.mouse_key(Key::Radar);
+            // The whole display, then straight up from its centre.
+            for _ in 0..4 {
+                workflow.handle(Action::Next);
+            }
+            workflow.handle(Action::Select);
+            workflow.handle(Action::Select);
+            workflow.advance(1000);
+            assert_eq!(
+                workflow.radar.as_ref().unwrap().target(),
+                (640, 360 - reach),
+                "{radar_speed:?}"
+            );
+        }
+    }
+
+    #[test]
     fn radar_sweeps_from_the_chosen_area_and_returns_to_the_mouse_panel() {
         use crate::scan_mouse::Key;
         let screen = Rect {
