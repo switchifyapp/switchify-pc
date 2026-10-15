@@ -1,4 +1,12 @@
-use std::{future::Future, pin::Pin, sync::Mutex};
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
+    time::{Duration, Instant},
+};
 
 use serde::Serialize;
 use tauri_plugin_updater::Update;
@@ -181,13 +189,6 @@ impl UpdateView {
         }
     }
 
-    pub fn add_progress(&mut self, chunk: usize, total: Option<u64>) {
-        self.downloaded_bytes = self.downloaded_bytes.saturating_add(chunk as u64);
-        if total.is_some() {
-            self.total_bytes = total;
-        }
-    }
-
     fn new(status: UpdateStatus) -> Self {
         Self {
             status,
@@ -197,6 +198,114 @@ impl UpdateView {
             error: None,
             retry_action: None,
         }
+    }
+}
+
+/// Tauri event carrying download progress. Progress travels on this small
+/// event instead of the full `AppState` so a large download cannot flood
+/// state emission, the tray and the webview.
+pub const PROGRESS_EVENT: &str = "update-progress";
+
+/// Minimum spacing between progress events.
+pub const PROGRESS_INTERVAL: Duration = Duration::from_millis(250);
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProgress {
+    pub downloaded_bytes: u64,
+    pub total_bytes: Option<u64>,
+}
+
+impl UpdateProgress {
+    fn percent(&self) -> Option<u64> {
+        self.total_bytes
+            .filter(|total| *total > 0)
+            .map(|total| (self.downloaded_bytes.min(total) * 100) / total)
+    }
+
+    fn complete(&self) -> bool {
+        self.total_bytes
+            .is_some_and(|total| total > 0 && self.downloaded_bytes >= total)
+    }
+}
+
+/// Byte counter shared with the download callback without touching the
+/// application state mutex. A total of zero means the size is unknown.
+#[derive(Debug, Default)]
+pub struct ProgressCounter {
+    downloaded: AtomicU64,
+    total: AtomicU64,
+}
+
+impl ProgressCounter {
+    pub fn add(&self, chunk: usize, total: Option<u64>) -> UpdateProgress {
+        if let Some(total) = total {
+            self.total.store(total, Ordering::Relaxed);
+        }
+        self.downloaded.fetch_add(chunk as u64, Ordering::Relaxed);
+        self.current()
+    }
+
+    pub fn current(&self) -> UpdateProgress {
+        let total = self.total.load(Ordering::Relaxed);
+        UpdateProgress {
+            downloaded_bytes: self.downloaded.load(Ordering::Relaxed),
+            total_bytes: (total > 0).then_some(total),
+        }
+    }
+}
+
+/// Decides which progress samples are worth emitting. After the first sample,
+/// one is emitted only when the interval has elapsed since the last emission
+/// and, when the total is known, the whole percentage has changed, so
+/// whichever gate is less frequent wins. The completing sample is always
+/// emitted, once, so the bar finishes promptly.
+#[derive(Debug)]
+pub struct ProgressThrottle {
+    interval: Duration,
+    last_at: Option<Instant>,
+    last_percent: Option<u64>,
+    finished: bool,
+}
+
+impl Default for ProgressThrottle {
+    fn default() -> Self {
+        Self::new(PROGRESS_INTERVAL)
+    }
+}
+
+impl ProgressThrottle {
+    pub fn new(interval: Duration) -> Self {
+        Self {
+            interval,
+            last_at: None,
+            last_percent: None,
+            finished: false,
+        }
+    }
+
+    pub fn observe(&mut self, now: Instant, progress: UpdateProgress) -> bool {
+        if self.finished {
+            return false;
+        }
+        let percent = progress.percent();
+        let emit = if progress.complete() {
+            self.finished = true;
+            true
+        } else {
+            match self.last_at {
+                None => true,
+                Some(last) => {
+                    now.saturating_duration_since(last) >= self.interval
+                        && (percent.is_none() || percent != self.last_percent)
+                }
+            }
+        };
+        if emit {
+            self.last_at = Some(now);
+            self.last_percent = percent;
+        }
+        emit
     }
 }
 
@@ -380,13 +489,137 @@ mod tests {
         }
     }
 
+    fn progress(downloaded_bytes: u64, total_bytes: Option<u64>) -> UpdateProgress {
+        UpdateProgress {
+            downloaded_bytes,
+            total_bytes,
+        }
+    }
+
+    #[test]
+    fn progress_counter_accumulates_outside_the_state() {
+        let counter = ProgressCounter::default();
+        assert_eq!(counter.current(), progress(0, None));
+        assert_eq!(counter.add(25, Some(100)), progress(25, Some(100)));
+        assert_eq!(counter.add(30, None), progress(55, Some(100)));
+    }
+
+    #[test]
+    fn progress_counter_reports_an_unknown_total() {
+        let counter = ProgressCounter::default();
+        assert_eq!(counter.add(10, None), progress(10, None));
+    }
+
+    #[test]
+    fn throttle_waits_for_the_interval_even_when_the_percent_changes() {
+        let start = Instant::now();
+        let ms = |value| start + Duration::from_millis(value);
+        let mut throttle = ProgressThrottle::default();
+        assert!(throttle.observe(ms(0), progress(1, Some(100))));
+        assert!(!throttle.observe(ms(100), progress(20, Some(100))));
+        assert!(!throttle.observe(ms(249), progress(40, Some(100))));
+        assert!(throttle.observe(ms(250), progress(41, Some(100))));
+        assert!(!throttle.observe(ms(300), progress(60, Some(100))));
+    }
+
+    #[test]
+    fn throttle_waits_for_a_whole_percent_even_after_the_interval() {
+        let start = Instant::now();
+        let ms = |value| start + Duration::from_millis(value);
+        let total = Some(10_000);
+        let mut throttle = ProgressThrottle::default();
+        assert!(throttle.observe(ms(0), progress(100, total)));
+        assert!(!throttle.observe(ms(1_000), progress(150, total)));
+        assert!(!throttle.observe(ms(2_000), progress(199, total)));
+        assert!(throttle.observe(ms(3_000), progress(200, total)));
+        assert!(!throttle.observe(ms(4_000), progress(250, total)));
+    }
+
+    #[test]
+    fn throttle_flushes_completion_once_regardless_of_timing() {
+        let start = Instant::now();
+        let ms = |value| start + Duration::from_millis(value);
+        let mut throttle = ProgressThrottle::default();
+        assert!(throttle.observe(ms(0), progress(99, Some(100))));
+        assert!(throttle.observe(ms(10), progress(100, Some(100))));
+        assert!(!throttle.observe(ms(1_000), progress(100, Some(100))));
+    }
+
+    #[test]
+    fn throttle_uses_time_alone_when_the_total_is_unknown() {
+        let start = Instant::now();
+        let ms = |value| start + Duration::from_millis(value);
+        let mut throttle = ProgressThrottle::default();
+        assert!(throttle.observe(ms(0), progress(10, None)));
+        assert!(!throttle.observe(ms(200), progress(20, None)));
+        assert!(throttle.observe(ms(250), progress(20, None)));
+        assert!(throttle.observe(ms(500), progress(30, None)));
+        assert!(!throttle.observe(ms(600), progress(40, None)));
+    }
+
+    #[test]
+    fn throttle_bounds_events_for_a_large_download() {
+        let start = Instant::now();
+        let total = 155 * 1024 * 1024_u64;
+        let chunk = 16 * 1024_u64;
+        let mut throttle = ProgressThrottle::default();
+        let (mut downloaded, mut emitted, mut elapsed) = (0, 0, 0);
+        while downloaded < total {
+            downloaded = (downloaded + chunk).min(total);
+            elapsed += 1;
+            if throttle.observe(
+                start + Duration::from_millis(elapsed),
+                progress(downloaded, Some(total)),
+            ) {
+                emitted += 1;
+            }
+        }
+        assert!(emitted > 1);
+        assert!(emitted <= 101, "emitted {emitted} progress events");
+    }
+
+    #[tokio::test]
+    async fn fake_download_emits_throttled_progress_and_final_count() {
+        let update = FakeUpdate::successful(vec![vec![0; 10]; 50]);
+        let (_cancel, receiver) = watch::channel(false);
+        let counter = Arc::new(ProgressCounter::default());
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let (chunk_counter, chunk_events) = (counter.clone(), events.clone());
+        let start = Instant::now();
+        let mut throttle = ProgressThrottle::default();
+        let result = download_with_cancel(&update, receiver, move |chunk, total| {
+            let sample = chunk_counter.add(chunk, total);
+            // Every chunk arrives at the same injected instant, so only the
+            // first and the completing samples pass.
+            if throttle.observe(start, sample) {
+                chunk_events
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .push(sample);
+            }
+        })
+        .await;
+        assert!(matches!(result, DownloadResult::Complete(Ok(bytes)) if bytes.len() == 500));
+        assert_eq!(counter.current(), progress(500, Some(500)));
+        assert_eq!(
+            *events
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            vec![progress(10, Some(500)), progress(500, Some(500))]
+        );
+    }
+
+    #[test]
+    fn progress_event_is_small_and_camel_cased() {
+        assert_eq!(PROGRESS_EVENT, "update-progress");
+        assert_eq!(
+            serde_json::to_value(progress(5, Some(10))).unwrap(),
+            serde_json::json!({ "downloadedBytes": 5, "totalBytes": 10 })
+        );
+    }
+
     #[test]
     fn transitions_expose_progress_retry_and_cancellation() {
-        let mut downloading = UpdateView::downloading("2.0.0".into());
-        downloading.add_progress(25, Some(100));
-        downloading.add_progress(30, None);
-        assert_eq!(downloading.downloaded_bytes, 55);
-        assert_eq!(downloading.total_bytes, Some(100));
         assert_eq!(
             UpdateView::ready("2.0.0".into(), 100, Some(100)).status,
             UpdateStatus::ReadyToInstall

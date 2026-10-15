@@ -12,7 +12,7 @@ import type { AccountView, AppSettings, AppState, PendingPairing, SwitchProfile,
 import { applyLocalSettings, changedSettingKeys } from "./settings/diff";
 import { SettingsView } from "./settings/SettingsView";
 import { MouseSettingsView } from "./settings/MouseSettingsView";
-import { updateDescription, updateInFlight, updateLiveness, updateProgress, updateStanding, type UpdateAction } from "./settings/UpdatesSection";
+import { updateDescription, updateInFlight, updateLiveness, updateProgress, updateStanding, useUpdateProgress, type UpdateAction } from "./settings/UpdatesSection";
 import { TabPanel, Tabs } from "./Tabs";
 import { useSwitches, type SwitchController } from "./scanning/useSwitches";
 import { lastModeName, selectOpensHome, useScanning, type ScanningController } from "./scanning/useScanning";
@@ -336,7 +336,8 @@ function ProfilesView({ profiles, platform, saveProfile, deleteProfile, onDirtyC
   </div>;
 }
 
-function UpdateBanner({ update, openUpdates }: { update: UpdateState; openUpdates: () => void }) {
+function UpdateBanner({ update: state, openUpdates }: { update: UpdateState; openUpdates: () => void }) {
+  const update = useUpdateProgress(state);
   if (update.status !== "available" && update.status !== "downloading" && update.status !== "readyToInstall") return null;
   const message = update.status === "available"
     ? `Switchify PC ${update.version} is available.`

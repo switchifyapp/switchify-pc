@@ -83,6 +83,43 @@ describe("Switchify PC settings", () => {
     expect(cancel).toHaveBeenCalledOnce();
   });
 
+  it("follows the progress event during a download and keeps the final size from state", async () => {
+    let stateHandler: ((state: typeof browserState) => void) | undefined;
+    const progressHandlers = new Set<(progress: { downloadedBytes: number; totalBytes: number | null }) => void>();
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => { stateHandler = handler; return () => undefined; });
+    const onProgress = vi.spyOn(api, "onUpdateProgress").mockImplementation(async (handler) => {
+      progressHandlers.add(handler);
+      return () => { progressHandlers.delete(handler); };
+    });
+    const sendProgress = (downloadedBytes: number, totalBytes: number | null) =>
+      act(() => progressHandlers.forEach((handler) => handler({ downloadedBytes, totalBytes })));
+    browserState.updater = { status: "downloading", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    selectTab("Updates");
+    await waitFor(() => expect(progressHandlers.size).toBeGreaterThan(0));
+
+    sendProgress(1_000, null);
+    expect(document.querySelector(".update-controls > span")).toHaveTextContent(`${(1_000).toLocaleString()} bytes`);
+    sendProgress(150, 200);
+    expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "150");
+    expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("max", "200");
+    expect(document.querySelector(".update-controls > span")).toHaveTextContent("75%");
+    expect(screen.getByRole("status", { name: "Application update" })).toHaveTextContent("Downloading Switchify PC 1.0.0-beta.2 — 75%");
+
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: { status: "readyToInstall", version: "1.0.0-beta.2", downloadedBytes: 200, totalBytes: 200, error: null, retryAction: null } }));
+    expect(screen.queryByRole("progressbar", { name: "Update download progress" })).toBeNull();
+    expect(screen.getByText("Switchify PC 1.0.0-beta.2 is ready to install.", { selector: ".update-controls p" })).toBeInTheDocument();
+    expect(onProgress).toHaveBeenCalled();
+
+    // A new download starts from its own state, not the previous attempt's samples.
+    act(() => stateHandler?.({ ...structuredClone(browserState), updater: { status: "downloading", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null } }));
+    expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "0");
+    sendProgress(20, 200);
+    expect(document.querySelector(".update-controls > span")).toHaveTextContent("10%");
+  });
+
   it("offers the correct retry action after a failure", async () => {
     browserState.updater = { status: "failed", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: "Download failed", retryAction: "download" };
     const download = vi.spyOn(api, "downloadUpdate").mockResolvedValue(structuredClone(browserState));

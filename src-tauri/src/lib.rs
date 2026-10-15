@@ -73,8 +73,8 @@ use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_updater::UpdaterExt;
 use telemetry::TelemetryConsent;
 use updater::{
-    download_with_cancel, DownloadResult, Operation as UpdateOperation, RetryAction,
-    UpdateArtifact, UpdateManager, UpdateView,
+    download_with_cancel, DownloadResult, Operation as UpdateOperation, ProgressCounter,
+    ProgressThrottle, RetryAction, UpdateArtifact, UpdateManager, UpdateView,
 };
 
 #[tauri::command]
@@ -210,16 +210,55 @@ impl TraySnapshot {
     }
 }
 
+/// The tray mutations a new snapshot needs. Each field is `None` when the
+/// menu already shows that value, so unrelated state emissions leave the
+/// native menu alone.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct TrayChanges {
+    status: Option<String>,
+    can_disconnect: Option<bool>,
+}
+
+#[derive(Default)]
+struct TrayCache(Mutex<Option<TraySnapshot>>);
+
+impl TrayCache {
+    fn changes(&self, next: TraySnapshot) -> TrayChanges {
+        let mut last = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let changes = match last.as_ref() {
+            Some(previous) => TrayChanges {
+                status: (previous.status != next.status).then(|| next.status.clone()),
+                can_disconnect: (previous.can_disconnect != next.can_disconnect)
+                    .then_some(next.can_disconnect),
+            },
+            None => TrayChanges {
+                status: Some(next.status.clone()),
+                can_disconnect: Some(next.can_disconnect),
+            },
+        };
+        *last = Some(next);
+        changes
+    }
+}
+
 struct TrayController {
     status: MenuItem<tauri::Wry>,
     disconnect: MenuItem<tauri::Wry>,
+    cache: TrayCache,
 }
 
 impl TrayController {
     fn sync(&self, state: &AppState) {
-        let snapshot = TraySnapshot::from_state(state);
-        let _ = self.status.set_text(snapshot.status);
-        let _ = self.disconnect.set_enabled(snapshot.can_disconnect);
+        let changes = self.cache.changes(TraySnapshot::from_state(state));
+        if let Some(status) = changes.status {
+            let _ = self.status.set_text(status);
+        }
+        if let Some(can_disconnect) = changes.can_disconnect {
+            let _ = self.disconnect.set_enabled(can_disconnect);
+        }
     }
 }
 
@@ -1167,25 +1206,28 @@ async fn download_update(app: AppHandle) -> Result<AppState, String> {
         ActivityKind::Info,
         format!("Downloading Switchify PC {version}…"),
     );
+    model.record_updater("downloading", None);
     publish_update(&app, &model, UpdateView::downloading(version.clone()));
 
+    // Progress runs per network chunk, so it stays off the shared state:
+    // bytes are counted atomically and only a throttled, small progress
+    // event reaches the webview. Full state is emitted on transitions only.
+    let counter = ProgressCounter::default();
+    let mut throttle = ProgressThrottle::default();
     let progress_app = app.clone();
-    let progress_shared = model.shared.clone();
+    let progress_counter = &counter;
     let result = download_with_cancel(&update, cancel_receiver, move |chunk, total| {
-        {
-            let mut data = progress_shared
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            data.state.updater.add_progress(chunk, total);
+        let progress = progress_counter.add(chunk, total);
+        if throttle.observe(std::time::Instant::now(), progress) {
+            let _ = progress_app.emit(updater::PROGRESS_EVENT, progress);
         }
-        state::emit_state(&progress_app, &progress_shared);
     });
     let result = result.await;
     manager.finish(UpdateOperation::Download);
     match result {
         DownloadResult::Complete(Ok(bytes)) => {
             let downloaded_bytes = bytes.len() as u64;
-            let total_bytes = model.snapshot().updater.total_bytes;
+            let total_bytes = counter.current().total_bytes;
             manager.store_download(bytes);
             state::set_activity(
                 &model.shared,
@@ -1424,7 +1466,11 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
             &quit,
         ],
     )?;
-    let controller = TrayController { status, disconnect };
+    let controller = TrayController {
+        status,
+        disconnect,
+        cache: TrayCache::default(),
+    };
     controller.sync(&app.state::<AppModel>().snapshot());
     app.manage(controller);
     let mut builder = TrayIconBuilder::with_id("switchify")
@@ -1980,7 +2026,8 @@ mod tests {
     use super::{
         account_pairing_intent, has_start_hidden_argument, record_update_failure,
         show_tray_menu_on_left_click, updater_is_configured, validate_profile, PendingNavigation,
-        PendingProfileExit, ProfileExitAction, TraySnapshot, NAVIGATE_REQUESTED_EVENT,
+        PendingProfileExit, ProfileExitAction, TrayCache, TrayChanges, TraySnapshot,
+        NAVIGATE_REQUESTED_EVENT,
     };
     use crate::state::{AppModel, BluetoothState, SwitchBinding, SwitchProfile};
     use crate::storage::AppStorage;
@@ -2135,6 +2182,40 @@ mod tests {
             }
         );
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn tray_sync_only_mutates_values_that_changed() {
+        let snapshot = |status: &str, can_disconnect| TraySnapshot {
+            status: status.into(),
+            can_disconnect,
+        };
+        let cache = TrayCache::default();
+        assert_eq!(
+            cache.changes(snapshot("Status: Ready to connect", false)),
+            TrayChanges {
+                status: Some("Status: Ready to connect".into()),
+                can_disconnect: Some(false),
+            }
+        );
+        assert_eq!(
+            cache.changes(snapshot("Status: Ready to connect", false)),
+            TrayChanges::default()
+        );
+        assert_eq!(
+            cache.changes(snapshot("Status: Ready to connect", true)),
+            TrayChanges {
+                status: None,
+                can_disconnect: Some(true),
+            }
+        );
+        assert_eq!(
+            cache.changes(snapshot("Status: Connected to Pixel", true)),
+            TrayChanges {
+                status: Some("Status: Connected to Pixel".into()),
+                can_disconnect: None,
+            }
+        );
     }
 
     #[test]

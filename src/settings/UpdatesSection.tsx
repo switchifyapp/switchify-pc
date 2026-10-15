@@ -1,10 +1,36 @@
 import { Button } from "../ui/controls";
 import { Download, RefreshCw, X } from "lucide-react";
-import type { Ref } from "react";
-import type { AppState, UpdateState, UpdateStatus } from "../types";
+import { useEffect, useState, type Ref } from "react";
+import { api } from "../api";
+import type { AppState, UpdateProgress, UpdateState, UpdateStatus } from "../types";
 import { SettingGroup } from "./controls";
 
 export type UpdateAction = "check" | "download" | "install";
+
+// Download progress arrives on its own throttled event rather than in
+// AppState, so only the components showing it re-render. AppState still
+// carries the status transitions and the final size once ready.
+export function useUpdateProgress(update: UpdateState): UpdateState {
+  const downloading = update.status === "downloading";
+  const [progress, setProgress] = useState<UpdateProgress | null>(null);
+  // Stay subscribed while mounted so the first samples of a download are not
+  // lost to a listener that is still registering.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: () => void = () => {};
+    void api.onUpdateProgress((next) => { if (!disposed) setProgress(next); }).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    });
+    return () => { disposed = true; unlisten(); };
+  }, []);
+  // A finished, failed or cancelled download leaves no stale progress behind.
+  useEffect(() => {
+    if (!downloading) return;
+    return () => setProgress(null);
+  }, [downloading, update.version]);
+  return downloading && progress ? { ...update, ...progress } : update;
+}
 
 export function updateProgress(update: UpdateState) {
   if (update.totalBytes && update.totalBytes > 0) {
@@ -51,7 +77,8 @@ export function updateInFlight(status: UpdateStatus) {
   return status === "checking";
 }
 
-export function UpdateControls({ update, run, cancel }: { update: UpdateState; run: (action: UpdateAction) => void; cancel: () => void }) {
+export function UpdateControls({ update: state, run, cancel }: { update: UpdateState; run: (action: UpdateAction) => void; cancel: () => void }) {
+  const update = useUpdateProgress(state);
   const action = update.status === "available" || update.status === "cancelled" ? "download"
     : update.status === "readyToInstall" ? "install"
       : update.status === "failed" ? update.retryAction
