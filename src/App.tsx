@@ -354,7 +354,7 @@ const supportTabs = [{ id: "setup", label: "Setup" }, { id: "troubleshooting", l
 
 function SupportView({ state, switches, busy, perform, openSetup, openUpdates }: { state: AppState; switches: SwitchController; busy: boolean; perform: (operation: () => Promise<AppState>) => void; openSetup: () => void; openUpdates: () => void }) {
   const [tab, setTab] = useState<(typeof supportTabs)[number]["id"]>("setup");
-  return <div className="view"><header className="page-header"><div><h1>Help</h1><p>Set up Switchify PC and fix common problems.</p></div></header>
+  return <div className="view"><header className="page-header"><div><h1>Help</h1><p>Set up Switchify PC and fix common problems. The full guide is at <a href="https://pc.theswitchify.app" target="_blank" rel="noreferrer">pc.theswitchify.app</a>.</p></div></header>
     <Tabs name="support" tabs={supportTabs} active={tab} onSelect={setTab} label="Support view" />
     <TabPanel name="support" id={tab}>{tab === "setup" ? <><Button className="primary setup-launch" onClick={openSetup}><Wrench size={16} />Open setup guide</Button><section className="task-list" aria-label="Setup status">
       <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div>{state.accessibility === "required" && <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button>}</article>
