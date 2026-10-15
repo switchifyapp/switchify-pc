@@ -6,7 +6,7 @@ description: What you need, how to install Switchify PC on Windows or Mac, and w
 ## What you need
 
 - **Windows:** Windows 10 or later. The installer is signed and installs for the whole machine.
-- **Mac:** An Apple-silicon Mac on macOS 13.3 or later. The disk image is signed and notarised. Intel Macs are not supported.
+- **Mac:** A Mac with an M1 chip or later (Apple silicon) on macOS 13.3 or later. The disk image is signed and notarised. Intel Macs are not supported.
 - **Bluetooth Low Energy**, only if you want to pair with Switchify on Android.
 - **A switch** that reaches the computer as a key press, through a switch interface or a USB switch. See [Add a switch](/get-started/add-a-switch/).
 

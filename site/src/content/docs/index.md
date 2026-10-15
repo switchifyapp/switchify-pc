@@ -3,7 +3,7 @@ title: Switchify PC
 description: Switch access for Windows and Mac. Point anywhere on screen, open menus, type with word prediction, and pair with Switchify on Android.
 ---
 
-Switchify PC lets you use a Windows PC or an Apple-silicon Mac with one or more switches. It runs on the computer itself. You can also pair it with Switchify on an Android phone or tablet to control the computer from there.
+Switchify PC lets you use a Windows PC or a Mac with one or more switches. It runs on the computer itself. You can also pair it with Switchify on an Android phone or tablet to control the computer from there.
 
 It is free and open source under the AGPL-3.0.
 
