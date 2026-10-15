@@ -3,7 +3,7 @@ title: Point scanning
 description: Choose any point on screen with a moving line, optionally narrowed by a grid, then click, drag or scroll there.
 ---
 
-Point scanning lets you pick any spot on screen with one switch. Press Select to start it, or choose **Point** from [Home](/using/home-menu/).
+Point scanning lets you pick any spot on screen with one switch. Press Select to open [Home](/using/home-menu/), then choose **Point**. If you set *Select starts* to *Last mode used* in Settings, Select goes straight back into it.
 
 ## Line only
 
@@ -35,8 +35,8 @@ With **Auto select** on, a countdown starts at the chosen point and a left click
 | --- | --- |
 | **Left click**, **Right click**, **Double click** | Click at the point. |
 | **Scroll** | Up, down, left or right at the point, three wheel steps per press. |
-| **Drag** | Start a drag here. Nothing is held yet. Point scanning runs again to choose the destination, then **Drag here** performs it, or **New destination** lets you choose again. A drag can cross displays. |
-| **More** | Middle click, triple click, Shift-click, Ctrl-click (Command-click on a Mac). |
+| **Drag** | Start a drag here. Nothing is held yet. Point scanning runs again to choose the destination, then **Drag here** performs it, or **New destination** lets you choose again. |
+| **More** | Middle click, triple click, Shift-click, Ctrl-click, Alt-click and Windows-click (Option-click and Command-click on a Mac). |
 | **Keyboard** | Open the scanning [keyboard](/using/keyboard/) with focus left where it is. |
 | **New point** | Start a fresh scan on the same display. |
 | **Home**, **Close menu** | Leave the menu. |

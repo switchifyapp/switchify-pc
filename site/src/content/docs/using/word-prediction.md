@@ -1,15 +1,15 @@
 ---
 title: Word prediction
-description: Six suggestions above the keyboard, computed on the computer and never sent anywhere. Learns from your typing if you let it.
+description: Eight suggestions above the keyboard, computed on the computer and never sent anywhere. Learns from your typing if you let it.
 ---
 
-While you type on the scanning [keyboard](/using/keyboard/), six suggestions appear above it. Select one to insert the word and a space.
+While you type on the scanning [keyboard](/using/keyboard/), a row of suggestions appears above it. Select one to insert it and a space.
 
-## What the six slots are
+## What the eight slots are
 
 - **Three instant words** from a statistical model that updates with every letter.
 - **Two words from an on-device AI model.**
-- **One two-word phrase.**
+- **Three two-word phrases** from the same AI model, in wider slots at the end of the row.
 
 Suggestions only change when they need to, so the scan does not restart under you.
 

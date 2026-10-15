@@ -11,7 +11,7 @@ Open it from [Home](/using/home-menu/), from the point scan action menu, from th
 
 Rows highlight in turn. Press Select on a row, then on a key. The escape slot at the end of a row returns to the rows. After a key, scanning starts again from the first row, or from the key you just typed if you set **Start again from** to *where I selected* in Settings.
 
-The keyboard stays open after Space, Backspace, Enter and Tab, so you can keep writing. **Close** returns to point scanning.
+The keyboard stays open after Space, Backspace, Enter and Tab, so you can keep writing. **Close** takes you back to wherever you opened it from: the mouse panel, Home, or the scan you were in.
 
 ## Layouts
 
@@ -33,7 +33,7 @@ Shift, Ctrl, Alt (Option on a Mac) and Windows (Command on a Mac) each cycle thr
 
 ## Automatic spacing and capitals
 
-With this on, Switchify PC puts the space before and after punctuation for you, and capitalises the next letter after a full stop, question mark or exclamation mark.
+Switchify PC puts the space before and after punctuation for you, and capitalises the next letter after a full stop, question mark or exclamation mark.
 
 ## Repeating keys
 

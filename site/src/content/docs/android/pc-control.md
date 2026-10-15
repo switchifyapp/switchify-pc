@@ -11,7 +11,7 @@ Move the pointer in eight directions, click, double click, right click, start an
 
 ## Typing
 
-Type live into the focused control, or write a draft and send it when you are ready. Send common keys, shortcuts of up to four keys, held modifiers, and repeating navigation keys such as the arrows, Tab and Backspace.
+Type live into the focused control, or write a draft and send it when you are ready. Send common keys, shortcuts, held modifiers, and repeating navigation keys such as the arrows, Tab and Backspace.
 
 ## Window
 
@@ -21,11 +21,11 @@ Next and previous app, task view, show desktop, minimise, maximise and close, wi
 
 These apply while a phone is controlling the computer:
 
-- **Pointer speed**, from precise to fast or an exact percentage.
+- **Pointer speed**, from slow to fast or an exact percentage.
 - **Repeat**: movement, scrolling and key repeat, with an interval and gradual acceleration.
 - **Click when I stop**: a left click after the pointer stops moving, with a countdown you can set.
 - **Cursor overlay**: show a high-visibility marker or crosshairs, choose its size and one of five colours, and show it on input or whenever the phone is controlling.
 
 ## Remote scanning
 
-The phone's switches can also drive the computer's own scanning. Start Switch Forwarding on the phone, then press Select: Switchify PC's point scanning, menus and keyboard run exactly as they do for local switches, including hold actions. Up to eight phone switches take part. The computer's own switch keys are inactive during the session, and Escape remains the emergency stop.
+The phone's switches can also drive the computer's own scanning. On the phone's Forwarding screen choose **Switchify scanning** instead of a profile, start, then press Select: Switchify PC's point scanning, menus and keyboard run exactly as they do for local switches, including hold actions. Up to eight phone switches take part. The computer's own switch keys are inactive during the session, and Escape remains the emergency stop.
