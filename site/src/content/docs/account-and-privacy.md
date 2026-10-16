@@ -1,6 +1,6 @@
 ---
 title: Account, updates and privacy
-description: Optional sign-in that carries your settings between computers, signed updates, opt-in diagnostics, and what never leaves the computer.
+description: Optional sign-in that carries your settings between computers, automatic updates, opt-in diagnostics, and what never leaves the computer.
 ---
 
 ## Running in the background
@@ -21,7 +21,7 @@ You can delete the account from the Account page.
 
 ## Updates
 
-Switchify PC checks a signed update feed shortly after it starts, every six hours, and on demand. Settings shows what is available, downloads it with progress you can cancel, and installs on *Install and restart*.
+Switchify PC checks for an update shortly after it starts, every six hours, and on demand. Settings shows what is available, downloads it with progress you can cancel, and installs on *Install and restart*.
 
 ## Diagnostics
 
