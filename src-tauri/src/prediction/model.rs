@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use std::{fs::File, io::Read, path::Path};
 use switchify_prediction::{Options, Predictor};
 
-const DATABASE_SHA256: &str = "222253417d0a7a705823ffb7e599a3bcf5d5d3daf4a9d76161ac6b3e555aeaad";
+const DATABASE_SHA256: &str = "c6df388c845354a059333b1e4abe68719e5a7016e8514c44581e14ed16bf964a";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Prediction {
@@ -470,7 +470,7 @@ mod tests {
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| {
                 Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("resources/prediction-model/english.sqlite")
+                    .join("resources/prediction-model/english.ngrams")
             });
         let before = rss_bytes();
         let start = Instant::now();

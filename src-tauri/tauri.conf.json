@@ -37,7 +37,7 @@
   },
   "bundle": {
     "resources": [
-      "resources/prediction-model/english.sqlite",
+      "resources/prediction-model/english.ngrams",
       "resources/prediction-model/production-model.json",
       "resources/prediction-model/source-manifest.json",
       "resources/prediction-model/aac-source-manifest.json",

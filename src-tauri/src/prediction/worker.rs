@@ -737,7 +737,7 @@ mod tests {
             .map(PathBuf::from)
             .unwrap_or_else(|| {
                 PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("resources/prediction-model/english.sqlite")
+                    .join("resources/prediction-model/english.ngrams")
             });
         let mut immediate = Vec::new();
         let mut refined = Vec::new();

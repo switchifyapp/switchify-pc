@@ -6,7 +6,7 @@ import { bundlePins } from './fetch-prediction-neural.mjs';
 import { verified } from './fetch-prediction-model.mjs';
 const root = resolve(process.argv[2]);
 const files = await readdir(root, { recursive: true });
-const models = files.filter(name => name.endsWith('english.sqlite'));
+const models = files.filter(name => name.endsWith('english.ngrams'));
 if (models.length !== 1) throw new Error(`Expected one packaged prediction database, found ${models.length}`);
 const database = join(root, models[0]);
 const manifest = JSON.parse(await readFile(new URL('./prediction-model.json', import.meta.url),'utf8'));

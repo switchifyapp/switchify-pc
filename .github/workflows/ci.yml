@@ -159,7 +159,7 @@ jobs:
       - name: Diagnose released ARM worker
         if: needs.changes.outputs.app == 'true' && (runner.os == 'macOS')
         env:
-          SWITCHIFY_BENCHMARK_MODEL: src-tauri/resources/prediction-model/english.sqlite
+          SWITCHIFY_BENCHMARK_MODEL: src-tauri/resources/prediction-model/english.ngrams
           SWITCHIFY_BENCHMARK_WORKER: src-tauri/binaries/switchify-smol-worker-aarch64-apple-darwin
         run: python3 scripts/probe-neural-worker.py
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check

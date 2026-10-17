@@ -780,12 +780,12 @@ fn resource(app: &AppHandle) -> Result<std::path::PathBuf, ()> {
     let bundled = app
         .path()
         .resolve(
-            "resources/prediction-model/english.sqlite",
+            "resources/prediction-model/english.ngrams",
             tauri::path::BaseDirectory::Resource,
         )
         .map_err(|_| ());
     let development = cfg!(debug_assertions).then(|| {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/prediction-model/english.sqlite")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/prediction-model/english.ngrams")
     });
     model_resource(bundled, development)
 }
