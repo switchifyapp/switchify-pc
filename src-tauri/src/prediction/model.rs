@@ -1,5 +1,6 @@
 //! English word prediction, with optional personal learning. Only the
 //! isolated worker holds context.
+use super::context::Context;
 use sha2::{Digest, Sha256};
 use std::{fs::File, io::Read, path::Path};
 use switchify_prediction::{Options, Predictor};
@@ -22,13 +23,21 @@ pub trait Predict: Send {
     fn neural_status(&self) -> Option<switchify_prediction_neural::Status> {
         None
     }
-    fn predict(&mut self, before: &str, prefix: &str) -> Result<Prediction, ()>;
+    /// Statistical words for `context.before`; generation sees
+    /// `context.text`.
+    fn predict(&mut self, context: &Context) -> Result<Prediction, ()>;
     fn poll(&mut self) -> Option<Prediction> {
         None
     }
     fn pending(&self) -> bool {
         false
     }
+    /// Drop pending results while the text continues, keeping the
+    /// generation context so it can be extended.
+    fn cancel(&mut self) {
+        self.reset();
+    }
+    /// Drop pending results and the generation context.
     fn reset(&mut self) {}
     /// Learn one completed, non-overlapping piece of typed text.
     fn learn(&mut self, _text: &str) {}
@@ -46,7 +55,7 @@ const GENERATED_WORDS: usize = 2;
 /// time, so the phrases are requested once the words have arrived.
 #[derive(Default)]
 struct Refining {
-    before: String,
+    text: String,
     prefix: String,
     words: Option<u64>,
     phrases: Option<u64>,
@@ -178,7 +187,8 @@ impl Predict for Model {
     fn neural_status(&self) -> Option<switchify_prediction_neural::Status> {
         self.neural.as_ref().map(|n| n.status())
     }
-    fn predict(&mut self, before: &str, prefix: &str) -> Result<Prediction, ()> {
+    fn predict(&mut self, context: &Context) -> Result<Prediction, ()> {
+        let (before, prefix) = (context.before.as_str(), context.prefix.as_str());
         // Child inference starts only after the parent has contained this worker
         // and sent a query, never during speculative statistical loading.
         if let Some(config) = self.config.take() {
@@ -196,11 +206,12 @@ impl Predict for Model {
             .map(|s| s.word)
             .collect();
         self.instant = std::array::from_fn(|i| words.get(i).cloned().map(display_word));
+        // Generation also sees the earlier sentences.
         self.refining = Refining {
-            before: before.to_owned(),
+            text: context.text.clone(),
             prefix: prefix.to_owned(),
             words: self.neural.as_mut().and_then(|n| {
-                n.generate(before, prefix, 0, &words, GENERATED_WORDS)
+                n.generate(&context.text, prefix, 0, &words, GENERATED_WORDS)
                     .ok()
                     .flatten()
             }),
@@ -219,13 +230,7 @@ impl Predict for Model {
             refining.generated = result.words;
             // Words first, then the phrases: a new request replaces any other.
             refining.phrases = neural
-                .generate_phrases(
-                    &refining.before,
-                    &refining.prefix,
-                    0,
-                    &[],
-                    PHRASE_SLOTS.len(),
-                )
+                .generate_phrases(&refining.text, &refining.prefix, 0, &[], PHRASE_SLOTS.len())
                 .ok()
                 .flatten();
             Vec::new()
@@ -248,6 +253,13 @@ impl Predict for Model {
                         | switchify_prediction_neural::Status::Loading
                 )
             })
+    }
+    fn cancel(&mut self) {
+        self.refining = Refining::default();
+        self.instant = Default::default();
+        if let Some(n) = &mut self.neural {
+            n.cancel();
+        }
     }
     fn reset(&mut self) {
         self.refining = Refining::default();
@@ -283,6 +295,47 @@ mod tests {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
+    /// A context whose current sentence is all the text.
+    fn context(before: &str, prefix: &str) -> Context {
+        Context {
+            prefix: prefix.into(),
+            before: before.into(),
+            text: before.into(),
+            partial: false,
+        }
+    }
+
+    #[test]
+    fn statistics_use_the_sentence_and_generation_the_earlier_text() {
+        let dir = Fixture::new();
+        let path = dir.0.join("english.sqlite");
+        switchify_prediction::build(&path, "I need help. I need help. Water.", "synthetic test")
+            .unwrap();
+        let mut model = Model {
+            predictor: Predictor::open(&path, None).unwrap(),
+            neural: None,
+            config: None,
+            refining: Refining::default(),
+            instant: Default::default(),
+            learning: false,
+        };
+        let earlier = Context {
+            text: "Water. I need ".into(),
+            ..context("I need ", "h")
+        };
+        let words = model.predict(&earlier).unwrap().words;
+        assert_eq!(
+            words,
+            model.predict(&context("I need ", "h")).unwrap().words
+        );
+        model.predict(&earlier).unwrap();
+        // The phrases requested after the words see the same text.
+        assert_eq!(model.refining.text, "Water. I need ");
+        assert_eq!(model.refining.prefix, "h");
+        model.cancel();
+        assert!(model.refining.text.is_empty() && model.instant.iter().all(Option::is_none));
+    }
+
     #[test]
     fn generated_words_take_the_next_free_slot_and_phrases_their_own() {
         let instant = |words: &[&str]| std::array::from_fn(|i| words.get(i).map(|w| w.to_string()));
@@ -341,7 +394,8 @@ mod tests {
             instant: Default::default(),
             learning,
         };
-        let first = |model: &mut Model| model.predict("I need ", "h").unwrap().words[0].clone();
+        let first =
+            |model: &mut Model| model.predict(&context("I need ", "h")).unwrap().words[0].clone();
         let mut model = open(false);
         model.learn("I need hummus. I need hummus.");
         assert_eq!(first(&mut model).as_deref(), Some("help"));
@@ -378,7 +432,7 @@ mod tests {
             threads: 4,
         });
         assert_eq!(
-            model.predict("I need ", "h").unwrap().words[0]
+            model.predict(&context("I need ", "h")).unwrap().words[0]
                 .as_deref()
                 .unwrap(),
             "help"
@@ -387,32 +441,32 @@ mod tests {
         assert!(model.config.is_none());
         assert!(model.poll().is_none());
         assert_eq!(
-            model.predict("I drink ", "").unwrap().words[0]
+            model.predict(&context("I drink ", "")).unwrap().words[0]
                 .as_deref()
                 .unwrap(),
             "water"
         );
         assert!(model
-            .predict("", "zyzzy")
+            .predict(&context("", "zyzzy"))
             .unwrap()
             .words
             .iter()
             .all(Option::is_none));
         assert_eq!(
-            model.predict("", "cafe\u{301}").unwrap().words,
+            model.predict(&context("", "cafe\u{301}")).unwrap().words,
             crate::prediction::slots(["café"])
         );
         assert_eq!(
-            model.predict("", "can’").unwrap().words,
+            model.predict(&context("", "can’")).unwrap().words,
             crate::prediction::slots(["can't"])
         );
         assert_eq!(
-            model.predict("", "i’").unwrap().words,
+            model.predict(&context("", "i’")).unwrap().words,
             crate::prediction::slots(["I'm"])
         );
         assert_eq!(
             model
-                .predict("", "h")
+                .predict(&context("", "h"))
                 .unwrap()
                 .words
                 .iter()
@@ -421,8 +475,8 @@ mod tests {
             3
         );
         assert_eq!(
-            model.predict("I need.", "h").unwrap(),
-            model.predict("", "h").unwrap()
+            model.predict(&context("I need.", "h")).unwrap(),
+            model.predict(&context("", "h")).unwrap()
         );
         drop(model);
         assert_eq!(fs::read(&path).unwrap(), original);
@@ -486,7 +540,7 @@ mod tests {
                 ("can you ", "h"),
             ][i % 4];
             let start = Instant::now();
-            let suggestions = model.predict(context, prefix).unwrap();
+            let suggestions = model.predict(&self::context(context, prefix)).unwrap();
             assert!(!suggestions.words.iter().all(Option::is_none));
             if i >= 20 {
                 samples.push(start.elapsed().as_secs_f64() * 1000.0);
@@ -494,7 +548,7 @@ mod tests {
         }
         samples.sort_by(f64::total_cmp);
         assert_eq!(
-            model.predict("I need ", "he").unwrap().words[0]
+            model.predict(&context("I need ", "he")).unwrap().words[0]
                 .as_deref()
                 .unwrap(),
             "help"

@@ -343,7 +343,8 @@ impl Engine {
                 None => return self.batch.clone(),
             }
         } else {
-            self.database.reset();
+            // The text continues, so generation keeps its context.
+            self.database.cancel();
             self.displayed = None;
             let (status, prediction) = self.database.predict(&ctx);
             self.status = status;
@@ -435,7 +436,7 @@ impl Engine {
             return None;
         };
         let insert = inserts.get(index)?.clone()?;
-        self.database.reset();
+        self.database.cancel();
         self.batch = None;
         self.displayed = None;
         self.inserts = Default::default();
@@ -454,7 +455,7 @@ impl Engine {
                 sentence_start,
             } => {
                 if self.generation != generation {
-                    self.database.reset();
+                    self.database.cancel();
                     self.displayed = None;
                     self.snapshot = None;
                 }
@@ -692,7 +693,10 @@ mod tests {
         pending: bool,
     }
     impl super::super::model::Predict for Deferred {
-        fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
+        fn predict(
+            &mut self,
+            _: &super::super::context::Context,
+        ) -> Result<super::super::model::Prediction, ()> {
             self.pending = true;
             Ok(super::super::model::Prediction {
                 words: crate::prediction::slots(["water", "walk", "waffle"]),
@@ -890,10 +894,79 @@ mod tests {
         );
     }
     #[test]
+    fn generation_sees_earlier_sentences_and_keeps_its_context_while_typing() {
+        use std::sync::{Arc, Mutex};
+        #[derive(Default)]
+        struct Seen {
+            contexts: Vec<(String, String, String)>,
+            cancels: usize,
+            resets: usize,
+        }
+        struct Recording(Arc<Mutex<Seen>>);
+        impl super::super::model::Predict for Recording {
+            fn predict(
+                &mut self,
+                context: &super::super::context::Context,
+            ) -> Result<super::super::model::Prediction, ()> {
+                self.0.lock().unwrap().contexts.push((
+                    context.before.clone(),
+                    context.text.clone(),
+                    context.prefix.clone(),
+                ));
+                Ok(super::super::model::Prediction::default())
+            }
+            fn cancel(&mut self) {
+                self.0.lock().unwrap().cancels += 1;
+            }
+            fn reset(&mut self) {
+                self.0.lock().unwrap().resets += 1;
+            }
+        }
+        let seen = Arc::new(Mutex::new(Seen::default()));
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(Recording(Arc::clone(&seen))));
+        e.respond(request(
+            vec![append("We went to the beach. It was warm! The wa")],
+            1,
+            None,
+        ));
+        // Starting to track the foreground clears the empty buffer once.
+        let initial = seen.lock().unwrap().resets;
+        e.respond(request(vec![append("v")], 2, None));
+        e.respond(request(vec![append("es ")], 3, None));
+        {
+            let seen = seen.lock().unwrap();
+            let context = |before: &str, text: &str, prefix: &str| {
+                (before.to_owned(), text.to_owned(), prefix.to_owned())
+            };
+            // Statistics keep the current sentence; generation sees it all.
+            assert_eq!(
+                seen.contexts,
+                [
+                    context(" The ", "We went to the beach. It was warm! The ", "wa"),
+                    context(" The ", "We went to the beach. It was warm! The ", "wav"),
+                    context(
+                        " The waves ",
+                        "We went to the beach. It was warm! The waves ",
+                        ""
+                    ),
+                ]
+            );
+            assert!(seen.cancels >= 3);
+            assert_eq!(seen.resets, initial);
+        }
+        // Enter clears the text and with it the generation context.
+        e.respond(request(vec![edit(Edit::End)], 4, None));
+        assert!(seen.lock().unwrap().resets > initial);
+    }
+    #[test]
     fn unshown_words_leave_no_gap() {
         struct Gappy;
         impl super::super::model::Predict for Gappy {
-            fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
+            fn predict(
+                &mut self,
+                _: &super::super::context::Context,
+            ) -> Result<super::super::model::Prediction, ()> {
                 Ok(super::super::model::Prediction {
                     words: [
                         None,
@@ -936,7 +1009,10 @@ mod tests {
             pending: bool,
         }
         impl super::super::model::Predict for Sparse {
-            fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
+            fn predict(
+                &mut self,
+                _: &super::super::context::Context,
+            ) -> Result<super::super::model::Prediction, ()> {
                 self.pending = true;
                 Ok(super::super::model::Prediction {
                     words: crate::prediction::slots(["water"]),
@@ -1554,7 +1630,10 @@ mod tests {
     }
     struct Phrasal(&'static str);
     impl super::super::model::Predict for Phrasal {
-        fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
+        fn predict(
+            &mut self,
+            _: &super::super::context::Context,
+        ) -> Result<super::super::model::Prediction, ()> {
             let mut words = crate::prediction::slots(["water"]);
             words[crate::prediction::PHRASE_SLOTS.start] = Some(self.0.into());
             Ok(super::super::model::Prediction { words })
@@ -1724,7 +1803,10 @@ mod tests {
 
     struct Learner(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
     impl super::super::model::Predict for Learner {
-        fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
+        fn predict(
+            &mut self,
+            _: &super::super::context::Context,
+        ) -> Result<super::super::model::Prediction, ()> {
             Ok(Default::default())
         }
         fn learn(&mut self, text: &str) {
