@@ -79,7 +79,7 @@ Reproduce in the companion checkout with Python dependencies psutil==7.0.0 and
 regex==2025.11.3, using explicit paths to the prepared offline assets:
 
 ```text
-python scripts/generation_evaluate.py --cli <companion-cli> --baseline <english.sqlite> --bundle <model-directory> --worker <portable-worker> --samples 1000 --output <report.json>
+python scripts/generation_evaluate.py --cli <companion-cli> --baseline <english.ngrams> --bundle <model-directory> --worker <portable-worker> --samples 1000 --output <report.json>
 ```
 
 Omit --samples to evaluate all 1,760 queries. The companion CI uploads platform

@@ -132,10 +132,11 @@ memory, and is not a measurement of the whole desktop application. The SQLite
 file size does not describe its in-memory n-gram representation.
 
 Since the v0.4.0 library the baseline is `english.ngrams`, an 8,477,752-byte
-n-gram file with the same counts. On the Windows development machine it opens
-in about 20 ms instead of about 2.8 s, and the predictor holds only the file's
-bytes, about 14 MiB of process memory in the CLI instead of 134 MiB. The
-measurement above is kept as the SQLite baseline's record.
+n-gram file with the same counts. The same isolated release-mode test on a
+Windows Ryzen AI 9 HX 370 loaded it in 27.8 ms with a 10.3 MB RSS increase,
+and warmed queries had p50 0.134 ms and p95 3.70 ms. Upstream measured the
+file opening in about 20 ms instead of 2.8 s. The measurement above is kept as
+the SQLite baseline's record.
 
 Keep first-use loading asynchronous and lazy: preloading at app startup would
 allocate this memory even for people who never open the keyboard. The existing

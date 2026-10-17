@@ -5,8 +5,9 @@ description: Eight suggestions above the keyboard, computed on the computer and 
 
 While you type on the scanning [keyboard](/using/keyboard/), a row of suggestions appears above it. Select one to insert it and a space.
 
-Suggestions are ready as soon as the keyboard opens. The English model is a
-small file that loads in a fraction of a second.
+The three instant word suggestions appear almost as soon as the keyboard opens;
+the English word model is a small file that loads quickly. The AI words and
+phrases follow once the on-device model has started.
 
 ## What the eight slots are
 
