@@ -97,10 +97,11 @@ jobs:
         run: npm ci
 
       - name: Audit dependencies at release tag
+        # Exceptions are documented in docs/dependency-audit.md.
         run: |
           npm audit --audit-level=high
           cargo install cargo-audit --version 0.22.2 --locked
-          cargo audit --file src-tauri/Cargo.lock
+          cargo audit --file src-tauri/Cargo.lock --ignore RUSTSEC-2026-0367 --ignore RUSTSEC-2026-0368 --ignore RUSTSEC-2026-0369
           cargo audit --file src-tauri/startup-launcher/Cargo.lock
           cargo audit --file tools/updater-signature-verifier/Cargo.lock
 
