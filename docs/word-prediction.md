@@ -23,7 +23,7 @@ A passive observer records only an activity counter and timestamp, never externa
 
 ## On-device model
 
-One Word prediction setting controls the English `en-aac-oanc-v1` SQLite database and the SmolLM2 model through the pinned `switchify-prediction` Rust libraries. The saved `enhancedWordPrediction` field remains compatible but does not choose an engine. Only the isolated worker opens the read-only baseline and the personal file described in [Learning from typing](#learning-from-typing); there is no import or runtime download.
+One Word prediction setting controls the English `en-aac-oanc-v1` n-gram file (`english.ngrams`) and the SmolLM2 model through the pinned `switchify-prediction` Rust libraries. The saved `enhancedWordPrediction` field remains compatible but does not choose an engine. Only the isolated worker opens the read-only baseline and the personal file described in [Learning from typing](#learning-from-typing); there is no import or runtime download.
 
 The worker ranks up to three words using interpolated trigram/bigram/unigram probabilities (0.6/0.3/0.1, renormalized when context is unavailable) and shows them immediately in slots 1–3. The SmolLM2 model then fills slots 4 and 5 with up to two different words, and afterwards slots 6–8 with its three best two-word phrases; see [default neural-assisted prediction](neural-prediction.md). Suggestions begin with the first typed character and continue after a space as next-word suggestions. An untouched keyboard remains empty. The prefix and preceding text are supplied separately, and sentence punctuation resets language context. Phrases are the only suggestions of more than one word. A phrase's first word completes the word in progress, or is the next word, and it never crosses sentence punctuation. A prefix the database does not know leaves slots 1–3 empty; the model may still offer words and phrases for slots 4–8. A suggestion whose accepted text would exceed the 64 characters the executor types is not offered. The vocabulary can contain names, disfluencies and inappropriate words; it is English-only and is not a clinical recommendation system.
 
@@ -130,6 +130,13 @@ adapter test loaded the verified 29,802,496-byte database in 1,758 ms. Across
 10.0 MiB to 371.5 MiB; this includes the Rust test harness and retained allocator
 memory, and is not a measurement of the whole desktop application. The SQLite
 file size does not describe its in-memory n-gram representation.
+
+Since the v0.4.0 library the baseline is `english.ngrams`, an 8,477,752-byte
+n-gram file with the same counts. The same isolated release-mode test on a
+Windows Ryzen AI 9 HX 370 loaded it in 27.8 ms with a 10.3 MB RSS increase,
+and warmed queries had p50 0.134 ms and p95 3.70 ms. Upstream measured the
+file opening in about 20 ms instead of 2.8 s. The measurement above is kept as
+the SQLite baseline's record.
 
 Keep first-use loading asynchronous and lazy: preloading at app startup would
 allocate this memory even for people who never open the keyboard. The existing
