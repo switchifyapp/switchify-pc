@@ -14,8 +14,8 @@ use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromPoint, ReleaseDC, SelectObject, SetBkMode, SetTextColor,
     AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION,
     CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_QUALITY, DIB_RGB_COLORS, DT_CALCRECT, DT_CENTER,
-    DT_SINGLELINE, DT_VCENTER, DT_WORDBREAK, FF_DONTCARE, FW_BOLD, HDC, HGDIOBJ, MONITORINFO,
-    MONITOR_DEFAULTTONEAREST, OUT_DEFAULT_PRECIS, TRANSPARENT,
+    DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DT_WORDBREAK, FF_DONTCARE, FW_BOLD, HDC, HGDIOBJ,
+    MONITORINFO, MONITOR_DEFAULTTONEAREST, OUT_DEFAULT_PRECIS, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
@@ -553,7 +553,7 @@ fn present_pixmap_with_text(
                     memory.0,
                     &mut text,
                     &mut measured,
-                    DT_CENTER | DT_WORDBREAK | DT_CALCRECT,
+                    DT_CENTER | DT_WORDBREAK | DT_CALCRECT | DT_NOPREFIX,
                 );
                 let vertical_padding = text_rect.top.min((layout.height - height).max(0) / 2);
                 text_rect.top = vertical_padding;
@@ -565,9 +565,9 @@ fn present_pixmap_with_text(
                 &mut text,
                 &mut text_rect,
                 if wrap {
-                    DT_CENTER | DT_WORDBREAK
+                    DT_CENTER | DT_WORDBREAK | DT_NOPREFIX
                 } else {
-                    DT_CENTER | DT_VCENTER | DT_SINGLELINE
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
                 },
             );
         }
@@ -915,6 +915,12 @@ mod tests {
             keyboard.set_panel_size(size);
             keyboard.enable_predictions(true);
             let keyboard_frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+            let mut page = |page| {
+                keyboard.fixture_page(crate::scan_keyboard::Key::Page(page));
+                keyboard.frame(screen, 1.0, ScannerColor::default())
+            };
+            let numbers_frame = page(crate::scan_keyboard::Page::Numbers);
+            let symbols_frame = page(crate::scan_keyboard::Page::Symbols);
             keyboard.fixture_page(crate::scan_keyboard::Key::Dock);
             for (name, frame) in [
                 (
@@ -922,6 +928,8 @@ mod tests {
                     mouse.frame(screen, 1.0, ScannerColor::default(), None),
                 ),
                 ("keyboard", keyboard_frame),
+                ("keyboard-numbers", numbers_frame),
+                ("keyboard-symbols", symbols_frame),
                 (
                     "keyboard-position",
                     keyboard.frame(screen, 1.0, ScannerColor::default()),

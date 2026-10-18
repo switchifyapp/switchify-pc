@@ -9,6 +9,7 @@ pub enum Page {
     Letters,
     Functions,
     Numbers,
+    Symbols,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Modifier {
@@ -111,13 +112,14 @@ pub fn rows(page: Page, mac: bool) -> Vec<Vec<Key>> {
     let mut result = match page {
         Page::Letters => {
             let mut top = vec![N("Tab")];
-            top.extend(chars("qwertyuiop[]", "QWERTYUIOP{}"));
+            top.extend(chars("qwertyuiop", "QWERTYUIOP"));
             top.push(N("Backspace"));
             let mut middle = vec![Key::Caps];
-            middle.extend(chars("asdfghjkl;'#", "ASDFGHJKL:@~"));
+            // Punctuation keys type what they show, with or without Shift.
+            middle.extend(chars("asdfghjkl'", "ASDFGHJKL'"));
             middle.push(N("Enter"));
             let mut bottom = vec![Key::Modifier(0)];
-            bottom.extend(chars("\\zxcvbnm,./", "|ZXCVBNM<>?"));
+            bottom.extend(chars("zxcvbnm,.?", "ZXCVBNM,.?"));
             vec![top, middle, bottom]
         }
         Page::Functions => {
@@ -163,8 +165,18 @@ pub fn rows(page: Page, mac: bool) -> Vec<Vec<Key>> {
                 N("Enter"),
                 N("Backspace"),
             ],
-            chars("`¬!\"£$%^&()_=", "`¬!\"£$%^&()_="),
         ],
+        Page::Symbols => SYMBOL_ROWS
+            .iter()
+            .enumerate()
+            .map(|(index, row)| {
+                let mut keys = chars(row, row);
+                if index == SYMBOL_ROWS.len() - 1 {
+                    keys.extend([N("Enter"), N("Backspace")]);
+                }
+                keys
+            })
+            .collect(),
     };
     result.push(if page == Page::Letters {
         vec![
@@ -183,14 +195,23 @@ pub fn rows(page: Page, mac: bool) -> Vec<Vec<Key>> {
             Key::Caps,
         ]
     });
-    result.push(vec![
+    result.push(page_row());
+    result
+}
+
+/// Every symbol has its own key, which types what it shows. Common
+/// punctuation comes first, then brackets, maths, and the rarer symbols.
+const SYMBOL_ROWS: [&str; 4] = ["@.,?!'\"-_/:;", "()[]{}", "+=*%^<>", "£$&#~\\|`¬"];
+
+fn page_row() -> Vec<Key> {
+    vec![
         Key::Close,
         Key::Page(Page::Letters),
         Key::Page(Page::Functions),
         Key::Page(Page::Numbers),
+        Key::Page(Page::Symbols),
         Key::Dock,
-    ]);
-    result
+    ]
 }
 
 fn rows_for(page: Page, mac: bool, layout: crate::point_scan::KeyboardLayout) -> Vec<Vec<Key>> {
@@ -198,22 +219,6 @@ fn rows_for(page: Page, mac: bool, layout: crate::point_scan::KeyboardLayout) ->
     use Key::{Character as C, Named as N};
     if page != Page::Letters || layout == KeyboardLayout::Qwerty {
         let mut result = rows(page, mac);
-        if page == Page::Numbers && layout == KeyboardLayout::SimpleQwerty {
-            let before_modifiers = result.len() - 2;
-            result.splice(
-                before_modifiers..before_modifiers,
-                [
-                    vec![
-                        C('[', '{'),
-                        C(']', '}'),
-                        C(';', ':'),
-                        C('\'', '@'),
-                        C('#', '~'),
-                    ],
-                    vec![C('\\', '|'), C(',', '<'), C('.', '>'), C('/', '?')],
-                ],
-            );
-        }
         result.last_mut().unwrap().push(Key::Layout);
         return result;
     }
@@ -231,19 +236,9 @@ fn rows_for(page: Page, mac: bool, layout: crate::point_scan::KeyboardLayout) ->
         bottom.extend(letters("zxcvbnm"));
         // A full stop that stays one with Shift or Caps on.
         bottom.extend([C('.', '.'), C(' ', ' ')]);
-        return vec![
-            top,
-            middle,
-            bottom,
-            vec![
-                Key::Close,
-                Key::Page(Page::Letters),
-                Key::Page(Page::Functions),
-                Key::Page(Page::Numbers),
-                Key::Dock,
-                Key::Layout,
-            ],
-        ];
+        let mut pages = page_row();
+        pages.push(Key::Layout);
+        return vec![top, middle, bottom, pages];
     }
     let mut first = vec![C(' ', ' ')];
     first.extend(letters("etaoi"));
@@ -252,36 +247,21 @@ fn rows_for(page: Page, mac: bool, layout: crate::point_scan::KeyboardLayout) ->
     second.push(N("Enter"));
     let mut fourth = letters("gkjqxz");
     fourth.extend([N("Tab"), Key::Caps]);
+    let mut pages = page_row();
+    pages.push(Key::Layout);
     vec![
         first,
         second,
         letters("cmfwypvb"),
         fourth,
-        vec![
-            C('[', '{'),
-            C(']', '}'),
-            C(';', ':'),
-            C('\'', '@'),
-            C('#', '~'),
-            C('\\', '|'),
-            C(',', '<'),
-            C('.', '>'),
-            C('/', '?'),
-        ],
+        vec![C(',', ','), C('.', '.'), C('\'', '\''), C('?', '?')],
         vec![
             Key::Modifier(0),
             Key::Modifier(1),
             Key::Modifier(2),
             Key::Modifier(3),
         ],
-        vec![
-            Key::Close,
-            Key::Page(Page::Letters),
-            Key::Page(Page::Functions),
-            Key::Page(Page::Numbers),
-            Key::Dock,
-            Key::Layout,
-        ],
+        pages,
     ]
 }
 
@@ -659,17 +639,9 @@ impl Keyboard {
         }
         let mark = stroke.character()?;
         let supported = matches!(mark, '.' | ',' | '!' | '?' | ':' | ';');
-        let simple_punctuation = self.page == Page::Numbers
-            && self.layout == crate::point_scan::KeyboardLayout::SimpleQwerty
-            && matches!(
-                stroke.key,
-                Key::Character(',', '<')
-                    | Key::Character('.', '>')
-                    | Key::Character(';', ':')
-                    | Key::Character('/', '?')
-            );
-        (supported && (self.page == Page::Letters || simple_punctuation || mark == '!'))
-            .then_some(mark)
+        // The Numbers page full stop is a decimal point.
+        let prose = matches!(self.page, Page::Letters | Page::Symbols);
+        (supported && (prose || mark == '!')).then_some(mark)
     }
     fn choose_with_context(&mut self, key: Key, context: Option<TypingContext>) -> Option<Output> {
         self.discard_stale_context(context);
@@ -970,6 +942,7 @@ impl Keyboard {
                     Page::Letters => "Letters",
                     Page::Functions => "Navigation",
                     Page::Numbers => "Numbers",
+                    Page::Symbols => "Symbols",
                 },
                 if page == self.page { " •" } else { "" }
             ),
@@ -1020,6 +993,8 @@ impl Keyboard {
             Key::Named("Backspace" | "Enter") => 1.9,
             Key::Named("Tab") | Key::Caps | Key::Modifier(_) => 1.6,
             Key::Close | Key::Dock | Key::Layout | Key::RetryPrediction => 1.5,
+            // Room for "Navigation" on the narrow Numbers page.
+            Key::Page(_) => 1.3,
             // Phrase slots hold two words.
             Key::Prediction(i) if crate::prediction::PHRASE_SLOTS.contains(&i) => 2.0,
             _ => 1.0,
@@ -1073,6 +1048,7 @@ impl Keyboard {
             },
             Page::Functions => "Navigation",
             Page::Numbers => "Numbers",
+            Page::Symbols => "Symbols",
         };
         let status = if let Some((stroke, instruction)) = repeating {
             format!("Repeating {} · {instruction}", self.repeat_label(stroke))
@@ -1390,7 +1366,7 @@ mod tests {
         keyboard.succeeded_with_context(context(1));
         assert_eq!(keyboard.choose_with_context(space, context(1)), None);
         assert_eq!(
-            keyboard.choose_with_context(Key::Character('.', '>'), context(1)),
+            keyboard.choose_with_context(Key::Character('.', '.'), context(1)),
             Some(Output::Punctuation(Punctuation {
                 mark: '.',
                 owned_space: context(1),
@@ -1415,26 +1391,34 @@ mod tests {
     fn prose_marks_use_smart_spacing_but_numeric_period_is_literal() {
         let mut keyboard = Keyboard::new(false);
         for (key, mark) in [
-            (Key::Character(',', '<'), ','),
-            (Key::Character(';', ':'), ';'),
-            (Key::Character('.', '>'), '.'),
+            (Key::Character(',', ','), ','),
+            (Key::Character('.', '.'), '.'),
         ] {
             assert!(
                 matches!(keyboard.choose_with_context(key, context(1)), Some(Output::Punctuation(p)) if p.mark == mark)
             );
             keyboard.succeeded_with_context(context(1));
         }
-        for (key, mark) in [
-            (Key::Character('/', '?'), '?'),
-            (Key::Character(';', ':'), ':'),
-        ] {
-            keyboard.reset_context();
-            keyboard.choose_with_context(Key::Modifier(0), context(1));
+        // Shift does not change a punctuation key.
+        keyboard.reset_context();
+        keyboard.choose_with_context(Key::Modifier(0), context(1));
+        assert!(
+            matches!(keyboard.choose_with_context(Key::Character('?', '?'), context(1)), Some(Output::Punctuation(p)) if p.mark == '?')
+        );
+        keyboard.succeeded_with_context(context(1));
+        keyboard.reset_context();
+        keyboard.choose_with_context(Key::Page(Page::Symbols), context(1));
+        for mark in [';', ':', ',', '.', '?', '!'] {
             assert!(
-                matches!(keyboard.choose_with_context(key, context(1)), Some(Output::Punctuation(p)) if p.mark == mark)
+                matches!(keyboard.choose_with_context(Key::Character(mark, mark), context(1)), Some(Output::Punctuation(p)) if p.mark == mark)
             );
             keyboard.succeeded_with_context(context(1));
         }
+        assert!(matches!(
+            keyboard.choose_with_context(Key::Character('@', '@'), context(1)),
+            Some(Output::Stroke(stroke)) if stroke.character() == Some('@')
+        ));
+        keyboard.succeeded_with_context(context(1));
         keyboard.reset_context();
         keyboard.choose_with_context(Key::Page(Page::Numbers), context(1));
         assert!(matches!(
@@ -1453,13 +1437,13 @@ mod tests {
         keyboard.choose_with_context(Key::Character(' ', ' '), context(1));
         keyboard.succeeded_with_context(context(1));
         assert!(
-            matches!(keyboard.choose_with_context(Key::Character(',', '<'), context(2)), Some(Output::Punctuation(p)) if p.owned_space.is_none())
+            matches!(keyboard.choose_with_context(Key::Character(',', ','), context(2)), Some(Output::Punctuation(p)) if p.owned_space.is_none())
         );
         keyboard.failed();
         assert!(!keyboard.capitalize_next);
         assert_eq!(keyboard.owned_space, None);
         keyboard.handle(Action::Select);
-        keyboard.choose_with_context(Key::Character('.', '>'), context(2));
+        keyboard.choose_with_context(Key::Character('.', '.'), context(2));
         keyboard.succeeded_with_context(context(2));
         assert_eq!(keyboard.label(Key::Character('a', 'A')), "A");
         assert_eq!(keyboard.modifiers[0], Modifier::Once);
@@ -1468,7 +1452,7 @@ mod tests {
         );
         assert_eq!(keyboard.modifiers[0], Modifier::Off);
         keyboard.succeeded_with_context(context(3));
-        keyboard.choose_with_context(Key::Character('.', '>'), context(3));
+        keyboard.choose_with_context(Key::Character('.', '.'), context(3));
         keyboard.succeeded_with_context(context(3));
         keyboard.prediction_inserted(true, true, context(3));
         assert!(!keyboard.capitalize_next);
@@ -1480,7 +1464,7 @@ mod tests {
     fn typing_in_another_window_leaves_the_keyboard_as_it_is() {
         let mut keyboard = Keyboard::new(false);
         // A capital the keyboard chose goes; keys the user latched stay.
-        keyboard.choose_with_context(Key::Character('.', '>'), context(1));
+        keyboard.choose_with_context(Key::Character('.', '.'), context(1));
         keyboard.succeeded_with_context(context(1));
         assert_eq!(keyboard.modifiers[0], Modifier::Once);
         keyboard.modifiers[1] = Modifier::Once;
@@ -1530,7 +1514,7 @@ mod tests {
     #[test]
     fn automatic_capital_does_not_toggle_manual_caps_or_change_shortcuts() {
         let mut keyboard = Keyboard::new(false);
-        keyboard.choose_with_context(Key::Character('.', '>'), context(1));
+        keyboard.choose_with_context(Key::Character('.', '.'), context(1));
         keyboard.succeeded_with_context(context(1));
         assert_eq!(keyboard.modifiers[0], Modifier::Once);
         keyboard.choose_with_context(Key::Modifier(1), context(1));
@@ -1540,7 +1524,7 @@ mod tests {
         keyboard.succeeded_with_context(context(1));
         assert!(!keyboard.capitalize_next);
         assert_eq!(keyboard.modifiers[0], Modifier::Off);
-        keyboard.choose_with_context(Key::Character('.', '>'), context(1));
+        keyboard.choose_with_context(Key::Character('.', '.'), context(1));
         keyboard.succeeded_with_context(context(1));
         assert!(keyboard.capitalize_next);
         keyboard.choose_with_context(Key::Caps, context(1));
@@ -1557,7 +1541,7 @@ mod tests {
     #[test]
     fn sentence_mark_sets_visible_one_use_shift_until_a_letter() {
         let mut keyboard = Keyboard::new(false);
-        keyboard.choose_with_context(Key::Character('.', '>'), context(1));
+        keyboard.choose_with_context(Key::Character('.', '.'), context(1));
         keyboard.succeeded_with_context(context(1));
         assert_eq!(keyboard.modifiers[0], Modifier::Once);
         assert_eq!(
@@ -1583,7 +1567,7 @@ mod tests {
                 .active
         );
         assert!(matches!(
-            keyboard.choose_with_context(Key::Character(',', '<'), context(1)),
+            keyboard.choose_with_context(Key::Character(',', ','), context(1)),
             Some(Output::Punctuation(punctuation)) if punctuation.mark == ','
         ));
         keyboard.succeeded_with_context(context(1));
@@ -1595,7 +1579,7 @@ mod tests {
         keyboard.succeeded_with_context(context(1));
         assert_eq!(keyboard.modifiers[0], Modifier::Off);
         assert!(!keyboard.capitalize_next);
-        keyboard.choose_with_context(Key::Character('.', '>'), context(1));
+        keyboard.choose_with_context(Key::Character('.', '.'), context(1));
         keyboard.succeeded_with_context(context(1));
         keyboard.choose_with_context(Key::Modifier(0), context(1));
         assert_eq!(keyboard.modifiers[0], Modifier::Off);
@@ -1611,7 +1595,7 @@ mod tests {
     #[test]
     fn deleting_a_sentence_boundary_clears_pending_capital() {
         let mut keyboard = Keyboard::new(false);
-        keyboard.choose_with_context(Key::Character('.', '>'), context(1));
+        keyboard.choose_with_context(Key::Character('.', '.'), context(1));
         keyboard.succeeded_with_context(context(1));
         assert!(keyboard.capitalize_next);
         keyboard.choose_with_context(Key::Named("Backspace"), context(1));
@@ -2127,7 +2111,7 @@ mod tests {
         assert!(!frame.tiles.last().unwrap().selected);
     }
     #[test]
-    fn uk_layout_and_platform_keys() {
+    fn qwerty_layout_and_platform_keys() {
         let letters = rows(Page::Letters, false).concat();
         for c in 'a'..='z' {
             assert!(letters.contains(&Key::Character(c, c.to_ascii_uppercase())));
@@ -2135,22 +2119,82 @@ mod tests {
         assert!(!letters
             .iter()
             .any(|key| matches!(key, Key::Character(c, _) if c.is_ascii_digit())));
+        // Shift only makes capitals: no symbol hides behind another key.
+        let punctuation: String = letters
+            .iter()
+            .filter_map(|key| match key {
+                Key::Character(base, shifted) if !base.is_alphabetic() && *base != ' ' => {
+                    assert_eq!(base, shifted);
+                    Some(*base)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(punctuation, "',.?");
         assert!(rows(Page::Letters, false)[0].contains(&Key::Named("Backspace")));
         let numbers = rows(Page::Numbers, false).concat();
-        for symbol in "`1234567890-=¬!\"£$%^&*()_+".chars() {
+        for symbol in "0123456789/*-.+".chars() {
             assert!(
-                numbers
-                    .iter()
-                    .any(|key| matches!(key, Key::Character(a, b) if *a == symbol || *b == symbol)),
+                numbers.contains(&Key::Character(symbol, symbol)),
                 "Missing {symbol}"
             );
         }
+        assert!(numbers.iter().all(|key| match key {
+            Key::Character(base, _) => base.is_ascii_digit() || "/*-.+ ".contains(*base),
+            _ => true,
+        }));
         assert!(rows(Page::Functions, false)
             .concat()
             .contains(&Key::Named("Insert")));
         assert!(!rows(Page::Functions, true)
             .concat()
             .contains(&Key::Named("Insert")));
+    }
+    #[test]
+    fn symbols_page_shows_every_symbol_once_on_every_layout() {
+        use crate::point_scan::KeyboardLayout;
+        let symbols: Vec<char> = rows(Page::Symbols, false)
+            .concat()
+            .into_iter()
+            .filter_map(|key| match key {
+                Key::Character(' ', _) => None,
+                Key::Character(base, shifted) => {
+                    assert_eq!(base, shifted, "{base} must type what it shows");
+                    Some(base)
+                }
+                _ => None,
+            })
+            .collect();
+        let mut expected: Vec<char> = (' '..='~')
+            .filter(|c| c.is_ascii_punctuation())
+            .chain(['£', '¬'])
+            .collect();
+        let mut found = symbols.clone();
+        expected.sort_unstable();
+        found.sort_unstable();
+        assert_eq!(found, expected);
+        assert_eq!(
+            &symbols[..10],
+            &['@', '.', ',', '?', '!', '\'', '"', '-', '_', '/']
+        );
+        let page = rows(Page::Symbols, false);
+        assert!(page[3].ends_with(&[Key::Named("Enter"), Key::Named("Backspace")]));
+        for layout in [
+            KeyboardLayout::Qwerty,
+            KeyboardLayout::SimpleQwerty,
+            KeyboardLayout::CommonLetters,
+        ] {
+            for page in [Page::Letters, Page::Functions, Page::Numbers, Page::Symbols] {
+                assert!(rows_for(page, true, layout)
+                    .last()
+                    .unwrap()
+                    .contains(&Key::Page(Page::Symbols)));
+            }
+            assert_eq!(
+                rows_for(Page::Symbols, false, layout)[..4],
+                rows(Page::Symbols, false)[..4]
+            );
+        }
     }
     #[test]
     fn common_letters_layout_keeps_every_key_and_reduces_english_scan_steps() {
@@ -2185,7 +2229,7 @@ mod tests {
         };
         let text = "the quick brown fox jumps over the lazy dog";
         assert!(scan_steps(&common, text) < scan_steps(&familiar, text));
-        for page in [Page::Numbers, Page::Functions] {
+        for page in [Page::Numbers, Page::Functions, Page::Symbols] {
             assert_eq!(
                 rows_for(page, false, KeyboardLayout::Qwerty),
                 rows_for(page, false, KeyboardLayout::CommonLetters)
@@ -2211,32 +2255,13 @@ mod tests {
         assert_eq!(&letters[..3], &[top, middle, bottom]);
         assert_eq!(letters.len(), 4);
         assert!(letters[3].contains(&Key::Layout));
-        let numbers = rows_for(Page::Numbers, false, KeyboardLayout::SimpleQwerty);
-        assert_eq!(
-            numbers[numbers.len() - 4],
-            vec![
-                Key::Character('[', '{'),
-                Key::Character(']', '}'),
-                Key::Character(';', ':'),
-                Key::Character('\'', '@'),
-                Key::Character('#', '~'),
-            ]
-        );
-        assert_eq!(
-            numbers[numbers.len() - 3],
-            vec![
-                Key::Character('\\', '|'),
-                Key::Character(',', '<'),
-                Key::Character('.', '>'),
-                Key::Character('/', '?'),
-            ]
-        );
+        let symbols = rows_for(Page::Symbols, false, KeyboardLayout::SimpleQwerty);
         let functions = rows_for(Page::Functions, false, KeyboardLayout::SimpleQwerty);
         for key in rows(Page::Letters, false).into_iter().flatten() {
             assert!(
                 letters
                     .iter()
-                    .chain(&numbers)
+                    .chain(&symbols)
                     .chain(&functions)
                     .flatten()
                     .any(|available| *available == key),
@@ -2305,7 +2330,7 @@ mod tests {
         assert!(keyboard.capitalize_next);
     }
     #[test]
-    fn simple_qwerty_prose_punctuation_on_numbers_keeps_decimal_literal() {
+    fn simple_qwerty_prose_punctuation_on_symbols_keeps_decimal_literal() {
         use crate::point_scan::KeyboardLayout;
         let mut keyboard = Keyboard::new(false).with_layout(KeyboardLayout::SimpleQwerty);
         keyboard.choose(Key::Page(Page::Numbers));
@@ -2314,20 +2339,17 @@ mod tests {
             Some(Output::Stroke(_))
         ));
         keyboard.succeeded_with_context(context(1));
-        for (key, mark) in [
-            (Key::Character(',', '<'), ','),
-            (Key::Character(';', ':'), ';'),
-            (Key::Character('.', '>'), '.'),
-        ] {
+        keyboard.choose(Key::Page(Page::Symbols));
+        for mark in [',', ';', '.'] {
             assert!(
-                matches!(keyboard.choose_with_context(key, context(1)), Some(Output::Punctuation(p)) if p.mark == mark)
+                matches!(keyboard.choose_with_context(Key::Character(mark, mark), context(1)), Some(Output::Punctuation(p)) if p.mark == mark)
             );
             keyboard.succeeded_with_context(context(1));
         }
         keyboard.reset_context();
         keyboard.choose_with_context(Key::Modifier(0), context(1));
         assert!(
-            matches!(keyboard.choose_with_context(Key::Character('/', '?'), context(1)), Some(Output::Punctuation(p)) if p.mark == '?')
+            matches!(keyboard.choose_with_context(Key::Character('?', '?'), context(1)), Some(Output::Punctuation(p)) if p.mark == '?')
         );
         keyboard.succeeded_with_context(context(1));
         keyboard.choose_with_context(Key::Page(Page::Letters), context(1));
