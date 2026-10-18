@@ -259,7 +259,7 @@ struct ScanService {
 struct SwitchKeysRelease(AtomicBool);
 /// Shown on Home while the keys are released; it names where to resume.
 pub const SWITCH_KEYS_RELEASED_MESSAGE: &str =
-    "Switch keys released. Resume them from the tray menu or Home.";
+    "Switch keys released. Resume them from the tray or menu bar, or on Home.";
 pub fn switch_keys_released(app: &AppHandle) -> bool {
     app.try_state::<SwitchKeysRelease>()
         .is_some_and(|flag| flag.0.load(Ordering::SeqCst))
@@ -295,11 +295,12 @@ fn halt_for<A: Adapter>(app: &AppHandle) {
     }
     cancel_for::<A>(app);
 }
+// The session itself is the gate, not the scanner's `remote` flag: that flag
+// is clear between a session starting and its first tick, after an in-place
+// restart, and during remote switch practice, and `cancel_for` would end the
+// session in each of those windows.
 fn release_for<A: Adapter>(app: &AppHandle) {
-    let remote = app
-        .try_state::<Controller<A>>()
-        .is_some_and(|c| c.data.lock().unwrap_or_else(|p| p.into_inner()).remote);
-    if !remote {
+    if !crate::remote_scan::active(app) {
         cancel_for::<A>(app);
     }
 }
