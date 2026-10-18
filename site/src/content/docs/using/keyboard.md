@@ -23,9 +23,10 @@ Choose in Settings or from the keyboard's footer:
 
 ## Pages
 
-- **Letters**, with punctuation.
+- **Letters**, with a few punctuation keys: comma, full stop, apostrophe and question mark (Simple QWERTY has just the full stop).
 - **Navigation**: Escape, F1 to F12, arrows, Home, End, Page Up, Page Down, Delete and more.
-- **Numbers**, including currency symbols.
+- **Numbers**: 0 to 9, a decimal point, and `+` `-` `*` `/`.
+- **Symbols**: each symbol from the main keys of a UK keyboard gets a key of its own, so nothing is hidden behind Shift. Each key types what it shows. Common punctuation such as `@` `.` `,` `?` `!` comes first, then brackets, then maths signs, then `£` `$` `&` `#` and the rarer symbols.
 
 ## Modifiers
 
@@ -33,7 +34,7 @@ Shift, Ctrl, Alt (Option on a Mac) and Windows (Command on a Mac) each cycle thr
 
 ## Automatic spacing and capitals
 
-Switchify PC puts the space before and after punctuation for you, and capitalises the next letter after a full stop, question mark or exclamation mark.
+After a full stop, comma, question mark or exclamation mark on the Letters or Symbols page, Switchify PC adds a space for you and removes a space it typed just before the mark. It also capitalises the next letter after a full stop, question mark or exclamation mark. Other symbols, including the colon and semicolon, type exactly as shown. If you need a full stop with no space after it, as in a web or email address, use Backspace after it, or the full stop on the Numbers page.
 
 ## Repeating keys
 

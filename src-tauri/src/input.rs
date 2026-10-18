@@ -206,6 +206,73 @@ fn windows_alphanumeric_key(name: &str) -> Option<Key> {
     })
 }
 
+#[cfg(target_os = "windows")]
+const SYMBOL_SHORTCUT_ERROR: &str =
+    "This symbol cannot be used in a shortcut on this keyboard layout.";
+
+/// The key for a symbol on the foreground window's keyboard layout, and
+/// whether it needs Shift. `scan` is the `VkKeyScanExW` result. Symbols that
+/// need Ctrl or Alt (AltGr) are refused, so a shortcut never sends its
+/// modifiers alone.
+#[cfg(target_os = "windows")]
+fn windows_symbol_key(scan: i16) -> Result<(bool, u16), String> {
+    if scan < 0 {
+        return Err(SYMBOL_SHORTCUT_ERROR.into());
+    }
+    let shift_state = (scan as u16) >> 8;
+    if shift_state & !1 != 0 {
+        return Err(SYMBOL_SHORTCUT_ERROR.into());
+    }
+    Ok((shift_state == 1, scan as u16 & 0xff))
+}
+
+/// Presses or releases a symbol key, with Shift when the layout needs it.
+#[cfg(target_os = "windows")]
+fn set_windows_symbol_key(enigo: &mut Enigo, symbol: char, down: bool) -> Result<(), String> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyboardLayout, VkKeyScanExW};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId,
+    };
+    let mut unit = [0; 2];
+    let [unit] = symbol.encode_utf16(&mut unit) else {
+        return Err(SYMBOL_SHORTCUT_ERROR.into());
+    };
+    // SAFETY: These calls only read the foreground thread's keyboard layout.
+    let scan = unsafe {
+        let thread = GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut());
+        VkKeyScanExW(*unit, GetKeyboardLayout(thread))
+    };
+    let (shift, virtual_key) = match windows_symbol_key(scan) {
+        Ok(key) => key,
+        // A refused symbol was never pressed, so there is nothing to release.
+        Err(_) if !down => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let error = enigo_error("send the key");
+    if down {
+        if shift {
+            enigo.key(Key::Shift, Direction::Press).map_err(error)?;
+        }
+        let pressed = enigo.key(Key::Other(virtual_key.into()), Direction::Press);
+        if pressed.is_err() && shift {
+            let _ = enigo.key(Key::Shift, Direction::Release);
+        }
+        pressed.map_err(enigo_error("send the key"))
+    } else {
+        let released = enigo
+            .key(Key::Other(virtual_key.into()), Direction::Release)
+            .map_err(error);
+        let shift_released = if shift {
+            enigo
+                .key(Key::Shift, Direction::Release)
+                .map_err(enigo_error("send the key"))
+        } else {
+            Ok(())
+        };
+        released.and(shift_released)
+    }
+}
+
 fn named_key(name: &str) -> Option<Key> {
     #[cfg(target_os = "windows")]
     if let Some(key) = windows_alphanumeric_key(name) {
@@ -416,6 +483,10 @@ impl InputInjector for Enigo {
     }
     fn set_key(&mut self, key: &str, down: bool) -> Result<(), String> {
         let key = named_key(key).ok_or_else(|| format!("Unsupported key: {key}"))?;
+        #[cfg(target_os = "windows")]
+        if let Key::Unicode(symbol) = key {
+            return set_windows_symbol_key(self, symbol, down);
+        }
         self.key(
             key,
             if down {
@@ -1848,6 +1919,21 @@ mod tests {
     fn canonical_macos_alphanumeric_keys_remain_layout_dependent() {
         assert_eq!(named_key("A"), Some(Key::Unicode('A')));
         assert_eq!(named_key("0"), Some(Key::Unicode('0')));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_symbol_shortcuts_follow_the_layout_and_refuse_altgr() {
+        // VK_OEM_2 (/) alone, as "/" on UK and US.
+        assert_eq!(super::windows_symbol_key(0x00bf), Ok((false, 0xbf)));
+        // Shift and VK_OEM_2, as "?" on UK and US.
+        assert_eq!(super::windows_symbol_key(0x01bf), Ok((true, 0xbf)));
+        // Shift and VK_OEM_3, as "@" on UK.
+        assert_eq!(super::windows_symbol_key(0x01c0), Ok((true, 0xc0)));
+        // Ctrl and Alt (AltGr) and 4, as the euro sign on UK.
+        assert!(super::windows_symbol_key(0x0634).is_err());
+        // No key types the symbol.
+        assert!(super::windows_symbol_key(-1).is_err());
     }
 
     #[test]
