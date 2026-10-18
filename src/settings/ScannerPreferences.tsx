@@ -195,7 +195,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
         />
         <p className="setting-note">Simple QWERTY keeps the letter order with fewer keys on its Letters page. Common letters first puts frequent English letters and Space early in row scanning. The keyboard footer cycles through all three layouts; the choice is saved.</p>
       </SettingGroup>
-      <p className="setting-note">The Symbols page shows every symbol from a standard UK keyboard as its own key, and each key types what it shows. The scanning keyboard spaces prose punctuation for you: after a full stop, comma, question mark or exclamation mark on Letters or Symbols it adds a space. Other symbols type exactly as shown, and the full stop on Numbers stays a decimal point. Period, question mark, and exclamation mark capitalize the next letter.</p>
+      <p className="setting-note">The Symbols page shows every symbol on the main keys of a UK keyboard as its own key, and each key types what it shows. The scanning keyboard spaces prose punctuation for you: after a full stop, comma, question mark or exclamation mark on Letters or Symbols it adds a space. Other symbols type exactly as shown, and the full stop on Numbers stays a decimal point. Period, question mark, and exclamation mark capitalize the next letter.</p>
     </>}
     {(area === 'keyboard' || area === 'mouse' || area === 'menu') && <SettingGroup title="Panel position" description="The keyboard, the mouse panel, Home and the action menus share one position. Choose it from Position on the keyboard or mouse panel.">
       <Toggle label="Move away from the pointer" checked={config.panelAvoidsPointer} disabled={disabled} onChange={value => update('panelAvoidsPointer', value)} />

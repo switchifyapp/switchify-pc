@@ -128,7 +128,11 @@ thread_local! { static INPUT:std::cell::RefCell<Option<DesktopInput<enigo::Enigo
 /// The key a symbol shares with Shift on both UK and US keyboards. A
 /// shortcut presses Shift and this key, since the symbol is not a key of its
 /// own. Symbols whose key differs between the two layouts are sent as they are.
+/// Windows finds the key on the user's own layout when it presses the symbol.
 fn shifted_symbol_key(symbol: char) -> Option<char> {
+    if cfg!(target_os = "windows") {
+        return None;
+    }
     Some(match symbol {
         '!' => '1',
         '$' => '4',
@@ -816,6 +820,34 @@ mod tests {
         input.release_all().unwrap();
     }
     #[test]
+    #[cfg(target_os = "windows")]
+    fn symbol_shortcuts_send_the_symbol_for_the_layout_to_resolve() {
+        use crate::scan_keyboard::{Key, Stroke};
+        for symbol in ['+', '{', '?', '@'] {
+            let mut input = DesktopInput::new(Fake::default());
+            execute(
+                &mut input,
+                Request::Keyboard(Stroke {
+                    key: Key::Character(symbol, symbol),
+                    modifiers: [false, true, false, false],
+                    caps: false,
+                }),
+                true,
+            )
+            .unwrap();
+            assert_eq!(
+                input.injector.events,
+                [
+                    "key Ctrl true".to_string(),
+                    format!("key {symbol} true"),
+                    format!("key {symbol} false"),
+                    "key Ctrl false".to_string(),
+                ]
+            );
+        }
+    }
+    #[test]
+    #[cfg(not(target_os = "windows"))]
     fn numeric_operator_shortcuts_include_required_shift_and_release_every_key() {
         use crate::scan_keyboard::{Key, Stroke};
         for (operator, native_key) in [('+', "="), ('*', "8"), ('{', "["), ('?', "/"), ('_', "-")] {

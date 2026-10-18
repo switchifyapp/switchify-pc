@@ -26,7 +26,7 @@ Choose in Settings or from the keyboard's footer:
 - **Letters**, with a few punctuation keys: comma, full stop, apostrophe and question mark (Simple QWERTY has just the full stop).
 - **Navigation**: Escape, F1 to F12, arrows, Home, End, Page Up, Page Down, Delete and more.
 - **Numbers**: 0 to 9, a decimal point, and `+` `-` `*` `/`.
-- **Symbols**: every symbol from a standard UK keyboard on its own key, so nothing is hidden behind Shift. Each key types what it shows. Common punctuation such as `@` `.` `,` `?` `!` comes first, then brackets, then maths signs, then `£` `$` `&` `#` and the rarer symbols.
+- **Symbols**: each symbol from the main keys of a UK keyboard gets a key of its own, so nothing is hidden behind Shift. Each key types what it shows. Common punctuation such as `@` `.` `,` `?` `!` comes first, then brackets, then maths signs, then `£` `$` `&` `#` and the rarer symbols.
 
 ## Modifiers
 
