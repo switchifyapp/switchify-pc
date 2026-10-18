@@ -40,7 +40,13 @@ A switch can also have an ordered list of **hold actions**. Keep the switch down
 
 ## Emergency stop
 
-Press **Escape**, or hold any switch for at least 4 seconds (longer if that switch has a long hold list; Settings shows the exact time), to reset scanning and release the keys. Press Select to start again.
+Press **Escape**, or hold any switch for at least 4 seconds (longer if that switch has a long hold list; Settings shows the exact time), to reset scanning. Switchify PC keeps the switch keys and waits for Select to start again.
+
+## Use the switch key as a normal key
+
+While a Select switch is saved, Switchify PC takes its key everywhere, so a switch set to Space cannot type a space in other apps. To hand the keys back for a while, choose **Release switch keys** in the system tray on Windows or the menu bar on a Mac, or on the Home page under Saved switches. Your switches then do nothing in Switchify PC and the keys work as they normally would.
+
+Choose **Resume switch keys** in the same places to take them back; Home shows the state and a Resume button throughout. The release lasts until you resume or restart Switchify PC, so the switches are always ready after a restart. Switches in Switchify on Android are not affected.
 
 ## On Windows
 

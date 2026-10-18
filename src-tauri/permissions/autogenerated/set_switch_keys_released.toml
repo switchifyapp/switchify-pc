@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-switch-keys-released"
+description = "Enables the set_switch_keys_released command without any pre-configured scope."
+commands.allow = ["set_switch_keys_released"]
+
+[[permission]]
+identifier = "deny-set-switch-keys-released"
+description = "Denies the set_switch_keys_released command without any pre-configured scope."
+commands.deny = ["set_switch_keys_released"]

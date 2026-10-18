@@ -17,6 +17,8 @@ describe("homeStatus", () => {
     ["Remote in control when otherwise ready", { scanning: { ...scanning, remote: true } }, "Remote in control", "neutral"],
     ["Remote in control without a local Select", { scanning: { ...scanning, remote: true }, bluetooth: "connected", hasSelect: false }, "Remote in control", "neutral"],
     ["a mobile connection without a local Select", { bluetooth: "connected", hasSelect: false }, "Paused for mobile", "neutral"],
+    ["released switch keys", { switchKeysReleased: true, scanning: { ...scanning, enabled: false } }, "Switch keys released", "neutral"],
+    ["Remote in control while the keys are released", { switchKeysReleased: true, scanning: { ...scanning, remote: true } }, "Remote in control", "neutral"],
     ["no Select switch", { hasSelect: false }, "Finish setting up", "attention"],
     ["paused", { scanning: { ...scanning, paused: true } }, "Paused", "neutral"],
     ["scanning off", { scanning: { ...scanning, enabled: false } }, "Switch control", "neutral"],

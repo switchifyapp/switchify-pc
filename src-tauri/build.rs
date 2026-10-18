@@ -22,6 +22,7 @@ fn main() {
         "approve_pairing",
         "reject_pairing",
         "disconnect_all",
+        "set_switch_keys_released",
         "modifier_overlay_ready",
         "modifier_overlay_present",
         "forget_device",

@@ -77,23 +77,26 @@ function AccessibilityCopy({ state, detailed = false }: { state: AppState; detai
   </>;
 }
 
-function HomeView({ state, switches, scanning, navigate, onDisconnect, onAccessibility }: { state: AppState; switches: SwitchController; scanning: ScanningController; navigate: (view: View) => void; onDisconnect: () => void; onAccessibility: () => void }) {
+function HomeView({ state, switches, scanning, navigate, onDisconnect, onAccessibility, onReleaseSwitchKeys }: { state: AppState; switches: SwitchController; scanning: ScanningController; navigate: (view: View) => void; onDisconnect: () => void; onAccessibility: () => void; onReleaseSwitchKeys: (released: boolean) => void }) {
   const saved = switches.state?.settings.bindings ?? [];
   const hasSelect = saved.some((binding) => binding.pressAction === "select" || binding.holdActions.includes("select"));
   // The hero names the state in words, so its colour is never the only cue.
-  const { title, tone, message } = homeStatus({ accessibility: state.accessibility, bluetooth: state.bluetooth, switchesLoaded: !!switches.state, hasSelect, error: switches.error ?? scanning.error, scanning: scanning.state });
+  const { title, tone, message } = homeStatus({ accessibility: state.accessibility, bluetooth: state.bluetooth, switchesLoaded: !!switches.state, hasSelect, error: switches.error ?? scanning.error, scanning: scanning.state, switchKeysReleased: state.switchKeysReleased });
   const ready = tone === "ready";
   const mobileConnected = state.bluetooth === "connected";
+  const released = state.switchKeysReleased;
   return <div className="view">
     <header className="page-header"><div><h1>Switchify PC</h1><p>Control your computer with switches.</p></div></header>
     <section className="connection-band status-hero" data-tone={tone} aria-labelledby="home-status-title">
       <StatusIcon ok={ready ? true : tone === "attention" ? false : undefined}><Keyboard size={26} /></StatusIcon>
       <div><h2 id="home-status-title">{title}</h2><p role="status">{message}</p></div>
-      <Button className={ready ? "secondary" : "primary"} onClick={() => navigate("switches")}>{hasSelect ? "Edit switches" : "Set up switches"}</Button>
+      {released
+        ? <Button className="primary" onClick={() => onReleaseSwitchKeys(false)}>Resume switch keys</Button>
+        : <Button className={ready ? "secondary" : "primary"} onClick={() => navigate("switches")}>{hasSelect ? "Edit switches" : "Set up switches"}</Button>}
     </section>
     <section className="status-list" aria-label="Switch control status">
       <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} /></div>{state.accessibility === "required" && <Button className="text-button" onClick={onAccessibility}>Open Accessibility Settings</Button>}</article>
-      <article><StatusIcon ok={hasSelect}><Keyboard size={19} /></StatusIcon><div><h3>Saved switches</h3><p>{saved.length} saved · {hasSelect ? "Select assigned" : "Select action needed"}</p></div></article>
+      <article><StatusIcon ok={released ? undefined : hasSelect}><Keyboard size={19} /></StatusIcon><div><h3>Saved switches</h3><p>{saved.length} saved · {released ? "Keys released" : hasSelect ? "Select assigned" : "Select action needed"}</p></div>{saved.length > 0 && <Button className="text-button" onClick={() => onReleaseSwitchKeys(!released)}>{released ? "Resume switch keys" : "Release switch keys"}</Button>}</article>
       <article><StatusIcon><SlidersHorizontal size={19} /></StatusIcon><div><h3>Scanning</h3><p>{selectOpensHome(scanning.config) ? "Select opens Home" : `Select starts ${lastModeName(scanning.config)}`} · {areaOptions(scanning.config, scanning.config.controlMode).automatic ? "Automatic" : "Manual"}</p></div><Button className="text-button" onClick={() => navigate("scanning")}>Change scanning</Button></article>
       <article><StatusIcon ok={mobileConnected || undefined}><Smartphone size={19} /></StatusIcon><div><h3>Mobile connection (optional)</h3><p>{mobileConnected ? state.connectedDeviceName ?? bluetoothLabels.connected : bluetoothLabels[state.bluetooth]}</p></div>{mobileConnected ? <Button className="secondary" onClick={onDisconnect}>Disconnect</Button> : <Button className="text-button" onClick={() => navigate("mobile")}>Connect mobile</Button>}</article>
     </section>
@@ -822,7 +825,7 @@ export function App() {
       {error && <div className="error-banner" role="alert">{error}<Button onClick={() => setError(null)}>Dismiss</Button></div>}
       <UpdateBanner update={liveUpdater ?? state.updater} openUpdates={openUpdates} />
       <p id="settings-updates-notice" className="sr-only" aria-live={updateFailure ? updateLiveness(updateFailure.status) : "polite"} aria-atomic="true">{updateNotice}</p>
-      {view === "home" && <HomeView state={state} switches={switches} scanning={scanning} navigate={selectView} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} />}
+      {view === "home" && <HomeView state={state} switches={switches} scanning={scanning} navigate={selectView} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onReleaseSwitchKeys={(released) => void perform(() => api.setSwitchKeysReleased(released))} />}
       {view === "switches" && <div className="view"><header className="page-header"><div><h1>Switches</h1><p>The switches you use to control this computer.</p></div></header><SwitchesSection mobileConnected={state.bluetooth === "connected"} platform={state.capabilities.platform} controller={switches} suspended={pairingOpen} /></div>}
       {view === "scanning" && <div className="view"><header className="page-header"><div><h1>Scanning</h1><p>Choose how your switches control the pointer.</p></div></header><ScanningSection controller={scanning} settings={settings ?? undefined} onSettingsChange={changeSettings} /></div>}
       {view === "mouse" && <MouseSettingsView settings={settings} onChange={changeSettings} scanning={scanning} />}

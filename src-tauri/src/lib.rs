@@ -182,7 +182,12 @@ fn take_navigation_request(pending: State<'_, PendingNavigation>) -> Option<Stri
 struct TraySnapshot {
     status: String,
     can_disconnect: bool,
+    /// The release item names the action it will take next.
+    release_label: String,
 }
+
+const RELEASE_SWITCH_KEYS_LABEL: &str = "Release switch keys";
+const RESUME_SWITCH_KEYS_LABEL: &str = "Resume switch keys";
 
 impl TraySnapshot {
     fn from_state(state: &AppState) -> Self {
@@ -206,6 +211,12 @@ impl TraySnapshot {
             status,
             can_disconnect: state.connected_device_name.is_some()
                 || state.bluetooth == state::BluetoothState::Connected,
+            release_label: if state.switch_keys_released {
+                RESUME_SWITCH_KEYS_LABEL
+            } else {
+                RELEASE_SWITCH_KEYS_LABEL
+            }
+            .into(),
         }
     }
 }
@@ -217,6 +228,7 @@ impl TraySnapshot {
 struct TrayShown {
     status: Option<String>,
     can_disconnect: Option<bool>,
+    release_label: Option<String>,
 }
 
 #[derive(Default)]
@@ -236,12 +248,14 @@ impl TrayCache {
         next: TraySnapshot,
         set_status: impl FnOnce(&str) -> Result<(), E>,
         set_can_disconnect: impl FnOnce(bool) -> Result<(), E>,
+        set_release_label: impl FnOnce(&str) -> Result<(), E>,
     ) {
-        let (status_changed, can_disconnect_changed) = {
+        let (status_changed, can_disconnect_changed, release_label_changed) = {
             let shown = self.shown();
             (
                 shown.status.as_deref() != Some(next.status.as_str()),
                 shown.can_disconnect != Some(next.can_disconnect),
+                shown.release_label.as_deref() != Some(next.release_label.as_str()),
             )
         };
         if status_changed && set_status(&next.status).is_ok() {
@@ -250,12 +264,16 @@ impl TrayCache {
         if can_disconnect_changed && set_can_disconnect(next.can_disconnect).is_ok() {
             self.shown().can_disconnect = Some(next.can_disconnect);
         }
+        if release_label_changed && set_release_label(&next.release_label).is_ok() {
+            self.shown().release_label = Some(next.release_label);
+        }
     }
 }
 
 struct TrayController {
     status: MenuItem<tauri::Wry>,
     disconnect: MenuItem<tauri::Wry>,
+    release: MenuItem<tauri::Wry>,
     cache: TrayCache,
 }
 
@@ -265,8 +283,43 @@ impl TrayController {
             TraySnapshot::from_state(state),
             |status| self.status.set_text(status),
             |can_disconnect| self.disconnect.set_enabled(can_disconnect),
+            |label| self.release.set_text(label),
         );
     }
+}
+
+/// Hands the switch keys back to other applications, or takes them again.
+/// Local scanning stops at once and stays off until resumed; the flag lives
+/// for this run only. The tray item and Home both call this.
+fn set_switch_keys_released_inner(app: &AppHandle, model: &AppModel, released: bool) -> AppState {
+    scanning_runtime::set_switch_keys_released(app, released);
+    {
+        let mut data = model
+            .shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        data.state.switch_keys_released = released;
+    }
+    state::set_activity(
+        &model.shared,
+        ActivityKind::Info,
+        if released {
+            "Switch keys released. They work as normal keys until you resume."
+        } else {
+            "Switch keys resumed."
+        },
+    );
+    state::emit_state(app, &model.shared);
+    model.snapshot()
+}
+
+#[tauri::command]
+fn set_switch_keys_released(
+    app: AppHandle,
+    model: State<'_, AppModel>,
+    released: bool,
+) -> Result<AppState, String> {
+    Ok(set_switch_keys_released_inner(&app, &model, released))
 }
 
 pub(crate) fn sync_tray_state(app: &AppHandle, state: &AppState) {
@@ -1457,6 +1510,13 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
     )?;
     let disconnect =
         MenuItem::with_id(app, "disconnect", "Disconnect devices", false, None::<&str>)?;
+    let release = MenuItem::with_id(
+        app,
+        "release",
+        RELEASE_SWITCH_KEYS_LABEL,
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let first_separator = PredefinedMenuItem::separator(app)?;
     let second_separator = PredefinedMenuItem::separator(app)?;
@@ -1469,6 +1529,7 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
             &first_separator,
             &status,
             &disconnect,
+            &release,
             &second_separator,
             &quit,
         ],
@@ -1476,6 +1537,7 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let controller = TrayController {
         status,
         disconnect,
+        release,
         cache: TrayCache::default(),
     };
     controller.sync(&app.state::<AppModel>().snapshot());
@@ -1505,6 +1567,11 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 );
                 state::emit_state(app, &model.shared);
             }
+        }
+        "release" => {
+            let model = app.state::<AppModel>();
+            let released = !model.snapshot().switch_keys_released;
+            set_switch_keys_released_inner(app, &model, released);
         }
         "quit" => {
             request_profile_exit(app, ProfileExitAction::Quit);
@@ -1917,6 +1984,7 @@ pub fn run() {
             approve_pairing,
             reject_pairing,
             disconnect_all,
+            set_switch_keys_released,
             modifier_overlay_ready,
             modifier_overlay_present,
             forget_device,
@@ -2161,6 +2229,7 @@ mod tests {
             TraySnapshot {
                 status: "Status: Starting Bluetooth".into(),
                 can_disconnect: false,
+                release_label: "Release switch keys".into(),
             }
         );
 
@@ -2173,6 +2242,7 @@ mod tests {
             TraySnapshot {
                 status: "Status: Ready to connect".into(),
                 can_disconnect: false,
+                release_label: "Release switch keys".into(),
             }
         );
 
@@ -2186,6 +2256,20 @@ mod tests {
             TraySnapshot {
                 status: "Status: Connected to Pixel".into(),
                 can_disconnect: true,
+                release_label: "Release switch keys".into(),
+            }
+        );
+
+        {
+            let mut data = model.shared.lock().unwrap();
+            data.state.switch_keys_released = true;
+        }
+        assert_eq!(
+            TraySnapshot::from_state(&model.snapshot()),
+            TraySnapshot {
+                status: "Status: Connected to Pixel".into(),
+                can_disconnect: true,
+                release_label: "Resume switch keys".into(),
             }
         );
         let _ = std::fs::remove_dir_all(root);
@@ -2196,6 +2280,7 @@ mod tests {
         let snapshot = |status: &str, can_disconnect| TraySnapshot {
             status: status.into(),
             can_disconnect,
+            release_label: "Release switch keys".into(),
         };
         let cache = TrayCache::default();
         // Records the setter calls made for one sync; `fail` makes them error.
@@ -2213,12 +2298,17 @@ mod tests {
                 next,
                 |status| result(format!("text {status}")),
                 |enabled| result(format!("enabled {enabled}")),
+                |label| result(format!("release {label}")),
             );
             calls.into_inner()
         };
         assert_eq!(
             sync(snapshot("Status: Ready to connect", false), false),
-            ["text Status: Ready to connect", "enabled false"]
+            [
+                "text Status: Ready to connect",
+                "enabled false",
+                "release Release switch keys"
+            ]
         );
         assert!(sync(snapshot("Status: Ready to connect", false), false).is_empty());
         assert_eq!(
@@ -2229,6 +2319,16 @@ mod tests {
             sync(snapshot("Status: Connected to Pixel", true), false),
             ["text Status: Connected to Pixel"]
         );
+        assert_eq!(
+            sync(
+                TraySnapshot {
+                    release_label: "Resume switch keys".into(),
+                    ..snapshot("Status: Connected to Pixel", true)
+                },
+                false
+            ),
+            ["release Resume switch keys"]
+        );
     }
 
     #[test]
@@ -2236,6 +2336,7 @@ mod tests {
         let snapshot = TraySnapshot {
             status: "Status: Bluetooth is off".into(),
             can_disconnect: true,
+            release_label: "Release switch keys".into(),
         };
         let cache = TrayCache::default();
         let attempts = std::cell::Cell::new(0);
@@ -2246,12 +2347,14 @@ mod tests {
                 Err(())
             },
             |_| Ok(()),
+            |_| Ok(()),
         );
         assert_eq!(
             *cache.shown(),
             TrayShown {
                 status: None,
                 can_disconnect: Some(true),
+                release_label: Some("Release switch keys".into()),
             }
         );
         cache.apply(
@@ -2261,6 +2364,7 @@ mod tests {
                 Ok(())
             },
             |_| -> Result<(), ()> { panic!("unchanged value was set again") },
+            |_| -> Result<(), ()> { panic!("unchanged label was set again") },
         );
         assert_eq!(attempts.get(), 2);
         assert_eq!(
@@ -2268,6 +2372,7 @@ mod tests {
             TrayShown {
                 status: Some(snapshot.status),
                 can_disconnect: Some(true),
+                release_label: Some(snapshot.release_label),
             }
         );
     }

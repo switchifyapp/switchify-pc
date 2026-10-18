@@ -67,6 +67,8 @@ export type AppState = {
   telemetry: TelemetryState;
   setup: { shown: boolean; completed: boolean; autoOpenEligible: boolean };
   updater: UpdateState;
+  /** The switch keys were handed back to other applications for this run. */
+  switchKeysReleased: boolean;
 };
 
 export type SwitchBinding = {

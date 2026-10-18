@@ -12,12 +12,14 @@ export type HomeStatusInput = {
   hasSelect: boolean;
   error: string | null;
   scanning: PointScanState | null;
+  /** The switch keys were handed back to other applications from the tray or Home. */
+  switchKeysReleased?: boolean;
 };
 
 // One ordered list of cases, so the title, tone and message always describe
 // the same state. Amber ("attention") is only for something a person can fix
 // here; states outside their control, or still loading, stay neutral.
-export function homeStatus({ accessibility, bluetooth, switchesLoaded, hasSelect, error, scanning }: HomeStatusInput): HomeStatus {
+export function homeStatus({ accessibility, bluetooth, switchesLoaded, hasSelect, error, scanning, switchKeysReleased = false }: HomeStatusInput): HomeStatus {
   if (error) return { title: "Switch control needs attention", tone: "attention", message: error };
   if (accessibility === "required") return { title: "Finish setting up", tone: "attention", message: "Allow input access to control this computer." };
   if (accessibility === "unavailable") return { title: "Input access unavailable", tone: "neutral", message: "Input access is unavailable on this system." };
@@ -25,6 +27,7 @@ export function homeStatus({ accessibility, bluetooth, switchesLoaded, hasSelect
   if (!scanning.supported) return { title: "Switch control unavailable", tone: "neutral", message: scanning.message };
   if (scanning.remote) return { title: "Remote in control", tone: "neutral", message: "Remote controls scanning. Use the switches in Remote; PC Escape stops the session." };
   if (bluetooth === "connected") return { title: "Paused for mobile", tone: "neutral", message: "Local scanning is paused while a mobile device is connected." };
+  if (switchKeysReleased) return { title: "Switch keys released", tone: "neutral", message: "Your switch keys work as normal keys in other apps. Resume them to scan again." };
   if (!switchesLoaded) return { title: "Switch control", tone: "neutral", message: "Loading switch control..." };
   if (!hasSelect) return { title: "Finish setting up", tone: "attention", message: "Add a switch with the Select action to begin scanning." };
   if (scanning.paused) return { title: "Paused", tone: "neutral", message: "Scanning is paused. Use your Pause / resume switch to continue." };

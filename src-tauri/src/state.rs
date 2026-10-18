@@ -379,6 +379,8 @@ pub struct AppState {
     pub telemetry: TelemetryView,
     pub setup: SetupState,
     pub updater: UpdateView,
+    /// The switch keys were handed back to other applications for this run.
+    pub switch_keys_released: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -493,6 +495,7 @@ impl AppModel {
                     auto_open_eligible: setup_auto_open_eligible,
                 },
                 updater: UpdateView::default(),
+                switch_keys_released: false,
             },
         }));
         let model = Self {
