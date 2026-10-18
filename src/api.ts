@@ -34,6 +34,7 @@ export const browserState: AppState = {
   telemetry: { consent: "undecided", available: true },
   setup: { shown: false, completed: false, autoOpenEligible: true },
   updater: { status: "unconfigured", version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null },
+  switchKeysReleased: false,
 };
 
 const emptyBindings = () => Array.from({ length: 8 }, (_, index) => ({
@@ -68,6 +69,11 @@ export const api = {
   rejectPairing: (requestId: string) => call<AppState>("reject_pairing", { requestId }),
   checkAccessibility: (prompt: boolean) => call<AppState>("check_accessibility", { prompt }),
   disconnectAll: () => call<AppState>("disconnect_all"),
+  setSwitchKeysReleased: (released: boolean) => {
+    if ("__TAURI_INTERNALS__" in window) return call<AppState>("set_switch_keys_released", { released });
+    browserState.switchKeysReleased = released;
+    return Promise.resolve(structuredClone(browserState));
+  },
   forgetDevice: (deviceId: string) => call<AppState>("forget_device", { deviceId }),
   saveSettings: (settings: AppSettings) => {
     if ("__TAURI_INTERNALS__" in window) return call<AppState>("save_settings", { settings });

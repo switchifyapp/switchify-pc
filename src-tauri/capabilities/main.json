@@ -24,6 +24,7 @@
     "allow-approve-pairing",
     "allow-reject-pairing",
     "allow-disconnect-all",
+    "allow-set-switch-keys-released",
     "allow-forget-device",
     "allow-forget-learned-words",
     "allow-save-settings",

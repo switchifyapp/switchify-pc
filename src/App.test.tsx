@@ -23,6 +23,7 @@ describe("Switchify PC shell", () => {
     browserState.telemetry = { consent: "undecided", available: true };
     browserState.updater = { status: "unconfigured", version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
     browserState.setup = { shown: true, completed: false, autoOpenEligible: false };
+    browserState.switchKeysReleased = false;
   });
 
   afterEach(() => {
@@ -70,6 +71,27 @@ describe("Switchify PC shell", () => {
     act(() => receive?.({ ...structuredClone(browserState), bluetooth: "connected" }));
     expect(screen.getByText("Local scanning is paused while a mobile device is connected.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
+  });
+
+  it("releases the switch keys from Home and offers to resume them", async () => {
+    browserState.accessibility = "granted";
+    browserState.bluetooth = "unsupported";
+    vi.spyOn(switchHooks, "useSwitches").mockReturnValue(localSwitches());
+    const scanning: scanHooks.ScanningController = { config: scanHooks.defaultPointScanConfig, state: { config: scanHooks.defaultPointScanConfig, supported: true, enabled: true, paused: false, phase: "idle", message: "Ready" }, pending: 0, error: null, unsaved: false, update: vi.fn(), chooseKeyboardLayout: vi.fn(), retry: vi.fn() };
+    vi.spyOn(scanHooks, "useScanning").mockReturnValue(scanning);
+    const release = vi.spyOn(api, "setSwitchKeysReleased");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Ready" });
+    fireEvent.click(screen.getByRole("button", { name: "Release switch keys" }));
+    expect(release).toHaveBeenCalledWith(true);
+    await screen.findByRole("heading", { name: "Switch keys released" });
+    expect(screen.getByText("1 saved · Keys released")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit switches" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Resume switch keys" })).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole("button", { name: "Resume switch keys" })[0]);
+    expect(release).toHaveBeenLastCalledWith(false);
+    await screen.findByRole("heading", { name: "Ready" });
+    expect(screen.getByRole("button", { name: "Edit switches" })).toBeInTheDocument();
   });
 
   it("offers switch setup when no Select action is assigned", async () => {

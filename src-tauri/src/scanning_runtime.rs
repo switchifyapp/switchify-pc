@@ -74,10 +74,11 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager};
 
 thread_local! {static COUNTDOWN: RefCell<(Option<Host>, Option<crate::scanning::Countdown>)> = const { RefCell::new((None, None)) }; static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)}; static LABEL:RefCell<Option<Host>>=const{RefCell::new(None)}; static TILES:RefCell<(Vec<Host>,Vec<crate::scanning::FrameTile>)>=const{RefCell::new((vec![],vec![]))};}
-/// Scanning has no on/off switch. It is armed whenever the saved switches can
-/// drive the current mode and the environment allows it, and the tick loop
-/// re-arms it after anything that stopped it: a save, key learning, Escape, an
-/// Mobile session or a failed key reservation. Failed attempts back off by this
+/// Scanning has no on/off switch beyond releasing the switch keys. It is armed
+/// whenever the saved switches can drive the current mode and the environment
+/// allows it, and the tick loop re-arms it after anything that stopped it: a
+/// save, key learning, Escape, a Mobile session or a failed key reservation.
+/// Failed attempts back off by this
 /// much so a key held by another application is not hammered every tick.
 const RETRY_MS: u64 = 2000;
 /// Switches captured by a repeating Mouse action. The first press owns the
@@ -249,7 +250,32 @@ fn publish<A: Adapter>(app: &AppHandle) {
 // One local technique owns the switch keys and overlay at a time.
 struct ScanService {
     cancel: fn(&AppHandle),
+    release: fn(&AppHandle),
     halt: fn(&AppHandle),
+}
+/// Whether the person handed the switch keys back to other applications from
+/// the tray or Home. Local scanning stays off until they resume. The flag lives
+/// for this run only, so a restart never leaves a switch user without keys.
+struct SwitchKeysRelease(AtomicBool);
+/// Shown on Home while the keys are released; it names where to resume.
+pub const SWITCH_KEYS_RELEASED_MESSAGE: &str =
+    "Switch keys released. Resume them from the tray or menu bar, or on Home.";
+pub fn switch_keys_released(app: &AppHandle) -> bool {
+    app.try_state::<SwitchKeysRelease>()
+        .is_some_and(|flag| flag.0.load(Ordering::SeqCst))
+}
+/// Releases the switch keys, stopping local scanning now, or lets the tick
+/// loop re-arm it. A live remote session is left alone: its key broker holds
+/// no switch keys, and the release takes effect once the session ends.
+pub fn set_switch_keys_released(app: &AppHandle, released: bool) {
+    if let Some(flag) = app.try_state::<SwitchKeysRelease>() {
+        flag.0.store(released, Ordering::SeqCst);
+    }
+    if released {
+        if let Some(service) = app.try_state::<ScanService>() {
+            (service.release)(app);
+        }
+    }
 }
 /// Stops scanning now; the tick loop re-arms it once conditions allow.
 pub fn cancel(app: &AppHandle) {
@@ -268,6 +294,15 @@ fn halt_for<A: Adapter>(app: &AppHandle) {
         c.halted.store(true, Ordering::SeqCst);
     }
     cancel_for::<A>(app);
+}
+// The session itself is the gate, not the scanner's `remote` flag: that flag
+// is clear between a session starting and its first tick, after an in-place
+// restart, and during remote switch practice, and `cancel_for` would end the
+// session in each of those windows.
+fn release_for<A: Adapter>(app: &AppHandle) {
+    if !crate::remote_scan::active(app) {
+        cancel_for::<A>(app);
+    }
 }
 fn cancel_for<A: Adapter>(app: &AppHandle) {
     crate::remote_scan::cancel(app);
@@ -381,6 +416,9 @@ pub fn configure<A: Adapter>(
 fn wanted<A: Adapter>(app: &AppHandle, config: &A::Config) -> Result<(), String> {
     if !cfg!(any(target_os = "windows", target_os = "macos")) {
         return Err("Switch scanning is not available on this platform.".into());
+    }
+    if switch_keys_released(app) {
+        return Err(SWITCH_KEYS_RELEASED_MESSAGE.into());
     }
     let switches = app.state::<switch_runtime::Controller>().view();
     if let Some(error) = switches.error {
@@ -1121,8 +1159,10 @@ fn tick<A: Adapter>(app: &AppHandle) {
 }
 pub fn install<A: Adapter>(app: &AppHandle) {
     app.manage(Controller::<A>::new(app));
+    app.manage(SwitchKeysRelease(AtomicBool::new(false)));
     app.manage(ScanService {
         cancel: cancel_for::<A>,
+        release: release_for::<A>,
         halt: halt_for::<A>,
     });
     let app = app.clone();

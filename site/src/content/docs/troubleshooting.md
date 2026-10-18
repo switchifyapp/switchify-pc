@@ -16,6 +16,12 @@ Switchify PC's Help page has **Setup** and **Troubleshooting** tabs with the sam
 
 Holding any switch for about 4 seconds is the emergency stop; so is Escape. Press Select to start again. The scan also resets after three passes without a selection, and when the display or the window in front changes during a point scan.
 
+If Home shows **Keys released** under Saved switches, someone chose **Release switch keys** in the tray or menu bar. Choose **Resume switch keys** there or on Home, or restart Switchify PC.
+
+## My switch key no longer types in other apps
+
+That is expected while a Select switch is saved: Switchify PC takes the key everywhere. Choose **Release switch keys** in the tray or menu bar to use it as a normal key for a while, then **Resume switch keys** when you are done. See [Use the switch key as a normal key](/get-started/add-a-switch/#use-the-switch-key-as-a-normal-key).
+
 ## Input access on a Mac
 
 Choose **Open Accessibility Settings** in Switchify PC. In System Settings, open Privacy & Security, then Accessibility, and turn on Switchify PC. Return to the app and it checks again. If the row is already on but access is still required, remove the row, go back to Switchify PC, reopen Accessibility Settings, and turn on the newly added entry.

@@ -704,6 +704,7 @@ describe("Switchify PC settings", () => {
     act(() => stateHandler?.({
       ...structuredClone(browserState),
       updater: { status: "current", version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null },
+      switchKeysReleased: false,
     }));
     expect(screen.getByRole("button", { name: "Check for updates" })).toBeInTheDocument();
     expect(panel).toHaveAttribute("tabindex", "0");

@@ -296,6 +296,11 @@ pub fn begin(app: &AppHandle, remote: bool) -> Result<View, String> {
         if remote_state.is_some() {
             return Err("Stop remote forwarding before testing local switches.".into());
         }
+        // Practice enables the key broker itself, so honour the release here
+        // as `wanted` does for scanning.
+        if crate::scanning_runtime::switch_keys_released(app) {
+            return Err("Resume the switch keys before testing switches.".into());
+        }
         (switches.settings(), 0)
     };
     let mut session = Practice::new(settings, generation, remote);
