@@ -190,7 +190,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
           note={{ summary: config.keyboardLayout === 'commonLetters'
             ? 'Static English key order: Space E T A O I Backspace; N S H R D L U Enter; C M F W Y P V B; G K J Q X Z Tab Caps lock; comma, full stop, apostrophe and question mark. Modifiers follow, and every other UK keyboard symbol is on Symbols.'
             : config.keyboardLayout === 'simpleQwerty'
-              ? 'Three familiar letter rows: Q W E R T Y U I O P Backspace; A S D F G H J K L Enter; Shift Z X C V B N M full stop Space. Every other UK keyboard symbol is on Symbols.'
+              ? 'Three familiar letter rows: Q W E R T Y U I O P Backspace; A S D F G H J K L Enter; Shift Z X C V B N M full stop; then Ctrl, Alt, Space and Windows (Option and Command on a Mac). Every other UK keyboard symbol is on Symbols.'
               : 'Familiar QWERTY key rows: Q W E R T Y U I O P; A S D F G H J K L apostrophe; Z X C V B N M comma full stop question mark. Every other UK keyboard symbol is on Symbols.' }}
         />
         <p className="setting-note">Simple QWERTY keeps the letter order with fewer keys on its Letters page. Common letters first puts frequent English letters and Space early in row scanning. The keyboard footer cycles through all three layouts; the choice is saved.</p>
