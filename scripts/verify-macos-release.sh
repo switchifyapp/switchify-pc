@@ -83,8 +83,23 @@ if [[ "$architectures" != 'arm64' ]]; then
   exit 1
 fi
 
-xcrun stapler validate "$app_path"
-xcrun stapler validate "$dmg_path"
+# Apple's ticket lookup drops connections now and then; retry before failing.
+validate_stapled() {
+  local path="$1" attempt
+  for attempt in 1 2 3 4 5; do
+    if xcrun stapler validate "$path"; then
+      return 0
+    fi
+    echo "stapler validate failed for ${path} (attempt ${attempt} of 5)" >&2
+    if [[ "$attempt" -lt 5 ]]; then
+      sleep 20
+    fi
+  done
+  return 1
+}
+
+validate_stapled "$app_path"
+validate_stapled "$dmg_path"
 spctl --assess --type execute --verbose=4 "$app_path"
 spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg_path"
 
