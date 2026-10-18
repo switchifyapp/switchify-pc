@@ -46,7 +46,7 @@ Press **Escape**, or hold any switch for at least 4 seconds (longer if that swit
 
 While a Select switch is saved, Switchify PC takes its key everywhere, so a switch set to Space cannot type a space in other apps. To hand the keys back for a while, choose **Release switch keys** in the system tray on Windows or the menu bar on a Mac, or on the Home page under Saved switches. Your switches then do nothing in Switchify PC and the keys work as they normally would.
 
-Choose **Resume switch keys** in the same places to take them back. Home says **Switch keys released** while they are, and testing switches waits until you resume. The release lasts until you resume or restart Switchify PC, so the switches are always ready after a restart. Switchify on Android is not affected: a remote scanning session carries on, and the release takes effect on the computer's own keys once it ends.
+Choose **Resume switch keys** in the same places to take them back. Home shows **Keys released** under Saved switches while they are, and testing local switches waits until you resume. The release lasts until you resume or restart Switchify PC, so the switches are always ready after a restart. Switchify on Android is not affected: a remote scanning session carries on, and the release takes effect on the computer's own keys once it ends.
 
 ## On Windows
 

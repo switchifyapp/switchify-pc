@@ -16,7 +16,7 @@ Switchify PC's Help page has **Setup** and **Troubleshooting** tabs with the sam
 
 Holding any switch for about 4 seconds is the emergency stop; so is Escape. Press Select to start again. The scan also resets after three passes without a selection, and when the display or the window in front changes during a point scan.
 
-If Home says **Switch keys released**, someone chose **Release switch keys** in the tray or menu bar. Choose **Resume switch keys** there or on Home, or restart Switchify PC.
+If Home shows **Keys released** under Saved switches, someone chose **Release switch keys** in the tray or menu bar. Choose **Resume switch keys** there or on Home, or restart Switchify PC.
 
 ## My switch key no longer types in other apps
 
