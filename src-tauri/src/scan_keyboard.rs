@@ -235,8 +235,13 @@ fn rows_for(page: Page, mac: bool, layout: crate::point_scan::KeyboardLayout) ->
         let mut bottom = vec![Key::Modifier(0)];
         bottom.extend(letters("zxcvbnm"));
         // A full stop that stays one with Shift or Caps on.
-        bottom.extend([C('.', '.'), C(' ', ' ')]);
-        let modifiers = vec![Key::Modifier(1), Key::Modifier(2), Key::Modifier(3)];
+        bottom.push(C('.', '.'));
+        let modifiers = vec![
+            Key::Modifier(1),
+            Key::Modifier(2),
+            C(' ', ' '),
+            Key::Modifier(3),
+        ];
         let mut pages = page_row();
         pages.push(Key::Layout);
         return vec![top, middle, bottom, modifiers, pages];
@@ -2253,11 +2258,16 @@ mod tests {
         middle.push(Key::Named("Enter"));
         let mut bottom = vec![Key::Modifier(0)];
         bottom.extend(line("zxcvbnm"));
-        bottom.extend([Key::Character('.', '.'), Key::Character(' ', ' ')]);
+        bottom.push(Key::Character('.', '.'));
         assert_eq!(&letters[..3], &[top, middle, bottom]);
         assert_eq!(
             letters[3],
-            [Key::Modifier(1), Key::Modifier(2), Key::Modifier(3)]
+            [
+                Key::Modifier(1),
+                Key::Modifier(2),
+                Key::Character(' ', ' '),
+                Key::Modifier(3)
+            ]
         );
         assert_eq!(letters.len(), 5);
         assert!(letters[4].contains(&Key::Layout));
