@@ -18,7 +18,7 @@ The keyboard stays open after Space, Backspace, Enter and Tab, so you can keep w
 Choose in Settings or from the keyboard's footer:
 
 - **QWERTY**, the full layout.
-- **Simple QWERTY**, fewer keys per row.
+- **Simple QWERTY**, fewer keys per row, with Ctrl, Alt and Windows (Option and Command on a Mac) on a row of their own below the letters.
 - **Common letters first**, the most used letters nearest the start of each scan.
 
 ## Pages
