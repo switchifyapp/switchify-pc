@@ -58,13 +58,11 @@ pub fn execute<I: InputInjector>(
             }
             let mut modifiers = stroke.modifiers;
             let name = match stroke.key {
-                crate::scan_keyboard::Key::Character('+', '+') => {
+                crate::scan_keyboard::Key::Character(symbol, _)
+                    if shifted_symbol_key(symbol).is_some() =>
+                {
                     modifiers[0] = true;
-                    "=".into()
-                }
-                crate::scan_keyboard::Key::Character('*', '*') => {
-                    modifiers[0] = true;
-                    "8".into()
+                    shifted_symbol_key(symbol).unwrap().to_string()
                 }
                 crate::scan_keyboard::Key::Character(base, _) => {
                     base.to_ascii_uppercase().to_string()
@@ -127,6 +125,32 @@ pub fn execute<I: InputInjector>(
     }
 }
 thread_local! { static INPUT:std::cell::RefCell<Option<DesktopInput<enigo::Enigo>>>=const{std::cell::RefCell::new(None)}; }
+/// The key a symbol shares with Shift on both UK and US keyboards. A
+/// shortcut presses Shift and this key, since the symbol is not a key of its
+/// own. Symbols whose key differs between the two layouts are sent as they are.
+fn shifted_symbol_key(symbol: char) -> Option<char> {
+    Some(match symbol {
+        '!' => '1',
+        '$' => '4',
+        '%' => '5',
+        '^' => '6',
+        '&' => '7',
+        '*' => '8',
+        '(' => '9',
+        ')' => '0',
+        '_' => '-',
+        '+' => '=',
+        '{' => '[',
+        '}' => ']',
+        ':' => ';',
+        '<' => ',',
+        '>' => '.',
+        '?' => '/',
+        '|' => '\\',
+        _ => return None,
+    })
+}
+
 pub fn activate(request: Request) -> Result<(), String> {
     INPUT.with(|slot| {
         let mut input = slot.borrow_mut();
@@ -794,7 +818,7 @@ mod tests {
     #[test]
     fn numeric_operator_shortcuts_include_required_shift_and_release_every_key() {
         use crate::scan_keyboard::{Key, Stroke};
-        for (operator, native_key) in [('+', "="), ('*', "8")] {
+        for (operator, native_key) in [('+', "="), ('*', "8"), ('{', "["), ('?', "/"), ('_', "-")] {
             let mut input = DesktopInput::new(Fake::default());
             execute(
                 &mut input,

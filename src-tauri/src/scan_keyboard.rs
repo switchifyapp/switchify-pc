@@ -638,10 +638,11 @@ impl Keyboard {
             return None;
         }
         let mark = stroke.character()?;
-        let supported = matches!(mark, '.' | ',' | '!' | '?' | ':' | ';');
-        // The Numbers page full stop is a decimal point.
+        // Colon and semicolon stay literal for times, links and code. The
+        // Numbers page full stop is a decimal point.
+        let supported = matches!(mark, '.' | ',' | '!' | '?');
         let prose = matches!(self.page, Page::Letters | Page::Symbols);
-        (supported && (prose || mark == '!')).then_some(mark)
+        (supported && prose).then_some(mark)
     }
     fn choose_with_context(&mut self, key: Key, context: Option<TypingContext>) -> Option<Output> {
         self.discard_stale_context(context);
@@ -1408,27 +1409,27 @@ mod tests {
         keyboard.succeeded_with_context(context(1));
         keyboard.reset_context();
         keyboard.choose_with_context(Key::Page(Page::Symbols), context(1));
-        for mark in [';', ':', ',', '.', '?', '!'] {
+        for mark in [',', '.', '?', '!'] {
             assert!(
                 matches!(keyboard.choose_with_context(Key::Character(mark, mark), context(1)), Some(Output::Punctuation(p)) if p.mark == mark)
             );
             keyboard.succeeded_with_context(context(1));
         }
-        assert!(matches!(
-            keyboard.choose_with_context(Key::Character('@', '@'), context(1)),
-            Some(Output::Stroke(stroke)) if stroke.character() == Some('@')
-        ));
-        keyboard.succeeded_with_context(context(1));
+        // Typed as they are, so "https://" and "10:30" need no correcting.
+        for symbol in ['@', ':', ';', '/'] {
+            keyboard.reset_context();
+            assert!(matches!(
+                keyboard.choose_with_context(Key::Character(symbol, symbol), context(1)),
+                Some(Output::Stroke(stroke)) if stroke.character() == Some(symbol)
+            ));
+            keyboard.succeeded_with_context(context(1));
+        }
         keyboard.reset_context();
         keyboard.choose_with_context(Key::Page(Page::Numbers), context(1));
         assert!(matches!(
             keyboard.choose_with_context(Key::Character('.', '.'), context(1)),
             Some(Output::Stroke(_))
         ));
-        keyboard.succeeded_with_context(context(1));
-        assert!(
-            matches!(keyboard.choose_with_context(Key::Character('!', '!'), context(1)), Some(Output::Punctuation(p)) if p.mark == '!')
-        );
     }
 
     #[test]
@@ -2066,7 +2067,7 @@ mod tests {
             height: 720.0,
         };
         for direction in [Direction::Forward, Direction::Reverse] {
-            for page in [Page::Letters, Page::Numbers, Page::Functions] {
+            for page in [Page::Letters, Page::Numbers, Page::Functions, Page::Symbols] {
                 let mut keyboard = Keyboard::configured(
                     false,
                     crate::scan_preferences::Resolved {
@@ -2340,7 +2341,7 @@ mod tests {
         ));
         keyboard.succeeded_with_context(context(1));
         keyboard.choose(Key::Page(Page::Symbols));
-        for mark in [',', ';', '.'] {
+        for mark in [',', '.'] {
             assert!(
                 matches!(keyboard.choose_with_context(Key::Character(mark, mark), context(1)), Some(Output::Punctuation(p)) if p.mark == mark)
             );
@@ -2536,7 +2537,7 @@ mod tests {
         let docks = crate::scan_panel::position_rows(|dock| dock, Default::default());
         for units in [0.75, 1.0, 1.5, 2.0, 3.0] {
             for &dock in docks.iter().flatten() {
-                for page in [Page::Letters, Page::Functions, Page::Numbers] {
+                for page in [Page::Letters, Page::Functions, Page::Numbers, Page::Symbols] {
                     let mut k = Keyboard::new(false);
                     k.choose(Key::Page(page));
                     k.dock = dock;
