@@ -235,10 +235,16 @@ fn rows_for(page: Page, mac: bool, layout: crate::point_scan::KeyboardLayout) ->
         let mut bottom = vec![Key::Modifier(0)];
         bottom.extend(letters("zxcvbnm"));
         // A full stop that stays one with Shift or Caps on.
-        bottom.extend([C('.', '.'), C(' ', ' ')]);
+        bottom.push(C('.', '.'));
+        let modifiers = vec![
+            Key::Modifier(1),
+            Key::Modifier(2),
+            C(' ', ' '),
+            Key::Modifier(3),
+        ];
         let mut pages = page_row();
         pages.push(Key::Layout);
-        return vec![top, middle, bottom, pages];
+        return vec![top, middle, bottom, modifiers, pages];
     }
     let mut first = vec![C(' ', ' ')];
     first.extend(letters("etaoi"));
@@ -2238,7 +2244,7 @@ mod tests {
         }
     }
     #[test]
-    fn simple_qwerty_has_three_letter_rows_and_keeps_removed_keys_reachable() {
+    fn simple_qwerty_has_three_letter_rows_a_modifier_row_and_keeps_removed_keys_reachable() {
         use crate::point_scan::KeyboardLayout;
         let letters = rows_for(Page::Letters, false, KeyboardLayout::SimpleQwerty);
         let line = |text: &str| {
@@ -2252,10 +2258,19 @@ mod tests {
         middle.push(Key::Named("Enter"));
         let mut bottom = vec![Key::Modifier(0)];
         bottom.extend(line("zxcvbnm"));
-        bottom.extend([Key::Character('.', '.'), Key::Character(' ', ' ')]);
+        bottom.push(Key::Character('.', '.'));
         assert_eq!(&letters[..3], &[top, middle, bottom]);
-        assert_eq!(letters.len(), 4);
-        assert!(letters[3].contains(&Key::Layout));
+        assert_eq!(
+            letters[3],
+            [
+                Key::Modifier(1),
+                Key::Modifier(2),
+                Key::Character(' ', ' '),
+                Key::Modifier(3)
+            ]
+        );
+        assert_eq!(letters.len(), 5);
+        assert!(letters[4].contains(&Key::Layout));
         let symbols = rows_for(Page::Symbols, false, KeyboardLayout::SimpleQwerty);
         let functions = rows_for(Page::Functions, false, KeyboardLayout::SimpleQwerty);
         for key in rows(Page::Letters, false).into_iter().flatten() {
@@ -2289,7 +2304,7 @@ mod tests {
         );
         assert_eq!(keyboard.rows[0][0], Key::Prediction(0));
         assert_eq!(keyboard.rows[1][0], Key::Character('q', 'Q'));
-        assert_eq!(keyboard.rows.len(), 5);
+        assert_eq!(keyboard.rows.len(), 6);
     }
     #[test]
     fn simple_qwerty_letters_full_stop_stays_a_full_stop_and_starts_a_sentence() {
