@@ -23,7 +23,7 @@ export const browserState: AppState = {
     cursorOverlayEnabled: true, cursorOverlaySize: "medium", cursorOverlayColor: "red",
     cursorOverlayVisibility: "whileControlling",
     cursorCrosshairs: false, shareDiagnostics: false, autoApproveAccountDevices: true,
-    learnWordPrediction: true, carerToolbar: true,
+    learnWordPrediction: true,
   },
   capabilities: {
     platform: navigator.userAgent.includes("Mac") ? "macos" : "windows",

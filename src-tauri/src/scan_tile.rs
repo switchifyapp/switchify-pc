@@ -113,7 +113,7 @@ pub fn keyboard_font_size(tile: &FrameTile) -> f64 {
         _ => 16.0,
     }
 }
-pub(crate) fn key_outline(width: f32, height: f32, inset: f32, radius: f32) -> tiny_skia::Path {
+fn key_outline(width: f32, height: f32, inset: f32, radius: f32) -> tiny_skia::Path {
     let (left, top, right, bottom) = (inset, inset, width - inset, height - inset);
     let r = radius.min((right - left) / 2.0).min((bottom - top) / 2.0);
     let mut p = PathBuilder::new();
