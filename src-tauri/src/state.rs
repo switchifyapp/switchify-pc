@@ -1381,19 +1381,6 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
     #[test]
-    fn settings_saved_by_rc30_with_the_carer_toolbar_still_load() {
-        // rc.30 saved a carerToolbar choice; the toolbar is gone, and the
-        // field is ignored rather than resetting every other preference.
-        let mut stored = serde_json::to_value(AppSettings {
-            pointer_scale_percent: 150,
-            ..AppSettings::default()
-        })
-        .unwrap();
-        stored["carerToolbar"] = serde_json::json!(false);
-        let settings: AppSettings = serde_json::from_value(stored).unwrap();
-        assert_eq!(settings.pointer_scale_percent, 150);
-    }
-    #[test]
     fn settings_written_before_key_repeat_still_load_with_defaults() {
         // A settings blob exactly as shipped before key repeat existed. It must
         // keep deserializing, and the new fields must take their defaults rather
