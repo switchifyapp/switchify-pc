@@ -1092,6 +1092,10 @@ impl Keyboard {
                                 role: style.role,
                                 active: style.active,
                                 blank: false,
+                                // An empty suggestion slot keeps its place
+                                // so the others do not move under the scan.
+                                hidden: matches!(key, Key::Prediction(_))
+                                    && self.label(key).is_empty(),
                             }
                         })
                         .collect()
@@ -1212,18 +1216,25 @@ mod tests {
                 1.,
                 ScannerColor::default(),
             );
-            let tiles = &frame.tiles[1..9];
-            // Word slots share a width; phrase slots are twice as wide.
-            assert!(tiles[..5]
-                .iter()
-                .all(|t| (t.rect.width - tiles[0].rect.width).abs() < 0.01));
-            assert!(tiles[5..]
-                .iter()
-                .all(|t| (t.rect.width - tiles[5].rect.width).abs() < 0.01));
-            assert!(tiles[5].rect.width > tiles[0].rect.width * 1.5);
-            assert_eq!(tiles[1].text, "");
-            assert_eq!(tiles[3].text, "four");
-            assert_eq!(tiles[7].text, "eight nine");
+            // Only the filled slots are drawn, each in its own place.
+            let tiles = &frame.tiles[1..5];
+            assert_eq!(
+                tiles.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(),
+                ["one", "four", "six seven", "eight nine"]
+            );
+            assert!(tiles.iter().all(|t| t.rect.y == tiles[0].rect.y));
+            assert!(frame.tiles[5].rect.y > tiles[0].rect.y);
+            let pitch = (tiles[1].rect.x - tiles[0].rect.x) / 3.0;
+            let gap = pitch - tiles[0].rect.width;
+            assert!((tiles[1].rect.width - tiles[0].rect.width).abs() < 0.01);
+            assert!((tiles[2].rect.x - tiles[0].rect.x - 5.0 * pitch).abs() < 0.01);
+            // Phrase slots are twice as wide as word slots.
+            assert!((tiles[3].rect.width - tiles[2].rect.width).abs() < 0.01);
+            assert!(tiles[2].rect.width > tiles[0].rect.width * 1.5);
+            assert!(
+                (tiles[3].rect.x - tiles[2].rect.x - 2.0 * (tiles[2].rect.width + gap)).abs()
+                    < 0.01
+            );
         }
     }
 
@@ -2527,7 +2538,22 @@ mod tests {
                 keyboard.set_layout(layout);
                 keyboard.set_panel_size(size);
                 keyboard.enable_predictions(true);
+                // Empty slots are not drawn, but the panel keeps its size.
+                let empty = keyboard.frame(screen, 1.0, ScannerColor::default());
+                keyboard.predictions(
+                    Some(crate::prediction::worker::Batch {
+                        token: 41,
+                        refined: true,
+                        words: std::array::from_fn(|_| Some("a".into())),
+                    }),
+                    false,
+                );
                 let before = keyboard.frame(screen, 1.0, ScannerColor::default());
+                assert_eq!(empty.tiles[0].rect, before.tiles[0].rect);
+                assert_eq!(
+                    before.tiles.len() - empty.tiles.len(),
+                    crate::prediction::SLOTS
+                );
                 keyboard.predictions(
                     Some(crate::prediction::worker::Batch {
                         token: 42,

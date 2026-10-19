@@ -204,6 +204,7 @@ impl Menu {
                             role: item.role(),
                             active: false,
                             blank: false,
+                            hidden: false,
                         })
                         .collect()
                 })
