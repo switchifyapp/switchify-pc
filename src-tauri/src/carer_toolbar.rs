@@ -526,8 +526,9 @@ mod platform {
         panel: Retained<NSPanel>,
         /// Kept so the click monitor lives as long as the toolbar.
         _monitor: Option<Retained<AnyObject>>,
-        /// What is on screen, so an unchanged frame is not drawn again.
-        shown: Option<(Layout, bool, Option<Button>)>,
+        /// What is on screen and at which backing scale, so an unchanged
+        /// frame is not drawn again.
+        shown: Option<(Layout, bool, Option<Button>, f64)>,
         pressed: Option<Button>,
     }
 
@@ -552,8 +553,8 @@ mod platform {
         Some(primary.frame().origin.y + primary.frame().size.height)
     }
 
-    /// The visible area of the display the panel is on.
-    fn area(mtm: MainThreadMarker, top: f64, panel: Rect) -> Rect {
+    /// The visible area and backing scale of the display the panel is on.
+    fn area(mtm: MainThreadMarker, top: f64, panel: Rect) -> (Rect, f64) {
         let (x, y) = (panel.x + panel.width / 2.0, panel.y + panel.height / 2.0);
         for screen in NSScreen::screens(mtm).iter() {
             let f = screen.frame();
@@ -564,15 +565,18 @@ mod platform {
                 && y < frame_y + f.size.height
             {
                 let r = screen.visibleFrame();
-                return Rect {
-                    x: r.origin.x,
-                    y: top - r.origin.y - r.size.height,
-                    width: r.size.width,
-                    height: r.size.height,
-                };
+                return (
+                    Rect {
+                        x: r.origin.x,
+                        y: top - r.origin.y - r.size.height,
+                        width: r.size.width,
+                        height: r.size.height,
+                    },
+                    screen.backingScaleFactor(),
+                );
             }
         }
-        panel
+        (panel, 1.0)
     }
 
     fn pointer(top: f64) -> (f64, f64) {
@@ -591,7 +595,8 @@ mod platform {
     pub fn show(panel: Rect, paused: bool, scan_pointer: bool) -> Result<(), String> {
         let mtm = MainThreadMarker::new().ok_or("The carer toolbar needs the main thread.")?;
         let top = top(mtm).ok_or("No display is available for the carer toolbar.")?;
-        let layout = Layout::new(panel, area(mtm, top, panel), 1.0);
+        let (area, ratio) = area(mtm, top, panel);
+        let layout = Layout::new(panel, area, 1.0);
         let aside = ASIDE_UNTIL
             .get()
             .is_some_and(|until| std::time::Instant::now() < until);
@@ -611,11 +616,11 @@ mod platform {
                 *slot = Some(create(mtm));
             }
             let toolbar = slot.as_mut().expect("toolbar was just created");
-            let next = (layout, paused, hovered);
+            let next = (layout, paused, hovered, ratio);
             if toolbar.shown == Some(next) {
                 return Ok(());
             }
-            present(mtm, top, &toolbar.panel, &layout, paused, hovered)?;
+            present(mtm, top, &toolbar.panel, &layout, paused, hovered, ratio)?;
             toolbar.shown = Some(next);
             Ok(())
         })
@@ -710,9 +715,11 @@ mod platform {
         layout: &Layout,
         paused: bool,
         hovered: Option<Button>,
+        ratio: f64,
     ) -> Result<(), String> {
         let r = layout.rect;
-        let ratio = panel.backingScaleFactor().max(1.0);
+        // The scale of the display it is going to, not the one it was on.
+        let ratio = ratio.max(1.0);
         let pixels = bitmap(layout, ratio, hovered)?;
         let image = crate::overlay::platform::image_from_rgba_rect(
             pixels.data(),
