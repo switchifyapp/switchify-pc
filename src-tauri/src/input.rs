@@ -271,15 +271,16 @@ fn foreground_layout_scan(unit: u16) -> i16 {
 
 /// The keys a shortcut presses on Windows. Each symbol in a shortcut becomes
 /// the key that types it on the layout `scan` reads, with Shift when the
-/// layout needs it and the shortcut does not already hold Shift. A symbol on
-/// its own is left to enigo, which types it as text when no key makes it.
+/// layout needs it and the shortcut does not already hold Shift. A symbol is
+/// looked up even when it is the only key left, as when the remote already
+/// holds the shortcut's modifiers.
 #[cfg(target_os = "windows")]
 fn windows_chord_keys(keys: &[&str], scan: impl Fn(u16) -> i16) -> Result<Vec<ChordKey>, String> {
     let shift = ChordKey::Named("Shift".into());
     let mut chord = Vec::with_capacity(keys.len() + 1);
     for key in keys {
         let symbol = match named_key(key) {
-            Some(Key::Unicode(symbol)) if keys.len() > 1 => symbol,
+            Some(Key::Unicode(symbol)) => symbol,
             _ => {
                 chord.push(ChordKey::Named((*key).into()));
                 continue;
@@ -1311,7 +1312,8 @@ impl<I: InputInjector> DesktopInput<I> {
                         .map(str::to_owned)
                         .collect()
                 });
-                self.injector.press_shortcut(&keys, false)
+                let shift_held = self.held_modifiers.contains(&ModifierKey::Shift);
+                self.injector.press_shortcut(&keys, shift_held)
             }
             "mouseClick" => self
                 .injector
@@ -2057,8 +2059,12 @@ mod tests {
             chord(&["Ctrl", "=", "Tab"]),
             Ok(vec![named("Ctrl"), named("="), named("Tab")])
         );
-        // A symbol on its own keeps enigo's text fallback.
-        assert_eq!(chord(&["ñ"]), Ok(vec![named("ñ")]));
+        // A symbol left alone because the remote holds the modifiers.
+        assert_eq!(
+            chord(&["?"]),
+            Ok(vec![named("Shift"), ChordKey::Virtual(0xbf)])
+        );
+        assert!(chord(&["ñ"]).is_err());
         assert!(chord(&["Ctrl", "€"]).is_err());
         assert!(chord(&["Ctrl", "ñ"]).is_err());
     }
