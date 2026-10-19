@@ -1,9 +1,9 @@
 //! A small toolbar beside each scanning panel that a carer can click with a
 //! mouse: open Settings, pause or resume scanning, or close the panel. It is
 //! not part of scanning, so switch users scan exactly as before. Unlike the
-//! panels it accepts clicks, but it never takes focus. Windows only for now.
-// Only the Windows window and the tests use the layout.
-#![cfg_attr(not(target_os = "windows"), allow(dead_code))]
+//! panels it accepts clicks, but it never takes focus or activates the app.
+// Only the Windows and macOS windows and the tests use the layout.
+#![cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
 use crate::scanning::Rect;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -117,6 +117,55 @@ fn overlaps(a: Rect, b: Rect) -> bool {
     a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 }
 
+/// The toolbar's picture at `ratio` pixels per layout unit: a dark strip with
+/// one key per button, the hovered one lighter. Each platform draws the
+/// labels in its own font.
+pub fn bitmap(
+    layout: &Layout,
+    ratio: f64,
+    hovered: Option<Button>,
+) -> Result<tiny_skia::Pixmap, String> {
+    use tiny_skia::{FillRule, Paint, Pixmap, Transform};
+    let px = |value: f64| (value * ratio) as f32;
+    let mut pixmap = Pixmap::new(
+        px(layout.rect.width).round().max(1.0) as u32,
+        px(layout.rect.height).round().max(1.0) as u32,
+    )
+    .ok_or("The carer toolbar bitmap could not be created.")?;
+    // Corner radii follow the toolbar's height, so they scale with it.
+    let unit = layout.rect.height / HEIGHT;
+    let mut paint = Paint::default();
+    paint.set_color_rgba8(20, 24, 32, 255);
+    pixmap.fill_path(
+        &crate::scan_tile::key_outline(
+            pixmap.width() as f32,
+            pixmap.height() as f32,
+            0.0,
+            px(10.0 * unit),
+        ),
+        &paint,
+        FillRule::Winding,
+        Transform::identity(),
+        None,
+    );
+    for (button, rect) in layout.buttons {
+        let shade = if hovered == Some(button) {
+            [64, 78, 102]
+        } else {
+            [43, 51, 66]
+        };
+        paint.set_color_rgba8(shade[0], shade[1], shade[2], 255);
+        pixmap.fill_path(
+            &crate::scan_tile::key_outline(px(rect.width), px(rect.height), 0.0, px(6.0 * unit)),
+            &paint,
+            FillRule::Winding,
+            Transform::from_translate(px(rect.x), px(rect.y)),
+            None,
+        );
+    }
+    Ok(pixmap)
+}
+
 static ENABLED: AtomicBool = AtomicBool::new(true);
 
 /// Follows the "Show carer toolbar" setting. The next scan tick shows or
@@ -140,18 +189,18 @@ fn perform(app: &tauri::AppHandle, button: Button) {
     });
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub use platform::{hide, install, show, step_aside};
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn install(_: &tauri::AppHandle) {}
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn show(_: Rect, _: bool, _: bool) -> Result<(), String> {
     Ok(())
 }
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn hide() {}
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn step_aside() {}
 
 #[cfg(target_os = "windows")]
@@ -454,6 +503,269 @@ mod platform {
             _ => {}
         }
         unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod platform {
+    use super::{bitmap, perform, Button, Layout};
+    use crate::scanning::Rect;
+    use block2::RcBlock;
+    use objc2::{rc::Retained, runtime::AnyObject, MainThreadMarker, MainThreadOnly};
+    use objc2_app_kit::{
+        NSColor, NSEvent, NSEventMask, NSEventType, NSFont, NSImageView, NSPanel, NSScreen,
+        NSTextAlignment, NSTextField, NSView,
+    };
+    use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
+    use std::{cell::RefCell, ptr::NonNull, sync::OnceLock};
+    use tauri::AppHandle;
+
+    static APP: OnceLock<AppHandle> = OnceLock::new();
+
+    struct Toolbar {
+        panel: Retained<NSPanel>,
+        /// Kept so the click monitor lives as long as the toolbar.
+        _monitor: Option<Retained<AnyObject>>,
+        /// What is on screen and at which backing scale, so an unchanged
+        /// frame is not drawn again.
+        shown: Option<(Layout, bool, Option<Button>, f64)>,
+        pressed: Option<Button>,
+    }
+
+    thread_local! {
+        static TOOLBAR: RefCell<Option<Toolbar>> = const { RefCell::new(None) };
+        /// Until when the toolbar keeps out of the pointer's way after a scan
+        /// click or scroll, which is posted and lands a moment later.
+        static ASIDE_UNTIL: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
+    }
+
+    const ASIDE: std::time::Duration = std::time::Duration::from_millis(250);
+
+    pub fn install(app: &AppHandle) {
+        let _ = APP.set(app.clone());
+    }
+
+    /// The top of the main display, which flips AppKit's bottom-left
+    /// coordinates to the top-left ones the panels use.
+    fn top(mtm: MainThreadMarker) -> Option<f64> {
+        let screens = NSScreen::screens(mtm);
+        let primary = screens.firstObject()?;
+        Some(primary.frame().origin.y + primary.frame().size.height)
+    }
+
+    /// The visible area and backing scale of the display the panel is on.
+    fn area(mtm: MainThreadMarker, top: f64, panel: Rect) -> (Rect, f64) {
+        let (x, y) = (panel.x + panel.width / 2.0, panel.y + panel.height / 2.0);
+        for screen in NSScreen::screens(mtm).iter() {
+            let f = screen.frame();
+            let frame_y = top - f.origin.y - f.size.height;
+            if x >= f.origin.x
+                && x < f.origin.x + f.size.width
+                && y >= frame_y
+                && y < frame_y + f.size.height
+            {
+                let r = screen.visibleFrame();
+                return (
+                    Rect {
+                        x: r.origin.x,
+                        y: top - r.origin.y - r.size.height,
+                        width: r.size.width,
+                        height: r.size.height,
+                    },
+                    screen.backingScaleFactor(),
+                );
+            }
+        }
+        (panel, 1.0)
+    }
+
+    fn pointer(top: f64) -> (f64, f64) {
+        let point = NSEvent::mouseLocation();
+        (point.x, top - point.y)
+    }
+
+    fn under_pointer(top: f64, layout: &Layout) -> bool {
+        let (x, y) = pointer(top);
+        layout.contains(x, y)
+    }
+
+    /// Shows the toolbar beside the panel with this rectangle. With
+    /// `scan_pointer`, scanning is moving the pointer, and the toolbar steps
+    /// aside while the pointer is over it.
+    pub fn show(panel: Rect, paused: bool, scan_pointer: bool) -> Result<(), String> {
+        let mtm = MainThreadMarker::new().ok_or("The carer toolbar needs the main thread.")?;
+        let top = top(mtm).ok_or("No display is available for the carer toolbar.")?;
+        let (area, ratio) = area(mtm, top, panel);
+        let layout = Layout::new(panel, area, 1.0);
+        let aside = ASIDE_UNTIL
+            .get()
+            .is_some_and(|until| std::time::Instant::now() < until);
+        if !layout.clear_of(panel) || ((scan_pointer || aside) && under_pointer(top, &layout)) {
+            hide();
+            return Ok(());
+        }
+        let (x, y) = pointer(top);
+        let hovered = if scan_pointer {
+            None
+        } else {
+            layout.hit(x - layout.rect.x, y - layout.rect.y)
+        };
+        TOOLBAR.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            if slot.is_none() {
+                *slot = Some(create(mtm));
+            }
+            let toolbar = slot.as_mut().expect("toolbar was just created");
+            let next = (layout, paused, hovered, ratio);
+            if toolbar.shown == Some(next) {
+                return Ok(());
+            }
+            present(mtm, top, &toolbar.panel, &layout, paused, hovered, ratio)?;
+            toolbar.shown = Some(next);
+            Ok(())
+        })
+    }
+
+    /// Hides the toolbar if the pointer is over it, just before a scan action
+    /// is sent there; it returns once the action has landed.
+    pub fn step_aside() {
+        ASIDE_UNTIL.set(Some(std::time::Instant::now() + ASIDE));
+        let Some(top) = MainThreadMarker::new().and_then(top) else {
+            return;
+        };
+        let under = TOOLBAR.with(|slot| {
+            slot.try_borrow()
+                .ok()
+                .and_then(|slot| slot.as_ref().and_then(|toolbar| toolbar.shown))
+                .is_some_and(|(layout, ..)| under_pointer(top, &layout))
+        });
+        if under {
+            hide();
+        }
+    }
+
+    pub fn hide() {
+        TOOLBAR.with(|slot| {
+            if let Ok(mut slot) = slot.try_borrow_mut() {
+                if let Some(toolbar) = slot.as_mut() {
+                    if toolbar.shown.take().is_some() {
+                        toolbar.pressed = None;
+                        toolbar.panel.orderOut(None);
+                    }
+                }
+            }
+        });
+    }
+
+    fn create(mtm: MainThreadMarker) -> Toolbar {
+        let panel = crate::overlay::platform::make_panel(mtm);
+        // Unlike the panels it takes clicks; as a non-activating panel it
+        // still never takes focus or activates Switchify PC.
+        panel.setIgnoresMouseEvents(false);
+        let handler = RcBlock::new(|event: NonNull<NSEvent>| -> *mut NSEvent {
+            // SAFETY: AppKit passes a valid event for the handler's duration.
+            clicked(unsafe { event.as_ref() });
+            event.as_ptr()
+        });
+        // SAFETY: the handler returns the event it was given, unchanged.
+        let monitor = unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(
+                NSEventMask::LeftMouseDown | NSEventMask::LeftMouseUp,
+                &handler,
+            )
+        };
+        Toolbar {
+            panel,
+            _monitor: monitor,
+            shown: None,
+            pressed: None,
+        }
+    }
+
+    /// Acts on a click that lands on a toolbar button, once the same button
+    /// is pressed and released.
+    fn clicked(event: &NSEvent) {
+        let button = TOOLBAR.with(|slot| {
+            let mut slot = slot.try_borrow_mut().ok()?;
+            let toolbar = slot.as_mut()?;
+            if event.windowNumber() != toolbar.panel.windowNumber() {
+                return None;
+            }
+            let (layout, ..) = toolbar.shown?;
+            let point = event.locationInWindow();
+            let hit = layout.hit(point.x, layout.rect.height - point.y);
+            match event.r#type() {
+                NSEventType::LeftMouseDown => {
+                    toolbar.pressed = hit;
+                    None
+                }
+                NSEventType::LeftMouseUp => toolbar.pressed.take().filter(|b| Some(*b) == hit),
+                _ => None,
+            }
+        });
+        if let (Some(button), Some(app)) = (button, APP.get()) {
+            perform(app, button);
+        }
+    }
+
+    fn present(
+        mtm: MainThreadMarker,
+        top: f64,
+        panel: &NSPanel,
+        layout: &Layout,
+        paused: bool,
+        hovered: Option<Button>,
+        ratio: f64,
+    ) -> Result<(), String> {
+        let r = layout.rect;
+        // The scale of the display it is going to, not the one it was on.
+        let ratio = ratio.max(1.0);
+        let pixels = bitmap(layout, ratio, hovered)?;
+        let image = crate::overlay::platform::image_from_rgba_rect(
+            pixels.data(),
+            pixels.width() as usize,
+            pixels.height() as usize,
+            r.width,
+            r.height,
+        )?;
+        let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(r.width, r.height));
+        let view = NSView::initWithFrame(NSView::alloc(mtm), bounds);
+        let image_view = NSImageView::initWithFrame(NSImageView::alloc(mtm), bounds);
+        image_view.setImage(Some(&image));
+        view.addSubview(&image_view);
+        for (button, key) in layout.buttons {
+            let label =
+                NSTextField::labelWithString(&NSString::from_str(button.label(paused)), mtm);
+            label.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
+            label.setTextColor(Some(&NSColor::whiteColor()));
+            label.setAlignment(NSTextAlignment::Center);
+            let height = label
+                .cell()
+                .ok_or("The carer toolbar label is unavailable.")?
+                .cellSizeForBounds(NSRect::new(
+                    NSPoint::new(0.0, 0.0),
+                    NSSize::new(key.width, f64::MAX),
+                ))
+                .height
+                .min(key.height);
+            // AppKit views count up from the bottom.
+            let bottom = r.height - key.y - key.height;
+            label.setFrame(NSRect::new(
+                NSPoint::new(key.x, bottom + (key.height - height) / 2.0),
+                NSSize::new(key.width, height),
+            ));
+            view.addSubview(&label);
+        }
+        panel.setFrame_display(
+            NSRect::new(
+                NSPoint::new(r.x, top - r.y - r.height),
+                NSSize::new(r.width, r.height),
+            ),
+            false,
+        );
+        panel.setContentView(Some(&view));
+        panel.orderFrontRegardless();
+        Ok(())
     }
 }
 
