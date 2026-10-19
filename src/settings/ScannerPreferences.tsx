@@ -200,7 +200,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
     {(area === 'keyboard' || area === 'mouse' || area === 'menu') && <SettingGroup title="Panel position" description="The keyboard, the mouse panel, Home and the action menus share one position. Choose it from Position on the keyboard or mouse panel.">
       <Toggle label="Move away from the pointer" checked={config.panelAvoidsPointer} disabled={disabled} onChange={value => update('panelAvoidsPointer', value)} />
       <p className="setting-note">While the pointer is over a panel or menu, it moves to the other side of the screen. It returns when the pointer moves away.</p>
-      {platform === 'windows' && appSettings && onSettingsChange && <>
+      {(platform === 'windows' || platform === 'macos') && appSettings && onSettingsChange && <>
         <Toggle label="Show carer toolbar" checked={appSettings.carerToolbar} onChange={value => onSettingsChange({ ...appSettings, carerToolbar: value })} />
         <p className="setting-note">A small bar beside the panel with Settings, Pause and Close panel buttons, for someone helping with a mouse. Switches never scan it. This choice stays on this computer.</p>
       </>}

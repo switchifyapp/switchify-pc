@@ -34,7 +34,7 @@ How menus and the keyboard are grouped:
 
 ## Carer toolbar
 
-On Windows, a small toolbar sits just above or below the keyboard, the mouse panel, Home and the action menus. It is for someone helping with a mouse:
+A small toolbar sits just above or below the keyboard, the mouse panel, Home and the action menus. It is for someone helping with a mouse:
 
 - **Settings** opens Switchify PC on its Settings page.
 - **Pause** stops the scanning moving, and **Resume** starts it again. If a key or the pointer is repeating on its own, Pause stops that first.

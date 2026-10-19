@@ -689,8 +689,8 @@ pub(crate) fn present_scan_tile(
     )
 }
 
-/// Draws the carer toolbar: a dark strip with one key per button, the
-/// hovered one lighter.
+/// Draws the carer toolbar from its shared bitmap, with the button labels in
+/// the native font.
 pub(crate) fn present_carer_toolbar(
     window: HWND,
     toolbar: &crate::carer_toolbar::Layout,
@@ -698,59 +698,29 @@ pub(crate) fn present_carer_toolbar(
     paused: bool,
     hovered: Option<crate::carer_toolbar::Button>,
 ) -> Result<(), String> {
-    let scale = valid_scale(scale);
-    let width = toolbar.rect.width.round() as i32;
-    let height = toolbar.rect.height.round() as i32;
-    let mut pixmap = Pixmap::new(width.max(1) as u32, height.max(1) as u32)
-        .ok_or_else(|| "the carer toolbar bitmap could not be created".to_string())?;
-    let mut paint = Paint::default();
-    paint.set_color_rgba8(20, 24, 32, 255);
-    let strip = Rect::from_xywh(0.0, 0.0, width as f32, height as f32)
-        .ok_or_else(|| "the carer toolbar geometry is invalid".to_string())?;
-    pixmap.fill_path(
-        &rounded_rect(strip, (10.0 * scale) as f32)?,
-        &paint,
-        tiny_skia::FillRule::Winding,
-        Transform::identity(),
-        None,
-    );
-    let mut chips = Vec::with_capacity(toolbar.buttons.len());
-    let mut labels = Vec::with_capacity(toolbar.buttons.len());
-    for (button, rect) in toolbar.buttons {
-        let shade = if hovered == Some(button) {
-            [64, 78, 102]
-        } else {
-            [43, 51, 66]
-        };
-        paint.set_color_rgba8(shade[0], shade[1], shade[2], 255);
-        let key = Rect::from_xywh(
-            rect.x as f32,
-            rect.y as f32,
-            rect.width as f32,
-            rect.height as f32,
-        )
-        .ok_or_else(|| "the carer toolbar button geometry is invalid".to_string())?;
-        pixmap.fill_path(
-            &rounded_rect(key, (6.0 * scale) as f32)?,
-            &paint,
-            tiny_skia::FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
-        chips.push(RECT {
+    // The layout is already in physical pixels on Windows.
+    let pixmap = crate::carer_toolbar::bitmap(toolbar, 1.0, hovered)?;
+    let chips = toolbar
+        .buttons
+        .iter()
+        .map(|(_, rect)| RECT {
             left: rect.x.round() as i32,
             top: rect.y.round() as i32,
             right: (rect.x + rect.width).round() as i32,
             bottom: (rect.y + rect.height).round() as i32,
-        });
-        labels.push(button.label(paused).to_string());
-    }
+        })
+        .collect();
+    let labels = toolbar
+        .buttons
+        .iter()
+        .map(|(button, _)| button.label(paused).to_string())
+        .collect::<Vec<_>>();
     let layout = Layout {
         x: toolbar.rect.x.round() as i32,
         y: toolbar.rect.y.round() as i32,
-        width,
-        height,
-        scale,
+        width: pixmap.width() as i32,
+        height: pixmap.height() as i32,
+        scale: valid_scale(scale),
         chips,
     };
     present_pixmap_with_text(window, &labels, &layout, pixmap.data(), false, false, true)
