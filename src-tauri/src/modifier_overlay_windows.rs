@@ -412,6 +412,7 @@ fn present(window: HWND, labels: &[String], layout: &Layout) -> Result<(), Strin
         pixmap.data(),
         labels.iter().any(|label| label.contains('\n')),
         false,
+        false,
     )
 }
 
@@ -474,6 +475,7 @@ fn present_pixmap_with_text(
     rgba: &[u8],
     wrap: bool,
     center_wrapped: bool,
+    opaque_text: bool,
 ) -> Result<(), String> {
     unsafe {
         let screen = ScreenDc(GetDC(None));
@@ -570,6 +572,16 @@ fn present_pixmap_with_text(
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
                 },
             );
+        }
+
+        // GDI clears alpha on the pixels it draws text on. A window that takes
+        // clicks needs them opaque, or a click on a label falls through it.
+        if opaque_text {
+            for pixel in output.chunks_exact_mut(4) {
+                if pixel[3] == 0 && pixel[..3].iter().any(|channel| *channel != 0) {
+                    pixel[3] = 255;
+                }
+            }
         }
 
         #[cfg(test)]
@@ -673,7 +685,75 @@ pub(crate) fn present_scan_tile(
         pixmap.data(),
         true,
         true,
+        false,
     )
+}
+
+/// Draws the carer toolbar: a dark strip with one key per button, the
+/// hovered one lighter.
+pub(crate) fn present_carer_toolbar(
+    window: HWND,
+    toolbar: &crate::carer_toolbar::Layout,
+    scale: f64,
+    paused: bool,
+    hovered: Option<crate::carer_toolbar::Button>,
+) -> Result<(), String> {
+    let scale = valid_scale(scale);
+    let width = toolbar.rect.width.round() as i32;
+    let height = toolbar.rect.height.round() as i32;
+    let mut pixmap = Pixmap::new(width.max(1) as u32, height.max(1) as u32)
+        .ok_or_else(|| "the carer toolbar bitmap could not be created".to_string())?;
+    let mut paint = Paint::default();
+    paint.set_color_rgba8(20, 24, 32, 255);
+    let strip = Rect::from_xywh(0.0, 0.0, width as f32, height as f32)
+        .ok_or_else(|| "the carer toolbar geometry is invalid".to_string())?;
+    pixmap.fill_path(
+        &rounded_rect(strip, (10.0 * scale) as f32)?,
+        &paint,
+        tiny_skia::FillRule::Winding,
+        Transform::identity(),
+        None,
+    );
+    let mut chips = Vec::with_capacity(toolbar.buttons.len());
+    let mut labels = Vec::with_capacity(toolbar.buttons.len());
+    for (button, rect) in toolbar.buttons {
+        let shade = if hovered == Some(button) {
+            [64, 78, 102]
+        } else {
+            [43, 51, 66]
+        };
+        paint.set_color_rgba8(shade[0], shade[1], shade[2], 255);
+        let key = Rect::from_xywh(
+            rect.x as f32,
+            rect.y as f32,
+            rect.width as f32,
+            rect.height as f32,
+        )
+        .ok_or_else(|| "the carer toolbar button geometry is invalid".to_string())?;
+        pixmap.fill_path(
+            &rounded_rect(key, (6.0 * scale) as f32)?,
+            &paint,
+            tiny_skia::FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+        chips.push(RECT {
+            left: rect.x.round() as i32,
+            top: rect.y.round() as i32,
+            right: (rect.x + rect.width).round() as i32,
+            bottom: (rect.y + rect.height).round() as i32,
+        });
+        labels.push(button.label(paused).to_string());
+    }
+    let layout = Layout {
+        x: toolbar.rect.x.round() as i32,
+        y: toolbar.rect.y.round() as i32,
+        width,
+        height,
+        scale,
+        chips,
+    };
+    present_pixmap_with_text(window, &labels, &layout, pixmap.data(), false, false, true)
 }
 
 pub(crate) fn present_scan_prompt(
@@ -728,6 +808,7 @@ mod tests {
                 &pixels,
                 wrapped,
                 wrapped,
+                false,
             );
             assert!(result.is_err());
         }
@@ -957,6 +1038,58 @@ mod tests {
                         .unwrap()
                 });
             }
+        }
+    }
+
+    #[test]
+    #[ignore = "Exports the synthetic carer toolbar through the native Windows text renderer; no input or desktop capture"]
+    fn export_carer_toolbar_fixtures() {
+        use crate::carer_toolbar::{Button, Layout};
+        use crate::scanning::Rect;
+        let directory =
+            std::env::var("SWITCHIFY_PANEL_FIXTURES").expect("fixture output directory");
+        std::fs::create_dir_all(&directory).unwrap();
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let panel = Rect {
+            x: 600.0,
+            y: 700.0,
+            width: 720.0,
+            height: 300.0,
+        };
+        for (name, scale, paused, hovered) in [
+            ("toolbar", 1.0, false, None),
+            ("toolbar-hover-settings", 1.0, false, Some(Button::Settings)),
+            ("toolbar-paused", 1.0, true, None),
+            ("toolbar-150", 1.5, false, Some(Button::Close)),
+        ] {
+            let mut toolbar = Layout::new(panel, screen, scale);
+            toolbar.rect.x = 0.0;
+            toolbar.rect.y = 0.0;
+            super::PANEL_FIXTURE.with(|fixture| {
+                *fixture.borrow_mut() =
+                    tiny_skia::Pixmap::new(toolbar.rect.width as u32, toolbar.rect.height as u32)
+            });
+            super::present_carer_toolbar(
+                windows::Win32::Foundation::HWND::default(),
+                &toolbar,
+                scale,
+                paused,
+                hovered,
+            )
+            .unwrap();
+            super::PANEL_FIXTURE.with(|fixture| {
+                fixture
+                    .borrow_mut()
+                    .take()
+                    .unwrap()
+                    .save_png(std::path::Path::new(&directory).join(format!("{name}.png")))
+                    .unwrap()
+            });
         }
     }
 

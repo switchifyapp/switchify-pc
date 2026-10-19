@@ -251,6 +251,7 @@ fn publish<A: Adapter>(app: &AppHandle) {
 struct ScanService {
     cancel: fn(&AppHandle),
     release: fn(&AppHandle),
+    pause: fn(&AppHandle),
     halt: fn(&AppHandle),
 }
 /// Whether the person handed the switch keys back to other applications from
@@ -282,6 +283,49 @@ pub fn cancel(app: &AppHandle) {
     if let Some(service) = app.try_state::<ScanService>() {
         (service.cancel)(app);
     }
+}
+/// Closes the panel from the carer toolbar as Escape would, unless a remote
+/// session is in control.
+pub fn close_panel(app: &AppHandle) {
+    if let Some(service) = app.try_state::<ScanService>() {
+        (service.release)(app);
+    }
+}
+/// Pauses or resumes local scanning from the carer toolbar, as the Pause
+/// switch does.
+pub fn toggle_pause(app: &AppHandle) {
+    if let Some(service) = app.try_state::<ScanService>() {
+        (service.pause)(app);
+    }
+}
+fn pause_for<A: Adapter>(app: &AppHandle) {
+    // As for release, the remote session is the gate, checked before the
+    // scanner's own lock is taken.
+    if crate::remote_scan::active(app) {
+        return;
+    }
+    let Some(c) = app.try_state::<Controller<A>>() else {
+        return;
+    };
+    {
+        let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+        if d.remote {
+            return;
+        }
+        let d = &mut *d;
+        let Some(engine) = d.engine.as_mut() else {
+            return;
+        };
+        // As with the Pause switch, a running mouse repeat stops first.
+        if engine.technique.mouse_repeating() {
+            if engine.technique.stop_mouse_repeat() {
+                d.last_tick = Instant::now();
+            }
+        } else {
+            engine.action(Action::Pause);
+        }
+    }
+    publish::<A>(app);
 }
 /// Stops scanning for good, for application exit.
 pub fn halt(app: &AppHandle) {
@@ -631,11 +675,17 @@ fn dispatch<A: Adapter>(
     if !c.enabled.load(Ordering::SeqCst) || !input_active(app, input_generation, remote) {
         return Err("Scan action was cancelled.".into());
     }
-    if !A::preserve_visuals(&request) {
+    let pointer_feedback = A::cursor_action_feedback(&request);
+    let preserve = A::preserve_visuals(&request);
+    if !preserve {
         hide_scan_visuals();
     }
+    // A click or scroll at the pointer must reach the app, not the carer
+    // toolbar, which keeps out of the way briefly once it is sent.
+    if !preserve || pointer_feedback.is_some() {
+        crate::carer_toolbar::step_aside();
+    }
     let deferred = A::deferred(&request);
-    let pointer_feedback = A::cursor_action_feedback(&request);
     match A::activate(app, request) {
         Ok(environment) => {
             let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
@@ -721,6 +771,7 @@ fn clear_cached_visual<H, C: Default>(state: &mut (H, C), hide: impl FnOnce(&mut
 }
 
 fn hide_scan_visuals() {
+    crate::carer_toolbar::hide();
     for slot in [&HOST, &PROMPT, &LABEL] {
         slot.with(|host| {
             if let Some(host) = host.borrow_mut().as_mut() {
@@ -847,6 +898,33 @@ fn render<A: Adapter>(
         }
     })?;
     render_tiles(&frame.tiles)?;
+    // The carer toolbar follows the panel; it is not shown while a remote
+    // session or a switch prompt is in control.
+    let panel = frame
+        .tiles
+        .first()
+        .filter(|tile| tile.is_panel_background())
+        .map(|tile| tile.rect);
+    match panel {
+        Some(panel) if crate::carer_toolbar::enabled() && !d.remote && prompt.is_none() => {
+            let paused = d.engine.as_ref().is_some_and(Session::paused);
+            let scan_pointer = matches!(
+                d.engine
+                    .as_ref()
+                    .and_then(|engine| A::cursor_feedback(&engine.technique)),
+                Some(
+                    crate::input::PointerFeedback::RepeatMove { .. }
+                        | crate::input::PointerFeedback::RepeatScroll { .. }
+                )
+            );
+            // The toolbar is an aid for carers; failing to draw it must not
+            // stop scanning.
+            if crate::carer_toolbar::show(panel, paused, scan_pointer).is_err() {
+                crate::carer_toolbar::hide();
+            }
+        }
+        _ => crate::carer_toolbar::hide(),
+    }
     render_countdown(frame.countdown.as_ref())?;
     render_label(frame.label_for_prompt(prompt.is_some()))?;
     show_prompt(app, prompt)?;
@@ -1163,6 +1241,7 @@ pub fn install<A: Adapter>(app: &AppHandle) {
     app.manage(ScanService {
         cancel: cancel_for::<A>,
         release: release_for::<A>,
+        pause: pause_for::<A>,
         halt: halt_for::<A>,
     });
     let app = app.clone();
