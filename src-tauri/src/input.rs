@@ -116,6 +116,14 @@ impl ModifierKey {
     }
 }
 
+/// A key in a shortcut, after Windows has found the key for each symbol.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChordKey {
+    Named(String),
+    #[cfg(target_os = "windows")]
+    Virtual(u16),
+}
+
 pub trait InputInjector {
     fn inject_text(&mut self, text: &str) -> Result<(), String>;
     #[cfg_attr(
@@ -138,7 +146,25 @@ pub trait InputInjector {
     fn set_pointer_button(&mut self, button: MouseButton, down: bool) -> Result<(), String>;
     fn scroll(&mut self, dx: i32, dy: i32) -> Result<(), String>;
     fn set_key(&mut self, key: &str, down: bool) -> Result<(), String>;
-    fn press_shortcut(&mut self, keys: &[String]) -> Result<(), String>;
+    /// The keys a shortcut presses, in order. Resolved once, so the release
+    /// lifts the same keys even if focus or the layout changes in between.
+    fn chord_keys(&mut self, keys: &[&str]) -> Result<Vec<ChordKey>, String> {
+        Ok(keys
+            .iter()
+            .map(|key| ChordKey::Named((*key).into()))
+            .collect())
+    }
+    fn set_chord_key(&mut self, key: &ChordKey, down: bool) -> Result<(), String> {
+        match key {
+            ChordKey::Named(name) => self.set_key(name, down),
+            #[cfg(target_os = "windows")]
+            ChordKey::Virtual(_) => Err("Unsupported key.".into()),
+        }
+    }
+    /// Presses and releases a shortcut. `shift_held` says Shift is already
+    /// down for the remote, so a symbol that needs Shift does not press and
+    /// release it again.
+    fn press_shortcut(&mut self, keys: &[String], shift_held: bool) -> Result<(), String>;
     fn media(&mut self, action: &str) -> Result<(), String>;
     fn window(&mut self, action: &str) -> Result<(), String>;
 }
@@ -162,6 +188,8 @@ fn windows_alphanumeric_key(name: &str) -> Option<Key> {
         "ScrollLock" => Key::Scroll,
         #[cfg(target_os = "windows")]
         "Pause" => Key::Pause,
+        // Fixed keys, not looked up on the layout like other symbols: the
+        // zoom shortcuts (Ctrl and = or -) need the key code apps listen for.
         "=" => Key::OEMPlus,
         "-" => Key::OEMMinus,
         "[" => Key::OEM4,
@@ -226,50 +254,57 @@ fn windows_symbol_key(scan: i16) -> Result<(bool, u16), String> {
     Ok((shift_state == 1, scan as u16 & 0xff))
 }
 
-/// Presses or releases a symbol key, with Shift when the layout needs it.
+/// The `VkKeyScanExW` result for a UTF-16 unit on the foreground window's
+/// keyboard layout.
 #[cfg(target_os = "windows")]
-fn set_windows_symbol_key(enigo: &mut Enigo, symbol: char, down: bool) -> Result<(), String> {
+fn foreground_layout_scan(unit: u16) -> i16 {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyboardLayout, VkKeyScanExW};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GetForegroundWindow, GetWindowThreadProcessId,
     };
-    let mut unit = [0; 2];
-    let [unit] = symbol.encode_utf16(&mut unit) else {
-        return Err(SYMBOL_SHORTCUT_ERROR.into());
-    };
     // SAFETY: These calls only read the foreground thread's keyboard layout.
-    let scan = unsafe {
+    unsafe {
         let thread = GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut());
-        VkKeyScanExW(*unit, GetKeyboardLayout(thread))
-    };
-    let (shift, virtual_key) = match windows_symbol_key(scan) {
-        Ok(key) => key,
-        // A refused symbol was never pressed, so there is nothing to release.
-        Err(_) if !down => return Ok(()),
-        Err(error) => return Err(error),
-    };
-    let error = enigo_error("send the key");
-    if down {
-        if shift {
-            enigo.key(Key::Shift, Direction::Press).map_err(error)?;
-        }
-        let pressed = enigo.key(Key::Other(virtual_key.into()), Direction::Press);
-        if pressed.is_err() && shift {
-            let _ = enigo.key(Key::Shift, Direction::Release);
-        }
-        pressed.map_err(enigo_error("send the key"))
-    } else {
-        let released = enigo
-            .key(Key::Other(virtual_key.into()), Direction::Release)
-            .map_err(error);
-        let shift_released = if shift {
-            enigo
-                .key(Key::Shift, Direction::Release)
-                .map_err(enigo_error("send the key"))
-        } else {
-            Ok(())
+        VkKeyScanExW(unit, GetKeyboardLayout(thread))
+    }
+}
+
+/// The keys a shortcut presses on Windows. Each symbol in a shortcut becomes
+/// the key that types it on the layout `scan` reads, with Shift when the
+/// layout needs it and the shortcut does not already hold Shift. A symbol is
+/// looked up even when it is the only key left, as when the remote already
+/// holds the shortcut's modifiers.
+#[cfg(target_os = "windows")]
+fn windows_chord_keys(keys: &[&str], scan: impl Fn(u16) -> i16) -> Result<Vec<ChordKey>, String> {
+    let shift = ChordKey::Named("Shift".into());
+    let mut chord = Vec::with_capacity(keys.len() + 1);
+    for key in keys {
+        let symbol = match named_key(key) {
+            Some(Key::Unicode(symbol)) => symbol,
+            _ => {
+                chord.push(ChordKey::Named((*key).into()));
+                continue;
+            }
         };
-        released.and(shift_released)
+        let mut unit = [0; 2];
+        let [unit] = symbol.encode_utf16(&mut unit) else {
+            return Err(SYMBOL_SHORTCUT_ERROR.into());
+        };
+        let (needs_shift, virtual_key) = windows_symbol_key(scan(*unit))?;
+        if needs_shift && !keys.contains(&"Shift") && !chord.contains(&shift) {
+            chord.push(shift.clone());
+        }
+        chord.push(ChordKey::Virtual(virtual_key));
+    }
+    Ok(chord)
+}
+
+/// The enigo key for a resolved shortcut key.
+fn chord_enigo_key(key: &ChordKey) -> Result<Key, String> {
+    match key {
+        ChordKey::Named(name) => named_key(name).ok_or_else(|| format!("Unsupported key: {name}")),
+        #[cfg(target_os = "windows")]
+        ChordKey::Virtual(code) => Ok(Key::Other((*code).into())),
     }
 }
 
@@ -398,10 +433,21 @@ fn run_shortcut_sequence<K: Copy>(
     }
 }
 
-fn send_shortcut(enigo: &mut Enigo, keys: &[&str]) -> Result<(), String> {
-    let parsed: Vec<Key> = keys
+/// Leaves out Shift when the remote already holds it, so the shortcut does
+/// not release it. Shift stays down either way.
+fn without_held_shift(chord: Vec<ChordKey>, shift_held: bool) -> Vec<ChordKey> {
+    let shift = ChordKey::Named("Shift".into());
+    chord
+        .into_iter()
+        .filter(|key| !(shift_held && *key == shift))
+        .collect()
+}
+
+fn send_shortcut(enigo: &mut Enigo, keys: &[&str], shift_held: bool) -> Result<(), String> {
+    let chord = enigo.chord_keys(keys)?;
+    let parsed: Vec<Key> = without_held_shift(chord, shift_held)
         .iter()
-        .map(|key| named_key(key).ok_or_else(|| format!("Unsupported key: {key}")))
+        .map(chord_enigo_key)
         .collect::<Result<_, _>>()?;
     run_shortcut_sequence(&parsed, |key, direction| {
         let action = if direction == Direction::Press {
@@ -483,10 +529,6 @@ impl InputInjector for Enigo {
     }
     fn set_key(&mut self, key: &str, down: bool) -> Result<(), String> {
         let key = named_key(key).ok_or_else(|| format!("Unsupported key: {key}"))?;
-        #[cfg(target_os = "windows")]
-        if let Key::Unicode(symbol) = key {
-            return set_windows_symbol_key(self, symbol, down);
-        }
         self.key(
             key,
             if down {
@@ -497,9 +539,24 @@ impl InputInjector for Enigo {
         )
         .map_err(enigo_error("send the key"))
     }
-    fn press_shortcut(&mut self, keys: &[String]) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    fn chord_keys(&mut self, keys: &[&str]) -> Result<Vec<ChordKey>, String> {
+        windows_chord_keys(keys, foreground_layout_scan)
+    }
+    fn set_chord_key(&mut self, key: &ChordKey, down: bool) -> Result<(), String> {
+        self.key(
+            chord_enigo_key(key)?,
+            if down {
+                Direction::Press
+            } else {
+                Direction::Release
+            },
+        )
+        .map_err(enigo_error("send the key"))
+    }
+    fn press_shortcut(&mut self, keys: &[String], shift_held: bool) -> Result<(), String> {
         let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
-        send_shortcut(self, &refs)
+        send_shortcut(self, &refs, shift_held)
     }
     fn media(&mut self, action: &str) -> Result<(), String> {
         let key = match action {
@@ -565,13 +622,13 @@ impl InputInjector for Enigo {
             "Window action is not supported on this platform: {action}"
         ));
         #[cfg(any(target_os = "windows", target_os = "macos"))]
-        send_shortcut(self, keys)
+        send_shortcut(self, keys, false)
     }
 }
 
 pub struct DesktopInput<I: InputInjector> {
     pub(crate) injector: I,
-    scan_keys: Vec<String>,
+    scan_keys: Vec<ChordKey>,
     held_modifiers: HashSet<ModifierKey>,
     pending_modifier_releases: HashSet<ModifierKey>,
     pending_key_releases: HashSet<RepeatKey>,
@@ -841,7 +898,8 @@ impl<I: InputInjector> DesktopInput<I> {
                             .unwrap_or(true)
                     })
                     .collect::<Vec<_>>();
-                self.injector.press_shortcut(&keys_to_press)?;
+                let shift_held = self.held_modifiers.contains(&ModifierKey::Shift);
+                self.injector.press_shortcut(&keys_to_press, shift_held)?;
                 typing_injected = true;
                 Ok(())
             }
@@ -1253,7 +1311,8 @@ impl<I: InputInjector> DesktopInput<I> {
                         .map(str::to_owned)
                         .collect()
                 });
-                self.injector.press_shortcut(&keys)
+                let shift_held = self.held_modifiers.contains(&ModifierKey::Shift);
+                self.injector.press_shortcut(&keys, shift_held)
             }
             "mouseClick" => self
                 .injector
@@ -1397,9 +1456,9 @@ impl<I: InputInjector> DesktopInput<I> {
     ) -> Result<(), String> {
         self.release_scan_keys()?;
         let result = (|| {
-            for key in keys {
-                self.scan_keys.push((*key).into());
-                self.injector.set_key(key, true)?;
+            for key in self.injector.chord_keys(keys)? {
+                self.scan_keys.push(key.clone());
+                self.injector.set_chord_key(&key, true)?;
             }
             if let Some((point, button, count)) = click {
                 self.click_pointer_at(point, button, count, keys)?;
@@ -1412,7 +1471,7 @@ impl<I: InputInjector> DesktopInput<I> {
     fn release_scan_keys(&mut self) -> Result<(), String> {
         let mut error = None;
         for index in (0..self.scan_keys.len()).rev() {
-            match self.injector.set_key(&self.scan_keys[index], false) {
+            match self.injector.set_chord_key(&self.scan_keys[index], false) {
                 Ok(()) => {
                     self.scan_keys.remove(index);
                 }
@@ -1725,8 +1784,28 @@ mod tests {
         fail_key_down: bool,
         fail_key_up: Option<String>,
         shortcuts: Vec<Vec<String>>,
+        shortcut_shift_held: Vec<bool>,
+        #[cfg(target_os = "windows")]
+        layout: Option<fn(u16) -> i16>,
     }
     impl InputInjector for FakeInjector {
+        #[cfg(target_os = "windows")]
+        fn chord_keys(&mut self, keys: &[&str]) -> Result<Vec<ChordKey>, String> {
+            match self.layout {
+                Some(layout) => windows_chord_keys(keys, layout),
+                None => Ok(keys
+                    .iter()
+                    .map(|key| ChordKey::Named((*key).into()))
+                    .collect()),
+            }
+        }
+        #[cfg(target_os = "windows")]
+        fn set_chord_key(&mut self, key: &ChordKey, down: bool) -> Result<(), String> {
+            match key {
+                ChordKey::Named(name) => self.set_key(name, down),
+                ChordKey::Virtual(code) => self.set_key(&format!("vk {code:x}"), down),
+            }
+        }
         fn inject_text(&mut self, text: &str) -> Result<(), String> {
             self.text.push(text.into());
             Ok(())
@@ -1771,8 +1850,9 @@ mod tests {
             }
             Ok(())
         }
-        fn press_shortcut(&mut self, keys: &[String]) -> Result<(), String> {
+        fn press_shortcut(&mut self, keys: &[String], shift_held: bool) -> Result<(), String> {
             self.shortcuts.push(keys.to_vec());
+            self.shortcut_shift_held.push(shift_held);
             Ok(())
         }
         fn media(&mut self, _action: &str) -> Result<(), String> {
@@ -1934,6 +2014,108 @@ mod tests {
         assert!(super::windows_symbol_key(0x0634).is_err());
         // No key types the symbol.
         assert!(super::windows_symbol_key(-1).is_err());
+    }
+
+    #[cfg(target_os = "windows")]
+    fn uk_layout(unit: u16) -> i16 {
+        match char::from_u32(unit.into()) {
+            Some('/') => 0x00bf,
+            Some('?') => 0x01bf,
+            Some('@') => 0x01c0,
+            Some('€') => 0x0634,
+            _ => -1,
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn chord(keys: &[&str]) -> Result<Vec<ChordKey>, String> {
+        super::windows_chord_keys(keys, uk_layout)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn named(key: &str) -> ChordKey {
+        ChordKey::Named(key.into())
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_shortcut_symbols_resolve_once_and_add_shift_only_when_missing() {
+        assert_eq!(
+            chord(&["Ctrl", "?"]),
+            Ok(vec![named("Ctrl"), named("Shift"), ChordKey::Virtual(0xbf)])
+        );
+        // Shift already in the shortcut is not pressed twice.
+        assert_eq!(
+            chord(&["Shift", "Ctrl", "@"]),
+            Ok(vec![named("Shift"), named("Ctrl"), ChordKey::Virtual(0xc0)])
+        );
+        assert_eq!(
+            chord(&["Ctrl", "/"]),
+            Ok(vec![named("Ctrl"), ChordKey::Virtual(0xbf)])
+        );
+        // Named keys and the fixed zoom keys are not looked up.
+        assert_eq!(
+            chord(&["Ctrl", "=", "Tab"]),
+            Ok(vec![named("Ctrl"), named("="), named("Tab")])
+        );
+        // A symbol left alone because the remote holds the modifiers.
+        assert_eq!(
+            chord(&["?"]),
+            Ok(vec![named("Shift"), ChordKey::Virtual(0xbf)])
+        );
+        assert!(chord(&["ñ"]).is_err());
+        assert!(chord(&["Ctrl", "€"]).is_err());
+        assert!(chord(&["Ctrl", "ñ"]).is_err());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn scan_chord_releases_the_symbol_key_it_pressed_after_the_layout_changes() {
+        let mut input = DesktopInput::new(FakeInjector {
+            layout: Some(uk_layout),
+            fail_key_up: Some("vk bf".into()),
+            ..FakeInjector::default()
+        });
+        assert!(input.scan_chord(&["Ctrl", "?"], None).is_err());
+        // The new layout has no key for "?", but the retry still releases
+        // the key that was pressed rather than looking it up again.
+        input.injector.layout = Some(|_| -1);
+        input.injector.fail_key_up = None;
+        input.injector.keys.clear();
+        input.release_all().unwrap();
+        assert_eq!(input.injector.keys, [("vk bf".to_string(), false)]);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn shortcut_symbol_leaves_a_remote_held_shift_down() {
+        let chord = chord(&["Ctrl", "?"]).unwrap();
+        assert_eq!(
+            super::without_held_shift(chord.clone(), true),
+            [named("Ctrl"), ChordKey::Virtual(0xbf)]
+        );
+        assert_eq!(super::without_held_shift(chord.clone(), false), chord);
+    }
+
+    #[test]
+    fn protocol_shortcut_reports_a_remote_held_shift() {
+        let mut input = DesktopInput::new(FakeInjector::default());
+        let shortcut = serde_json::json!({"keys": ["Ctrl", "?"]});
+        input
+            .execute("device", "keyboard.shortcut", &shortcut, &[])
+            .unwrap();
+        input
+            .execute(
+                "device",
+                "keyboard.modifierDown",
+                &serde_json::json!({"key": "Shift"}),
+                &[],
+            )
+            .unwrap();
+        input
+            .execute("device", "keyboard.shortcut", &shortcut, &[])
+            .unwrap();
+        assert_eq!(input.injector.shortcut_shift_held, [false, true]);
     }
 
     #[test]

@@ -464,7 +464,7 @@ mod tests {
                 Ok(())
             }
         }
-        fn press_shortcut(&mut self, _: &[String]) -> Result<(), String> {
+        fn press_shortcut(&mut self, _: &[String], _: bool) -> Result<(), String> {
             panic!("Scan chords must retain failed releases")
         }
         fn media(&mut self, action: &str) -> Result<(), String> {
