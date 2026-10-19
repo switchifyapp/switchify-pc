@@ -37,10 +37,10 @@ How menus and the keyboard are grouped:
 On Windows, a small toolbar sits just above or below the keyboard, the mouse panel, Home and the action menus. It is for someone helping with a mouse:
 
 - **Settings** opens Switchify PC on its Settings page.
-- **Pause** stops the scanning moving, and **Resume** starts it again.
-- **Close panel** closes the panel, as Escape does. Press Select to start scanning again.
+- **Pause** stops the scanning moving, and **Resume** starts it again. If the pointer is moving or scrolling on its own, Pause stops that first.
+- **Close panel** stops scanning and closes the panel. Press Select to start scanning again.
 
-Clicking the toolbar does not take the focus from the app you are using; only Settings brings Switchify PC to the front. Switches never scan the toolbar. It is on by default. To hide it, turn off **Show carer toolbar** in the Panel position settings for the keyboard, the mouse panel or menus. This choice stays on this computer and is not synced to your account.
+Clicking the toolbar does not take the focus from the app you are using; only Settings brings Switchify PC to the front. Switches never scan the toolbar, and it moves out of the way while scanning moves the pointer under it. It is on by default. To hide it, turn off **Show carer toolbar** in the Panel position settings for the keyboard, the mouse panel or menus. This choice stays on this computer and is not synced to your account.
 
 ## Different settings for menus and the keyboard
 

@@ -312,10 +312,18 @@ fn pause_for<A: Adapter>(app: &AppHandle) {
         if d.remote {
             return;
         }
+        let d = &mut *d;
         let Some(engine) = d.engine.as_mut() else {
             return;
         };
-        engine.action(Action::Pause);
+        // As with the Pause switch, a running mouse repeat stops first.
+        if engine.technique.mouse_repeating() {
+            if engine.technique.stop_mouse_repeat() {
+                d.last_tick = Instant::now();
+            }
+        } else {
+            engine.action(Action::Pause);
+        }
     }
     publish::<A>(app);
 }
@@ -669,6 +677,9 @@ fn dispatch<A: Adapter>(
     }
     if !A::preserve_visuals(&request) {
         hide_scan_visuals();
+    } else {
+        // A scroll at the pointer must reach the app, not the toolbar.
+        crate::carer_toolbar::step_aside();
     }
     let deferred = A::deferred(&request);
     let pointer_feedback = A::cursor_action_feedback(&request);
@@ -894,9 +905,18 @@ fn render<A: Adapter>(
     match panel {
         Some(panel) if crate::carer_toolbar::enabled() && !d.remote && prompt.is_none() => {
             let paused = d.engine.as_ref().is_some_and(Session::paused);
+            let scan_pointer = matches!(
+                d.engine
+                    .as_ref()
+                    .and_then(|engine| A::cursor_feedback(&engine.technique)),
+                Some(
+                    crate::input::PointerFeedback::RepeatMove { .. }
+                        | crate::input::PointerFeedback::RepeatScroll { .. }
+                )
+            );
             // The toolbar is an aid for carers; failing to draw it must not
             // stop scanning.
-            if crate::carer_toolbar::show(panel, paused).is_err() {
+            if crate::carer_toolbar::show(panel, paused, scan_pointer).is_err() {
                 crate::carer_toolbar::hide();
             }
         }

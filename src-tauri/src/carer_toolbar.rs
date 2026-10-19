@@ -2,6 +2,8 @@
 //! mouse: open Settings, pause or resume scanning, or close the panel. It is
 //! not part of scanning, so switch users scan exactly as before. Unlike the
 //! panels it accepts clicks, but it never takes focus. Windows only for now.
+// Only the Windows window and the tests use the layout.
+#![cfg_attr(not(target_os = "windows"), allow(dead_code))]
 use crate::scanning::Rect;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -95,6 +97,24 @@ impl Layout {
             })
             .map(|(button, _)| *button)
     }
+
+    /// Whether the toolbar is clear of the panel. A panel that fills the
+    /// height of the display leaves no room, and the toolbar must never
+    /// cover its keys.
+    pub fn clear_of(&self, panel: Rect) -> bool {
+        !overlaps(self.rect, panel)
+    }
+
+    pub fn contains(&self, x: f64, y: f64) -> bool {
+        x >= self.rect.x
+            && x < self.rect.x + self.rect.width
+            && y >= self.rect.y
+            && y < self.rect.y + self.rect.height
+    }
+}
+
+fn overlaps(a: Rect, b: Rect) -> bool {
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 }
 
 static ENABLED: AtomicBool = AtomicBool::new(true);
@@ -111,7 +131,6 @@ pub fn enabled() -> bool {
 
 /// Runs a button's action on the main thread, outside the window procedure
 /// and the scan tick, so it never re-enters either.
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn perform(app: &tauri::AppHandle, button: Button) {
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || match button {
@@ -122,16 +141,18 @@ fn perform(app: &tauri::AppHandle, button: Button) {
 }
 
 #[cfg(target_os = "windows")]
-pub use platform::{hide, install, show};
+pub use platform::{hide, install, show, step_aside};
 
 #[cfg(not(target_os = "windows"))]
 pub fn install(_: &tauri::AppHandle) {}
 #[cfg(not(target_os = "windows"))]
-pub fn show(_: Rect, _: bool) -> Result<(), String> {
+pub fn show(_: Rect, _: bool, _: bool) -> Result<(), String> {
     Ok(())
 }
 #[cfg(not(target_os = "windows"))]
 pub fn hide() {}
+#[cfg(not(target_os = "windows"))]
+pub fn step_aside() {}
 
 #[cfg(target_os = "windows")]
 mod platform {
@@ -213,10 +234,24 @@ mod platform {
         }
     }
 
-    /// Shows the toolbar beside the panel with this rectangle.
-    pub fn show(panel: Rect, paused: bool) -> Result<(), String> {
+    /// Whether the pointer is over the toolbar at `layout`.
+    fn under_pointer(layout: &Layout) -> bool {
+        let mut point = windows::Win32::Foundation::POINT::default();
+        unsafe { GetCursorPos(&mut point) }.is_ok()
+            && layout.contains(point.x.into(), point.y.into())
+    }
+
+    /// Shows the toolbar beside the panel with this rectangle. With
+    /// `scan_pointer`, scanning is moving the pointer, and the toolbar steps
+    /// aside while the pointer is over it so it never catches the scan's
+    /// pointer or scrolling.
+    pub fn show(panel: Rect, paused: bool, scan_pointer: bool) -> Result<(), String> {
         let (area, scale) = display(panel);
         let layout = Layout::new(panel, area, scale);
+        if !layout.clear_of(panel) || (scan_pointer && under_pointer(&layout)) {
+            hide();
+            return Ok(());
+        }
         TOOLBAR.with(|slot| {
             let mut slot = slot.borrow_mut();
             if slot.is_none() {
@@ -247,6 +282,20 @@ mod platform {
                 .map_err(|error| error.to_string())
             }
         })
+    }
+
+    /// Hides the toolbar if the pointer is over it, just before a scan action
+    /// is sent there; the next tick shows it again.
+    pub fn step_aside() {
+        let under = TOOLBAR.with(|slot| {
+            slot.try_borrow()
+                .ok()
+                .and_then(|slot| slot.as_ref().and_then(|toolbar| toolbar.shown))
+                .is_some_and(|(layout, ..)| under_pointer(&layout))
+        });
+        if under {
+            hide();
+        }
     }
 
     pub fn hide() {
@@ -468,6 +517,29 @@ mod tests {
             layout.buttons.map(|(button, _)| button),
             [Button::Settings, Button::Pause, Button::Close]
         );
+    }
+
+    #[test]
+    fn toolbar_never_covers_a_panel_that_fills_the_display() {
+        let layout = Layout::new(panel(700.0), SCREEN, 1.0);
+        assert!(layout.clear_of(panel(700.0)));
+        let tall = Rect {
+            x: 600.0,
+            y: 0.0,
+            width: 720.0,
+            height: 1040.0,
+        };
+        assert!(!Layout::new(tall, SCREEN, 1.0).clear_of(tall));
+    }
+
+    #[test]
+    fn the_pointer_is_over_the_toolbar_only_inside_it() {
+        let layout = Layout::new(panel(700.0), SCREEN, 1.0);
+        let r = layout.rect;
+        assert!(layout.contains(r.x, r.y));
+        assert!(layout.contains(r.x + r.width - 1.0, r.y + r.height - 1.0));
+        assert!(!layout.contains(r.x + r.width, r.y));
+        assert!(!layout.contains(r.x, r.y + r.height));
     }
 
     #[test]
