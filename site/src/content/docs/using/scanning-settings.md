@@ -32,16 +32,6 @@ How menus and the keyboard are grouped:
 - **Panel size**: small, medium or large.
 - Panels can move away from the pointer.
 
-## Carer toolbar
-
-A small toolbar sits just above or below the keyboard, the mouse panel, Home and the action menus. It is for someone helping with a mouse:
-
-- **Settings** opens Switchify PC on its Settings page.
-- **Pause** stops the scanning moving, and **Resume** starts it again. If a key or the pointer is repeating on its own, Pause stops that first.
-- **Close panel** stops scanning and closes the panel. Press Select to start scanning again.
-
-Clicking the toolbar does not take the focus from the app you are using; only Settings brings Switchify PC to the front. Switches never scan the toolbar, and it moves out of the way while scanning moves the pointer under it. It is on by default. To hide it, turn off **Show carer toolbar** in the Panel position settings for the keyboard, the mouse panel or menus. This choice stays on this computer and is not synced to your account.
-
 ## Different settings for menus and the keyboard
 
 Menus and the keyboard can each have their own movement, rate and pattern, or use the shared defaults. A reset returns them to the defaults.

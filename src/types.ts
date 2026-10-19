@@ -42,8 +42,6 @@ export type AppSettings = {
   shareDiagnostics: boolean;
   autoApproveAccountDevices: boolean;
   learnWordPrediction: boolean;
-  /** A toolbar beside the scanning panels that a carer can click. Local to this computer. */
-  carerToolbar: boolean;
 };
 
 export type PlatformCapabilities = {
