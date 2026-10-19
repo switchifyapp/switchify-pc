@@ -1,5 +1,6 @@
 mod account;
 mod ble_lifecycle;
+mod carer_toolbar;
 mod diagnostics;
 mod display_navigation;
 mod dwell;
@@ -712,6 +713,7 @@ fn apply_app_settings(app: &AppHandle, settings: AppSettings) -> Result<(), Stri
     if settings.learn_word_prediction != previous_learn_word_prediction {
         prediction::learning_changed();
     }
+    carer_toolbar::set_enabled(settings.carer_toolbar);
     overlay.apply_settings(settings);
     Ok(())
 }
@@ -1874,6 +1876,8 @@ pub fn run() {
             remote_scan::install(app.handle());
             prediction::resume_forgetting(app.handle());
             point_scan_runtime::install(app.handle());
+            carer_toolbar::install(app.handle());
+            carer_toolbar::set_enabled(app.state::<AppModel>().snapshot().settings.carer_toolbar);
             settings_sync::install(app.handle());
             install_tray(app)?;
             if updater_is_configured(app.config().plugins.0.get("updater")) {

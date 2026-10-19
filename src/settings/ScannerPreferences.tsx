@@ -9,7 +9,7 @@ import type { AppSettings } from '../types';
 
 const speedOptions = ["Very slow", "Slow", "Medium", "Fast", "Very fast"].map((label, value) => ({ label, value }));
 
-export function ScannerPreferences({ controller, settings: appSettings, onSettingsChange }: { controller: ScanningController; settings?: AppSettings; onSettingsChange?: (next: AppSettings) => void }) {
+export function ScannerPreferences({ controller, settings: appSettings, onSettingsChange, platform }: { controller: ScanningController; settings?: AppSettings; onSettingsChange?: (next: AppSettings) => void; platform?: string }) {
   const { config, state, update, chooseKeyboardLayout, pending } = controller;
   const [area, setArea] = useState<'shared' | ScanArea>('shared');
   const heading = useRef<HTMLHeadingElement>(null);
@@ -200,6 +200,10 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
     {(area === 'keyboard' || area === 'mouse' || area === 'menu') && <SettingGroup title="Panel position" description="The keyboard, the mouse panel, Home and the action menus share one position. Choose it from Position on the keyboard or mouse panel.">
       <Toggle label="Move away from the pointer" checked={config.panelAvoidsPointer} disabled={disabled} onChange={value => update('panelAvoidsPointer', value)} />
       <p className="setting-note">While the pointer is over a panel or menu, it moves to the other side of the screen. It returns when the pointer moves away.</p>
+      {platform === 'windows' && appSettings && onSettingsChange && <>
+        <Toggle label="Show carer toolbar" checked={appSettings.carerToolbar} onChange={value => onSettingsChange({ ...appSettings, carerToolbar: value })} />
+        <p className="setting-note">A small bar beside the panel with Settings, Pause and Close panel buttons, for someone helping with a mouse. Switches never scan it. This choice stays on this computer.</p>
+      </>}
     </SettingGroup>}
     {area === 'keyboard' && <SettingGroup title="Suggestions" description="Show word suggestions while typing with the scanning keyboard.">
       <Toggle label="Word prediction" checked={config.wordPrediction} disabled={disabled} onChange={value => update('wordPrediction', value)} />

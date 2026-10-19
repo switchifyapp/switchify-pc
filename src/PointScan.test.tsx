@@ -692,6 +692,27 @@ it("saves row groups beside the pattern older versions read and lets an area cho
   expect(screen.getByRole("button", { name: "Rows, groups, then items" })).toHaveAttribute("aria-pressed", "true");
 });
 
+it("shows the carer toolbar by default on Windows and keeps the choice local", async () => {
+  const onSettingsChange = vi.fn();
+  function WithSettings({ platform }: { platform: string }) {
+    const controller = useScanning();
+    return <ScanningSection controller={controller} settings={browserState.settings} onSettingsChange={onSettingsChange} platform={platform} />;
+  }
+  const { unmount } = render(<WithSettings platform="windows" />);
+  await screen.findByText(initial.message);
+  fireEvent.click(screen.getByRole("button", { name: "Customise mouse scanning" }));
+  const toolbar = screen.getByRole("checkbox", { name: "Show carer toolbar" });
+  expect(toolbar).toBeChecked();
+  fireEvent.click(toolbar);
+  expect(onSettingsChange).toHaveBeenCalledWith({ ...browserState.settings, carerToolbar: false });
+  expect(mocks.invoke).not.toHaveBeenCalledWith("configure_point_scan", expect.anything());
+  unmount();
+  render(<WithSettings platform="macos" />);
+  await screen.findByText(initial.message);
+  fireEvent.click(screen.getByRole("button", { name: "Customise mouse scanning" }));
+  expect(screen.queryByRole("checkbox", { name: "Show carer toolbar" })).not.toBeInTheDocument();
+});
+
 it("learns from typing by default, keeps the choice local and forgets only after confirming", async () => {
   const onSettingsChange = vi.fn();
   function WithSettings() {

@@ -32,8 +32,9 @@ pub struct Document {
 
 /// `AppSettings` without `start_with_system` (registered with this OS),
 /// `share_diagnostics` (consent must be given on each install),
-/// `auto_approve_account_devices` (pairing is per install) and
-/// `learn_word_prediction` (learned words stay on this computer).
+/// `auto_approve_account_devices` (pairing is per install),
+/// `learn_word_prediction` (learned words stay on this computer) and
+/// `carer_toolbar` (a choice for this computer and its carers).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PortableAppSettings {
@@ -87,6 +88,7 @@ impl PortableAppSettings {
             share_diagnostics: local.share_diagnostics,
             auto_approve_account_devices: local.auto_approve_account_devices,
             learn_word_prediction: local.learn_word_prediction,
+            carer_toolbar: local.carer_toolbar,
             pointer_scale_percent: self.pointer_scale_percent,
             mouse_repeat_enabled: self.mouse_repeat_enabled,
             move_repeat_interval_ms: self.move_repeat_interval_ms,
@@ -546,6 +548,7 @@ mod tests {
                 share_diagnostics: true,
                 auto_approve_account_devices: false,
                 learn_word_prediction: false,
+                carer_toolbar: false,
                 ..AppSettings::default()
             },
             profiles,
@@ -578,6 +581,7 @@ mod tests {
             "shareDiagnostics",
             "autoApproveAccountDevices",
             "learnWordPrediction",
+            "carerToolbar",
             "telemetry",
             "desktopId",
             "pairedDevices",
@@ -813,6 +817,7 @@ mod tests {
         assert!(settings.share_diagnostics);
         assert!(!settings.auto_approve_account_devices);
         assert!(!settings.learn_word_prediction);
+        assert!(!settings.carer_toolbar);
         assert!(plan.switches.is_none() && plan.point_scan.is_none() && plan.remote.is_none());
     }
 

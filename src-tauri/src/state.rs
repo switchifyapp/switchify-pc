@@ -93,6 +93,10 @@ pub struct AppSettings {
     /// What it learns stays on this computer, like the setting.
     #[serde(default = "default_learn_word_prediction")]
     pub learn_word_prediction: bool,
+    /// A toolbar beside the scanning panels that a carer can click to open
+    /// Settings, pause scanning or close the panel. Local to this computer.
+    #[serde(default = "default_carer_toolbar")]
+    pub carer_toolbar: bool,
 }
 
 impl Default for AppSettings {
@@ -118,6 +122,7 @@ impl Default for AppSettings {
             share_diagnostics: false,
             auto_approve_account_devices: default_auto_approve_account_devices(),
             learn_word_prediction: default_learn_word_prediction(),
+            carer_toolbar: default_carer_toolbar(),
         }
     }
 }
@@ -181,6 +186,10 @@ fn default_auto_approve_account_devices() -> bool {
 }
 
 fn default_learn_word_prediction() -> bool {
+    true
+}
+
+fn default_carer_toolbar() -> bool {
     true
 }
 
@@ -1408,6 +1417,7 @@ mod tests {
         assert_eq!(settings.key_repeat_initial_delay_ms, 500);
         assert!(settings.auto_approve_account_devices);
         assert!(settings.learn_word_prediction);
+        assert!(settings.carer_toolbar);
 
         // Everything that was stored survives untouched.
         assert_eq!(settings.pointer_scale_percent, 150);
