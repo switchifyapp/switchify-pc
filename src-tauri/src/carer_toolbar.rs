@@ -192,7 +192,13 @@ mod platform {
 
     thread_local! {
         static TOOLBAR: RefCell<Option<Toolbar>> = const { RefCell::new(None) };
+        /// Until when the toolbar keeps out of the pointer's way after a scan
+        /// click or scroll. SendInput only queues the event, so the toolbar
+        /// must not return the moment the action is sent.
+        static ASIDE_UNTIL: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
     }
+
+    const ASIDE: std::time::Duration = std::time::Duration::from_millis(250);
 
     pub fn install(app: &AppHandle) {
         let _ = APP.set(app.clone());
@@ -248,7 +254,10 @@ mod platform {
     pub fn show(panel: Rect, paused: bool, scan_pointer: bool) -> Result<(), String> {
         let (area, scale) = display(panel);
         let layout = Layout::new(panel, area, scale);
-        if !layout.clear_of(panel) || (scan_pointer && under_pointer(&layout)) {
+        let aside = ASIDE_UNTIL
+            .get()
+            .is_some_and(|until| std::time::Instant::now() < until);
+        if !layout.clear_of(panel) || ((scan_pointer || aside) && under_pointer(&layout)) {
             hide();
             return Ok(());
         }
@@ -287,6 +296,7 @@ mod platform {
     /// Hides the toolbar if the pointer is over it, just before a scan action
     /// is sent there; the next tick shows it again.
     pub fn step_aside() {
+        ASIDE_UNTIL.set(Some(std::time::Instant::now() + ASIDE));
         let under = TOOLBAR.with(|slot| {
             slot.try_borrow()
                 .ok()

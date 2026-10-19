@@ -675,14 +675,17 @@ fn dispatch<A: Adapter>(
     if !c.enabled.load(Ordering::SeqCst) || !input_active(app, input_generation, remote) {
         return Err("Scan action was cancelled.".into());
     }
-    if !A::preserve_visuals(&request) {
+    let pointer_feedback = A::cursor_action_feedback(&request);
+    let preserve = A::preserve_visuals(&request);
+    if !preserve {
         hide_scan_visuals();
-    } else {
-        // A scroll at the pointer must reach the app, not the toolbar.
+    }
+    // A click or scroll at the pointer must reach the app, not the carer
+    // toolbar, which keeps out of the way briefly once it is sent.
+    if !preserve || pointer_feedback.is_some() {
         crate::carer_toolbar::step_aside();
     }
     let deferred = A::deferred(&request);
-    let pointer_feedback = A::cursor_action_feedback(&request);
     match A::activate(app, request) {
         Ok(environment) => {
             let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
