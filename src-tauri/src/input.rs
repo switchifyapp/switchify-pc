@@ -433,9 +433,8 @@ fn run_shortcut_sequence<K: Copy>(
     }
 }
 
-/// Leaves out the Shift a symbol added when the remote already holds Shift,
-/// so the shortcut does not release it. Held modifiers are already left out
-/// of the keys, so any Shift here was added for a symbol.
+/// Leaves out Shift when the remote already holds it, so the shortcut does
+/// not release it. Shift stays down either way.
 fn without_held_shift(chord: Vec<ChordKey>, shift_held: bool) -> Vec<ChordKey> {
     let shift = ChordKey::Named("Shift".into());
     chord
