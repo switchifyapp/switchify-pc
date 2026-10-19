@@ -15,6 +15,8 @@ phrases follow once the on-device model has started.
 - **Two words from an on-device AI model.**
 - **Three two-word phrases** from the same AI model, in wider slots at the end of the row.
 
+Only slots with a suggestion are shown. An empty slot leaves a gap, so the other suggestions stay in the same place and the scan skips the gap.
+
 Suggestions only change when they need to, so the scan does not restart under you.
 
 ## It stays on the computer

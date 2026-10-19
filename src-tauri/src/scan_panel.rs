@@ -20,6 +20,9 @@ pub struct PanelKey {
     pub active: bool,
     /// Reserves a cell without drawing it or counting it as a scanner column.
     pub blank: bool,
+    /// Keeps its cell and scanner column without drawing it, such as an
+    /// empty suggestion slot the scan skips.
+    pub hidden: bool,
 }
 
 impl PanelKey {
@@ -30,6 +33,7 @@ impl PanelKey {
             role: TileRole::Utility,
             active: false,
             blank: true,
+            hidden: false,
         }
     }
 }
@@ -212,6 +216,11 @@ impl Panel {
                     left += key_width + gap;
                     continue;
                 }
+                if key.hidden {
+                    left += key_width + gap;
+                    c += 1;
+                    continue;
+                }
                 frame.tiles.push(FrameTile {
                     thickness: self.thickness,
                     color,
@@ -317,7 +326,41 @@ mod tests {
             role: TileRole::Utility,
             active: false,
             blank: false,
+            hidden: false,
         }
+    }
+
+    #[test]
+    fn hidden_keys_keep_their_cell_and_scanner_column() {
+        let mut hidden = key("", 1.0);
+        hidden.hidden = true;
+        let frame = Panel {
+            key_width: 380.0,
+            size: PanelSize::Medium,
+            rows: vec![vec![key("a", 1.0), hidden, key("c", 1.0)]],
+            status: "Page · Select a key".into(),
+            note: None,
+            dock: Dock::default(),
+            selected: Some((0, Some(2..3))),
+            row_scan: false,
+            thickness: Thickness::Thick,
+        }
+        .frame(
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1920.0,
+                height: 1080.0,
+            },
+            1.0,
+            ScannerColor::default(),
+        );
+        let a = frame.tiles.iter().find(|t| t.text == "a").unwrap();
+        let c = frame.tiles.iter().find(|t| t.text == "c").unwrap();
+        // The background, the two drawn keys and the status line.
+        assert_eq!(frame.tiles.len(), 4);
+        assert!(c.selected && !a.selected);
+        assert!(c.rect.x - a.rect.x > 2.0 * a.rect.width);
     }
 
     #[test]

@@ -284,6 +284,7 @@ impl MousePanel {
                                     _ => false,
                                 },
                                 blank: false,
+                                hidden: false,
                             };
                             // Keep → under its diagonal arrow, with Radar between.
                             let blank = matches!(key, Key::Move(1, 0)).then(PanelKey::blank);
