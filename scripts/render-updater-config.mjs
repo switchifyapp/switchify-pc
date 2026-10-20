@@ -1,10 +1,16 @@
-import { writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { feedEndpoint } from "./update-channel.mjs";
 
 const output = process.argv[2];
 const windows = process.argv.includes("--windows");
-const endpoint = process.env.SWITCHIFY_UPDATER_ENDPOINT
-  ?? "https://raw.githubusercontent.com/switchifyapp/switchify-pc/update-feed/latest.json";
+// The feed a build checks follows its own version: a pre-release build checks
+// the pre-release feed, a stable build the stable feed.
+const { version } = JSON.parse(
+  readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8"),
+);
+const endpoint = process.env.SWITCHIFY_UPDATER_ENDPOINT ?? feedEndpoint(version);
 const pubkey = process.env.SWITCHIFY_UPDATER_PUBLIC_KEY?.trim();
 
 if (!output) throw new Error("Usage: node scripts/render-updater-config.mjs <output> [--windows]");
