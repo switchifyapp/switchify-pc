@@ -3,7 +3,7 @@ title: Home menu
 description: Press Select to open Home, a scanning menu of everything Switchify PC can do, including windows, editing, browser and media actions.
 ---
 
-Press and release **Select** to open Home. It scans through these items; press Select on the one you want. Home opens whether or not another app is in front, and it never takes focus away from your work.
+Press and release **Select** to open Home. It scans through these items; press Select on the one you want. Home opens whether or not another app is in front, and it never takes focus away from your work. It opens on the display the pointer is on, and moves with the pointer if something moves it to another display while Home is open.
 
 | Item | What it does |
 | --- | --- |

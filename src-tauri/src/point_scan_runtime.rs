@@ -26,18 +26,26 @@ pub struct Environment {
     keyboard_area: Rect,
     /// The Space `keyboard_area` was read on, counted by `space_changed`.
     space: u64,
+    /// The open keyboard has been placed on `display`. Until then it goes to
+    /// the display under the pointer, wherever the session began.
+    keyboard_placed: bool,
 }
 /// A point is chosen over one window and must not be used on another.
 fn window_changed(environment: &Environment, foreground: Option<usize>) -> bool {
     !environment.panel && !environment.following && environment.foreground != foreground
 }
-/// Where the open keyboard belongs: on its own display while that exists,
-/// however it has changed, and otherwise on the display under the pointer.
+/// Where the keyboard belongs. It opens on the display under the pointer.
+/// Once placed it stays on its own display while that exists, however it has
+/// changed, and otherwise goes to the display under the pointer.
 fn keyboard_display<'a>(
     current: &Display,
+    placed: bool,
     displays: &'a [Display],
     cursor: (f64, f64),
 ) -> Option<&'a Display> {
+    if !placed {
+        return display_navigation::current_display(cursor, displays);
+    }
     displays
         .iter()
         .find(|display| *display == current)
@@ -344,6 +352,7 @@ impl Adapter for PointScan {
             if technique.mouse_open() {
                 environment.foreground = crate::scan_host::foreground().ok();
                 environment.panel = true;
+                environment.keyboard_placed = false;
                 // While the displays cannot be read the panel stays where it is.
                 let placed =
                     display_navigation::displays(app)
@@ -394,6 +403,46 @@ impl Adapter for PointScan {
                 environment.foreground = crate::scan_host::foreground().ok();
                 environment.panel = false;
                 environment.following = true;
+                environment.keyboard_placed = false;
+                // The Home menu follows the pointer from display to display, as
+                // the mouse panel does, so whatever it opens is on the display
+                // the pointer is on. A point scan under way keeps its display.
+                // While the displays cannot be read the menu stays where it is.
+                let moved = technique
+                    .home_open()
+                    .then(|| display_navigation::displays(app).ok())
+                    .flatten()
+                    .and_then(|(cursor, displays)| {
+                        let current = display_navigation::current_display(cursor, &displays)?;
+                        let area = crate::scan_host::work_area(bounds(current)).ok()?;
+                        Some((current.clone(), area))
+                    })
+                    .map(|(current, area)| {
+                        let area = steady_area(
+                            WORK_AREA_FOLLOWS_AUTO_HIDE,
+                            environment,
+                            &current,
+                            area,
+                            space,
+                        );
+                        (current, area)
+                    });
+                read = moved.is_some();
+                if let Some((current, area)) = moved.filter(|(display, area)| {
+                    environment.display != *display || environment.keyboard_area != *area
+                }) {
+                    technique.set_keyboard_display(
+                        area,
+                        bounds(&current),
+                        if cfg!(target_os = "windows") {
+                            current.scale_factor
+                        } else {
+                            1.0
+                        },
+                    );
+                    environment.display = current;
+                    environment.keyboard_area = area;
+                }
                 technique.set_pointer(menu_pointer(technique));
             } else if technique.keyboard_open() {
                 crate::point_scan_ready(app)?;
@@ -413,12 +462,19 @@ impl Adapter for PointScan {
                     settings.key_repeat_initial_delay_ms,
                 );
                 environment.panel = true;
-                // The keyboard moves to fit its display rather than closing.
-                // While the displays cannot be read it stays where it is.
+                // The keyboard opens on the display under the pointer, then
+                // moves to fit its display rather than closing. While the
+                // displays cannot be read it stays where it is.
                 let fitted = display_navigation::displays(app)
                     .ok()
                     .and_then(|(cursor, displays)| {
-                        keyboard_display(&environment.display, &displays, cursor).cloned()
+                        keyboard_display(
+                            &environment.display,
+                            environment.keyboard_placed,
+                            &displays,
+                            cursor,
+                        )
+                        .cloned()
                     })
                     .and_then(|display| {
                         let area = crate::scan_host::work_area(bounds(&display)).ok()?;
@@ -432,6 +488,7 @@ impl Adapter for PointScan {
                         Some((display, area))
                     });
                 read = fitted.is_some();
+                environment.keyboard_placed |= read;
                 if let Some((current, area)) = fitted.filter(|(display, area)| {
                     environment.display != *display || environment.keyboard_area != *area
                 }) {
@@ -460,6 +517,7 @@ impl Adapter for PointScan {
                     environment.panel = false;
                     environment.foreground = crate::scan_host::foreground().ok();
                 }
+                environment.keyboard_placed = false;
                 technique.set_pointer(menu_pointer(technique));
             }
             // Point scanning ignores the work area, but a keyboard or menu it
@@ -533,6 +591,7 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
             following: false,
             keyboard_area,
             space: space().changes,
+            keyboard_placed: false,
         },
     ))
 }
@@ -676,6 +735,7 @@ mod tests {
             following,
             keyboard_area: bounds(&display("one", 0, 1920)),
             space: 0,
+            keyboard_placed: false,
         };
         for now in [None, Some(1), Some(2)] {
             for held in [None, Some(1)] {
@@ -699,6 +759,7 @@ mod tests {
             following: false,
             keyboard_area: bounds(&one),
             space: 4,
+            keyboard_placed: true,
         };
         let menu_bar_showing = Rect {
             y: 24.0,
@@ -765,21 +826,45 @@ mod tests {
         assert!(!space().settling);
     }
     #[test]
+    fn the_keyboard_opens_on_the_display_under_the_pointer() {
+        let one = display("one", 0, 1920);
+        let two = display("two", 1920, 1280);
+        let both = [one.clone(), two.clone()];
+        // The session began on one, but the pointer has moved to two.
+        assert_eq!(
+            keyboard_display(&one, false, &both, (2000.0, 10.0)),
+            Some(&two)
+        );
+        assert_eq!(
+            keyboard_display(&one, false, &both, (10.0, 10.0)),
+            Some(&one)
+        );
+        // A pointer off every display still opens the keyboard on the nearest one.
+        assert_eq!(
+            keyboard_display(&one, false, &both, (3300.0, 10.0)),
+            Some(&two)
+        );
+        assert_eq!(keyboard_display(&one, false, &[], (10.0, 10.0)), None);
+    }
+    #[test]
     fn the_keyboard_stays_on_its_display_while_that_exists() {
         let one = display("one", 0, 1920);
         let two = display("two", 1920, 1280);
         let over_two = (2000.0, 10.0);
         let both = [one.clone(), two.clone()];
-        assert_eq!(keyboard_display(&one, &both, over_two), Some(&one));
+        assert_eq!(keyboard_display(&one, true, &both, over_two), Some(&one));
         // A display that changed size is still the keyboard's.
         let resized = [display("one", 0, 1280), two.clone()];
         assert_eq!(
-            keyboard_display(&one, &resized, over_two),
+            keyboard_display(&one, true, &resized, over_two),
             Some(&resized[0])
         );
         // One that was removed gives way to the display under the pointer.
         let left = [two.clone()];
-        assert_eq!(keyboard_display(&one, &left, (10.0, 10.0)), Some(&two));
-        assert_eq!(keyboard_display(&one, &[], over_two), None);
+        assert_eq!(
+            keyboard_display(&one, true, &left, (10.0, 10.0)),
+            Some(&two)
+        );
+        assert_eq!(keyboard_display(&one, true, &[], over_two), None);
     }
 }

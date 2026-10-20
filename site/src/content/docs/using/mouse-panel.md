@@ -3,7 +3,7 @@ title: Mouse panel and radar
 description: Move the pointer step by step from a scanning panel, repeat movement by holding, and send the pointer across the screen with Radar.
 ---
 
-Choose **Mouse** from [Home](/using/home-menu/), or give a switch the **Open mouse** action. A panel of scanning buttons appears around a ring that marks the pointer.
+Choose **Mouse** from [Home](/using/home-menu/), or give a switch the **Open mouse** action. A panel of scanning buttons appears around a ring that marks the pointer, on the display the pointer is on. It follows the pointer from display to display.
 
 ## What the panel offers
 

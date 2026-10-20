@@ -494,7 +494,7 @@ impl Workflow {
     pub fn set_keyboard_area(&mut self, area: Rect) {
         self.keyboard_area = area;
     }
-    /// The display the open keyboard is on changed, or was replaced.
+    /// The display the keyboard or Home menu is on changed, or was replaced.
     pub fn set_keyboard_display(&mut self, area: Rect, screen: Rect, scale: f64) {
         self.keyboard_area = area;
         self.point.screen = screen;
