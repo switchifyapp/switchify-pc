@@ -533,6 +533,9 @@ mod platform {
                 self.hide();
                 return Err(error);
             }
+            // Push the committed views out before the panel appears, so a
+            // reopened panel never shows its previous frame.
+            CATransaction::flush();
             self.panel.orderFrontRegardless();
             Ok(())
         }
@@ -575,7 +578,7 @@ mod platform {
                             // Forget the old tile first, so a failed update is
                             // drawn again next time rather than skipped.
                             view.shown = None;
-                            show_tile(view, tile)?;
+                            show_tile(view, tile, frame)?;
                             view.shown = Some(tile.clone());
                         }
                     }
@@ -588,7 +591,11 @@ mod platform {
             self.panel.orderOut(None);
         }
     }
-    fn show_tile(view: &TileView, tile: &crate::scanning::FrameTile) -> Result<(), String> {
+    fn show_tile(
+        view: &TileView,
+        tile: &crate::scanning::FrameTile,
+        frame: &Rect,
+    ) -> Result<(), String> {
         use objc2_app_kit::NSFont;
         use objc2_foundation::NSString;
         let pixels = crate::scan_tile::bitmap(tile)?;
@@ -596,12 +603,12 @@ mod platform {
             pixels.data(),
             pixels.width() as usize,
             pixels.height() as usize,
-            tile.rect.width,
-            tile.rect.height,
+            frame.width,
+            frame.height,
         )?;
         let bounds = NSRect::new(
             NSPoint::new(0.0, 0.0),
-            NSSize::new(tile.rect.width, tile.rect.height),
+            NSSize::new(frame.width, frame.height),
         );
         view.image.setFrame(bounds);
         view.image.setImage(Some(&image));
@@ -616,7 +623,7 @@ mod platform {
             crate::scan_tile::keyboard_font_size(tile) * tile.scale,
         )));
         let padding = 8.0 * tile.scale;
-        let width = (tile.rect.width - padding * 2.0).max(1.0);
+        let width = (frame.width - padding * 2.0).max(1.0);
         let measured = label
             .cell()
             .ok_or("Keyboard label is unavailable.")?
@@ -624,9 +631,9 @@ mod platform {
                 NSPoint::new(0.0, 0.0),
                 NSSize::new(width, f64::MAX),
             ));
-        let height = measured.height.min(tile.rect.height);
+        let height = measured.height.min(frame.height);
         label.setFrame(NSRect::new(
-            NSPoint::new(padding, (tile.rect.height - height) / 2.0),
+            NSPoint::new(padding, (frame.height - height) / 2.0),
             NSSize::new(width, height),
         ));
         label.setHidden(false);
@@ -779,24 +786,35 @@ impl Host {
 /// The frame of one window holding every tile, and each tile's frame inside
 /// it measured up from the window's bottom-left corner, as AppKit lays out
 /// views. Tile rects use the scan engine's top-left display coordinates.
+/// Edges snap to whole points, as separate tile windows did, so keys at
+/// fractional positions stay sharp.
 #[cfg(any(target_os = "macos", test))]
 fn tile_panel_layout(tiles: &[Rect]) -> Option<(Rect, Vec<Rect>)> {
-    let first = tiles.first()?;
-    let (mut left, mut top) = (first.x, first.y);
-    let (mut right, mut bottom) = (first.x + first.width, first.y + first.height);
-    for tile in &tiles[1..] {
-        left = left.min(tile.x);
-        top = top.min(tile.y);
-        right = right.max(tile.x + tile.width);
-        bottom = bottom.max(tile.y + tile.height);
-    }
-    let frames = tiles
+    let edges: Vec<_> = tiles
         .iter()
-        .map(|tile| Rect {
-            x: tile.x - left,
-            y: bottom - tile.y - tile.height,
-            width: tile.width,
-            height: tile.height,
+        .map(|tile| {
+            (
+                tile.x.round(),
+                tile.y.round(),
+                (tile.x + tile.width).round(),
+                (tile.y + tile.height).round(),
+            )
+        })
+        .collect();
+    let &(mut left, mut top, mut right, mut bottom) = edges.first()?;
+    for &(l, t, r, b) in &edges[1..] {
+        left = left.min(l);
+        top = top.min(t);
+        right = right.max(r);
+        bottom = bottom.max(b);
+    }
+    let frames = edges
+        .iter()
+        .map(|&(l, t, r, b)| Rect {
+            x: l - left,
+            y: bottom - b,
+            width: r - l,
+            height: b - t,
         })
         .collect();
     Some((
@@ -872,6 +890,21 @@ mod tile_panel_tests {
         assert_eq!(frames[0], rect(50.0, 10.0, 100.0, 50.0));
         assert_eq!(frames[1], rect(0.0, 70.0, 20.0, 10.0));
         assert_eq!(frames[2], rect(140.0, 0.0, 30.0, 20.0));
+    }
+
+    #[test]
+    fn fractional_tiles_snap_to_whole_points_without_gaps() {
+        let (bounds, frames) = tile_panel_layout(&[
+            rect(10.4, 20.6, 100.0, 50.0),
+            rect(12.3, 22.5, 33.3, 20.0),
+            rect(45.6, 22.5, 33.3, 20.0),
+        ])
+        .unwrap();
+        assert_eq!(bounds, rect(10.0, 21.0, 100.0, 50.0));
+        assert_eq!(frames[0], rect(0.0, 0.0, 100.0, 50.0));
+        assert_eq!(frames[1], rect(2.0, 28.0, 34.0, 20.0));
+        // Neighbouring keys share an edge, so no seam opens between them.
+        assert_eq!(frames[2], rect(36.0, 28.0, 33.0, 20.0));
     }
 }
 
