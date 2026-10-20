@@ -4422,7 +4422,7 @@ dependencies = [
 
 [[package]]
 name = "switchify-pc"
-version = "1.0.0-rc.31"
+version = "1.0.0-rc.32"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
