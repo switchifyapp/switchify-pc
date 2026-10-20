@@ -808,6 +808,13 @@ impl Keyboard {
             self.scan.suspended = true;
         }
     }
+    /// The keyboard has opened. It waits for Select first if the user chose
+    /// to wait after a selection.
+    pub fn opened(&mut self) {
+        if self.wait_after_typing && self.scan.options.automatic {
+            self.scan.wait();
+        }
+    }
     /// A repeating key was stopped by a switch. Scanning carries on as it
     /// does after typing.
     pub fn repeat_stopped(&mut self) {
@@ -1063,6 +1070,8 @@ impl Keyboard {
             "Input failed · Select to try again".to_owned()
         } else if self.waiting_after_typing {
             "Press Select to continue typing.".to_owned()
+        } else if self.scan.waiting() {
+            "Keyboard waiting · Select to start".to_owned()
         } else if self.scan.suspended {
             "Keyboard paused · Select to resume".to_owned()
         } else if escaping {
