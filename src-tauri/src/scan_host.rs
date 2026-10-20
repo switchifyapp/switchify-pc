@@ -456,63 +456,6 @@ mod platform {
             view.setImage(Some(&image));
             Ok(())
         }
-        pub fn tile(&mut self, tile: &crate::scanning::FrameTile) -> Result<(), String> {
-            use objc2_app_kit::{NSFont, NSImageView, NSTextAlignment, NSTextField, NSView};
-            use objc2_foundation::NSString;
-            let mtm = MainThreadMarker::new().ok_or("Action tile requires the main thread")?;
-            let pixels = crate::scan_tile::bitmap(tile)?;
-            let image = crate::overlay::platform::image_from_rgba_rect(
-                pixels.data(),
-                pixels.width() as usize,
-                pixels.height() as usize,
-                tile.rect.width,
-                tile.rect.height,
-            )?;
-            self.render(&[crate::scanning::PaintedRect {
-                rect: tile.rect,
-                color: [30, 35, 46],
-                opacity: 255,
-                role: crate::scanning::VisualRole::Accent,
-            }])?;
-            if tile.is_panel_background() {
-                self.panels[0].setBackgroundColor(Some(&NSColor::clearColor()));
-            }
-            let bounds = NSRect::new(
-                NSPoint::new(0.0, 0.0),
-                NSSize::new(tile.rect.width, tile.rect.height),
-            );
-            let view = NSView::initWithFrame(NSView::alloc(mtm), bounds);
-            let image_view = NSImageView::initWithFrame(NSImageView::alloc(mtm), bounds);
-            image_view.setImage(Some(&image));
-            view.addSubview(&image_view);
-            // The panel background has no text; keys centre theirs.
-            if !tile.is_panel_background() {
-                let label =
-                    NSTextField::wrappingLabelWithString(&NSString::from_str(&tile.text), mtm);
-                label.setFont(Some(&NSFont::boldSystemFontOfSize(
-                    crate::scan_tile::keyboard_font_size(tile) * tile.scale,
-                )));
-                label.setTextColor(Some(&NSColor::whiteColor()));
-                label.setAlignment(NSTextAlignment::Center);
-                let padding = 8.0 * tile.scale;
-                let width = (tile.rect.width - padding * 2.0).max(1.0);
-                let measured = label
-                    .cell()
-                    .ok_or("Keyboard label is unavailable.")?
-                    .cellSizeForBounds(NSRect::new(
-                        NSPoint::new(0.0, 0.0),
-                        NSSize::new(width, f64::MAX),
-                    ));
-                let height = measured.height.min(tile.rect.height);
-                label.setFrame(NSRect::new(
-                    NSPoint::new(padding, (tile.rect.height - height) / 2.0),
-                    NSSize::new(width, height),
-                ));
-                view.addSubview(&label);
-            }
-            self.panels[0].setContentView(Some(&view));
-            Ok(())
-        }
         pub fn hide(&mut self) {
             self.last_title = None;
             self.last_rects.clear();
@@ -520,6 +463,181 @@ mod platform {
                 panel.orderOut(None);
             }
         }
+    }
+    struct TileView {
+        container: Retained<objc2_app_kit::NSView>,
+        image: Retained<objc2_app_kit::NSImageView>,
+        label: Retained<objc2_app_kit::NSTextField>,
+        shown: Option<crate::scanning::FrameTile>,
+    }
+    /// Every tile of a panel, such as the keyboard, in one window. Its views
+    /// are reused and committed together, and the window is ordered front
+    /// only once they are ready, so a frame never appears one key at a time.
+    pub struct TilePanel {
+        panel: Retained<NSPanel>,
+        content: Retained<objc2_app_kit::NSView>,
+        views: Vec<TileView>,
+    }
+    impl TilePanel {
+        pub fn new() -> Result<Self, String> {
+            use objc2_app_kit::NSView;
+            let mtm =
+                MainThreadMarker::new().ok_or("Scan tiles require the AppKit main thread.")?;
+            let panel = crate::overlay::platform::make_panel(mtm);
+            let content = NSView::initWithFrame(
+                NSView::alloc(mtm),
+                NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0)),
+            );
+            content.setWantsLayer(true);
+            panel.setContentView(Some(&content));
+            Ok(Self {
+                panel,
+                content,
+                views: vec![],
+            })
+        }
+        pub fn present(&mut self, tiles: &[crate::scanning::FrameTile]) -> Result<(), String> {
+            use objc2_quartz_core::CATransaction;
+            let mtm =
+                MainThreadMarker::new().ok_or("Scan tiles require the AppKit main thread.")?;
+            let rects: Vec<Rect> = tiles.iter().map(|tile| tile.rect).collect();
+            let Some((bounds, frames)) = super::tile_panel_layout(&rects) else {
+                self.hide();
+                return Ok(());
+            };
+            let screens = NSScreen::screens(mtm);
+            let primary = screens
+                .firstObject()
+                .ok_or("No scanning display is available.")?;
+            let top = primary.frame().origin.y + primary.frame().size.height;
+            CATransaction::begin();
+            CATransaction::setDisableActions(true);
+            let result = self.update_views(mtm, tiles, &frames);
+            if result.is_ok() {
+                let visible = self.panel.isVisible();
+                // The views are already in place, so a visible panel redraws
+                // at its new size in the same pass instead of stretching.
+                self.panel.setFrame_display(
+                    NSRect::new(
+                        NSPoint::new(bounds.x, top - bounds.y - bounds.height),
+                        NSSize::new(bounds.width, bounds.height),
+                    ),
+                    visible,
+                );
+                if !visible {
+                    self.panel.displayIfNeeded();
+                }
+            }
+            CATransaction::commit();
+            if let Err(error) = result {
+                self.hide();
+                return Err(error);
+            }
+            // Push the committed views out before the panel appears, so a
+            // reopened panel never shows its previous frame.
+            CATransaction::flush();
+            self.panel.orderFrontRegardless();
+            Ok(())
+        }
+        fn update_views(
+            &mut self,
+            mtm: MainThreadMarker,
+            tiles: &[crate::scanning::FrameTile],
+            frames: &[Rect],
+        ) -> Result<(), String> {
+            use objc2_app_kit::{NSImageView, NSTextAlignment, NSTextField, NSView};
+            use objc2_foundation::NSString;
+            // Views draw in the order they were added, so the panel
+            // background, which comes first, stays behind its keys.
+            while self.views.len() < tiles.len() {
+                let zero = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0));
+                let container = NSView::initWithFrame(NSView::alloc(mtm), zero);
+                let image = NSImageView::initWithFrame(NSImageView::alloc(mtm), zero);
+                let label = NSTextField::wrappingLabelWithString(&NSString::from_str(""), mtm);
+                label.setTextColor(Some(&NSColor::whiteColor()));
+                label.setAlignment(NSTextAlignment::Center);
+                container.addSubview(&image);
+                container.addSubview(&label);
+                self.content.addSubview(&container);
+                self.views.push(TileView {
+                    container,
+                    image,
+                    label,
+                    shown: None,
+                });
+            }
+            for (index, view) in self.views.iter_mut().enumerate() {
+                match tiles.get(index).zip(frames.get(index)) {
+                    Some((tile, frame)) => {
+                        view.container.setFrame(NSRect::new(
+                            NSPoint::new(frame.x, frame.y),
+                            NSSize::new(frame.width, frame.height),
+                        ));
+                        view.container.setHidden(false);
+                        if view.shown.as_ref() != Some(tile) {
+                            // Forget the old tile first, so a failed update is
+                            // drawn again next time rather than skipped.
+                            view.shown = None;
+                            show_tile(view, tile, frame)?;
+                            view.shown = Some(tile.clone());
+                        }
+                    }
+                    None => view.container.setHidden(true),
+                }
+            }
+            Ok(())
+        }
+        pub fn hide(&mut self) {
+            self.panel.orderOut(None);
+        }
+    }
+    fn show_tile(
+        view: &TileView,
+        tile: &crate::scanning::FrameTile,
+        frame: &Rect,
+    ) -> Result<(), String> {
+        use objc2_app_kit::NSFont;
+        use objc2_foundation::NSString;
+        let pixels = crate::scan_tile::bitmap(tile)?;
+        let image = crate::overlay::platform::image_from_rgba_rect(
+            pixels.data(),
+            pixels.width() as usize,
+            pixels.height() as usize,
+            frame.width,
+            frame.height,
+        )?;
+        let bounds = NSRect::new(
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(frame.width, frame.height),
+        );
+        view.image.setFrame(bounds);
+        view.image.setImage(Some(&image));
+        // The panel background has no text; keys centre theirs.
+        if tile.is_panel_background() {
+            view.label.setHidden(true);
+            return Ok(());
+        }
+        let label = &view.label;
+        label.setStringValue(&NSString::from_str(&tile.text));
+        label.setFont(Some(&NSFont::boldSystemFontOfSize(
+            crate::scan_tile::keyboard_font_size(tile) * tile.scale,
+        )));
+        let padding = 8.0 * tile.scale;
+        let width = (frame.width - padding * 2.0).max(1.0);
+        let measured = label
+            .cell()
+            .ok_or("Keyboard label is unavailable.")?
+            .cellSizeForBounds(NSRect::new(
+                NSPoint::new(0.0, 0.0),
+                NSSize::new(width, f64::MAX),
+            ));
+        let height = measured.height.min(frame.height);
+        label.setFrame(NSRect::new(
+            NSPoint::new(padding, (frame.height - height) / 2.0),
+            NSSize::new(width, height),
+        ));
+        label.setHidden(false);
+        Ok(())
     }
 }
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -546,6 +664,8 @@ mod platform {
     }
 }
 pub use platform::Host;
+#[cfg(target_os = "macos")]
+pub use platform::TilePanel;
 
 pub fn modifiers_released() -> bool {
     #[cfg(target_os = "windows")]
@@ -663,6 +783,53 @@ impl Host {
     }
 }
 
+/// The frame of one window holding every tile, and each tile's frame inside
+/// it measured up from the window's bottom-left corner, as AppKit lays out
+/// views. Tile rects use the scan engine's top-left display coordinates.
+/// Edges snap to whole points, as separate tile windows did, so keys at
+/// fractional positions stay sharp.
+#[cfg(any(target_os = "macos", test))]
+fn tile_panel_layout(tiles: &[Rect]) -> Option<(Rect, Vec<Rect>)> {
+    let edges: Vec<_> = tiles
+        .iter()
+        .map(|tile| {
+            let (left, top) = (tile.x.round(), tile.y.round());
+            // A tile never snaps away to nothing, which would hide the panel.
+            (
+                left,
+                top,
+                (tile.x + tile.width).round().max(left + 1.0),
+                (tile.y + tile.height).round().max(top + 1.0),
+            )
+        })
+        .collect();
+    let &(mut left, mut top, mut right, mut bottom) = edges.first()?;
+    for &(l, t, r, b) in &edges[1..] {
+        left = left.min(l);
+        top = top.min(t);
+        right = right.max(r);
+        bottom = bottom.max(b);
+    }
+    let frames = edges
+        .iter()
+        .map(|&(l, t, r, b)| Rect {
+            x: l - left,
+            y: bottom - b,
+            width: r - l,
+            height: b - t,
+        })
+        .collect();
+    Some((
+        Rect {
+            x: left,
+            y: top,
+            width: right - left,
+            height: bottom - top,
+        },
+        frames,
+    ))
+}
+
 #[cfg(any(target_os = "macos", test))]
 fn hud_rect(requested: Rect, screen: Rect, text_height: f64, scale: f64) -> Rect {
     let width = requested.width.min(screen.width).max(1.0);
@@ -678,6 +845,74 @@ fn hud_rect(requested: Rect, screen: Rect, text_height: f64, scale: f64) -> Rect
             .clamp(screen.y, screen.y + screen.height - height),
         width,
         height,
+    }
+}
+
+#[cfg(test)]
+mod tile_panel_tests {
+    use super::*;
+
+    fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn no_tiles_have_no_panel() {
+        assert!(tile_panel_layout(&[]).is_none());
+    }
+
+    #[test]
+    fn panel_covers_every_tile_and_flips_them_into_view_coordinates() {
+        let background = rect(100.0, 600.0, 400.0, 200.0);
+        let top_left_key = rect(110.0, 610.0, 50.0, 40.0);
+        let bottom_right_key = rect(440.0, 750.0, 50.0, 40.0);
+        let (bounds, frames) =
+            tile_panel_layout(&[background, top_left_key, bottom_right_key]).unwrap();
+        assert_eq!(bounds, background);
+        assert_eq!(frames[0], rect(0.0, 0.0, 400.0, 200.0));
+        // The key nearest the top of the screen sits nearest the top of the view.
+        assert_eq!(frames[1], rect(10.0, 150.0, 50.0, 40.0));
+        assert_eq!(frames[2], rect(340.0, 10.0, 50.0, 40.0));
+    }
+
+    #[test]
+    fn panel_grows_to_tiles_outside_the_first_and_on_negative_displays() {
+        let (bounds, frames) = tile_panel_layout(&[
+            rect(-300.0, -100.0, 100.0, 50.0),
+            rect(-350.0, -120.0, 20.0, 10.0),
+            rect(-210.0, -60.0, 30.0, 20.0),
+        ])
+        .unwrap();
+        assert_eq!(bounds, rect(-350.0, -120.0, 170.0, 80.0));
+        assert_eq!(frames[0], rect(50.0, 10.0, 100.0, 50.0));
+        assert_eq!(frames[1], rect(0.0, 70.0, 20.0, 10.0));
+        assert_eq!(frames[2], rect(140.0, 0.0, 30.0, 20.0));
+    }
+
+    #[test]
+    fn fractional_tiles_snap_to_whole_points_without_gaps() {
+        let (bounds, frames) = tile_panel_layout(&[
+            rect(10.4, 20.6, 100.0, 50.0),
+            rect(12.3, 22.5, 33.3, 20.0),
+            rect(45.6, 22.5, 33.3, 20.0),
+        ])
+        .unwrap();
+        assert_eq!(bounds, rect(10.0, 21.0, 100.0, 50.0));
+        assert_eq!(frames[0], rect(0.0, 0.0, 100.0, 50.0));
+        assert_eq!(frames[1], rect(2.0, 28.0, 34.0, 20.0));
+        // Neighbouring keys share an edge, so no seam opens between them.
+        assert_eq!(frames[2], rect(36.0, 28.0, 33.0, 20.0));
+    }
+
+    #[test]
+    fn a_sub_point_tile_keeps_one_point() {
+        let (_, frames) = tile_panel_layout(&[rect(10.1, 10.1, 0.3, 0.3)]).unwrap();
+        assert_eq!(frames[0], rect(0.0, 0.0, 1.0, 1.0));
     }
 }
 

@@ -73,7 +73,18 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
-thread_local! {static COUNTDOWN: RefCell<(Option<Host>, Option<crate::scanning::Countdown>)> = const { RefCell::new((None, None)) }; static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)}; static LABEL:RefCell<Option<Host>>=const{RefCell::new(None)}; static TILES:RefCell<(Vec<Host>,Vec<crate::scanning::FrameTile>)>=const{RefCell::new((vec![],vec![]))};}
+thread_local! {static COUNTDOWN: RefCell<(Option<Host>, Option<crate::scanning::Countdown>)> = const { RefCell::new((None, None)) }; static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)}; static LABEL:RefCell<Option<Host>>=const{RefCell::new(None)}; static TILES:RefCell<(TileHosts,Vec<crate::scanning::FrameTile>)>=const{RefCell::new((NO_TILE_HOSTS,vec![]))};}
+// macOS shows every tile in one panel, so each frame reaches the screen at
+// once rather than one key window at a time. Other platforms give each tile
+// its own window.
+#[cfg(target_os = "macos")]
+type TileHosts = Option<crate::scan_host::TilePanel>;
+#[cfg(target_os = "macos")]
+const NO_TILE_HOSTS: TileHosts = None;
+#[cfg(not(target_os = "macos"))]
+type TileHosts = Vec<Host>;
+#[cfg(not(target_os = "macos"))]
+const NO_TILE_HOSTS: TileHosts = Vec::new();
 /// Scanning has no on/off switch beyond releasing the switch keys. It is armed
 /// whenever the saved switches can drive the current mode and the environment
 /// allows it, and the tick loop re-arms it after anything that stopped it: a
@@ -730,7 +741,7 @@ fn hide_scan_visuals() {
     }
     TILES.with(|slot| {
         clear_cached_visual(&mut slot.borrow_mut(), |hosts| {
-            for host in hosts {
+            for host in hosts.iter_mut() {
                 host.hide();
             }
         })
@@ -743,6 +754,7 @@ fn hide_scan_visuals() {
         })
     });
 }
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 fn update_tiles(
     previous: &[crate::scanning::FrameTile],
     tiles: &[crate::scanning::FrameTile],
@@ -762,6 +774,22 @@ fn update_tiles(
     }
     Ok(())
 }
+#[cfg(target_os = "macos")]
+fn render_tiles(tiles: &[crate::scanning::FrameTile]) -> Result<(), String> {
+    TILES.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.1 == tiles {
+            return Ok(());
+        }
+        if slot.0.is_none() {
+            slot.0 = Some(crate::scan_host::TilePanel::new()?);
+        }
+        slot.0.as_mut().unwrap().present(tiles)?;
+        slot.1 = tiles.to_vec();
+        Ok(())
+    })
+}
+#[cfg(not(target_os = "macos"))]
 fn render_tiles(tiles: &[crate::scanning::FrameTile]) -> Result<(), String> {
     TILES.with(|slot| {
         let mut slot = slot.borrow_mut();
