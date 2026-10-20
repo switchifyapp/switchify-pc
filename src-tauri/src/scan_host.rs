@@ -793,11 +793,13 @@ fn tile_panel_layout(tiles: &[Rect]) -> Option<(Rect, Vec<Rect>)> {
     let edges: Vec<_> = tiles
         .iter()
         .map(|tile| {
+            let (left, top) = (tile.x.round(), tile.y.round());
+            // A tile never snaps away to nothing, which would hide the panel.
             (
-                tile.x.round(),
-                tile.y.round(),
-                (tile.x + tile.width).round(),
-                (tile.y + tile.height).round(),
+                left,
+                top,
+                (tile.x + tile.width).round().max(left + 1.0),
+                (tile.y + tile.height).round().max(top + 1.0),
             )
         })
         .collect();
@@ -905,6 +907,12 @@ mod tile_panel_tests {
         assert_eq!(frames[1], rect(2.0, 28.0, 34.0, 20.0));
         // Neighbouring keys share an edge, so no seam opens between them.
         assert_eq!(frames[2], rect(36.0, 28.0, 33.0, 20.0));
+    }
+
+    #[test]
+    fn a_sub_point_tile_keeps_one_point() {
+        let (_, frames) = tile_panel_layout(&[rect(10.1, 10.1, 0.3, 0.3)]).unwrap();
+        assert_eq!(frames[0], rect(0.0, 0.0, 1.0, 1.0));
     }
 }
 
