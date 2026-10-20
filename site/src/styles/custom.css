@@ -39,3 +39,15 @@
   outline: 3px solid var(--sl-color-accent);
   outline-offset: 3px;
 }
+
+/* App screenshots: a light frame so white dialogs stand out on either theme. */
+.sl-markdown-content img {
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.5rem;
+}
+
+/* Tall switch editor screenshots would otherwise fill several screens. */
+.sl-markdown-content img[src*='add-switch-learned'],
+.sl-markdown-content img[src*='switch-editor'] {
+  max-width: min(100%, 26rem);
+}
