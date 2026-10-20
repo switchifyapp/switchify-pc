@@ -363,7 +363,7 @@ impl Keyboard {
     pub fn set_layout(&mut self, layout: crate::point_scan::KeyboardLayout) {
         if self.layout != layout {
             self.layout = layout;
-            self.rebuild_rows();
+            self.rebuild_rows_keeping_pause();
         }
         self.layout_save_error = false;
     }

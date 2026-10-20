@@ -388,7 +388,7 @@ impl Workflow {
             self.scroll_repeat = None;
             self.radar = None;
             self.pending = None;
-            self.mouse.restart();
+            self.mouse.opened();
         }
         self.mouse_area = area;
         self.point.screen = screen;
@@ -2399,6 +2399,10 @@ mod tests {
                 // Suggestions turning on, then failing, do not end the wait.
                 let prediction = s.technique.prediction_keyboard().unwrap();
                 prediction.predictions(None, true);
+                // Nor does a layout changed elsewhere.
+                s.technique
+                    .keyboard
+                    .set_layout(crate::point_scan::KeyboardLayout::SimpleQwerty);
                 s.tick(5000, false);
                 assert_eq!(s.technique.phase(), keyboard);
                 if waits {
@@ -2443,6 +2447,15 @@ mod tests {
                     Phase::Workflow(WorkflowPhase::MouseRadar)
                 );
                 s.action(Action::OpenMouse);
+                assert_eq!(s.technique.phase(), mouse);
+                // Or when the screen changes under the radar.
+                s.technique.mouse.restart();
+                s.technique.choose_mouse_key(crate::scan_mouse::Key::Radar);
+                let left = Rect {
+                    x: -1280.0,
+                    ..screen
+                };
+                s.technique.set_mouse_area(left, left, 1.0, 2);
                 assert_eq!(s.technique.phase(), mouse);
                 // And a switch that opens the mouse panel from point scanning.
                 s.action(Action::OpenPoint);
