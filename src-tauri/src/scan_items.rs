@@ -218,6 +218,14 @@ impl<T: Clone> ItemScanner<T> {
             self.wait();
         }
     }
+    /// A panel that has just opened starts from the beginning, and waits for
+    /// Select first if the user chose to wait after a selection.
+    pub fn open(&mut self) {
+        self.restart();
+        if self.waits_after_selection() {
+            self.wait();
+        }
+    }
     /// Starts again from the highlighted item, in the chosen direction.
     pub fn restart_in_place(&mut self) {
         self.pending = false;

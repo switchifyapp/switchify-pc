@@ -388,7 +388,7 @@ impl Workflow {
             self.scroll_repeat = None;
             self.radar = None;
             self.pending = None;
-            self.mouse.restart();
+            self.mouse.opened();
         }
         self.mouse_area = area;
         self.point.screen = screen;
@@ -693,7 +693,9 @@ impl Workflow {
             self.open(Kind::Actions);
         }
     }
-    fn open_mouse(&mut self) -> Option<Request> {
+    /// Opens the mouse panel. Opened by a selection, it follows the user's
+    /// choice to wait after a selection.
+    fn open_mouse(&mut self, selected: bool) -> Option<Request> {
         self.point.config.control_mode = crate::point_scan::ControlMode::Mouse;
         self.stage = Stage::Mouse;
         self.mouse_actions_open = false;
@@ -702,6 +704,9 @@ impl Workflow {
         self.scroll_repeat = None;
         self.radar = None;
         self.mouse = self.new_mouse();
+        if selected {
+            self.mouse.opened();
+        }
         self.pending = None;
         self.parent_menu.clear();
         self.elapsed = 0;
@@ -833,7 +838,7 @@ impl Workflow {
         if chosen {
             self.mouse.repeat_stopped();
         } else {
-            self.mouse.restart();
+            self.mouse.opened();
         }
     }
     /// Goes back from a direction or distance to choosing an area, and from
@@ -899,7 +904,7 @@ impl Workflow {
         self.parent_menu.clear();
         self.mouse_actions_open = false;
         self.stage = Stage::Mouse;
-        self.mouse.restart();
+        self.mouse.opened();
     }
     fn keyboard_closed(&mut self) {
         if self.return_to_mouse {
@@ -908,15 +913,15 @@ impl Workflow {
         } else if self.return_to_home {
             self.open_home();
         } else {
-            self.resume_mode();
+            self.resume_mode(true);
         }
     }
     /// Starts the mode used last.
-    fn resume_mode(&mut self) {
+    fn resume_mode(&mut self, selected: bool) {
         let mode = self.point.config.control_mode;
         self.reset();
         if mode == crate::point_scan::ControlMode::Mouse {
-            let _ = self.open_mouse();
+            let _ = self.open_mouse(selected);
         } else {
             self.begin_point();
         }
@@ -951,7 +956,7 @@ impl Workflow {
                 self.error = None;
                 return Some(Request::OpenKeyboard);
             }
-            Item::MousePanel => return self.open_mouse(),
+            Item::MousePanel => return self.open_mouse(true),
             Item::More | Item::Group(_) => {
                 let kind = if let Item::Group(kind) = item {
                     kind
@@ -1122,6 +1127,7 @@ impl Technique for Workflow {
         self.leaving_home = false;
         if self.stage == Stage::KeyboardOpening {
             self.stage = Stage::Keyboard;
+            self.keyboard.opened();
         } else if self.stage == Stage::Keyboard {
             self.keyboard_layout_pending = false;
             let typed = self
@@ -1142,7 +1148,8 @@ impl Technique for Workflow {
     }
     fn start(&mut self) {
         if self.resume || self.point.config.start_with == crate::point_scan::StartWith::LastMode {
-            self.resume_mode();
+            // The Select that starts scanning is not waited after.
+            self.resume_mode(false);
         } else {
             self.reset();
             self.open_home();
@@ -1231,7 +1238,7 @@ impl Technique for Workflow {
             if self.mouse_open() {
                 return None;
             }
-            return self.open_mouse();
+            return self.open_mouse(true);
         }
         if action == Action::OpenKeyboard {
             if self.keyboard_open() {
@@ -2313,8 +2320,14 @@ mod tests {
             height: 720.0,
         };
         let mut session = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
+        let status = |session: &Session<Workflow>| {
+            let mut frame = session.technique.frame();
+            frame.tiles.pop().unwrap().text
+        };
         session.action(Action::OpenMouse);
+        assert_eq!(status(&session), "Mouse waiting · Select to continue");
         for action in [
+            Action::Select,
             Action::Next,
             Action::Next,
             Action::Select,
@@ -2328,10 +2341,6 @@ mod tests {
             Some(Request::MouseMove { dy: 0, .. })
         ));
         assert!(session.technique.stop_mouse_repeat());
-        let status = |session: &Session<Workflow>| {
-            let mut frame = session.technique.frame();
-            frame.tiles.pop().unwrap().text
-        };
         assert_eq!(status(&session), "Mouse waiting · Select to continue");
         session.tick(5000, false);
         assert_eq!(session.action(Action::Select), None);
@@ -2346,6 +2355,114 @@ mod tests {
         assert_eq!(status(&session), "Mouse action failed · Select to resume");
         session.action(Action::Select);
         assert_eq!(status(&session), "Movement · Select a row");
+    }
+    #[test]
+    fn panels_wait_on_opening_where_the_user_chose_to() {
+        use crate::scan_preferences::NextScan;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        for next_scan in [NextScan::Standard, NextScan::Automatic, NextScan::Wait] {
+            for automatic in [false, true] {
+                let waits = automatic && next_scan == NextScan::Wait;
+                let mut config = Config {
+                    automatic,
+                    control_mode: crate::point_scan::ControlMode::Mouse,
+                    ..last_mode()
+                };
+                config.scan_preferences.mouse.next_scan = Some(next_scan);
+                config.scan_preferences.keyboard.next_scan = Some(next_scan);
+                let mut s = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
+                // The Select that starts scanning is not waited after.
+                s.action(Action::Select);
+                assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+                let mouse = Phase::Workflow(if waits {
+                    WorkflowPhase::MouseSuspended
+                } else {
+                    WorkflowPhase::Mouse
+                });
+                let keyboard = Phase::Workflow(if waits {
+                    WorkflowPhase::KeyboardSuspended
+                } else {
+                    WorkflowPhase::Keyboard
+                });
+                assert_eq!(
+                    s.technique
+                        .choose_mouse_key(crate::scan_mouse::Key::Keyboard),
+                    Some(Request::OpenKeyboard)
+                );
+                s.technique.execution_succeeded();
+                assert_eq!(s.technique.phase(), keyboard, "{next_scan:?} {automatic}");
+                // Suggestions turning on, then failing, do not end the wait.
+                let prediction = s.technique.prediction_keyboard().unwrap();
+                prediction.predictions(None, true);
+                // Nor does a layout changed elsewhere.
+                s.technique
+                    .keyboard
+                    .set_layout(crate::point_scan::KeyboardLayout::SimpleQwerty);
+                s.tick(5000, false);
+                assert_eq!(s.technique.phase(), keyboard);
+                if waits {
+                    let mut frame = s.technique.frame();
+                    assert_eq!(
+                        frame.tiles.pop().unwrap().text,
+                        "Keyboard waiting · Select to start"
+                    );
+                    // Select starts the scan without typing.
+                    assert_eq!(s.action(Action::Select), None);
+                    assert_eq!(
+                        s.technique.phase(),
+                        Phase::Workflow(WorkflowPhase::Keyboard)
+                    );
+                }
+                // Closing the keyboard returns to the mouse panel.
+                assert_eq!(
+                    s.technique.choose_key(crate::scan_keyboard::Key::Close),
+                    None
+                );
+                assert_eq!(s.technique.phase(), mouse);
+                if waits {
+                    assert_eq!(s.action(Action::Next), None);
+                    assert_eq!(s.technique.phase(), mouse);
+                    assert_eq!(s.action(Action::Select), None);
+                    assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+                }
+                // So does leaving the mouse actions menu.
+                s.technique.pointer = Some((10.0, 10.0));
+                assert_eq!(
+                    s.technique
+                        .choose_mouse_key(crate::scan_mouse::Key::Actions),
+                    None
+                );
+                s.technique.selected(Item::Back);
+                assert_eq!(s.technique.phase(), mouse);
+                // And leaving the radar without choosing a target.
+                s.technique.mouse.restart();
+                s.technique.choose_mouse_key(crate::scan_mouse::Key::Radar);
+                assert_eq!(
+                    s.technique.phase(),
+                    Phase::Workflow(WorkflowPhase::MouseRadar)
+                );
+                s.action(Action::OpenMouse);
+                assert_eq!(s.technique.phase(), mouse);
+                // Or when the screen changes under the radar.
+                s.technique.mouse.restart();
+                s.technique.choose_mouse_key(crate::scan_mouse::Key::Radar);
+                let left = Rect {
+                    x: -1280.0,
+                    ..screen
+                };
+                s.technique.set_mouse_area(left, left, 1.0, 2);
+                assert_eq!(s.technique.phase(), mouse);
+                // And a switch that opens the mouse panel from point scanning.
+                s.action(Action::OpenPoint);
+                s.action(Action::OpenMouse);
+                assert_eq!(s.technique.phase(), mouse);
+            }
+        }
     }
     #[test]
     fn the_next_point_scan_starts_by_itself_where_the_user_chose_to() {
@@ -2600,7 +2717,7 @@ mod tests {
             height: 720.0,
         };
         let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
-        workflow.open_mouse();
+        workflow.open_mouse(true);
         workflow.set_mouse_settings(50, 1000, 250, 250, false);
         assert_eq!(
             workflow.mouse_key(crate::scan_mouse::Key::Move(-1, 1)),
@@ -2643,7 +2760,7 @@ mod tests {
                 (1, 1),
             ] {
                 let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
-                workflow.open_mouse();
+                workflow.open_mouse(true);
                 workflow.set_mouse_settings(speed, 1000, 250, 250, false);
                 assert_eq!(
                     workflow.mouse_key(crate::scan_mouse::Key::Move(x, y)),
@@ -2660,7 +2777,7 @@ mod tests {
     #[test]
     fn scanned_scroll_repeats_while_held_and_stops_on_release() {
         let mut workflow = session(false).technique;
-        workflow.open_mouse();
+        workflow.open_mouse(true);
         workflow.set_mouse_settings(100, 1000, 250, 120, true);
         for (direction, dy) in [(1, 5), (-1, -5)] {
             assert_eq!(
@@ -2721,7 +2838,7 @@ mod tests {
     #[test]
     fn scanned_scroll_single_step_and_cleanup_paths() {
         let mut workflow = session(false).technique;
-        workflow.open_mouse();
+        workflow.open_mouse(true);
         workflow.set_mouse_settings(100, 1000, 250, 80, false);
         assert_eq!(
             workflow.mouse_key(crate::scan_mouse::Key::Scroll(1)),
@@ -2769,7 +2886,7 @@ mod tests {
     fn changing_mouse_settings_or_display_ends_a_held_move_repeat() {
         use crate::scan_mouse::Key;
         let mut workflow = session(false).technique;
-        workflow.open_mouse();
+        workflow.open_mouse(true);
         workflow.set_mouse_settings(100, 1000, 250, 80, true);
         assert!(matches!(
             workflow.mouse_key(Key::Move(1, 0)),
@@ -2803,7 +2920,7 @@ mod tests {
             height: 720.0,
         };
         let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
-        workflow.open_mouse();
+        workflow.open_mouse(true);
         let dock = Dock { column: 2, row: 1 };
         assert_eq!(workflow.mouse_key(Key::Dock), None);
         assert_eq!(workflow.mouse_key(Key::Position(dock)), None);
@@ -2821,7 +2938,7 @@ mod tests {
         workflow.keyboard_closed();
         assert_eq!(workflow.mouse.dock, dock, "keyboard choices move the mouse");
         workflow.reset();
-        workflow.open_mouse();
+        workflow.open_mouse(true);
         assert_eq!((workflow.keyboard.dock, workflow.mouse.dock), (dock, dock));
     }
 
@@ -2843,7 +2960,7 @@ mod tests {
             .unwrap()
             .with_dock(saved);
         assert_eq!(workflow.unsaved_dock(), None, "a loaded dock is saved");
-        workflow.open_mouse();
+        workflow.open_mouse(true);
         assert_eq!(
             (workflow.keyboard.dock, workflow.mouse.dock),
             (saved, saved)
@@ -2870,7 +2987,7 @@ mod tests {
             .unwrap()
             .with_dock(Dock::default());
         next.resume_from(&workflow);
-        next.open_mouse();
+        next.open_mouse(true);
         assert_eq!(next.mouse.dock, chosen);
         assert_eq!(next.unsaved_dock(), None);
         // Home and the action menus open at the same dock, which they never change.
@@ -2893,7 +3010,7 @@ mod tests {
         };
         let mut config = last_mode();
         let mut workflow = Workflow::new(config.point(), screen, 1.0).unwrap();
-        workflow.open_mouse();
+        workflow.open_mouse(true);
         workflow.handle(Action::Next);
         let selected = workflow
             .frame()
@@ -2932,7 +3049,7 @@ mod tests {
         let top = Dock { column: 1, row: 0 }.rect(screen, (568.0, 392.0));
         let over_bottom = Some((640.0, 700.0));
         let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
-        workflow.open_mouse();
+        workflow.open_mouse(true);
         workflow.set_pointer(over_bottom);
         assert_eq!(background(&workflow), bottom, "off by default");
 
@@ -3050,7 +3167,7 @@ mod tests {
             height: 720.0,
         };
         let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
-        workflow.open_mouse();
+        workflow.open_mouse(true);
         assert_eq!(
             workflow.mouse_key(crate::scan_mouse::Key::Drag),
             Some(Request::MouseDrag)
@@ -3091,7 +3208,7 @@ mod tests {
     #[test]
     fn mouse_input_failure_clears_repeat_and_ring_until_resumed() {
         let mut workflow = session(false).technique;
-        workflow.open_mouse();
+        workflow.open_mouse(true);
         workflow.mouse_key(crate::scan_mouse::Key::Move(1, 0));
         assert!(matches!(
             workflow.mouse_feedback(),
@@ -3340,6 +3457,12 @@ mod tests {
         s.action(Action::Select);
         s.technique.selected(Item::Keyboard);
         s.technique.execution_succeeded();
+        // The saved choice also waits when the keyboard opens.
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::KeyboardSuspended)
+        );
+        assert!(s.action(Action::Select).is_none());
         assert_eq!(
             s.technique.phase(),
             Phase::Workflow(WorkflowPhase::Keyboard)
@@ -3378,9 +3501,15 @@ mod tests {
         s.technique.apply_config(config.point(), true);
         s.technique.selected(Item::Keyboard);
         s.technique.execution_succeeded();
+        // Only the wait to start scanning the newly opened keyboard.
         assert_eq!(
             s.technique.phase(),
-            Phase::Workflow(WorkflowPhase::Keyboard)
+            Phase::Workflow(WorkflowPhase::KeyboardSuspended)
+        );
+        let mut frame = s.technique.frame();
+        assert_eq!(
+            frame.tiles.pop().unwrap().text,
+            "Keyboard waiting · Select to start"
         );
     }
     #[test]

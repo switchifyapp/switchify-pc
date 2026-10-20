@@ -102,6 +102,7 @@ The beginning is the first row or item, or the last when the initial direction i
 Rules that hold whatever is chosen:
 
 - Selections that only navigate start from the beginning of what they open. These are opening a menu, page or panel, the position items, Back from the position items, Close, and the keyboard's modifier and Caps keys.
+- Opening the keyboard or the mouse panel, or returning to the mouse panel, follows that panel's `nextScan`: with `wait` it waits for Select before scanning. This includes a switch set to open the panel. The Select that starts scanning is not waited after.
 - Back in a menu returns to the item that opened it.
 - The menu's mode and display items start a new point scan. The menu's speed, Pause and Reverse items stay where they are and do not follow the preferences.
 - The mouse panel's Speed, Monitor and Drag keys are actions and follow both preferences.

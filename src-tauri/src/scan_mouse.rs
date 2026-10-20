@@ -144,6 +144,11 @@ impl MousePanel {
         self.notice = None;
         self.scan.restart();
     }
+    /// The panel has opened, or been returned to, by a selection.
+    pub fn opened(&mut self) {
+        self.notice = None;
+        self.scan.open();
+    }
     pub fn block_actions(&mut self, message: &'static str) {
         self.notice = Some(message);
         self.scan.continue_after_selection();
