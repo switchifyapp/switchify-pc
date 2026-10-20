@@ -18,7 +18,9 @@ Built-in PC control arrives with Switchify 3.1, which is still in testing and no
 
 1. On the Android device, open PC control in Switchify, choose **Find nearby PCs**, and pick this computer.
 2. Both apps show a six-digit code. Compare them.
-3. On the computer, approve the request only if the codes match. If they differ, or you did not ask to pair, reject it.
+3. On the computer, choose **Accept** only if the codes match. If they differ, or you did not ask to pair, choose **Reject**.
+
+   ![A pairing request on the computer from a phone called Pixel 8, showing the six-digit verification code with Reject and Accept buttons.](../../../assets/screenshots/pairing-request.png)
 
 The computer now trusts that device. Switchify PC lists paired devices, and you can **Forget** one at any time.
 

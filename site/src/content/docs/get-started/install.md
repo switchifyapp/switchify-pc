@@ -23,13 +23,28 @@ Download the latest release from [GitHub releases](https://github.com/switchifya
 
 The first time Switchify PC opens, a five-step guide walks you through:
 
-1. **Input access.** On a Mac, Switchify PC needs Accessibility permission to control the pointer and keyboard. Choose *Open Accessibility Settings*, turn on Switchify PC under Privacy & Security, then come back to the app. It checks again by itself when its window regains focus.
-2. **Add your switch.** Press your switch once so Switchify PC learns the key it sends, then name it.
-3. **Scanning basics.** A short introduction to automatic scanning and the Home menu.
-4. **Start with system.** Choose whether Switchify PC launches when you sign in. When it does, it starts quietly in the system tray on Windows or the menu bar on a Mac.
-5. **Anonymous diagnostics.** Off unless you turn them on. See [Account, updates and privacy](/account-and-privacy/).
+1. **Input access.** On a Mac, Switchify PC needs Accessibility permission to control the pointer and keyboard. Choose *Open Accessibility Settings*, turn on Switchify PC under Privacy & Security, then come back to the app. It checks again by itself when its window regains focus. On Windows this step shows *Ready*.
 
-You can skip the guide and reopen it later from Home or Help.
+   ![The Input access step of the setup guide on a Mac, with an Open Accessibility Settings button and a Show me how demonstration.](../../../assets/screenshots/setup-input-access-macos.png)
+
+2. **Add your switch.** Choose **Add switch**, press your switch once so Switchify PC learns the key it sends, then name it. [Add a switch](/get-started/add-a-switch/) shows each part of this. **Next** turns on once a switch is saved. To set switches up later, choose **Skip switch configuration**.
+
+   ![The Add your switch step with one saved switch, called Head switch, on the Space key, set to Select.](../../../assets/screenshots/setup-add-switch-saved.png)
+
+3. **Scanning basics.** A short introduction to automatic scanning and the Home menu.
+4. **Start with system.** Choose **Start with system** or **Start manually**. With Start with system, Switchify PC starts quietly when you sign in, in the system tray on Windows or the menu bar on a Mac.
+
+   ![The Start with system step, with Start with system chosen and Start manually next to it.](../../../assets/screenshots/setup-start-with-system.png)
+
+5. **Anonymous diagnostics.** Choose **Share diagnostics** or **Don’t share**. Nothing is shared unless you choose to. See [Account, updates and privacy](/account-and-privacy/).
+
+You can skip the guide with **Skip setup for now** and reopen it later from Help.
+
+## When setup is done
+
+Home shows **Ready** when Switchify PC is waiting for your switches. Press and release your Select switch to open the Home menu.
+
+![The Switchify PC Home page showing Ready, with input access ready, one saved switch with Select assigned, automatic scanning, and an optional mobile connection.](../../../assets/screenshots/home.png)
 
 ## Keeping it up to date
 

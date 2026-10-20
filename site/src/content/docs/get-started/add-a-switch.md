@@ -15,9 +15,14 @@ Switchify PC sees a switch as a key press. Anything that sends a key when you pr
 
 ## Learn the key
 
-1. In Settings, choose **Switches**, then **Add switch**.
+1. Choose **Switches** in the sidebar, then **Add switch**.
 2. Press and release your switch once. The key it sends appears as a badge.
-3. Give the switch a name, such as *Head switch* or *Foot pedal*, and save.
+
+   ![The learning dialog: Press and release your switch, with a Cancel capture button.](../../../assets/screenshots/add-switch-waiting.png)
+
+3. Give the switch a name, such as *Head switch* or *Foot pedal*, choose what a press does, and choose **Save switch**.
+
+   ![A new switch after learning the Space key, named Head switch, with Press and release set to Select and Save switch and Cancel buttons.](../../../assets/screenshots/add-switch-learned.png)
 
 While the learning dialog is open it holds keyboard focus, so a press cannot scroll Settings or activate a button. Press Escape to cancel. If you need to type the name with the keyboard, choose **Type with keyboard**, which pauses switch control while you do.
 
@@ -34,9 +39,15 @@ Give the switch one of these actions for a **press and release**:
 
 The action runs when you release. Scanning movement freezes while any switch is held, so a slow release never selects the wrong thing.
 
+To change a saved switch later, choose **Edit** next to it on the Switches page.
+
 ## Hold actions
 
 A switch can also have an ordered list of **hold actions**. Keep the switch down and each action is offered in turn on screen, one per interval. Release while an action is offered to run it. The interval is 1 second by default and can be anything from 250 milliseconds to 5 seconds. Holding on its own never runs anything; only the release does.
+
+Choose **Add hold action** to add one, and use the arrows to change the order. The editor spells out the timing, such as *Hold 1s for Open keyboard, 2s for Pause / resume*.
+
+![Editing Head switch: a press and release runs Select, and two hold actions, Open keyboard then Pause / resume, are listed in order.](../../../assets/screenshots/switch-editor.png)
 
 ## Emergency stop
 
