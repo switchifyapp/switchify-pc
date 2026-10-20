@@ -24,7 +24,7 @@ npx vite --port 5181 --strictPort --host 127.0.0.1
 cd site && npm run screenshots   # APP_URL overrides http://127.0.0.1:5181/
 ```
 
-Recapture when a change alters a screen that a screenshot shows, and check each image before committing.
+Recapture when a change alters a screen that a screenshot shows, and check each image before committing. The Mac setup screenshot comes from the same browser with the platform set to macOS, so it uses the fonts of the computer you capture on.
 
 Any change that users can see in the app must update these pages in the same pull request. Write for switch users and AT professionals: plain language, no claims the app does not back up, and no accuracy claims for word prediction.
 

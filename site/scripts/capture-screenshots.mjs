@@ -147,7 +147,7 @@ const headSwitch = { id: "head", name: "Head switch", key: "Space", pressAction:
 
 // Setup guide
 for (const platform of ["windows", "macos"]) {
-  const page = await open(platform);
+  const page = await open(platform, { height: 1000 });
   await click(page, "Help");
   await click(page, "Open setup guide");
   await shot(page, `setup-input-access-${platform}`, ".setup-dialog");
