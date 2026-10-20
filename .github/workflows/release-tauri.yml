@@ -517,8 +517,25 @@ jobs:
           # Until the stable feed holds a stable release, a pre-release is
           # written there too, for builds made before the feeds were split.
           content="$(base64 -w0 latest.json)"
-          stable_feed_version="$(gh api "repos/${GITHUB_REPOSITORY}/contents/latest.json?ref=update-feed" --jq .content 2>/dev/null | base64 -d | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(JSON.parse(d).version||""))' || true)"
-          for feed in $(node scripts/update-channel.mjs "$RELEASE_VERSION" "$stable_feed_version"); do
+          # Only a missing stable feed counts as "no stable release yet". Any
+          # other failure to read it stops the run rather than guessing.
+          stable_feed_version=""
+          read_error="$RUNNER_TEMP/stable-feed-read.err"
+          if stable_feed="$(gh api "repos/${GITHUB_REPOSITORY}/contents/latest.json?ref=update-feed" --jq .content 2>"$read_error")"; then
+            stable_feed_version="$(printf '%s' "$stable_feed" | base64 -d | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(String(JSON.parse(d||"{}").version||"")))')"
+          elif grep -q 'HTTP 404' "$read_error"; then
+            echo 'No stable feed has been published yet.'
+          else
+            cat "$read_error" >&2
+            exit 1
+          fi
+          echo "Stable feed holds: ${stable_feed_version:-nothing}"
+          mapfile -t feeds < <(node scripts/update-channel.mjs "$RELEASE_VERSION" "$stable_feed_version" | tr ' ' '\n')
+          if (( ${#feeds[@]} == 0 )); then
+            echo 'No feed file to publish.' >&2
+            exit 1
+          fi
+          for feed in "${feeds[@]}"; do
             current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${feed}?ref=update-feed" --jq .sha 2>/dev/null || true)"
             args=(-f message="Update Tauri feed ${feed} to $RELEASE_VERSION" -f content="$content" -f branch=update-feed)
             if [[ -n "$current_sha" ]]; then
