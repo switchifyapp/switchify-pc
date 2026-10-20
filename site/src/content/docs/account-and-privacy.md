@@ -25,6 +25,8 @@ You can delete the account from the Account page.
 
 Switchify PC checks for an update shortly after it starts, every six hours, and on demand. Settings shows what is available, downloads it with progress you can cancel, and installs on *Install and restart*.
 
+A release candidate, such as 1.0.0-rc.32, is offered only to people already running a release candidate. A stable release, such as 1.0.0, is offered to everyone, so a release candidate moves to the next stable release when it comes out.
+
 ## Diagnostics
 
 **Anonymous diagnostics are off until you turn them on**, in the setup guide or in Settings. When on, they never include typed text, device names or file paths.

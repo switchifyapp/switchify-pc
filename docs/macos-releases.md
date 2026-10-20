@@ -51,7 +51,7 @@ The workflow writes credentials only beneath the ephemeral runner directory, imp
 
 ## Publish a release
 
-Keep `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` versions identical, then create and push the corresponding tag, for example `v1.0.0-beta.1`. The release workflow checks out that exact tag, builds on an Apple Silicon runner, lets Tauri sign and notarize the app, then separately submits and staples the finished signed DMG. The Windows job runs on the `switchify-signing` self-hosted runner with SimplySign authenticated. Both packages and updater signatures must pass verification before the matching GitHub Release and `update-feed/latest.json` are updated.
+Keep `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` versions identical, then create and push the corresponding tag, for example `v1.0.0-beta.1`. The release workflow checks out that exact tag, builds on an Apple Silicon runner, lets Tauri sign and notarize the app, then separately submits and staples the finished signed DMG. The Windows job runs on the `switchify-signing` self-hosted runner with SimplySign authenticated. Both packages and updater signatures must pass verification before the matching GitHub Release and the updater feed are updated: `update-feed/prerelease.json` for a pre-release, and both it and `update-feed/latest.json` for a stable release.
 
 The workflow can be manually dispatched with an existing tag to recover or replace assets for that tag. It never modifies earlier tags or their assets. Checksums accompany both platform installers.
 
