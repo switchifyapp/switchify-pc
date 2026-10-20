@@ -42,6 +42,6 @@ Backspace, Delete, the arrows, Tab, Page Up and Page Down can repeat while you h
 
 ## Where it sits
 
-Dock the keyboard to any of nine positions on the display. It keeps working when you switch apps, and it refits itself if the taskbar or Dock changes.
+The keyboard opens on the display the pointer is on, and stays on that display while it is open. Dock it to any of nine positions on the display. It keeps working when you switch apps, and it refits itself if the taskbar or Dock changes.
 
 Word prediction has its own page: [Word prediction](/using/word-prediction/).
