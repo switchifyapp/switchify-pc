@@ -1,0 +1,60 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      npm:
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "Update npm dependencies"
+
+  - package-ecosystem: npm
+    directory: /site
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      site-npm:
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "Update site dependencies"
+
+  - package-ecosystem: cargo
+    directories:
+      - /src-tauri
+      - /src-tauri/startup-launcher
+      - /tools/updater-signature-verifier
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      cargo:
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "Update Rust dependencies"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "Update GitHub Actions"
