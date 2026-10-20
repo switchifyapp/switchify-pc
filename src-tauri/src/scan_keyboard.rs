@@ -378,7 +378,16 @@ impl Keyboard {
         self.prediction_enabled = enabled;
         self.prediction_loading = enabled;
         self.prediction_failed = false;
+        self.rebuild_rows_keeping_pause();
+    }
+    /// Rebuilds the rows without ending a pause or a wait for Select.
+    fn rebuild_rows_keeping_pause(&mut self) {
+        let (suspended, waiting) = (self.scan.suspended, self.scan.waiting());
         self.rebuild_rows();
+        self.scan.suspended = suspended;
+        if waiting {
+            self.scan.wait();
+        }
     }
     fn rebuild_rows(&mut self) {
         self.rows = if self.positioning {
@@ -418,9 +427,7 @@ impl Keyboard {
             self.queued_predictions = None;
         }
         if retry_changed {
-            let suspended = self.scan.suspended;
-            self.rebuild_rows();
-            self.scan.suspended = suspended;
+            self.rebuild_rows_keeping_pause();
         }
         if batch.is_none() {
             self.predictions = None;

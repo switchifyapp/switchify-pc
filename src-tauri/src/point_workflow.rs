@@ -838,7 +838,7 @@ impl Workflow {
         if chosen {
             self.mouse.repeat_stopped();
         } else {
-            self.mouse.restart();
+            self.mouse.opened();
         }
     }
     /// Goes back from a direction or distance to choosing an area, and from
@@ -2396,9 +2396,17 @@ mod tests {
                 );
                 s.technique.execution_succeeded();
                 assert_eq!(s.technique.phase(), keyboard, "{next_scan:?} {automatic}");
+                // Suggestions turning on, then failing, do not end the wait.
+                let prediction = s.technique.prediction_keyboard().unwrap();
+                prediction.predictions(None, true);
                 s.tick(5000, false);
                 assert_eq!(s.technique.phase(), keyboard);
                 if waits {
+                    let mut frame = s.technique.frame();
+                    assert_eq!(
+                        frame.tiles.pop().unwrap().text,
+                        "Keyboard waiting · Select to start"
+                    );
                     // Select starts the scan without typing.
                     assert_eq!(s.action(Action::Select), None);
                     assert_eq!(
@@ -2426,6 +2434,15 @@ mod tests {
                     None
                 );
                 s.technique.selected(Item::Back);
+                assert_eq!(s.technique.phase(), mouse);
+                // And leaving the radar without choosing a target.
+                s.technique.mouse.restart();
+                s.technique.choose_mouse_key(crate::scan_mouse::Key::Radar);
+                assert_eq!(
+                    s.technique.phase(),
+                    Phase::Workflow(WorkflowPhase::MouseRadar)
+                );
+                s.action(Action::OpenMouse);
                 assert_eq!(s.technique.phase(), mouse);
                 // And a switch that opens the mouse panel from point scanning.
                 s.action(Action::OpenPoint);
