@@ -158,6 +158,9 @@ pub struct Panel {
     /// key may be chosen.
     pub selected: Option<(usize, Option<std::ops::Range<usize>>)>,
     pub row_scan: bool,
+    /// Passive text drawn across a row, such as an empty suggestion row whose
+    /// keys are all hidden; never a scan target.
+    pub row_label: Option<(usize, String)>,
     pub thickness: Thickness,
 }
 
@@ -244,6 +247,26 @@ impl Panel {
                 left += key_width + gap;
                 c += 1;
             }
+        }
+        if let Some((row, text)) = &self.row_label {
+            frame.tiles.push(FrameTile {
+                thickness: self.thickness,
+                color,
+                text: text.clone(),
+                style: Some(TileStyle {
+                    role: TileRole::Status,
+                    active: false,
+                    row_scan: false,
+                }),
+                rect: Rect {
+                    x,
+                    y: y + header_height + *row as f64 * row_height,
+                    width,
+                    height: (row_height - gap).max(1.0),
+                },
+                scale,
+                selected: false,
+            });
         }
         let note_width = self.note.as_ref().map_or(0.0, |_| width * 0.28);
         if let Some(note) = &self.note {
@@ -343,6 +366,7 @@ mod tests {
             dock: Dock::default(),
             selected: Some((0, Some(2..3))),
             row_scan: false,
+            row_label: None,
             thickness: Thickness::Thick,
         }
         .frame(
@@ -374,6 +398,7 @@ mod tests {
             dock: Dock::default(),
             selected: Some((1, None)),
             row_scan: true,
+            row_label: None,
             thickness: Thickness::Thick,
         };
         let screen = Rect {
@@ -420,6 +445,7 @@ mod tests {
             dock: Dock { column: 1, row: 0 },
             selected: Some((0, None)),
             row_scan: true,
+            row_label: None,
             thickness: Thickness::default(),
         };
         let screen = Rect {
@@ -523,6 +549,7 @@ mod tests {
             dock: Dock::default(),
             selected: None,
             row_scan: false,
+            row_label: None,
             thickness: Thickness::default(),
         }
         .frame(screen, 1.0, ScannerColor::default());
@@ -555,6 +582,7 @@ mod tests {
                 dock,
                 selected: None,
                 row_scan: false,
+                row_label: None,
                 thickness: Thickness::default(),
             };
             let rect = panel.frame(screen, 1.0, ScannerColor::default()).tiles[0].rect;

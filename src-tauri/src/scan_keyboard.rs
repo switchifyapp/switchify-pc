@@ -1092,6 +1092,10 @@ impl Keyboard {
                 &self.label(self.rows[active_row][active_column.unwrap_or(0)]),
             )
         };
+        let empty_suggestions = self.rows.first().is_some_and(|row| {
+            row.iter()
+                .all(|&key| matches!(key, Key::Prediction(_)) && self.label(key).is_empty())
+        });
         crate::scan_panel::Panel {
             key_width: if self.positioning { 128.0 } else { 68.0 },
             size: self.scan.options.panel_size,
@@ -1118,11 +1122,18 @@ impl Keyboard {
                 })
                 .collect(),
             status,
+            // With no suggestions to show, their row says why instead.
             note: if self.layout_save_error {
                 Some("Could not save layout".into())
+            } else if empty_suggestions {
+                None
             } else {
                 self.prediction_note()
             },
+            row_label: empty_suggestions
+                .then(|| self.prediction_note())
+                .flatten()
+                .map(|note| (0, note)),
             dock: self.dock,
             selected: (repeating.is_none() && !self.scan.suspended && !self.disabled())
                 .then(|| self.scan.highlight(&self.rows)),
@@ -1264,18 +1275,23 @@ mod tests {
             width: 1920.0,
             height: 1080.0,
         };
+        // The note, and whether it is drawn across the empty suggestion row
+        // rather than beside the prompt.
         let badge = |keyboard: &Keyboard| {
             let frame = keyboard.frame(screen, 1.0, ScannerColor::default());
             let prompt = frame.tiles.last().unwrap();
             let badge = &frame.tiles[frame.tiles.len() - 2];
             assert!(prompt.text.contains("Select"));
             assert!(!badge.selected);
-            assert!(badge.rect.x >= prompt.rect.x + prompt.rect.width);
-            badge.text.clone()
+            let in_row = badge.rect.y >= prompt.rect.y + prompt.rect.height;
+            if !in_row {
+                assert!(badge.rect.x >= prompt.rect.x + prompt.rect.width);
+            }
+            (badge.text.clone(), in_row)
         };
-        assert_eq!(badge(&keyboard), "Prediction loading");
+        assert_eq!(badge(&keyboard), ("Prediction loading".into(), true));
         keyboard.predictions(None, false);
-        assert_eq!(badge(&keyboard), "Type for suggestions");
+        assert_eq!(badge(&keyboard), ("Type for suggestions".into(), true));
         keyboard.predictions(
             Some(crate::prediction::worker::Batch {
                 refined: false,
@@ -1284,7 +1300,7 @@ mod tests {
             }),
             false,
         );
-        assert_eq!(badge(&keyboard), "No suggestions");
+        assert_eq!(badge(&keyboard), ("No suggestions".into(), true));
         keyboard.predictions(
             Some(crate::prediction::worker::Batch {
                 refined: false,
@@ -1293,9 +1309,9 @@ mod tests {
             }),
             false,
         );
-        assert_eq!(badge(&keyboard), "1 suggestion");
+        assert_eq!(badge(&keyboard), ("1 suggestion".into(), false));
         keyboard.prediction_tracking(false);
-        assert_eq!(badge(&keyboard), "Prediction paused");
+        assert_eq!(badge(&keyboard), ("Prediction paused".into(), false));
     }
 
     #[test]
@@ -2702,6 +2718,69 @@ mod tests {
         k.predictions(None, false);
         k.prediction_held = false;
         assert_eq!(k.prediction_note().as_deref(), Some("Type for suggestions"));
+    }
+    #[test]
+    fn an_empty_suggestion_row_says_why() {
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let mut k = Keyboard::new(false);
+        k.enable_predictions(true);
+        k.predictions(None, false);
+        let frame = k.frame(screen, 1.0, ScannerColor::Blue);
+        let labels = frame
+            .tiles
+            .iter()
+            .filter(|tile| tile.text == "Type for suggestions")
+            .collect::<Vec<_>>();
+        // In the row instead of the header, and never highlighted.
+        let [label] = labels.as_slice() else {
+            panic!("expected one label, found {}", labels.len());
+        };
+        assert!(!label.selected);
+        let background = frame.tiles[0].rect;
+        let status = frame.tiles.last().unwrap();
+        assert!(label.rect.y > status.rect.y + status.rect.height);
+        assert!(label.rect.width > background.width * 0.9);
+        // An empty batch says so too.
+        k.predictions(
+            Some(crate::prediction::worker::Batch {
+                refined: true,
+                token: 1,
+                words: Default::default(),
+            }),
+            false,
+        );
+        let frame = k.frame(screen, 1.0, ScannerColor::Blue);
+        assert!(frame.tiles.iter().any(|tile| tile.text == "No suggestions"));
+        // With suggestions, the note stays in the header and the row has none.
+        k.restart();
+        k.handle(Action::Next);
+        k.predictions(
+            Some(crate::prediction::worker::Batch {
+                refined: true,
+                token: 2,
+                words: crate::prediction::slots(vec!["hello".to_owned()]),
+            }),
+            false,
+        );
+        let frame = k.frame(screen, 1.0, ScannerColor::Blue);
+        let note = frame
+            .tiles
+            .iter()
+            .find(|tile| tile.text == "1 suggestion")
+            .unwrap();
+        assert!(note.rect.y < frame.tiles.last().unwrap().rect.y + 1.0);
+        // Without prediction there is no suggestion row to label.
+        k.enable_predictions(false);
+        let frame = k.frame(screen, 1.0, ScannerColor::Blue);
+        assert!(!frame
+            .tiles
+            .iter()
+            .any(|tile| tile.text.contains("suggestion")));
     }
     #[test]
     fn prediction_warning_does_not_hide_resume_or_error_instructions() {

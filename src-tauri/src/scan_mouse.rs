@@ -303,6 +303,7 @@ impl MousePanel {
             dock: self.dock,
             selected: scanning.then(|| self.scan.highlight(&self.rows)),
             row_scan: highlight_row,
+            row_label: None,
             thickness: self.scan.options.thickness,
         }
         .frame(screen, units, color)
