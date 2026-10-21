@@ -44,6 +44,16 @@ impl UpdateArtifact for Update {
     }
 }
 
+/// Whether a build may install the version a feed offers. A stable build never
+/// installs a pre-release, whatever the feed holds. Otherwise the offered
+/// version must be newer than the running one, which is the updater's own rule.
+pub fn accepts_update(current: &semver::Version, offered: &semver::Version) -> bool {
+    if current.pre.is_empty() && !offered.pre.is_empty() {
+        return false;
+    }
+    offered > current
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum DownloadResult {
     Complete(Result<Vec<u8>, String>),
@@ -427,6 +437,34 @@ mod tests {
     use tokio::sync::Notify;
 
     use super::*;
+
+    fn v(text: &str) -> semver::Version {
+        semver::Version::parse(text).unwrap()
+    }
+
+    #[test]
+    fn a_stable_build_never_installs_a_pre_release() {
+        assert!(!accepts_update(&v("1.0.0"), &v("1.0.1-rc.1")));
+        assert!(!accepts_update(&v("1.0.0"), &v("2.0.0-beta.1")));
+        assert!(accepts_update(&v("1.0.0"), &v("1.0.1")));
+        assert!(accepts_update(&v("1.0.0"), &v("2.0.0")));
+    }
+
+    #[test]
+    fn a_pre_release_build_installs_anything_newer() {
+        assert!(accepts_update(&v("1.0.0-rc.32"), &v("1.0.0-rc.33")));
+        assert!(accepts_update(&v("1.0.0-rc.32"), &v("1.0.0")));
+        assert!(accepts_update(&v("1.0.0-rc.32"), &v("1.0.1-rc.1")));
+    }
+
+    #[test]
+    fn no_build_installs_the_same_or_an_older_version() {
+        assert!(!accepts_update(&v("1.0.0"), &v("1.0.0")));
+        assert!(!accepts_update(&v("1.0.0"), &v("0.10.0")));
+        assert!(!accepts_update(&v("1.0.0-rc.32"), &v("1.0.0-rc.32")));
+        assert!(!accepts_update(&v("1.0.0-rc.32"), &v("1.0.0-rc.31")));
+        assert!(!accepts_update(&v("1.0.1"), &v("1.0.1-rc.1")));
+    }
 
     #[derive(Clone)]
     struct FakeUpdate {

@@ -1197,7 +1197,12 @@ async fn check_for_updates_inner(app: &AppHandle) -> AppState {
         return model.snapshot();
     }
     publish_update(app, &model, UpdateView::checking());
-    let result = match app.updater() {
+    // A stable build never installs a pre-release, whatever the feed offers.
+    let updater = app
+        .updater_builder()
+        .version_comparator(|current, release| updater::accepts_update(&current, &release.version))
+        .build();
+    let result = match updater {
         Ok(updater) => updater.check().await.map_err(|error| error.to_string()),
         Err(error) => Err(error.to_string()),
     };
