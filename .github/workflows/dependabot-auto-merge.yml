@@ -26,6 +26,8 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr merge --auto --squash "$PR_URL"
 
-      - name: Leave major bumps for a person
-        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
-        run: echo "Major version bump detected; auto-merge not enabled."
+      - name: Leave other bumps for a person
+        if: steps.metadata.outputs.update-type != 'version-update:semver-patch' && steps.metadata.outputs.update-type != 'version-update:semver-minor'
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+        run: echo "Update type '${UPDATE_TYPE:-unknown}' is not patch or minor; auto-merge not enabled."
