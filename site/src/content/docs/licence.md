@@ -9,7 +9,7 @@ Switchify PC is free and open source software. It is licensed under the [GNU Aff
 
 You can use it for free, at home, at school, at work or in a care setting. There is no agreement to accept before you install it.
 
-The licence also lets you study, change and share the app. If you share it, changed or not, the licence sets out how you must make the source code available. A changed version must stay under the same licence, including one that people use over a network. The [source code](https://github.com/switchifyapp/switchify-pc) is on GitHub. Read the licence for exactly what applies.
+The licence also lets you study, change and share the app. If you share it, changed or not, the licence sets out how you must make the source code available. A changed version must stay under the same licence. If people use a changed version over a network, they must be offered its source code too. The [source code](https://github.com/switchifyapp/switchify-pc) is on GitHub. Read the licence for exactly what applies.
 
 ## No warranty
 
@@ -17,7 +17,7 @@ Switchify PC is provided as it is, without any warranty, as set out in sections 
 
 ## Parts from other projects
 
-Switchify PC includes work from other projects. Each part keeps its own licence. The word prediction parts include their licence files and notices in the installed app; the licences for the other parts are in the source code.
+Switchify PC includes work from other projects. Each part keeps its own licence. The word prediction parts include their licence files and notices in the installed app; the licences for the other parts are in each project's source code.
 
 - **Word prediction**: [switchify-prediction](https://github.com/switchifyapp/switchify-prediction), MIT licence. Its word list is built from these sources, each under its own terms:
   - English sentences from [Tatoeba](https://tatoeba.org), by way of [WorldAlphabets](https://github.com/AACTools/WorldAlphabets) (CC0 and CC BY 2.0 FR)
