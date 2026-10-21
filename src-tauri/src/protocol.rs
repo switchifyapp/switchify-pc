@@ -944,8 +944,10 @@ impl ProtocolEngine {
             return Err("expired_timestamp".into());
         }
 
+        // Keep an entry through the last millisecond at which the timestamp
+        // check would still accept the command.
         self.replay_cache
-            .retain(|_, expires_at| *expires_at > now_ms);
+            .retain(|_, expires_at| *expires_at >= now_ms);
         let replay_key = format!("{device_id}:{id}");
         if self.replay_cache.contains_key(&replay_key) {
             return Err("duplicate_request".into());
@@ -954,8 +956,13 @@ impl ProtocolEngine {
         if !auth_matches(value, token, &actual) {
             return Err("invalid_auth".into());
         }
-        self.replay_cache
-            .insert(replay_key, now_ms + COMMAND_TIMESTAMP_TOLERANCE_MS);
+        // A command is accepted while `now` is within the tolerance of its own
+        // timestamp, so the replay entry must outlive that window when the
+        // timestamp is ahead of the receive time, not just the receive window.
+        self.replay_cache.insert(
+            replay_key,
+            now_ms.max(timestamp) + COMMAND_TIMESTAMP_TOLERANCE_MS,
+        );
 
         Ok(ValidatedCommand {
             id,
@@ -2262,6 +2269,51 @@ mod tests {
         command["timestamp"] = Value::from(NOW - COMMAND_TIMESTAMP_TOLERANCE_MS - 1);
         sign(&mut command, TOKEN, SlashEscaping::AndroidHtmlSafe);
         let expired = engine.process_message(&command.to_string(), NOW).unwrap();
+        assert!(
+            matches!(expired, EngineEvent::Response(response) if response.contains("expired_timestamp"))
+        );
+    }
+
+    #[test]
+    fn rejects_replay_of_future_stamped_command_after_receive_window() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine.tokens.insert("android-1".into(), TOKEN.into());
+        let skew = 30_000;
+        let mut command = json!({
+            "version": 1,
+            "id": "text-1",
+            "deviceId": "android-1",
+            "timestamp": NOW + skew,
+            "type": "keyboard.typeText",
+            "payload": { "text": "Hello" },
+            "auth": ""
+        });
+        sign(&mut command, TOKEN, SlashEscaping::AndroidHtmlSafe);
+        assert!(matches!(
+            engine.process_message(&command.to_string(), NOW).unwrap(),
+            EngineEvent::Text(_)
+        ));
+
+        // Just after the receive-time window closes the command is still
+        // within tolerance of its own timestamp, so it must stay cached.
+        let later = NOW + COMMAND_TIMESTAMP_TOLERANCE_MS + 1;
+        let replayed = engine.process_message(&command.to_string(), later).unwrap();
+        assert!(
+            matches!(replayed, EngineEvent::Response(response) if response.contains("duplicate_request"))
+        );
+
+        // The last millisecond the timestamp check accepts is still cached.
+        let edge = NOW + skew + COMMAND_TIMESTAMP_TOLERANCE_MS;
+        let replayed_at_edge = engine.process_message(&command.to_string(), edge).unwrap();
+        assert!(
+            matches!(replayed_at_edge, EngineEvent::Response(response) if response.contains("duplicate_request"))
+        );
+
+        // Once the command's own window has closed it is rejected as expired.
+        let expired_at = NOW + skew + COMMAND_TIMESTAMP_TOLERANCE_MS + 1;
+        let expired = engine
+            .process_message(&command.to_string(), expired_at)
+            .unwrap();
         assert!(
             matches!(expired, EngineEvent::Response(response) if response.contains("expired_timestamp"))
         );
