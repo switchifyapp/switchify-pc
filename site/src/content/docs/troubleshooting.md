@@ -26,6 +26,13 @@ That is expected while a Select switch is saved: Switchify PC takes the key ever
 
 Choose **Open Accessibility Settings** in Switchify PC. In System Settings, open Privacy & Security, then Accessibility, and turn on Switchify PC. Return to the app and it checks again. If the row is already on but access is still required, remove the row, go back to Switchify PC, reopen Accessibility Settings, and turn on the newly added entry.
 
+## Pairing storage messages
+
+Switchify PC keeps pairing tokens in the Windows credential store or the macOS Keychain. Two messages can appear if that store cannot be used:
+
+- **Pairing storage could not be read**: Switchify PC could not open the credential store or Keychain, so paired phones are not listed or trusted until it can. Your pairings have not been deleted. Restart Switchify PC, or the computer, and the list returns once the store can be read. If the message stays, see [Get help](#get-help).
+- **Pair your mobile device again once to finish the secure-storage upgrade**: a pairing saved by an older version no longer has a saved token that Switchify PC can read, so it has been removed. That phone is no longer paired. Pair it once more and it is stored securely.
+
 ## Bluetooth
 
 The Troubleshooting tab shows the Bluetooth state and recent changes, and lets you disconnect all devices. Only one app can advertise the Switchify Bluetooth service at a time.
