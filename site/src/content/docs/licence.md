@@ -9,7 +9,7 @@ Switchify PC is free and open source software. It is licensed under the [GNU Aff
 
 You can use it for free, at home, at school, at work or in a care setting. There is no agreement to accept before you install it.
 
-The licence also lets you study, change and share the app. If you share it, changed or not, the licence sets out how you must make the source code available. A changed version must stay under the same licence. If people use a changed version over a network, they must be offered its source code too. The [source code](https://github.com/switchifyapp/switchify-pc) is on GitHub. Read the licence for exactly what applies.
+The licence also lets you study, change and share the app. If you share it, changed or not, the licence sets out how you must make the source code available. A changed version you share must stay under the same licence. If people use your changed version over a network, you must offer them its source code. The [source code](https://github.com/switchifyapp/switchify-pc) is on GitHub. Read the licence for exactly what applies.
 
 ## No warranty
 
