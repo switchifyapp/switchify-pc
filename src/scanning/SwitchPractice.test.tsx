@@ -73,7 +73,7 @@ describe("safe switch practice", () => {
     await screen.findByRole("dialog");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(invoke).toHaveBeenCalledWith("end_switch_practice");
-    expect(screen.getByRole("button", { name: "Test switches" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Test switches" })).toHaveFocus());
   });
   it("ignores a stale failed poll after exit and reopening", async () => {
     let reject!: (reason: Error) => void;

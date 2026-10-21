@@ -77,7 +77,9 @@ impl Model {
             }
             hash.update(&buffer[..n]);
         }
-        if format!("{:x}", hash.finalize()) != DATABASE_SHA256 {
+        let digest = hash.finalize();
+        let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+        if hex != DATABASE_SHA256 {
             return Err(());
         }
         let (predictor, learning) = match personal.map(|p| Predictor::open(path, Some(p))) {

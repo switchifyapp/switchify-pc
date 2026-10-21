@@ -62,7 +62,7 @@ fn detected_registration_state() -> Result<Option<RegistrationState>, String> {
                 let marker = approved
                     .as_ref()
                     .and_then(|key| key.get_raw_value(name).ok())
-                    .map(|value| value.bytes);
+                    .map(|value| value.bytes.into_owned());
                 return Ok(Some(registration_state(marker)));
             }
         }
@@ -125,7 +125,7 @@ fn set_startup_approved(key: &RegKey, bytes: Vec<u8>) -> Result<(), String> {
     key.set_raw_value(
         CANONICAL_VALUE_NAME,
         &RegValue {
-            bytes,
+            bytes: bytes.into(),
             vtype: winreg::enums::RegType::REG_BINARY,
         },
     )
