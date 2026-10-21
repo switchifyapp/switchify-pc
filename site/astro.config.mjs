@@ -45,6 +45,7 @@ export default defineConfig({
         },
         { label: 'Account, updates and privacy', slug: 'account-and-privacy' },
         { label: 'Troubleshooting', slug: 'troubleshooting' },
+        { label: 'Licence', slug: 'licence' },
         { label: 'Release notes', link: 'https://github.com/switchifyapp/switchify-pc/releases' },
       ],
     }),
