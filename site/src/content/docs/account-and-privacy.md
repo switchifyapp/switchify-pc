@@ -15,7 +15,7 @@ Signing in is optional. It uses the same Switchify account as the Android app: e
 
 **What syncs** between your computers: pointer, repeat, dwell and cursor settings; your switches and what they do; scanning preferences; keyboard layout; Switch Forwarding profiles; and remote switch slots.
 
-**What never syncs:** paired devices and their pairing tokens, your diagnostics choice, setup progress, start with system, and learned words.
+**What never syncs:** paired devices and their pairing tokens, the **Approve phones on this account automatically** setting, your diagnostics choice, setup progress, start with system, and learned words.
 
 Changes upload a few seconds after they settle. If two computers change the same thing, the account's copy wins, but an edit is never lost to a deletion. The first sync on a computer whose settings differ asks which to keep.
 
@@ -40,7 +40,7 @@ Separately, you can **export** a local diagnostics file of up to 500 recent sani
 ## What stays on the computer
 
 - Typed text. Switchify PC never logs it, and word prediction runs on the computer.
-- Pairing tokens, stored in the Windows credential store or, on a Mac, in a file only your user can read.
+- Pairing tokens, stored in the Windows credential store or the macOS Keychain.
 - Learned words for prediction.
 
 Commands from a paired phone travel only over Bluetooth.
