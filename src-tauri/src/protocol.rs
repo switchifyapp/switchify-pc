@@ -944,8 +944,10 @@ impl ProtocolEngine {
             return Err("expired_timestamp".into());
         }
 
+        // Keep an entry through the last millisecond at which the timestamp
+        // check would still accept the command.
         self.replay_cache
-            .retain(|_, expires_at| *expires_at > now_ms);
+            .retain(|_, expires_at| *expires_at >= now_ms);
         let replay_key = format!("{device_id}:{id}");
         if self.replay_cache.contains_key(&replay_key) {
             return Err("duplicate_request".into());
@@ -2298,6 +2300,13 @@ mod tests {
         let replayed = engine.process_message(&command.to_string(), later).unwrap();
         assert!(
             matches!(replayed, EngineEvent::Response(response) if response.contains("duplicate_request"))
+        );
+
+        // The last millisecond the timestamp check accepts is still cached.
+        let edge = NOW + skew + COMMAND_TIMESTAMP_TOLERANCE_MS;
+        let replayed_at_edge = engine.process_message(&command.to_string(), edge).unwrap();
+        assert!(
+            matches!(replayed_at_edge, EngineEvent::Response(response) if response.contains("duplicate_request"))
         );
 
         // Once the command's own window has closed it is rejected as expired.
