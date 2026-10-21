@@ -1529,13 +1529,14 @@ fn process_frame(
                     registry.associate(request_id.clone(), central_id.to_owned());
                 }
             }
-            if let Some(replaced_response) = replaced_response {
+            if let (Some(replaced_response), Some(central_id)) = (replaced_response, central_id) {
                 // The replaced request came from the same phone; answer it
-                // there when the central is known.
-                let target = central_id.map_or(NotificationTarget::AllSubscribers, |id| {
-                    NotificationTarget::Central(id.to_owned())
-                });
-                notify(replaced_response, target)?;
+                // there. Without a known central the answer is dropped, never
+                // widened to every subscriber.
+                notify(
+                    replaced_response,
+                    NotificationTarget::Central(central_id.to_owned()),
+                )?;
             }
             set_activity(
                 shared,
@@ -2319,6 +2320,20 @@ pub fn approve_pairing(
     request_id: &str,
 ) -> Result<(), String> {
     let target = pairing_target(request_id)?;
+    // Refuse before a token exists unless the requesting central is still
+    // subscribed, so an approval never persists a pairing the phone cannot
+    // receive. macOS fails the same way inside enqueue_message_to.
+    if let NotificationTarget::Central(central_id) = &target {
+        let tx = runtime()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .map(|runtime| runtime._tx.clone())
+            .ok_or_else(|| "Bluetooth runtime is not ready.".to_string())?;
+        if !subscribed_client_ids(&tx)?.contains(central_id) {
+            return Err("The device that asked to pair is no longer connected.".into());
+        }
+    }
     let response = {
         let mut model = shared
             .lock()
@@ -3362,16 +3377,35 @@ mod tests {
             },
             |_| {},
         ));
+        let broadcast = "broadcast";
+        let targeted = "token".repeat(100);
+        let expected = create_notification_frames(broadcast, NOTIFICATION_BYTES)
+            .unwrap()
+            .len()
+            + create_notification_frames(&targeted, NOTIFICATION_BYTES)
+                .unwrap()
+                .len();
         dispatcher
-            .enqueue("broadcast", NotificationTarget::AllSubscribers)
+            .enqueue(broadcast, NotificationTarget::AllSubscribers)
             .unwrap();
         dispatcher
-            .enqueue(
-                &"token".repeat(100),
-                NotificationTarget::Central("central-a".into()),
-            )
+            .enqueue(&targeted, NotificationTarget::Central("central-a".into()))
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if sent
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .len()
+                    >= expected
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("notification worker did not make progress");
         dispatcher.shutdown();
         tokio::time::timeout(Duration::from_secs(1), worker)
             .await
@@ -3379,6 +3413,7 @@ mod tests {
             .expect("worker should not panic");
 
         let sent = sent.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert_eq!(sent.len(), expected);
         assert_eq!(sent[0].1, NotificationTarget::AllSubscribers);
         assert!(sent.len() > 2);
         assert!(sent[1..]
