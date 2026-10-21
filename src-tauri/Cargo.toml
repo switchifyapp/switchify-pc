@@ -32,6 +32,7 @@ tauri = { version = "2.11.5", features = ["tray-icon", "image-png", "macos-priva
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-single-instance = "2.4.3"
 tauri-plugin-updater = "2.10.1"
+semver = "1"
 tiny-skia = "0.11.4"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
