@@ -31,7 +31,7 @@ Choose **Open Accessibility Settings** in Switchify PC. In System Settings, open
 Switchify PC keeps pairing tokens in the Windows credential store or the macOS Keychain. Two messages can appear if that store cannot be used:
 
 - **Pairing storage could not be read**: Switchify PC could not open the credential store or Keychain, so paired phones are not listed or trusted until it can. Your pairings have not been deleted. Restart Switchify PC, or the computer, and the list returns once the store can be read. If the message stays, see [Get help](#get-help).
-- **Pair your mobile device again once to finish the secure-storage upgrade**: an older version kept a pairing in a file, and it could not be moved into the secure store. That phone is no longer paired. Pair it once more and it is stored securely.
+- **Pair your mobile device again once to finish the secure-storage upgrade**: a pairing saved by an older version no longer has a saved token that Switchify PC can read, so it has been removed. That phone is no longer paired. Pair it once more and it is stored securely.
 
 ## Bluetooth
 

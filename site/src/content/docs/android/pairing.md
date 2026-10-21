@@ -34,6 +34,6 @@ If both apps are signed in to the same Switchify account, Switchify PC can appro
 
 Connecting a phone pauses local scanning on the computer. Local scanning resumes when the phone disconnects.
 
-The computer's Escape key is an emergency stop only while the phone's switches are running the computer's scanning (see [Remote scanning](/android/pc-control/#remote-scanning)). At other times, to stop the phone controlling the computer, choose **Disconnect** on Home, in the tray or menu bar, or on the phone.
+The computer's Escape key is an emergency stop only while the phone's switches are running the computer's scanning (see [Remote scanning](/android/pc-control/#remote-scanning)). At other times, to stop the phone controlling the computer, choose **Disconnect** on Home or the Mobile page, **Disconnect devices** in the tray or menu bar, or disconnect from the phone.
 
 Commands between the apps travel only over Bluetooth, never over the internet.
