@@ -3,8 +3,8 @@ use std::collections::VecDeque;
 use std::collections::{BTreeMap, HashMap};
 
 use base64::{engine::general_purpose, Engine as _};
-use hmac::{Hmac, Mac};
-use rand::{rngs::OsRng, RngCore};
+use hmac::{Hmac, KeyInit, Mac};
+use rand::Rng as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::Sha256;
@@ -529,7 +529,7 @@ impl ProtocolEngine {
         }
 
         let mut token_bytes = [0_u8; 32];
-        OsRng.fill_bytes(&mut token_bytes);
+        rand::rng().fill_bytes(&mut token_bytes);
         let token = general_purpose::URL_SAFE_NO_PAD.encode(token_bytes);
         self.tokens.insert(pending.device_id.clone(), token.clone());
         Ok(json!({
