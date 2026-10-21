@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::future::Future;
 use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -13,7 +13,8 @@ use windows::Devices::Bluetooth::GenericAttributeProfile::{
     GattLocalCharacteristicParameters, GattProtectionLevel, GattReadRequestedEventArgs,
     GattServiceProvider, GattServiceProviderAdvertisementStatus,
     GattServiceProviderAdvertisementStatusChangedEventArgs,
-    GattServiceProviderAdvertisingParameters, GattWriteOption, GattWriteRequestedEventArgs,
+    GattServiceProviderAdvertisingParameters, GattSubscribedClient, GattWriteOption,
+    GattWriteRequestedEventArgs,
 };
 use windows::Devices::Radios::{Radio, RadioKind, RadioState};
 use windows::Foundation::{Deferral, TypedEventHandler};
@@ -33,7 +34,7 @@ use crate::overlay::CursorOverlay;
 use crate::protocol::{
     bluetooth_status_payload, create_notification_frames, pointer_profile_response,
     switch_profile_catalog_response, DesktopCommand, EngineEvent, MouseClickCommand,
-    MouseMoveCommand, PointerProfile, TextCommand,
+    MouseMoveCommand, NotificationTarget, PairingCentralRegistry, PointerProfile, TextCommand,
 };
 use crate::state::{
     emit_state, set_activity, AccessibilityState, ActivityKind, AppModel, BluetoothState,
@@ -54,6 +55,7 @@ const ADVERTISEMENT_STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
 struct QueuedNotificationMessage {
     generation: u64,
     frames: Vec<Vec<u8>>,
+    target: NotificationTarget,
 }
 
 #[derive(Debug, Default)]
@@ -147,7 +149,7 @@ impl NotificationDispatcher {
         state.messages.clear();
     }
 
-    fn enqueue(&self, message: &str) -> Result<(), String> {
+    fn enqueue(&self, message: &str, target: NotificationTarget) -> Result<(), String> {
         let (generation, maximum_encoded_bytes) = {
             let state = self
                 .inner
@@ -160,18 +162,19 @@ impl NotificationDispatcher {
             (state.generation, state.maximum_encoded_bytes)
         };
         let frames = create_notification_frames(message, maximum_encoded_bytes)?;
-        self.enqueue_frames_for(Some((generation, maximum_encoded_bytes)), frames)
+        self.enqueue_frames_for(Some((generation, maximum_encoded_bytes)), frames, target)
     }
 
     #[cfg(test)]
     fn enqueue_frames(&self, frames: Vec<Vec<u8>>) -> Result<(), String> {
-        self.enqueue_frames_for(None, frames)
+        self.enqueue_frames_for(None, frames, NotificationTarget::AllSubscribers)
     }
 
     fn enqueue_frames_for(
         &self,
         expected_delivery: Option<(u64, usize)>,
         frames: Vec<Vec<u8>>,
+        target: NotificationTarget,
     ) -> Result<(), String> {
         let mut state = self
             .inner
@@ -195,9 +198,11 @@ impl NotificationDispatcher {
         }
         let generation = state.generation;
         state.queued_frames += frames.len();
-        state
-            .messages
-            .push_back(QueuedNotificationMessage { generation, frames });
+        state.messages.push_back(QueuedNotificationMessage {
+            generation,
+            frames,
+            target,
+        });
         drop(state);
         self.inner.ready.notify_one();
         Ok(())
@@ -288,7 +293,7 @@ async fn run_notification_worker<SendFrame, SendFuture, ReportError>(
     mut send_frame: SendFrame,
     mut report_error: ReportError,
 ) where
-    SendFrame: FnMut(Vec<u8>) -> SendFuture,
+    SendFrame: FnMut(Vec<u8>, NotificationTarget) -> SendFuture,
     SendFuture: Future<Output = Result<(), String>>,
     ReportError: FnMut(&str),
 {
@@ -300,7 +305,7 @@ async fn run_notification_worker<SendFrame, SendFuture, ReportError>(
             if !dispatcher.is_current(message.generation) {
                 break;
             }
-            let result = send_frame(frame).await;
+            let result = send_frame(frame, message.target.clone()).await;
             if !dispatcher.is_current(message.generation) {
                 break;
             }
@@ -324,12 +329,64 @@ fn validate_notification_statuses(
     Ok(())
 }
 
+/// The transport identity of a subscribed client: its GATT session's device id.
+fn subscribed_client_id(client: &GattSubscribedClient) -> Option<String> {
+    client
+        .Session()
+        .and_then(|session| session.DeviceId())
+        .and_then(|device| device.Id())
+        .ok()
+        .map(|id| id.to_string())
+}
+
+fn subscribed_client_ids(tx: &GattLocalCharacteristic) -> Result<HashSet<String>, String> {
+    let clients = tx.SubscribedClients().map_err(|error| error.to_string())?;
+    let count = clients.Size().map_err(|error| error.to_string())?;
+    let mut ids = HashSet::with_capacity(count as usize);
+    for index in 0..count {
+        if let Some(id) = clients
+            .GetAt(index)
+            .ok()
+            .as_ref()
+            .and_then(subscribed_client_id)
+        {
+            ids.insert(id);
+        }
+    }
+    Ok(ids)
+}
+
+fn find_subscribed_client(
+    tx: &GattLocalCharacteristic,
+    central_id: &str,
+) -> Result<GattSubscribedClient, String> {
+    let clients = tx.SubscribedClients().map_err(|error| error.to_string())?;
+    let count = clients.Size().map_err(|error| error.to_string())?;
+    (0..count)
+        .filter_map(|index| clients.GetAt(index).ok())
+        .find(|client| subscribed_client_id(client).as_deref() == Some(central_id))
+        .ok_or_else(|| "The device that asked to pair is no longer connected.".to_string())
+}
+
 async fn send_notification_frame(
     tx: &GattLocalCharacteristic,
     frame: Vec<u8>,
+    target: NotificationTarget,
 ) -> Result<(), String> {
     let buffer = CryptographicBuffer::CreateFromByteArray(&frame)
         .map_err(|_| NOTIFICATION_DELIVERY_ERROR.to_string())?;
+    if let NotificationTarget::Central(central_id) = &target {
+        // Pairing responses carry the token, so they go to the requesting
+        // central only and are never widened to a broadcast.
+        let client = find_subscribed_client(tx, central_id)?;
+        let status = tx
+            .NotifyValueForSubscribedClientAsync(&buffer, &client)
+            .map_err(|_| NOTIFICATION_DELIVERY_ERROR.to_string())?
+            .await
+            .and_then(|result| result.Status())
+            .map_err(|_| NOTIFICATION_DELIVERY_ERROR.to_string())?;
+        return validate_notification_statuses([status]);
+    }
     let results = tx
         .NotifyValueAsync(&buffer)
         .map_err(|_| NOTIFICATION_DELIVERY_ERROR.to_string())?
@@ -825,9 +882,9 @@ async fn start_gatt(
             match (initialized, worker_runtime) {
                 (Ok(()), Ok(worker_runtime)) => worker_runtime.block_on(run_notification_worker(
                     worker_notifications,
-                    move |frame| {
+                    move |frame, target| {
                         let tx = worker_tx.clone();
-                        async move { send_notification_frame(&tx, frame).await }
+                        async move { send_notification_frame(&tx, frame, target).await }
                     },
                     move |message| {
                         if generation_is_current(&worker_lifecycle, generation)
@@ -911,14 +968,33 @@ async fn start_gatt(
                 return Ok(());
             };
             let connected = subscriber_count > 0;
+            // A pairing request belongs to the central that sent it; drop it
+            // as soon as that central is gone, like the macOS adapter does.
+            let orphaned_request_ids = sender
+                .as_ref()
+                .and_then(|value| subscribed_client_ids(value).ok())
+                .map(|connected_ids| {
+                    pairing_centrals()
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .take_disconnected(&connected_ids)
+                })
+                .unwrap_or_default();
             let cancelled = {
                 let mut model = subscribe_shared
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 let cancelled = if should_cancel_pending_pairings(Some(subscriber_count)) {
+                    pairing_centrals()
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .clear();
                     model.engine.cancel_all_pairings()
                 } else {
-                    0
+                    orphaned_request_ids
+                        .iter()
+                        .filter(|request_id| model.engine.cancel_pairing(request_id))
+                        .count()
                 };
                 if cancelled > 0 {
                     model.state.pending_pairings = model.engine.pending_pairings();
@@ -1315,6 +1391,12 @@ async fn handle_write(
             .map_err(|error| error.to_string())?
             .await
             .map_err(|error| error.to_string())?;
+        let central_id = args
+            .Session()
+            .and_then(|session| session.DeviceId())
+            .and_then(|device| device.Id())
+            .ok()
+            .map(|id| id.to_string());
         let bytes = {
             let lifecycle_guard = lifecycle
                 .lock()
@@ -1351,12 +1433,14 @@ async fn handle_write(
             let guard = lifecycle.lock().unwrap_or_else(|p| p.into_inner());
             let result =
                 if guard.is_current(generation) && runtime_generation_is_current(generation) {
-                    process_frame(&handle, &shared, &bytes).and_then(|response| {
-                        if let Some(response) = response {
-                            notify(response)?;
-                        }
-                        Ok(())
-                    })
+                    process_frame(&handle, &shared, &bytes, central_id.as_deref()).and_then(
+                        |response| {
+                            if let Some(response) = response {
+                                notify(response, NotificationTarget::AllSubscribers)?;
+                            }
+                            Ok(())
+                        },
+                    )
                 } else {
                     Ok(())
                 };
@@ -1409,6 +1493,7 @@ fn process_frame(
     app: &AppHandle,
     shared: &SharedModel,
     bytes: &[u8],
+    central_id: Option<&str>,
 ) -> Result<Option<String>, String> {
     let event = shared
         .lock()
@@ -1423,11 +1508,35 @@ fn process_frame(
         }) => {
             let request_id = request.request_id.clone();
             let delay_ms = request.expires_at.saturating_sub(crate::state::now_ms()) as u64;
-            {
+            let pending_request_ids = {
                 let mut model = shared
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 model.state.pending_pairings = model.engine.pending_pairings();
+                model
+                    .state
+                    .pending_pairings
+                    .iter()
+                    .map(|pending| pending.request_id.clone())
+                    .collect::<HashSet<_>>()
+            };
+            {
+                let mut registry = pairing_centrals()
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                registry.retain_pending(&pending_request_ids);
+                if let Some(central_id) = central_id {
+                    registry.associate(request_id.clone(), central_id.to_owned());
+                }
+            }
+            if let (Some(replaced_response), Some(central_id)) = (replaced_response, central_id) {
+                // The replaced request came from the same phone; answer it
+                // there. Without a known central the answer is dropped, never
+                // widened to every subscriber.
+                notify(
+                    replaced_response,
+                    NotificationTarget::Central(central_id.to_owned()),
+                )?;
             }
             set_activity(
                 shared,
@@ -1436,7 +1545,7 @@ fn process_frame(
             );
             schedule_pairing_expiration(app, shared, request_id.clone(), delay_ms);
             crate::spawn_account_pairing(app, shared, request_id);
-            replaced_response
+            None
         }
         Some(EngineEvent::Response(response)) => Some(response),
         Some(EngineEvent::AuthenticatedConnection(connection)) => {
@@ -2153,7 +2262,7 @@ fn fallback_pointer_profile() -> PointerProfile {
     )
 }
 
-fn notify(message: String) -> Result<(), String> {
+fn notify(message: String, target: NotificationTarget) -> Result<(), String> {
     let (tx, notifications) = {
         let guard = runtime()
             .lock()
@@ -2164,7 +2273,31 @@ fn notify(message: String) -> Result<(), String> {
         (runtime._tx.clone(), runtime.notifications.clone())
     };
     refresh_notification_subscription(&tx, &notifications, false)?;
-    notifications.enqueue(&message)
+    notifications.enqueue(&message, target)
+}
+
+static PAIRING_CENTRALS: OnceLock<Mutex<PairingCentralRegistry>> = OnceLock::new();
+fn pairing_centrals() -> &'static Mutex<PairingCentralRegistry> {
+    PAIRING_CENTRALS.get_or_init(|| Mutex::new(PairingCentralRegistry::default()))
+}
+
+/// The central a pairing response must go to. Pairing responses are never
+/// broadcast: the approval carries the token, and the request is only ever
+/// relevant to the central that sent it.
+fn pairing_target(request_id: &str) -> Result<NotificationTarget, String> {
+    pairing_centrals()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .central_for(request_id)
+        .map(|central_id| NotificationTarget::Central(central_id.to_owned()))
+        .ok_or_else(|| "The device that asked to pair is no longer connected.".to_string())
+}
+
+fn forget_pairing_target(request_id: &str) {
+    pairing_centrals()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(request_id);
 }
 
 pub fn check_accessibility(
@@ -2186,6 +2319,21 @@ pub fn approve_pairing(
     shared: &SharedModel,
     request_id: &str,
 ) -> Result<(), String> {
+    let target = pairing_target(request_id)?;
+    // Refuse before a token exists unless the requesting central is still
+    // subscribed, so an approval never persists a pairing the phone cannot
+    // receive. macOS fails the same way inside enqueue_message_to.
+    if let NotificationTarget::Central(central_id) = &target {
+        let tx = runtime()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .map(|runtime| runtime._tx.clone())
+            .ok_or_else(|| "Bluetooth runtime is not ready.".to_string())?;
+        if !subscribed_client_ids(&tx)?.contains(central_id) {
+            return Err("The device that asked to pair is no longer connected.".into());
+        }
+    }
     let response = {
         let mut model = shared
             .lock()
@@ -2196,7 +2344,8 @@ pub fn approve_pairing(
         model.state.pending_pairings = model.engine.pending_pairings();
         response
     }?;
-    notify(response)?;
+    forget_pairing_target(request_id);
+    notify(response, target)?;
     emit_state(app, shared);
     Ok(())
 }
@@ -2214,7 +2363,13 @@ pub fn reject_pairing(
         model.state.pending_pairings = model.engine.pending_pairings();
         response
     };
-    notify(response)?;
+    let target = pairing_target(request_id);
+    forget_pairing_target(request_id);
+    // The request is rejected locally either way; the phone only needs the
+    // answer if it is still connected.
+    if let Ok(target) = target {
+        notify(response, target)?;
+    }
     emit_state(app, shared);
     Ok(())
 }
@@ -2247,10 +2402,14 @@ fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Re
         model.state.pending_pairings = model.engine.pending_pairings();
         response
     };
+    let target = pairing_target(request_id);
+    forget_pairing_target(request_id);
     let Some(response) = response else {
         return Ok(());
     };
-    notify(response)?;
+    if let Ok(target) = target {
+        notify(response, target)?;
+    }
     set_activity(shared, ActivityKind::Info, "Pairing request expired.");
     emit_state(app, shared);
     Ok(())
@@ -2276,6 +2435,10 @@ pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), Strin
         let _ = runtime.input.release_all();
         runtime.input.end_control_session();
     }
+    pairing_centrals()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
     let mut model = shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -2295,6 +2458,10 @@ fn reset_transport(app: &AppHandle, shared: &SharedModel, bluetooth: BluetoothSt
     take_runtime();
     app.state::<CursorOverlay>().end_session();
     app.state::<ModifierOverlay>().end_session();
+    pairing_centrals()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
     let mut model = shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -2345,7 +2512,7 @@ mod tests {
     use crate::input::MobileTypingRoute;
     use crate::protocol::{
         create_notification_frames, pointer_profile_response, BluetoothFrame, EngineEvent,
-        FrameReassembler, PointerProfile, ProtocolEngine,
+        FrameReassembler, NotificationTarget, PointerProfile, ProtocolEngine,
     };
     use crate::state::AppSettings;
     use serde_json::json;
@@ -2547,7 +2714,7 @@ mod tests {
     fn notification_queue_rejects_messages_without_a_subscriber() {
         let dispatcher = NotificationDispatcher::default();
         assert_eq!(
-            dispatcher.enqueue("response"),
+            dispatcher.enqueue("response", NotificationTarget::AllSubscribers),
             Err("No mobile device is subscribed for notifications.".into())
         );
     }
@@ -2558,12 +2725,16 @@ mod tests {
         let message = "pointer-profile".repeat(80);
 
         dispatcher.subscribers_changed(1, 514);
-        dispatcher.enqueue(&message).unwrap();
+        dispatcher
+            .enqueue(&message, NotificationTarget::AllSubscribers)
+            .unwrap();
         let wide = dispatcher.next_message().await.unwrap().frames;
         assert!(wide.iter().all(|frame| frame.len() <= 514));
 
         dispatcher.subscribers_changed(1, 247);
-        dispatcher.enqueue(&message).unwrap();
+        dispatcher
+            .enqueue(&message, NotificationTarget::AllSubscribers)
+            .unwrap();
         let narrow = dispatcher.next_message().await.unwrap().frames;
         assert!(narrow.iter().all(|frame| frame.len() <= 247));
         assert!(narrow.len() > wide.len());
@@ -2586,7 +2757,11 @@ mod tests {
         dispatcher.subscribers_changed(2, 247);
 
         assert_eq!(
-            dispatcher.enqueue_frames_for(Some((generation, maximum_encoded_bytes)), frames),
+            dispatcher.enqueue_frames_for(
+                Some((generation, maximum_encoded_bytes)),
+                frames,
+                NotificationTarget::AllSubscribers
+            ),
             Err("Bluetooth notification subscription changed.".into())
         );
         assert!(!dispatcher.is_current(generation));
@@ -2624,7 +2799,7 @@ mod tests {
         let worker_gate = first_gate.clone();
         let worker = tokio::spawn(run_notification_worker(
             dispatcher.clone(),
-            move |frame| {
+            move |frame, _target| {
                 let submitted = worker_submitted.clone();
                 let gate = worker_gate.clone();
                 async move {
@@ -2650,7 +2825,9 @@ mod tests {
             |_| {},
         ));
 
-        dispatcher.enqueue(&message).unwrap();
+        dispatcher
+            .enqueue(&message, NotificationTarget::AllSubscribers)
+            .unwrap();
         wait_for_frame_count(&submitted, 1).await;
         assert_eq!(
             submitted
@@ -2686,7 +2863,7 @@ mod tests {
         let worker_submitted = submitted.clone();
         let worker = tokio::spawn(run_notification_worker(
             dispatcher.clone(),
-            move |frame| {
+            move |frame, _target| {
                 let submitted = worker_submitted.clone();
                 async move {
                     submitted
@@ -2705,8 +2882,8 @@ mod tests {
         let queued_left = left.clone();
         let queued_right = right.clone();
         let (left_result, right_result) = tokio::join!(
-            async move { left_dispatcher.enqueue(&queued_left) },
-            async move { right_dispatcher.enqueue(&queued_right) }
+            async move { left_dispatcher.enqueue(&queued_left, NotificationTarget::AllSubscribers) },
+            async move { right_dispatcher.enqueue(&queued_right, NotificationTarget::AllSubscribers) }
         );
         left_result.unwrap();
         right_result.unwrap();
@@ -2762,7 +2939,7 @@ mod tests {
         let worker_submitted = submitted.clone();
         let worker = tokio::spawn(run_notification_worker(
             dispatcher.clone(),
-            move |frame| {
+            move |frame, _target| {
                 let submitted = worker_submitted.clone();
                 async move {
                     submitted
@@ -2775,7 +2952,9 @@ mod tests {
             |_| {},
         ));
 
-        dispatcher.enqueue(&response).unwrap();
+        dispatcher
+            .enqueue(&response, NotificationTarget::AllSubscribers)
+            .unwrap();
         wait_for_frame_count(&submitted, expected_frames).await;
         assert_eq!(
             reassemble_messages(
@@ -2815,7 +2994,7 @@ mod tests {
         let worker_submitted = submitted.clone();
         let worker = tokio::spawn(run_notification_worker(
             dispatcher.clone(),
-            move |frame| {
+            move |frame, _target| {
                 let submitted = worker_submitted.clone();
                 async move {
                     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -2829,7 +3008,9 @@ mod tests {
             |_| {},
         ));
 
-        dispatcher.enqueue(&response).unwrap();
+        dispatcher
+            .enqueue(&response, NotificationTarget::AllSubscribers)
+            .unwrap();
         tokio::time::timeout(Duration::from_secs(5), async {
             wait_for_frame_count(&submitted, negotiated_frames.len()).await;
         })
@@ -2861,7 +3042,7 @@ mod tests {
         let worker_attempts = attempts.clone();
         let worker = tokio::spawn(run_notification_worker(
             dispatcher.clone(),
-            move |frame| {
+            move |frame, _target| {
                 let submitted = worker_submitted.clone();
                 let attempts = worker_attempts.clone();
                 async move {
@@ -2888,8 +3069,12 @@ mod tests {
             },
         ));
 
-        dispatcher.enqueue(&failed_message).unwrap();
-        dispatcher.enqueue(&next_message).unwrap();
+        dispatcher
+            .enqueue(&failed_message, NotificationTarget::AllSubscribers)
+            .unwrap();
+        dispatcher
+            .enqueue(&next_message, NotificationTarget::AllSubscribers)
+            .unwrap();
         wait_for_frame_count(&submitted, 1 + next_frames.len()).await;
         let submitted = submitted
             .lock()
@@ -2953,7 +3138,7 @@ mod tests {
         let worker_gate = first_gate.clone();
         let worker = tokio::spawn(run_notification_worker(
             dispatcher.clone(),
-            move |frame| {
+            move |frame, _target| {
                 let submitted = worker_submitted.clone();
                 let gate = worker_gate.clone();
                 async move {
@@ -2979,13 +3164,21 @@ mod tests {
             |_| {},
         ));
 
-        dispatcher.enqueue(&stale_message).unwrap();
-        dispatcher.enqueue(&pending_message).unwrap();
+        dispatcher
+            .enqueue(&stale_message, NotificationTarget::AllSubscribers)
+            .unwrap();
+        dispatcher
+            .enqueue(&pending_message, NotificationTarget::AllSubscribers)
+            .unwrap();
         wait_for_frame_count(&submitted, 1).await;
         dispatcher.disconnect();
-        assert!(dispatcher.enqueue("disconnected").is_err());
+        assert!(dispatcher
+            .enqueue("disconnected", NotificationTarget::AllSubscribers)
+            .is_err());
         dispatcher.subscribers_changed(1, NOTIFICATION_BYTES);
-        dispatcher.enqueue(&replacement_message).unwrap();
+        dispatcher
+            .enqueue(&replacement_message, NotificationTarget::AllSubscribers)
+            .unwrap();
         release_tx.send(()).unwrap();
         wait_for_frame_count(&submitted, 1 + replacement_frames.len()).await;
         assert_eq!(
@@ -3048,7 +3241,7 @@ mod tests {
         let worker_submitted = submitted.clone();
         let worker = tokio::spawn(run_notification_worker(
             dispatcher.clone(),
-            move |frame| {
+            move |frame, _target| {
                 let submitted = worker_submitted.clone();
                 async move {
                     submitted
@@ -3060,8 +3253,12 @@ mod tests {
             },
             |_| {},
         ));
-        dispatcher.enqueue(&pairing_response).unwrap();
-        dispatcher.enqueue(&authentication_response).unwrap();
+        dispatcher
+            .enqueue(&pairing_response, NotificationTarget::AllSubscribers)
+            .unwrap();
+        dispatcher
+            .enqueue(&authentication_response, NotificationTarget::AllSubscribers)
+            .unwrap();
         wait_for_frame_count(&submitted, expected_frames).await;
         assert_eq!(
             reassemble_messages(
@@ -3151,7 +3348,7 @@ mod tests {
         let worker_dispatcher = dispatcher.clone();
         let worker = tokio::spawn(run_notification_worker(
             worker_dispatcher,
-            |_| async { Ok(()) },
+            |_, _| async { Ok(()) },
             |_| {},
         ));
         dispatcher.shutdown();
@@ -3159,5 +3356,68 @@ mod tests {
             .await
             .expect("worker should stop")
             .expect("worker should not panic");
+    }
+
+    #[tokio::test]
+    async fn notification_worker_hands_each_frame_its_target() {
+        let dispatcher = NotificationDispatcher::default();
+        dispatcher.subscribers_changed(2, NOTIFICATION_BYTES);
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let worker_sent = sent.clone();
+        let worker = tokio::spawn(run_notification_worker(
+            dispatcher.clone(),
+            move |frame, target| {
+                let sent = worker_sent.clone();
+                async move {
+                    sent.lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .push((frame, target));
+                    Ok(())
+                }
+            },
+            |_| {},
+        ));
+        let broadcast = "broadcast";
+        let targeted = "token".repeat(100);
+        let expected = create_notification_frames(broadcast, NOTIFICATION_BYTES)
+            .unwrap()
+            .len()
+            + create_notification_frames(&targeted, NOTIFICATION_BYTES)
+                .unwrap()
+                .len();
+        dispatcher
+            .enqueue(broadcast, NotificationTarget::AllSubscribers)
+            .unwrap();
+        dispatcher
+            .enqueue(&targeted, NotificationTarget::Central("central-a".into()))
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if sent
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .len()
+                    >= expected
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("notification worker did not make progress");
+        dispatcher.shutdown();
+        tokio::time::timeout(Duration::from_secs(1), worker)
+            .await
+            .expect("worker should stop")
+            .expect("worker should not panic");
+
+        let sent = sent.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert_eq!(sent.len(), expected);
+        assert_eq!(sent[0].1, NotificationTarget::AllSubscribers);
+        assert!(sent.len() > 2);
+        assert!(sent[1..]
+            .iter()
+            .all(|(_, target)| *target == NotificationTarget::Central("central-a".into())));
     }
 }

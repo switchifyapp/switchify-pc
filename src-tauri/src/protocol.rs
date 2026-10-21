@@ -1,6 +1,6 @@
 #[cfg(any(target_os = "macos", test))]
 use std::collections::VecDeque;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use base64::{engine::general_purpose, Engine as _};
 use hmac::{Hmac, KeyInit, Mac};
@@ -236,10 +236,27 @@ fn create_frames_with_payload_bytes(
         .collect()
 }
 
+/// Which centrals must receive a protocol message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotificationTarget {
+    /// Every subscribed central.
+    AllSubscribers,
+    /// Only the central with this transport identifier. Used for pairing
+    /// responses so a token never reaches another connected central.
+    Central(String),
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug)]
+struct OutboundFrame {
+    bytes: Vec<u8>,
+    target: NotificationTarget,
+}
+
 #[derive(Debug, Default)]
 #[cfg(any(target_os = "macos", test))]
 pub struct OutboundQueue {
-    frames: VecDeque<Vec<u8>>,
+    frames: VecDeque<OutboundFrame>,
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -247,7 +264,7 @@ impl OutboundQueue {
     #[cfg(test)]
     pub fn push_message(&mut self, message: &str, maximum_frames: usize) -> Result<(), String> {
         let frames = create_frames(message)?;
-        self.push_frames(frames, maximum_frames)
+        self.push_frames(frames, maximum_frames, NotificationTarget::AllSubscribers)
     }
 
     #[cfg_attr(target_os = "windows", allow(dead_code))]
@@ -256,25 +273,38 @@ impl OutboundQueue {
         message: &str,
         maximum_frames: usize,
         maximum_encoded_bytes: usize,
+        target: NotificationTarget,
     ) -> Result<(), String> {
         let frames = create_notification_frames(message, maximum_encoded_bytes)?;
-        self.push_frames(frames, maximum_frames)
+        self.push_frames(frames, maximum_frames, target)
     }
 
-    fn push_frames(&mut self, frames: Vec<Vec<u8>>, maximum_frames: usize) -> Result<(), String> {
+    fn push_frames(
+        &mut self,
+        frames: Vec<Vec<u8>>,
+        maximum_frames: usize,
+        target: NotificationTarget,
+    ) -> Result<(), String> {
         if self.frames.len() + frames.len() > maximum_frames {
             return Err("Bluetooth notification queue is full.".into());
         }
-        self.frames.extend(frames);
+        self.frames
+            .extend(frames.into_iter().map(|bytes| OutboundFrame {
+                bytes,
+                target: target.clone(),
+            }));
         Ok(())
     }
 
+    /// Sends queued frames in order. `send` returns `Ok(false)` when the
+    /// transport cannot take more right now; the frame is kept for the next
+    /// flush.
     pub fn flush(
         &mut self,
-        mut send: impl FnMut(&[u8]) -> Result<bool, String>,
+        mut send: impl FnMut(&[u8], &NotificationTarget) -> Result<bool, String>,
     ) -> Result<(), String> {
         while let Some(frame) = self.frames.pop_front() {
-            if !send(&frame)? {
+            if !send(&frame.bytes, &frame.target)? {
                 self.frames.push_front(frame);
                 break;
             }
@@ -290,6 +320,66 @@ impl OutboundQueue {
     #[cfg(test)]
     fn len(&self) -> usize {
         self.frames.len()
+    }
+}
+
+/// Remembers which central sent each pending pairing request so the
+/// pairing response can be delivered to that central alone and so the
+/// request is cancelled when that central disconnects.
+#[derive(Debug, Default)]
+pub struct PairingCentralRegistry {
+    by_request: HashMap<String, String>,
+}
+
+impl PairingCentralRegistry {
+    pub fn associate(&mut self, request_id: String, central_id: String) {
+        self.by_request.insert(request_id, central_id);
+    }
+
+    pub fn retain_pending(&mut self, pending_request_ids: &HashSet<String>) {
+        self.by_request
+            .retain(|request_id, _| pending_request_ids.contains(request_id));
+    }
+
+    pub fn central_for(&self, request_id: &str) -> Option<&str> {
+        self.by_request.get(request_id).map(String::as_str)
+    }
+
+    pub fn remove(&mut self, request_id: &str) -> Option<String> {
+        self.by_request.remove(request_id)
+    }
+
+    /// Removes and returns the request IDs associated with `central_id`.
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
+    pub fn take_for_central(&mut self, central_id: &str) -> Vec<String> {
+        let request_ids = self
+            .by_request
+            .iter()
+            .filter(|(_, associated_central)| associated_central.as_str() == central_id)
+            .map(|(request_id, _)| request_id.clone())
+            .collect::<Vec<_>>();
+        self.by_request
+            .retain(|_, associated_central| associated_central != central_id);
+        request_ids
+    }
+
+    /// Removes and returns the request IDs whose central is not in
+    /// `connected_central_ids`.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    pub fn take_disconnected(&mut self, connected_central_ids: &HashSet<String>) -> Vec<String> {
+        let request_ids = self
+            .by_request
+            .iter()
+            .filter(|(_, central_id)| !connected_central_ids.contains(*central_id))
+            .map(|(request_id, _)| request_id.clone())
+            .collect::<Vec<_>>();
+        self.by_request
+            .retain(|_, central_id| connected_central_ids.contains(central_id));
+        request_ids
+    }
+
+    pub fn clear(&mut self) {
+        self.by_request.clear();
     }
 }
 
@@ -2903,15 +2993,80 @@ mod tests {
         let initial = queue.len();
         let mut attempts = 0;
         queue
-            .flush(|_| {
+            .flush(|_, _| {
                 attempts += 1;
                 Ok(false)
             })
             .unwrap();
         assert_eq!(attempts, 1);
         assert_eq!(queue.len(), initial);
-        queue.flush(|_| Ok(true)).unwrap();
+        queue.flush(|_, _| Ok(true)).unwrap();
         assert_eq!(queue.len(), 0);
+    }
+
+    #[test]
+    fn outbound_queue_keeps_each_frame_target() {
+        let mut queue = OutboundQueue::default();
+        queue
+            .push_notification_message(
+                "broadcast",
+                10,
+                FRAME_PAYLOAD_BYTES * 2,
+                NotificationTarget::AllSubscribers,
+            )
+            .unwrap();
+        queue
+            .push_notification_message(
+                &"x".repeat(400),
+                10,
+                FRAME_PAYLOAD_BYTES * 2,
+                NotificationTarget::Central("central-a".into()),
+            )
+            .unwrap();
+        let mut targets = Vec::new();
+        queue
+            .flush(|_, target| {
+                targets.push(target.clone());
+                Ok(true)
+            })
+            .unwrap();
+        assert_eq!(targets[0], NotificationTarget::AllSubscribers);
+        assert!(targets.len() > 2);
+        assert!(targets[1..]
+            .iter()
+            .all(|target| *target == NotificationTarget::Central("central-a".into())));
+    }
+
+    #[test]
+    fn pairing_central_registry_cancels_only_the_disconnected_central() {
+        let mut registry = PairingCentralRegistry::default();
+        registry.associate("pair-a-old".into(), "central-a".into());
+        registry.associate("pair-a".into(), "central-a".into());
+        registry.associate("pair-b".into(), "central-b".into());
+
+        registry.retain_pending(&HashSet::from(["pair-a".to_string(), "pair-b".to_string()]));
+        assert_eq!(registry.central_for("pair-a"), Some("central-a"));
+        assert_eq!(registry.central_for("pair-a-old"), None);
+        let mut cancelled = registry.take_for_central("central-a");
+        cancelled.sort();
+
+        assert_eq!(cancelled, ["pair-a"]);
+        assert!(registry.take_for_central("unknown").is_empty());
+        assert_eq!(registry.take_for_central("central-b"), ["pair-b"]);
+    }
+
+    #[test]
+    fn pairing_central_registry_takes_requests_from_missing_centrals() {
+        let mut registry = PairingCentralRegistry::default();
+        registry.associate("pair-a".into(), "central-a".into());
+        registry.associate("pair-b".into(), "central-b".into());
+
+        let connected = HashSet::from(["central-b".to_string()]);
+        assert_eq!(registry.take_disconnected(&connected), ["pair-a"]);
+        assert_eq!(registry.central_for("pair-a"), None);
+        assert_eq!(registry.central_for("pair-b"), Some("central-b"));
+        assert!(registry.take_disconnected(&connected).is_empty());
+        assert_eq!(registry.remove("pair-b"), Some("central-b".into()));
     }
 
     fn sign(command: &mut Value, token: &str, mode: SlashEscaping) {

@@ -29,8 +29,9 @@ use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERV
 use crate::overlay::CursorOverlay;
 use crate::protocol::{
     bluetooth_status_payload, pointer_profile_response, switch_profile_catalog_response,
-    DesktopCommand, EngineEvent, MouseButton, MouseClickCommand, MouseMoveCommand, OutboundQueue,
-    PointerProfile, TextCommand, MAX_POINTER_DELTA,
+    DesktopCommand, EngineEvent, MouseButton, MouseClickCommand, MouseMoveCommand,
+    NotificationTarget, OutboundQueue, PairingCentralRegistry, PointerProfile, TextCommand,
+    MAX_POINTER_DELTA,
 };
 use crate::state::{
     emit_state, now_ms, set_activity, AccessibilityState, ActivityKind, AppModel, BluetoothState,
@@ -349,6 +350,13 @@ pub fn approve_pairing(
     request_id: &str,
 ) -> Result<(), String> {
     with_runtime(|runtime| {
+        // Resolve the requesting central before a token exists, so an
+        // approval with nowhere safe to go never mints one.
+        let target = runtime
+            .pairing_centrals
+            .central_for(request_id)
+            .map(|central_id| NotificationTarget::Central(central_id.to_owned()))
+            .ok_or_else(|| "The device that asked to pair is no longer connected.".to_string())?;
         let response = {
             let mut model = shared
                 .lock()
@@ -358,7 +366,7 @@ pub fn approve_pairing(
             response
         }?;
         runtime.pairing_centrals.remove(request_id);
-        runtime.enqueue_message(&response)?;
+        runtime.enqueue_message_to(&response, target)?;
         set_activity(
             shared,
             ActivityKind::Success,
@@ -383,8 +391,11 @@ pub fn reject_pairing(
             model.state.pending_pairings = model.engine.pending_pairings();
             response
         }?;
-        runtime.pairing_centrals.remove(request_id);
-        runtime.enqueue_message(&response)?;
+        // The request is rejected locally either way; the phone only needs
+        // the answer if it is still connected.
+        if let Some(central_id) = runtime.pairing_centrals.remove(request_id) {
+            runtime.enqueue_message_to(&response, NotificationTarget::Central(central_id))?;
+        }
         set_activity(shared, ActivityKind::Info, "Pairing request rejected.");
         emit_state(app, shared);
         Ok(())
@@ -458,7 +469,7 @@ struct MacRuntime {
     rx_characteristic: Option<MutableCharacteristic>,
     tx_characteristic: Option<MutableCharacteristic>,
     status_value: Vec<u8>,
-    subscribers: HashMap<String, usize>,
+    subscribers: HashMap<String, Subscriber>,
     pairing_centrals: PairingCentralRegistry,
     outbound: OutboundQueue,
     input: Option<DesktopInput<Enigo>>,
@@ -481,40 +492,11 @@ struct PendingRepeatMove {
     before: (f64, f64),
 }
 
-#[derive(Debug, Default)]
-struct PairingCentralRegistry {
-    by_request: HashMap<String, String>,
-}
-
-impl PairingCentralRegistry {
-    fn associate(&mut self, request_id: String, central_id: String) {
-        self.by_request.insert(request_id, central_id);
-    }
-
-    fn retain_pending(&mut self, pending_request_ids: &HashSet<String>) {
-        self.by_request
-            .retain(|request_id, _| pending_request_ids.contains(request_id));
-    }
-
-    fn remove(&mut self, request_id: &str) {
-        self.by_request.remove(request_id);
-    }
-
-    fn take_for_central(&mut self, central_id: &str) -> Vec<String> {
-        let request_ids = self
-            .by_request
-            .iter()
-            .filter(|(_, associated_central)| associated_central.as_str() == central_id)
-            .map(|(request_id, _)| request_id.clone())
-            .collect::<Vec<_>>();
-        self.by_request
-            .retain(|_, associated_central| associated_central != central_id);
-        request_ids
-    }
-
-    fn clear(&mut self) {
-        self.by_request.clear();
-    }
+/// A central subscribed to TX, kept so a message can be delivered to that
+/// central alone.
+struct Subscriber {
+    central: Central,
+    maximum_update_value_length: usize,
 }
 
 impl MacRuntime {
@@ -926,8 +908,13 @@ impl MacRuntime {
     ) -> Result<(), String> {
         if characteristic.uuid().eq_ignore_ascii_case(TX_UUID) {
             let maximum_notification_bytes = central.maximum_update_value_length();
-            self.subscribers
-                .insert(central.identifier(), maximum_notification_bytes);
+            self.subscribers.insert(
+                central.identifier(),
+                Subscriber {
+                    central,
+                    maximum_update_value_length: maximum_notification_bytes,
+                },
+            );
             self.set_bluetooth(BluetoothState::Connected);
             set_activity(
                 &self.shared,
@@ -1075,7 +1062,10 @@ impl MacRuntime {
                 self.pairing_centrals
                     .associate(request_id.clone(), central_id.to_string());
                 if let Some(response) = replaced_response {
-                    if let Err(error) = self.enqueue_message(&response) {
+                    // The replaced request came from the same phone; answer
+                    // it there rather than to every subscriber.
+                    let target = NotificationTarget::Central(central_id.to_string());
+                    if let Err(error) = self.enqueue_message_to(&response, target) {
                         self.report_error(error);
                     }
                 }
@@ -2010,16 +2000,34 @@ impl MacRuntime {
     }
 
     fn enqueue_message(&mut self, message: &str) -> Result<(), String> {
-        let maximum_notification_bytes = self
-            .subscribers
-            .values()
-            .copied()
-            .min()
-            .ok_or_else(|| "No mobile device is subscribed for notifications.".to_string())?;
+        self.enqueue_message_to(message, NotificationTarget::AllSubscribers)
+    }
+
+    fn enqueue_message_to(
+        &mut self,
+        message: &str,
+        target: NotificationTarget,
+    ) -> Result<(), String> {
+        let maximum_notification_bytes = match &target {
+            NotificationTarget::Central(central_id) => self
+                .subscribers
+                .get(central_id)
+                .map(|subscriber| subscriber.maximum_update_value_length)
+                .ok_or_else(|| {
+                    "The device that asked to pair is no longer connected.".to_string()
+                })?,
+            NotificationTarget::AllSubscribers => self
+                .subscribers
+                .values()
+                .map(|subscriber| subscriber.maximum_update_value_length)
+                .min()
+                .ok_or_else(|| "No mobile device is subscribed for notifications.".to_string())?,
+        };
         self.outbound.push_notification_message(
             message,
             MAX_QUEUED_NOTIFICATIONS,
             maximum_notification_bytes,
+            target,
         )?;
         self.flush_outbound()
     }
@@ -2028,10 +2036,20 @@ impl MacRuntime {
         let Some(characteristic) = self.tx_characteristic.as_ref() else {
             return Ok(());
         };
-        self.outbound.flush(|frame| {
-            self.manager
+        let manager = &self.manager;
+        let subscribers = &self.subscribers;
+        self.outbound.flush(|frame, target| match target {
+            NotificationTarget::AllSubscribers => manager
                 .update_value(frame, characteristic, None)
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.to_string()),
+            NotificationTarget::Central(central_id) => match subscribers.get(central_id) {
+                Some(subscriber) => manager
+                    .update_value(frame, characteristic, Some(&[&subscriber.central]))
+                    .map_err(|error| error.to_string()),
+                // The central left before its pairing answer went out. Drop
+                // the frame rather than widen it to everyone.
+                None => Ok(true),
+            },
         })
     }
 
@@ -2183,12 +2201,13 @@ fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Re
             model.state.pending_pairings = model.engine.pending_pairings();
             response
         };
+        let central_id = runtime.pairing_centrals.remove(request_id);
         let Some(response) = response else {
-            runtime.pairing_centrals.remove(request_id);
             return Ok(());
         };
-        runtime.pairing_centrals.remove(request_id);
-        runtime.enqueue_message(&response)?;
+        if let Some(central_id) = central_id {
+            runtime.enqueue_message_to(&response, NotificationTarget::Central(central_id))?;
+        }
         set_activity(shared, ActivityKind::Info, "Pairing request expired.");
         emit_state(app, shared);
         Ok(())
@@ -2550,21 +2569,5 @@ mod tests {
     fn pointer_profile_caps_recommended_steps_at_protocol_maximum() {
         let profile = pointer_profile_for_display("Large", 1.0, 0, 0, 10_000, 10_000, 1);
         assert_eq!(profile.large_delta, MAX_POINTER_DELTA as u32);
-    }
-
-    #[test]
-    fn pairing_central_registry_cancels_only_the_disconnected_central() {
-        let mut registry = PairingCentralRegistry::default();
-        registry.associate("pair-a-old".into(), "central-a".into());
-        registry.associate("pair-a".into(), "central-a".into());
-        registry.associate("pair-b".into(), "central-b".into());
-
-        registry.retain_pending(&HashSet::from(["pair-a".to_string(), "pair-b".to_string()]));
-        let mut cancelled = registry.take_for_central("central-a");
-        cancelled.sort();
-
-        assert_eq!(cancelled, ["pair-a"]);
-        assert!(registry.take_for_central("unknown").is_empty());
-        assert_eq!(registry.take_for_central("central-b"), ["pair-b"]);
     }
 }
