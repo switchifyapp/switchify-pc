@@ -6,9 +6,10 @@ import { InputSection } from "./InputSection";
 import { CursorSection } from "./CursorSection";
 import { PrivacySection } from "./PrivacySection";
 import { UpdatesSection, type UpdateAction } from "./UpdatesSection";
+import { AboutSection } from "./AboutSection";
 
 
-type SettingsTabId = "general" | "input" | "cursor" | "privacy" | "updates";
+type SettingsTabId = "general" | "input" | "cursor" | "privacy" | "updates" | "about";
 
 export function SettingsView({ state, updater, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, updateAttention, onUpdatesShown }: { state: AppState; updater: UpdateState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; updateAttention: string | null; onUpdatesShown: (shown: boolean) => void }) {
   const updatesRef = useRef<HTMLElement>(null);
@@ -31,6 +32,7 @@ export function SettingsView({ state, updater, settings, onChange, chooseTelemet
     { id: "privacy" as const, label: "Privacy" },
     // On the Updates tab the panel itself shows the reason, so no marker there.
     { id: "updates" as const, label: "Updates", attention: updateAttention && active !== "updates" ? updateAttention : undefined },
+    { id: "about" as const, label: "About" },
   ], [state.capabilities.cursorOverlay, updateAttention, active]);
 
   useEffect(() => {
@@ -59,6 +61,7 @@ export function SettingsView({ state, updater, settings, onChange, chooseTelemet
       {active === "cursor" && <CursorSection settings={settings} update={update} />}
       {active === "privacy" && <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />}
       {active === "updates" && <UpdatesSection state={state} update={updater} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />}
+      {active === "about" && <AboutSection state={state} />}
     </TabPanel>
   </div>;
 }
