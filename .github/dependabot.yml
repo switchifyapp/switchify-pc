@@ -6,9 +6,17 @@ updates:
       interval: weekly
       day: monday
     groups:
-      npm:
+      npm-minor-patch:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
+      npm-major:
+        patterns:
+          - "*"
+        update-types:
+          - major
     labels:
       - dependencies
     commit-message:
@@ -20,9 +28,17 @@ updates:
       interval: weekly
       day: monday
     groups:
-      site-npm:
+      site-npm-minor-patch:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
+      site-npm-major:
+        patterns:
+          - "*"
+        update-types:
+          - major
     labels:
       - dependencies
     commit-message:
@@ -37,9 +53,17 @@ updates:
       interval: weekly
       day: monday
     groups:
-      cargo:
+      cargo-minor-patch:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
+      cargo-major:
+        patterns:
+          - "*"
+        update-types:
+          - major
     labels:
       - dependencies
     commit-message:
@@ -51,9 +75,17 @@ updates:
       interval: weekly
       day: monday
     groups:
-      actions:
+      actions-minor-patch:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
+      actions-major:
+        patterns:
+          - "*"
+        update-types:
+          - major
     labels:
       - dependencies
     commit-message:
