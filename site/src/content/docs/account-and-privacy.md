@@ -27,6 +27,10 @@ Switchify PC checks for an update shortly after it starts, every six hours, and 
 
 A release candidate, such as 1.0.0-rc.32, is offered only to people already running a release candidate. A stable release, such as 1.0.0, is offered to everyone, so a release candidate moves to the next stable release when it comes out. A stable install never installs a release candidate, even if one is offered to it.
 
+## Version and licence
+
+The **About** tab in Settings shows which version of Switchify PC you have. It also links to the source code, the [licence and credits](/licence/) and this guide.
+
 ## Diagnostics
 
 **Anonymous diagnostics are off until you turn them on**, in the setup guide or in Settings. When on, they never include typed text, device names or file paths.

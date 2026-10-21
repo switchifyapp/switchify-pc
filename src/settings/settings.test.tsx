@@ -380,6 +380,19 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("group", { name: "Wait before clicking" })).toBeDisabled();
   });
 
+  it("shows the version, licence and project links on the About tab", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    selectTab("About");
+
+    const about = screen.getByRole("region", { name: "About" });
+    expect(within(about).getByText(`Switchify PC ${browserState.version}`)).toBeInTheDocument();
+    expect(within(about).getByRole("link", { name: "GNU Affero General Public License v3" })).toHaveAttribute("href", "https://github.com/switchifyapp/switchify-pc/blob/main/LICENSE");
+    expect(within(about).getByRole("link", { name: "Source code" })).toHaveAttribute("href", "https://github.com/switchifyapp/switchify-pc");
+    expect(within(about).getByRole("link", { name: "Licence and credits" })).toHaveAttribute("href", "https://pc.theswitchify.app/licence/");
+    expect(within(about).getByRole("link", { name: "Online guide" })).toHaveAttribute("href", "https://pc.theswitchify.app");
+  });
+
   it("explains telemetry consent and links to the privacy policy", async () => {
     const first = render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
@@ -537,7 +550,7 @@ describe("Switchify PC settings", () => {
 
     const tablist = screen.getByRole("tablist", { name: "Settings sections" });
     expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["General", "Input", "Cursor appearance", "Privacy", "Updates"]);
+      .toEqual(["General", "Input", "Cursor appearance", "Privacy", "Updates", "About"]);
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel")).toHaveAccessibleName("General");
   });
@@ -548,7 +561,7 @@ describe("Switchify PC settings", () => {
 
     const general = screen.getByRole("tab", { name: "General" });
     const pointer = screen.getByRole("tab", { name: "Input" });
-    const updates = screen.getByRole("tab", { name: "Updates" });
+    const about = screen.getByRole("tab", { name: "About" });
     expect(general).toHaveAttribute("tabindex", "0");
     expect(pointer).toHaveAttribute("tabindex", "-1");
 
@@ -565,12 +578,12 @@ describe("Switchify PC settings", () => {
     fireEvent.keyDown(pointer, { key: "ArrowLeft" });
     expect(general).toHaveFocus();
     fireEvent.keyDown(general, { key: "ArrowLeft" });
-    expect(updates).toHaveFocus();
-    fireEvent.keyDown(updates, { key: "ArrowRight" });
+    expect(about).toHaveFocus();
+    fireEvent.keyDown(about, { key: "ArrowRight" });
     expect(general).toHaveFocus();
     fireEvent.keyDown(general, { key: "End" });
-    expect(updates).toHaveFocus();
-    fireEvent.keyDown(updates, { key: "Home" });
+    expect(about).toHaveFocus();
+    fireEvent.keyDown(about, { key: "Home" });
     expect(general).toHaveFocus();
 
     fireEvent.click(pointer);
@@ -586,7 +599,7 @@ describe("Switchify PC settings", () => {
 
     expect(screen.queryByRole("tab", { name: "Cursor appearance" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["General", "Input", "Privacy", "Updates"]);
+      .toEqual(["General", "Input", "Privacy", "Updates", "About"]);
     selectTab("Input");
     expect(screen.queryByRole("checkbox", { name: "Show cursor overlay" })).not.toBeInTheDocument();
   });
@@ -655,7 +668,7 @@ describe("Switchify PC settings", () => {
     const general = screen.getByRole("tab", { name: "General" });
     expect(general).toHaveAttribute("aria-controls", "settings-panel-general");
     expect(document.getElementById("settings-panel-general")).toBeInTheDocument();
-    for (const name of ["Input", "Cursor appearance", "Privacy", "Updates"]) {
+    for (const name of ["Input", "Cursor appearance", "Privacy", "Updates", "About"]) {
       expect(screen.getByRole("tab", { name })).not.toHaveAttribute("aria-controls");
     }
     // The panel is not a tab stop of its own; its controls are.
