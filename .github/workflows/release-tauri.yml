@@ -283,7 +283,17 @@ jobs:
           xcrun notarytool submit "$dmg_path" --key "$APPLE_API_KEY_PATH" \
             --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
             --wait --timeout 20m
-          xcrun stapler staple "$dmg_path"
+          # Apple's ticket lookup drops connections now and then; retry before failing.
+          for attempt in 1 2 3 4 5; do
+            if xcrun stapler staple "$dmg_path"; then
+              break
+            fi
+            echo "stapler staple failed for ${dmg_path} (attempt ${attempt} of 5)" >&2
+            if [[ "$attempt" -eq 5 ]]; then
+              exit 1
+            fi
+            sleep 20
+          done
 
       - name: Verify and stage macOS release
         shell: bash
