@@ -2,7 +2,10 @@
 use crate::switch_input::{Capture, Event, Mode, StopReason};
 use crate::switches::Settings;
 use serde::Serialize;
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 use tauri::{AppHandle, Emitter, Manager};
 #[derive(Debug, Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,6 +35,9 @@ struct Data {
 pub struct Controller {
     data: Mutex<Data>,
     broker: Mutex<Capture>,
+    /// Set between the computer's suspend and resume signals. Scanning stays
+    /// off while it is set, so the switch keys stay released through sleep.
+    suspended: AtomicBool,
 }
 fn path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     app.path()
@@ -97,6 +103,7 @@ impl Controller {
                 error,
             }),
             broker: Mutex::new(Capture::new()),
+            suspended: AtomicBool::new(false),
         }
     }
     pub fn view(&self) -> View {
@@ -183,9 +190,40 @@ impl Controller {
         self.publish(app);
         Ok(self.view())
     }
+    /// The computer is going to sleep: release the switch keys. Scanning
+    /// sees the stop and re-arms after wake.
+    pub fn suspend(&self) {
+        self.suspended.store(true, Ordering::SeqCst);
+        self.broker
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .suspend();
+    }
+    /// The computer woke: let capture start again even if its worker was
+    /// lost during the sleep.
+    pub fn resume(&self) {
+        self.broker
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .resume();
+        self.suspended.store(false, Ordering::SeqCst);
+    }
+    /// Whether the computer is between its suspend and resume signals.
+    pub fn suspended(&self) -> bool {
+        self.suspended.load(Ordering::SeqCst)
+    }
+    /// Checked under the broker lock, after scanning's own check, so a
+    /// suspend that lands between the two cannot start a worker.
+    fn require_awake(&self) -> Result<(), String> {
+        if self.suspended() {
+            return Err(stop_message(StopReason::Suspended).into());
+        }
+        Ok(())
+    }
     pub fn enable_escape(&self) -> Result<(), String> {
         self.require_switch_control()?;
         let mut broker = self.broker.lock().unwrap_or_else(|p| p.into_inner());
+        self.require_awake()?;
         broker.stop();
         broker.configure(&[], 4000).map_err(|e| e.to_string())?;
         broker.enable().map_err(|e| e.to_string())?;
@@ -208,6 +246,7 @@ impl Controller {
             })
             .collect::<Vec<_>>();
         let mut broker = self.broker.lock().unwrap_or_else(|p| p.into_inner());
+        self.require_awake()?;
         broker
             .configure(&mappings, view.settings.escape_ms())
             .map_err(|e| e.to_string())?;
@@ -315,6 +354,9 @@ pub fn stop_message(reason: StopReason) -> &'static str {
         StopReason::HoldEscape => "Emergency hold released switch control.",
         StopReason::HeartbeatTimeout => "Switch capture stopped because its heartbeat was missed.",
         StopReason::QueueOverflow => "Switch capture stopped because input could not be processed.",
+        StopReason::Suspended => {
+            "Switches paused while the computer sleeps. Scanning resumes after wake."
+        }
         StopReason::CaptureLost => {
             #[cfg(target_os = "windows")]
             return "Keyboard capture interrupted. Release your switches, then press and release a switch to reconnect.";
@@ -345,6 +387,33 @@ pub fn install(app: &AppHandle) {
 mod tests {
     use super::*;
     #[test]
+    fn sleep_holds_scanning_off_until_the_resume_signal() {
+        let controller = Controller {
+            data: Mutex::new(Data {
+                settings: Settings::default(),
+                capture: CaptureState::default(),
+                capture_generation: 0,
+                keyboard_entry: false,
+                error: None,
+            }),
+            broker: Mutex::new(Capture::new()),
+            suspended: AtomicBool::new(false),
+        };
+        assert!(!controller.suspended());
+        controller.suspend();
+        assert!(controller.suspended());
+        controller.suspend();
+        assert!(controller.suspended());
+        controller.suspend();
+        assert_eq!(
+            controller.enable_escape().unwrap_err(),
+            stop_message(StopReason::Suspended)
+        );
+        controller.resume();
+        assert!(!controller.suspended());
+        assert!(stop_message(StopReason::Suspended).contains("sleeps"));
+    }
+    #[test]
     fn keyboard_entry_excludes_capture_without_changing_bindings() {
         // An off broker never installs a native adapter in this test.
         let controller = Controller {
@@ -356,6 +425,7 @@ mod tests {
                 error: None,
             }),
             broker: Mutex::new(Capture::new()),
+            suspended: AtomicBool::new(false),
         };
         controller.set_keyboard_entry(true).unwrap();
         assert!(controller.view().keyboard_entry);

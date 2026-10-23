@@ -1,6 +1,5 @@
 use super::{
     windows, windows_hook::await_shutdown, windows_worker_protocol as wire, Core, Driver, Mode,
-    HEARTBEAT_TIMEOUT_MS,
 };
 use anyhow::{bail, Context, Result};
 use std::{
@@ -66,6 +65,7 @@ struct Shared {
     recovering: AtomicBool,
     finished: AtomicBool,
     response_ms: AtomicU64,
+    check_ms: AtomicU64,
     owned: Mutex<Vec<String>>,
 }
 
@@ -116,6 +116,7 @@ impl Capture {
             recovering: AtomicBool::new(false),
             finished: AtomicBool::new(false),
             response_ms: AtomicU64::new(driver.now()),
+            check_ms: AtomicU64::new(driver.now()),
             owned: Mutex::new(Vec::new()),
         });
         let (tx, rx) = mpsc::sync_channel(1);
@@ -238,16 +239,36 @@ impl Capture {
         }
     }
     pub fn check_health(&self) {
-        if !self.shared.finished.load(Acquire)
-            && self
-                .driver
-                .now()
-                .saturating_sub(self.shared.response_ms.load(Acquire))
-                >= HEARTBEAT_TIMEOUT_MS
-        {
-            self.job.terminate();
-            wire::worker_failed(&mut self.driver.core.lock().unwrap_or_else(|p| p.into_inner()));
+        if self.shared.finished.load(Acquire) {
+            return;
         }
+        let now = self.driver.now();
+        let last_check = self.shared.check_ms.swap(now, AcqRel);
+        match wire::worker_health(now, last_check, self.shared.response_ms.load(Acquire)) {
+            wire::WorkerHealth::Healthy => {}
+            wire::WorkerHealth::ParentStalled => {
+                // Sleep or a system stall paused this process too. The worker
+                // gets a full timeout from now before it counts as silent.
+                let _ = self.shared.response_ms.fetch_max(now, AcqRel);
+            }
+            wire::WorkerHealth::Failed => {
+                self.job.terminate();
+                wire::worker_failed(
+                    &mut self.driver.core.lock().unwrap_or_else(|p| p.into_inner()),
+                );
+            }
+        }
+    }
+    /// The computer woke. Silence from before the sleep must not count
+    /// against the worker, whichever of the health check or the power signal
+    /// runs first.
+    pub fn resume(&self) {
+        let now = self.driver.now();
+        self.shared.check_ms.store(now, Release);
+        let _ = self.shared.response_ms.fetch_max(now, AcqRel);
+    }
+    pub fn finished(&self) -> bool {
+        self.shared.finished.load(Acquire)
     }
     pub fn cancel(&self) {
         self.shared.cancellation.store(2, Release);

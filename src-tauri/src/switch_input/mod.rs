@@ -62,6 +62,8 @@ pub enum StopReason {
     HeartbeatTimeout,
     QueueOverflow,
     CaptureLost,
+    /// The computer went to sleep. Capture restarts after wake.
+    Suspended,
 }
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Event {
@@ -154,6 +156,21 @@ impl Core {
     fn reconcile_pressed_keys(&mut self, down: HashSet<String>) {
         self.physical.retain(|key| down.contains(key));
         self.down = down;
+    }
+    /// Sleep ends the session. Capture that is already off emits nothing.
+    fn suspend(&mut self) {
+        if self.status.mode != Mode::Off {
+            self.stop(StopReason::Suspended);
+        }
+    }
+    /// Wake is a deliberate retry boundary: a worker that died while the
+    /// computer slept, or whose heartbeat the sleep interrupted, may start
+    /// again. Ordinary stops never clear this latch.
+    fn resume(&mut self) {
+        #[cfg(any(target_os = "windows", test))]
+        {
+            self.worker_failed = false;
+        }
     }
     fn begin_with_pressed_keys(
         &mut self,
@@ -528,6 +545,51 @@ impl Capture {
             .unwrap_or_else(|p| p.into_inner())
             .stop(StopReason::Disabled);
     }
+    /// The computer is going to sleep. Releases every switch key now so a
+    /// held switch cannot stay suppressed across the sleep.
+    pub fn suspend(&mut self) {
+        #[cfg(target_os = "windows")]
+        if let Some(native) = &self.native {
+            native.cancel();
+        }
+        self.driver
+            .core
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .suspend();
+    }
+    /// The computer woke. Scanning re-arms capture on its next tick.
+    pub fn resume(&mut self) {
+        #[cfg(target_os = "windows")]
+        let failed = self
+            .driver
+            .core
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .worker_failed;
+        #[cfg(target_os = "windows")]
+        match &self.native {
+            Some(native) if failed || native.finished() => {
+                // The worker process, and with it the hook, is gone (a
+                // latched failure always terminates its job): no key is
+                // suppressed, so its last reported ownership is stale.
+                self.native.take();
+                self.driver
+                    .core
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .physical
+                    .clear();
+            }
+            Some(native) => native.resume(),
+            None => {}
+        }
+        self.driver
+            .core
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .resume();
+    }
 }
 impl Drop for Capture {
     fn drop(&mut self) {
@@ -637,6 +699,25 @@ mod tests {
         }
         assert_eq!(c.status.reason, Some(StopReason::HoldEscape));
         assert!(!c.key("A", true, 6001));
+    }
+    #[test]
+    fn sleep_stops_an_active_session_once_and_wake_unlatches_the_worker() {
+        let mut c = core();
+        c.key("Space", true, 1);
+        c.suspend();
+        assert_eq!(c.status.mode, Mode::Off);
+        assert_eq!(c.status.reason, Some(StopReason::Suspended));
+        assert_eq!(c.events.len(), 1);
+        c.events.clear();
+        c.suspend();
+        assert!(c.events.is_empty());
+        c.worker_failed = true;
+        c.stop(StopReason::Disabled);
+        assert!(c.worker_failed);
+        c.resume();
+        assert!(!c.worker_failed);
+        c.begin(Mode::Active, 10);
+        assert_eq!(c.status.mode, Mode::Active);
     }
     #[test]
     fn learns_only_complete_press_and_escape_cancels() {

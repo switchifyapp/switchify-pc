@@ -41,6 +41,31 @@ pub(super) fn ready(
     apply(core, snapshot, generation, false)
 }
 
+/// What the parent's periodic health check should do with the worker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum WorkerHealth {
+    Healthy,
+    /// The parent itself missed checks, as it does across sleep or a
+    /// system-wide stall. The worker could not have answered, so it is
+    /// given a fresh timeout instead of being terminated.
+    ParentStalled,
+    Failed,
+}
+
+pub(super) fn worker_health(
+    now_ms: u64,
+    last_check_ms: u64,
+    last_response_ms: u64,
+) -> WorkerHealth {
+    if now_ms.saturating_sub(last_check_ms) >= super::HEARTBEAT_TIMEOUT_MS {
+        WorkerHealth::ParentStalled
+    } else if now_ms.saturating_sub(last_response_ms) >= super::HEARTBEAT_TIMEOUT_MS {
+        WorkerHealth::Failed
+    } else {
+        WorkerHealth::Healthy
+    }
+}
+
 pub(super) fn clock_age(parent_ms: u64, sent_ticks: u64, now_ticks: u64) -> Result<u64> {
     if parent_ms > sent_ticks || sent_ticks > now_ticks {
         bail!("Invalid capture worker clock origin.");
@@ -171,6 +196,20 @@ mod tests {
                 monotonic_ms: 60_000,
             }],
         }
+    }
+    #[test]
+    fn health_check_terminates_a_silent_worker_but_not_after_the_parent_slept() {
+        assert_eq!(worker_health(1000, 500, 900), WorkerHealth::Healthy);
+        assert_eq!(worker_health(2000, 1500, 500), WorkerHealth::Failed);
+        assert_eq!(worker_health(2000, 1500, 501), WorkerHealth::Healthy);
+        // The parent slept for an hour: the worker's silence is not its fault.
+        assert_eq!(
+            worker_health(3_600_000, 500, 400),
+            WorkerHealth::ParentStalled
+        );
+        assert_eq!(worker_health(1500, 0, 0), WorkerHealth::ParentStalled);
+        assert_eq!(worker_health(1499, 0, 0), WorkerHealth::Healthy);
+        assert_eq!(worker_health(1500, 1000, 0), WorkerHealth::Failed);
     }
     #[test]
     fn worker_clock_preserves_long_parent_uptime_and_includes_launch_delay() {
