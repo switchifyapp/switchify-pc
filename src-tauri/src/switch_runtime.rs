@@ -2,7 +2,10 @@
 use crate::switch_input::{Capture, Event, Mode, StopReason};
 use crate::switches::Settings;
 use serde::Serialize;
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 use tauri::{AppHandle, Emitter, Manager};
 #[derive(Debug, Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,6 +35,9 @@ struct Data {
 pub struct Controller {
     data: Mutex<Data>,
     broker: Mutex<Capture>,
+    /// Set between the computer's suspend and resume signals. Scanning stays
+    /// off while it is set, so the switch keys stay released through sleep.
+    suspended: AtomicBool,
 }
 fn path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     app.path()
@@ -97,6 +103,7 @@ impl Controller {
                 error,
             }),
             broker: Mutex::new(Capture::new()),
+            suspended: AtomicBool::new(false),
         }
     }
     pub fn view(&self) -> View {
@@ -186,6 +193,7 @@ impl Controller {
     /// The computer is going to sleep: release the switch keys. Scanning
     /// sees the stop and re-arms after wake.
     pub fn suspend(&self) {
+        self.suspended.store(true, Ordering::SeqCst);
         self.broker
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -198,6 +206,11 @@ impl Controller {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .resume();
+        self.suspended.store(false, Ordering::SeqCst);
+    }
+    /// Whether the computer is between its suspend and resume signals.
+    pub fn suspended(&self) -> bool {
+        self.suspended.load(Ordering::SeqCst)
     }
     pub fn enable_escape(&self) -> Result<(), String> {
         self.require_switch_control()?;
@@ -364,6 +377,28 @@ pub fn install(app: &AppHandle) {
 mod tests {
     use super::*;
     #[test]
+    fn sleep_holds_scanning_off_until_the_resume_signal() {
+        let controller = Controller {
+            data: Mutex::new(Data {
+                settings: Settings::default(),
+                capture: CaptureState::default(),
+                capture_generation: 0,
+                keyboard_entry: false,
+                error: None,
+            }),
+            broker: Mutex::new(Capture::new()),
+            suspended: AtomicBool::new(false),
+        };
+        assert!(!controller.suspended());
+        controller.suspend();
+        assert!(controller.suspended());
+        controller.suspend();
+        assert!(controller.suspended());
+        controller.resume();
+        assert!(!controller.suspended());
+        assert!(stop_message(StopReason::Suspended).contains("sleeps"));
+    }
+    #[test]
     fn keyboard_entry_excludes_capture_without_changing_bindings() {
         // An off broker never installs a native adapter in this test.
         let controller = Controller {
@@ -375,6 +410,7 @@ mod tests {
                 error: None,
             }),
             broker: Mutex::new(Capture::new()),
+            suspended: AtomicBool::new(false),
         };
         controller.set_keyboard_entry(true).unwrap();
         assert!(controller.view().keyboard_entry);

@@ -431,7 +431,13 @@ fn wanted<A: Adapter>(app: &AppHandle, config: &A::Config) -> Result<(), String>
     if switch_keys_released(app) {
         return Err(SWITCH_KEYS_RELEASED_MESSAGE.into());
     }
-    let switches = app.state::<switch_runtime::Controller>().view();
+    let controller = app.state::<switch_runtime::Controller>();
+    if controller.suspended() {
+        return Err(
+            switch_runtime::stop_message(crate::switch_input::StopReason::Suspended).into(),
+        );
+    }
+    let switches = controller.view();
     if let Some(error) = switches.error {
         return Err(error);
     }

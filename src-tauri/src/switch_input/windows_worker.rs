@@ -259,6 +259,17 @@ impl Capture {
             }
         }
     }
+    /// The computer woke. Silence from before the sleep must not count
+    /// against the worker, whichever of the health check or the power signal
+    /// runs first.
+    pub fn resume(&self) {
+        let now = self.driver.now();
+        self.shared.check_ms.store(now, Release);
+        let _ = self.shared.response_ms.fetch_max(now, AcqRel);
+    }
+    pub fn finished(&self) -> bool {
+        self.shared.finished.load(Acquire)
+    }
     pub fn cancel(&self) {
         self.shared.cancellation.store(2, Release);
     }
