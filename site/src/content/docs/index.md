@@ -19,7 +19,7 @@ It is free and open source under the AGPL-3.0.
 
 **On the computer.** Plug a switch into a switch interface or a USB switch that sends a key. Add it in Settings, press it once so Switchify PC learns the key, and give it an action such as Select. See [Add a switch](/get-started/add-a-switch/).
 
-**From Switchify on Android.** Pair the phone or tablet you already control with Switchify over Bluetooth. Then control the computer from the phone, or forward the switches connected to the phone to the computer. See [Pair your device](/android/pairing/). Built-in PC control arrives with Switchify 3.1, which is still in testing and not yet on Google Play; Switchify PC 1.0 is a release candidate.
+**From Switchify on Android.** Pair the phone or tablet you already control with Switchify over Bluetooth. Then control the computer from the phone, or forward the switches connected to the phone to the computer. See [Pair your device](/android/pairing/).
 
 ## Get it
 
