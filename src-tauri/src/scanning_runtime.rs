@@ -1797,6 +1797,7 @@ mod ownership_tests {
         assert!(super::local_stop_ends_remote(StopReason::Escape));
         assert!(super::local_stop_ends_remote(StopReason::HoldEscape));
         assert!(super::local_stop_ends_remote(StopReason::Disabled));
+        assert!(super::local_stop_ends_remote(StopReason::Suspended));
         assert!(!super::local_stop_ends_remote(StopReason::CaptureLost));
         assert!(!super::local_stop_ends_remote(StopReason::HeartbeatTimeout));
         assert!(!super::local_stop_ends_remote(StopReason::QueueOverflow));

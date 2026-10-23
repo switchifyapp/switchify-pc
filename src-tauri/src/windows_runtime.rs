@@ -584,6 +584,9 @@ fn handle_power_signal(
 ) {
     match signal {
         PowerSignal::Suspend => {
+            if let Some(switches) = app.try_state::<crate::switch_runtime::Controller>() {
+                switches.suspend();
+            }
             lifecycle
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -597,6 +600,9 @@ fn handle_power_signal(
             emit_state(&app, &shared);
         }
         PowerSignal::Resume => {
+            if let Some(switches) = app.try_state::<crate::switch_runtime::Controller>() {
+                switches.resume();
+            }
             let generation = lifecycle
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())

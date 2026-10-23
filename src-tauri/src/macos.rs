@@ -543,6 +543,9 @@ impl MacRuntime {
     }
 
     fn handle_system_suspend(&mut self) -> Result<(), String> {
+        if let Some(switches) = self.app.try_state::<crate::switch_runtime::Controller>() {
+            switches.suspend();
+        }
         self.lifecycle
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -559,6 +562,9 @@ impl MacRuntime {
     }
 
     fn handle_system_resume(&mut self) -> Result<(), String> {
+        if let Some(switches) = self.app.try_state::<crate::switch_runtime::Controller>() {
+            switches.resume();
+        }
         let generation = self
             .lifecycle
             .lock()

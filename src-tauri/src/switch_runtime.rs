@@ -183,6 +183,22 @@ impl Controller {
         self.publish(app);
         Ok(self.view())
     }
+    /// The computer is going to sleep: release the switch keys. Scanning
+    /// sees the stop and re-arms after wake.
+    pub fn suspend(&self) {
+        self.broker
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .suspend();
+    }
+    /// The computer woke: let capture start again even if its worker was
+    /// lost during the sleep.
+    pub fn resume(&self) {
+        self.broker
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .resume();
+    }
     pub fn enable_escape(&self) -> Result<(), String> {
         self.require_switch_control()?;
         let mut broker = self.broker.lock().unwrap_or_else(|p| p.into_inner());
@@ -315,6 +331,9 @@ pub fn stop_message(reason: StopReason) -> &'static str {
         StopReason::HoldEscape => "Emergency hold released switch control.",
         StopReason::HeartbeatTimeout => "Switch capture stopped because its heartbeat was missed.",
         StopReason::QueueOverflow => "Switch capture stopped because input could not be processed.",
+        StopReason::Suspended => {
+            "Switches paused while the computer sleeps. Scanning resumes after wake."
+        }
         StopReason::CaptureLost => {
             #[cfg(target_os = "windows")]
             return "Keyboard capture interrupted. Release your switches, then press and release a switch to reconnect.";
