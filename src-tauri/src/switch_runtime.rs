@@ -212,9 +212,18 @@ impl Controller {
     pub fn suspended(&self) -> bool {
         self.suspended.load(Ordering::SeqCst)
     }
+    /// Checked under the broker lock, after scanning's own check, so a
+    /// suspend that lands between the two cannot start a worker.
+    fn require_awake(&self) -> Result<(), String> {
+        if self.suspended() {
+            return Err(stop_message(StopReason::Suspended).into());
+        }
+        Ok(())
+    }
     pub fn enable_escape(&self) -> Result<(), String> {
         self.require_switch_control()?;
         let mut broker = self.broker.lock().unwrap_or_else(|p| p.into_inner());
+        self.require_awake()?;
         broker.stop();
         broker.configure(&[], 4000).map_err(|e| e.to_string())?;
         broker.enable().map_err(|e| e.to_string())?;
@@ -237,6 +246,7 @@ impl Controller {
             })
             .collect::<Vec<_>>();
         let mut broker = self.broker.lock().unwrap_or_else(|p| p.into_inner());
+        self.require_awake()?;
         broker
             .configure(&mappings, view.settings.escape_ms())
             .map_err(|e| e.to_string())?;
@@ -394,6 +404,11 @@ mod tests {
         assert!(controller.suspended());
         controller.suspend();
         assert!(controller.suspended());
+        controller.suspend();
+        assert_eq!(
+            controller.enable_escape().unwrap_err(),
+            stop_message(StopReason::Suspended)
+        );
         controller.resume();
         assert!(!controller.suspended());
         assert!(stop_message(StopReason::Suspended).contains("sleeps"));

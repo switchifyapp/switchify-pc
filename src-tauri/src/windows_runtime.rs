@@ -584,9 +584,6 @@ fn handle_power_signal(
 ) {
     match signal {
         PowerSignal::Suspend => {
-            if let Some(switches) = app.try_state::<crate::switch_runtime::Controller>() {
-                switches.suspend();
-            }
             lifecycle
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -598,6 +595,11 @@ fn handle_power_signal(
                 "Bluetooth paused while the PC sleeps.",
             );
             emit_state(&app, &shared);
+            // Last: this may wait on the main thread finishing a capture
+            // start, and Bluetooth must already be paused by then.
+            if let Some(switches) = app.try_state::<crate::switch_runtime::Controller>() {
+                switches.suspend();
+            }
         }
         PowerSignal::Resume => {
             if let Some(switches) = app.try_state::<crate::switch_runtime::Controller>() {

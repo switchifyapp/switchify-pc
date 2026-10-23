@@ -561,10 +561,18 @@ impl Capture {
     /// The computer woke. Scanning re-arms capture on its next tick.
     pub fn resume(&mut self) {
         #[cfg(target_os = "windows")]
+        let failed = self
+            .driver
+            .core
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .worker_failed;
+        #[cfg(target_os = "windows")]
         match &self.native {
-            Some(native) if native.finished() => {
-                // The worker process, and with it the hook, is gone: no key
-                // is suppressed, so its last reported ownership is stale.
+            Some(native) if failed || native.finished() => {
+                // The worker process, and with it the hook, is gone (a
+                // latched failure always terminates its job): no key is
+                // suppressed, so its last reported ownership is stale.
                 self.native.take();
                 self.driver
                     .core
