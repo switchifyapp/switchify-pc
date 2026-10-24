@@ -11,7 +11,7 @@ Choose **Mouse** from [Home](/using/home-menu/), or give a switch the **Open mou
 - **Left click**, **Right click**, **Double click**.
 - **Start drag** and **End drag**.
 - **Scroll up** and **Scroll down**.
-- **Slower** and **Faster** pointer speed.
+- **Slower** and **Faster** pointer speed. Each shows the current level, from 1 to 10, and a press moves it half a level.
 - **Monitor left, right, up, down** to jump the pointer to another display.
 - **Actions** for the same editing, window, browser and media items as Home.
 - **Keyboard** to open the scanning [keyboard](/using/keyboard/).
@@ -19,7 +19,7 @@ Choose **Mouse** from [Home](/using/home-menu/), or give a switch the **Open mou
 
 ## Speed and repeat
 
-Pointer speed has ten levels plus fine tuning. Hold a switch on a movement or scroll button and it repeats, with a repeat interval and gradual acceleration you can set. Repeat stops when you release the switch, or on the next press, whichever you choose in Settings.
+Pointer speed has ten levels plus fine tuning. The panel, the Mouse settings page and the Android app all show the same level. Hold a switch on a movement or scroll button and it repeats, with a repeat interval and gradual acceleration you can set. Repeat stops when you release the switch, or on the next press, whichever you choose in Settings.
 
 The panel can move itself out of the way when the pointer approaches it.
 
