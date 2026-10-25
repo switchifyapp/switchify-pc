@@ -766,9 +766,11 @@ mod tests {
 
     #[tokio::test]
     async fn queue_is_bounded_and_health_failures_are_not_queued() {
+        // One Retry per exception flush plus one for the health send, so the
+        // fake can never run dry and start answering Sent mid-test.
         let transport = Arc::new(FakeTransport::new(std::iter::repeat_n(
             SendOutcome::Retry,
-            MAX_QUEUED_REPORTS + 2,
+            MAX_QUEUED_REPORTS + 3,
         )));
         let (service, path) = test_service(TelemetryConsent::Undecided, transport);
         service.set_consent(TelemetryConsent::Enabled);
