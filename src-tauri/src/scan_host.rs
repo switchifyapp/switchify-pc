@@ -103,7 +103,6 @@ mod platform {
                     ((lparam.0 >> 16) & 0xffff) as u16 as i16 as i32,
                 );
                 let inside = unsafe {
-                    let _ = ReleaseCapture();
                     let mut client = windows::Win32::Foundation::RECT::default();
                     GetClientRect(hwnd, &mut client).is_ok()
                         && x >= client.left
@@ -116,6 +115,16 @@ mod platform {
                 } else {
                     crate::scan_menu_bar::cancelled();
                 }
+                // Released after the decision: losing capture cancels a press.
+                unsafe {
+                    let _ = ReleaseCapture();
+                }
+                LRESULT(0)
+            }
+            // The press ends without a release here when the bar is hidden,
+            // another window takes the mouse, or the user switches away.
+            WM_CAPTURECHANGED => {
+                crate::scan_menu_bar::cancelled();
                 LRESULT(0)
             }
             WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
@@ -266,6 +275,9 @@ mod platform {
         }
         pub fn hide(&mut self) {
             self.last_rects.clear();
+            if self.clickable {
+                crate::scan_menu_bar::cancelled();
+            }
             for window in &self.windows {
                 unsafe {
                     let _ = ShowWindow(*window, SW_HIDE);
@@ -389,6 +401,27 @@ mod platform {
                 assert!(!crate::scan_menu_bar::take_click(), "released off the bar");
                 assert_eq!(GetCapture(), HWND::default(), "capture is released");
             }
+            // A press still held when the panel hides is forgotten, so a later
+            // drag released over the bar is not a click.
+            unsafe {
+                SendMessageW(
+                    host.windows[0],
+                    WM_LBUTTONDOWN,
+                    Some(WPARAM(1)),
+                    Some(LPARAM(0)),
+                );
+            }
+            host.hide();
+            host.tile(&key(crate::scanning::TileRole::MenuBar)).unwrap();
+            unsafe {
+                SendMessageW(
+                    host.windows[0],
+                    WM_LBUTTONUP,
+                    Some(WPARAM(0)),
+                    Some(LPARAM(0)),
+                );
+            }
+            assert!(!crate::scan_menu_bar::take_click(), "hidden mid-press");
             assert_eq!(unsafe { GetForegroundWindow() }, foreground);
             // The same host later shows a key, which passes clicks through again.
             host.tile(&key(crate::scanning::TileRole::Utility)).unwrap();
@@ -732,6 +765,7 @@ mod platform {
             let Some(tile) = tiles.iter().find(|tile| tile.is_menu_bar()) else {
                 if let Some((panel, _)) = &self.menu_bar {
                     panel.orderOut(None);
+                    crate::scan_menu_bar::cancelled();
                 }
                 return Ok(());
             };
@@ -867,6 +901,7 @@ mod platform {
             self.panel.orderOut(None);
             if let Some((bar, _)) = &self.menu_bar {
                 bar.orderOut(None);
+                crate::scan_menu_bar::cancelled();
             }
         }
     }
