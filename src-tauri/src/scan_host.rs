@@ -72,11 +72,13 @@ mod platform {
             Foundation::HWND,
             System::LibraryLoader::GetModuleHandleW,
             UI::{
-                Input::KeyboardAndMouse::{ReleaseCapture, SetCapture},
+                Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT},
                 WindowsAndMessaging::*,
             },
         },
     };
+    /// Sent once after `TrackMouseEvent` when the pointer leaves the window.
+    const WM_MOUSELEAVE: u32 = 0x02A3;
     /// Only a menu bar host receives mouse messages; every other host is
     /// click-through. A click on the bar opens Settings without activating
     /// the host, so the controlled application keeps focus.
@@ -89,41 +91,33 @@ mod platform {
         use windows::Win32::Foundation::LRESULT;
         match message {
             WM_LBUTTONDOWN => {
-                // Capture so the release reaches this window wherever it
-                // happens, and a press dragged off the bar is not a click.
+                // The bar is a background window, so it only ever hears
+                // about the mouse while the pointer is over it. Ask to be
+                // told when the pointer leaves, so a press dragged off the
+                // bar is not a click.
                 unsafe {
-                    SetCapture(hwnd);
+                    let _ = TrackMouseEvent(&mut TRACKMOUSEEVENT {
+                        cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                        dwFlags: TME_LEAVE,
+                        hwndTrack: hwnd,
+                        dwHoverTime: 0,
+                    });
                 }
                 crate::scan_menu_bar::pressed();
                 LRESULT(0)
             }
+            // A release only reaches the bar with the pointer over it.
             WM_LBUTTONUP => {
-                let (x, y) = (
-                    (lparam.0 & 0xffff) as u16 as i16 as i32,
-                    ((lparam.0 >> 16) & 0xffff) as u16 as i16 as i32,
-                );
-                let inside = unsafe {
-                    let mut client = windows::Win32::Foundation::RECT::default();
-                    GetClientRect(hwnd, &mut client).is_ok()
-                        && x >= client.left
-                        && x < client.right
-                        && y >= client.top
-                        && y < client.bottom
-                };
-                if inside {
-                    crate::scan_menu_bar::released();
-                } else {
-                    crate::scan_menu_bar::cancelled();
-                }
-                // Released after the decision: losing capture cancels a press.
-                unsafe {
-                    let _ = ReleaseCapture();
-                }
+                crate::scan_menu_bar::released();
                 LRESULT(0)
             }
-            // The press ends without a release here when the bar is hidden,
-            // another window takes the mouse, or the user switches away.
-            WM_CAPTURECHANGED => {
+            WM_MOUSELEAVE => {
+                crate::scan_menu_bar::cancelled();
+                LRESULT(0)
+            }
+            // The pointer is over the bar with the button up: whatever was
+            // pressed ended elsewhere. 0x0001 is MK_LBUTTON.
+            WM_MOUSEMOVE if wparam.0 & 0x0001 == 0 => {
                 crate::scan_menu_bar::cancelled();
                 LRESULT(0)
             }
@@ -341,7 +335,6 @@ mod platform {
         #[test]
         fn only_a_menu_bar_host_takes_clicks_and_never_activates() {
             use windows::Win32::Foundation::{LPARAM, WPARAM};
-            use windows::Win32::UI::Input::KeyboardAndMouse::GetCapture;
             let rect = Rect {
                 x: 0.0,
                 y: 0.0,
@@ -393,13 +386,23 @@ mod platform {
             );
             unsafe {
                 let window = host.windows[0];
-                // A press dragged off the bar: the captured release lands
-                // outside the client area.
+                // A press dragged off the bar: the pointer leaves before any
+                // release reaches the bar.
                 SendMessageW(window, WM_LBUTTONDOWN, Some(WPARAM(1)), Some(LPARAM(0)));
-                let outside = LPARAM(((-5i16 as u16 as isize) << 16) | 5);
-                SendMessageW(window, WM_LBUTTONUP, Some(WPARAM(0)), Some(outside));
+                SendMessageW(window, WM_MOUSELEAVE, None, None);
+                SendMessageW(window, WM_LBUTTONUP, Some(WPARAM(0)), Some(LPARAM(0)));
                 assert!(!crate::scan_menu_bar::take_click(), "released off the bar");
-                assert_eq!(GetCapture(), HWND::default(), "capture is released");
+                // A press whose release the bar never saw: the pointer comes
+                // back over the bar with the button up.
+                SendMessageW(window, WM_LBUTTONDOWN, Some(WPARAM(1)), Some(LPARAM(0)));
+                SendMessageW(window, WM_MOUSEMOVE, Some(WPARAM(0)), Some(LPARAM(0)));
+                SendMessageW(window, WM_LBUTTONUP, Some(WPARAM(0)), Some(LPARAM(0)));
+                assert!(!crate::scan_menu_bar::take_click(), "button already up");
+                // Moving over the bar with the button held keeps the press.
+                SendMessageW(window, WM_LBUTTONDOWN, Some(WPARAM(1)), Some(LPARAM(0)));
+                SendMessageW(window, WM_MOUSEMOVE, Some(WPARAM(1)), Some(LPARAM(0)));
+                SendMessageW(window, WM_LBUTTONUP, Some(WPARAM(0)), Some(LPARAM(0)));
+                assert!(crate::scan_menu_bar::take_click(), "held across a move");
             }
             // A press still held when the panel hides is forgotten, so a later
             // drag released over the bar is not a click.
