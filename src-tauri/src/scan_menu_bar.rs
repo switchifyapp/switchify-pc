@@ -22,6 +22,11 @@ pub fn released() {
     }
 }
 
+/// The press ended somewhere other than the bar, so it is not a click.
+pub fn cancelled() {
+    PRESSED.store(false, Ordering::SeqCst);
+}
+
 /// Whether the menu bar was clicked since the last call.
 pub fn take_click() -> bool {
     CLICKED.swap(false, Ordering::SeqCst)
@@ -55,5 +60,9 @@ mod tests {
         pressed();
         released();
         assert!(take_click());
+        pressed();
+        cancelled();
+        released();
+        assert!(!take_click(), "a press dragged off the bar is not a click");
     }
 }

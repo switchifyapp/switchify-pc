@@ -69,7 +69,12 @@ mod platform {
     use windows::{
         core::w,
         Win32::{
-            Foundation::HWND, System::LibraryLoader::GetModuleHandleW, UI::WindowsAndMessaging::*,
+            Foundation::HWND,
+            System::LibraryLoader::GetModuleHandleW,
+            UI::{
+                Input::KeyboardAndMouse::{ReleaseCapture, SetCapture},
+                WindowsAndMessaging::*,
+            },
         },
     };
     /// Only a menu bar host receives mouse messages; every other host is
@@ -84,11 +89,33 @@ mod platform {
         use windows::Win32::Foundation::LRESULT;
         match message {
             WM_LBUTTONDOWN => {
+                // Capture so the release reaches this window wherever it
+                // happens, and a press dragged off the bar is not a click.
+                unsafe {
+                    SetCapture(hwnd);
+                }
                 crate::scan_menu_bar::pressed();
                 LRESULT(0)
             }
             WM_LBUTTONUP => {
-                crate::scan_menu_bar::released();
+                let (x, y) = (
+                    (lparam.0 & 0xffff) as u16 as i16 as i32,
+                    ((lparam.0 >> 16) & 0xffff) as u16 as i16 as i32,
+                );
+                let inside = unsafe {
+                    let _ = ReleaseCapture();
+                    let mut client = windows::Win32::Foundation::RECT::default();
+                    GetClientRect(hwnd, &mut client).is_ok()
+                        && x >= client.left
+                        && x < client.right
+                        && y >= client.top
+                        && y < client.bottom
+                };
+                if inside {
+                    crate::scan_menu_bar::released();
+                } else {
+                    crate::scan_menu_bar::cancelled();
+                }
                 LRESULT(0)
             }
             WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
@@ -302,6 +329,7 @@ mod platform {
         #[test]
         fn only_a_menu_bar_host_takes_clicks_and_never_activates() {
             use windows::Win32::Foundation::{LPARAM, WPARAM};
+            use windows::Win32::UI::Input::KeyboardAndMouse::GetCapture;
             let rect = Rect {
                 x: 0.0,
                 y: 0.0,
@@ -351,6 +379,16 @@ mod platform {
                 crate::scan_menu_bar::take_click(),
                 "a press and release opens settings"
             );
+            unsafe {
+                let window = host.windows[0];
+                // A press dragged off the bar: the captured release lands
+                // outside the client area.
+                SendMessageW(window, WM_LBUTTONDOWN, Some(WPARAM(1)), Some(LPARAM(0)));
+                let outside = LPARAM(((-5i16 as u16 as isize) << 16) | 5);
+                SendMessageW(window, WM_LBUTTONUP, Some(WPARAM(0)), Some(outside));
+                assert!(!crate::scan_menu_bar::take_click(), "released off the bar");
+                assert_eq!(GetCapture(), HWND::default(), "capture is released");
+            }
             assert_eq!(unsafe { GetForegroundWindow() }, foreground);
             // The same host later shows a key, which passes clicks through again.
             host.tile(&key(crate::scanning::TileRole::Utility)).unwrap();
@@ -603,8 +641,20 @@ mod platform {
                 crate::scan_menu_bar::pressed();
             }
             #[unsafe(method(mouseUp:))]
-            fn mouse_up(&self, _event: &objc2_app_kit::NSEvent) {
-                crate::scan_menu_bar::released();
+            fn mouse_up(&self, event: &objc2_app_kit::NSEvent) {
+                // The release comes here wherever the pointer went after the
+                // press; one dragged off the bar is not a click.
+                let point = self.convertPoint_fromView(event.locationInWindow(), None);
+                let bounds = self.bounds();
+                let inside = point.x >= bounds.origin.x
+                    && point.x < bounds.origin.x + bounds.size.width
+                    && point.y >= bounds.origin.y
+                    && point.y < bounds.origin.y + bounds.size.height;
+                if inside {
+                    crate::scan_menu_bar::released();
+                } else {
+                    crate::scan_menu_bar::cancelled();
+                }
             }
             #[unsafe(method(acceptsFirstMouse:))]
             fn accepts_first_mouse(&self, _event: Option<&objc2_app_kit::NSEvent>) -> bool {
@@ -716,7 +766,7 @@ mod platform {
                     ),
                     NSSize::new(frame.width, frame.height),
                 ),
-                false,
+                panel.isVisible(),
             );
             // As for the tile panel: a bar not yet shown is drawn before it
             // appears, so its first frame is never blank.
