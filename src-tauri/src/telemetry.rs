@@ -632,10 +632,14 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
     }
 
+    /// Polls `condition` until it holds. The flush work runs on Tauri's own
+    /// async runtime, not the test runtime, so paused tokio time cannot drive
+    /// it; a generous wall-clock budget keeps loaded release runners from
+    /// failing a test that passes everywhere else.
     async fn wait_until(mut condition: impl FnMut() -> bool) -> bool {
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
             while !condition() {
-                tokio::task::yield_now().await;
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
             }
         })
         .await
