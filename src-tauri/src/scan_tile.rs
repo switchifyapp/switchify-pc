@@ -35,7 +35,7 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
     .ok_or("Cannot allocate keyboard key")?;
     let base = match style.map(|s| s.role) {
         Some(TileRole::Character) => [43, 51, 66],
-        Some(TileRole::Utility) => [34, 41, 54],
+        Some(TileRole::Utility) | Some(TileRole::MenuBar) => [34, 41, 54],
         _ => [25, 30, 40],
     };
     bitmap.fill(Color::from_rgba8(20, 24, 32, 255));
@@ -110,6 +110,7 @@ pub fn keyboard_font_size(tile: &FrameTile) -> f64 {
             24.0
         }
         Some(crate::scanning::TileRole::Status) => 17.0,
+        Some(crate::scanning::TileRole::MenuBar) => 14.0,
         _ => 16.0,
     }
 }

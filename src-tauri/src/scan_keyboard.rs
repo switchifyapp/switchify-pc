@@ -1244,13 +1244,13 @@ mod tests {
                 ScannerColor::default(),
             );
             // Only the filled slots are drawn, each in its own place.
-            let tiles = &frame.tiles[1..5];
+            let tiles = &frame.tiles[2..6];
             assert_eq!(
                 tiles.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(),
                 ["one", "four", "six seven", "eight nine"]
             );
             assert!(tiles.iter().all(|t| t.rect.y == tiles[0].rect.y));
-            assert!(frame.tiles[5].rect.y > tiles[0].rect.y);
+            assert!(frame.tiles[6].rect.y > tiles[0].rect.y);
             let pitch = (tiles[1].rect.x - tiles[0].rect.x) / 3.0;
             let gap = pitch - tiles[0].rect.width;
             assert!((tiles[1].rect.width - tiles[0].rect.width).abs() < 0.01);
@@ -2649,7 +2649,7 @@ mod tests {
         let frame = k.frame(screen, 1.0, ScannerColor::default());
         assert_eq!(frame.tiles.last().unwrap().text, "Position · Select a row");
         assert_eq!(
-            frame.tiles[1].rect.width, 128.0,
+            frame.tiles[2].rect.width, 128.0,
             "position labels use utility cells rather than character cells"
         );
         assert!(frame.tiles.iter().any(|tile| tile.text == "Bottom •"));

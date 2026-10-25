@@ -603,7 +603,7 @@ mod tests {
                             }
                             assert_eq!(
                                 frame.tiles.len(),
-                                kind.rows().iter().map(Vec::len).sum::<usize>() + 2
+                                kind.rows().iter().map(Vec::len).sum::<usize>() + 3
                             );
                             assert!(status(&frame).starts_with(kind.label()));
                         }
@@ -791,7 +791,9 @@ mod tests {
             frame
                 .tiles
                 .iter()
-                .filter(|tile| !tile.is_panel_background() && !is_status(tile))
+                .filter(|tile| {
+                    !tile.is_panel_background() && !is_status(tile) && !tile.is_menu_bar()
+                })
                 .cloned()
                 .collect()
         };
@@ -862,7 +864,7 @@ mod tests {
                 let header = content.iter().find(|tile| is_status(tile)).unwrap();
                 assert!(content
                     .iter()
-                    .filter(|tile| !is_status(tile))
+                    .filter(|tile| !is_status(tile) && !tile.is_menu_bar())
                     .all(|tile| header.rect.y + header.rect.height < tile.rect.y));
                 let left = content
                     .iter()

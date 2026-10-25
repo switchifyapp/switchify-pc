@@ -77,19 +77,36 @@ impl Dock {
     /// an end of the screen the pointer is not over, until the pointer leaves this dock. A
     /// middle panel keeps its previous end (`moved`) while that end stays clear of the pointer.
     /// On short screens both ends can cover the pointer; the panel then stays put.
+    ///
+    /// `menu_bar` is the panel's menu bar, in screen coordinates, when the panel is at this
+    /// dock. The pointer over a menu bar never moves its panel, wherever the panel is drawn, so
+    /// the bar can be clicked.
     pub fn avoiding(
         self,
         pointer: (f64, f64),
         screen: Rect,
         size: (f64, f64),
         moved: Option<Dock>,
+        menu_bar: Option<Rect>,
     ) -> Option<Dock> {
-        let covers = |dock: Dock| {
-            let rect = dock.rect(screen, size);
-            let (x, y) = pointer;
+        let (x, y) = pointer;
+        let within = |rect: Rect| {
             x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
         };
-        if !covers(self) {
+        let covers = |dock: Dock| within(dock.rect(screen, size));
+        let home = self.rect(screen, size);
+        let menu_bar_at = |dock: Dock| {
+            let rect = dock.rect(screen, size);
+            menu_bar.map(|bar| Rect {
+                x: bar.x - home.x + rect.x,
+                y: bar.y - home.y + rect.y,
+                ..bar
+            })
+        };
+        if let Some(moved) = moved.filter(|&moved| menu_bar_at(moved).is_some_and(within)) {
+            return Some(moved);
+        }
+        if !covers(self) || menu_bar_at(self).is_some_and(within) {
             return None;
         }
         let rect = self.rect(screen, size);
@@ -110,6 +127,20 @@ impl Dock {
             .map(|row| Dock { row, ..self })
             .find(|&dock| !covers(dock))
     }
+}
+
+/// Height in panel units of the menu bar along the top of every panel, including its gap.
+pub const MENU_BAR_HEIGHT: f64 = 36.0;
+/// The one menu bar item: it opens the Switchify PC window on Settings.
+pub const SETTINGS_ITEM: &str = "Settings";
+
+/// The menu bar of a panel frame, in the frame's coordinates.
+pub fn menu_bar(frame: &Frame) -> Option<Rect> {
+    frame
+        .tiles
+        .iter()
+        .find(|tile| tile.is_menu_bar())
+        .map(|tile| tile.rect)
 }
 
 /// Shifts a panel frame drawn at `from` so it is drawn at `to` instead.
@@ -176,6 +207,7 @@ impl Panel {
             .fold(0.0, f64::max)
             + 32.0;
         let preferred_height = 32.0
+            + MENU_BAR_HEIGHT
             + 48.0
             + self.rows.len() as f64 * 56.0
             + self.rows.len().saturating_sub(1) as f64 * 8.0;
@@ -193,6 +225,7 @@ impl Panel {
         let gap = 8.0 * scale;
         let row_height = 64.0 * scale;
         let header_height = 48.0 * scale;
+        let menu_bar_height = MENU_BAR_HEIGHT * scale;
         let mut frame = Frame::default();
         frame.tiles.push(FrameTile::panel_background(
             Rect {
@@ -207,6 +240,27 @@ impl Panel {
         let x = x + padding;
         let y = y + padding;
         let width = content_width;
+        // The menu bar is the first thing the pointer meets from above. It is
+        // clicked with the mouse, never scanned, so it has no selection.
+        frame.tiles.push(FrameTile {
+            thickness: self.thickness,
+            color,
+            text: SETTINGS_ITEM.into(),
+            style: Some(TileStyle {
+                role: TileRole::MenuBar,
+                active: false,
+                row_scan: false,
+            }),
+            rect: Rect {
+                x,
+                y,
+                width,
+                height: (menu_bar_height - gap).max(1.0),
+            },
+            scale,
+            selected: false,
+        });
+        let y = y + menu_bar_height;
         for (r, row) in self.rows.iter().enumerate() {
             let total_weight: f64 = row.iter().map(|key| key.weight).sum();
             let cell_unit =
@@ -381,8 +435,8 @@ mod tests {
         );
         let a = frame.tiles.iter().find(|t| t.text == "a").unwrap();
         let c = frame.tiles.iter().find(|t| t.text == "c").unwrap();
-        // The background, the two drawn keys and the status line.
-        assert_eq!(frame.tiles.len(), 4);
+        // The background, the menu bar, the two drawn keys and the status line.
+        assert_eq!(frame.tiles.len(), 5);
         assert!(c.selected && !a.selected);
         assert!(c.rect.x - a.rect.x > 2.0 * a.rect.width);
     }
@@ -408,13 +462,23 @@ mod tests {
             height: 1080.0,
         };
         let frame = panel.frame(screen, 1.0, ScannerColor::default());
-        let [background, a, b, c, status] = frame.tiles.as_slice() else {
-            panic!("expected background, three keys and a status tile");
+        let [background, menu_bar, a, b, c, status] = frame.tiles.as_slice() else {
+            panic!("expected background, menu bar, three keys and a status tile");
         };
         assert!(background.is_panel_background());
         assert_eq!(background.rect.width, 1180.0);
         assert_eq!(background.rect.y + background.rect.height, 1080.0);
         let (left, right) = (background.rect.x + 16.0, background.rect.x + 1180.0 - 16.0);
+        // The menu bar spans the padded width above the status tile, and is never scanned.
+        assert!(menu_bar.is_menu_bar());
+        assert_eq!(menu_bar.text, SETTINGS_ITEM);
+        assert!(!menu_bar.selected);
+        assert_eq!(
+            (menu_bar.rect.x, menu_bar.rect.y, menu_bar.rect.width),
+            (left, background.rect.y + 16.0, right - left)
+        );
+        assert_eq!(menu_bar.rect.height, MENU_BAR_HEIGHT - 8.0);
+        assert_eq!(super::menu_bar(&frame), Some(menu_bar.rect));
         assert_eq!(a.rect.x, left);
         assert!((b.rect.x + b.rect.width - right).abs() < 1e-9);
         assert!((c.rect.x + c.rect.width - right).abs() < 1e-9);
@@ -423,8 +487,9 @@ mod tests {
         assert_eq!(status.style.unwrap().role, TileRole::Status);
         assert_eq!(
             (status.rect.x, status.rect.y),
-            (left, background.rect.y + 16.0)
+            (left, background.rect.y + 16.0 + MENU_BAR_HEIGHT)
         );
+        assert!(menu_bar.rect.y + menu_bar.rect.height < status.rect.y);
         assert!(status.rect.y + status.rect.height < a.rect.y);
         assert_eq!(
             frame.tiles.iter().filter(|tile| tile.selected).count(),
@@ -457,8 +522,9 @@ mod tests {
         let frame = panel.frame(screen, 1.0, ScannerColor::default());
         assert_eq!(frame.tiles[0].rect.y, 50.0);
         assert!(frame.tiles[0].rect.x >= 0.0 && frame.tiles[0].rect.width <= 800.0);
-        assert!(frame.tiles[1].selected);
-        assert!(!frame.tiles[2].selected);
+        assert!(frame.tiles[1].is_menu_bar() && !frame.tiles[1].selected);
+        assert!(frame.tiles[2].selected);
+        assert!(!frame.tiles[3].selected);
         assert_eq!(
             scanning_status("Movement", false, "Caps lock\nOn"),
             "Movement · Select Caps lock On"
@@ -483,16 +549,16 @@ mod tests {
             let inside = (bottom.x + 1.0, bottom.y + bottom.height - 1.0);
             let outside = (bottom.x + 1.0, bottom.y - 1.0);
             assert_eq!(
-                dock(column, 2).avoiding(inside, screen, (1180.0, 460.0), None),
+                dock(column, 2).avoiding(inside, screen, (1180.0, 460.0), None, None),
                 Some(dock(column, 0))
             );
             assert_eq!(
-                dock(column, 2).avoiding(outside, screen, (1180.0, 460.0), None),
+                dock(column, 2).avoiding(outside, screen, (1180.0, 460.0), None, None),
                 None
             );
             let top = dock(column, 0).rect(screen, (1180.0, 460.0));
             assert_eq!(
-                dock(column, 0).avoiding((top.x, top.y), screen, (1180.0, 460.0), None),
+                dock(column, 0).avoiding((top.x, top.y), screen, (1180.0, 460.0), None, None),
                 Some(dock(column, 2))
             );
         }
@@ -500,21 +566,21 @@ mod tests {
         let upper = (middle.x + 10.0, middle.y + 10.0);
         let lower = (middle.x + 10.0, middle.y + middle.height - 10.0);
         assert_eq!(
-            dock(1, 1).avoiding(upper, screen, (1180.0, 460.0), None),
+            dock(1, 1).avoiding(upper, screen, (1180.0, 460.0), None, None),
             Some(dock(1, 2))
         );
         assert_eq!(
-            dock(1, 1).avoiding(lower, screen, (1180.0, 460.0), None),
+            dock(1, 1).avoiding(lower, screen, (1180.0, 460.0), None, None),
             Some(dock(1, 0))
         );
         let centre = (middle.x + 10.0, middle.y + middle.height / 2.0 + 1.0);
         assert_eq!(
-            dock(1, 1).avoiding(centre, screen, (1180.0, 460.0), Some(dock(1, 2))),
+            dock(1, 1).avoiding(centre, screen, (1180.0, 460.0), Some(dock(1, 2)), None),
             Some(dock(1, 2)),
             "a moved middle panel stays put while its end is clear of the pointer"
         );
         assert_eq!(
-            dock(1, 1).avoiding(lower, screen, (1180.0, 460.0), Some(dock(1, 2))),
+            dock(1, 1).avoiding(lower, screen, (1180.0, 460.0), Some(dock(1, 2)), None),
             Some(dock(1, 0)),
             "a moved middle panel leaves an end the pointer reaches"
         );
@@ -528,16 +594,54 @@ mod tests {
         };
         let overlap = (640.0, 350.0);
         assert_eq!(
-            dock(1, 0).avoiding(overlap, short, (1180.0, 460.0), None),
+            dock(1, 0).avoiding(overlap, short, (1180.0, 460.0), None, None),
             None
         );
         assert_eq!(
-            dock(1, 2).avoiding(overlap, short, (1180.0, 460.0), None),
+            dock(1, 2).avoiding(overlap, short, (1180.0, 460.0), None, None),
             None
         );
         assert_eq!(
-            dock(1, 2).avoiding((640.0, 690.0), short, (1180.0, 460.0), None),
+            dock(1, 2).avoiding((640.0, 690.0), short, (1180.0, 460.0), None, None),
             Some(dock(1, 0))
+        );
+
+        // The menu bar is clicked, so the pointer over it moves nothing: not a
+        // panel at home, and not one already moved out of the way.
+        let bottom = dock(1, 2).rect(screen, (1180.0, 460.0));
+        let bar = Rect {
+            x: bottom.x + 16.0,
+            y: bottom.y + 16.0,
+            width: 1180.0 - 32.0,
+            height: 28.0,
+        };
+        let on_bar = (bar.x + 1.0, bar.y + 1.0);
+        let below_bar = (bar.x + 1.0, bar.y + bar.height + 1.0);
+        assert_eq!(
+            dock(1, 2).avoiding(on_bar, screen, (1180.0, 460.0), None, Some(bar)),
+            None
+        );
+        assert_eq!(
+            dock(1, 2).avoiding(below_bar, screen, (1180.0, 460.0), None, Some(bar)),
+            Some(dock(1, 0))
+        );
+        let top = dock(1, 0).rect(screen, (1180.0, 460.0));
+        let moved_bar = (bar.x + 1.0, bar.y - bottom.y + top.y + 1.0);
+        assert_eq!(
+            dock(1, 2).avoiding(
+                moved_bar,
+                screen,
+                (1180.0, 460.0),
+                Some(dock(1, 0)),
+                Some(bar)
+            ),
+            Some(dock(1, 0)),
+            "a moved panel stays while the pointer is on its bar"
+        );
+        assert_eq!(
+            dock(1, 2).avoiding(moved_bar, screen, (1180.0, 460.0), None, Some(bar)),
+            None,
+            "but an unmoved panel is not moved under the pointer"
         );
 
         let mut frame = Panel {

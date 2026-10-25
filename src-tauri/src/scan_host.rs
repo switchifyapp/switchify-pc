@@ -72,24 +72,61 @@ mod platform {
             Foundation::HWND, System::LibraryLoader::GetModuleHandleW, UI::WindowsAndMessaging::*,
         },
     };
+    /// Only a menu bar host receives mouse messages; every other host is
+    /// click-through. A click on the bar opens Settings without activating
+    /// the host, so the controlled application keeps focus.
     unsafe extern "system" fn window_proc(
         hwnd: HWND,
         message: u32,
         wparam: windows::Win32::Foundation::WPARAM,
         lparam: windows::Win32::Foundation::LPARAM,
     ) -> windows::Win32::Foundation::LRESULT {
-        unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+        use windows::Win32::Foundation::LRESULT;
+        match message {
+            WM_LBUTTONUP => {
+                crate::scan_menu_bar::clicked();
+                LRESULT(0)
+            }
+            WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+            WM_SETCURSOR => {
+                unsafe {
+                    if let Ok(cursor) = LoadCursorW(None, IDC_HAND) {
+                        SetCursor(Some(cursor));
+                    }
+                }
+                LRESULT(1)
+            }
+            _ => unsafe { DefWindowProcW(hwnd, message, wparam, lparam) },
+        }
     }
     pub struct Host {
         windows: Vec<HWND>,
         last_rects: Vec<crate::scanning::PaintedRect>,
+        /// The host shows a menu bar, so it takes mouse clicks instead of passing them through.
+        clickable: bool,
     }
     impl Host {
         pub fn new() -> Result<Self, String> {
             Ok(Self {
                 windows: vec![],
                 last_rects: vec![],
+                clickable: false,
             })
+        }
+        fn set_clickable(&mut self, clickable: bool) {
+            if self.clickable == clickable {
+                return;
+            }
+            unsafe {
+                let styles = GetWindowLongPtrW(self.windows[0], GWL_EXSTYLE) as u32;
+                let styles = if clickable {
+                    styles & !WS_EX_TRANSPARENT.0
+                } else {
+                    styles | WS_EX_TRANSPARENT.0
+                };
+                SetWindowLongPtrW(self.windows[0], GWL_EXSTYLE, styles as isize);
+            }
+            self.clickable = clickable;
         }
         fn ensure_windows(&mut self, count: usize) -> Result<(), String> {
             unsafe {
@@ -193,6 +230,7 @@ mod platform {
         }
         pub fn tile(&mut self, tile: &crate::scanning::FrameTile) -> Result<(), String> {
             self.ensure_windows(1)?;
+            self.set_clickable(tile.is_menu_bar());
             crate::modifier_overlay::windows_backend::present_scan_tile(self.windows[0], tile)
         }
         pub fn hide(&mut self) {
@@ -255,6 +293,62 @@ mod platform {
                     assert_ne!(styles & WS_EX_TRANSPARENT.0, 0);
                 }
             }
+        }
+
+        #[test]
+        fn only_a_menu_bar_host_takes_clicks_and_never_activates() {
+            use windows::Win32::Foundation::{LPARAM, WPARAM};
+            let rect = Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 300.0,
+                height: 28.0,
+            };
+            let key = |role| crate::scanning::FrameTile {
+                thickness: Default::default(),
+                color: Default::default(),
+                text: "Settings".into(),
+                rect,
+                scale: 1.0,
+                style: Some(crate::scanning::TileStyle {
+                    role,
+                    active: false,
+                    row_scan: false,
+                }),
+                selected: false,
+            };
+            let foreground = unsafe { GetForegroundWindow() };
+            let mut host = Host::new().unwrap();
+            let styles =
+                |host: &Host| unsafe { GetWindowLongPtrW(host.windows[0], GWL_EXSTYLE) as u32 };
+            host.tile(&key(crate::scanning::TileRole::MenuBar)).unwrap();
+            let bar = styles(&host);
+            assert_eq!(bar & WS_EX_TRANSPARENT.0, 0, "the bar takes clicks");
+            assert_ne!(bar & WS_EX_NOACTIVATE.0, 0, "but never takes focus");
+            let _ = crate::scan_menu_bar::take_click();
+            unsafe {
+                let window = host.windows[0];
+                assert_eq!(
+                    SendMessageW(window, WM_MOUSEACTIVATE, None, None).0,
+                    MA_NOACTIVATE as isize
+                );
+                SendMessageW(window, WM_LBUTTONUP, Some(WPARAM(0)), Some(LPARAM(0)));
+            }
+            assert!(
+                crate::scan_menu_bar::take_click(),
+                "a release opens settings"
+            );
+            assert_eq!(unsafe { GetForegroundWindow() }, foreground);
+            // The same host later shows a key, which passes clicks through again.
+            host.tile(&key(crate::scanning::TileRole::Utility)).unwrap();
+            assert_ne!(styles(&host) & WS_EX_TRANSPARENT.0, 0);
+            unsafe {
+                SendMessageW(host.windows[0], WM_LBUTTONUP, None, None);
+            }
+            assert!(
+                crate::scan_menu_bar::take_click(),
+                "the window procedure is shared; click-through comes from the window style"
+            );
         }
     }
 }
@@ -477,6 +571,56 @@ mod platform {
         panel: Retained<NSPanel>,
         content: Retained<objc2_app_kit::NSView>,
         views: Vec<TileView>,
+        /// The menu bar in a panel of its own: it takes mouse clicks while the
+        /// tile panel passes them through.
+        menu_bar: Option<(Retained<NSPanel>, TileView)>,
+    }
+    objc2::define_class!(
+        /// The content of the menu bar panel. Releasing the mouse over it
+        /// opens Settings; the nonactivating panel keeps focus where it was.
+        #[unsafe(super(objc2_app_kit::NSView))]
+        #[thread_kind = objc2::MainThreadOnly]
+        #[name = "SwitchifyScanMenuBarView"]
+        struct MenuBarView;
+
+        impl MenuBarView {
+            #[unsafe(method(mouseUp:))]
+            fn mouse_up(&self, _event: &objc2_app_kit::NSEvent) {
+                crate::scan_menu_bar::clicked();
+            }
+            #[unsafe(method(acceptsFirstMouse:))]
+            fn accepts_first_mouse(&self, _event: Option<&objc2_app_kit::NSEvent>) -> bool {
+                true
+            }
+        }
+    );
+    impl MenuBarView {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            use objc2::MainThreadOnly;
+            let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0));
+            unsafe { objc2::msg_send![Self::alloc(mtm), initWithFrame: frame] }
+        }
+    }
+    /// An image and a centred label for one tile, added to `parent` behind
+    /// whatever is added after it.
+    fn tile_view(mtm: MainThreadMarker, parent: &objc2_app_kit::NSView) -> TileView {
+        use objc2_app_kit::{NSImageView, NSTextAlignment, NSTextField, NSView};
+        use objc2_foundation::NSString;
+        let zero = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0));
+        let container = NSView::initWithFrame(NSView::alloc(mtm), zero);
+        let image = NSImageView::initWithFrame(NSImageView::alloc(mtm), zero);
+        let label = NSTextField::wrappingLabelWithString(&NSString::from_str(""), mtm);
+        label.setTextColor(Some(&NSColor::whiteColor()));
+        label.setAlignment(NSTextAlignment::Center);
+        container.addSubview(&image);
+        container.addSubview(&label);
+        parent.addSubview(&container);
+        TileView {
+            container,
+            image,
+            label,
+            shown: None,
+        }
     }
     impl TilePanel {
         pub fn new() -> Result<Self, String> {
@@ -494,7 +638,57 @@ mod platform {
                 panel,
                 content,
                 views: vec![],
+                menu_bar: None,
             })
+        }
+        /// Shows the frame's menu bar, if any, in its own clickable panel over
+        /// the tile panel, at the tile's place on screen.
+        fn update_menu_bar(
+            &mut self,
+            mtm: MainThreadMarker,
+            tiles: &[crate::scanning::FrameTile],
+            top: f64,
+        ) -> Result<(), String> {
+            let Some(tile) = tiles.iter().find(|tile| tile.is_menu_bar()) else {
+                if let Some((panel, _)) = &self.menu_bar {
+                    panel.orderOut(None);
+                }
+                return Ok(());
+            };
+            let (panel, view) = self.menu_bar.get_or_insert_with(|| {
+                let panel = crate::overlay::platform::make_panel(mtm);
+                panel.setIgnoresMouseEvents(false);
+                let content = MenuBarView::new(mtm);
+                content.setWantsLayer(true);
+                panel.setContentView(Some(&content));
+                (panel, tile_view(mtm, &content))
+            });
+            let frame = Rect {
+                x: 0.0,
+                y: 0.0,
+                width: tile.rect.width.round().max(1.0),
+                height: tile.rect.height.round().max(1.0),
+            };
+            if view.shown.as_ref() != Some(tile) {
+                view.shown = None;
+                view.container.setFrame(NSRect::new(
+                    NSPoint::new(0.0, 0.0),
+                    NSSize::new(frame.width, frame.height),
+                ));
+                show_tile(view, tile, &frame)?;
+                view.shown = Some(tile.clone());
+            }
+            panel.setFrame_display(
+                NSRect::new(
+                    NSPoint::new(
+                        tile.rect.x.round(),
+                        top - tile.rect.y.round() - frame.height,
+                    ),
+                    NSSize::new(frame.width, frame.height),
+                ),
+                false,
+            );
+            Ok(())
         }
         pub fn present(&mut self, tiles: &[crate::scanning::FrameTile]) -> Result<(), String> {
             use objc2_quartz_core::CATransaction;
@@ -512,7 +706,9 @@ mod platform {
             let top = primary.frame().origin.y + primary.frame().size.height;
             CATransaction::begin();
             CATransaction::setDisableActions(true);
-            let result = self.update_views(mtm, tiles, &frames);
+            let result = self
+                .update_views(mtm, tiles, &frames)
+                .and_then(|()| self.update_menu_bar(mtm, tiles, top));
             if result.is_ok() {
                 let visible = self.panel.isVisible();
                 // The views are already in place, so a visible panel redraws
@@ -537,6 +733,14 @@ mod platform {
             // reopened panel never shows its previous frame.
             CATransaction::flush();
             self.panel.orderFrontRegardless();
+            // The bar is ordered after the tiles so it is in front of them.
+            if let Some((bar, _)) = self
+                .menu_bar
+                .as_ref()
+                .filter(|_| tiles.iter().any(|tile| tile.is_menu_bar()))
+            {
+                bar.orderFrontRegardless();
+            }
             Ok(())
         }
         fn update_views(
@@ -545,29 +749,16 @@ mod platform {
             tiles: &[crate::scanning::FrameTile],
             frames: &[Rect],
         ) -> Result<(), String> {
-            use objc2_app_kit::{NSImageView, NSTextAlignment, NSTextField, NSView};
-            use objc2_foundation::NSString;
             // Views draw in the order they were added, so the panel
             // background, which comes first, stays behind its keys.
             while self.views.len() < tiles.len() {
-                let zero = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0));
-                let container = NSView::initWithFrame(NSView::alloc(mtm), zero);
-                let image = NSImageView::initWithFrame(NSImageView::alloc(mtm), zero);
-                let label = NSTextField::wrappingLabelWithString(&NSString::from_str(""), mtm);
-                label.setTextColor(Some(&NSColor::whiteColor()));
-                label.setAlignment(NSTextAlignment::Center);
-                container.addSubview(&image);
-                container.addSubview(&label);
-                self.content.addSubview(&container);
-                self.views.push(TileView {
-                    container,
-                    image,
-                    label,
-                    shown: None,
-                });
+                let view = tile_view(mtm, &self.content);
+                self.views.push(view);
             }
             for (index, view) in self.views.iter_mut().enumerate() {
                 match tiles.get(index).zip(frames.get(index)) {
+                    // The menu bar is drawn by its own clickable panel instead.
+                    Some((tile, _)) if tile.is_menu_bar() => view.container.setHidden(true),
                     Some((tile, frame)) => {
                         view.container.setFrame(NSRect::new(
                             NSPoint::new(frame.x, frame.y),
@@ -589,6 +780,9 @@ mod platform {
         }
         pub fn hide(&mut self) {
             self.panel.orderOut(None);
+            if let Some((bar, _)) = &self.menu_bar {
+                bar.orderOut(None);
+            }
         }
     }
     fn show_tile(

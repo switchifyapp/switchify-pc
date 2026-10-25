@@ -887,6 +887,9 @@ fn render<A: Adapter>(
     Ok(())
 }
 fn tick<A: Adapter>(app: &AppHandle) {
+    if crate::scan_menu_bar::take_click() {
+        crate::show_main_window(app, Some(crate::scan_menu_bar::DESTINATION));
+    }
     if crate::switch_practice::tick(app) {
         return;
     }

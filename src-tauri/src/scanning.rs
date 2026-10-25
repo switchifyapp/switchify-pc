@@ -267,6 +267,8 @@ pub enum TileRole {
     Utility,
     Toolbar,
     Status,
+    /// The bar along the top of a panel. It is clicked with the mouse, never scanned.
+    MenuBar,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TileStyle {
@@ -304,6 +306,11 @@ impl FrameTile {
     pub fn is_panel_background(&self) -> bool {
         self.style
             .is_some_and(|style| style.role == TileRole::Panel)
+    }
+    /// A panel's menu bar, which takes mouse clicks instead of passing them through.
+    pub fn is_menu_bar(&self) -> bool {
+        self.style
+            .is_some_and(|style| style.role == TileRole::MenuBar)
     }
 }
 #[derive(Debug, Clone, PartialEq)]
