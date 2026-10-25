@@ -1000,29 +1000,7 @@ impl ProtocolEngine {
             _ => return Err("invalid_payload".into()),
         };
         let command_type = required_string(value, "type").map_err(|_| "invalid_payload")?;
-        if response_mode == ResponseMode::None
-            && !matches!(
-                command_type.as_str(),
-                "mouse.move"
-                    | "mouse.click"
-                    | "mouse.doubleClick"
-                    | "mouse.rightClick"
-                    | "mouse.scroll"
-                    | "mouse.dragStart"
-                    | "mouse.dragEnd"
-                    | "keyboard.key"
-                    | "keyboard.modifierDown"
-                    | "keyboard.modifierUp"
-                    | "keyboard.shortcut"
-                    | "keyboard.typeText"
-                    | "keyboard.textStream.char"
-                    | "keyboard.textStream.chunk"
-                    | "keyboard.textStream.key"
-                    | "media.control"
-                    | "window.control"
-                    | "grid.switch.set"
-                    | "switch.edge"
-            )
+        if response_mode == ResponseMode::None && !NO_ACK_COMMANDS.contains(&command_type.as_str())
         {
             return Err("invalid_payload".into());
         }
@@ -1062,6 +1040,33 @@ impl ProtocolEngine {
         })
     }
 }
+
+/// Commands a client may send with `responseMode: "none"`. This single list is
+/// both what the pointer profile advertises as `noAckCommands` and what the
+/// command parser accepts, so the two cannot drift apart.
+const NO_ACK_COMMANDS: &[&str] = &[
+    "mouse.move",
+    "mouse.click",
+    "mouse.doubleClick",
+    "mouse.rightClick",
+    "mouse.scroll",
+    "mouse.dragStart",
+    "mouse.dragEnd",
+    "mouse.repeat.start",
+    "mouse.repeat.stop",
+    "keyboard.key",
+    "keyboard.modifierDown",
+    "keyboard.modifierUp",
+    "keyboard.shortcut",
+    "keyboard.typeText",
+    "keyboard.textStream.char",
+    "keyboard.textStream.chunk",
+    "keyboard.textStream.key",
+    "media.control",
+    "window.control",
+    "grid.switch.set",
+    "switch.edge",
+];
 
 fn is_desktop_command(command: &str) -> bool {
     matches!(
@@ -1532,28 +1537,7 @@ pub fn pointer_profile_response(
             "capabilities": {
                 "noAckMouseMove": true,
                 "switchScanning": cfg!(any(target_os = "windows", target_os = "macos")),
-                "noAckCommands": [
-                    "mouse.move",
-                    "mouse.click",
-                    "mouse.doubleClick",
-                    "mouse.rightClick",
-                    "mouse.scroll",
-                    "mouse.dragStart",
-                    "mouse.dragEnd",
-                    "mouse.repeat.start",
-                    "mouse.repeat.stop",
-                    "keyboard.key",
-                    "keyboard.modifierDown",
-                    "keyboard.modifierUp",
-                    "keyboard.shortcut",
-                    "keyboard.typeText",
-                    "keyboard.textStream.char",
-                    "keyboard.textStream.chunk",
-                    "keyboard.textStream.key",
-                    "media.control",
-                    "window.control",
-                    "switch.edge"
-                ],
+                "noAckCommands": NO_ACK_COMMANDS,
                 "supportedCommands": supported_commands(profile.display_navigation_supported),
                 "mouseRepeat": {
                     "supported": true,
@@ -2808,6 +2792,63 @@ mod tests {
         }
         assert!(is_desktop_command("mouse.repeat.start"));
         assert!(is_desktop_command("mouse.repeat.stop"));
+    }
+
+    #[test]
+    fn no_ack_mouse_repeat_commands_are_accepted_without_a_response() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine.tokens.insert("android-1".into(), TOKEN.into());
+        for (index, command_type) in ["mouse.repeat.start", "mouse.repeat.stop"]
+            .into_iter()
+            .enumerate()
+        {
+            assert!(NO_ACK_COMMANDS.contains(&command_type));
+            let payload = if command_type == "mouse.repeat.start" {
+                json!({ "command": { "type": "mouse.move", "payload": { "dx": 1, "dy": 0 } } })
+            } else {
+                json!({})
+            };
+            let mut command = json!({
+                "version": 1,
+                "id": format!("repeat-{index}"),
+                "deviceId": "android-1",
+                "timestamp": NOW + index as i64,
+                "type": command_type,
+                "payload": payload,
+                "responseMode": "none",
+                "auth": ""
+            });
+            sign(&mut command, TOKEN, SlashEscaping::AndroidHtmlSafe);
+            let event = engine
+                .process_message(&command.to_string(), NOW + index as i64)
+                .unwrap();
+            let EngineEvent::Desktop(command) = event else {
+                panic!("{command_type} with responseMode none should be accepted, got {event:?}");
+            };
+            assert_eq!(command.command_type, command_type);
+            assert_eq!(command.response_mode, ResponseMode::None);
+            assert_eq!(engine.complete_desktop_command(&command, Ok(())), None);
+            assert!(engine
+                .complete_desktop_command(&command, Err("input_failed"))
+                .unwrap()
+                .contains("input_failed"));
+        }
+
+        let mut rejected = json!({
+            "version": 1,
+            "id": "profile-none",
+            "deviceId": "android-1",
+            "timestamp": NOW + 10,
+            "type": "pointer.profile",
+            "payload": {},
+            "responseMode": "none",
+            "auth": ""
+        });
+        sign(&mut rejected, TOKEN, SlashEscaping::AndroidHtmlSafe);
+        assert!(matches!(
+            engine.process_message(&rejected.to_string(), NOW + 10).unwrap(),
+            EngineEvent::Response(response) if response.contains("invalid_payload")
+        ));
     }
 
     #[test]
