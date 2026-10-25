@@ -632,10 +632,14 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
     }
 
+    /// Polls `condition` until it holds. The flush work runs on Tauri's own
+    /// async runtime, not the test runtime, so paused tokio time cannot drive
+    /// it; a generous wall-clock budget keeps loaded release runners from
+    /// failing a test that passes everywhere else.
     async fn wait_until(mut condition: impl FnMut() -> bool) -> bool {
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
             while !condition() {
-                tokio::task::yield_now().await;
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
             }
         })
         .await
@@ -762,9 +766,11 @@ mod tests {
 
     #[tokio::test]
     async fn queue_is_bounded_and_health_failures_are_not_queued() {
+        // One Retry per exception flush plus one for the health send, so the
+        // fake can never run dry and start answering Sent mid-test.
         let transport = Arc::new(FakeTransport::new(std::iter::repeat_n(
             SendOutcome::Retry,
-            MAX_QUEUED_REPORTS + 2,
+            MAX_QUEUED_REPORTS + 3,
         )));
         let (service, path) = test_service(TelemetryConsent::Undecided, transport);
         service.set_consent(TelemetryConsent::Enabled);
