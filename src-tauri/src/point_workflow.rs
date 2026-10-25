@@ -3053,8 +3053,8 @@ mod tests {
             height: 720.0,
         };
         let background = |workflow: &Workflow| workflow.frame().tiles[0].rect;
-        let bottom = Dock::default().rect(screen, (568.0, 428.0));
-        let top = Dock { column: 1, row: 0 }.rect(screen, (568.0, 428.0));
+        let bottom = Dock::default().rect(screen, (568.0, 420.0));
+        let top = Dock { column: 1, row: 0 }.rect(screen, (568.0, 420.0));
         let over_bottom = Some((640.0, 700.0));
         let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         workflow.open_mouse(true);
@@ -3102,11 +3102,11 @@ mod tests {
         let middle = Dock { column: 1, row: 1 };
         workflow.set_dock(middle);
         let area = middle.rect(screen, size);
-        workflow.set_pointer(Some((640.0, area.y + 10.0)));
+        workflow.set_pointer(Some((640.0, area.y + 50.0)));
         assert_eq!(workflow.moved, Some(Dock::default()));
         workflow.keyboard_closed();
         workflow.open_point();
-        workflow.set_pointer(Some((640.0, area.y + 10.0)));
+        workflow.set_pointer(Some((640.0, area.y + 50.0)));
         assert_eq!(workflow.moved, None);
     }
     #[test]
@@ -3856,6 +3856,7 @@ mod tests {
                                 crate::scanning::TileRole::Panel
                                     | crate::scanning::TileRole::Status
                                     | crate::scanning::TileRole::MenuBar
+                                    | crate::scanning::TileRole::Title
                             )
                         })
                     })
@@ -4252,8 +4253,8 @@ mod tests {
         for (column, right, count) in [(0, false, 1), (1, true, 1), (2, false, 2)] {
             let mut s = session(false);
             open(&mut s);
-            // The background, the menu bar, eleven actions and the status header.
-            assert_eq!(s.frame().tiles.len(), 14);
+            // The background, the title and Settings, eleven actions and the status header.
+            assert_eq!(s.frame().tiles.len(), 15);
             assert_eq!(
                 choose(&mut s, 0, column),
                 Some(Request::Click {

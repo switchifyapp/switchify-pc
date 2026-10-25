@@ -19,4 +19,4 @@ Press and release **Select** to open Home. It scans through these items; press S
 
 In Settings you can choose whether Select opens Home every time, or returns to the last mode you used.
 
-Home and the menus it opens have a **Settings** bar along their top. Click it with a mouse to open the Switchify PC window on its Settings page. The menu stays where it is while the pointer is over the bar, even when it is set to move out of the pointer's way. The bar itself never takes focus; the Switchify PC window opens in front of your work.
+Home and the menus it opens have a slim bar along their top, with the Switchify PC name on the left and a **Settings** button on the right. Click the button with a mouse to open the Switchify PC window on its Settings page. The menu stays where it is while the pointer is over the bar, even when it is set to move out of the pointer's way. The bar itself never takes focus; the Switchify PC window opens in front of your work.

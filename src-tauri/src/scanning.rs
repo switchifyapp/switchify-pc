@@ -267,8 +267,11 @@ pub enum TileRole {
     Utility,
     Toolbar,
     Status,
-    /// The bar along the top of a panel. It is clicked with the mouse, never scanned.
+    /// The Settings item on the bar along the top of a panel. It is clicked
+    /// with the mouse, never scanned.
     MenuBar,
+    /// The name on that bar. Passive: neither scanned nor clicked.
+    Title,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TileStyle {

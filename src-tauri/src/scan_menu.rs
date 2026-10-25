@@ -603,7 +603,7 @@ mod tests {
                             }
                             assert_eq!(
                                 frame.tiles.len(),
-                                kind.rows().iter().map(Vec::len).sum::<usize>() + 3
+                                kind.rows().iter().map(Vec::len).sum::<usize>() + 4
                             );
                             assert!(status(&frame).starts_with(kind.label()));
                         }
@@ -792,7 +792,10 @@ mod tests {
                 .tiles
                 .iter()
                 .filter(|tile| {
-                    !tile.is_panel_background() && !is_status(tile) && !tile.is_menu_bar()
+                    !tile.is_panel_background()
+                        && !is_status(tile)
+                        && !tile.is_menu_bar()
+                        && tile.style.map(|s| s.role) != Some(TileRole::Title)
                 })
                 .cloned()
                 .collect()
@@ -854,7 +857,11 @@ mod tests {
                 let panel = &frame.tiles[0];
                 assert!(panel.is_panel_background());
                 let content = &frame.tiles[1..];
-                for tile in content {
+                // The menu bar band is flush with the top; everything else is inset.
+                for tile in content
+                    .iter()
+                    .filter(|tile| tile.style.map(|s| s.role) != Some(TileRole::Title))
+                {
                     assert!(tile.rect.x > panel.rect.x);
                     assert!(tile.rect.y > panel.rect.y);
                     assert!(tile.rect.x + tile.rect.width < panel.rect.x + panel.rect.width);
@@ -864,7 +871,11 @@ mod tests {
                 let header = content.iter().find(|tile| is_status(tile)).unwrap();
                 assert!(content
                     .iter()
-                    .filter(|tile| !is_status(tile) && !tile.is_menu_bar())
+                    .filter(|tile| {
+                        !is_status(tile)
+                            && !tile.is_menu_bar()
+                            && tile.style.map(|s| s.role) != Some(TileRole::Title)
+                    })
                     .all(|tile| header.rect.y + header.rect.height < tile.rect.y));
                 let left = content
                     .iter()

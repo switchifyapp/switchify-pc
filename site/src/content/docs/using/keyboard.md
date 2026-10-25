@@ -44,6 +44,6 @@ Backspace, Delete, the arrows, Tab, Page Up and Page Down can repeat while you h
 
 The keyboard opens on the display the pointer is on and stays on that display while it is open. Opening it again with a switch action places it on the display the pointer is on then. Dock it to any of nine positions on the display. It keeps working when you switch apps, and it refits itself if the taskbar or Dock changes.
 
-The **Settings** bar along the top of the keyboard opens the Switchify PC window on its Settings page when you click it with a mouse. The keyboard stays put while the pointer is over the bar, even when it is set to move out of the pointer's way. The bar itself never takes focus from the app you are typing into; the Switchify PC window opens in front of it.
+The slim bar along the top of the keyboard shows the Switchify PC name and a **Settings** button. Click the button with a mouse to open the Switchify PC window on its Settings page. The keyboard stays put while the pointer is over the bar, even when it is set to move out of the pointer's way. The bar itself never takes focus from the app you are typing into; the Switchify PC window opens in front of it.
 
 Word prediction has its own page: [Word prediction](/using/word-prediction/).

@@ -136,10 +136,17 @@ impl Dock {
     }
 }
 
-/// Height in panel units of the menu bar along the top of every panel, including its gap.
-pub const MENU_BAR_HEIGHT: f64 = 36.0;
-/// The one menu bar item: it opens the Switchify PC window on Settings.
+/// Height in panel units of the menu bar along the top of every panel, as
+/// in Grid 3: a slim band flush with the panel's top edge.
+pub const MENU_BAR_HEIGHT: f64 = 28.0;
+/// The name on the left of the menu bar.
+pub const MENU_BAR_TITLE: &str = "Switchify PC";
+/// The one menu bar item, on the right: it opens the Switchify PC window on Settings.
 pub const SETTINGS_ITEM: &str = "Settings";
+/// Width in panel units of the Settings item.
+const SETTINGS_ITEM_WIDTH: f64 = 96.0;
+/// Width in panel units of the title, which keeps the name at the left as in Grid 3.
+const TITLE_WIDTH: f64 = 150.0;
 
 /// The whole pixels a tile covers once drawn. Windows places a tile window at
 /// its rounded origin with a rounded size; macOS snaps each edge. This covers
@@ -161,13 +168,17 @@ pub fn rendered_bounds(rect: Rect) -> Rect {
     }
 }
 
-/// The menu bar of a panel frame, in the frame's coordinates.
+/// The menu bar of a panel frame, in the frame's coordinates: the band along
+/// the top of the panel background, which holds the title and the Settings item.
 pub fn menu_bar(frame: &Frame) -> Option<Rect> {
     frame
         .tiles
         .iter()
-        .find(|tile| tile.is_menu_bar())
-        .map(|tile| tile.rect)
+        .find(|tile| tile.is_panel_background())
+        .map(|background| Rect {
+            height: (MENU_BAR_HEIGHT * background.scale).min(background.rect.height),
+            ..background.rect
+        })
 }
 
 /// Shifts a panel frame drawn at `from` so it is drawn at `to` instead.
@@ -265,10 +276,30 @@ impl Panel {
             color,
         ));
         let x = x + padding;
-        let y = y + padding;
         let width = content_width;
-        // The menu bar is the first thing the pointer meets from above. It is
-        // clicked with the mouse, never scanned, so it has no selection.
+        // The menu bar is a band flush with the panel's top: the name on the
+        // left, which is passive, and the Settings item on the right, which
+        // is clicked with the mouse. Neither is ever scanned.
+        let item_width = (SETTINGS_ITEM_WIDTH * scale).min(width / 2.0);
+        let item_inset = 4.0 * scale;
+        frame.tiles.push(FrameTile {
+            thickness: self.thickness,
+            color,
+            text: MENU_BAR_TITLE.into(),
+            style: Some(TileStyle {
+                role: TileRole::Title,
+                active: false,
+                row_scan: false,
+            }),
+            rect: Rect {
+                x,
+                y,
+                width: (TITLE_WIDTH * scale).min((width - item_width - gap).max(1.0)),
+                height: menu_bar_height,
+            },
+            scale,
+            selected: false,
+        });
         frame.tiles.push(FrameTile {
             thickness: self.thickness,
             color,
@@ -279,15 +310,15 @@ impl Panel {
                 row_scan: false,
             }),
             rect: Rect {
-                x,
-                y,
-                width,
-                height: (menu_bar_height - gap).max(1.0),
+                x: x + width - item_width,
+                y: y + item_inset,
+                width: item_width,
+                height: (menu_bar_height - item_inset * 2.0).max(1.0),
             },
             scale,
             selected: false,
         });
-        let y = y + menu_bar_height;
+        let y = y + menu_bar_height + padding;
         for (r, row) in self.rows.iter().enumerate() {
             let total_weight: f64 = row.iter().map(|key| key.weight).sum();
             let cell_unit =
@@ -462,8 +493,8 @@ mod tests {
         );
         let a = frame.tiles.iter().find(|t| t.text == "a").unwrap();
         let c = frame.tiles.iter().find(|t| t.text == "c").unwrap();
-        // The background, the menu bar, the two drawn keys and the status line.
-        assert_eq!(frame.tiles.len(), 5);
+        // The background, the title, Settings, the two drawn keys and the status line.
+        assert_eq!(frame.tiles.len(), 6);
         assert!(c.selected && !a.selected);
         assert!(c.rect.x - a.rect.x > 2.0 * a.rect.width);
     }
@@ -489,23 +520,34 @@ mod tests {
             height: 1080.0,
         };
         let frame = panel.frame(screen, 1.0, ScannerColor::default());
-        let [background, menu_bar, a, b, c, status] = frame.tiles.as_slice() else {
-            panic!("expected background, menu bar, three keys and a status tile");
+        let [background, title, menu_bar, a, b, c, status] = frame.tiles.as_slice() else {
+            panic!("expected background, title, Settings, three keys and a status tile");
         };
         assert!(background.is_panel_background());
         assert_eq!(background.rect.width, 1180.0);
         assert_eq!(background.rect.y + background.rect.height, 1080.0);
         let (left, right) = (background.rect.x + 16.0, background.rect.x + 1180.0 - 16.0);
-        // The menu bar spans the padded width above the status tile, and is never scanned.
+        // The menu bar band is flush with the panel's top: the name on the
+        // left and the Settings item on the right. Neither is scanned.
+        let band = super::menu_bar(&frame).unwrap();
+        assert_eq!(
+            band,
+            Rect {
+                height: MENU_BAR_HEIGHT,
+                ..background.rect
+            }
+        );
+        assert_eq!(title.style.unwrap().role, TileRole::Title);
+        assert_eq!(title.text, MENU_BAR_TITLE);
+        assert_eq!((title.rect.x, title.rect.y), (left, background.rect.y));
+        assert_eq!(title.rect.height, MENU_BAR_HEIGHT);
         assert!(menu_bar.is_menu_bar());
         assert_eq!(menu_bar.text, SETTINGS_ITEM);
-        assert!(!menu_bar.selected);
-        assert_eq!(
-            (menu_bar.rect.x, menu_bar.rect.y, menu_bar.rect.width),
-            (left, background.rect.y + 16.0, right - left)
-        );
-        assert_eq!(menu_bar.rect.height, MENU_BAR_HEIGHT - 8.0);
-        assert_eq!(super::menu_bar(&frame), Some(menu_bar.rect));
+        assert!(!title.selected && !menu_bar.selected);
+        assert!((menu_bar.rect.x + menu_bar.rect.width - right).abs() < 1e-9);
+        assert!(menu_bar.rect.x > title.rect.x + title.rect.width);
+        assert!(menu_bar.rect.y > band.y);
+        assert!(menu_bar.rect.y + menu_bar.rect.height < band.y + band.height);
         assert_eq!(a.rect.x, left);
         assert!((b.rect.x + b.rect.width - right).abs() < 1e-9);
         assert!((c.rect.x + c.rect.width - right).abs() < 1e-9);
@@ -549,9 +591,10 @@ mod tests {
         let frame = panel.frame(screen, 1.0, ScannerColor::default());
         assert_eq!(frame.tiles[0].rect.y, 50.0);
         assert!(frame.tiles[0].rect.x >= 0.0 && frame.tiles[0].rect.width <= 800.0);
-        assert!(frame.tiles[1].is_menu_bar() && !frame.tiles[1].selected);
-        assert!(frame.tiles[2].selected);
-        assert!(!frame.tiles[3].selected);
+        assert!(!frame.tiles[1].selected, "title");
+        assert!(frame.tiles[2].is_menu_bar() && !frame.tiles[2].selected);
+        assert!(frame.tiles[3].selected);
+        assert!(!frame.tiles[4].selected);
         assert_eq!(
             scanning_status("Movement", false, "Caps lock\nOn"),
             "Movement · Select Caps lock On"
