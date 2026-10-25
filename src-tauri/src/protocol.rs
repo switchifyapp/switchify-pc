@@ -2795,7 +2795,7 @@ mod tests {
     }
 
     #[test]
-    fn every_advertised_no_ack_command_is_accepted_without_a_response() {
+    fn no_ack_mouse_repeat_commands_are_accepted_without_a_response() {
         let mut engine = ProtocolEngine::new("desktop-1".into());
         engine.tokens.insert("android-1".into(), TOKEN.into());
         for (index, command_type) in ["mouse.repeat.start", "mouse.repeat.stop"]
