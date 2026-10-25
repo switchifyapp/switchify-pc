@@ -83,8 +83,12 @@ mod platform {
     ) -> windows::Win32::Foundation::LRESULT {
         use windows::Win32::Foundation::LRESULT;
         match message {
+            WM_LBUTTONDOWN => {
+                crate::scan_menu_bar::pressed();
+                LRESULT(0)
+            }
             WM_LBUTTONUP => {
-                crate::scan_menu_bar::clicked();
+                crate::scan_menu_bar::released();
                 LRESULT(0)
             }
             WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
@@ -325,6 +329,9 @@ mod platform {
             let bar = styles(&host);
             assert_eq!(bar & WS_EX_TRANSPARENT.0, 0, "the bar takes clicks");
             assert_ne!(bar & WS_EX_NOACTIVATE.0, 0, "but never takes focus");
+            let _guard = crate::scan_menu_bar::TEST_LOCK
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
             let _ = crate::scan_menu_bar::take_click();
             unsafe {
                 let window = host.windows[0];
@@ -333,16 +340,23 @@ mod platform {
                     MA_NOACTIVATE as isize
                 );
                 SendMessageW(window, WM_LBUTTONUP, Some(WPARAM(0)), Some(LPARAM(0)));
+                assert!(
+                    !crate::scan_menu_bar::take_click(),
+                    "a drag released over the bar is not a click"
+                );
+                SendMessageW(window, WM_LBUTTONDOWN, Some(WPARAM(1)), Some(LPARAM(0)));
+                SendMessageW(window, WM_LBUTTONUP, Some(WPARAM(0)), Some(LPARAM(0)));
             }
             assert!(
                 crate::scan_menu_bar::take_click(),
-                "a release opens settings"
+                "a press and release opens settings"
             );
             assert_eq!(unsafe { GetForegroundWindow() }, foreground);
             // The same host later shows a key, which passes clicks through again.
             host.tile(&key(crate::scanning::TileRole::Utility)).unwrap();
             assert_ne!(styles(&host) & WS_EX_TRANSPARENT.0, 0);
             unsafe {
+                SendMessageW(host.windows[0], WM_LBUTTONDOWN, None, None);
                 SendMessageW(host.windows[0], WM_LBUTTONUP, None, None);
             }
             assert!(
@@ -584,13 +598,29 @@ mod platform {
         struct MenuBarView;
 
         impl MenuBarView {
+            #[unsafe(method(mouseDown:))]
+            fn mouse_down(&self, _event: &objc2_app_kit::NSEvent) {
+                crate::scan_menu_bar::pressed();
+            }
             #[unsafe(method(mouseUp:))]
             fn mouse_up(&self, _event: &objc2_app_kit::NSEvent) {
-                crate::scan_menu_bar::clicked();
+                crate::scan_menu_bar::released();
             }
             #[unsafe(method(acceptsFirstMouse:))]
             fn accepts_first_mouse(&self, _event: Option<&objc2_app_kit::NSEvent>) -> bool {
                 true
+            }
+            /// The image and label inside are controls that would track the
+            /// mouse themselves; the bar takes every click as a whole.
+            #[unsafe(method_id(hitTest:))]
+            fn hit_test(&self, point: NSPoint) -> Option<Retained<objc2_app_kit::NSView>> {
+                use objc2::Message;
+                let frame = self.frame();
+                let inside = point.x >= frame.origin.x
+                    && point.x < frame.origin.x + frame.size.width
+                    && point.y >= frame.origin.y
+                    && point.y < frame.origin.y + frame.size.height;
+                inside.then(|| Retained::into_super(self.retain()))
             }
         }
     );
@@ -688,6 +718,11 @@ mod platform {
                 ),
                 false,
             );
+            // As for the tile panel: a bar not yet shown is drawn before it
+            // appears, so its first frame is never blank.
+            if !panel.isVisible() {
+                panel.displayIfNeeded();
+            }
             Ok(())
         }
         pub fn present(&mut self, tiles: &[crate::scanning::FrameTile]) -> Result<(), String> {

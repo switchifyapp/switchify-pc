@@ -97,16 +97,23 @@ impl Dock {
         let home = self.rect(screen, size);
         let menu_bar_at = |dock: Dock| {
             let rect = dock.rect(screen, size);
-            menu_bar.map(|bar| Rect {
-                x: bar.x - home.x + rect.x,
-                y: bar.y - home.y + rect.y,
-                ..bar
+            menu_bar.map(|bar| {
+                rendered_bounds(Rect {
+                    x: bar.x - home.x + rect.x,
+                    y: bar.y - home.y + rect.y,
+                    ..bar
+                })
             })
         };
         if let Some(moved) = moved.filter(|&moved| menu_bar_at(moved).is_some_and(within)) {
             return Some(moved);
         }
-        if !covers(self) || menu_bar_at(self).is_some_and(within) {
+        if !covers(self) {
+            return None;
+        }
+        // A panel at home stays under a pointer on its bar. One already moved
+        // away does not come back under a pointer crossing its home bar.
+        if moved.is_none() && menu_bar_at(self).is_some_and(within) {
             return None;
         }
         let rect = self.rect(screen, size);
@@ -133,6 +140,26 @@ impl Dock {
 pub const MENU_BAR_HEIGHT: f64 = 36.0;
 /// The one menu bar item: it opens the Switchify PC window on Settings.
 pub const SETTINGS_ITEM: &str = "Settings";
+
+/// The whole pixels a tile covers once drawn. Windows places a tile window at
+/// its rounded origin with a rounded size; macOS snaps each edge. This covers
+/// both, so a pointer on any drawn pixel of a menu bar counts as over it.
+pub fn rendered_bounds(rect: Rect) -> Rect {
+    let left = rect.x.min(rect.x.round());
+    let top = rect.y.min(rect.y.round());
+    let right = (rect.x + rect.width)
+        .max(rect.x.round() + rect.width.round())
+        .max((rect.x + rect.width).round());
+    let bottom = (rect.y + rect.height)
+        .max(rect.y.round() + rect.height.round())
+        .max((rect.y + rect.height).round());
+    Rect {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+    }
+}
 
 /// The menu bar of a panel frame, in the frame's coordinates.
 pub fn menu_bar(frame: &Frame) -> Option<Rect> {
@@ -642,6 +669,30 @@ mod tests {
             dock(1, 2).avoiding(moved_bar, screen, (1180.0, 460.0), None, Some(bar)),
             None,
             "but an unmoved panel is not moved under the pointer"
+        );
+        assert_eq!(
+            dock(1, 2).avoiding(on_bar, screen, (1180.0, 460.0), Some(dock(1, 0)), Some(bar)),
+            Some(dock(1, 0)),
+            "a moved panel does not come back under a pointer crossing its home bar"
+        );
+
+        // The drawn bar is the rounded window; its edge pixels count as the bar.
+        let fractional = Rect {
+            x: bottom.x + 16.4,
+            y: bottom.y + 15.6,
+            width: 1148.2,
+            height: 27.6,
+        };
+        let drawn = rendered_bounds(fractional);
+        assert!(drawn.x <= fractional.x && drawn.x <= fractional.x.round());
+        assert!(drawn.y <= fractional.y && drawn.y <= fractional.y.round());
+        assert!(drawn.x + drawn.width >= fractional.x.round() + fractional.width.round());
+        assert!(drawn.y + drawn.height >= (fractional.y + fractional.height).round());
+        let left_edge = (fractional.x.round(), fractional.y.round() + 10.0);
+        assert_eq!(
+            dock(1, 2).avoiding(left_edge, screen, (1180.0, 460.0), None, Some(fractional)),
+            None,
+            "the drawn left edge of the bar is the bar"
         );
 
         let mut frame = Panel {
