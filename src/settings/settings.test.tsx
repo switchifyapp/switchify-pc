@@ -343,6 +343,7 @@ describe("Switchify PC settings", () => {
   });
   it("automatically saves a settings change", async () => {
     const saveSettings = vi.spyOn(api, "saveSettings").mockImplementation(async (settings) => stateWithSettings(settings));
+    browserState.telemetry = { consent: "disabled", available: true };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     selectTab("Privacy");
@@ -398,17 +399,23 @@ describe("Switchify PC settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     selectTab("Privacy");
     expect(screen.getByText(/Nothing is sent unless you choose Share diagnostics/)).toBeInTheDocument();
+    // One affordance per state: only the choice buttons until consent is recorded.
+    expect(screen.queryByRole("checkbox", { name: "Share anonymous diagnostic data" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Don't share" }));
     expect(await screen.findByText("Opted out. No diagnostic reports are stored or sent.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "https://www.theswitchify.app/privacy");
+    // Once recorded, the toggle replaces the buttons.
+    expect(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" })).not.toBeChecked();
+    expect(screen.queryByRole("button", { name: "Share diagnostics" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Don't share" })).not.toBeInTheDocument();
 
     first.unmount();
     browserState.telemetry = { consent: "undecided", available: false };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     selectTab("Privacy");
-    expect(await screen.findByRole("checkbox", { name: "Share anonymous diagnostic data" })).toBeDisabled();
-    expect(screen.getByText("Diagnostic reporting is unavailable in this build.")).toBeInTheDocument();
+    expect(await screen.findByText("Diagnostic reporting is unavailable in this build.")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Share anonymous diagnostic data" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Share diagnostics" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Don't share" })).toBeEnabled();
   });
@@ -478,6 +485,7 @@ describe("Switchify PC settings", () => {
     vi.spyOn(api, "saveSettings").mockImplementation((settings) => new Promise((resolve) => {
       saves.push({ settings: structuredClone(settings), resolve });
     }));
+    browserState.telemetry = { consent: "disabled", available: true };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
