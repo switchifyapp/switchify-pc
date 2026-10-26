@@ -172,13 +172,14 @@ impl Menu {
         self.scan.handle(action)
     }
 
-    /// Draws the menu as a docked panel. While an action has `failed`, the status
-    /// stays short so it fits one line; the workflow shows the message beside it.
+    /// Draws the menu as a docked panel. While an action has `failed`, nothing
+    /// is highlighted and no message is added: the workflow shows the error
+    /// itself, with what went wrong, beside the panel.
     pub fn frame(&self, screen: Rect, units: f64, dock: Dock, failed: bool) -> Frame {
         let escaping = self.scan.nav.escaping();
         let title = self.kind.label();
         let message = if failed {
-            Some(format!("{title} · Action failed · Select to return"))
+            None
         } else if self.scan.waiting() {
             Some(format!("{title} · Select to continue"))
         } else if self.suspended() {
@@ -955,11 +956,9 @@ mod tests {
             height: 720.0,
         };
         let mut menu = Menu::new(Kind::Home, 250);
+        // A failed action leaves the error to the workflow, which knows what went wrong.
         let error = menu.frame(screen, 1.0, Dock::default(), true);
-        assert_eq!(
-            message(&error).as_deref(),
-            Some("Home · Action failed · Select to return")
-        );
+        assert_eq!(message(&error), None);
         assert!(error.tiles.iter().all(|tile| !tile.selected));
         assert!(error.tiles.iter().any(|tile| tile.text == "Close menu"));
         menu.suspend();

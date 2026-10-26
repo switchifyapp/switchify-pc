@@ -418,7 +418,8 @@ fn message_label(text: &str, panel: Rect, screen: Rect, scale: f64) -> FrameLabe
         hud: Some(HudPresentation { screen, scale }),
     }
 }
-pub const MESSAGE_HEIGHT: f64 = 56.0;
+/// One line of HUD text, the height the overlay hosts draw a prompt at.
+pub const MESSAGE_HEIGHT: f64 = 64.0;
 pub const MESSAGE_MARGIN: f64 = 8.0;
 
 /// The message while an item scanner offers to go back.
