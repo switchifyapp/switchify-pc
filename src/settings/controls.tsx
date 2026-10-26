@@ -4,7 +4,8 @@ import { useId, useState, type ReactNode, type Ref } from "react";
 
 // With labelledBy, the row's own heading (and optional description) names
 // the switch, which then sits alone at the end of the row.
-export function Toggle({ checked, disabled = false, label, labelledBy, describedBy, onChange }: { checked: boolean; disabled?: boolean; label?: string; labelledBy?: string; describedBy?: string; onChange: (next: boolean) => void }) {
+type ToggleName = { label: string; labelledBy?: never; describedBy?: never } | { label?: never; labelledBy: string; describedBy?: string };
+export function Toggle({ checked, disabled = false, label, labelledBy, describedBy, onChange }: { checked: boolean; disabled?: boolean; onChange: (next: boolean) => void } & ToggleName) {
   return <label className={labelledBy ? "toggle-row toggle-bare" : "toggle-row"} data-disabled={disabled}>
     {!labelledBy && <span>{label}</span>}
     <Input type="checkbox" checked={checked} disabled={disabled} aria-labelledby={labelledBy} aria-describedby={describedBy} onChange={(event) => onChange(event.target.checked)} />

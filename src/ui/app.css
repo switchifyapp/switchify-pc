@@ -699,9 +699,8 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .account-page > .connection-band + .status-list { margin-top: 8px; }
 .account-page .status-list + .status-list { margin-top: 0; }
 .account-band h2 .account-email { overflow-wrap: anywhere; }
-/* Sync explanation under the sync row: a label lane and a text lane. */
-.sync-card { display: block; }
-.sync-card > article { border-bottom: 1px solid var(--border); }
+/* Sync explanation under the sync row: a label lane and a text lane. The
+   wide-window tile rules skip .sync-card so the two stay stacked. */
 .sync-details { display: grid; gap: 8px; padding: 14px 20px 18px; }
 .sync-card > article + .sync-details { padding-left: calc(20px + 40px + 16px); }
 .sync-details > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px 16px; }

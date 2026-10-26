@@ -66,6 +66,7 @@ export function AccountSection({ settings, onSettingsChange }: { settings?: AppS
   const signOutRef = useRef<HTMLButtonElement>(null);
   const deleteRef = useRef<HTMLButtonElement>(null);
   const keepRef = useRef<HTMLButtonElement>(null);
+  const removeHeadingId = useId();
   const targets: Record<FocusTarget, () => HTMLElement | null> = {
     email: () => emailRef.current,
     code: () => codeRef.current,
@@ -171,8 +172,8 @@ export function AccountSection({ settings, onSettingsChange }: { settings?: AppS
       </Band>
       <div className="status-list sync-card"><SyncRow /><SyncDetails /></div>
       {settings && onSettingsChange && <div className="status-list"><AccountPairingRow settings={settings} onChange={onSettingsChange} /></div>}
-      <section className="account-remove" aria-labelledby="remove-account-heading">
-        <h3 id="remove-account-heading">Remove account</h3>
+      <section className="account-remove" aria-labelledby={removeHeadingId}>
+        <h3 id={removeHeadingId}>Remove account</h3>
         {confirmDelete
           ? <div className="account-remove-confirm" role="group" aria-label="Confirm account deletion">
             <p>This deletes your account and its saved settings from every device. It cannot be undone.</p>
