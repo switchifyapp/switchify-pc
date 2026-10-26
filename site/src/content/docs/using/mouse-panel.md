@@ -23,6 +23,10 @@ Pointer speed has ten levels plus fine tuning. The panel, the Mouse settings pag
 
 The panel can move itself out of the way when the pointer approaches it.
 
+## Settings bar
+
+Every scanning panel has a slim bar along its top, with the Switchify PC name on the left and a **Settings** button on the right. Click the button with a mouse to open the Switchify PC window on its Settings page. The panel stays where it is while the pointer is over the bar, even when it is set to move out of the pointer's way. The bar itself never takes focus; the Switchify PC window opens in front of your work, as it does from the tray or menu bar.
+
 ## Radar
 
 Radar sits in the middle of the panel's arrows and reaches any point in three presses:

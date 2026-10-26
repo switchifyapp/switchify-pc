@@ -347,9 +347,9 @@ mod tests {
                             let bounds = frame.tiles[0].rect;
                             let scale = (units * size.scale())
                                 .min(width / 568.0)
-                                .min(height / 392.0);
+                                .min(height / 420.0);
                             assert!((bounds.width - 568.0 * scale).abs() < 1e-8);
-                            assert!((bounds.height - 392.0 * scale).abs() < 1e-8);
+                            assert!((bounds.height - 420.0 * scale).abs() < 1e-8);
                             for tile in &frame.tiles {
                                 assert!(
                                     tile.rect.x >= screen.x - 1e-8
@@ -598,7 +598,7 @@ mod tests {
         assert_eq!(tile(&frame, "←").width, tile(&frame, "↖").width);
         assert_eq!(tile(&frame, "→").x, tile(&frame, "↗").x);
         assert_eq!(tile(&frame, "→").width, tile(&frame, "↗").width);
-        assert_eq!(frame.tiles.len(), 1 + 19 + 1, "spacers draw no tiles");
+        assert_eq!(frame.tiles.len(), 1 + 2 + 19 + 1, "spacers draw no tiles");
         assert_eq!(tile(&frame, "Radar").x, tile(&frame, "↑").x);
 
         panel.handle(Action::Next);

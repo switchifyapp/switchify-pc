@@ -653,6 +653,7 @@ impl Workflow {
             area,
             (bounds.width, bounds.height),
             self.moved,
+            crate::scan_panel::menu_bar(&frame),
         )
     }
     fn open(&mut self, kind: Kind) {
@@ -2969,7 +2970,7 @@ mod tests {
         assert_eq!(panel, saved.rect(screen, (panel.width, panel.height)));
 
         // Moving out of the pointer's way is not a choice.
-        workflow.set_pointer(Some((640.0, 20.0)));
+        workflow.set_pointer(Some((640.0, 60.0)));
         assert!(workflow.moved.is_some());
         assert_eq!(workflow.unsaved_dock(), None);
 
@@ -2994,7 +2995,14 @@ mod tests {
         next.open_home();
         let menu = next.frame().tiles[0].rect;
         assert_eq!(menu, chosen.rect(screen, (menu.width, menu.height)));
-        next.set_pointer(Some((menu.x + 1.0, menu.y + 1.0)));
+        let bar = crate::scan_panel::menu_bar(&next.frame()).unwrap();
+        next.set_pointer(Some((bar.x + 1.0, bar.y + 1.0)));
+        assert_eq!(
+            next.frame().tiles[0].rect,
+            menu,
+            "the pointer over the menu bar leaves Home where it is"
+        );
+        next.set_pointer(Some((menu.x + 1.0, menu.y + menu.height - 1.0)));
         assert_ne!(next.frame().tiles[0].rect, menu, "Home avoids the pointer");
         assert_eq!(next.unsaved_dock(), None);
     }
@@ -3045,8 +3053,8 @@ mod tests {
             height: 720.0,
         };
         let background = |workflow: &Workflow| workflow.frame().tiles[0].rect;
-        let bottom = Dock::default().rect(screen, (568.0, 392.0));
-        let top = Dock { column: 1, row: 0 }.rect(screen, (568.0, 392.0));
+        let bottom = Dock::default().rect(screen, (568.0, 420.0));
+        let top = Dock { column: 1, row: 0 }.rect(screen, (568.0, 420.0));
         let over_bottom = Some((640.0, 700.0));
         let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         workflow.open_mouse(true);
@@ -3071,7 +3079,7 @@ mod tests {
             Dock::default(),
             "the chosen dock is kept"
         );
-        workflow.set_pointer(Some((640.0, 20.0)));
+        workflow.set_pointer(Some((640.0, 100.0)));
         assert_eq!(
             background(&workflow),
             bottom,
@@ -3094,11 +3102,11 @@ mod tests {
         let middle = Dock { column: 1, row: 1 };
         workflow.set_dock(middle);
         let area = middle.rect(screen, size);
-        workflow.set_pointer(Some((640.0, area.y + 10.0)));
+        workflow.set_pointer(Some((640.0, area.y + 50.0)));
         assert_eq!(workflow.moved, Some(Dock::default()));
         workflow.keyboard_closed();
         workflow.open_point();
-        workflow.set_pointer(Some((640.0, area.y + 10.0)));
+        workflow.set_pointer(Some((640.0, area.y + 50.0)));
         assert_eq!(workflow.moved, None);
     }
     #[test]
@@ -3133,13 +3141,28 @@ mod tests {
             crosshair((-640, 100), screen, 1.0),
             "the chosen point stays marked"
         );
-        workflow.set_pointer(Some((panel.x + 1.0, panel.y + 1.0)));
+        let bar = crate::scan_panel::menu_bar(&frame).expect("every panel has a menu bar");
+        workflow.set_pointer(Some((bar.x + 1.0, bar.y + 1.0)));
         assert_eq!(
             workflow.frame().tiles[0].rect,
-            Dock { column: 1, row: 2 }.rect(work, size),
+            panel,
+            "the pointer over the menu bar leaves the menu where it is"
+        );
+        workflow.set_pointer(Some((bar.x + 1.0, bar.y + bar.height + 1.0)));
+        let away = Dock { column: 1, row: 2 }.rect(work, size);
+        assert_eq!(
+            workflow.frame().tiles[0].rect,
+            away,
             "the menu moves out of the pointer's way"
         );
         assert_eq!(workflow.dock, top, "the chosen dock is kept");
+        // The moved menu's bar is where its home bar is, shifted with the panel.
+        workflow.set_pointer(Some((bar.x + 1.0, bar.y - panel.y + away.y + 1.0)));
+        assert_eq!(
+            workflow.frame().tiles[0].rect,
+            away,
+            "the pointer over the moved menu's bar keeps it there"
+        );
         workflow.set_pointer(None);
         assert_eq!(workflow.frame().tiles[0].rect, panel);
 
@@ -3832,6 +3855,8 @@ mod tests {
                                 style.role,
                                 crate::scanning::TileRole::Panel
                                     | crate::scanning::TileRole::Status
+                                    | crate::scanning::TileRole::MenuBar
+                                    | crate::scanning::TileRole::Title
                             )
                         })
                     })
@@ -4228,8 +4253,8 @@ mod tests {
         for (column, right, count) in [(0, false, 1), (1, true, 1), (2, false, 2)] {
             let mut s = session(false);
             open(&mut s);
-            // The background, eleven actions and the status header.
-            assert_eq!(s.frame().tiles.len(), 13);
+            // The background, the title and Settings, eleven actions and the status header.
+            assert_eq!(s.frame().tiles.len(), 15);
             assert_eq!(
                 choose(&mut s, 0, column),
                 Some(Request::Click {
