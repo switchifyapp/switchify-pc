@@ -1,6 +1,6 @@
 ---
 title: Home menu
-description: Press Select to open Home, a scanning menu of everything Switchify PC can do, including windows, editing, browser and media actions.
+description: Press Select to open Home, a scanning menu of everything Switchify PC can do, including windows, editing, browser, media and zoom actions.
 ---
 
 Press and release **Select** to open Home. It scans through these items; press Select on the one you want. Home opens whether or not another app is in front, and it never takes focus away from your work. It opens on the display the pointer is on, and moves with the pointer if something moves it to another display while Home is open.
@@ -12,8 +12,9 @@ Press and release **Select** to open Home. It scans through these items; press S
 | **Keyboard** | Open the scanning [keyboard](/using/keyboard/). |
 | **Apps and windows** | Switch app forward or backward, open the app overview, show the desktop, minimise, maximise or restore (toggle full screen on a Mac), close the window, and shut down or restart the computer. |
 | **Editing** | Copy, cut, paste, select all, undo, redo, save, find. |
-| **Browser** | Back, forward, reload, new tab, close tab, reopen a closed tab, next and previous tab, address bar, zoom in, zoom out and reset zoom. |
+| **Browser** | Back, forward, reload, new tab, close tab, reopen a closed tab, next and previous tab, address bar. |
 | **Media** | Play or pause, next and previous track, volume up and down, mute. |
+| **Zoom** | Zoom in, zoom out and reset zoom in the app in front. This works in browsers, Word, file managers, PDF readers and most other apps. |
 | **Switchify** | Change the scan speed and line speed, switch between line-only and grid-then-line point scanning, change the keyboard layout, pause, reverse direction, and move to the next or previous display. |
 | **Close menu** | Close Home without doing anything. |
 

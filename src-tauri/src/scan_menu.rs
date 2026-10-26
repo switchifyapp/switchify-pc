@@ -429,7 +429,8 @@ impl Kind {
                         Group(Self::Editing),
                         Group(Self::Browser),
                     ],
-                    vec![Group(Self::Media), Switchify, Cancel],
+                    vec![Group(Self::Media), Group(Self::Zoom)],
+                    vec![Switchify, Cancel],
                 ]
             }
             Self::Actions => {
@@ -444,13 +445,14 @@ impl Kind {
             Self::ConfirmDrag => {
                 return vec![vec![DragHere, DestinationAgain], vec![CancelDrag, Cancel]]
             }
+            // Keyboard and the mouse panel sit one level up on the Actions page, which
+            // keeps this page within four rows with Zoom beside the other app menus.
             Self::More => vec![
-                Keyboard,
-                MousePanel,
                 Group(Self::Mouse),
                 Group(Self::Editing),
                 Group(Self::Windows),
                 Group(Self::Browser),
+                Group(Self::Zoom),
                 Group(Self::Media),
                 Group(Self::Displays),
                 Group(Self::Scanning),
@@ -512,7 +514,6 @@ impl Kind {
                 Command(C::BrowserForward),
                 Command(C::Reload),
                 Group(Self::Tabs),
-                Group(Self::Zoom),
                 Command(C::Address),
                 Back,
             ],
@@ -524,6 +525,7 @@ impl Kind {
                 Command(C::PreviousTab),
                 Back,
             ],
+            // Ctrl or Cmd with =, - and 0, which most apps honour, not only browsers.
             Self::Zoom => vec![
                 Command(C::ZoomIn),
                 Command(C::ZoomOut),
@@ -821,6 +823,44 @@ mod tests {
         }
     }
     #[test]
+    fn zoom_sits_beside_the_other_app_menus_not_inside_browser() {
+        let items = |kind: Kind| kind.rows().into_iter().flatten().collect::<Vec<_>>();
+        // Zoom works in most apps, so it is offered wherever Editing and Media are
+        // offered from a point-free page, and only there.
+        for kind in [Kind::Home, Kind::More] {
+            let page = items(kind);
+            assert!(page.contains(&Item::Group(Kind::Zoom)), "{kind:?}");
+            assert!(page.contains(&Item::Group(Kind::Editing)), "{kind:?}");
+            assert!(page.contains(&Item::Group(Kind::Media)), "{kind:?}");
+        }
+        for kind in ALL_MENU_KINDS {
+            assert_eq!(
+                items(kind).contains(&Item::Group(Kind::Zoom)),
+                matches!(kind, Kind::Home | Kind::More),
+                "{kind:?}"
+            );
+        }
+        // The Actions page already offers Keyboard and the mouse panel, so More does not.
+        let actions = items(Kind::Actions);
+        assert!(actions.contains(&Item::Keyboard));
+        assert!(actions.contains(&Item::MousePanel));
+        let more = items(Kind::More);
+        assert!(!more.contains(&Item::Keyboard));
+        assert!(!more.contains(&Item::MousePanel));
+        assert_eq!(
+            Kind::Zoom.rows(),
+            [
+                vec![
+                    Item::Command(Command::ZoomIn),
+                    Item::Command(Command::ZoomOut),
+                    Item::Command(Command::ZoomReset),
+                ],
+                vec![Item::Back, Item::Cancel],
+            ]
+        );
+    }
+
+    #[test]
     fn home_offers_modes_and_point_free_actions() {
         let home = Kind::Home.rows().into_iter().flatten().collect::<Vec<_>>();
         assert_eq!(
@@ -833,6 +873,7 @@ mod tests {
                 Item::Group(Kind::Editing),
                 Item::Group(Kind::Browser),
                 Item::Group(Kind::Media),
+                Item::Group(Kind::Zoom),
                 Item::Switchify,
                 Item::Cancel,
             ]

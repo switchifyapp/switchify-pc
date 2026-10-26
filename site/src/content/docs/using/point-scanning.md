@@ -36,7 +36,7 @@ With **Auto select** on, a countdown starts at the chosen point and a left click
 | **Left click**, **Right click**, **Double click** | Click at the point. |
 | **Scroll** | Up, down, left or right at the point, three wheel steps per press. |
 | **Drag** | Start a drag here. Nothing is held yet. Point scanning runs again to choose the destination, then **Drag here** performs it, or **New destination** lets you choose again. |
-| **More** | Middle click, triple click, Shift-click, Ctrl-click, Alt-click and Windows-click (Option-click and Command-click on a Mac). |
+| **More** | Other clicks at the point (middle, triple, Shift, Ctrl, Alt and Windows or Command click), and the same editing, apps and windows, browser, zoom, media, display and scanning items as Home. |
 | **Keyboard** | Open the scanning [keyboard](/using/keyboard/) with focus left where it is. |
 | **New point** | Start a fresh scan on the same display. |
 | **Home**, **Close menu** | Leave the menu. |
