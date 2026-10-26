@@ -3056,6 +3056,53 @@ mod tests {
     }
 
     #[test]
+    fn back_scans_the_parent_from_the_top_with_the_current_preferences() {
+        use crate::scan_preferences::PanelSize;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let selected_texts = |frame: &Frame| {
+            frame
+                .tiles
+                .iter()
+                .filter(|tile| tile.selected)
+                .map(|tile| tile.text.clone())
+                .collect::<Vec<_>>()
+        };
+        let mut config = last_mode();
+        let mut w = Workflow::new(config.point(), screen, 1.0).unwrap();
+        w.source = (120, 80);
+        w.stage = Stage::Menu;
+        w.selected(Item::More);
+        // Move well past the top before going down a level.
+        w.handle(Action::Next);
+        w.handle(Action::Next);
+        w.selected(Item::Group(Kind::Browser));
+        assert_eq!(w.menu.kind, Kind::Browser);
+        // Preferences change while the submenu is open.
+        config.scan_preferences.panel_size = PanelSize::Large;
+        w.apply_config(config.point(), false);
+        w.selected(Item::Back);
+        assert_eq!(w.menu.kind, Kind::More);
+
+        // The same menu opened afresh with the same preferences looks identical.
+        let mut fresh = Workflow::new(config.point(), screen, 1.0).unwrap();
+        fresh.source = (120, 80);
+        fresh.stage = Stage::Menu;
+        fresh.selected(Item::More);
+        let (back, opened) = (w.frame(), fresh.frame());
+        assert_eq!(selected_texts(&back), selected_texts(&opened));
+        assert_eq!(back.tiles[0].rect, opened.tiles[0].rect);
+        // The larger size took effect: the menu grew past its default width.
+        let mut standard = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        standard.stage = Stage::Menu;
+        standard.selected(Item::More);
+        assert!(back.tiles[0].rect.width > standard.frame().tiles[0].rect.width);
+    }
+    #[test]
     fn size_changes_update_open_panels_without_resetting_the_scan() {
         use crate::scan_preferences::PanelSize;
         let screen = Rect {
