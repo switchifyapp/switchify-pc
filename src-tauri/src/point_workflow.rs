@@ -1727,12 +1727,13 @@ mod tests {
         assert!(s.technique.parent_menu.is_empty());
         assert!(s.active());
 
-        assert_eq!(choose_in(&mut s, 2, 2), None);
+        // Close menu and Switchify share Home's last row.
+        assert_eq!(choose_in(&mut s, 3, 1), None);
         assert!(!s.active());
 
         let mut s = next_session(&s);
         s.action(Action::Select);
-        assert_eq!(choose_in(&mut s, 2, 1), Some(Request::OpenSwitchify));
+        assert_eq!(choose_in(&mut s, 3, 0), Some(Request::OpenSwitchify));
         assert!(!s.active());
 
         let mut s = next_session(&s);
@@ -1777,11 +1778,10 @@ mod tests {
 
     #[test]
     fn leaving_home_that_fails_returns_to_home_not_to_an_unchosen_point() {
-        for (column, request) in [(0, Request::OpenPoint), (1, Request::OpenSwitchify)] {
+        for (row, request) in [(0, Request::OpenPoint), (3, Request::OpenSwitchify)] {
             let mut s = home_session();
             s.action(Action::Select);
-            let row = if request == Request::OpenPoint { 0 } else { 2 };
-            assert_eq!(choose_in(&mut s, row, column), Some(request));
+            assert_eq!(choose_in(&mut s, row, 0), Some(request));
             s.execution_failed("Input could not be released.".into());
             assert_eq!(s.technique.menu.kind, Kind::Home, "{request:?}");
             assert!(s.technique.home_open());
@@ -3961,8 +3961,8 @@ mod tests {
                     .iter()
                     .filter(|tile| tile.rect.x == first.rect.x)
                     .count();
-                // Home and the power confirmation pages keep Close menu in the third column.
-                let close = if matches!(kind, Kind::Home | Kind::ShutDown | Kind::Restart) {
+                // The power confirmation pages keep Close menu in the third column.
+                let close = if matches!(kind, Kind::ShutDown | Kind::Restart) {
                     2
                 } else {
                     1
