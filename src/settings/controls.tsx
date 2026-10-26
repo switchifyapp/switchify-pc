@@ -2,10 +2,14 @@ import { Button, Input } from "../ui/controls";
 import type { AppSettings } from "../types";
 import { useId, useState, type ReactNode, type Ref } from "react";
 
-// labelHidden keeps the name for assistive technology while the row's own
-// heading shows it, so the switch sits alone at the end of the row.
-export function Toggle({ checked, disabled = false, label, labelHidden = false, onChange }: { checked: boolean; disabled?: boolean; label: string; labelHidden?: boolean; onChange: (next: boolean) => void }) {
-  return <label className={labelHidden ? "toggle-row toggle-bare" : "toggle-row"} data-disabled={disabled}><span className={labelHidden ? "sr-only" : undefined}>{label}</span><Input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span className="toggle" aria-hidden="true" /></label>;
+// With labelledBy, the row's own heading (and optional description) names
+// the switch, which then sits alone at the end of the row.
+export function Toggle({ checked, disabled = false, label, labelledBy, describedBy, onChange }: { checked: boolean; disabled?: boolean; label?: string; labelledBy?: string; describedBy?: string; onChange: (next: boolean) => void }) {
+  return <label className={labelledBy ? "toggle-row toggle-bare" : "toggle-row"} data-disabled={disabled}>
+    {!labelledBy && <span>{label}</span>}
+    <Input type="checkbox" checked={checked} disabled={disabled} aria-labelledby={labelledBy} aria-describedby={describedBy} onChange={(event) => onChange(event.target.checked)} />
+    <span className="toggle" aria-hidden="true" />
+  </label>;
 }
 
 export function SettingGroup({ title, description, children, id, sectionRef, focusable = false }: { title: string; description: string; children: ReactNode; id?: string; sectionRef?: Ref<HTMLElement>; focusable?: boolean }) {

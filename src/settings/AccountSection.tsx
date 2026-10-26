@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { CircleUserRound, LockKeyhole, MailCheck, RefreshCw, Smartphone, Trash2 } from "lucide-react";
 import { api } from "../api";
 import { Button, Input, StatusIcon } from "../ui/controls";
@@ -6,7 +6,7 @@ import type { AccountView, AppSettings, SyncView } from "../types";
 import { Toggle } from "./controls";
 
 const syncs = "Pointer, repeat, dwell and cursor settings; your switches and their keys; scanning and keyboard layout; your switch profiles; and remote switches.";
-const staysHere = "Phone pairings, diagnostics sharing, setup progress and starting with your computer.";
+const staysHere = "Phone pairings, phone approval, diagnostics sharing, learned words, setup progress and starting with your computer.";
 
 type FocusTarget = "email" | "code" | "signOut" | "deleteAccount" | "keepAccount";
 type Screen = "loading" | "unavailable" | "keychain" | "signedIn" | "pending" | "signedOut";
@@ -40,11 +40,12 @@ function SyncDetails() {
 
 /** Approves pairing from phones that prove they are signed into this account. */
 function AccountPairingRow({ settings, onChange }: { settings: AppSettings; onChange: (next: AppSettings) => void }) {
-  const label = "Approve phones on this account automatically";
+  const headingId = useId();
+  const noteId = useId();
   return <article>
     <StatusIcon><Smartphone size={19} /></StatusIcon>
-    <div><h3 aria-hidden="true">{label}</h3><p>A phone signed in to this account pairs with this computer without comparing codes. Turn this off if other people share the account.</p></div>
-    <Toggle label={label} labelHidden checked={settings.autoApproveAccountDevices} onChange={(value) => onChange({ ...settings, autoApproveAccountDevices: value })} />
+    <div><h3 id={headingId}>Approve phones on this account automatically</h3><p id={noteId}>A phone signed in to this account pairs with this computer without comparing codes. Turn this off if other people share the account.</p></div>
+    <Toggle labelledBy={headingId} describedBy={noteId} checked={settings.autoApproveAccountDevices} onChange={(value) => onChange({ ...settings, autoApproveAccountDevices: value })} />
   </article>;
 }
 

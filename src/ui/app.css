@@ -246,7 +246,7 @@ main { min-width: 0; }
 .task-list .permission-recovery { margin-top: 8px; color: var(--text); }
 @container (max-width: 560px) {
   :is(.status-list, .task-list, .device-list, .setup-statuses) > article { grid-auto-flow: row; padding: 16px; }
-  :is(.status-list, .task-list, .device-list, .setup-statuses) > article > .btn { grid-column: 2; justify-self: start; }
+  :is(.status-list, .task-list, .device-list, .setup-statuses) > article > :is(.btn, .toggle-bare) { grid-column: 2; justify-self: start; }
 }
 .setup-launch { margin-bottom: 24px; }
 
@@ -701,8 +701,9 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .account-band h2 .account-email { overflow-wrap: anywhere; }
 /* Sync explanation under the sync row: a label lane and a text lane. */
 .sync-card { display: block; }
-.sync-details { display: grid; gap: 8px; border-top: 1px solid var(--border); padding: 14px 20px 18px; }
-.sync-card > article + .sync-details { padding-left: calc(20px + 44px + 16px); }
+.sync-card > article { border-bottom: 1px solid var(--border); }
+.sync-details { display: grid; gap: 8px; padding: 14px 20px 18px; }
+.sync-card > article + .sync-details { padding-left: calc(20px + 40px + 16px); }
 .sync-details > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px 16px; }
 .sync-details dt { font-size: 15px; font-weight: 600; }
 .sync-details dd { color: var(--muted); font-size: 15px; line-height: 1.45; }
@@ -735,10 +736,10 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
   .setting-group > header { position: sticky; top: 24px; }
   .setting-group > .setting-controls { max-width: 1040px; }
 
-  :is(.status-list, .task-list, .profile-list):has(> :nth-child(2)) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  :is(.status-list, .task-list):has(> :nth-child(2)) > article:nth-child(odd),
+  :is(.status-list, .task-list, .profile-list):not(.sync-card):has(> :nth-child(2)) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :is(.status-list, .task-list):not(.sync-card):has(> :nth-child(2)) > article:nth-child(odd),
   .profile-list:has(> :nth-child(2)) > .profile-row:nth-child(odd) { border-right: 1px solid var(--border); }
-  :is(.status-list, .task-list):has(> :nth-child(2)) > article:nth-last-child(2):nth-child(odd),
+  :is(.status-list, .task-list):not(.sync-card):has(> :nth-child(2)) > article:nth-last-child(2):nth-child(odd),
   .profile-list:has(> :nth-child(2)) > .profile-row:nth-last-child(2):nth-child(odd) { border-bottom: 0; }
 
   /* Content outside setting groups keeps a usable width. */
@@ -747,7 +748,6 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 
   /* One column of equal-rhythm rows reads better than tiles here. */
   .account-page { max-width: 1040px; }
-  .account-page .sync-card { display: block; }
   .sync-details > div { grid-template-columns: 170px minmax(0, 1fr); }
   .scanner-panel-heading > p { max-width: 80ch; }
 }

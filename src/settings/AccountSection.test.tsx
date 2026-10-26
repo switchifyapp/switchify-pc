@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, browserState } from "../api";
 import type { AccountView, SyncView } from "../types";
@@ -298,9 +298,23 @@ describe("AccountSection", () => {
     render(<AccountSection settings={browserState.settings} onSettingsChange={onSettingsChange} />);
     const toggle = await screen.findByRole("checkbox", { name: "Approve phones on this account automatically" });
     expect(toggle).toBeChecked();
-    expect(screen.getByText(/Turn this off if other people share the account/)).toBeInTheDocument();
+    expect(toggle).toHaveAccessibleDescription(/Turn this off if other people share the account/);
+    expect(screen.getByRole("heading", { name: "Approve phones on this account automatically" })).toBeInTheDocument();
     fireEvent.click(toggle);
     expect(onSettingsChange).toHaveBeenCalledWith({ ...browserState.settings, autoApproveAccountDevices: false });
+  });
+
+  it("lists what syncs and what stays on this computer, signed in or out", async () => {
+    start(signedIn);
+    await screen.findByRole("button", { name: "Sync now" });
+    expect(screen.getByText("Syncs", { selector: "dt" })).toBeInTheDocument();
+    expect(screen.getByText("Stays on this computer", { selector: "dt" })).toBeInTheDocument();
+    expect(screen.getByText(/^Phone pairings, phone approval/)).toBeInTheDocument();
+    cleanup();
+    start(signedOut);
+    await screen.findByLabelText("Email");
+    expect(screen.getByText("Syncs", { selector: "dt" })).toBeInTheDocument();
+    expect(screen.getByText("Stays on this computer", { selector: "dt" })).toBeInTheDocument();
   });
 
   it("hides automatic pairing while signed out", async () => {
