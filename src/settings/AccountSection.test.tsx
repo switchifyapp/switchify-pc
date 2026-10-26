@@ -120,7 +120,7 @@ describe("AccountSection", () => {
     expect(verify).toHaveBeenCalledWith("123456");
     await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toHaveFocus());
     expect(screen.getByRole("heading", { name: "me@example.com" })).toBeInTheDocument();
-    expect(screen.getByText(/^Signed in./)).toHaveTextContent("Signed in. It's the same account as Switchify on Android.");
+    expect(screen.getByText(/^Signed in./)).toHaveTextContent("Signed in.");
   });
 
   it("shows a wrong-code error and keeps the code form", async () => {
@@ -153,7 +153,7 @@ describe("AccountSection", () => {
     const remove = vi.spyOn(api, "deleteAccount").mockResolvedValue(signedOut);
     fireEvent.click(await screen.findByRole("button", { name: "Delete account…" }));
     expect(remove).not.toHaveBeenCalled();
-    expect(screen.getByText(/removes your account and its saved settings from every device/)).toBeInTheDocument();
+    expect(screen.getByText(/deletes your account and its saved settings from every device/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Keep account" })).toHaveFocus());
     fireEvent.click(screen.getByRole("button", { name: "Keep account" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Delete account…" })).toHaveFocus());
@@ -298,7 +298,7 @@ describe("AccountSection", () => {
     render(<AccountSection settings={browserState.settings} onSettingsChange={onSettingsChange} />);
     const toggle = await screen.findByRole("checkbox", { name: "Approve phones on this account automatically" });
     expect(toggle).toBeChecked();
-    expect(screen.getByText(/Turn this off if other people share this account/)).toBeInTheDocument();
+    expect(screen.getByText(/Turn this off if other people share the account/)).toBeInTheDocument();
     fireEvent.click(toggle);
     expect(onSettingsChange).toHaveBeenCalledWith({ ...browserState.settings, autoApproveAccountDevices: false });
   });

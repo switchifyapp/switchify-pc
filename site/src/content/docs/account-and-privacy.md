@@ -19,7 +19,7 @@ Signing in is optional. It uses the same Switchify account as the Android app: e
 
 Changes upload a few seconds after they settle. If two computers change the same thing, the account's copy wins, but an edit is never lost to a deletion. The first sync on a computer whose settings differ asks which to keep.
 
-You can delete the account from the Account page.
+On the Account page, the Settings sync card lists what syncs and what stays on this computer, and the phone approval switch sits on its own row. **Remove account**, at the bottom of the page, deletes the account and its saved settings from every device after you confirm.
 
 ## Updates
 

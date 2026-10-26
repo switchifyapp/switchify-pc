@@ -699,6 +699,22 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .account-page > .connection-band + .status-list { margin-top: 8px; }
 .account-page .status-list + .status-list { margin-top: 0; }
 .account-band h2 .account-email { overflow-wrap: anywhere; }
+/* Sync explanation under the sync row: a label lane and a text lane. */
+.sync-card { display: block; }
+.sync-details { display: grid; gap: 8px; border-top: 1px solid var(--border); padding: 14px 20px 18px; }
+.sync-card > article + .sync-details { padding-left: calc(20px + 44px + 16px); }
+.sync-details > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px 16px; }
+.sync-details dt { font-size: 15px; font-weight: 600; }
+.sync-details dd { color: var(--muted); font-size: 15px; line-height: 1.45; }
+/* A switch on its own at the end of a row. */
+.toggle-row.toggle-bare { position: relative; min-height: 0; grid-template-columns: auto; border: 0; padding: 0; background: transparent; justify-self: end; }
+/* Deleting the account sits apart from routine controls, under its own label. */
+.account-remove { display: grid; gap: 12px; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 24px; }
+.account-remove > h3 { font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.account-remove p { color: var(--muted); }
+.account-remove-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; }
+.account-remove-row > .btn { display: inline-flex; align-items: center; gap: 8px; }
+.account-remove-confirm { display: grid; gap: 4px; }
 .account-form { display: grid; gap: 16px; padding: 20px; }
 .account-form .field { max-width: 32rem; }
 /* Rows whose choice is two buttons put them under the text, so the text
@@ -729,14 +745,10 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
   .setting-note { max-width: 80ch; }
   .scanner-preferences > .more-options > .more-options-content { max-width: 1040px; }
 
-  .account-page { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-  .account-page > .connection-band { grid-column: 1 / -1; }
-  /* What syncs sits beside the actions instead of leaving a ragged gap. */
-  .account-page > .connection-band + .status-list { margin-top: 0; }
-  .account-page > .what-syncs { grid-column: 2; grid-row: 2; }
-  .account-page:has(> .status-list:nth-child(4)) > .what-syncs { grid-row: 2 / span 2; }
-  /* Waiting for a code there is only the form, so it gets the full width. */
-  .account-page:not(:has(> .what-syncs)) { grid-template-columns: minmax(0, 1fr); }
+  /* One column of equal-rhythm rows reads better than tiles here. */
+  .account-page { max-width: 1040px; }
+  .account-page .sync-card { display: block; }
+  .sync-details > div { grid-template-columns: 170px minmax(0, 1fr); }
   .scanner-panel-heading > p { max-width: 80ch; }
 }
 
