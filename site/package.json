@@ -10,10 +10,10 @@
     "screenshots": "node scripts/capture-screenshots.mjs"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.42.6",
-    "astro": "^7.2.10"
+    "@astrojs/starlight": "^0.42.7",
+    "astro": "^7.4.2"
   },
   "devDependencies": {
-    "puppeteer-core": "^25.14.0"
+    "puppeteer-core": "^25.16.0"
   }
 }
