@@ -540,9 +540,9 @@ impl Kind {
                 Back,
             ],
             Self::Displays => vec![Display(true), Display(false), Back],
-            // One row whose first tile is Back, so whatever the scan pattern, the
-            // first highlight on this page is harmless and the action needs a
-            // deliberate second Select.
+            // One row with the action in the middle: whatever the scan pattern or
+            // direction, the first highlight on this page is Back or Close menu,
+            // and the action needs a deliberate move and a second Select.
             Self::ShutDown => return vec![vec![Back, Command(C::ShutDown), Cancel]],
             Self::Restart => return vec![vec![Back, Command(C::Restart), Cancel]],
             Self::Scanning => vec![
@@ -750,8 +750,8 @@ mod tests {
         assert!(visited.contains(&Kind::Zoom));
     }
     #[test]
-    fn power_actions_need_a_confirming_page_whose_first_highlight_is_back() {
-        use crate::scan_preferences::{Pattern, Resolved};
+    fn power_actions_need_a_confirming_page_whose_first_highlight_is_harmless() {
+        use crate::scan_preferences::{Direction, Pattern, Resolved};
         let windows = Kind::Windows
             .rows()
             .into_iter()
@@ -768,26 +768,34 @@ mod tests {
                 [vec![Item::Back, Item::Command(command), Item::Cancel]]
             );
             assert!(!command.stays_open());
-            for pattern in [Pattern::Grouped, Pattern::Linear] {
+            for (pattern, direction) in [
+                (Pattern::Grouped, Direction::Forward),
+                (Pattern::Grouped, Direction::Reverse),
+                (Pattern::Linear, Direction::Forward),
+                (Pattern::Linear, Direction::Reverse),
+            ] {
                 let options = Resolved {
                     interval_ms: 250,
                     pattern,
+                    direction,
                     ..Default::default()
                 };
-                // Whatever the scan pattern, the first Select on the page never acts,
-                // and the action is the next tile along.
+                // Whatever the scan pattern and direction, the first Select on the
+                // page never acts, and the action is the next tile along.
                 let mut menu = Menu::configured(kind, options);
                 match menu.handle(Action::Select) {
                     None => {
                         menu.advance(250);
                         assert_eq!(menu.handle(Action::Select), Some(Item::Command(command)));
                     }
-                    Some(Item::Back) => {
+                    Some(Item::Back | Item::Cancel) => {
                         let mut menu = Menu::configured(kind, options);
                         menu.advance(250);
                         assert_eq!(menu.handle(Action::Select), Some(Item::Command(command)));
                     }
-                    other => panic!("{kind:?} {pattern:?} acted on the first Select: {other:?}"),
+                    other => panic!(
+                        "{kind:?} {pattern:?} {direction:?} acted on the first Select: {other:?}"
+                    ),
                 }
             }
             // No other page offers the command.

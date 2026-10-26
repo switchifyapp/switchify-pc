@@ -102,16 +102,22 @@ mod windows {
 #[cfg(target_os = "macos")]
 mod macos {
     use super::Action;
-    use std::process::{Command, Stdio};
+    use std::process::{Command, Output, Stdio};
+    use std::time::{Duration, Instant};
+
+    /// How long an immediate refusal (a denied Automation permission, a script
+    /// error) is waited for so it can show in the menu like a Windows failure.
+    const PROMPT_WAIT: Duration = Duration::from_millis(1000);
 
     /// System Events performs the same unforced shut down or restart as the Apple
-    /// menu. The first use may show the Automation permission prompt, and a
-    /// blocked shutdown keeps osascript waiting, so the wait happens on its own
-    /// thread; the scan loop and the overlays must keep running meanwhile.
+    /// menu. A quick failure is reported to the caller. The first use may show the
+    /// Automation permission prompt, and a blocked shutdown keeps osascript waiting,
+    /// so a longer wait moves to its own thread; the scan loop and the overlays
+    /// must keep running meanwhile.
     pub fn request(action: Action) -> Result<(), String> {
         let verb = action.verb();
         let script = format!("tell application \"System Events\" to {verb}");
-        let child = Command::new("/usr/bin/osascript")
+        let mut child = Command::new("/usr/bin/osascript")
             .arg("-e")
             .arg(&script)
             .stdin(Stdio::null())
@@ -119,18 +125,37 @@ mod macos {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|error| format!("Could not run osascript: {error}"))?;
+        let started = Instant::now();
+        while started.elapsed() < PROMPT_WAIT {
+            match child.try_wait() {
+                Ok(Some(_)) => return report(child.wait_with_output(), verb),
+                Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+                Err(error) => return Err(format!("Could not wait for osascript: {error}")),
+            }
+        }
         std::thread::Builder::new()
             .name("switchify-power-request".into())
-            .spawn(move || match child.wait_with_output() {
-                Ok(output) if output.status.success() => {}
-                Ok(output) => {
-                    let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-                    eprintln!("Switchify PC could not {verb} the Mac: {detail}");
+            .spawn(move || {
+                if let Err(message) = report(child.wait_with_output(), verb) {
+                    eprintln!("Switchify PC: {message}");
                 }
-                Err(error) => eprintln!("Switchify PC could not {verb} the Mac: {error}"),
             })
             .map_err(|error| format!("Could not wait for osascript: {error}"))?;
         Ok(())
+    }
+
+    /// osascript's stderr carries only its own error text, never typed input.
+    fn report(output: std::io::Result<Output>, verb: &str) -> Result<(), String> {
+        let output = output.map_err(|error| format!("Could not wait for osascript: {error}"))?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        Err(if detail.is_empty() {
+            format!("macOS refused the {verb} request.")
+        } else {
+            format!("macOS refused the {verb} request: {detail}")
+        })
     }
 }
 
