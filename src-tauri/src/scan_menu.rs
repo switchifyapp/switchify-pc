@@ -175,23 +175,18 @@ impl Menu {
     /// Draws the menu as a docked panel. While an action has `failed`, the status
     /// stays short so it fits one line; the workflow shows the message beside it.
     pub fn frame(&self, screen: Rect, units: f64, dock: Dock, failed: bool) -> Frame {
-        let (row, column) = self.scan.position(&self.rows);
         let escaping = self.scan.nav.escaping();
         let title = self.kind.label();
-        let status = if failed {
-            format!("{title} · Action failed · Select to return")
+        let message = if failed {
+            Some(format!("{title} · Action failed · Select to return"))
         } else if self.scan.waiting() {
-            format!("{title} · Select to continue")
+            Some(format!("{title} · Select to continue"))
         } else if self.suspended() {
-            format!("{title} paused · Select to resume")
+            Some(format!("{title} paused · Select to resume"))
         } else if escaping {
-            crate::scan_panel::back_status(&self.scan).to_owned()
+            Some(crate::scan_panel::back_status(&self.scan).to_owned())
         } else {
-            crate::scan_panel::item_status(
-                title,
-                &self.scan,
-                self.rows[row][column.unwrap_or(0)].label(),
-            )
+            None
         };
         let options = self.scan.options;
         Panel {
@@ -213,8 +208,7 @@ impl Menu {
                         .collect()
                 })
                 .collect(),
-            status,
-            note: None,
+            message,
             dock,
             // Nothing can be chosen while an error or pause waits for Select.
             selected: (!failed && !self.suspended()).then(|| self.scan.highlight(&self.rows)),
@@ -571,18 +565,9 @@ mod tests {
     use super::*;
     use crate::scanning::FrameTile;
 
-    fn is_status(tile: &FrameTile) -> bool {
-        tile.style
-            .is_some_and(|style| style.role == TileRole::Status)
-    }
-    fn status(frame: &Frame) -> String {
-        frame
-            .tiles
-            .iter()
-            .find(|tile| is_status(tile))
-            .unwrap()
-            .text
-            .clone()
+    /// The message floating beside the panel, if there is one.
+    fn message(frame: &Frame) -> Option<String> {
+        frame.label.as_ref().map(|label| label.text.clone())
     }
 
     #[test]
@@ -620,11 +605,12 @@ mod tests {
                             for item in kind.rows().into_iter().flatten() {
                                 assert!(texts.contains(&item.label()), "{kind:?} {item:?}");
                             }
+                            // The background, the title, Settings and the items; no status line.
                             assert_eq!(
                                 frame.tiles.len(),
-                                kind.rows().iter().map(Vec::len).sum::<usize>() + 4
+                                kind.rows().iter().map(Vec::len).sum::<usize>() + 3
                             );
-                            assert!(status(&frame).starts_with(kind.label()));
+                            assert_eq!(message(&frame), None);
                         }
                     }
                 }
@@ -916,7 +902,7 @@ mod tests {
         c.validate().unwrap();
     }
     #[test]
-    fn panel_highlights_the_current_row_or_item_with_panel_status() {
+    fn panel_highlights_the_current_row_or_item_without_a_status_line() {
         let screen = Rect {
             x: 0.0,
             y: 0.0,
@@ -929,7 +915,6 @@ mod tests {
                 .iter()
                 .filter(|tile| {
                     !tile.is_panel_background()
-                        && !is_status(tile)
                         && !tile.is_menu_bar()
                         && tile.style.map(|s| s.role) != Some(TileRole::Title)
                 })
@@ -939,7 +924,7 @@ mod tests {
         let mut menu = Menu::new(Kind::Actions, 250);
         let row = menu.frame(screen, 1.0, Dock::default(), false);
         assert!(row.tiles[0].is_panel_background());
-        assert_eq!(status(&row), "Actions · Select a row");
+        assert_eq!(message(&row), None, "the highlight says it all");
         let selected: Vec<_> = keys(&row).into_iter().filter(|t| t.selected).collect();
         assert_eq!(
             selected.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(),
@@ -948,7 +933,7 @@ mod tests {
         assert!(selected.iter().all(|t| t.style.unwrap().row_scan));
         menu.handle(Action::Select);
         let item = menu.frame(screen, 1.0, Dock::default(), false);
-        assert_eq!(status(&item), "Actions · Select Left click");
+        assert_eq!(message(&item), None);
         let selected: Vec<_> = keys(&item).into_iter().filter(|t| t.selected).collect();
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].text, "Left click");
@@ -962,7 +947,7 @@ mod tests {
         assert_eq!(close.style.unwrap().role, TileRole::Toolbar);
     }
     #[test]
-    fn errors_pauses_and_waits_show_in_the_status_without_a_highlight() {
+    fn errors_pauses_and_waits_float_beside_the_panel_without_a_highlight() {
         let screen = Rect {
             x: 0.0,
             y: 0.0,
@@ -971,13 +956,25 @@ mod tests {
         };
         let mut menu = Menu::new(Kind::Home, 250);
         let error = menu.frame(screen, 1.0, Dock::default(), true);
-        assert_eq!(status(&error), "Home · Action failed · Select to return");
+        assert_eq!(
+            message(&error).as_deref(),
+            Some("Home · Action failed · Select to return")
+        );
         assert!(error.tiles.iter().all(|tile| !tile.selected));
         assert!(error.tiles.iter().any(|tile| tile.text == "Close menu"));
         menu.suspend();
         let paused = menu.frame(screen, 1.0, Dock::default(), false);
-        assert_eq!(status(&paused), "Home paused · Select to resume");
+        assert_eq!(
+            message(&paused).as_deref(),
+            Some("Home paused · Select to resume")
+        );
         assert!(paused.tiles.iter().all(|tile| !tile.selected));
+        // The message is drawn on the HUD beside the panel, never on a tile.
+        let label = paused.label.unwrap();
+        assert!(label.hud.is_some());
+        let panel = paused.tiles[0].rect;
+        assert!(label.rect.y + label.rect.height <= panel.y);
+        assert!(!paused.tiles.iter().any(|tile| tile.text.contains("paused")));
     }
     #[test]
     fn rounded_panel_has_clear_corners_and_insets_all_keys() {
@@ -1003,16 +1000,14 @@ mod tests {
                     assert!(tile.rect.x + tile.rect.width < panel.rect.x + panel.rect.width);
                     assert!(tile.rect.y + tile.rect.height < panel.rect.y + panel.rect.height);
                 }
-                // The status header sits above every key, with equal side margins.
-                let header = content.iter().find(|tile| is_status(tile)).unwrap();
+                // Every key sits below the menu bar, with equal side margins.
+                let bar = crate::scan_panel::menu_bar(&frame).unwrap();
                 assert!(content
                     .iter()
                     .filter(|tile| {
-                        !is_status(tile)
-                            && !tile.is_menu_bar()
-                            && tile.style.map(|s| s.role) != Some(TileRole::Title)
+                        !tile.is_menu_bar() && tile.style.map(|s| s.role) != Some(TileRole::Title)
                     })
-                    .all(|tile| header.rect.y + header.rect.height < tile.rect.y));
+                    .all(|tile| bar.y + bar.height < tile.rect.y));
                 let left = content
                     .iter()
                     .map(|t| t.rect.x)

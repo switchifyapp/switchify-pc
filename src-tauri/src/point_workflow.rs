@@ -1879,11 +1879,10 @@ mod tests {
             workflow
                 .mouse
                 .frame(screen, 1.0, Default::default(), None)
-                .tiles
-                .last()
-                .unwrap()
-                .text,
-            "Pointer unavailable · Try again"
+                .label
+                .map(|label| label.text)
+                .as_deref(),
+            Some("Pointer unavailable · Try again")
         );
 
         workflow.set_pointer(Some((640.0, 360.0)));
@@ -2369,12 +2368,14 @@ mod tests {
             height: 720.0,
         };
         let mut session = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
-        let status = |session: &Session<Workflow>| {
-            let mut frame = session.technique.frame();
-            frame.tiles.pop().unwrap().text
-        };
+        // The message beside the panel; nothing while scanning normally.
+        let message =
+            |session: &Session<Workflow>| session.technique.frame().label.map(|label| label.text);
         session.action(Action::OpenMouse);
-        assert_eq!(status(&session), "Mouse waiting · Select to continue");
+        assert_eq!(
+            message(&session).as_deref(),
+            Some("Mouse waiting · Select to continue")
+        );
         for action in [
             Action::Select,
             Action::Next,
@@ -2390,10 +2391,23 @@ mod tests {
             Some(Request::MouseMove { dy: 0, .. })
         ));
         assert!(session.technique.stop_mouse_repeat());
-        assert_eq!(status(&session), "Mouse waiting · Select to continue");
+        assert_eq!(
+            message(&session).as_deref(),
+            Some("Mouse waiting · Select to continue")
+        );
         session.tick(5000, false);
         assert_eq!(session.action(Action::Select), None);
-        assert_eq!(status(&session), "Movement · Select →");
+        assert_eq!(message(&session), None);
+        // Scanning resumed at the arrow the user chose.
+        let selected: Vec<_> = session
+            .technique
+            .frame()
+            .tiles
+            .into_iter()
+            .filter(|tile| tile.selected)
+            .map(|tile| tile.text)
+            .collect();
+        assert_eq!(selected, ["→"]);
         // A move that fails starts again from the top.
         assert!(session.action(Action::Select).is_some());
         session.technique.stop_mouse_repeat();
@@ -2401,9 +2415,17 @@ mod tests {
         session.technique.mouse_repeat_enabled = false;
         assert!(session.action(Action::Select).is_some());
         session.technique.execution_failed(String::new());
-        assert_eq!(status(&session), "Mouse action failed · Select to resume");
+        assert_eq!(
+            message(&session).as_deref(),
+            Some("Mouse action failed · Select to resume")
+        );
         session.action(Action::Select);
-        assert_eq!(status(&session), "Movement · Select a row");
+        assert_eq!(message(&session), None);
+        // Back to scanning rows from the top.
+        let frame = session.technique.frame();
+        let selected: Vec<_> = frame.tiles.iter().filter(|tile| tile.selected).collect();
+        assert!(selected.len() > 1);
+        assert!(selected.iter().all(|tile| tile.style.unwrap().row_scan));
     }
     #[test]
     fn panels_wait_on_opening_where_the_user_chose_to() {
@@ -2455,10 +2477,10 @@ mod tests {
                 s.tick(5000, false);
                 assert_eq!(s.technique.phase(), keyboard);
                 if waits {
-                    let mut frame = s.technique.frame();
+                    let frame = s.technique.frame();
                     assert_eq!(
-                        frame.tiles.pop().unwrap().text,
-                        "Keyboard waiting · Select to start"
+                        frame.label.map(|label| label.text).as_deref(),
+                        Some("Keyboard waiting · Select to start")
                     );
                     // Select starts the scan without typing.
                     assert_eq!(s.action(Action::Select), None);
@@ -2728,8 +2750,8 @@ mod tests {
         let frame = session.technique.frame();
         assert!(frame.tiles.iter().all(|tile| !tile.selected));
         assert_eq!(
-            frame.tiles.last().unwrap().text,
-            "Moving pointer · Press and release a switch to stop"
+            frame.label.map(|label| label.text).as_deref(),
+            Some("Moving pointer · Press and release a switch to stop")
         );
         session.tick(1000, true);
         assert!(
@@ -3148,8 +3170,8 @@ mod tests {
             height: 720.0,
         };
         let background = |workflow: &Workflow| workflow.frame().tiles[0].rect;
-        let bottom = Dock::default().rect(screen, (568.0, 420.0));
-        let top = Dock { column: 1, row: 0 }.rect(screen, (568.0, 420.0));
+        let bottom = Dock::default().rect(screen, (568.0, 372.0));
+        let top = Dock { column: 1, row: 0 }.rect(screen, (568.0, 372.0));
         let over_bottom = Some((640.0, 700.0));
         let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         workflow.open_mouse(true);
@@ -3482,8 +3504,8 @@ mod tests {
         );
         assert!(!s.technique.return_to_mouse);
         assert_eq!(
-            s.frame().tiles.last().unwrap().text,
-            "Mouse action failed · Select to resume"
+            s.frame().label.map(|label| label.text).as_deref(),
+            Some("Mouse action failed · Select to resume")
         );
     }
     #[test]
@@ -3624,10 +3646,10 @@ mod tests {
             s.technique.phase(),
             Phase::Workflow(WorkflowPhase::KeyboardSuspended)
         );
-        let mut frame = s.technique.frame();
+        let frame = s.technique.frame();
         assert_eq!(
-            frame.tiles.pop().unwrap().text,
-            "Keyboard waiting · Select to start"
+            frame.label.map(|label| label.text).as_deref(),
+            Some("Keyboard waiting · Select to start")
         );
     }
     #[test]
@@ -3702,8 +3724,8 @@ mod tests {
             let frame = s.frame();
             assert!(frame.tiles.iter().all(|tile| !tile.selected));
             assert_eq!(
-                frame.tiles.last().unwrap().text,
-                format!("Repeating Backspace · {}", edge.instruction())
+                frame.label.map(|label| label.text),
+                Some(format!("Repeating Backspace · {}", edge.instruction()))
             );
 
             s.tick(250, false);
@@ -3750,7 +3772,7 @@ mod tests {
             assert!(typed(s.technique.choose_key(Key::Named(name)), name));
             s.technique.execution_succeeded();
             assert!(s.technique.mouse_repeating(), "{name}");
-            let text = s.frame().tiles.last().unwrap().text.clone();
+            let text = s.frame().label.unwrap().text;
             assert!(text.starts_with("Repeating "), "{text}");
             assert!(!text.contains("Arrow"), "{text}");
         }
@@ -3813,8 +3835,7 @@ mod tests {
         assert!(s.technique.mouse_repeating());
         assert!(s
             .frame()
-            .tiles
-            .last()
+            .label
             .unwrap()
             .text
             .starts_with("Repeating Shift+Left arrow · "));
@@ -4092,10 +4113,6 @@ mod tests {
         assert!(session.take_selection().is_some());
         session.execution_failed("Cleanup failed".into());
         let frame = session.frame();
-        assert!(frame
-            .tiles
-            .iter()
-            .any(|tile| tile.text.ends_with("Action failed · Select to return")));
         assert!(frame.label.unwrap().text.starts_with("Cleanup failed"));
         assert_eq!(session.action(Action::Select), None);
         assert_eq!(
@@ -4301,18 +4318,12 @@ mod tests {
                 w.set_dock(dock);
                 w.stage = Stage::Menu;
                 w.execution_failed(message.into());
-                // The status stays one short line, and the message is shown clear of the panel.
+                // The message is shown clear of the panel, which has no status line.
                 let frame = w.frame();
-                let status = frame
-                    .tiles
-                    .iter()
-                    .find(|tile| {
-                        tile.style
-                            .is_some_and(|style| style.role == crate::scanning::TileRole::Status)
-                    })
-                    .unwrap();
-                assert_eq!(status.text, "Actions · Action failed · Select to return");
                 assert!(frame.tiles.iter().all(|tile| !tile.selected));
+                assert!(frame.tiles.iter().all(|tile| {
+                    tile.style.map(|style| style.role) != Some(crate::scanning::TileRole::Status)
+                }));
                 let label = frame.label.unwrap();
                 assert_eq!(label.text, format!("{message}\nSelect to return"));
                 assert!(label.hud.is_some());
@@ -4353,8 +4364,8 @@ mod tests {
         for (column, right, count) in [(0, false, 1), (1, true, 1), (2, false, 2)] {
             let mut s = session(false);
             open(&mut s);
-            // The background, the title and Settings, eleven actions and the status header.
-            assert_eq!(s.frame().tiles.len(), 15);
+            // The background, the title and Settings, and eleven actions.
+            assert_eq!(s.frame().tiles.len(), 14);
             assert_eq!(
                 choose(&mut s, 0, column),
                 Some(Request::Click {
