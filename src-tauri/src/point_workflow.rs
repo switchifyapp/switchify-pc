@@ -173,7 +173,10 @@ pub struct Workflow {
     point: Engine,
     stage: Stage,
     menu: Menu,
-    parent_menu: Vec<Menu>,
+    /// The menus Back leads through, outermost first. Only their kinds are
+    /// kept: Back rebuilds the parent so it scans from the top like any other
+    /// freshly opened menu.
+    parent_menu: Vec<Kind>,
     source: Point,
     destination: Point,
     elapsed: u64,
@@ -298,16 +301,10 @@ impl Workflow {
             .set_panel_size(self.point.config.mouse_scan.panel_size);
         self.menu
             .set_panel_size(self.point.config.menu_scan.panel_size);
-        for menu in &mut self.parent_menu {
-            menu.set_panel_size(self.point.config.menu_scan.panel_size);
-        }
 
         self.keyboard.set_layout(self.point.config.keyboard_layout);
         self.menu
             .set_period(self.point.config.menu_scan.interval_ms);
-        for menu in &mut self.parent_menu {
-            menu.set_period(self.point.config.menu_scan.interval_ms);
-        }
         if restart {
             self.keyboard = self.new_keyboard();
             self.keyboard_layout_pending = false;
@@ -362,7 +359,7 @@ impl Workflow {
                 || self
                     .parent_menu
                     .first()
-                    .is_some_and(|menu| menu.kind == Kind::Home))
+                    .is_some_and(|kind| *kind == Kind::Home))
     }
     fn open_home(&mut self) {
         self.mouse_actions_open = false;
@@ -686,9 +683,8 @@ impl Workflow {
         (self.following && self.stage == Stage::Point) || self.home_open()
     }
     fn restore_actions(&mut self) {
-        if let Some(menu) = self.parent_menu.pop() {
-            self.menu = menu;
-            self.menu.restart_interval();
+        if let Some(kind) = self.parent_menu.pop() {
+            self.menu = Menu::configured(kind, self.point.config.menu_scan);
             self.stage = Stage::Menu;
         } else {
             self.open(Kind::Actions);
@@ -966,7 +962,7 @@ impl Workflow {
                 };
                 let next = Menu::configured(kind, self.point.config.menu_scan);
                 self.parent_menu
-                    .push(std::mem::replace(&mut self.menu, next));
+                    .push(std::mem::replace(&mut self.menu, next).kind);
             }
             Item::Command(command) => {
                 if self.mouse_actions_open
@@ -1026,7 +1022,7 @@ impl Workflow {
             Item::Scroll | Item::Drag => {
                 let next = Menu::configured(Kind::Scroll, self.point.config.menu_scan);
                 self.parent_menu
-                    .push(std::mem::replace(&mut self.menu, next));
+                    .push(std::mem::replace(&mut self.menu, next).kind);
                 if item == Item::Drag {
                     self.stage = Stage::Destination;
                     self.point.start();
@@ -2133,10 +2129,8 @@ mod tests {
         assert_eq!(s.technique.menu.kind, Kind::ShutDown);
         assert_eq!(choose_in(&mut s, 0, 0), None);
         assert_eq!(s.technique.menu.kind, Kind::Windows);
-        // Restart's page: the middle tile acts and Home comes back.
-        let mut s = home_session();
-        s.action(Action::Select);
-        assert_eq!(choose_in(&mut s, 1, 0), None);
+        // Back scans Apps and windows from the top again, like any freshly
+        // opened menu, so Restart is reached by the same moves as before.
         assert_eq!(choose_in(&mut s, 2, 2), None);
         assert_eq!(s.technique.menu.kind, Kind::Restart);
         assert_eq!(
@@ -3061,6 +3055,53 @@ mod tests {
         assert_eq!(next.unsaved_dock(), None);
     }
 
+    #[test]
+    fn back_scans_the_parent_from_the_top_with_the_current_preferences() {
+        use crate::scan_preferences::PanelSize;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let selected_texts = |frame: &Frame| {
+            frame
+                .tiles
+                .iter()
+                .filter(|tile| tile.selected)
+                .map(|tile| tile.text.clone())
+                .collect::<Vec<_>>()
+        };
+        let mut config = last_mode();
+        let mut w = Workflow::new(config.point(), screen, 1.0).unwrap();
+        w.source = (120, 80);
+        w.stage = Stage::Menu;
+        w.selected(Item::More);
+        // Move well past the top before going down a level.
+        w.handle(Action::Next);
+        w.handle(Action::Next);
+        w.selected(Item::Group(Kind::Browser));
+        assert_eq!(w.menu.kind, Kind::Browser);
+        // Preferences change while the submenu is open.
+        config.scan_preferences.panel_size = PanelSize::Large;
+        w.apply_config(config.point(), false);
+        w.selected(Item::Back);
+        assert_eq!(w.menu.kind, Kind::More);
+
+        // The same menu opened afresh with the same preferences looks identical.
+        let mut fresh = Workflow::new(config.point(), screen, 1.0).unwrap();
+        fresh.source = (120, 80);
+        fresh.stage = Stage::Menu;
+        fresh.selected(Item::More);
+        let (back, opened) = (w.frame(), fresh.frame());
+        assert_eq!(selected_texts(&back), selected_texts(&opened));
+        assert_eq!(back.tiles[0].rect, opened.tiles[0].rect);
+        // The larger size took effect: the menu grew past its default width.
+        let mut standard = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        standard.stage = Stage::Menu;
+        standard.selected(Item::More);
+        assert!(back.tiles[0].rect.width > standard.frame().tiles[0].rect.width);
+    }
     #[test]
     fn size_changes_update_open_panels_without_resetting_the_scan() {
         use crate::scan_preferences::PanelSize;
@@ -4328,7 +4369,7 @@ mod tests {
         }
     }
     #[test]
-    fn scrolling_retains_direction_and_back_restores_scroll_position() {
+    fn scrolling_retains_direction_and_back_restarts_the_action_menu() {
         let mut s = session(false);
         open(&mut s);
         choose(&mut s, 1, 0);
@@ -4355,7 +4396,9 @@ mod tests {
         assert_eq!(s.action(Action::Select), None);
         assert_eq!(s.action(Action::Select), None);
         assert_eq!(s.technique.menu.kind, Kind::Actions);
-        assert_eq!(s.action(Action::Select), None);
+        // Back scans Actions from the top again, so Scroll takes the same
+        // moves as the first time rather than continuing from the old row.
+        assert_eq!(choose(&mut s, 1, 0), None);
         assert_eq!(s.technique.menu.kind, Kind::Scroll);
     }
     #[test]
