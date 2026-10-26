@@ -1,6 +1,6 @@
 [package]
 name = "switchify-pc"
-version = "1.0.2"
+version = "1.1.0"
 description = "Switchify desktop companion for mobile control"
 authors = ["Enabo Apps"]
 edition = "2021"
