@@ -93,9 +93,10 @@ pub enum Kind {
     Actions,
     Scroll,
     ConfirmDrag,
+    Power,
 }
 #[cfg(test)]
-pub(crate) const ALL_MENU_KINDS: [Kind; 16] = [
+pub(crate) const ALL_MENU_KINDS: [Kind; 17] = [
     Kind::Home,
     Kind::Actions,
     Kind::More,
@@ -112,6 +113,7 @@ pub(crate) const ALL_MENU_KINDS: [Kind; 16] = [
     Kind::Scanning,
     Kind::Scroll,
     Kind::ConfirmDrag,
+    Kind::Power,
 ];
 pub struct Menu {
     pub kind: Kind,
@@ -263,6 +265,8 @@ pub enum Command {
     VolumeUp,
     VolumeDown,
     Mute,
+    ShutDown,
+    Restart,
 }
 impl Command {
     pub fn label(self) -> &'static str {
@@ -324,6 +328,8 @@ impl Command {
             Self::VolumeUp => "Volume up",
             Self::VolumeDown => "Volume down",
             Self::Mute => "Mute",
+            Self::ShutDown => "Shut down",
+            Self::Restart => "Restart",
         }
     }
     pub fn stays_open(self) -> bool {
@@ -404,6 +410,7 @@ impl Kind {
             Self::Media => "Media",
             Self::Displays => "Displays",
             Self::Scanning => "Scanning",
+            Self::Power => "Power",
         }
     }
     fn rows(self) -> Vec<Vec<Item>> {
@@ -493,6 +500,7 @@ impl Kind {
                 Command(C::Minimize),
                 Command(C::Maximize),
                 Command(C::CloseWindow),
+                Group(Self::Power),
                 Back,
             ],
             Self::Browser => vec![
@@ -528,6 +536,9 @@ impl Kind {
                 Back,
             ],
             Self::Displays => vec![Display(true), Display(false), Back],
+            // Both actions share one row, so reaching either takes a row Select
+            // and then an item Select; a lone tile in a row would act on the first.
+            Self::Power => vec![Command(C::ShutDown), Command(C::Restart), Back],
             Self::Scanning => vec![
                 Pause,
                 Reverse,
@@ -719,11 +730,50 @@ mod tests {
                 }
             }
         }
-        assert_eq!(commands.len(), 39);
+        assert_eq!(commands.len(), 41);
+        assert!(visited.contains(&Kind::Power));
         assert!(visited.contains(&Kind::Scanning));
         assert!(visited.contains(&Kind::Displays));
         assert!(visited.contains(&Kind::Tabs));
         assert!(visited.contains(&Kind::Zoom));
+    }
+    #[test]
+    fn power_actions_sit_on_their_own_page_and_need_a_row_then_an_item_select() {
+        let windows = Kind::Windows
+            .rows()
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        assert!(windows.contains(&Item::Group(Kind::Power)));
+        assert_eq!(
+            Kind::Power.rows(),
+            [
+                vec![
+                    Item::Command(Command::ShutDown),
+                    Item::Command(Command::Restart)
+                ],
+                vec![Item::Back, Item::Cancel],
+            ]
+        );
+        for command in [Command::ShutDown, Command::Restart] {
+            assert!(!command.stays_open());
+            // One Select on entering the page only chooses the row.
+            let mut menu = Menu::new(Kind::Power, 250);
+            assert_eq!(menu.handle(Action::Select), None);
+            if command == Command::Restart {
+                menu.advance(250);
+            }
+            assert_eq!(menu.handle(Action::Select), Some(Item::Command(command)));
+            // No other page offers the command.
+            for kind in ALL_MENU_KINDS {
+                let items = kind.rows().into_iter().flatten().collect::<Vec<_>>();
+                assert_eq!(
+                    items.contains(&Item::Command(command)),
+                    kind == Kind::Power,
+                    "{kind:?} {command:?}"
+                );
+            }
+        }
     }
     #[test]
     fn home_offers_modes_and_point_free_actions() {

@@ -10,12 +10,18 @@ Press and release **Select** to open Home. It scans through these items; press S
 | **Point** | Start [point scanning](/using/point-scanning/) to choose a spot on screen. |
 | **Mouse** | Open the [mouse panel](/using/mouse-panel/) to move the pointer step by step. |
 | **Keyboard** | Open the scanning [keyboard](/using/keyboard/). |
-| **Apps and windows** | Switch app forward or backward, open the app overview, show the desktop, minimise, maximise or restore (toggle full screen on a Mac), and close the window. |
+| **Apps and windows** | Switch app forward or backward, open the app overview, show the desktop, minimise, maximise or restore (toggle full screen on a Mac), close the window, and open **Power** to shut down or restart the computer. |
 | **Editing** | Copy, cut, paste, select all, undo, redo, save, find. |
 | **Browser** | Back, forward, reload, new tab, close tab, reopen a closed tab, next and previous tab, address bar, zoom in, zoom out and reset zoom. |
 | **Media** | Play or pause, next and previous track, volume up and down, mute. |
 | **Switchify** | Change the scan speed and line speed, switch between line-only and grid-then-line point scanning, change the keyboard layout, pause, reverse direction, and move to the next or previous display. |
 | **Close menu** | Close Home without doing anything. |
+
+## Shut down or restart
+
+**Power**, at the end of Apps and windows, opens a short page with **Shut down** and **Restart** side by side, then **Back** and **Close menu**. Nothing happens until you choose the top row with Select and then choose Shut down or Restart with a second Select. A Select that lands early only picks the row.
+
+Switchify PC asks the computer to shut down or restart the same way the Start menu or Apple menu does. Open apps may ask you to save first, and a message from the computer may stop the shutdown until you deal with it. Nothing is forced closed. On a Mac, the first time you use Power, macOS may ask you to allow Switchify PC to control System Events; choose Allow.
 
 In Settings you can choose whether Select opens Home every time, or returns to the last mode you used.
 
