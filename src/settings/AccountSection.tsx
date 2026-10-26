@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { CircleUserRound, ListChecks, LockKeyhole, MailCheck, RefreshCw, Smartphone, Trash2 } from "lucide-react";
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { CircleUserRound, LockKeyhole, MailCheck, RefreshCw, Smartphone, Trash2 } from "lucide-react";
 import { api } from "../api";
 import { Button, Input, StatusIcon } from "../ui/controls";
 import type { AccountView, AppSettings, SyncView } from "../types";
 import { Toggle } from "./controls";
 
-const sameAccount = "It's the same account as Switchify on Android.";
-const whatSyncs = "Pointer, repeat, dwell and cursor settings; your switches and their keys; scanning and keyboard layout; your switch profiles; and remote switches. Pairings, diagnostics sharing, setup progress and starting with your computer stay on each computer.";
+const syncs = "Pointer, repeat, dwell and cursor settings; your switches and their keys; scanning and keyboard layout; your switch profiles; and remote switches.";
+const staysHere = "Phone pairings, phone approval, diagnostics sharing, learned words, setup progress and starting with your computer.";
 
 type FocusTarget = "email" | "code" | "signOut" | "deleteAccount" | "keepAccount";
 type Screen = "loading" | "unavailable" | "keychain" | "signedIn" | "pending" | "signedOut";
@@ -29,19 +29,23 @@ function Band({ tone, ok, icon, title, children, action }: { tone: "ready" | "at
   </section>;
 }
 
-function WhatSyncs() {
-  return <div className="status-list what-syncs">
-    <article><StatusIcon><ListChecks size={19} /></StatusIcon><div><h3>What syncs</h3><p>{whatSyncs}</p></div></article>
-  </div>;
+// What sync carries and what stays put, read as two short rows under the
+// sync status so the explanation sits beside the control it explains.
+function SyncDetails() {
+  return <dl className="sync-details">
+    <div><dt>Syncs</dt><dd>{syncs}</dd></div>
+    <div><dt>Stays on this computer</dt><dd>{staysHere}</dd></div>
+  </dl>;
 }
 
 /** Approves pairing from phones that prove they are signed into this account. */
 function AccountPairingRow({ settings, onChange }: { settings: AppSettings; onChange: (next: AppSettings) => void }) {
-  return <article className="stacked-row">
+  const headingId = useId();
+  const noteId = useId();
+  return <article>
     <StatusIcon><Smartphone size={19} /></StatusIcon>
-    <div><h3>Pair your phones automatically</h3><p>When Switchify on a phone signed into this account pairs with this computer, it&apos;s approved without comparing codes. Turn this off if other people share this account.</p>
-      <Toggle label="Approve phones on this account automatically" checked={settings.autoApproveAccountDevices} onChange={(value) => onChange({ ...settings, autoApproveAccountDevices: value })} />
-    </div>
+    <div><h3 id={headingId}>Approve phones on this account automatically</h3><p id={noteId}>A phone signed in to this account pairs with this computer without comparing codes. Turn this off if other people share the account.</p></div>
+    <Toggle labelledBy={headingId} describedBy={noteId} checked={settings.autoApproveAccountDevices} onChange={(value) => onChange({ ...settings, autoApproveAccountDevices: value })} />
   </article>;
 }
 
@@ -62,6 +66,7 @@ export function AccountSection({ settings, onSettingsChange }: { settings?: AppS
   const signOutRef = useRef<HTMLButtonElement>(null);
   const deleteRef = useRef<HTMLButtonElement>(null);
   const keepRef = useRef<HTMLButtonElement>(null);
+  const removeHeadingId = useId();
   const targets: Record<FocusTarget, () => HTMLElement | null> = {
     email: () => emailRef.current,
     code: () => codeRef.current,
@@ -162,28 +167,27 @@ export function AccountSection({ settings, onSettingsChange }: { settings?: AppS
     return <div className="account-page">
       <Band tone="ready" ok icon={<CircleUserRound size={26} />} title={<span className="account-email">{account.email}</span>}
         action={<Button ref={signOutRef} className="secondary" aria-disabled={busy} onClick={() => void run(api.signOut, afterSignOut, "signOut")}>Sign out</Button>}>
-        <p role="status">Signed in. {sameAccount}</p>
+        <p role="status">Signed in.</p>
         {errorAt("signOut")}
       </Band>
-      <div className="status-list"><SyncRow /></div>
-      <WhatSyncs />
+      <div className="status-list sync-card"><SyncRow /><SyncDetails /></div>
       {settings && onSettingsChange && <div className="status-list"><AccountPairingRow settings={settings} onChange={onSettingsChange} /></div>}
-      <div className="status-list">
+      <section className="account-remove" aria-labelledby={removeHeadingId}>
+        <h3 id={removeHeadingId}>Remove account</h3>
         {confirmDelete
-          ? <article className="stacked-row" role="group" aria-label="Confirm account deletion">
-            <StatusIcon ok={false}><Trash2 size={19} /></StatusIcon>
-            <div><h3>Delete your account?</h3><p>This removes your account and its saved settings from every device, including Switchify on Android. It cannot be undone.</p>{errorAt("delete")}</div>
-            <div className="privacy-choice row-actions">
+          ? <div className="account-remove-confirm" role="group" aria-label="Confirm account deletion">
+            <p>This deletes your account and its saved settings from every device. It cannot be undone.</p>
+            {errorAt("delete")}
+            <div className="privacy-choice">
               <Button className="primary danger" aria-disabled={busy} onClick={() => void run(api.deleteAccount, afterSignOut, "delete").then((ok) => { if (ok) setConfirmDelete(false); })}>Delete permanently</Button>
               <Button ref={keepRef} className="secondary" aria-disabled={busy} onClick={() => { if (busy) return; setError(null); setConfirmDelete(false); setFocusNext("deleteAccount"); }}>Keep account</Button>
             </div>
-          </article>
-          : <article>
-            <StatusIcon><Trash2 size={19} /></StatusIcon>
-            <div><h3>Delete account</h3><p>Remove your account and its saved settings from every device.</p></div>
-            <Button ref={deleteRef} className="secondary danger" aria-disabled={busy} onClick={() => { if (busy) return; setError(null); setConfirmDelete(true); setFocusNext("keepAccount"); }}>Delete account…</Button>
-          </article>}
-      </div>
+          </div>
+          : <div className="account-remove-row">
+            <p>Deletes your account and its saved settings from every device.</p>
+            <Button ref={deleteRef} className="text-button danger-icon" aria-disabled={busy} onClick={() => { if (busy) return; setError(null); setConfirmDelete(true); setFocusNext("keepAccount"); }}><Trash2 size={18} aria-hidden="true" />Delete account…</Button>
+          </div>}
+      </section>
     </div>;
   }
 
@@ -210,7 +214,7 @@ export function AccountSection({ settings, onSettingsChange }: { settings?: AppS
 
   return <div className="account-page">
     <Band tone="neutral" icon={<CircleUserRound size={26} />} title="Sign in to sync your settings">
-      <p>{sameAccount} We email you a code to sign in; there is no password.</p>
+      <p>We email you a code to sign in; there is no password.</p>
     </Band>
     <div className="status-list">
       <form className="account-form" onSubmit={requestCode} aria-busy={busy}>
@@ -224,7 +228,7 @@ export function AccountSection({ settings, onSettingsChange }: { settings?: AppS
         </div>
       </form>
     </div>
-    <WhatSyncs />
+    <div className="status-list sync-card"><SyncDetails /></div>
   </div>;
 }
 
