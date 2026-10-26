@@ -645,6 +645,13 @@ describe("Switchify PC shell", () => {
       fireEvent.click(reopened);
       fireEvent.pointerDown(screen.getByRole("heading", { name: "Switches", level: 1 }));
       expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+
+      // Tabbing out into the page closes it so it never covers the focused control.
+      fireEvent.click(reopened);
+      const help = screen.getByRole("button", { name: "Help" });
+      const outside = screen.getByRole("button", { name: "Add switch" });
+      fireEvent.blur(help, { relatedTarget: outside });
+      expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
     });
 
     it("reaches the Account page from the popover", async () => {

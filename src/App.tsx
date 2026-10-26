@@ -836,6 +836,11 @@ export function App() {
       closeMenu();
     }
   };
+  // Tabbing out of the popover closes it, so it never covers the control
+  // that now has focus.
+  const onSidebarBlur = (event: React.FocusEvent) => {
+    if (menuOpen && !asideRef.current?.contains(event.relatedTarget as Node | null)) setMenuOpen(false);
+  };
 
   const openUpdates = () => {
     if (viewRef.current !== "settings") {
@@ -874,7 +879,7 @@ export function App() {
 
   if (!state || !settings) return <div className="loading"><RefreshCw className="spin" size={24} /><span>Starting Switchify PC...</span></div>;
   return <DemonstrationProvider platform={state.capabilities.platform} suspended={state.pendingPairings.length > 0 || switches.capturing || !!switches.state?.capture.active}><div className="app-shell">
-    <aside ref={asideRef} inert={setupOpen || state.pendingPairings.length > 0} data-menu-open={compactSidebar ? menuOpen : undefined} onKeyDown={onSidebarKeyDown}>
+    <aside ref={asideRef} inert={setupOpen || state.pendingPairings.length > 0} data-menu-open={compactSidebar ? menuOpen : undefined} onKeyDown={onSidebarKeyDown} onBlur={onSidebarBlur}>
       <div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div>
       {compactSidebar && <Button ref={menuButtonRef} className="sidebar-menu-button" aria-label={`Menu, ${currentPage}`} aria-expanded={menuOpen} aria-controls={menuPanelId} onClick={() => setMenuOpen((open) => !open)}><Menu size={19} aria-hidden="true" /><span>{currentPage}</span><ChevronDown className="sidebar-menu-chevron" size={18} aria-hidden="true" /></Button>}
       <div ref={menuPanelRef} id={menuPanelId} className="sidebar-panel" hidden={compactSidebar && !menuOpen}>
