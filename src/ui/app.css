@@ -247,6 +247,7 @@ main { min-width: 0; }
 @container (max-width: 560px) {
   :is(.status-list, .task-list, .device-list, .setup-statuses) > article { grid-auto-flow: row; padding: 16px; }
   :is(.status-list, .task-list, .device-list, .setup-statuses) > article > :is(.btn, .toggle-bare) { grid-column: 2; justify-self: start; }
+  .sync-card > article + .sync-details { padding-left: calc(16px + 40px + 16px); }
 }
 .setup-launch { margin-bottom: 24px; }
 
@@ -701,11 +702,11 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .account-band h2 .account-email { overflow-wrap: anywhere; }
 /* Sync explanation under the sync row: a label lane and a text lane. The
    wide-window tile rules skip .sync-card so the two stay stacked. */
-.sync-details { display: grid; gap: 8px; padding: 14px 20px 18px; }
+.sync-details { display: grid; gap: 8px; margin: 0; padding: 14px 20px 18px; }
 .sync-card > article + .sync-details { padding-left: calc(20px + 40px + 16px); }
 .sync-details > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px 16px; }
 .sync-details dt { font-size: 15px; font-weight: 600; }
-.sync-details dd { color: var(--muted); font-size: 15px; line-height: 1.45; }
+.sync-details dd { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.45; }
 /* A switch on its own at the end of a row. */
 .toggle-row.toggle-bare { position: relative; min-height: 0; grid-template-columns: auto; border: 0; padding: 0; background: transparent; justify-self: end; }
 /* Deleting the account sits apart from routine controls, under its own label. */
