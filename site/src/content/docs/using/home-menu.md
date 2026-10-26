@@ -14,7 +14,7 @@ Press and release **Select** to open Home. It scans through these items; press S
 | **Editing** | Copy, cut, paste, select all, undo, redo, save, find. |
 | **Browser** | Back, forward, reload, new tab, close tab, reopen a closed tab, next and previous tab, address bar. |
 | **Media** | Play or pause, next and previous track, volume up and down, mute. |
-| **Zoom** | Zoom in, zoom out and reset zoom in the app in front. This works in browsers, Word, file managers, PDF readers and most other apps. |
+| **Zoom** | Zoom in, zoom out and reset zoom in the app in front, using the Ctrl or Cmd shortcuts with =, - and 0. Browsers, PDF readers, mail apps and many other apps zoom with these keys. Some apps use them for something else; Word, for example, does not zoom. |
 | **Switchify** | Change the scan speed and line speed, switch between line-only and grid-then-line point scanning, change the keyboard layout, pause, reverse direction, and move to the next or previous display. |
 | **Close menu** | Close Home without doing anything. |
 
