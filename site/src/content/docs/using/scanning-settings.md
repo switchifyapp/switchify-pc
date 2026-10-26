@@ -27,6 +27,8 @@ How menus and the keyboard are grouped:
 
 When the keyboard or the mouse panel opens, it follows its own **After a selection** choice. Set to wait, the panel opens without moving and starts scanning from the beginning when you press Select. This also applies when you go back to the mouse panel, for example after closing the keyboard.
 
+Choosing **Back** in a menu opens the menu above it afresh, scanning from the beginning like any menu you open. It does not carry on from the item you chose before.
+
 ## Appearance
 
 - **Scanner colour**: red, green, blue, yellow or white.
