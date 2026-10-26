@@ -4,5 +4,7 @@
 <dict>
   <key>NSBluetoothAlwaysUsageDescription</key>
   <string>Switchify uses Bluetooth to receive authenticated control commands from your mobile device.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Switchify PC asks System Events to shut down or restart the Mac when you choose that in a scanning menu.</string>
 </dict>
 </plist>

@@ -24,6 +24,7 @@ mod point_scan_runtime;
 mod point_workflow;
 mod pointer_speed;
 mod portable_settings;
+mod power;
 mod prediction;
 mod protocol;
 mod remote_scan;

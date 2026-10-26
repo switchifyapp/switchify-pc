@@ -10,12 +10,18 @@ Press and release **Select** to open Home. It scans through these items; press S
 | **Point** | Start [point scanning](/using/point-scanning/) to choose a spot on screen. |
 | **Mouse** | Open the [mouse panel](/using/mouse-panel/) to move the pointer step by step. |
 | **Keyboard** | Open the scanning [keyboard](/using/keyboard/). |
-| **Apps and windows** | Switch app forward or backward, open the app overview, show the desktop, minimise, maximise or restore (toggle full screen on a Mac), and close the window. |
+| **Apps and windows** | Switch app forward or backward, open the app overview, show the desktop, minimise, maximise or restore (toggle full screen on a Mac), close the window, and shut down or restart the computer. |
 | **Editing** | Copy, cut, paste, select all, undo, redo, save, find. |
 | **Browser** | Back, forward, reload, new tab, close tab, reopen a closed tab, next and previous tab, address bar, zoom in, zoom out and reset zoom. |
 | **Media** | Play or pause, next and previous track, volume up and down, mute. |
 | **Switchify** | Change the scan speed and line speed, switch between line-only and grid-then-line point scanning, change the keyboard layout, pause, reverse direction, and move to the next or previous display. |
 | **Close menu** | Close Home without doing anything. |
+
+## Shut down or restart
+
+**Shut down** and **Restart** are the last items in Apps and windows. Each opens a page of its own with three tiles: **Back**, then **Shut down now** or **Restart now**, then **Close menu**. Scanning on that page starts on Back, or on Close menu if your scan direction is reversed, so a Select that lands early never shuts down or restarts. Nothing happens until you choose the middle tile.
+
+Switchify PC asks Windows or macOS to shut down or restart and lets open apps close normally. Apps may ask you to save first, and a message from the computer may hold the shutdown until you deal with it. Nothing is forced closed. On a Mac, the first time you use Shut down or Restart, macOS asks whether Switchify PC may control System Events; choose Allow. If you chose Don't Allow, nothing happens when you choose Shut down now or Restart now, and the menu may show that the action failed. Turn it on again in System Settings under Privacy & Security, Automation, Switchify PC.
 
 In Settings you can choose whether Select opens Home every time, or returns to the last mode you used.
 

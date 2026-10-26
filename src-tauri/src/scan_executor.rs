@@ -359,6 +359,15 @@ fn execute_command<I: InputInjector>(
         CloseWindow => input.injector.window("closeFocused"),
         Minimize => input.injector.window("minimizeFocused"),
         Maximize => input.injector.window("maximizeFocused"),
+        // Nothing may stay held while the system closes applications, this one included.
+        ShutDown | Restart => {
+            input.release_all()?;
+            input.injector.power(if command == ShutDown {
+                crate::power::Action::ShutDown
+            } else {
+                crate::power::Action::Restart
+            })
+        }
         _ => Err("Action is unavailable on this platform.".into()),
     }
 }
@@ -473,6 +482,10 @@ mod tests {
         }
         fn window(&mut self, action: &str) -> Result<(), String> {
             self.events.push(format!("window {action}"));
+            Ok(())
+        }
+        fn power(&mut self, action: crate::power::Action) -> Result<(), String> {
+            self.events.push(format!("power {}", action.verb()));
             Ok(())
         }
     }
@@ -1176,6 +1189,38 @@ mod tests {
         )
         .unwrap();
         assert_eq!(input.injector.events, ["window closeFocused"]);
+    }
+    #[test]
+    fn power_commands_release_owned_input_then_ask_the_system_once() {
+        for (command, name) in [
+            (Command::ShutDown, "power shut down"),
+            (Command::Restart, "power restart"),
+        ] {
+            // A drag in progress blocks the request, like every other command.
+            let mut input = DesktopInput::new(Fake::default());
+            execute(&mut input, Request::DragStart((10, 20)), true).unwrap();
+            let request = Request::Command {
+                command,
+                point: (10, 20),
+            };
+            assert!(execute(&mut input, request, true).is_err());
+            assert!(!input.injector.events.iter().any(|e| e.starts_with("power")));
+            execute(&mut input, Request::OpenPoint, true).unwrap();
+
+            // A key left down by a failed release is let go before the system
+            // starts closing applications.
+            let mut input = DesktopInput::new(Fake {
+                fail_release: true,
+                ..Default::default()
+            });
+            assert!(input.scan_chord(&["Shift"], None).is_err());
+            input.injector.fail_release = false;
+            input.injector.events.clear();
+            execute(&mut input, request, true).unwrap();
+            assert_eq!(input.injector.events, ["key Shift false", name]);
+            assert_eq!(shortcut(command, true), None);
+            assert_eq!(shortcut(command, false), None);
+        }
     }
     #[test]
     fn media_and_extra_clicks_execute_once() {

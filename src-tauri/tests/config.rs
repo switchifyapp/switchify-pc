@@ -34,6 +34,24 @@ fn application_configuration_uses_the_promoted_identity() {
     assert_eq!(config["bundle"]["macOS"]["hardenedRuntime"], true);
 }
 
+#[test]
+fn macos_bundle_may_send_apple_events_for_shut_down_and_restart() {
+    let config: serde_json::Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).expect("valid Tauri config");
+    assert_eq!(
+        config["bundle"]["macOS"]["entitlements"],
+        "Entitlements.plist"
+    );
+    assert_eq!(config["bundle"]["macOS"]["infoPlist"], "Info.plist");
+    let entitlements = include_str!("../Entitlements.plist").replace("\r\n", "\n");
+    assert!(
+        entitlements.contains("<key>com.apple.security.automation.apple-events</key>\n  <true/>")
+    );
+    let info = include_str!("../Info.plist");
+    assert!(info.contains("<key>NSAppleEventsUsageDescription</key>"));
+    assert!(info.contains("<key>NSBluetoothAlwaysUsageDescription</key>"));
+}
+
 fn capability(path: &str) -> serde_json::Value {
     serde_json::from_str(path).expect("valid capability configuration")
 }

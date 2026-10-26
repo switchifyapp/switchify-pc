@@ -2121,6 +2121,60 @@ mod tests {
     }
 
     #[test]
+    fn power_actions_confirm_on_their_own_page_then_return_to_home_or_mouse() {
+        use crate::scan_menu::Command;
+        use crate::scan_mouse::Key;
+        // From Home: Apps and windows, then Shut down opens its page; Back returns.
+        let mut s = home_session();
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 1, 0), None);
+        assert_eq!(s.technique.menu.kind, Kind::Windows);
+        assert_eq!(choose_in(&mut s, 2, 1), None);
+        assert_eq!(s.technique.menu.kind, Kind::ShutDown);
+        assert_eq!(choose_in(&mut s, 0, 0), None);
+        assert_eq!(s.technique.menu.kind, Kind::Windows);
+        // Restart's page: the middle tile acts and Home comes back.
+        let mut s = home_session();
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 1, 0), None);
+        assert_eq!(choose_in(&mut s, 2, 2), None);
+        assert_eq!(s.technique.menu.kind, Kind::Restart);
+        assert_eq!(
+            choose_in(&mut s, 0, 1),
+            Some(Request::Command {
+                command: Command::Restart,
+                point: (0, 0),
+            })
+        );
+        assert_eq!(s.technique.menu.kind, Kind::Home);
+        assert!(s.technique.parent_menu.is_empty());
+        assert!(s.active());
+
+        // From the mouse panel's actions the same selection returns to the mouse panel.
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        workflow.handle(Action::OpenMouse);
+        workflow.set_pointer(Some((321.4, 246.6)));
+        assert_eq!(workflow.mouse_key(Key::Actions), None);
+        assert_eq!(workflow.menu.kind, Kind::MouseActions);
+        assert_eq!(workflow.selected(Item::Group(Kind::Windows)), None);
+        assert_eq!(workflow.selected(Item::Group(Kind::ShutDown)), None);
+        assert_eq!(workflow.menu.kind, Kind::ShutDown);
+        assert_eq!(
+            workflow.selected(Item::Command(Command::ShutDown)),
+            Some(Request::Command {
+                command: Command::ShutDown,
+                point: (321, 247),
+            })
+        );
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    }
+    #[test]
     fn mouse_actions_use_the_current_pointer_and_return_to_mouse() {
         use crate::scan_menu::Command;
         use crate::scan_mouse::Key;
@@ -3866,7 +3920,12 @@ mod tests {
                     .iter()
                     .filter(|tile| tile.rect.x == first.rect.x)
                     .count();
-                let close = if kind == Kind::Home { 2 } else { 1 };
+                // Home and the power confirmation pages keep Close menu in the third column.
+                let close = if matches!(kind, Kind::Home | Kind::ShutDown | Kind::Restart) {
+                    2
+                } else {
+                    1
+                };
                 assert_eq!(choose(&mut s, rows - 1, close), None, "{kind:?}");
                 assert!(!s.active());
                 assert!(s.technique.stage == Stage::Idle);

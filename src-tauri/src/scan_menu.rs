@@ -93,9 +93,11 @@ pub enum Kind {
     Actions,
     Scroll,
     ConfirmDrag,
+    ShutDown,
+    Restart,
 }
 #[cfg(test)]
-pub(crate) const ALL_MENU_KINDS: [Kind; 16] = [
+pub(crate) const ALL_MENU_KINDS: [Kind; 18] = [
     Kind::Home,
     Kind::Actions,
     Kind::More,
@@ -112,6 +114,8 @@ pub(crate) const ALL_MENU_KINDS: [Kind; 16] = [
     Kind::Scanning,
     Kind::Scroll,
     Kind::ConfirmDrag,
+    Kind::ShutDown,
+    Kind::Restart,
 ];
 pub struct Menu {
     pub kind: Kind,
@@ -263,6 +267,8 @@ pub enum Command {
     VolumeUp,
     VolumeDown,
     Mute,
+    ShutDown,
+    Restart,
 }
 impl Command {
     pub fn label(self) -> &'static str {
@@ -324,6 +330,8 @@ impl Command {
             Self::VolumeUp => "Volume up",
             Self::VolumeDown => "Volume down",
             Self::Mute => "Mute",
+            Self::ShutDown => "Shut down now",
+            Self::Restart => "Restart now",
         }
     }
     pub fn stays_open(self) -> bool {
@@ -404,6 +412,8 @@ impl Kind {
             Self::Media => "Media",
             Self::Displays => "Displays",
             Self::Scanning => "Scanning",
+            Self::ShutDown => "Shut down",
+            Self::Restart => "Restart",
         }
     }
     fn rows(self) -> Vec<Vec<Item>> {
@@ -493,6 +503,8 @@ impl Kind {
                 Command(C::Minimize),
                 Command(C::Maximize),
                 Command(C::CloseWindow),
+                Group(Self::ShutDown),
+                Group(Self::Restart),
                 Back,
             ],
             Self::Browser => vec![
@@ -528,6 +540,11 @@ impl Kind {
                 Back,
             ],
             Self::Displays => vec![Display(true), Display(false), Back],
+            // One row with the action in the middle: whatever the scan pattern or
+            // direction, the first highlight on this page is Back or Close menu,
+            // and the action needs a deliberate move and a second Select.
+            Self::ShutDown => return vec![vec![Back, Command(C::ShutDown), Cancel]],
+            Self::Restart => return vec![vec![Back, Command(C::Restart), Cancel]],
             Self::Scanning => vec![
                 Pause,
                 Reverse,
@@ -659,9 +676,14 @@ mod tests {
                 Kind::Home => None,
                 Kind::Actions => Some(Item::NewPoint),
                 Kind::ConfirmDrag => Some(Item::CancelDrag),
+                // Confirmation pages keep Back and Close menu beside the one action.
+                Kind::ShutDown | Kind::Restart => None,
                 _ => Some(Item::Back),
             };
-            if let Some(back) = back {
+            if matches!(kind, Kind::ShutDown | Kind::Restart) {
+                assert_eq!(rows[0][0], Item::Back);
+                assert_eq!(rows[0][2], Item::Cancel);
+            } else if let Some(back) = back {
                 assert_eq!(rows.last().unwrap(), &[back, Item::Cancel], "{kind:?}");
             } else {
                 assert_eq!(rows.last().unwrap().last(), Some(&Item::Cancel));
@@ -719,11 +741,84 @@ mod tests {
                 }
             }
         }
-        assert_eq!(commands.len(), 39);
+        assert_eq!(commands.len(), 41);
+        assert!(visited.contains(&Kind::ShutDown));
+        assert!(visited.contains(&Kind::Restart));
         assert!(visited.contains(&Kind::Scanning));
         assert!(visited.contains(&Kind::Displays));
         assert!(visited.contains(&Kind::Tabs));
         assert!(visited.contains(&Kind::Zoom));
+    }
+    #[test]
+    fn power_actions_need_a_confirming_page_whose_first_highlight_is_harmless() {
+        use crate::scan_preferences::{Direction, Pattern, Resolved};
+        let windows = Kind::Windows
+            .rows()
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        assert!(windows.contains(&Item::Group(Kind::ShutDown)));
+        assert!(windows.contains(&Item::Group(Kind::Restart)));
+        for (kind, command) in [
+            (Kind::ShutDown, Command::ShutDown),
+            (Kind::Restart, Command::Restart),
+        ] {
+            assert_eq!(
+                kind.rows(),
+                [vec![Item::Back, Item::Command(command), Item::Cancel]]
+            );
+            assert!(!command.stays_open());
+            for (pattern, direction) in [
+                (Pattern::Grouped, Direction::Forward),
+                (Pattern::Grouped, Direction::Reverse),
+                (Pattern::Linear, Direction::Forward),
+                (Pattern::Linear, Direction::Reverse),
+            ] {
+                let options = Resolved {
+                    interval_ms: 250,
+                    pattern,
+                    direction,
+                    ..Default::default()
+                };
+                // Scanning starts on Back, or on Close menu when reversed, so the
+                // first Select that reaches a tile never acts; the action is one
+                // step along from there.
+                let harmless = if direction == Direction::Reverse {
+                    Item::Cancel
+                } else {
+                    Item::Back
+                };
+                let mut menu = Menu::configured(kind, options);
+                let row_first = pattern == Pattern::Grouped;
+                if row_first {
+                    assert_eq!(menu.handle(Action::Select), None, "{kind:?} {direction:?}");
+                }
+                assert_eq!(
+                    menu.handle(Action::Select),
+                    Some(harmless),
+                    "{kind:?} {pattern:?} {direction:?}"
+                );
+                let mut menu = Menu::configured(kind, options);
+                if row_first {
+                    assert_eq!(menu.handle(Action::Select), None);
+                }
+                menu.advance(250);
+                assert_eq!(
+                    menu.handle(Action::Select),
+                    Some(Item::Command(command)),
+                    "{kind:?} {pattern:?} {direction:?}"
+                );
+            }
+            // No other page offers the command.
+            for other in ALL_MENU_KINDS {
+                let items = other.rows().into_iter().flatten().collect::<Vec<_>>();
+                assert_eq!(
+                    items.contains(&Item::Command(command)),
+                    other == kind,
+                    "{other:?} {command:?}"
+                );
+            }
+        }
     }
     #[test]
     fn home_offers_modes_and_point_free_actions() {

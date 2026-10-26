@@ -167,6 +167,8 @@ pub trait InputInjector {
     fn press_shortcut(&mut self, keys: &[String], shift_held: bool) -> Result<(), String>;
     fn media(&mut self, action: &str) -> Result<(), String>;
     fn window(&mut self, action: &str) -> Result<(), String>;
+    /// Asks the operating system to shut down or restart; it closes applications itself.
+    fn power(&mut self, action: crate::power::Action) -> Result<(), String>;
 }
 
 fn pointer_button(button: MouseButton) -> Button {
@@ -623,6 +625,9 @@ impl InputInjector for Enigo {
         ));
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         send_shortcut(self, keys, false)
+    }
+    fn power(&mut self, action: crate::power::Action) -> Result<(), String> {
+        crate::power::request(action)
     }
 }
 
@@ -1859,6 +1864,9 @@ mod tests {
             Ok(())
         }
         fn window(&mut self, _action: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn power(&mut self, _action: crate::power::Action) -> Result<(), String> {
             Ok(())
         }
     }
