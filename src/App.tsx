@@ -837,9 +837,12 @@ export function App() {
     }
   };
   // Tabbing out of the popover closes it, so it never covers the control
-  // that now has focus.
+  // that now has focus. A null relatedTarget is ignored: WebKit clears focus
+  // on a button press instead of focusing it, so a click inside the popover
+  // would otherwise close it before the click lands.
   const onSidebarBlur = (event: React.FocusEvent) => {
-    if (menuOpen && !asideRef.current?.contains(event.relatedTarget as Node | null)) setMenuOpen(false);
+    const next = event.relatedTarget as Node | null;
+    if (menuOpen && next && !asideRef.current?.contains(next)) setMenuOpen(false);
   };
 
   const openUpdates = () => {

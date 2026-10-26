@@ -652,6 +652,11 @@ describe("Switchify PC shell", () => {
       const outside = screen.getByRole("button", { name: "Add switch" });
       fireEvent.blur(help, { relatedTarget: outside });
       expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+
+      // WebKit blurs with no target on a button press; that must not close it.
+      fireEvent.click(reopened);
+      fireEvent.blur(screen.getByRole("button", { name: "Help" }), { relatedTarget: null });
+      expect(screen.getByRole("navigation")).toBeInTheDocument();
     });
 
     it("reaches the Account page from the popover", async () => {
