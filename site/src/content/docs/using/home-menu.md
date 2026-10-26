@@ -21,7 +21,7 @@ Press and release **Select** to open Home. It scans through these items; press S
 
 **Shut down** and **Restart** are the last items in Apps and windows. Each opens a page of its own with three tiles: **Back**, then **Shut down now** or **Restart now**, then **Close menu**. Scanning on that page starts on Back, or on Close menu if your scan direction is reversed, so a Select that lands early never shuts down or restarts. Nothing happens until you choose the middle tile.
 
-Switchify PC asks Windows or macOS to shut down or restart and lets open apps close normally. Apps may ask you to save first, and a message from the computer may hold the shutdown until you deal with it. Nothing is forced closed. On a Mac, the first time you use Shut down or Restart, macOS asks whether Switchify PC may control System Events; choose Allow. If you chose Don't Allow, the menu shows that the action failed. Turn it on again in System Settings under Privacy & Security, Automation, Switchify PC.
+Switchify PC asks Windows or macOS to shut down or restart and lets open apps close normally. Apps may ask you to save first, and a message from the computer may hold the shutdown until you deal with it. Nothing is forced closed. On a Mac, the first time you use Shut down or Restart, macOS asks whether Switchify PC may control System Events; choose Allow. If you chose Don't Allow, nothing happens when you choose Shut down now or Restart now, and the menu may show that the action failed. Turn it on again in System Settings under Privacy & Security, Automation, Switchify PC.
 
 In Settings you can choose whether Select opens Home every time, or returns to the last mode you used.
 

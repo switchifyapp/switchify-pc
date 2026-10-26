@@ -108,7 +108,8 @@ mod macos {
     /// How long an immediate refusal (a denied Automation permission, a script
     /// error) is waited for so it can show in the menu like a Windows failure.
     /// This wait happens on the caller's thread, the main thread, so it is kept
-    /// short; a refusal comes back well inside it.
+    /// short. A slower refusal, for example while System Events is still
+    /// starting, is only logged.
     const PROMPT_WAIT: Duration = Duration::from_millis(300);
 
     /// System Events performs the same unforced shut down or restart as the Apple
@@ -134,6 +135,7 @@ mod macos {
                 Ok(None) => std::thread::sleep(Duration::from_millis(50)),
                 Err(error) => {
                     let _ = child.kill();
+                    let _ = child.wait();
                     return Err(format!("Could not wait for osascript: {error}"));
                 }
             }
