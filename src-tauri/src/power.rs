@@ -61,7 +61,7 @@ mod windows {
 
     /// `ExitWindowsEx` needs SeShutdownPrivilege enabled on the calling process token.
     /// Interactive users hold it disabled by default.
-    fn enable_shutdown_privilege() -> Result<(), String> {
+    pub(super) fn enable_shutdown_privilege() -> Result<(), String> {
         let mut token = HANDLE::default();
         unsafe {
             OpenProcessToken(
@@ -105,27 +105,32 @@ mod macos {
     use std::process::{Command, Stdio};
 
     /// System Events performs the same unforced shut down or restart as the Apple
-    /// menu. macOS may ask once for permission to control System Events.
+    /// menu. The first use may show the Automation permission prompt, and a
+    /// blocked shutdown keeps osascript waiting, so the wait happens on its own
+    /// thread; the scan loop and the overlays must keep running meanwhile.
     pub fn request(action: Action) -> Result<(), String> {
         let verb = action.verb();
         let script = format!("tell application \"System Events\" to {verb}");
-        let output = Command::new("/usr/bin/osascript")
+        let child = Command::new("/usr/bin/osascript")
             .arg("-e")
             .arg(&script)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
-            .output()
+            .spawn()
             .map_err(|error| format!("Could not run osascript: {error}"))?;
-        if output.status.success() {
-            return Ok(());
-        }
-        let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-        Err(if detail.is_empty() {
-            format!("macOS refused the {verb} request.")
-        } else {
-            format!("macOS refused the {verb} request: {detail}")
-        })
+        std::thread::Builder::new()
+            .name("switchify-power-request".into())
+            .spawn(move || match child.wait_with_output() {
+                Ok(output) if output.status.success() => {}
+                Ok(output) => {
+                    let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+                    eprintln!("Switchify PC could not {verb} the Mac: {detail}");
+                }
+                Err(error) => eprintln!("Switchify PC could not {verb} the Mac: {error}"),
+            })
+            .map_err(|error| format!("Could not wait for osascript: {error}"))?;
+        Ok(())
     }
 }
 
@@ -137,5 +142,12 @@ mod tests {
     fn verbs_read_as_plain_words() {
         assert_eq!(Action::ShutDown.verb(), "shut down");
         assert_eq!(Action::Restart.verb(), "restart");
+    }
+
+    /// Only adjusts this process's own token; nothing is shut down.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn interactive_accounts_can_enable_the_shutdown_privilege() {
+        super::windows::enable_shutdown_privilege().unwrap();
     }
 }

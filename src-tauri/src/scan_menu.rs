@@ -93,10 +93,11 @@ pub enum Kind {
     Actions,
     Scroll,
     ConfirmDrag,
-    Power,
+    ShutDown,
+    Restart,
 }
 #[cfg(test)]
-pub(crate) const ALL_MENU_KINDS: [Kind; 17] = [
+pub(crate) const ALL_MENU_KINDS: [Kind; 18] = [
     Kind::Home,
     Kind::Actions,
     Kind::More,
@@ -113,7 +114,8 @@ pub(crate) const ALL_MENU_KINDS: [Kind; 17] = [
     Kind::Scanning,
     Kind::Scroll,
     Kind::ConfirmDrag,
-    Kind::Power,
+    Kind::ShutDown,
+    Kind::Restart,
 ];
 pub struct Menu {
     pub kind: Kind,
@@ -328,8 +330,8 @@ impl Command {
             Self::VolumeUp => "Volume up",
             Self::VolumeDown => "Volume down",
             Self::Mute => "Mute",
-            Self::ShutDown => "Shut down",
-            Self::Restart => "Restart",
+            Self::ShutDown => "Shut down now",
+            Self::Restart => "Restart now",
         }
     }
     pub fn stays_open(self) -> bool {
@@ -410,7 +412,8 @@ impl Kind {
             Self::Media => "Media",
             Self::Displays => "Displays",
             Self::Scanning => "Scanning",
-            Self::Power => "Power",
+            Self::ShutDown => "Shut down",
+            Self::Restart => "Restart",
         }
     }
     fn rows(self) -> Vec<Vec<Item>> {
@@ -500,7 +503,8 @@ impl Kind {
                 Command(C::Minimize),
                 Command(C::Maximize),
                 Command(C::CloseWindow),
-                Group(Self::Power),
+                Group(Self::ShutDown),
+                Group(Self::Restart),
                 Back,
             ],
             Self::Browser => vec![
@@ -536,9 +540,11 @@ impl Kind {
                 Back,
             ],
             Self::Displays => vec![Display(true), Display(false), Back],
-            // Both actions share one row, so reaching either takes a row Select
-            // and then an item Select; a lone tile in a row would act on the first.
-            Self::Power => vec![Command(C::ShutDown), Command(C::Restart), Back],
+            // One row whose first tile is Back, so whatever the scan pattern, the
+            // first highlight on this page is harmless and the action needs a
+            // deliberate second Select.
+            Self::ShutDown => return vec![vec![Back, Command(C::ShutDown), Cancel]],
+            Self::Restart => return vec![vec![Back, Command(C::Restart), Cancel]],
             Self::Scanning => vec![
                 Pause,
                 Reverse,
@@ -670,9 +676,14 @@ mod tests {
                 Kind::Home => None,
                 Kind::Actions => Some(Item::NewPoint),
                 Kind::ConfirmDrag => Some(Item::CancelDrag),
+                // Confirmation pages keep Back and Close menu beside the one action.
+                Kind::ShutDown | Kind::Restart => None,
                 _ => Some(Item::Back),
             };
-            if let Some(back) = back {
+            if matches!(kind, Kind::ShutDown | Kind::Restart) {
+                assert_eq!(rows[0][0], Item::Back);
+                assert_eq!(rows[0][2], Item::Cancel);
+            } else if let Some(back) = back {
                 assert_eq!(rows.last().unwrap(), &[back, Item::Cancel], "{kind:?}");
             } else {
                 assert_eq!(rows.last().unwrap().last(), Some(&Item::Cancel));
@@ -731,46 +742,61 @@ mod tests {
             }
         }
         assert_eq!(commands.len(), 41);
-        assert!(visited.contains(&Kind::Power));
+        assert!(visited.contains(&Kind::ShutDown));
+        assert!(visited.contains(&Kind::Restart));
         assert!(visited.contains(&Kind::Scanning));
         assert!(visited.contains(&Kind::Displays));
         assert!(visited.contains(&Kind::Tabs));
         assert!(visited.contains(&Kind::Zoom));
     }
     #[test]
-    fn power_actions_sit_on_their_own_page_and_need_a_row_then_an_item_select() {
+    fn power_actions_need_a_confirming_page_whose_first_highlight_is_back() {
+        use crate::scan_preferences::{Pattern, Resolved};
         let windows = Kind::Windows
             .rows()
             .into_iter()
             .flatten()
             .collect::<Vec<_>>();
-        assert!(windows.contains(&Item::Group(Kind::Power)));
-        assert_eq!(
-            Kind::Power.rows(),
-            [
-                vec![
-                    Item::Command(Command::ShutDown),
-                    Item::Command(Command::Restart)
-                ],
-                vec![Item::Back, Item::Cancel],
-            ]
-        );
-        for command in [Command::ShutDown, Command::Restart] {
+        assert!(windows.contains(&Item::Group(Kind::ShutDown)));
+        assert!(windows.contains(&Item::Group(Kind::Restart)));
+        for (kind, command) in [
+            (Kind::ShutDown, Command::ShutDown),
+            (Kind::Restart, Command::Restart),
+        ] {
+            assert_eq!(
+                kind.rows(),
+                [vec![Item::Back, Item::Command(command), Item::Cancel]]
+            );
             assert!(!command.stays_open());
-            // One Select on entering the page only chooses the row.
-            let mut menu = Menu::new(Kind::Power, 250);
-            assert_eq!(menu.handle(Action::Select), None);
-            if command == Command::Restart {
-                menu.advance(250);
+            for pattern in [Pattern::Grouped, Pattern::Linear] {
+                let options = Resolved {
+                    interval_ms: 250,
+                    pattern,
+                    ..Default::default()
+                };
+                // Whatever the scan pattern, the first Select on the page never acts,
+                // and the action is the next tile along.
+                let mut menu = Menu::configured(kind, options);
+                match menu.handle(Action::Select) {
+                    None => {
+                        menu.advance(250);
+                        assert_eq!(menu.handle(Action::Select), Some(Item::Command(command)));
+                    }
+                    Some(Item::Back) => {
+                        let mut menu = Menu::configured(kind, options);
+                        menu.advance(250);
+                        assert_eq!(menu.handle(Action::Select), Some(Item::Command(command)));
+                    }
+                    other => panic!("{kind:?} {pattern:?} acted on the first Select: {other:?}"),
+                }
             }
-            assert_eq!(menu.handle(Action::Select), Some(Item::Command(command)));
             // No other page offers the command.
-            for kind in ALL_MENU_KINDS {
-                let items = kind.rows().into_iter().flatten().collect::<Vec<_>>();
+            for other in ALL_MENU_KINDS {
+                let items = other.rows().into_iter().flatten().collect::<Vec<_>>();
                 assert_eq!(
                     items.contains(&Item::Command(command)),
-                    kind == Kind::Power,
-                    "{kind:?} {command:?}"
+                    other == kind,
+                    "{other:?} {command:?}"
                 );
             }
         }
