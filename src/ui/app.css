@@ -745,8 +745,6 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
   .setting-note { max-width: 80ch; }
   .scanner-preferences > .more-options > .more-options-content { max-width: 1040px; }
 
-  /* One column of equal-rhythm rows reads better than tiles here. */
-  .account-page { max-width: 1040px; }
   .sync-details > div { grid-template-columns: 170px minmax(0, 1fr); }
   .scanner-panel-heading > p { max-width: 80ch; }
 }
