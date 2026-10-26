@@ -1057,40 +1057,27 @@ impl Keyboard {
     ) -> Frame {
         let escaping = self.scan.nav.escaping();
         let highlight_row = self.scan.row_scan() || self.scan.group_scan() || escaping;
-        let (active_row, active_column) = self.scan.position(&self.rows);
-        let page = match self.page {
-            _ if self.positioning => crate::scan_panel::POSITION_PAGE,
-            Page::Letters => match self.layout {
-                crate::point_scan::KeyboardLayout::Qwerty => "Letters · QWERTY",
-                crate::point_scan::KeyboardLayout::SimpleQwerty => "Letters · Simple QWERTY",
-                crate::point_scan::KeyboardLayout::CommonLetters => {
-                    "Letters · Common letters first"
-                }
-            },
-            Page::Functions => "Navigation",
-            Page::Numbers => "Numbers",
-            Page::Symbols => "Symbols",
-        };
-        let status = if let Some((stroke, instruction)) = repeating {
-            format!("Repeating {} · {instruction}", self.repeat_label(stroke))
+        let message = if let Some((stroke, instruction)) = repeating {
+            Some(format!(
+                "Repeating {} · {instruction}",
+                self.repeat_label(stroke)
+            ))
         } else if self.error {
-            "Input failed · Select to try again".to_owned()
+            Some("Input failed · Select to try again".to_owned())
         } else if self.waiting_after_typing {
-            "Press Select to continue typing.".to_owned()
+            Some("Press Select to continue typing.".to_owned())
         } else if self.scan.waiting() {
-            "Keyboard waiting · Select to start".to_owned()
+            Some("Keyboard waiting · Select to start".to_owned())
         } else if self.scan.suspended {
-            "Keyboard paused · Select to resume".to_owned()
+            Some("Keyboard paused · Select to resume".to_owned())
         } else if escaping {
-            crate::scan_panel::back_status(&self.scan).to_owned()
+            Some(crate::scan_panel::back_status(&self.scan).to_owned())
         } else if self.disabled() {
-            "Suggestions updating · Select to continue".to_owned()
+            Some("Suggestions updating · Select to continue".to_owned())
+        } else if self.layout_save_error {
+            Some("Could not save layout".to_owned())
         } else {
-            crate::scan_panel::item_status(
-                page,
-                &self.scan,
-                &self.label(self.rows[active_row][active_column.unwrap_or(0)]),
-            )
+            None
         };
         let empty_suggestions = self.rows.first().is_some_and(|row| {
             row.iter()
@@ -1121,15 +1108,8 @@ impl Keyboard {
                         .collect()
                 })
                 .collect(),
-            status,
+            message,
             // With no suggestions to show, their row says why instead.
-            note: if self.layout_save_error {
-                Some("Could not save layout".into())
-            } else if empty_suggestions {
-                None
-            } else {
-                self.prediction_note()
-            },
             row_label: empty_suggestions
                 .then(|| self.prediction_note())
                 .flatten()
@@ -1275,23 +1255,25 @@ mod tests {
             width: 1920.0,
             height: 1080.0,
         };
-        // The note, and whether it is drawn across the empty suggestion row
-        // rather than beside the prompt.
+        // The note is drawn across the suggestion row only while that row is
+        // empty; it never floats as a message and never sits beside the keys.
         let badge = |keyboard: &Keyboard| {
             let frame = keyboard.frame(screen, 1.0, ScannerColor::default());
-            let prompt = frame.tiles.last().unwrap();
-            let badge = &frame.tiles[frame.tiles.len() - 2];
-            assert!(prompt.text.contains("Select"));
-            assert!(!badge.selected);
-            let in_row = badge.rect.y >= prompt.rect.y + prompt.rect.height;
-            if !in_row {
-                assert!(badge.rect.x >= prompt.rect.x + prompt.rect.width);
-            }
-            (badge.text.clone(), in_row)
+            assert!(frame.label.is_none());
+            let last = frame.tiles.last().unwrap();
+            (last.style.map(|style| style.role) == Some(crate::scanning::TileRole::Status)).then(
+                || {
+                    assert!(!last.selected);
+                    assert!(
+                        last.rect.y > frame.tiles[0].rect.y + crate::scan_panel::MENU_BAR_HEIGHT
+                    );
+                    last.text.clone()
+                },
+            )
         };
-        assert_eq!(badge(&keyboard), ("Prediction loading".into(), true));
+        assert_eq!(badge(&keyboard), Some("Prediction loading".into()));
         keyboard.predictions(None, false);
-        assert_eq!(badge(&keyboard), ("Type for suggestions".into(), true));
+        assert_eq!(badge(&keyboard), Some("Type for suggestions".into()));
         keyboard.predictions(
             Some(crate::prediction::worker::Batch {
                 refined: false,
@@ -1300,7 +1282,7 @@ mod tests {
             }),
             false,
         );
-        assert_eq!(badge(&keyboard), ("No suggestions".into(), true));
+        assert_eq!(badge(&keyboard), Some("No suggestions".into()));
         keyboard.predictions(
             Some(crate::prediction::worker::Batch {
                 refined: false,
@@ -1309,9 +1291,9 @@ mod tests {
             }),
             false,
         );
-        assert_eq!(badge(&keyboard), ("1 suggestion".into(), false));
+        assert_eq!(badge(&keyboard), None, "suggestions speak for themselves");
         keyboard.prediction_tracking(false);
-        assert_eq!(badge(&keyboard), ("Prediction paused".into(), false));
+        assert_eq!(badge(&keyboard), None);
     }
 
     #[test]
@@ -1368,10 +1350,6 @@ mod tests {
                 Keyboard::LARGE_GLYPHS.contains(&glyph),
                 key != Key::Modifier(0),
                 "only Shift stays at the utility size"
-            );
-            assert_eq!(
-                crate::scan_panel::scanning_status("Letters", false, &keyboard.label(key)),
-                format!("Letters · Select {name}")
             );
         }
         for arrow in ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"] {
@@ -1712,11 +1690,13 @@ mod tests {
             // A failure starts again from the top.
             k.failed();
             k.handle(Action::Select);
-            let status = |k: &Keyboard| {
-                let mut frame = k.frame(screen, 1.0, ScannerColor::default());
-                frame.tiles.pop().unwrap().text
+            // Nothing floats beside the keyboard while it scans normally.
+            let message = |k: &Keyboard| {
+                k.frame(screen, 1.0, ScannerColor::default())
+                    .label
+                    .map(|label| label.text)
             };
-            assert_eq!(status(&k), "Letters · QWERTY · Select a row");
+            assert_eq!(message(&k), None);
             // So does a suggestion, whose row is replaced.
             k.predictions(
                 Some(crate::prediction::worker::Batch {
@@ -1736,7 +1716,7 @@ mod tests {
             if wait {
                 k.handle(Action::Select);
             }
-            assert_eq!(status(&k), "Letters · QWERTY · Select a row");
+            assert_eq!(message(&k), None);
         }
     }
     #[test]
@@ -1824,10 +1804,10 @@ mod tests {
                 1.0,
                 ScannerColor::Blue,
             );
-            assert!(frame
-                .tiles
-                .iter()
-                .any(|t| t.text == "Press Select to continue typing."));
+            assert_eq!(
+                frame.label.as_ref().map(|label| label.text.as_str()),
+                Some("Press Select to continue typing.")
+            );
             assert!(!frame.tiles.iter().any(|t| t.selected));
         }
         assert!(k.handle(Action::Select).is_none());
@@ -2100,10 +2080,9 @@ mod tests {
             .iter()
             .all(|tile| tile.rect.y == selected[0].rect.y));
         assert!(selected.iter().all(|tile| tile.style.unwrap().row_scan));
-        assert!(!escaping.tiles.last().unwrap().selected);
         assert_eq!(
-            escaping.tiles.last().unwrap().text,
-            crate::scan_panel::BACK_TO_ROWS
+            escaping.label.as_ref().map(|label| label.text.as_str()),
+            Some(crate::scan_panel::BACK_TO_ROWS)
         );
         k.handle(Action::Select);
         assert!(k.scan.nav.path().is_empty());
@@ -2146,7 +2125,11 @@ mod tests {
                 assert!(selected
                     .iter()
                     .all(|tile| tile.rect.y == selected[0].rect.y));
-                assert!(!frame.tiles.last().unwrap().selected);
+                assert_eq!(
+                    frame.label.as_ref().map(|label| label.text.as_str()),
+                    Some(crate::scan_panel::BACK_TO_ROWS),
+                    "{direction:?} {page:?}"
+                );
                 keyboard.handle(Action::Select);
                 assert_eq!(keyboard.scan.position(&keyboard.rows), (row, None));
             }
@@ -2162,7 +2145,10 @@ mod tests {
         assert!(!linear.scan.nav.escaping());
         let frame = linear.frame(screen, 1.0, ScannerColor::default());
         assert_eq!(frame.tiles.iter().filter(|tile| tile.selected).count(), 1);
-        assert!(!frame.tiles.last().unwrap().selected);
+        assert!(
+            frame.label.is_none(),
+            "no going back offered, so no message"
+        );
     }
     #[test]
     fn qwerty_layout_and_platform_keys() {
@@ -2472,20 +2458,22 @@ mod tests {
         keyboard.layout_change_failed();
         assert!(!keyboard.suspended());
         assert_eq!(keyboard.layout, KeyboardLayout::Qwerty);
-        assert!(keyboard
-            .frame(
-                Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 1280.0,
-                    height: 720.0
-                },
-                1.0,
-                ScannerColor::default()
-            )
-            .tiles
-            .iter()
-            .any(|tile| tile.text == "Could not save layout"));
+        assert_eq!(
+            keyboard
+                .frame(
+                    Rect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 1280.0,
+                        height: 720.0
+                    },
+                    1.0,
+                    ScannerColor::default()
+                )
+                .label
+                .map(|label| label.text),
+            Some("Could not save layout".into())
+        );
         keyboard.handle(Action::Next);
         assert!(!keyboard.layout_save_error);
     }
@@ -2586,9 +2574,10 @@ mod tests {
                 );
                 let before = keyboard.frame(screen, 1.0, ScannerColor::default());
                 assert_eq!(empty.tiles[0].rect, before.tiles[0].rect);
+                // The empty row carries one label in place of its slots.
                 assert_eq!(
                     before.tiles.len() - empty.tiles.len(),
-                    crate::prediction::SLOTS
+                    crate::prediction::SLOTS - 1
                 );
                 keyboard.predictions(
                     Some(crate::prediction::worker::Batch {
@@ -2651,7 +2640,7 @@ mod tests {
             height: 1080.0,
         };
         let frame = k.frame(screen, 1.0, ScannerColor::default());
-        assert_eq!(frame.tiles.last().unwrap().text, "Position · Select a row");
+        assert!(frame.label.is_none());
         assert_eq!(
             frame.tiles[3].rect.width, 128.0,
             "position labels use utility cells rather than character cells"
@@ -2740,15 +2729,16 @@ mod tests {
             .iter()
             .filter(|tile| tile.text == "Type for suggestions")
             .collect::<Vec<_>>();
-        // In the row instead of the header, and never highlighted.
+        // Across the row under the menu bar, never highlighted, and not a
+        // floating message.
         let [label] = labels.as_slice() else {
             panic!("expected one label, found {}", labels.len());
         };
         assert!(!label.selected);
         let background = frame.tiles[0].rect;
-        let status = frame.tiles.last().unwrap();
-        assert!(label.rect.y > status.rect.y + status.rect.height);
+        assert!(label.rect.y > background.y + crate::scan_panel::MENU_BAR_HEIGHT);
         assert!(label.rect.width > background.width * 0.9);
+        assert!(frame.label.is_none());
         // An empty batch says so too.
         k.predictions(
             Some(crate::prediction::worker::Batch {
@@ -2760,7 +2750,7 @@ mod tests {
         );
         let frame = k.frame(screen, 1.0, ScannerColor::Blue);
         assert!(frame.tiles.iter().any(|tile| tile.text == "No suggestions"));
-        // With suggestions, the note stays in the header and the row has none.
+        // With suggestions, the row shows them and nothing counts them.
         k.restart();
         k.handle(Action::Next);
         k.predictions(
@@ -2772,12 +2762,9 @@ mod tests {
             false,
         );
         let frame = k.frame(screen, 1.0, ScannerColor::Blue);
-        let note = frame
-            .tiles
-            .iter()
-            .find(|tile| tile.text == "1 suggestion")
-            .unwrap();
-        assert!(note.rect.y < frame.tiles.last().unwrap().rect.y + 1.0);
+        assert!(frame.tiles.iter().any(|tile| tile.text == "hello"));
+        assert!(!frame.tiles.iter().any(|tile| tile.text == "1 suggestion"));
+        assert!(frame.label.is_none());
         // Without prediction there is no suggestion row to label.
         k.enable_predictions(false);
         let frame = k.frame(screen, 1.0, ScannerColor::Blue);
@@ -2798,16 +2785,10 @@ mod tests {
         };
         k.scan.suspended = true;
         let frame = k.frame(screen, 1.0, ScannerColor::Blue);
-        assert!(frame
-            .tiles
-            .iter()
-            .any(|tile| tile.text.contains("Select to resume")));
+        assert!(frame.label.unwrap().text.contains("Select to resume"));
         k.failed();
         let frame = k.frame(screen, 1.0, ScannerColor::Blue);
-        assert!(frame
-            .tiles
-            .iter()
-            .any(|tile| tile.text.contains("Select to try again")));
+        assert!(frame.label.unwrap().text.contains("Select to try again"));
     }
     #[test]
     fn arriving_predictions_preserve_reverse_origin_and_full_pass() {
@@ -2942,41 +2923,41 @@ mod tests {
                 ..Default::default()
             },
         );
+        // The floating message, if any, and how many keys are highlighted.
         let frame = |k: &Keyboard| {
-            let mut frame = k.frame(screen, 1.0, ScannerColor::default());
-            let status = frame.tiles.pop().unwrap().text;
+            let frame = k.frame(screen, 1.0, ScannerColor::default());
+            let message = frame.label.map(|label| label.text);
             let selected = frame.tiles.iter().filter(|tile| tile.selected).count();
-            (status, selected)
+            (message, selected)
         };
         let groups = crate::scan_items::row_groups(k.rows[0].len());
         assert!(groups.len() > 1);
-        assert_eq!(
-            frame(&k),
-            ("Letters · QWERTY · Select a row".into(), k.rows[0].len())
-        );
+        assert_eq!(frame(&k), (None, k.rows[0].len()));
         k.handle(Action::Select);
-        assert_eq!(
-            frame(&k),
-            ("Letters · QWERTY · Select a group".into(), groups[0].len())
-        );
+        assert_eq!(frame(&k), (None, groups[0].len()));
         k.handle(Action::Select);
-        let first = k.label(k.rows[0][0]).replace('\n', " ");
-        assert_eq!(frame(&k), (format!("Letters · QWERTY · Select {first}"), 1));
+        assert_eq!(frame(&k), (None, 1));
         for _ in 0..groups[0].len() {
             k.handle(Action::Next);
         }
         assert_eq!(
             frame(&k),
-            (crate::scan_panel::BACK_TO_GROUPS.into(), groups[0].len())
+            (
+                Some(crate::scan_panel::BACK_TO_GROUPS.into()),
+                groups[0].len()
+            )
         );
         k.handle(Action::Select);
-        assert_eq!(frame(&k).0, "Letters · QWERTY · Select a group");
+        assert_eq!(frame(&k), (None, groups[0].len()));
         for _ in 0..groups.len() {
             k.handle(Action::Next);
         }
         assert_eq!(
             frame(&k),
-            (crate::scan_panel::BACK_TO_ROWS.into(), k.rows[0].len())
+            (
+                Some(crate::scan_panel::BACK_TO_ROWS.into()),
+                k.rows[0].len()
+            )
         );
     }
 

@@ -27,3 +27,5 @@ Switchify PC asks Windows or macOS to shut down or restart and lets open apps cl
 In Settings you can choose whether Select opens Home every time, or returns to the last mode you used.
 
 Home and the menus it opens have a slim bar along their top, with the Switchify PC name on the left and a **Settings** button on the right. Click the button with a mouse to open the Switchify PC window on its Settings page. The menu stays where it is while the pointer is over the bar, even when it is set to move out of the pointer's way. The bar itself never takes focus; the Switchify PC window opens in front of your work.
+
+Nothing else is written across a menu: the highlight shows what Select will choose. When something needs your attention, such as a menu waiting or paused or an action that failed, a short message appears beside the menu and goes away when you deal with it.

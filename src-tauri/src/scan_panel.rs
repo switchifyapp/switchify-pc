@@ -1,9 +1,11 @@
-//! Shared layout for switch-scanned panels: a docked background, a status tile
-//! and weighted rows of keys. Panels supply content; geometry lives here.
+//! Shared layout for switch-scanned panels: a docked background, a slim menu
+//! bar and weighted rows of keys. Panels supply content; geometry lives here.
 use crate::{
     scan_items::ItemScanner,
     scan_preferences::{PanelSize, Thickness},
-    scanning::{Frame, FrameTile, Rect, ScannerColor, TileRole, TileStyle},
+    scanning::{
+        Frame, FrameLabel, FrameTile, HudPresentation, Rect, ScannerColor, TileRole, TileStyle,
+    },
 };
 
 /// One scale for the complete panel, including its text.
@@ -192,6 +194,11 @@ pub fn move_frame(frame: &mut Frame, to: Dock, screen: Rect) {
         tile.rect.x += to.x - from.x;
         tile.rect.y += to.y - from.y;
     }
+    // A message floats beside the panel, so it moves with it.
+    if let Some(label) = &mut frame.label {
+        label.rect.x += to.x - from.x;
+        label.rect.y += to.y - from.y;
+    }
 }
 
 /// Position page shared by panels: the nine docks as a 3×3 grid, then a back key.
@@ -219,9 +226,11 @@ pub struct Panel {
     pub key_width: f64,
     pub size: PanelSize,
     pub rows: Vec<Vec<PanelKey>>,
-    pub status: String,
-    /// Passive feedback beside the scanning prompt; never a scan target.
-    pub note: Option<String>,
+    /// Something that needs the user's attention, such as a failed action, a
+    /// pause or a repeating move with its stop instruction. It floats beside
+    /// the panel while it applies. `None` while scanning normally: the
+    /// highlight shows what Select will choose, so nothing is written out.
+    pub message: Option<String>,
     pub dock: Dock,
     /// Row and keys to highlight, all of the row when `None`, or `None` when no
     /// key may be chosen.
@@ -246,7 +255,6 @@ impl Panel {
             + 32.0;
         let preferred_height = 32.0
             + MENU_BAR_HEIGHT
-            + 48.0
             + self.rows.len() as f64 * 56.0
             + self.rows.len().saturating_sub(1) as f64 * 8.0;
         let scale = fit_scale(screen, units, self.size, preferred_width, preferred_height);
@@ -262,7 +270,6 @@ impl Panel {
         let content_width = width - padding * 2.0;
         let gap = 8.0 * scale;
         let row_height = 64.0 * scale;
-        let header_height = 48.0 * scale;
         let menu_bar_height = MENU_BAR_HEIGHT * scale;
         let mut frame = Frame::default();
         frame.tiles.push(FrameTile::panel_background(
@@ -347,7 +354,7 @@ impl Panel {
                     }),
                     rect: Rect {
                         x: left,
-                        y: y + header_height + r as f64 * row_height,
+                        y: y + r as f64 * row_height,
                         width: key_width,
                         height: (row_height - gap).max(1.0),
                     },
@@ -372,7 +379,7 @@ impl Panel {
                 }),
                 rect: Rect {
                     x,
-                    y: y + header_height + *row as f64 * row_height,
+                    y: y + *row as f64 * row_height,
                     width,
                     height: (row_height - gap).max(1.0),
                 },
@@ -380,66 +387,42 @@ impl Panel {
                 selected: false,
             });
         }
-        let note_width = self.note.as_ref().map_or(0.0, |_| width * 0.28);
-        if let Some(note) = &self.note {
-            frame.tiles.push(FrameTile {
-                thickness: self.thickness,
-                color,
-                text: note.clone(),
-                style: Some(TileStyle {
-                    role: TileRole::Status,
-                    active: false,
-                    row_scan: false,
-                }),
-                rect: Rect {
-                    x: x + width - note_width,
-                    y,
-                    width: note_width,
-                    height: (header_height - gap).max(1.0),
-                },
-                scale: scale * 0.8,
-                selected: false,
-            });
+        if let Some(message) = &self.message {
+            frame.label = Some(message_label(message, frame.tiles[0].rect, screen, scale));
         }
-        frame.tiles.push(FrameTile {
-            thickness: self.thickness,
-            color,
-            text: self.status.clone(),
-            style: Some(TileStyle {
-                role: TileRole::Status,
-                active: false,
-                row_scan: false,
-            }),
-            rect: Rect {
-                x,
-                y,
-                width: width - note_width - if note_width > 0.0 { gap } else { 0.0 },
-                height: (header_height - gap).max(1.0),
-            },
-            scale,
-            selected: false,
-        });
         frame
     }
 }
 
-/// Status wording shared by panels once error and pause states are handled.
-pub fn scanning_status(page: &str, row_scan: bool, key: &str) -> String {
-    if row_scan {
-        format!("{page} · Select a row")
+/// A message floats just above the panel, or below it when the panel is
+/// docked at the top, as wide as the panel, and is drawn on the HUD so it
+/// never takes a scan position.
+fn message_label(text: &str, panel: Rect, screen: Rect, scale: f64) -> FrameLabel {
+    let height = (MESSAGE_HEIGHT * scale).min(screen.height);
+    let margin = MESSAGE_MARGIN * scale;
+    let above = panel.y - height - margin;
+    let y = if above >= screen.y {
+        above
     } else {
-        format!("{page} · Select {}", key.replace('\n', " "))
+        (panel.y + panel.height + margin).min(screen.y + screen.height - height)
+    };
+    FrameLabel {
+        text: text.to_owned(),
+        rect: Rect {
+            x: panel.x,
+            y,
+            width: panel.width,
+            height,
+        },
+        scale,
+        hud: Some(HudPresentation { screen, scale }),
     }
 }
-/// `scanning_status` for an item scanner, which may be choosing a group.
-pub fn item_status<T: Clone>(page: &str, scan: &ItemScanner<T>, key: &str) -> String {
-    if scan.group_scan() {
-        format!("{page} · Select a group")
-    } else {
-        scanning_status(page, scan.row_scan(), key)
-    }
-}
-/// The status while an item scanner offers to go back.
+/// One line of HUD text, the height the overlay hosts draw a prompt at.
+pub const MESSAGE_HEIGHT: f64 = 64.0;
+pub const MESSAGE_MARGIN: f64 = 8.0;
+
+/// The message while an item scanner offers to go back.
 pub fn back_status<T: Clone>(scan: &ItemScanner<T>) -> &'static str {
     if scan.escaping_to_groups() {
         BACK_TO_GROUPS
@@ -473,8 +456,7 @@ mod tests {
             key_width: 380.0,
             size: PanelSize::Medium,
             rows: vec![vec![key("a", 1.0), hidden, key("c", 1.0)]],
-            status: "Page · Select a key".into(),
-            note: None,
+            message: None,
             dock: Dock::default(),
             selected: Some((0, Some(2..3))),
             row_scan: false,
@@ -493,20 +475,20 @@ mod tests {
         );
         let a = frame.tiles.iter().find(|t| t.text == "a").unwrap();
         let c = frame.tiles.iter().find(|t| t.text == "c").unwrap();
-        // The background, the title, Settings, the two drawn keys and the status line.
-        assert_eq!(frame.tiles.len(), 6);
+        // The background, the title, Settings and the two drawn keys; nothing else.
+        assert_eq!(frame.tiles.len(), 5);
+        assert!(frame.label.is_none());
         assert!(c.selected && !a.selected);
         assert!(c.rect.x - a.rect.x > 2.0 * a.rect.width);
     }
 
     #[test]
-    fn rows_fill_the_padded_width_with_even_gaps_below_the_status_tile() {
+    fn rows_fill_the_padded_width_with_even_gaps_below_the_menu_bar() {
         let panel = Panel {
             key_width: 380.0,
             size: PanelSize::Medium,
             rows: vec![vec![key("a", 1.0), key("b", 2.0)], vec![key("c", 1.0)]],
-            status: "Page · Select a row".into(),
-            note: None,
+            message: None,
             dock: Dock::default(),
             selected: Some((1, None)),
             row_scan: true,
@@ -520,8 +502,8 @@ mod tests {
             height: 1080.0,
         };
         let frame = panel.frame(screen, 1.0, ScannerColor::default());
-        let [background, title, menu_bar, a, b, c, status] = frame.tiles.as_slice() else {
-            panic!("expected background, title, Settings, three keys and a status tile");
+        let [background, title, menu_bar, a, b, c] = frame.tiles.as_slice() else {
+            panic!("expected background, title, Settings and three keys");
         };
         assert!(background.is_panel_background());
         assert_eq!(background.rect.width, 1180.0);
@@ -553,13 +535,13 @@ mod tests {
         assert!((c.rect.x + c.rect.width - right).abs() < 1e-9);
         assert!((b.rect.width - 2.0 * a.rect.width).abs() < 1e-9);
         assert!((b.rect.x - (a.rect.x + a.rect.width) - 8.0).abs() < 1e-9);
-        assert_eq!(status.style.unwrap().role, TileRole::Status);
-        assert_eq!(
-            (status.rect.x, status.rect.y),
-            (left, background.rect.y + 16.0 + MENU_BAR_HEIGHT)
+        // The first row sits straight under the menu bar; no status line between.
+        assert_eq!(a.rect.y, background.rect.y + MENU_BAR_HEIGHT + 16.0);
+        assert!(menu_bar.rect.y + menu_bar.rect.height < a.rect.y);
+        assert!(
+            frame.label.is_none(),
+            "nothing to say while scanning normally"
         );
-        assert!(menu_bar.rect.y + menu_bar.rect.height < status.rect.y);
-        assert!(status.rect.y + status.rect.height < a.rect.y);
         assert_eq!(
             frame.tiles.iter().filter(|tile| tile.selected).count(),
             1,
@@ -574,8 +556,7 @@ mod tests {
             key_width: 380.0,
             size: PanelSize::Medium,
             rows: vec![vec![key("a", 1.0)]],
-            status: BACK_TO_ROWS.into(),
-            note: None,
+            message: Some(BACK_TO_ROWS.into()),
             dock: Dock { column: 1, row: 0 },
             selected: Some((0, None)),
             row_scan: true,
@@ -594,15 +575,48 @@ mod tests {
         assert!(!frame.tiles[1].selected, "title");
         assert!(frame.tiles[2].is_menu_bar() && !frame.tiles[2].selected);
         assert!(frame.tiles[3].selected);
-        assert!(!frame.tiles[4].selected);
-        assert_eq!(
-            scanning_status("Movement", false, "Caps lock\nOn"),
-            "Movement · Select Caps lock On"
-        );
-        assert_eq!(
-            scanning_status("Movement", true, "x"),
-            "Movement · Select a row"
-        );
+        assert_eq!(frame.tiles.len(), 4);
+        // The message floats below a panel docked at the top, as wide as the
+        // panel, on the HUD, and never among the tiles.
+        let label = frame.label.unwrap();
+        assert_eq!(label.text, BACK_TO_ROWS);
+        let panel = frame.tiles[0].rect;
+        assert_eq!((label.rect.x, label.rect.width), (panel.x, panel.width));
+        assert_eq!(label.rect.y, panel.y + panel.height + MESSAGE_MARGIN);
+        assert_eq!(label.rect.height, MESSAGE_HEIGHT);
+        assert_eq!(label.hud, Some(HudPresentation { screen, scale: 1.0 }));
+    }
+
+    #[test]
+    fn a_message_floats_above_a_panel_that_has_room_and_moves_with_it() {
+        let screen = Rect {
+            x: -1920.0,
+            y: 40.0,
+            width: 1920.0,
+            height: 1040.0,
+        };
+        let mut frame = Panel {
+            key_width: 380.0,
+            size: PanelSize::Medium,
+            rows: vec![vec![key("a", 1.0)]],
+            message: Some("Mouse paused · Select to resume".into()),
+            dock: Dock::default(),
+            selected: None,
+            row_scan: false,
+            row_label: None,
+            thickness: Thickness::default(),
+        }
+        .frame(screen, 1.0, ScannerColor::default());
+        let panel = frame.tiles[0].rect;
+        let label = frame.label.clone().unwrap();
+        assert_eq!(label.text, "Mouse paused · Select to resume");
+        assert_eq!(label.rect.y + label.rect.height + MESSAGE_MARGIN, panel.y);
+        assert_eq!((label.rect.x, label.rect.width), (panel.x, panel.width));
+        move_frame(&mut frame, Dock { column: 0, row: 1 }, screen);
+        let moved = frame.tiles[0].rect;
+        let label = frame.label.unwrap();
+        assert_eq!(label.rect.x, moved.x);
+        assert_eq!(label.rect.y + label.rect.height + MESSAGE_MARGIN, moved.y);
     }
 
     #[test]
@@ -742,8 +756,7 @@ mod tests {
             key_width: 380.0,
             size: PanelSize::Medium,
             rows: vec![vec![key("a", 1.0)]],
-            status: String::new(),
-            note: None,
+            message: None,
             dock: Dock::default(),
             selected: None,
             row_scan: false,
@@ -775,8 +788,7 @@ mod tests {
                 key_width: 380.0,
                 size: PanelSize::Medium,
                 rows: vec![vec![key("a", 1.0)]],
-                status: String::new(),
-                note: None,
+                message: None,
                 dock,
                 selected: None,
                 row_scan: false,
