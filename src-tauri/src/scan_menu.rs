@@ -780,23 +780,34 @@ mod tests {
                     direction,
                     ..Default::default()
                 };
-                // Whatever the scan pattern and direction, the first Select on the
-                // page never acts, and the action is the next tile along.
+                // Scanning starts on Back, or on Close menu when reversed, so the
+                // first Select that reaches a tile never acts; the action is one
+                // step along from there.
+                let harmless = if direction == Direction::Reverse {
+                    Item::Cancel
+                } else {
+                    Item::Back
+                };
                 let mut menu = Menu::configured(kind, options);
-                match menu.handle(Action::Select) {
-                    None => {
-                        menu.advance(250);
-                        assert_eq!(menu.handle(Action::Select), Some(Item::Command(command)));
-                    }
-                    Some(Item::Back | Item::Cancel) => {
-                        let mut menu = Menu::configured(kind, options);
-                        menu.advance(250);
-                        assert_eq!(menu.handle(Action::Select), Some(Item::Command(command)));
-                    }
-                    other => panic!(
-                        "{kind:?} {pattern:?} {direction:?} acted on the first Select: {other:?}"
-                    ),
+                let row_first = pattern == Pattern::Grouped;
+                if row_first {
+                    assert_eq!(menu.handle(Action::Select), None, "{kind:?} {direction:?}");
                 }
+                assert_eq!(
+                    menu.handle(Action::Select),
+                    Some(harmless),
+                    "{kind:?} {pattern:?} {direction:?}"
+                );
+                let mut menu = Menu::configured(kind, options);
+                if row_first {
+                    assert_eq!(menu.handle(Action::Select), None);
+                }
+                menu.advance(250);
+                assert_eq!(
+                    menu.handle(Action::Select),
+                    Some(Item::Command(command)),
+                    "{kind:?} {pattern:?} {direction:?}"
+                );
             }
             // No other page offers the command.
             for other in ALL_MENU_KINDS {

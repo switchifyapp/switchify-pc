@@ -43,9 +43,10 @@ fn macos_bundle_may_send_apple_events_for_shut_down_and_restart() {
         "Entitlements.plist"
     );
     assert_eq!(config["bundle"]["macOS"]["infoPlist"], "Info.plist");
-    let entitlements = include_str!("../Entitlements.plist");
-    assert!(entitlements.contains("<key>com.apple.security.automation.apple-events</key>"));
-    assert!(entitlements.contains("<true/>"));
+    let entitlements = include_str!("../Entitlements.plist").replace("\r\n", "\n");
+    assert!(
+        entitlements.contains("<key>com.apple.security.automation.apple-events</key>\n  <true/>")
+    );
     let info = include_str!("../Info.plist");
     assert!(info.contains("<key>NSAppleEventsUsageDescription</key>"));
     assert!(info.contains("<key>NSBluetoothAlwaysUsageDescription</key>"));
