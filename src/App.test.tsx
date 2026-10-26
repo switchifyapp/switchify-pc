@@ -602,6 +602,80 @@ describe("Switchify PC shell", () => {
     await waitFor(() => expect(opener).toHaveFocus());
   });
 
+  describe("compact sidebar", () => {
+    const compact = (matches: boolean) => {
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: matches && query === "(max-width: 800px)", media: query, onchange: null,
+        addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+      })) as unknown as typeof window.matchMedia;
+    };
+    afterEach(() => { delete (window as { matchMedia?: unknown }).matchMedia; });
+
+    it("keeps the full sidebar in a wide window", async () => {
+      compact(false);
+      render(<App />);
+      await screen.findByRole("heading", { name: "Switchify PC" });
+      expect(screen.queryByRole("button", { name: /^Menu,/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("navigation")).toBeVisible();
+    });
+
+    it("folds the pages into a Menu button that opens a popover", async () => {
+      compact(true);
+      render(<App />);
+      await screen.findByRole("heading", { name: "Switchify PC" });
+      const menu = screen.getByRole("button", { name: "Menu, Home" });
+      expect(menu).toHaveAttribute("aria-expanded", "false");
+      expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+
+      fireEvent.click(menu);
+      expect(menu).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByRole("button", { name: "Home" })).toHaveFocus();
+      fireEvent.click(screen.getByRole("button", { name: "Switches" }));
+      expect(screen.getByRole("heading", { name: "Switches", level: 1 })).toBeInTheDocument();
+      expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+      const reopened = screen.getByRole("button", { name: "Menu, Switches" });
+      expect(reopened).toHaveFocus();
+
+      fireEvent.click(reopened);
+      expect(screen.getByRole("button", { name: "Switches" })).toHaveFocus();
+      fireEvent.keyDown(screen.getByRole("button", { name: "Switches" }), { key: "Escape" });
+      expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+      expect(reopened).toHaveFocus();
+
+      fireEvent.click(reopened);
+      fireEvent.pointerDown(screen.getByRole("heading", { name: "Switches", level: 1 }));
+      expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+
+      // Tabbing out into the page closes it so it never covers the focused control.
+      fireEvent.click(reopened);
+      const help = screen.getByRole("button", { name: "Help" });
+      const outside = screen.getByRole("button", { name: "Add switch" });
+      fireEvent.blur(help, { relatedTarget: outside });
+      expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+
+      // WebKit blurs with no target on a button press; that must not close it.
+      fireEvent.click(reopened);
+      fireEvent.blur(screen.getByRole("button", { name: "Help" }), { relatedTarget: null });
+      expect(screen.getByRole("navigation")).toBeInTheDocument();
+    });
+
+    it("reaches the Account page from the popover", async () => {
+      compact(true);
+      const view: AccountView = { available: true, signedIn: true, email: "me@example.com", pendingEmail: null, keychainUnavailable: false };
+      vi.spyOn(api, "accountStatus").mockResolvedValue(view);
+      vi.spyOn(api, "account").mockResolvedValue(view);
+      vi.spyOn(api, "onAccount").mockResolvedValue(() => undefined);
+      vi.spyOn(api, "settingsSync").mockResolvedValue({ status: "upToDate", lastSyncedAt: null, message: null });
+      vi.spyOn(api, "onSettingsSync").mockResolvedValue(() => undefined);
+      render(<App />);
+      await screen.findByRole("heading", { name: "Switchify PC" });
+      fireEvent.click(screen.getByRole("button", { name: "Menu, Home" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Account, signed in as me@example.com" }));
+      expect(await screen.findByRole("heading", { name: "Account", level: 1 })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Menu, Account" })).toHaveFocus();
+    });
+  });
+
   describe("sidebar account", () => {
     const signedIn: AccountView = { available: true, signedIn: true, email: "me@example.com", pendingEmail: null, keychainUnavailable: false };
     const signedOut: AccountView = { ...signedIn, signedIn: false, email: null };

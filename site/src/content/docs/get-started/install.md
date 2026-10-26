@@ -44,6 +44,8 @@ You can skip the guide with **Skip setup for now** and reopen it later from Help
 
 Home shows **Ready** when Switchify PC is waiting for your switches. Press and release your Select switch to open the Home menu.
 
+The pages of the app are listed in the sidebar. In a narrow window the sidebar folds into a **Menu** button at the top that shows the current page; press it to choose another page. Choosing a page, pressing the button again, or clicking elsewhere closes the list.
+
 ![The Switchify PC Home page showing Ready, with input access ready, one saved switch with Select assigned, automatic scanning, and an optional mobile connection.](../../../assets/screenshots/home.png)
 
 ## Keeping it up to date

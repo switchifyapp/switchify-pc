@@ -2,8 +2,8 @@ import { Button, Input, Select, StatusIcon } from "./ui/controls";
 import { Demonstration, DemonstrationProvider } from "./help/Demonstration";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  Accessibility, Bluetooth, ChevronRight, CircleHelp, CircleUserRound, Download,
-  Copy, Home, Keyboard, MousePointer2, Plus, Power, RefreshCw, Save, Settings,
+  Accessibility, Bluetooth, ChevronDown, ChevronRight, CircleHelp, CircleUserRound, Download,
+  Copy, Home, Keyboard, Menu, MousePointer2, Plus, Power, RefreshCw, Save, Settings,
   SlidersHorizontal, Smartphone, Trash2, Wrench, X,
 } from "lucide-react";
 import { api, type ProfileExitAction } from "./api";
@@ -65,6 +65,23 @@ function SidebarAccount({ account, version, active, onOpen }: { account: Account
 
 function NavButton({ active, icon, children, onClick }: { active: boolean; icon: ReactNode; children: ReactNode; onClick: () => void }) {
   return <Button className="nav-button" data-active={active} aria-current={active ? "page" : undefined} onClick={onClick}>{icon}<span>{children}</span></Button>;
+}
+
+// Narrow windows fold the sidebar into a Menu button and a popover, so the
+// page content starts near the top instead of under a grid of page buttons.
+const compactSidebarQuery = "(max-width: 800px)";
+
+function useCompactSidebar(): boolean {
+  const [compact, setCompact] = useState(() => window.matchMedia?.(compactSidebarQuery).matches ?? false);
+  useEffect(() => {
+    const query = window.matchMedia?.(compactSidebarQuery);
+    if (!query) return;
+    const update = () => setCompact(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return compact;
 }
 
 function AccessibilityCopy({ state, detailed = false }: { state: AppState; detailed?: boolean }) {
@@ -783,6 +800,51 @@ export function App() {
     setView(next);
   };
 
+  // The compact sidebar: a Menu button naming the current page opens a
+  // popover with the page list. Choosing a page, Escape or a press outside
+  // closes it; focus goes back to the button so the next press reopens it.
+  const compactSidebar = useCompactSidebar();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const asideRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuPanelRef = useRef<HTMLDivElement>(null);
+  const menuPanelId = useId();
+  const navActive = (id: View) => view === id || (id === "mobile" && (view === "devices" || view === "profiles"));
+  const currentPage = view === "account" ? "Account" : nav.find(([id]) => navActive(id))?.[1] ?? "Menu";
+  useEffect(() => { if (!compactSidebar) setMenuOpen(false); }, [compactSidebar]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const panel = menuPanelRef.current;
+    (panel?.querySelector<HTMLElement>('[aria-current="page"]') ?? panel?.querySelector<HTMLElement>("button"))?.focus();
+    const outside = (event: PointerEvent) => {
+      if (!asideRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [menuOpen]);
+  const closeMenu = () => {
+    setMenuOpen(false);
+    menuButtonRef.current?.focus();
+  };
+  const chooseView = (next: View) => {
+    selectView(next);
+    if (compactSidebar) closeMenu();
+  };
+  const onSidebarKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Escape" && menuOpen) {
+      event.preventDefault();
+      closeMenu();
+    }
+  };
+  // Tabbing out of the popover closes it, so it never covers the control
+  // that now has focus. A null relatedTarget is ignored: WebKit clears focus
+  // on a button press instead of focusing it, so a click inside the popover
+  // would otherwise close it before the click lands.
+  const onSidebarBlur = (event: React.FocusEvent) => {
+    const next = event.relatedTarget as Node | null;
+    if (menuOpen && next && !asideRef.current?.contains(next)) setMenuOpen(false);
+  };
+
   const openUpdates = () => {
     if (viewRef.current !== "settings") {
       if (profileEditorDirty.current && !window.confirm("Discard unsaved profile changes?")) return;
@@ -820,7 +882,14 @@ export function App() {
 
   if (!state || !settings) return <div className="loading"><RefreshCw className="spin" size={24} /><span>Starting Switchify PC...</span></div>;
   return <DemonstrationProvider platform={state.capabilities.platform} suspended={state.pendingPairings.length > 0 || switches.capturing || !!switches.state?.capture.active}><div className="app-shell">
-    <aside inert={setupOpen || state.pendingPairings.length > 0}><div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div><nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={view === id || (id === "mobile" && (view === "devices" || view === "profiles"))} icon={icon} onClick={() => selectView(id)}>{label}</NavButton>)}</nav><div className="sidebar-footer"><SidebarAccount account={account} version={state.version} active={view === "account"} onOpen={() => selectView("account")} /></div></aside>
+    <aside ref={asideRef} inert={setupOpen || state.pendingPairings.length > 0} data-menu-open={compactSidebar ? menuOpen : undefined} onKeyDown={onSidebarKeyDown} onBlur={onSidebarBlur}>
+      <div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div>
+      {compactSidebar && <Button ref={menuButtonRef} className="sidebar-menu-button" aria-label={`Menu, ${currentPage}`} aria-expanded={menuOpen} aria-controls={menuPanelId} onClick={() => setMenuOpen((open) => !open)}><Menu size={19} aria-hidden="true" /><span>{currentPage}</span><ChevronDown className="sidebar-menu-chevron" size={18} aria-hidden="true" /></Button>}
+      <div ref={menuPanelRef} id={menuPanelId} className="sidebar-panel" hidden={compactSidebar && !menuOpen}>
+        <nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={navActive(id)} icon={icon} onClick={() => chooseView(id)}>{label}</NavButton>)}</nav>
+        <div className="sidebar-footer"><SidebarAccount account={account} version={state.version} active={view === "account"} onOpen={() => chooseView("account")} /></div>
+      </div>
+    </aside>
     <DemonstrationProvider platform={state.capabilities.platform} suspended={setupOpen || state.pendingPairings.length > 0 || switches.capturing || !!switches.state?.capture.active}><main inert={setupOpen || state.pendingPairings.length > 0}>
       {error && <div className="error-banner" role="alert">{error}<Button onClick={() => setError(null)}>Dismiss</Button></div>}
       <UpdateBanner update={liveUpdater ?? state.updater} openUpdates={openUpdates} />
