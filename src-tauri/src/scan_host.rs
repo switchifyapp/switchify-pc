@@ -938,7 +938,7 @@ mod platform {
         }
         let label = &view.label;
         label.setStringValue(&NSString::from_str(&tile.text));
-        let [r, g, b] = tile.appearance.palette().text;
+        let [r, g, b] = crate::scan_tile::text_rgb(tile);
         label.setTextColor(Some(&NSColor::colorWithSRGBRed_green_blue_alpha(
             f64::from(r) / 255.0,
             f64::from(g) / 255.0,
