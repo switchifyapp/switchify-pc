@@ -303,7 +303,6 @@ impl MousePanel {
             dock: self.dock,
             selected: scanning.then(|| self.scan.highlight(&self.rows)),
             row_scan: highlight_row,
-            row_label: None,
             thickness: self.scan.options.thickness,
             appearance: self.scan.options.panel_theme.appearance(),
         }
@@ -643,10 +642,6 @@ mod tests {
             frame.label.is_none(),
             "nothing to say while scanning normally"
         );
-        assert!(frame
-            .tiles
-            .iter()
-            .all(|tile| tile.style.map(|style| style.role) != Some(TileRole::Status)));
         let close = frame.tiles.last().unwrap();
         assert_eq!(close.text, "Switch to Point");
         assert_eq!(close.style.unwrap().role, TileRole::Toolbar);

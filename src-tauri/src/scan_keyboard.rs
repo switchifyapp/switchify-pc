@@ -288,8 +288,6 @@ pub struct Keyboard {
     prediction_failed: bool,
     pub(crate) prediction_loading: bool,
     /// Suggestions wait for the next word after context was lost inside one.
-    pub(crate) prediction_held: bool,
-    prediction_tracking: bool,
     predictions: Option<crate::prediction::worker::Batch>,
     queued_predictions: Option<crate::prediction::worker::Batch>,
     prefer_predictions: bool,
@@ -341,8 +339,6 @@ impl Keyboard {
             prediction_enabled: false,
             prediction_failed: false,
             prediction_loading: false,
-            prediction_held: false,
-            prediction_tracking: true,
             predictions: None,
             queued_predictions: None,
             prefer_predictions: true,
@@ -468,38 +464,9 @@ impl Keyboard {
             }
         }
     }
-    pub fn prediction_tracking(&mut self, tracking: bool) {
-        self.prediction_tracking = tracking;
-    }
-    fn prediction_note(&self) -> Option<String> {
-        if !self.prediction_enabled {
-            return None;
-        }
-        Some(if self.prediction_failed {
-            "Prediction unavailable".into()
-        } else if self.prediction_loading {
-            "Prediction loading".into()
-        } else if !self.prediction_tracking {
-            "Prediction paused".into()
-        } else if self.prediction_held {
-            "Suggestions resume next word".into()
-        } else if self.queued_predictions.is_some() {
-            "Suggestions updating".into()
-        } else {
-            match self.predictions.as_ref() {
-                Some(batch) if batch.words.iter().flatten().count() == 1 => "1 suggestion".into(),
-                Some(batch) if batch.words.iter().any(Option::is_some) => {
-                    format!("{} suggestions", batch.words.iter().flatten().count())
-                }
-                Some(_) => "No suggestions".into(),
-                None => "Type for suggestions".into(),
-            }
-        })
-    }
     fn retry_predictions(&mut self) {
         self.prediction_failed = false;
         self.prediction_loading = true;
-        self.prediction_tracking = true;
         self.predictions = None;
         self.queued_predictions = None;
         self.rebuild_rows();
@@ -1082,10 +1049,6 @@ impl Keyboard {
         } else {
             None
         };
-        let empty_suggestions = self.rows.first().is_some_and(|row| {
-            row.iter()
-                .all(|&key| matches!(key, Key::Prediction(_)) && self.label(key).is_empty())
-        });
         crate::scan_panel::Panel {
             key_width: if self.positioning { 128.0 } else { 68.0 },
             size: self.scan.options.panel_size,
@@ -1112,11 +1075,6 @@ impl Keyboard {
                 })
                 .collect(),
             message,
-            // With no suggestions to show, their row says why instead.
-            row_label: empty_suggestions
-                .then(|| self.prediction_note())
-                .flatten()
-                .map(|note| (0, note)),
             dock: self.dock,
             selected: (repeating.is_none() && !self.scan.suspended && !self.disabled())
                 .then(|| self.scan.highlight(&self.rows)),
@@ -1259,25 +1217,23 @@ mod tests {
             width: 1920.0,
             height: 1080.0,
         };
-        // The note is drawn across the suggestion row only while that row is
-        // empty; it never floats as a message and never sits beside the keys.
-        let badge = |keyboard: &Keyboard| {
+        // Nothing is written across the keyboard while the suggestion row is
+        // empty: no note, no floating message, and the reserved slots stay
+        // hidden so the other keys never move.
+        let silent = |keyboard: &Keyboard| {
             let frame = keyboard.frame(screen, 1.0, ScannerColor::default());
             assert!(frame.label.is_none());
-            let last = frame.tiles.last().unwrap();
-            (last.style.map(|style| style.role) == Some(crate::scanning::TileRole::Status)).then(
-                || {
-                    assert!(!last.selected);
-                    assert!(
-                        last.rect.y > frame.tiles[0].rect.y + crate::scan_panel::MENU_BAR_HEIGHT
-                    );
-                    last.text.clone()
-                },
-            )
+            assert!(frame.tiles.iter().all(|tile| !tile
+                .text
+                .to_lowercase()
+                .contains("suggestion")
+                && !tile.text.starts_with("Prediction")));
+            frame
         };
-        assert_eq!(badge(&keyboard), Some("Prediction loading".into()));
+        let keys = |keyboard: &Keyboard| silent(keyboard).tiles.len();
+        let loading = keys(&keyboard);
         keyboard.predictions(None, false);
-        assert_eq!(badge(&keyboard), Some("Type for suggestions".into()));
+        assert_eq!(keys(&keyboard), loading);
         keyboard.predictions(
             Some(crate::prediction::worker::Batch {
                 refined: false,
@@ -1286,7 +1242,7 @@ mod tests {
             }),
             false,
         );
-        assert_eq!(badge(&keyboard), Some("No suggestions".into()));
+        assert_eq!(keys(&keyboard), loading);
         keyboard.predictions(
             Some(crate::prediction::worker::Batch {
                 refined: false,
@@ -1295,9 +1251,13 @@ mod tests {
             }),
             false,
         );
-        assert_eq!(badge(&keyboard), None, "suggestions speak for themselves");
-        keyboard.prediction_tracking(false);
-        assert_eq!(badge(&keyboard), None);
+        let frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+        assert!(frame.tiles.iter().any(|tile| tile.text == "water"));
+        assert_eq!(
+            frame.tiles.len(),
+            loading + 1,
+            "one suggestion fills one slot"
+        );
     }
 
     #[test]
@@ -1308,10 +1268,6 @@ mod tests {
         keyboard.predictions(None, true);
         assert!(keyboard.suspended());
         assert_eq!(
-            keyboard.prediction_note().as_deref(),
-            Some("Prediction unavailable")
-        );
-        assert_eq!(
             keyboard.rows.last().unwrap().last(),
             Some(&Key::RetryPrediction)
         );
@@ -1319,10 +1275,8 @@ mod tests {
             keyboard.choose(Key::RetryPrediction),
             Some(Output::RetryPrediction)
         );
-        assert_eq!(
-            keyboard.prediction_note().as_deref(),
-            Some("Prediction loading")
-        );
+        assert!(keyboard.prediction_loading);
+        assert!(!keyboard.prediction_failed);
         assert!(!keyboard
             .rows
             .last()
@@ -2578,10 +2532,10 @@ mod tests {
                 );
                 let before = keyboard.frame(screen, 1.0, ScannerColor::default());
                 assert_eq!(empty.tiles[0].rect, before.tiles[0].rect);
-                // The empty row carries one label in place of its slots.
+                // The empty row draws nothing in place of its slots.
                 assert_eq!(
                     before.tiles.len() - empty.tiles.len(),
-                    crate::prediction::SLOTS - 1
+                    crate::prediction::SLOTS
                 );
                 keyboard.predictions(
                     Some(crate::prediction::worker::Batch {
@@ -2696,28 +2650,7 @@ mod tests {
         }
     }
     #[test]
-    fn a_hold_is_explained_unless_something_more_pressing_is() {
-        let mut k = Keyboard::new(true);
-        k.enable_predictions(true);
-        k.predictions(None, false);
-        k.prediction_held = true;
-        assert_eq!(
-            k.prediction_note().as_deref(),
-            Some("Suggestions resume next word")
-        );
-        k.prediction_loading = true;
-        assert_eq!(k.prediction_note().as_deref(), Some("Prediction loading"));
-        k.predictions(None, true);
-        assert_eq!(
-            k.prediction_note().as_deref(),
-            Some("Prediction unavailable")
-        );
-        k.predictions(None, false);
-        k.prediction_held = false;
-        assert_eq!(k.prediction_note().as_deref(), Some("Type for suggestions"));
-    }
-    #[test]
-    fn an_empty_suggestion_row_says_why() {
+    fn an_empty_suggestion_row_stays_blank() {
         let screen = Rect {
             x: 0.0,
             y: 0.0,
@@ -2728,22 +2661,18 @@ mod tests {
         k.enable_predictions(true);
         k.predictions(None, false);
         let frame = k.frame(screen, 1.0, ScannerColor::Blue);
-        let labels = frame
+        // The row under the menu bar holds nothing: no note, no key, and
+        // no floating message either.
+        let background = frame.tiles[0].rect;
+        let first_row_top = background.y + crate::scan_panel::MENU_BAR_HEIGHT;
+        assert!(frame
             .tiles
             .iter()
-            .filter(|tile| tile.text == "Type for suggestions")
-            .collect::<Vec<_>>();
-        // Across the row under the menu bar, never highlighted, and not a
-        // floating message.
-        let [label] = labels.as_slice() else {
-            panic!("expected one label, found {}", labels.len());
-        };
-        assert!(!label.selected);
-        let background = frame.tiles[0].rect;
-        assert!(label.rect.y > background.y + crate::scan_panel::MENU_BAR_HEIGHT);
-        assert!(label.rect.width > background.width * 0.9);
+            .skip(1)
+            .filter(|tile| !tile.is_menu_bar() && tile.text != crate::scan_panel::MENU_BAR_TITLE)
+            .all(|tile| tile.rect.y > first_row_top + 40.0));
         assert!(frame.label.is_none());
-        // An empty batch says so too.
+        // An empty batch is just as quiet.
         k.predictions(
             Some(crate::prediction::worker::Batch {
                 refined: true,
@@ -2753,7 +2682,7 @@ mod tests {
             false,
         );
         let frame = k.frame(screen, 1.0, ScannerColor::Blue);
-        assert!(frame.tiles.iter().any(|tile| tile.text == "No suggestions"));
+        assert!(!frame.tiles.iter().any(|tile| tile.text == "No suggestions"));
         // With suggestions, the row shows them and nothing counts them.
         k.restart();
         k.handle(Action::Next);

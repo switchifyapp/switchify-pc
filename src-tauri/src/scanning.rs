@@ -262,7 +262,6 @@ pub enum TileRole {
     Character,
     Utility,
     Toolbar,
-    Status,
     /// The Settings item on the bar along the top of a panel. It is clicked
     /// with the mouse, never scanned.
     MenuBar,

@@ -140,7 +140,6 @@ pub fn keyboard_font_size(tile: &FrameTile) -> f64 {
         {
             24.0
         }
-        Some(crate::scanning::TileRole::Status) => 17.0,
         Some(crate::scanning::TileRole::MenuBar | crate::scanning::TileRole::Title) => 14.0,
         _ => 16.0,
     }
