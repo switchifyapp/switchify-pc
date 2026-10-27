@@ -189,8 +189,8 @@ struct TraySnapshot {
     release_label: String,
 }
 
-const RELEASE_SWITCH_KEYS_LABEL: &str = "Release switch keys";
-const RESUME_SWITCH_KEYS_LABEL: &str = "Resume switch keys";
+const RELEASE_SWITCH_KEYS_LABEL: &str = "Pause listening";
+const RESUME_SWITCH_KEYS_LABEL: &str = "Resume listening";
 
 impl TraySnapshot {
     fn from_state(state: &AppState) -> Self {
@@ -2237,7 +2237,7 @@ mod tests {
             TraySnapshot {
                 status: "Status: Starting Bluetooth".into(),
                 can_disconnect: false,
-                release_label: "Release switch keys".into(),
+                release_label: "Pause listening".into(),
             }
         );
 
@@ -2250,7 +2250,7 @@ mod tests {
             TraySnapshot {
                 status: "Status: Ready to connect".into(),
                 can_disconnect: false,
-                release_label: "Release switch keys".into(),
+                release_label: "Pause listening".into(),
             }
         );
 
@@ -2264,7 +2264,7 @@ mod tests {
             TraySnapshot {
                 status: "Status: Connected to Pixel".into(),
                 can_disconnect: true,
-                release_label: "Release switch keys".into(),
+                release_label: "Pause listening".into(),
             }
         );
 
@@ -2277,7 +2277,7 @@ mod tests {
             TraySnapshot {
                 status: "Status: Connected to Pixel".into(),
                 can_disconnect: true,
-                release_label: "Resume switch keys".into(),
+                release_label: "Resume listening".into(),
             }
         );
         let _ = std::fs::remove_dir_all(root);
@@ -2288,7 +2288,7 @@ mod tests {
         let snapshot = |status: &str, can_disconnect| TraySnapshot {
             status: status.into(),
             can_disconnect,
-            release_label: "Release switch keys".into(),
+            release_label: "Pause listening".into(),
         };
         let cache = TrayCache::default();
         // Records the setter calls made for one sync; `fail` makes them error.
@@ -2315,7 +2315,7 @@ mod tests {
             [
                 "text Status: Ready to connect",
                 "enabled false",
-                "release Release switch keys"
+                "release Pause listening"
             ]
         );
         assert!(sync(snapshot("Status: Ready to connect", false), false).is_empty());
@@ -2330,12 +2330,12 @@ mod tests {
         assert_eq!(
             sync(
                 TraySnapshot {
-                    release_label: "Resume switch keys".into(),
+                    release_label: "Resume listening".into(),
                     ..snapshot("Status: Connected to Pixel", true)
                 },
                 false
             ),
-            ["release Resume switch keys"]
+            ["release Resume listening"]
         );
     }
 
@@ -2344,7 +2344,7 @@ mod tests {
         let snapshot = TraySnapshot {
             status: "Status: Bluetooth is off".into(),
             can_disconnect: true,
-            release_label: "Release switch keys".into(),
+            release_label: "Pause listening".into(),
         };
         let cache = TrayCache::default();
         let attempts = std::cell::Cell::new(0);
@@ -2362,7 +2362,7 @@ mod tests {
             TrayShown {
                 status: None,
                 can_disconnect: Some(true),
-                release_label: Some("Release switch keys".into()),
+                release_label: Some("Pause listening".into()),
             }
         );
         cache.apply(

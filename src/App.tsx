@@ -108,12 +108,12 @@ function HomeView({ state, switches, scanning, navigate, onDisconnect, onAccessi
       <StatusIcon ok={ready ? true : tone === "attention" ? false : undefined}><Keyboard size={26} /></StatusIcon>
       <div><h2 id="home-status-title">{title}</h2><p role="status">{message}</p></div>
       {released
-        ? <Button className="primary" onClick={() => onReleaseSwitchKeys(false)}>Resume switch keys</Button>
+        ? <Button className="primary" onClick={() => onReleaseSwitchKeys(false)}>Resume listening</Button>
         : <Button className={ready ? "secondary" : "primary"} onClick={() => navigate("switches")}>{hasSelect ? "Edit switches" : "Set up switches"}</Button>}
     </section>
     <section className="status-list" aria-label="Switch control status">
       <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} /></div>{state.accessibility === "required" && <Button className="text-button" onClick={onAccessibility}>Open Accessibility Settings</Button>}</article>
-      <article><StatusIcon ok={released ? undefined : hasSelect}><Keyboard size={19} /></StatusIcon><div><h3>Saved switches</h3><p>{saved.length} saved · {released ? "Keys released" : hasSelect ? "Select assigned" : "Select action needed"}</p></div>{saved.length > 0 && <Button className="text-button" onClick={() => onReleaseSwitchKeys(!released)}>{released ? "Resume switch keys" : "Release switch keys"}</Button>}</article>
+      <article><StatusIcon ok={released ? undefined : hasSelect}><Keyboard size={19} /></StatusIcon><div><h3>Saved switches</h3><p>{saved.length} saved · {released ? "Listening paused" : hasSelect ? "Select assigned" : "Select action needed"}</p></div>{saved.length > 0 && <Button className="text-button" onClick={() => onReleaseSwitchKeys(!released)}>{released ? "Resume listening" : "Pause listening"}</Button>}</article>
       <article><StatusIcon><SlidersHorizontal size={19} /></StatusIcon><div><h3>Scanning</h3><p>{selectOpensHome(scanning.config) ? "Select opens Home" : `Select starts ${lastModeName(scanning.config)}`} · {areaOptions(scanning.config, scanning.config.controlMode).automatic ? "Automatic" : "Manual"}</p></div><Button className="text-button" onClick={() => navigate("scanning")}>Change scanning</Button></article>
       <article><StatusIcon ok={mobileConnected || undefined}><Smartphone size={19} /></StatusIcon><div><h3>Mobile connection (optional)</h3><p>{mobileConnected ? state.connectedDeviceName ?? bluetoothLabels.connected : bluetoothLabels[state.bluetooth]}</p></div>{mobileConnected ? <Button className="secondary" onClick={onDisconnect}>Disconnect</Button> : <Button className="text-button" onClick={() => navigate("mobile")}>Connect mobile</Button>}</article>
     </section>

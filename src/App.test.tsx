@@ -82,13 +82,13 @@ describe("Switchify PC shell", () => {
     const release = vi.spyOn(api, "setSwitchKeysReleased");
     render(<App />);
     await screen.findByRole("heading", { name: "Ready" });
-    fireEvent.click(screen.getByRole("button", { name: "Release switch keys" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pause listening" }));
     expect(release).toHaveBeenCalledWith(true);
     await screen.findByRole("heading", { name: "Switch keys released" });
-    expect(screen.getByText("1 saved · Keys released")).toBeInTheDocument();
+    expect(screen.getByText("1 saved · Listening paused")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit switches" })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Resume switch keys" })).toHaveLength(2);
-    fireEvent.click(screen.getAllByRole("button", { name: "Resume switch keys" })[0]);
+    expect(screen.getAllByRole("button", { name: "Resume listening" })).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole("button", { name: "Resume listening" })[0]);
     expect(release).toHaveBeenLastCalledWith(false);
     await screen.findByRole("heading", { name: "Ready" });
     expect(screen.getByRole("button", { name: "Edit switches" })).toBeInTheDocument();
