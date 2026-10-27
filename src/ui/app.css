@@ -486,6 +486,13 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .scanner-sample.green { --scanner-colour: #84ff91; }
 .scanner-sample.yellow { --scanner-colour: #ffd166; }
 .scanner-sample.white { --scanner-colour: #ffffff; }
+/* Light panels use the deeper highlight shades the native panels draw. */
+.scanner-sample.light { background: #f0f2f6; --scanner-colour: #1967d2; }
+.scanner-sample.light .scanner-sample-selection { color: #141820; }
+.scanner-sample.light.red { --scanner-colour: #c62828; }
+.scanner-sample.light.green { --scanner-colour: #1b8c3c; }
+.scanner-sample.light.yellow { --scanner-colour: #b07000; }
+.scanner-sample.light.white { --scanner-colour: #3a404c; }
 .scanner-sample-selection { display: flex; align-items: center; justify-content: center; height: 100%; border: 3px solid var(--scanner-colour); color: white; background: color-mix(in srgb, var(--scanner-colour) 25%, transparent); }
 .scanner-sample-selection.thin { border-width: 1px; }
 .scanner-sample-selection.standard { border-width: 2px; }

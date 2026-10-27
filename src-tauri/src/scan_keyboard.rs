@@ -310,6 +310,9 @@ impl Keyboard {
     pub fn set_panel_size(&mut self, size: crate::scan_preferences::PanelSize) {
         self.scan.options.panel_size = size;
     }
+    pub fn set_panel_theme(&mut self, theme: crate::scan_preferences::PanelTheme) {
+        self.scan.options.panel_theme = theme;
+    }
 
     #[cfg(test)]
     pub fn new(mac: bool) -> Self {
@@ -1119,6 +1122,7 @@ impl Keyboard {
                 .then(|| self.scan.highlight(&self.rows)),
             row_scan: highlight_row,
             thickness: Default::default(),
+            appearance: self.scan.options.panel_theme.appearance(),
         }
         .frame(screen, units, color)
     }

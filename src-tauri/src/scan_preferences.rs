@@ -1,3 +1,4 @@
+pub use crate::panel_theme::PanelTheme;
 use crate::scanning::ScannerColor;
 use serde::{Deserialize, Serialize};
 
@@ -100,6 +101,8 @@ pub struct Overrides {
 #[serde(rename_all = "camelCase", default)]
 pub struct Preferences {
     pub panel_size: PanelSize,
+    /// Shared by every panel, like `panel_size`.
+    pub panel_theme: PanelTheme,
     pub direction: Direction,
     pub pass_limit: usize,
     pub pattern: Pattern,
@@ -116,6 +119,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             panel_size: PanelSize::Medium,
+            panel_theme: PanelTheme::System,
             direction: Direction::Forward,
             pass_limit: 3,
             pattern: Pattern::Grouped,
@@ -133,6 +137,7 @@ impl Default for Preferences {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Resolved {
     pub panel_size: PanelSize,
+    pub panel_theme: PanelTheme,
     pub automatic: bool,
     pub interval_ms: u64,
     pub direction: Direction,
@@ -174,6 +179,7 @@ impl Preferences {
         };
         Resolved {
             panel_size: self.panel_size,
+            panel_theme: self.panel_theme,
             automatic: local.automatic.unwrap_or(automatic),
             interval_ms: local
                 .interval_ms
@@ -236,6 +242,7 @@ fn forget_unknown_choices(value: &mut serde_json::Value, optional: bool) {
     };
     fields.retain(|name, choice| match name.as_str() {
         "panelSize" => !optional && PanelSize::deserialize(&*choice).is_ok(),
+        "panelTheme" => !optional && PanelTheme::deserialize(&*choice).is_ok(),
         "nextScan" => (optional && choice.is_null()) || NextScan::deserialize(&*choice).is_ok(),
         "startFrom" => (optional && choice.is_null()) || StartFrom::deserialize(&*choice).is_ok(),
         "pattern" => (optional && choice.is_null()) || Pattern::deserialize(&*choice).is_ok(),
@@ -276,6 +283,40 @@ mod tests {
                         .resolve(area, false, 1000, ScannerColor::Blue)
                         .panel_size,
                     size
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn panel_theme_defaults_to_system_and_is_shared_by_every_panel() {
+        for value in [
+            serde_json::json!({}),
+            serde_json::json!({"panelTheme":"sepia", "direction":"reverse"}),
+            serde_json::json!({"panelTheme":null}),
+        ] {
+            let preferences = read(value.clone());
+            assert_eq!(preferences.panel_theme, PanelTheme::System);
+            if value.get("direction").is_some() {
+                assert_eq!(preferences.direction, Direction::Reverse);
+            }
+        }
+        for theme in [PanelTheme::System, PanelTheme::Light, PanelTheme::Dark] {
+            let preferences = Preferences {
+                panel_theme: theme,
+                ..Default::default()
+            };
+            let mut value = serde_json::to_value(&preferences).unwrap();
+            assert!(value["panelTheme"].is_string());
+            // An area never has a theme of its own.
+            value["keyboard"] = serde_json::json!({"panelTheme":"light"});
+            let restored = read(value);
+            for area in [Area::Point, Area::Menu, Area::Mouse, Area::Keyboard] {
+                assert_eq!(
+                    restored
+                        .resolve(area, false, 1000, ScannerColor::Blue)
+                        .panel_theme,
+                    theme
                 );
             }
         }

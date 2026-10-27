@@ -34,6 +34,7 @@ Choosing **Back** in a menu opens the menu above it afresh, scanning from the be
 - **Scanner colour**: red, green, blue, yellow or white.
 - **Highlight thickness**: thin, standard or thick.
 - **Panel size**: small, medium or large.
+- **Panel theme**: match system, light or dark. This colours the keyboard, the mouse panel, Home and the action menus. **Match system** follows your computer's light or dark setting, and the panels change when it does. On light panels the scanner colour is drawn in a deeper shade so the highlight stays easy to see, and white becomes dark grey.
 - Panels can move away from the pointer.
 
 ## Different settings for menus and the keyboard

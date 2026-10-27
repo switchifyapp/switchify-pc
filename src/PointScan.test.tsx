@@ -664,6 +664,26 @@ it("defaults old settings to Medium and saves one shared panel size", async () =
   expect(screen.queryByText("Panel size")).not.toBeInTheDocument();
 });
 
+it("defaults old settings to Match system and saves one shared panel theme", async () => {
+  const oldPreferences = { ...defaultScanPreferences, panelTheme: undefined };
+  mocks.invoke.mockImplementation(async (command, args) => command === "get_point_scan"
+    ? { ...initial, config: { ...initial.config, scanPreferences: oldPreferences } }
+    : { ...initial, ...args });
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  more();
+  const group = screen.getByRole("group", { name: "Panel theme" });
+  expect(within(group).getByRole("button", { name: "Match system" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("img", { name: /scanner highlight sample/ })).not.toHaveClass("light");
+  fireEvent.click(within(group).getByRole("button", { name: "Light" }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: expect.objectContaining({ scanPreferences: expect.objectContaining({ panelTheme: "light", panelSize: "medium" }) })
+  }));
+  expect(screen.getByRole("img", { name: /scanner highlight sample/ })).toHaveClass("light");
+  fireEvent.click(screen.getByRole("button", { name: "Customise mouse scanning" }));
+  expect(screen.queryByText("Panel theme")).not.toBeInTheDocument();
+});
+
 it("saves row groups beside the pattern older versions read and lets an area choose its own", async () => {
   // The keyboard's own pattern was saved before row groups existed.
   const saved = { ...initial, config: { ...initial.config, scanPreferences: { ...defaultScanPreferences, keyboard: { pattern: "grouped" as const } } } };

@@ -1,6 +1,7 @@
 //! Shared layout for switch-scanned panels: a docked background, a slim menu
 //! bar and weighted rows of keys. Panels supply content; geometry lives here.
 use crate::{
+    panel_theme::Appearance,
     scan_items::ItemScanner,
     scan_preferences::{PanelSize, Thickness},
     scanning::{
@@ -240,6 +241,7 @@ pub struct Panel {
     /// keys are all hidden; never a scan target.
     pub row_label: Option<(usize, String)>,
     pub thickness: Thickness,
+    pub appearance: Appearance,
 }
 
 impl Panel {
@@ -281,6 +283,7 @@ impl Panel {
             },
             scale,
             color,
+            self.appearance,
         ));
         let x = x + padding;
         let width = content_width;
@@ -292,6 +295,7 @@ impl Panel {
         frame.tiles.push(FrameTile {
             thickness: self.thickness,
             color,
+            appearance: self.appearance,
             text: MENU_BAR_TITLE.into(),
             style: Some(TileStyle {
                 role: TileRole::Title,
@@ -310,6 +314,7 @@ impl Panel {
         frame.tiles.push(FrameTile {
             thickness: self.thickness,
             color,
+            appearance: self.appearance,
             text: SETTINGS_ITEM.into(),
             style: Some(TileStyle {
                 role: TileRole::MenuBar,
@@ -346,6 +351,7 @@ impl Panel {
                 frame.tiles.push(FrameTile {
                     thickness: self.thickness,
                     color,
+                    appearance: self.appearance,
                     text: key.text.clone(),
                     style: Some(TileStyle {
                         role: key.role,
@@ -371,6 +377,7 @@ impl Panel {
             frame.tiles.push(FrameTile {
                 thickness: self.thickness,
                 color,
+                appearance: self.appearance,
                 text: text.clone(),
                 style: Some(TileStyle {
                     role: TileRole::Status,
@@ -462,6 +469,7 @@ mod tests {
             row_scan: false,
             row_label: None,
             thickness: Thickness::Thick,
+            appearance: Appearance::Dark,
         }
         .frame(
             Rect {
@@ -494,6 +502,7 @@ mod tests {
             row_scan: true,
             row_label: None,
             thickness: Thickness::Thick,
+            appearance: Appearance::Dark,
         };
         let screen = Rect {
             x: -1920.0,
@@ -562,6 +571,7 @@ mod tests {
             row_scan: true,
             row_label: None,
             thickness: Thickness::default(),
+            appearance: Appearance::Dark,
         };
         let screen = Rect {
             x: 0.0,
@@ -605,6 +615,7 @@ mod tests {
             row_scan: false,
             row_label: None,
             thickness: Thickness::default(),
+            appearance: Appearance::Dark,
         }
         .frame(screen, 1.0, ScannerColor::default());
         let panel = frame.tiles[0].rect;
@@ -762,6 +773,7 @@ mod tests {
             row_scan: false,
             row_label: None,
             thickness: Thickness::default(),
+            appearance: Appearance::Dark,
         }
         .frame(screen, 1.0, ScannerColor::default());
         let key_offset = frame.tiles[1].rect.y - frame.tiles[0].rect.y;
@@ -794,6 +806,7 @@ mod tests {
                 row_scan: false,
                 row_label: None,
                 thickness: Thickness::default(),
+                appearance: Appearance::Dark,
             };
             let rect = panel.frame(screen, 1.0, ScannerColor::default()).tiles[0].rect;
             let left = rect.x - screen.x;

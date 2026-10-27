@@ -1,5 +1,7 @@
 import type { PointScanConfig, ScannerColor } from './useScanning';
 export type PanelSize = 'small' | 'medium' | 'large';
+/** Light or dark panels. `system` follows the computer's setting. */
+export type PanelTheme = 'system' | 'light' | 'dark';
 export type ScanArea = 'point' | 'menu' | 'keyboard' | 'mouse';
 export type ScanOptions = {
   automatic: boolean;
@@ -16,7 +18,7 @@ export type ScanOptions = {
   startFrom: 'standard' | 'beginning' | 'selection';
 };
 export type ScanPreferences = Pick<ScanOptions, 'direction' | 'passLimit' | 'pattern' | 'thickness'>
-  & { panelSize?: PanelSize } & Partial<Pick<ScanOptions, 'nextScan' | 'startFrom' | 'rowGroups'>> & Record<ScanArea, Partial<ScanOptions>>;
+  & { panelSize?: PanelSize; panelTheme?: PanelTheme } & Partial<Pick<ScanOptions, 'nextScan' | 'startFrom' | 'rowGroups'>> & Record<ScanArea, Partial<ScanOptions>>;
 /** The Item scanning choice, made of `pattern` and `rowGroups`. */
 export type ItemScanning = 'grouped' | 'rowGroups' | 'linear';
 export const itemScanningLabels: Record<ItemScanning, string> = {
@@ -26,7 +28,7 @@ export function itemScanning(options: Pick<ScanOptions, 'pattern' | 'rowGroups'>
   return options.pattern === 'grouped' && options.rowGroups ? 'rowGroups' : options.pattern;
 }
 export const defaultScanPreferences: ScanPreferences = {
-  panelSize: 'medium', direction: 'forward', passLimit: 3, pattern: 'grouped', thickness: 'standard',
+  panelSize: 'medium', panelTheme: 'system', direction: 'forward', passLimit: 3, pattern: 'grouped', thickness: 'standard',
   point: {}, menu: {}, keyboard: {}, mouse: {},
 };
 /** Wait after typing, saved before the choice existed for every scanner, is still in effect. */

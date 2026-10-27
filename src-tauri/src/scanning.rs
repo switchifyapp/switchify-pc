@@ -145,10 +145,6 @@ impl ScannerColor {
             Self::White => [255, 255, 255],
         }
     }
-    pub fn menu_fill(self) -> [u8; 3] {
-        let base = [30u16, 35, 46];
-        std::array::from_fn(|i| ((base[i] * 3 + self.rgb()[i] as u16) / 4) as u8)
-    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VisualRole {
@@ -283,6 +279,9 @@ pub struct TileStyle {
 pub struct FrameTile {
     pub thickness: crate::scan_preferences::Thickness,
     pub color: ScannerColor,
+    /// Light or dark, already resolved from the panel theme and the system
+    /// setting, so a change redraws every tile.
+    pub appearance: crate::panel_theme::Appearance,
     pub text: String,
     pub rect: Rect,
     pub scale: f64,
@@ -290,11 +289,17 @@ pub struct FrameTile {
     pub selected: bool,
 }
 impl FrameTile {
-    /// Dark rounded panel behind a panel's keys.
-    pub fn panel_background(rect: Rect, scale: f64, color: ScannerColor) -> Self {
+    /// Rounded panel behind a panel's keys.
+    pub fn panel_background(
+        rect: Rect,
+        scale: f64,
+        color: ScannerColor,
+        appearance: crate::panel_theme::Appearance,
+    ) -> Self {
         Self {
             thickness: Default::default(),
             color,
+            appearance,
             text: String::new(),
             style: Some(TileStyle {
                 role: TileRole::Panel,

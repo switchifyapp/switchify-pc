@@ -18,6 +18,7 @@ mod modifier_overlay;
 mod mouse_repeat;
 mod overlay;
 mod panel_position;
+mod panel_theme;
 mod point_scan;
 mod point_scan_activation;
 mod point_scan_runtime;
@@ -1896,6 +1897,12 @@ pub fn run() {
                     .telemetry
                     .start(&state.version, &state.capabilities.platform);
             }
+            if let Some(theme) = app
+                .get_webview_window("main")
+                .and_then(|window| window.theme().ok())
+            {
+                panel_theme::set_system_light(theme == tauri::Theme::Light);
+            }
             app.manage(overlay::CursorOverlay::install(
                 app.handle().clone(),
                 overlay_shared.clone(),
@@ -1951,6 +1958,13 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // The panels follow the computer's light or dark setting through
+            // the main window, which reports the change even while hidden.
+            if let tauri::WindowEvent::ThemeChanged(theme) = event {
+                if window.label() == "main" {
+                    panel_theme::set_system_light(*theme == tauri::Theme::Light);
+                }
+            }
             if window.label() == "main" && matches!(event, tauri::WindowEvent::Focused(false)) {
                 window
                     .app_handle()

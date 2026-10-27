@@ -2,12 +2,16 @@
 use crate::scanning::FrameTile;
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
-/// The colour of the menu bar band along the top of every panel.
-const BAND: [u8; 3] = [30, 36, 48];
+/// The colour of a tile's label, for the platform text painters.
+pub fn text_rgb(tile: &FrameTile) -> [u8; 3] {
+    tile.appearance.palette().text
+}
 
 pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
     use crate::scanning::TileRole;
     let style = tile.style;
+    let palette = tile.appearance.palette();
+    let rgb = |[r, g, b]: [u8; 3]| Color::from_rgba8(r, g, b, 255);
     if tile.is_panel_background() {
         let mut bitmap = Pixmap::new(
             tile.rect.width.round().max(1.0) as u32,
@@ -15,7 +19,7 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
         )
         .ok_or("Cannot allocate panel background")?;
         let mut paint = Paint::default();
-        paint.set_color_rgba8(20, 24, 32, 255);
+        paint.set_color(rgb(palette.panel));
         let path = key_outline(
             bitmap.width() as f32,
             bitmap.height() as f32,
@@ -32,7 +36,7 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
         // The menu bar band along the top, inside the rounded corners.
         let band = (crate::scan_panel::MENU_BAR_HEIGHT * tile.scale) as f32;
         if band < bitmap.height() as f32 {
-            paint.set_color_rgba8(BAND[0], BAND[1], BAND[2], 255);
+            paint.set_color(rgb(palette.band));
             let band = band_outline(bitmap.width() as f32, band, (18.0 * tile.scale) as f32);
             bitmap.fill_path(
                 &band,
@@ -51,23 +55,23 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
     .ok_or("Cannot allocate keyboard key")?;
     // The title sits flat on the band.
     if style.is_some_and(|s| s.role == TileRole::Title) {
-        bitmap.fill(Color::from_rgba8(BAND[0], BAND[1], BAND[2], 255));
+        bitmap.fill(rgb(palette.band));
         return Ok(bitmap);
     }
     let on_band = style.is_some_and(|s| s.role == TileRole::MenuBar);
     let base = match style.map(|s| s.role) {
-        Some(TileRole::Character) => [43, 51, 66],
-        Some(TileRole::Utility) => [34, 41, 54],
-        Some(TileRole::MenuBar) => [52, 61, 79],
-        _ => [25, 30, 40],
+        Some(TileRole::Character) => palette.character,
+        Some(TileRole::Utility) => palette.utility,
+        Some(TileRole::MenuBar) => palette.menu_bar,
+        _ => palette.other,
     };
     bitmap.fill(if on_band {
-        Color::from_rgba8(BAND[0], BAND[1], BAND[2], 255)
+        rgb(palette.band)
     } else {
-        Color::from_rgba8(20, 24, 32, 255)
+        rgb(palette.panel)
     });
-    let rgb = if tile.selected {
-        tile.color.menu_fill()
+    let fill = if tile.selected {
+        tile.appearance.highlight_fill(tile.color)
     } else {
         base
     };
@@ -87,7 +91,7 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
     let height = bitmap.height() as f32;
     let path = key_outline(width, height, inset.min(width.min(height) / 4.0), radius);
     let mut paint = Paint::default();
-    paint.set_color_rgba8(rgb[0], rgb[1], rgb[2], 255);
+    paint.set_color(rgb(fill));
     bitmap.fill_path(
         &path,
         &paint,
@@ -95,14 +99,13 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
         Transform::identity(),
         None,
     );
-    let [r, g, b] = if tile.selected {
-        tile.color.rgb()
+    paint.set_color(rgb(if tile.selected {
+        tile.appearance.highlight(tile.color)
     } else if on_band {
-        [74, 86, 108]
+        palette.band_border
     } else {
-        [62, 72, 89]
-    };
-    paint.set_color_rgba8(r, g, b, 255);
+        palette.border
+    }));
     bitmap.stroke_path(
         &path,
         &paint,
@@ -114,8 +117,7 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
         None,
     );
     if style.is_some_and(|s| s.active) {
-        let [r, g, b] = tile.color.rgb();
-        paint.set_color_rgba8(r, g, b, 255);
+        paint.set_color(rgb(tile.appearance.highlight(tile.color)));
         if let Some(rect) = tiny_skia::Rect::from_xywh(
             width * 0.35,
             height - 5.0 * tile.scale as f32,
@@ -197,6 +199,7 @@ mod tests {
             },
             scale: 1.0,
             selected: false,
+            appearance: Default::default(),
         };
         assert_eq!(
             keyboard_font_size(&tile(TileRole::Utility, "\u{232B}")),
@@ -244,10 +247,14 @@ mod tests {
                 },
                 scale: 1.0,
                 selected: true,
+                appearance: Default::default(),
             };
             let image = bitmap(&tile).unwrap();
             let pixel = ((28 * 176 + 88) * 4) as usize;
-            assert_eq!(&image.data()[pixel..pixel + 3], &color.menu_fill());
+            assert_eq!(
+                &image.data()[pixel..pixel + 3],
+                &crate::panel_theme::Appearance::Dark.highlight_fill(color)
+            );
             let previous = tile.clone();
             tile.color = if color == Blue { Red } else { Blue };
             assert_ne!(tile, previous);
@@ -255,8 +262,73 @@ mod tests {
             tile.selected = false;
             assert_ne!(
                 &bitmap(&tile).unwrap().data()[pixel..pixel + 3],
-                &color.menu_fill()
+                &crate::panel_theme::Appearance::Dark.highlight_fill(color)
             );
         }
+    }
+
+    #[test]
+    fn light_panels_invert_the_palette_and_deepen_the_highlight() {
+        use crate::{
+            panel_theme::Appearance,
+            scanning::{Rect, ScannerColor, TileRole, TileStyle},
+        };
+        let tile = |appearance, role, selected| FrameTile {
+            thickness: Default::default(),
+            style: Some(TileStyle {
+                role,
+                active: false,
+                row_scan: false,
+            }),
+            color: ScannerColor::White,
+            appearance,
+            text: "a".into(),
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 64.0,
+                height: 56.0,
+            },
+            scale: 1.0,
+            selected,
+        };
+        let at = |image: &Pixmap, x: usize, y: usize| {
+            let pixel = (y * 64 + x) * 4;
+            [
+                image.data()[pixel],
+                image.data()[pixel + 1],
+                image.data()[pixel + 2],
+            ]
+        };
+        let luma =
+            |[r, g, b]: [u8; 3]| u32::from(r) * 299 + u32::from(g) * 587 + u32::from(b) * 114;
+        // The panel behind the keys, and every key face, flips from dark to light.
+        let dark = bitmap(&tile(Appearance::Dark, TileRole::Panel, false)).unwrap();
+        let light = bitmap(&tile(Appearance::Light, TileRole::Panel, false)).unwrap();
+        assert!(luma(at(&light, 32, 40)) > luma(at(&dark, 32, 40)));
+        for role in [TileRole::Character, TileRole::Utility, TileRole::MenuBar] {
+            let dark = bitmap(&tile(Appearance::Dark, role, false)).unwrap();
+            let light = bitmap(&tile(Appearance::Light, role, false)).unwrap();
+            assert!(luma(at(&light, 32, 28)) > luma([200, 200, 200]), "{role:?}");
+            assert!(luma(at(&dark, 32, 28)) < luma([80, 80, 80]), "{role:?}");
+            // The surround outside the rounded key follows the panel too.
+            assert!(luma(at(&light, 0, 0)) > luma(at(&dark, 0, 0)), "{role:?}");
+            assert_ne!(dark, light);
+        }
+        // A white highlight on a light key is a grey tint, never white on white.
+        let selected = bitmap(&tile(Appearance::Light, TileRole::Utility, true)).unwrap();
+        assert_eq!(
+            at(&selected, 32, 28),
+            Appearance::Light.highlight_fill(ScannerColor::White)
+        );
+        assert!(luma(at(&selected, 32, 28)) < luma([255, 255, 255]));
+        assert_eq!(
+            text_rgb(&tile(Appearance::Light, TileRole::Utility, false)),
+            [20, 24, 32]
+        );
+        assert_eq!(
+            text_rgb(&tile(Appearance::Dark, TileRole::Utility, false)),
+            [255, 255, 255]
+        );
     }
 }
