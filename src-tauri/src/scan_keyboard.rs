@@ -287,7 +287,6 @@ pub struct Keyboard {
     prediction_enabled: bool,
     prediction_failed: bool,
     pub(crate) prediction_loading: bool,
-    /// Suggestions wait for the next word after context was lost inside one.
     predictions: Option<crate::prediction::worker::Batch>,
     queued_predictions: Option<crate::prediction::worker::Batch>,
     prefer_predictions: bool,
@@ -1208,7 +1207,7 @@ mod tests {
     }
 
     #[test]
-    fn prediction_badge_explains_empty_slots_without_replacing_scan_prompt() {
+    fn empty_slots_draw_nothing_and_never_replace_the_scan_prompt() {
         let mut keyboard = Keyboard::new(false);
         keyboard.enable_predictions(true);
         let screen = Rect {
