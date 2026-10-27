@@ -17,7 +17,7 @@ phrases follow once the on-device model has started.
 
 Only slots with a suggestion are shown. An empty slot leaves a gap, so the other suggestions stay in the same place and the scan skips the gap.
 
-When there are no suggestions at all, the row says why instead, for example **Type for suggestions**, **No suggestions** or **Prediction loading**. The scan skips the row.
+When there are no suggestions at all, the row stays blank and the scan skips it. Nothing is written across the keyboard. If prediction fails, a **Retry predictions** key appears on the keyboard; typing still works.
 
 Suggestions only change when they need to, so the scan does not restart under you.
 

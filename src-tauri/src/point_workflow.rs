@@ -3976,7 +3976,6 @@ mod tests {
                             !matches!(
                                 style.role,
                                 crate::scanning::TileRole::Panel
-                                    | crate::scanning::TileRole::Status
                                     | crate::scanning::TileRole::MenuBar
                                     | crate::scanning::TileRole::Title
                             )
@@ -4327,9 +4326,6 @@ mod tests {
                 // The message is shown clear of the panel, which has no status line.
                 let frame = w.frame();
                 assert!(frame.tiles.iter().all(|tile| !tile.selected));
-                assert!(frame.tiles.iter().all(|tile| {
-                    tile.style.map(|style| style.role) != Some(crate::scanning::TileRole::Status)
-                }));
                 let label = frame.label.unwrap();
                 assert_eq!(label.text, format!("{message}\nSelect to return"));
                 assert!(label.hud.is_some());

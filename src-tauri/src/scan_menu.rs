@@ -217,7 +217,6 @@ impl Menu {
             // Nothing can be chosen while an error or pause waits for Select.
             selected: (!failed && !self.suspended()).then(|| self.scan.highlight(&self.rows)),
             row_scan: self.scan.row_scan() || self.scan.group_scan() || escaping,
-            row_label: None,
             thickness: options.thickness,
             appearance: options.panel_theme.appearance(),
         }

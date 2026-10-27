@@ -566,7 +566,6 @@ impl Service {
             status == database::Status::Unavailable,
         );
         keyboard.prediction_loading = status == database::Status::Loading;
-        keyboard.prediction_tracking(tracking);
     }
     /// A reply missed its deadline. One stall should not cost a switch user a
     /// trip to Retry, so the worker and its private text context are killed
@@ -834,7 +833,6 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
     SERVICE.with(|slot| {
         let mut s = slot.borrow_mut();
         s.observe(activity::snapshot());
-        keyboard.prediction_held = s.held;
         let case = (
             keyboard.prediction_shift(),
             keyboard.caps,
