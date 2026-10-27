@@ -18,11 +18,11 @@ Holding any switch for about 4 seconds is the emergency stop; so is Escape. Pres
 
 When the computer goes to sleep, Switchify PC releases the switch keys and shows **Switches paused while the computer sleeps**. After it wakes, scanning starts again on its own within a few seconds; press Select to begin. If the switches stay quiet after wake, release them, wait a moment and press Select once more, or restart Switchify PC. Sleep also ends a session forwarded from your phone; start forwarding again once the computer is awake.
 
-If Home shows **Keys released** under Saved switches, someone chose **Release switch keys** in the tray or menu bar. Choose **Resume switch keys** there or on Home, or restart Switchify PC.
+If Home shows **Listening paused** under Saved switches, someone chose **Pause listening** in the tray or menu bar. Choose **Resume listening** there or on Home, or restart Switchify PC.
 
 ## My switch key no longer types in other apps
 
-That is expected while a Select switch is saved: Switchify PC takes the key everywhere. Choose **Release switch keys** in the tray or menu bar to use it as a normal key for a while, then **Resume switch keys** when you are done. See [Use the switch key as a normal key](/get-started/add-a-switch/#use-the-switch-key-as-a-normal-key).
+That is expected while a Select switch is saved: Switchify PC takes the key everywhere. Choose **Pause listening** in the tray or menu bar to use it as a normal key for a while, then **Resume listening** when you are done. See [Use the switch key as a normal key](/get-started/add-a-switch/#use-the-switch-key-as-a-normal-key).
 
 ## Input access on a Mac
 

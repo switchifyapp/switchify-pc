@@ -270,7 +270,7 @@ struct ScanService {
 struct SwitchKeysRelease(AtomicBool);
 /// Shown on Home while the keys are released; it names where to resume.
 pub const SWITCH_KEYS_RELEASED_MESSAGE: &str =
-    "Switch keys released. Resume them from the tray or menu bar, or on Home.";
+    "Listening paused. Resume listening from the tray or menu bar, or on Home.";
 pub fn switch_keys_released(app: &AppHandle) -> bool {
     app.try_state::<SwitchKeysRelease>()
         .is_some_and(|flag| flag.0.load(Ordering::SeqCst))
