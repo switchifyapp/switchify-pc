@@ -299,7 +299,7 @@ pub fn begin(app: &AppHandle, remote: bool) -> Result<View, String> {
         // Practice enables the key broker itself, so honour the release here
         // as `wanted` does for scanning.
         if crate::scanning_runtime::switch_keys_released(app) {
-            return Err("Resume the switch keys before testing switches.".into());
+            return Err("Resume listening before testing switches.".into());
         }
         (switches.settings(), 0)
     };
