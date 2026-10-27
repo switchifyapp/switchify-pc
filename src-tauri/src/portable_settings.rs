@@ -16,7 +16,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -195,9 +195,10 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
         return Err(ParseError::Newer(schema_version));
     }
     match schema_version {
-        1 => value = upgrade_v3(upgrade_v2(upgrade_v1(value)?)?)?,
-        2 => value = upgrade_v3(upgrade_v2(value)?)?,
-        3 => value = upgrade_v3(value)?,
+        1 => value = upgrade_v4(upgrade_v3(upgrade_v2(upgrade_v1(value)?)?)?)?,
+        2 => value = upgrade_v4(upgrade_v3(upgrade_v2(value)?)?)?,
+        3 => value = upgrade_v4(upgrade_v3(value)?)?,
+        4 => value = upgrade_v4(value)?,
         SCHEMA_VERSION => {}
         _ => {
             return Err(ParseError::Invalid(format!(
@@ -276,6 +277,21 @@ fn upgrade_v3(mut value: Value) -> Result<Value, ParseError> {
         .filter(|point_scan| !point_scan.contains_key("radarSpeed"))
         .ok_or_else(|| ParseError::Invalid("it does not match version 3 settings".into()))?
         .insert("radarSpeed".into(), Value::Null);
+    value["schemaVersion"] = Value::from(4);
+    Ok(value)
+}
+
+/// Version 4 had no panel theme, so the panels follow the computer.
+fn upgrade_v4(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(4)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    value
+        .pointer_mut("/pointScan/scanPreferences")
+        .and_then(Value::as_object_mut)
+        .filter(|preferences| !preferences.contains_key("panelTheme"))
+        .ok_or_else(|| ParseError::Invalid("it does not match version 4 settings".into()))?
+        .insert("panelTheme".into(), Value::from("system"));
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -469,6 +485,13 @@ pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
 /// A current document as an older version wrote it.
 #[cfg(test)]
 pub(crate) fn written_by(mut value: Value, version: u32) -> Value {
+    if version < 5 {
+        value
+            .pointer_mut("/pointScan/scanPreferences")
+            .and_then(Value::as_object_mut)
+            .unwrap()
+            .remove("panelTheme");
+    }
     if version < 4 {
         value["pointScan"]
             .as_object_mut()
@@ -640,6 +663,72 @@ mod tests {
     /// A document as written by version 1, before scanned key repeat.
     fn version_one() -> Value {
         written_by(serde_json::to_value(local().document()).unwrap(), 1)
+    }
+
+    #[test]
+    fn version_four_documents_read_with_panels_matching_the_system() {
+        use crate::scan_preferences::PanelTheme;
+        let mut local = local();
+        local.point_scan.scan_preferences.panel_theme = PanelTheme::Light;
+        let mut cloud = local.clone();
+        cloud.point_scan.scan_preferences.panel_theme = PanelTheme::System;
+        let version_four = written_by(serde_json::to_value(cloud.document()).unwrap(), 4);
+        assert!(version_four["pointScan"]["scanPreferences"]
+            .get("panelTheme")
+            .is_none());
+        let parsed = parse(version_four.clone(), 4).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert_eq!(
+            parsed.point_scan.scan_preferences.panel_theme,
+            PanelTheme::System
+        );
+        let point_scan = plan(&local, parsed).unwrap().point_scan.unwrap();
+        assert_eq!(point_scan.scan_preferences.panel_theme, PanelTheme::System);
+
+        // Version 4 never had a panel theme, and a version 5 document needs it.
+        let mut early = version_four.clone();
+        early["pointScan"]["scanPreferences"]["panelTheme"] = json!("light");
+        assert!(matches!(parse(early, 4), Err(ParseError::Invalid(_))));
+        let mut missing = version_four.clone();
+        missing["schemaVersion"] = json!(SCHEMA_VERSION);
+        assert!(matches!(
+            parse(missing, SCHEMA_VERSION),
+            Err(ParseError::Invalid(_))
+        ));
+        // Every older version still climbs to the current one.
+        for version in 1..SCHEMA_VERSION {
+            let old = written_by(serde_json::to_value(cloud.document()).unwrap(), version);
+            let parsed = parse(old, version).unwrap();
+            assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+            assert_eq!(
+                parsed.point_scan.scan_preferences.panel_theme,
+                PanelTheme::System
+            );
+        }
+        // A merge base saved by version 4 still loads.
+        let base: Document = serde_json::from_value(written_by(
+            serde_json::to_value(local.document()).unwrap(),
+            4,
+        ))
+        .unwrap();
+        assert_eq!(
+            base.point_scan.scan_preferences.panel_theme,
+            PanelTheme::System
+        );
+
+        // A chosen theme syncs, and an unknown one is refused rather than reset.
+        let mut chosen = serde_json::to_value(cloud.document()).unwrap();
+        chosen["pointScan"]["scanPreferences"]["panelTheme"] = json!("dark");
+        let parsed = parse(chosen.clone(), SCHEMA_VERSION).unwrap();
+        assert_eq!(
+            parsed.point_scan.scan_preferences.panel_theme,
+            PanelTheme::Dark
+        );
+        chosen["pointScan"]["scanPreferences"]["panelTheme"] = json!("sepia");
+        assert!(matches!(
+            parse(chosen, SCHEMA_VERSION),
+            Err(ParseError::Invalid(_))
+        ));
     }
 
     #[test]

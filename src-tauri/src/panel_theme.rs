@@ -88,7 +88,7 @@ impl Appearance {
                 ScannerColor::Red => [198, 40, 40],
                 ScannerColor::Green => [27, 140, 60],
                 ScannerColor::Blue => [25, 103, 210],
-                ScannerColor::Yellow => [214, 140, 0],
+                ScannerColor::Yellow => [176, 112, 0],
                 ScannerColor::White => [58, 64, 76],
             },
         }
