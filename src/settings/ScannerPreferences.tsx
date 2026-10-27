@@ -2,12 +2,17 @@ import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { lastModeName, mouseRepeatStopInstruction, selectOpensHome, type ScanningController, type ScannerColor, type PointScanConfig } from '../scanning/useScanning';
-import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, savedKeyboardWait, itemScanning, itemScanningLabels, type ItemScanning, type PanelSize, type ScanArea, type ScanOptions } from '../scanning/preferences';
+import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, savedKeyboardWait, itemScanning, itemScanningLabels, type ItemScanning, type PanelSize, type PanelTheme, type ScanArea, type ScanOptions } from '../scanning/preferences';
 import { SettingGroup, Toggle, OptionGroup } from './controls';
 import { api } from '../api';
 import type { AppSettings } from '../types';
 
 const speedOptions = ["Very slow", "Slow", "Medium", "Fast", "Very fast"].map((label, value) => ({ label, value }));
+/** Whether the sample should show light panels, as the panels themselves decide. */
+function lightPanels(theme: PanelTheme | undefined) {
+  if (theme === 'light' || theme === 'dark') return theme === 'light';
+  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: light)').matches;
+}
 
 export function ScannerPreferences({ controller, settings: appSettings, onSettingsChange }: { controller: ScanningController; settings?: AppSettings; onSettingsChange?: (next: AppSettings) => void }) {
   const { config, state, update, chooseKeyboardLayout, pending } = controller;
@@ -242,11 +247,17 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
       onChange={panelSize => update('scanPreferences', { ...settings, panelSize })}
       note={{ summary: 'Sizes the keyboard, the mouse panel, Home and the action menus. Each panel fits its controls and shrinks to fit the screen.' }}
     />}
+    {area === 'shared' && <OptionGroup<PanelTheme>
+      legend="Panel theme" columns="three" disabled={disabled} value={settings.panelTheme ?? 'system'}
+      options={[{ value: 'system', label: 'Match system' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]}
+      onChange={panelTheme => update('scanPreferences', { ...settings, panelTheme })}
+      note={{ summary: 'Colours the keyboard, the mouse panel, Home and the action menus. Match system follows your computer\'s light or dark setting. On light panels the scanner colour is a deeper shade so it stays easy to see, and white becomes dark grey.' }}
+    />}
     {field('color', 'Scanner colour', locked => <fieldset disabled={locked}><legend>Scanner colour</legend><div className="scanner-colours">
       {(['red', 'green', 'blue', 'yellow', 'white'] as const).map(colour => <label key={colour}><Input type="radio" name="scanner-colour" value={colour} checked={effective.color === colour} onChange={() => change('color', colour)} /><span className={`color-swatch ${colour}`} aria-hidden="true" /><span>{colour[0].toUpperCase() + colour.slice(1)}</span></label>)}
     </div></fieldset>)}
     {field('thickness', 'Highlight thickness', locked => <OptionGroup<ScanOptions['thickness']> legend="Highlight thickness" disabled={locked} value={effective.thickness} options={(['thin', 'standard', 'thick'] as const).map(value => ({ value, label: value[0].toUpperCase() + value.slice(1) }))} onChange={value => change('thickness', value)} />)}
-    <div className={`scanner-sample ${effective.color}`} role="img" aria-label={`${effective.color} scanner highlight sample`}>
+    <div className={`scanner-sample ${effective.color}${lightPanels(settings.panelTheme) ? ' light' : ''}`} role="img" aria-label={`${effective.color} scanner highlight sample`}>
       <span className={`scanner-sample-selection ${effective.thickness}`}>Selected area</span>
     </div>
     </SettingGroup>

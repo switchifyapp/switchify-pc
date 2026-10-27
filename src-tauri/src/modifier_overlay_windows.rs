@@ -412,6 +412,7 @@ fn present(window: HWND, labels: &[String], layout: &Layout) -> Result<(), Strin
         pixmap.data(),
         labels.iter().any(|label| label.contains('\n')),
         false,
+        [255, 255, 255],
     )
 }
 
@@ -474,6 +475,7 @@ fn present_pixmap_with_text(
     rgba: &[u8],
     wrap: bool,
     center_wrapped: bool,
+    text_rgb: [u8; 3],
 ) -> Result<(), String> {
     unsafe {
         let screen = ScreenDc(GetDC(None));
@@ -540,7 +542,12 @@ fn present_pixmap_with_text(
             previous: SelectObject(memory.0, font.0),
         };
         SetBkMode(memory.0, TRANSPARENT);
-        SetTextColor(memory.0, COLORREF(0x00ff_ffff));
+        SetTextColor(
+            memory.0,
+            COLORREF(
+                u32::from(text_rgb[0]) | u32::from(text_rgb[1]) << 8 | u32::from(text_rgb[2]) << 16,
+            ),
+        );
         for (label, chip) in labels.iter().zip(&layout.chips) {
             if label.is_empty() {
                 continue;
@@ -673,6 +680,7 @@ pub(crate) fn present_scan_tile(
         pixmap.data(),
         true,
         true,
+        crate::scan_tile::text_rgb(tile),
     )
 }
 
@@ -728,6 +736,7 @@ mod tests {
                 &pixels,
                 wrapped,
                 wrapped,
+                [255, 255, 255],
             );
             assert!(result.is_err());
         }
@@ -888,7 +897,7 @@ mod tests {
     fn export_panel_size_fixtures() {
         use crate::{
             scan_panel::Dock,
-            scan_preferences::{PanelSize, Resolved},
+            scan_preferences::{PanelSize, PanelTheme, Resolved},
             scanning::{Rect, ScannerColor},
         };
         let directory =
@@ -900,10 +909,14 @@ mod tests {
             width: 1920.0,
             height: 1080.0,
         };
-        for size in [PanelSize::Small, PanelSize::Medium, PanelSize::Large] {
+        let presets = [PanelSize::Small, PanelSize::Medium, PanelSize::Large]
+            .into_iter()
+            .flat_map(|size| [(size, PanelTheme::Dark), (size, PanelTheme::Light)]);
+        for (size, theme) in presets {
             let mut mouse = crate::scan_mouse::MousePanel::new(
                 Resolved {
                     panel_size: size,
+                    panel_theme: theme,
                     ..Default::default()
                 },
                 2,
@@ -913,6 +926,7 @@ mod tests {
             let mut keyboard = crate::scan_keyboard::Keyboard::new(false);
             keyboard.dock = mouse.dock;
             keyboard.set_panel_size(size);
+            keyboard.set_panel_theme(theme);
             keyboard.enable_predictions(true);
             let keyboard_frame = keyboard.frame(screen, 1.0, ScannerColor::default());
             let mut page = |page| {
@@ -951,9 +965,10 @@ mod tests {
                         .borrow_mut()
                         .take()
                         .unwrap()
-                        .save_png(
-                            std::path::Path::new(&directory).join(format!("{name}-{size:?}.png")),
-                        )
+                        .save_png(std::path::Path::new(&directory).join(match theme {
+                            PanelTheme::Light => format!("{name}-{size:?}-light.png"),
+                            _ => format!("{name}-{size:?}.png"),
+                        }))
                         .unwrap()
                 });
             }

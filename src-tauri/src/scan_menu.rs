@@ -127,6 +127,9 @@ impl Menu {
     pub fn set_panel_size(&mut self, size: crate::scan_preferences::PanelSize) {
         self.scan.options.panel_size = size;
     }
+    pub fn set_panel_theme(&mut self, theme: crate::scan_preferences::PanelTheme) {
+        self.scan.options.panel_theme = theme;
+    }
 
     #[cfg(test)]
     pub fn new(kind: Kind, period: u64) -> Self {
@@ -216,6 +219,7 @@ impl Menu {
             row_scan: self.scan.row_scan() || self.scan.group_scan() || escaping,
             row_label: None,
             thickness: options.thickness,
+            appearance: options.panel_theme.appearance(),
         }
         .frame(screen, units, options.color)
     }

@@ -17,4 +17,10 @@ $env:SWITCHIFY_PANEL_FIXTURES = Join-Path $PWD '.cache/panel-fixtures'
 cargo test --manifest-path src-tauri/Cargo.toml export_panel_size_fixtures -- --ignored --nocapture
 ```
 
+Each panel is exported twice: dark as `name-Size.png` and light as `name-Size-light.png`, so the Panel theme palettes can be checked side by side.
+
+```powershell
+# Example: .cache/panel-fixtures/mouse-Medium.png and mouse-Medium-light.png
+```
+
 Windows Small and Medium mouse and Medium keyboard fixtures were visually checked for labels, spacing, direction alignment and reserved prediction slots. macOS visual inspection is not available on this Windows machine; cross-platform compilation and tests are covered by CI. This change does not modify platform focus or click-through behavior.

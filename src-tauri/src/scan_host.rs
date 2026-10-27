@@ -312,6 +312,7 @@ mod platform {
                     },
                     1.0,
                     Default::default(),
+                    Default::default(),
                 ))
                 .unwrap();
             // Reuse the prompt created before the opaque panel, including an
@@ -344,6 +345,7 @@ mod platform {
             let key = |role| crate::scanning::FrameTile {
                 thickness: Default::default(),
                 color: Default::default(),
+                appearance: Default::default(),
                 text: "Settings".into(),
                 rect,
                 scale: 1.0,
@@ -913,7 +915,7 @@ mod platform {
         tile: &crate::scanning::FrameTile,
         frame: &Rect,
     ) -> Result<(), String> {
-        use objc2_app_kit::NSFont;
+        use objc2_app_kit::{NSColor, NSFont};
         use objc2_foundation::NSString;
         let pixels = crate::scan_tile::bitmap(tile)?;
         let image = crate::overlay::platform::image_from_rgba_rect(
@@ -936,6 +938,13 @@ mod platform {
         }
         let label = &view.label;
         label.setStringValue(&NSString::from_str(&tile.text));
+        let [r, g, b] = tile.appearance.palette().text;
+        label.setTextColor(Some(&NSColor::colorWithSRGBRed_green_blue_alpha(
+            f64::from(r) / 255.0,
+            f64::from(g) / 255.0,
+            f64::from(b) / 255.0,
+            1.0,
+        )));
         label.setFont(Some(&NSFont::boldSystemFontOfSize(
             crate::scan_tile::keyboard_font_size(tile) * tile.scale,
         )));

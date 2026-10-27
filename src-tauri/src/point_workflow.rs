@@ -301,6 +301,12 @@ impl Workflow {
             .set_panel_size(self.point.config.mouse_scan.panel_size);
         self.menu
             .set_panel_size(self.point.config.menu_scan.panel_size);
+        self.keyboard
+            .set_panel_theme(self.point.config.keyboard_scan.panel_theme);
+        self.mouse
+            .set_panel_theme(self.point.config.mouse_scan.panel_theme);
+        self.menu
+            .set_panel_theme(self.point.config.menu_scan.panel_theme);
 
         self.keyboard.set_layout(self.point.config.keyboard_layout);
         self.menu

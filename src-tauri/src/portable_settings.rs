@@ -745,6 +745,7 @@ mod tests {
                 "mouse",
                 "nextScan",
                 "panelSize",
+                "panelTheme",
                 "passLimit",
                 "pattern",
                 "point",
