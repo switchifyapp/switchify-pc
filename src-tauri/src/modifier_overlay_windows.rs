@@ -579,16 +579,19 @@ fn present_pixmap_with_text(
             );
         }
 
+        // GDI writes text with alpha 0. The layered window composites
+        // premultiplied alpha, so such a pixel adds its colour to whatever is
+        // behind the panel: white text happened to stay white, but dark text
+        // on a light panel would vanish over a light window. Text only lands
+        // on opaque key faces, so the source alpha is the right alpha.
+        for (pixel, source) in output.chunks_exact_mut(4).zip(rgba.chunks_exact(4)) {
+            pixel[3] = source[3];
+        }
+
         #[cfg(test)]
         if PANEL_FIXTURE.with(|fixture| fixture.borrow().is_some()) {
             let mut pixels = vec![0; output.len()];
             copy_rgba_to_bgra(output, &mut pixels)?;
-            // GDI clears alpha on text pixels; the panel underneath is opaque.
-            for pixel in pixels.chunks_exact_mut(4) {
-                if pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0 {
-                    pixel[3] = 255;
-                }
-            }
             let tile = Pixmap::from_vec(
                 pixels,
                 tiny_skia::IntSize::from_wh(layout.width as u32, layout.height as u32).unwrap(),
