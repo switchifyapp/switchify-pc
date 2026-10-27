@@ -84,7 +84,7 @@ describe("Switchify PC shell", () => {
     await screen.findByRole("heading", { name: "Ready" });
     fireEvent.click(screen.getByRole("button", { name: "Pause listening" }));
     expect(release).toHaveBeenCalledWith(true);
-    await screen.findByRole("heading", { name: "Switch keys released" });
+    await screen.findByRole("heading", { name: "Listening paused" });
     expect(screen.getByText("1 saved · Listening paused")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit switches" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Resume listening" })).toHaveLength(2);

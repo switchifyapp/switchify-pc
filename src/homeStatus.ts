@@ -27,7 +27,7 @@ export function homeStatus({ accessibility, bluetooth, switchesLoaded, hasSelect
   if (!scanning.supported) return { title: "Switch control unavailable", tone: "neutral", message: scanning.message };
   if (scanning.remote) return { title: "Remote in control", tone: "neutral", message: "Remote controls scanning. Use the switches in Remote; PC Escape stops the session." };
   if (bluetooth === "connected") return { title: "Paused for mobile", tone: "neutral", message: "Local scanning is paused while a mobile device is connected." };
-  if (switchKeysReleased) return { title: "Switch keys released", tone: "neutral", message: "Your switch keys work as normal keys in other apps. Resume them to scan again." };
+  if (switchKeysReleased) return { title: "Listening paused", tone: "neutral", message: "Your switch keys work as normal keys in other apps. Choose Resume listening to scan again." };
   if (!switchesLoaded) return { title: "Switch control", tone: "neutral", message: "Loading switch control..." };
   if (!hasSelect) return { title: "Finish setting up", tone: "attention", message: "Add a switch with the Select action to begin scanning." };
   if (scanning.paused) return { title: "Paused", tone: "neutral", message: "Scanning is paused. Use your Pause / resume switch to continue." };

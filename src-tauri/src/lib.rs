@@ -307,9 +307,9 @@ fn set_switch_keys_released_inner(app: &AppHandle, model: &AppModel, released: b
         &model.shared,
         ActivityKind::Info,
         if released {
-            "Switch keys released. They work as normal keys until you resume."
+            "Listening paused. Your switch keys work as normal keys until you resume."
         } else {
-            "Switch keys resumed."
+            "Listening resumed."
         },
     );
     state::emit_state(app, &model.shared);

@@ -5,7 +5,7 @@ description: Optional sign-in that carries your settings between computers, auto
 
 ## Running in the background
 
-Switchify PC lives in the system tray on Windows or the menu bar on a Mac, with live connection status. From there you can show the window, open Settings and the Switch Forwarding profiles, disconnect devices, pause listening to the switch keys, or quit. **Start with system** launches it quietly when you sign in.
+Switchify PC lives in the system tray on Windows or the menu bar on a Mac, with live connection status. From there you can show the window, open Settings and the Switch Forwarding profiles, disconnect devices, pause listening for switch keys, or quit. **Start with system** launches it quietly when you sign in.
 
 **Pause listening** hands your switch keys back to other apps until you choose **Resume listening**. See [Use the switch key as a normal key](/get-started/add-a-switch/#use-the-switch-key-as-a-normal-key).
 
