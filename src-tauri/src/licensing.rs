@@ -128,6 +128,30 @@ impl Data {
         self.cleanup_pending |= expired;
         expired
     }
+    /// Whether this checkpoint should also attempt the keychain mirror.
+    fn retry_secure_due(&self, time: i64) -> bool {
+        self.storage_warning && time >= self.next_secure_retry
+    }
+    /// Apply a checkpoint `save` outcome. `Err` is a file failure (the keychain
+    /// was not tried), `Ok(true)` a keychain failure, `Ok(false)` success.
+    /// A warning only clears when the keychain was actually retried, so a
+    /// stale mirror keeps its warning across the non-retry minutes.
+    fn record_checkpoint(&mut self, time: i64, retried_secure: bool, outcome: Result<bool, ()>) {
+        match outcome {
+            Err(()) => self.storage_warning = true,
+            Ok(true) => {
+                self.storage_warning = true;
+                self.secure_failures = self.secure_failures.saturating_add(1);
+                self.next_secure_retry = time + 60 * (1i64 << self.secure_failures.min(6));
+            }
+            Ok(false) if retried_secure => {
+                self.storage_warning = false;
+                self.secure_failures = 0;
+                self.next_secure_retry = 0;
+            }
+            Ok(false) => {}
+        }
+    }
 }
 pub struct Licensing {
     data: Mutex<Data>,
@@ -366,7 +390,7 @@ impl Licensing {
                 record.last_seen = time;
                 // Retry the keychain mirror only while it is known to be stale, so the
                 // healthy case costs no keychain writes and a locked keychain heals.
-                let retry_secure = data.storage_warning && time >= data.next_secure_retry;
+                let retry_secure = data.retry_secure_due(time);
                 if retry_secure {
                     // Merge what the keychain already holds first, so an earlier
                     // trial or a newer removal is never overwritten by this session.
@@ -375,14 +399,8 @@ impl Licensing {
                             .unwrap_or_else(|| unreachable!("merge of two records is always Some"));
                     }
                 }
-                let failed = self.save(&record, retry_secure).unwrap_or(true);
-                data.storage_warning = failed;
-                if retry_secure && failed {
-                    data.secure_failures = data.secure_failures.saturating_add(1);
-                    data.next_secure_retry = time + 60 * (1i64 << data.secure_failures.min(6));
-                } else if !failed {
-                    data.secure_failures = 0;
-                }
+                let outcome = self.save(&record, retry_secure).map_err(|_| ());
+                data.record_checkpoint(time, retry_secure, outcome);
                 data.record = Some(record);
             }
         }
@@ -686,6 +704,44 @@ mod tests {
         let saved = decode_record(&std::fs::read_to_string(&service.path).unwrap()).unwrap();
         assert_eq!(saved.first_run, 1000);
         let _ = std::fs::remove_dir_all(dir);
+    }
+    #[test]
+    fn stale_keychain_keeps_its_warning_and_backs_off_until_a_retry_succeeds() {
+        let mut data = Data {
+            record: None,
+            storage_warning: true,
+            recovery: false,
+            recovery_armed: false,
+            cleanup_pending: false,
+            last_allowed: true,
+            access_until: Some(0),
+            secure_failures: 0,
+            next_secure_retry: 0,
+        };
+        // Retries at 60, then 60 + 120, then + 240 ... capped at 64 minutes.
+        let mut time = 60;
+        let mut expected = vec![];
+        for _ in 0..8 {
+            assert!(data.retry_secure_due(time));
+            data.record_checkpoint(time, true, Ok(true));
+            expected.push(time);
+            // Non-retry minutes keep the warning and the schedule untouched.
+            assert!(!data.retry_secure_due(time + 60));
+            data.record_checkpoint(time + 60, false, Ok(false));
+            assert!(data.storage_warning);
+            time = data.next_secure_retry;
+        }
+        assert_eq!(expected, [60, 180, 420, 900, 1860, 3780, 7620, 11460]);
+        // A file failure sets the warning without touching the keychain schedule.
+        let scheduled = data.next_secure_retry;
+        data.record_checkpoint(time, false, Err(()));
+        assert!(data.storage_warning);
+        assert_eq!(data.next_secure_retry, scheduled);
+        // The first successful keychain retry clears everything.
+        data.record_checkpoint(time, true, Ok(false));
+        assert!(!data.storage_warning);
+        assert_eq!(data.secure_failures, 0);
+        assert!(!data.retry_secure_due(time + 60));
     }
     #[test]
     fn rejects_corrupt_trial_records() {
