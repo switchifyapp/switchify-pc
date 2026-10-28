@@ -51,3 +51,5 @@ Switchify PC includes work from other projects. Each part keeps its own licence.
 - **Software libraries**: Switchify PC is built with [Tauri](https://tauri.app), [React](https://react.dev) and many open source Rust and JavaScript libraries. Each keeps its own licence.
 
 The three instant word suggestions are built from the texts above, and from your own typing if **Learn from my typing** is on. The AI words and phrases come from the SmolLM2 model. Any suggestion can sometimes be unsuitable or wrong.
+
+Using the mouse, pressing Tab, or entering a key pauses automatic button scanning on the licence page. Choose **Resume automatic button scanning** when you want to use your local switches again.

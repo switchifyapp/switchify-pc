@@ -11,16 +11,21 @@ export function LicenceSection({ state }: { state: AppState }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [recoveryPaused, setRecoveryPaused] = useState(false);
   const scope = useRef<HTMLDivElement>(null);
   const highlighted = useRef<HTMLButtonElement | null>(null);
   const view = updated ?? state.licence;
   const locked = view?.configured && ["expired", "unavailable"].includes(view.status);
   useEffect(() => { setUpdated(null); }, [state.licence]);
   useEffect(() => {
-    if (!locked || !("__TAURI_INTERNALS__" in window)) return;
+    if (!locked || recoveryPaused || !("__TAURI_INTERNALS__" in window)) return;
     void invoke("set_licence_recovery", { active: true });
     // Automatic scanning stays inside the licence page, without native mouse
     // or keyboard injection. Any configured local switch selects the focus.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Tab") setRecoveryPaused(true);
+    };
+    window.addEventListener("keydown", onKeyDown);
     let index = -1;
     const timer = window.setInterval(() => {
       const buttons = Array.from(scope.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
@@ -34,11 +39,12 @@ export function LicenceSection({ state }: { state: AppState }) {
     return () => {
       alive = false;
       window.clearInterval(timer);
+      window.removeEventListener("keydown", onKeyDown);
       highlighted.current = null;
       void stop.then((unlisten) => unlisten());
       void invoke("set_licence_recovery", { active: false });
     };
-  }, [locked]);
+  }, [locked, recoveryPaused]);
   const run = async (command: string, args?: Record<string, unknown>) => {
     setBusy(true); setError(null);
     try {
@@ -48,10 +54,13 @@ export function LicenceSection({ state }: { state: AppState }) {
     finally { setBusy(false); }
   };
   return <SettingGroup id="settings-licence" title="Licence" description="Your purchase and trial on this computer">
-    <div ref={scope}>
+    <div ref={scope} onPointerDownCapture={() => setRecoveryPaused(true)} onFocusCapture={(event) => {
+      if (event.target.matches("textarea,input,select")) setRecoveryPaused(true);
+    }}>
       <p role="status">{view?.message ?? "Licensing is not enabled in this build."}</p>
       {view?.storageWarning && <p>Your licence storage backup is unavailable. Unlock your keychain and restart Switchify PC.</p>}
-      {locked && <p>Switch control here stays available. Buttons receive focus automatically; press any configured local switch to choose one. Copy your key first, then choose Paste and activate.</p>}
+      {locked && <p>Switch control here stays available. Buttons receive focus automatically; press any configured local switch to choose one. Copy your key first, then choose Paste and activate. Using the mouse, Tab key or key entry field pauses automatic button scanning.</p>}
+      {locked && recoveryPaused && <Button onClick={() => setRecoveryPaused(false)}>Resume automatic button scanning</Button>}
       {view?.configured && <>
         {view.licenceId && <p>Licence ID: {view.licenceId}</p>}
         <p>€100 one-time purchase for one computer. A key works offline, without a Switchify account.</p>

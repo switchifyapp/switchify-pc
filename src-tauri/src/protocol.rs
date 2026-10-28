@@ -789,6 +789,8 @@ impl ProtocolEngine {
                     | "switch.session.stop"
                     | "switch.profile.list"
                     | "mouse.repeat.stop"
+                    | "mouse.dragEnd"
+                    | "keyboard.modifierUp"
                     | "connection.disconnecting"
             )
         {
@@ -1955,6 +1957,18 @@ mod tests {
                 false,
             ),
             ("locked-mouse", "mouse.move", json!({"dx":1,"dy":1}), false),
+            (
+                "locked-drag",
+                "mouse.dragStart",
+                json!({"button":"left"}),
+                false,
+            ),
+            (
+                "locked-modifier",
+                "keyboard.modifierDown",
+                json!({"key":"ctrl"}),
+                false,
+            ),
             ("locked-ping", "connection.ping", json!({}), true),
         ] {
             let mut command = json!({"version":1,"id":id,"deviceId":"remote-1","timestamp":NOW,"type":kind,"payload":payload});
@@ -1981,11 +1995,17 @@ mod tests {
             EngineEvent::MouseMove(_)
         ));
         engine.set_access_deadline(Some(NOW / 1000));
-        for (id, kind) in [
-            ("stop-expired", "mouse.repeat.stop"),
-            ("disconnect-expired", "connection.disconnecting"),
+        for (id, kind, payload) in [
+            ("stop-expired", "mouse.repeat.stop", json!({})),
+            ("drag-expired", "mouse.dragEnd", json!({})),
+            (
+                "modifier-expired",
+                "keyboard.modifierUp",
+                json!({"key":"ctrl"}),
+            ),
+            ("disconnect-expired", "connection.disconnecting", json!({})),
         ] {
-            let mut command = json!({"version":1,"id":id,"deviceId":"remote-1","timestamp":NOW,"type":kind,"payload":{}});
+            let mut command = json!({"version":1,"id":id,"deviceId":"remote-1","timestamp":NOW,"type":kind,"payload":payload});
             sign(&mut command, TOKEN, SlashEscaping::AndroidHtmlSafe);
             assert!(matches!(
                 engine.process_message(&command.to_string(), NOW).unwrap(),

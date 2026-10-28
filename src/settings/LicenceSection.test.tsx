@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { browserState } from "../api";
 import { LicenceSection } from "./LicenceSection";
 import type { LicenceView } from "../types";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
 import { invoke } from "@tauri-apps/api/core";
 const licensed: LicenceView = { configured: true, status: "licensed", daysRemaining: 0, licenceId: "id", message: "Licensed offline.", storageWarning: false };
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -30,4 +31,28 @@ it("does not read the clipboard until Paste and activate is selected", async () 
   expect(invoke).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Paste and activate" }));
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("paste_licence", undefined));
+});
+
+it("pauses recovery scanning while a keyboard user enters a key", async () => {
+  vi.useFakeTimers();
+  Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
+  try {
+    render(<LicenceSection state={{ ...browserState, licence: { ...licensed, status: "expired" } }} />);
+    await act(async () => { vi.advanceTimersByTime(1500); });
+    expect(screen.getByRole("button", { name: "Paste and activate" })).toHaveFocus();
+    const field = screen.getByLabelText("Licence key");
+    act(() => field.focus());
+    await act(async () => { vi.advanceTimersByTime(3000); });
+    expect(field).toHaveFocus();
+    expect(invoke).toHaveBeenCalledWith("set_licence_recovery", { active: false });
+    fireEvent.change(field, { target: { value: "a manually entered key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Resume automatic button scanning" }));
+    await act(async () => { vi.advanceTimersByTime(1500); });
+    expect(screen.getByRole("button", { name: "Activate key" })).toHaveFocus();
+    expect(field).toHaveValue("a manually entered key");
+  } finally {
+    cleanup();
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    vi.useRealTimers();
+  }
 });
