@@ -302,7 +302,9 @@ impl State {
         }
     }
     pub fn raw(&mut self, shared: &Shared, code: u32, pressed: bool, generated: bool, ms: u64) {
-        if !generated {
+        // The hook never sees controller codes, so a keyboard reporting one
+        // must not leave an observation that later reads as a lost hook.
+        if !generated && !is_gamepad_code(code as usize) {
             self.observe(shared, code, pressed, true, ms);
         }
     }
@@ -490,6 +492,11 @@ mod tests {
         assert!(!state.key(&shared, code as u32, true, false, 1));
         assert!(!shared.owned[code].load(Acquire));
         assert!(state.observations.is_empty());
+        // Nor can a raw keyboard report of that code look like a lost hook.
+        state.raw(&shared, code as u32, true, false, 2);
+        assert!(state.observations.is_empty());
+        assert!(!state.maintenance(&shared, 2 + HEARTBEAT_TIMEOUT_MS, 4000));
+        assert!(!shared.recovering.load(Acquire));
     }
     #[test]
     fn gamepad_codes_sit_in_the_unassigned_virtual_key_range() {
