@@ -113,6 +113,8 @@ struct Data {
     recovery_armed: bool,
     cleanup_pending: bool,
     last_allowed: bool,
+    /// Cached by `view` so hot paths skip signature verification.
+    access_until: Option<i64>,
 }
 impl Data {
     fn observe_access(&mut self, current: bool) -> bool {
@@ -200,6 +202,7 @@ impl Licensing {
                 recovery_armed: false,
                 cleanup_pending: false,
                 last_allowed: true,
+                access_until: None,
             }),
             path,
             keys,
@@ -217,6 +220,16 @@ impl Licensing {
     /// Observe from the real state at launch. An install that is already
     /// expired has no active input to clean up and must not raise the window
     /// on every start, including hidden login starts.
+    fn cached_allowed(&self, now: i64) -> bool {
+        if !self.configured {
+            return true;
+        }
+        self.data
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .access_until
+            .is_none_or(|end| now < end)
+    }
     fn seed_access(&self) {
         let allowed = self.view().allowed(now());
         self.data
@@ -275,7 +288,7 @@ impl Licensing {
                 ..View::default()
             };
         }
-        let data = self.data.lock().unwrap_or_else(|p| p.into_inner());
+        let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
         let mut view = if self.keys.is_empty() {
             View {
                 configured: true,
@@ -289,6 +302,7 @@ impl Licensing {
             data.record.as_ref().map(|r|r.view(&self.trust(),now())).unwrap_or_else(|| View { configured:true,status:"unavailable".into(),message:"Unlock your keychain and restart Switchify PC, or enter your licence again.".into(),access_until:Some(0),..View::default() })
         };
         view.storage_warning = data.storage_warning;
+        data.access_until = view.access_until;
         view
     }
     fn redeem(&self, key: &str) -> Result<(), String> {
@@ -308,6 +322,8 @@ impl Licensing {
         let warning = self.save(&record)?;
         data.record = Some(record);
         data.storage_warning = warning;
+        drop(data);
+        self.view();
         Ok(())
     }
     fn checkpoint(&self) {
@@ -336,6 +352,8 @@ impl Licensing {
         let warning = self.save(&record)?;
         data.record = Some(record);
         data.storage_warning = warning;
+        drop(data);
+        self.view();
         Ok(())
     }
 }
@@ -363,9 +381,12 @@ fn publish(app: &AppHandle) {
         let _ = app.emit(crate::state::APP_STATE_EVENT, model.snapshot());
     }
 }
+/// Cheap check for scanning ticks and input dispatch. The cached deadline is
+/// refreshed by every `view` call: at launch, each second from `publish`, and
+/// after a key is redeemed or removed.
 pub fn allowed(app: &AppHandle) -> bool {
     app.try_state::<Licensing>()
-        .is_none_or(|l| l.view().allowed(now()))
+        .is_none_or(|l| l.cached_allowed(now()))
 }
 #[tauri::command]
 pub fn redeem_licence(app: AppHandle, key: String) -> Result<View, String> {
@@ -529,6 +550,7 @@ mod tests {
             recovery_armed: false,
             cleanup_pending: false,
             last_allowed: true,
+            access_until: None,
         };
         assert!(!data.observe_access(true));
         // An expiry or removal between callbacks cannot update last_allowed.
@@ -549,6 +571,7 @@ mod tests {
                 recovery_armed: false,
                 cleanup_pending: false,
                 last_allowed: true,
+                access_until: None,
             }),
             path: std::env::temp_dir().join("switchify-licence-test-never-written.json"),
             keys: vec![("test".into(), [0; 32])],
@@ -571,6 +594,18 @@ mod tests {
         let mut data = service.data.lock().unwrap();
         assert!(data.last_allowed);
         assert!(data.observe_access(false));
+    }
+    #[test]
+    fn cached_access_follows_the_last_computed_view() {
+        let service = configured_service(Record::new(now()));
+        service.view();
+        assert!(service.cached_allowed(now()));
+        let mut expired = Record::new(0);
+        expired.last_seen = TRIAL;
+        service.data.lock().unwrap().record = Some(expired);
+        assert!(service.cached_allowed(now()), "stale until refreshed");
+        service.view();
+        assert!(!service.cached_allowed(now()));
     }
     #[test]
     fn rejects_corrupt_trial_records() {
