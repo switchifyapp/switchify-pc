@@ -109,6 +109,15 @@ struct Data {
     recovery: bool,
     recovery_armed: bool,
     cleanup_pending: bool,
+    last_allowed: bool,
+}
+impl Data {
+    fn observe_access(&mut self, current: bool) -> bool {
+        let expired = self.last_allowed && !current;
+        self.last_allowed = current;
+        self.cleanup_pending |= expired;
+        expired
+    }
 }
 pub struct Licensing {
     data: Mutex<Data>,
@@ -187,6 +196,7 @@ impl Licensing {
                 recovery: false,
                 recovery_armed: false,
                 cleanup_pending: false,
+                last_allowed: true,
             }),
             path,
             keys,
@@ -417,7 +427,6 @@ pub fn install(app: &AppHandle) {
     publish(app);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let mut was_allowed = true;
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             let handle = app.clone();
@@ -427,12 +436,12 @@ pub fn install(app: &AppHandle) {
                     publish(&handle);
                     let current = allowed(&handle);
                     let service = handle.state::<Licensing>();
-                    if was_allowed && !current {
-                        service
-                            .data
-                            .lock()
-                            .unwrap_or_else(|p| p.into_inner())
-                            .cleanup_pending = true;
+                    let expired = service
+                        .data
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .observe_access(current);
+                    if expired {
                         crate::show_main_window(&handle, Some("settings"));
                     }
                     let pending = service
@@ -456,7 +465,6 @@ pub fn install(app: &AppHandle) {
             {
                 break;
             }
-            was_allowed = allowed(&app);
         }
     });
 }
@@ -489,6 +497,26 @@ mod tests {
         assert_eq!(merged.first_run, 1000);
         assert_eq!(merged.last_seen, 2000);
         assert!(merged.key.is_none());
+    }
+    #[test]
+    fn main_thread_observations_cannot_skip_cleanup_between_allowed_and_expired() {
+        let mut data = Data {
+            record: None,
+            storage_warning: false,
+            recovery: false,
+            recovery_armed: false,
+            cleanup_pending: false,
+            last_allowed: true,
+        };
+        assert!(!data.observe_access(true));
+        // An expiry or removal between callbacks cannot update last_allowed.
+        assert!(data.observe_access(false));
+        assert!(data.cleanup_pending);
+        assert!(!data.observe_access(false));
+        assert!(data.cleanup_pending); // failed cleanup stays pending
+        data.cleanup_pending = false;
+        assert!(!data.observe_access(true));
+        assert!(data.observe_access(false));
     }
     #[test]
     fn rejects_corrupt_trial_records() {

@@ -788,6 +788,8 @@ impl ProtocolEngine {
                     | "pointer.profile"
                     | "switch.session.stop"
                     | "switch.profile.list"
+                    | "mouse.repeat.stop"
+                    | "connection.disconnecting"
             )
         {
             return Ok(EngineEvent::Response(error_response(
@@ -1965,6 +1967,30 @@ mod tests {
                     matches!(event,EngineEvent::Response(response) if response.contains("invalid_state") && !response.contains("private"))
                 );
             }
+        }
+    }
+
+    #[test]
+    fn licence_expiry_allows_authenticated_stop_and_disconnect_after_input_started() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine.set_paired_token("remote-1".into(), TOKEN.into());
+        let mut movement = json!({"version":1,"id":"before-expiry","deviceId":"remote-1","timestamp":NOW,"type":"mouse.move","payload":{"dx":1,"dy":1}});
+        sign(&mut movement, TOKEN, SlashEscaping::AndroidHtmlSafe);
+        assert!(matches!(
+            engine.process_message(&movement.to_string(), NOW).unwrap(),
+            EngineEvent::MouseMove(_)
+        ));
+        engine.set_access_deadline(Some(NOW / 1000));
+        for (id, kind) in [
+            ("stop-expired", "mouse.repeat.stop"),
+            ("disconnect-expired", "connection.disconnecting"),
+        ] {
+            let mut command = json!({"version":1,"id":id,"deviceId":"remote-1","timestamp":NOW,"type":kind,"payload":{}});
+            sign(&mut command, TOKEN, SlashEscaping::AndroidHtmlSafe);
+            assert!(matches!(
+                engine.process_message(&command.to_string(), NOW).unwrap(),
+                EngineEvent::Desktop(_)
+            ));
         }
     }
 
