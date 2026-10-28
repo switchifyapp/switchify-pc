@@ -98,7 +98,10 @@ impl Record {
                 view.message = LOCKED.into();
             }
         } else if view.message.is_empty() {
-            view.message = format!("{} days left in your full trial.", view.days_remaining);
+            view.message = match view.days_remaining {
+                1 => "1 day left in your full trial.".into(),
+                days => format!("{days} days left in your full trial."),
+            };
         }
         view
     }
@@ -487,6 +490,14 @@ mod tests {
     fn trial_uses_exact_boundary_and_never_restarts_on_rollback() {
         let record = Record::new(1000);
         assert_eq!(record.view(&[], 1000).days_remaining, 30);
+        assert_eq!(
+            record.view(&[], 1000).message,
+            "30 days left in your full trial."
+        );
+        assert_eq!(
+            record.view(&[], 1000 + TRIAL - 1).message,
+            "1 day left in your full trial."
+        );
         assert!(record.view(&[], 1000 + TRIAL - 1).allowed(1000 + TRIAL - 1));
         assert!(!record.view(&[], 1000 + TRIAL).allowed(1000 + TRIAL));
         let mut advanced = record.clone();
