@@ -116,6 +116,10 @@ struct Data {
     /// Cached by `view` so hot paths skip signature verification. Starts
     /// closed; `open` seeds it before the service is managed.
     access_until: Option<i64>,
+    /// Consecutive failed keychain retries; the next retry waits
+    /// `60 * 2^min(n, 6)` seconds so a locked keychain is not prompted every minute.
+    secure_failures: u32,
+    next_secure_retry: i64,
 }
 impl Data {
     fn observe_access(&mut self, current: bool) -> bool {
@@ -157,6 +161,15 @@ fn initial_record(
 ) -> Option<Record> {
     Record::merge(file, secure).or_else(|| (!file_error).then(|| Record::new(now)))
 }
+/// The keychain mirror, if present. Errors cover a locked or denied keychain
+/// and a corrupt record alike; callers treat both as "unavailable for now".
+fn read_secure() -> Result<Option<Record>, String> {
+    entry().and_then(|entry| match entry.get_password() {
+        Ok(text) => decode_record(&text).map(Some),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(_) => Err("Licence storage is unavailable.".into()),
+    })
+}
 fn entry() -> Result<keyring::Entry, String> {
     keyring::Entry::new(SERVICE, "record").map_err(|_| "Licence storage is unavailable.".into())
 }
@@ -191,11 +204,7 @@ impl Licensing {
         };
         let mut secure_error = false;
         let secure = if configured {
-            match entry().and_then(|entry| match entry.get_password() {
-                Ok(text) => decode_record(&text).map(Some),
-                Err(keyring::Error::NoEntry) => Ok(None),
-                Err(_) => Err("Licence storage is unavailable.".into()),
-            }) {
+            match read_secure() {
                 Ok(record) => record,
                 Err(_) => {
                     secure_error = true;
@@ -215,6 +224,8 @@ impl Licensing {
                 cleanup_pending: false,
                 last_allowed: true,
                 access_until: Some(0),
+                secure_failures: 0,
+                next_secure_retry: 0,
             }),
             path,
             keys,
@@ -355,8 +366,23 @@ impl Licensing {
                 record.last_seen = time;
                 // Retry the keychain mirror only while it is known to be stale, so the
                 // healthy case costs no keychain writes and a locked keychain heals.
-                let retry_secure = data.storage_warning;
-                data.storage_warning = self.save(&record, retry_secure).unwrap_or(true);
+                let retry_secure = data.storage_warning && time >= data.next_secure_retry;
+                if retry_secure {
+                    // Merge what the keychain already holds first, so an earlier
+                    // trial or a newer removal is never overwritten by this session.
+                    if let Ok(Some(stored)) = read_secure() {
+                        record = Record::merge(Some(record), Some(stored))
+                            .unwrap_or_else(|| unreachable!("merge of two records is always Some"));
+                    }
+                }
+                let failed = self.save(&record, retry_secure).unwrap_or(true);
+                data.storage_warning = failed;
+                if retry_secure && failed {
+                    data.secure_failures = data.secure_failures.saturating_add(1);
+                    data.next_secure_retry = time + 60 * (1i64 << data.secure_failures.min(6));
+                } else if !failed {
+                    data.secure_failures = 0;
+                }
                 data.record = Some(record);
             }
         }
@@ -572,6 +598,8 @@ mod tests {
             cleanup_pending: false,
             last_allowed: true,
             access_until: Some(0),
+            secure_failures: 0,
+            next_secure_retry: 0,
         };
         assert!(!data.observe_access(true));
         // An expiry or removal between callbacks cannot update last_allowed.
@@ -593,6 +621,8 @@ mod tests {
                 cleanup_pending: false,
                 last_allowed: true,
                 access_until: Some(0),
+                secure_failures: 0,
+                next_secure_retry: 0,
             }),
             path: std::env::temp_dir().join("switchify-licence-test-never-written.json"),
             keys: vec![("test".into(), [0; 32])],
