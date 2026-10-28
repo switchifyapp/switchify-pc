@@ -7,6 +7,8 @@ mod dwell;
 mod grid3;
 mod input;
 pub mod licence_key;
+mod licensing;
+use licensing::{paste_licence, redeem_licence, remove_licence, set_licence_recovery};
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
@@ -211,6 +213,11 @@ impl TraySnapshot {
                 state::BluetoothState::Error => "Bluetooth error",
             };
             format!("Status: {label}")
+        };
+        let status = if state.licence.configured {
+            format!("{} · {}", status, state.licence.message)
+        } else {
+            status
         };
         Self {
             status,
@@ -1873,12 +1880,14 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(model)
         .manage(UpdateManager::<tauri_plugin_updater::Update>::default())
         .manage(PendingProfileExit::default())
         .manage(PendingNavigation::default())
         .manage(account::Account::install())
         .setup(move |app| {
+            licensing::install(app.handle());
             app.manage(switch_practice::Controller::default());
             switch_runtime::install(app.handle());
             remote_scan::install(app.handle());
@@ -2003,6 +2012,10 @@ pub fn run() {
             configure_point_scan,
             set_keyboard_layout,
             get_app_state,
+            redeem_licence,
+            paste_licence,
+            remove_licence,
+            set_licence_recovery,
             check_accessibility,
             approve_pairing,
             reject_pairing,

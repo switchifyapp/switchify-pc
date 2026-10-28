@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-remove-licence"
+description = "Enables the remove_licence command without any pre-configured scope."
+commands.allow = ["remove_licence"]
+
+[[permission]]
+identifier = "deny-remove-licence"
+description = "Denies the remove_licence command without any pre-configured scope."
+commands.deny = ["remove_licence"]

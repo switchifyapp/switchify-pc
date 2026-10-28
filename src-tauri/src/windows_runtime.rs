@@ -2189,6 +2189,9 @@ pub fn stop_mouse_repeat(app: &AppHandle) {
 }
 
 pub fn dwell_click(app: &AppHandle) -> Result<(), String> {
+    if !crate::licensing::allowed(app) {
+        return Err(crate::licensing::LOCKED.into());
+    }
     stop_all_repeats(app);
     with_runtime_input(execute_dwell_click).map(|_| ())
 }
@@ -2435,14 +2438,17 @@ pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), Strin
     if let Some(notifications) = notifications {
         notifications.disconnect();
     }
-    if let Some(runtime) = runtime()
+    let release = if let Some(runtime) = runtime()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .as_mut()
     {
-        let _ = runtime.input.release_all();
+        let release = runtime.input.release_all();
         runtime.input.end_control_session();
-    }
+        release
+    } else {
+        Ok(())
+    };
     pairing_centrals()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -2456,7 +2462,7 @@ pub fn disconnect_all(app: &AppHandle, shared: &SharedModel) -> Result<(), Strin
     model.state.connected_device_name = None;
     drop(model);
     emit_state(app, shared);
-    Ok(())
+    release
 }
 
 fn reset_transport(app: &AppHandle, shared: &SharedModel, bluetooth: BluetoothState) {

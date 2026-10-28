@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-licence-recovery"
+description = "Enables the set_licence_recovery command without any pre-configured scope."
+commands.allow = ["set_licence_recovery"]
+
+[[permission]]
+identifier = "deny-set-licence-recovery"
+description = "Denies the set_licence_recovery command without any pre-configured scope."
+commands.deny = ["set_licence_recovery"]

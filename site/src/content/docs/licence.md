@@ -1,13 +1,35 @@
 ---
 title: Licence
-description: Switchify PC is free and open source under the GNU Affero General Public License v3, and the parts it includes from other projects keep their own licences.
+description: Switchify PC is open source under the GNU Affero General Public License v3, and the parts it includes from other projects keep their own licences.
 ---
 
 ## Switchify PC
 
-Switchify PC is free and open source software. It is licensed under the [GNU Affero General Public License, version 3](https://github.com/switchifyapp/switchify-pc/blob/main/LICENSE) (AGPL v3).
+Switchify PC is open source software. It is licensed under the [GNU Affero General Public License, version 3](https://github.com/switchifyapp/switchify-pc/blob/main/LICENSE) (AGPL v3).
 
-You can use it for free, at home, at school, at work or in a care setting. There is no agreement to accept before you install it.
+## Purchase keys and the trial
+
+Builds with licensing enabled provide a full 30-day trial on this computer. A
+Switchify PC licence costs €100 once for one computer. When the trial ends,
+computer scanning, dwell clicking and mobile control stop. Settings, account
+management and licence entry remain available. Ordinary development builds do
+not enable paid licensing.
+
+Open **Settings → Licence** to paste a key, choose **Paste and activate**, or
+import a text licence file. The key is checked on your computer and needs no
+internet connection or Switchify account. Keep a private copy for reinstalling
+or moving to another computer; stop using the old computer when transferring
+its licence. Removing a key does not refund a purchase or restart the trial.
+Signing out or deleting your Switchify account does not remove the local key.
+
+If the trial has ended, the Licence page automatically moves focus between
+buttons every 1.5 seconds. Any configured local switch selects the focused
+button. Copy your key first, then choose **Paste and activate**. This recovery
+mode controls only this page; it does not type or move the pointer in other
+applications. For help or a lost key, contact info@theswitchify.app.
+
+Purchases and automatic key delivery are being prepared. Do not use an
+unannounced checkout link until licence delivery is available.
 
 The licence also lets you study, change and share the app. If you share it, changed or not, the licence sets out how you must make the source code available. A changed version you share must stay under the same licence. If people use your changed version over a network, you must offer them its source code. The [source code](https://github.com/switchifyapp/switchify-pc) is on GitHub. Read the licence for exactly what applies.
 

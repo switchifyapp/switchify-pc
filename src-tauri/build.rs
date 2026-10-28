@@ -5,6 +5,10 @@ fn main() {
     add_command_line_tools_swift_library_path();
     let app_manifest = tauri_build::AppManifest::new().commands(&[
         "get_app_state",
+        "redeem_licence",
+        "paste_licence",
+        "remove_licence",
+        "set_licence_recovery",
         "get_switches",
         "begin_switch_practice",
         "get_switch_practice",

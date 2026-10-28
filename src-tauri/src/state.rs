@@ -365,6 +365,7 @@ pub fn built_in_profiles(include_grid3: bool) -> Vec<SwitchProfile> {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppState {
+    pub licence: crate::licensing::View,
     pub bluetooth: BluetoothState,
     pub accessibility: AccessibilityState,
     pub desktop_id: String,
@@ -465,6 +466,7 @@ impl AppModel {
             engine,
             profiles,
             state: AppState {
+                licence: crate::licensing::View::default(),
                 bluetooth: BluetoothState::Initializing,
                 accessibility: AccessibilityState::Required,
                 desktop_id,

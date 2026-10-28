@@ -5,7 +5,7 @@ description: Switch access for Windows and Mac. Point anywhere on screen, open m
 
 Switchify PC lets you use a Windows PC or a Mac with one or more switches. It runs on the computer itself. You can also pair it with Switchify on an Android phone or tablet to control the computer from there.
 
-It is free and open source under the AGPL-3.0.
+It is open source under the AGPL-3.0. See [licences, trial and purchase keys](/licence/).
 
 ## What you can do with a switch
 

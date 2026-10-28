@@ -6,17 +6,21 @@ import { InputSection } from "./InputSection";
 import { CursorSection } from "./CursorSection";
 import { PrivacySection } from "./PrivacySection";
 import { UpdatesSection, type UpdateAction } from "./UpdatesSection";
+import { LicenceSection } from "./LicenceSection";
 import { AboutSection } from "./AboutSection";
 
 
-type SettingsTabId = "general" | "input" | "cursor" | "privacy" | "updates" | "about";
+type SettingsTabId = "general" | "input" | "cursor" | "privacy" | "updates" | "about" | "licence";
 
 export function SettingsView({ state, updater, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, updateAttention, onUpdatesShown }: { state: AppState; updater: UpdateState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; updateAttention: string | null; onUpdatesShown: (shown: boolean) => void }) {
   const updatesRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (state.licence?.configured && ["expired", "unavailable"].includes(state.licence.status)) setActive("licence");
+  }, [state.licence?.configured, state.licence?.status]);
   // Opening straight to Updates starts there, rather than committing General
   // for one frame and letting App announce a failure for a tab already being
   // opened.
-  const [active, setActive] = useState<SettingsTabId>(focusUpdates ? "updates" : "general");
+  const [active, setActive] = useState<SettingsTabId>(focusUpdates ? "updates" : state.licence?.configured && ["expired", "unavailable"].includes(state.licence.status) ? "licence" : "general");
 
   // App owns the standing update failure and what has been said about it; this
   // view only reports whether the Updates panel, which shows it, is on screen.
@@ -32,6 +36,7 @@ export function SettingsView({ state, updater, settings, onChange, chooseTelemet
     { id: "privacy" as const, label: "Privacy" },
     // On the Updates tab the panel itself shows the reason, so no marker there.
     { id: "updates" as const, label: "Updates", attention: updateAttention && active !== "updates" ? updateAttention : undefined },
+    { id: "licence" as const, label: "Licence" },
     { id: "about" as const, label: "About" },
   ], [state.capabilities.cursorOverlay, updateAttention, active]);
 
@@ -61,6 +66,7 @@ export function SettingsView({ state, updater, settings, onChange, chooseTelemet
       {active === "cursor" && <CursorSection settings={settings} update={update} />}
       {active === "privacy" && <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />}
       {active === "updates" && <UpdatesSection state={state} update={updater} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />}
+      {active === "licence" && <LicenceSection state={state} />}
       {active === "about" && <AboutSection state={state} />}
     </TabPanel>
   </div>;

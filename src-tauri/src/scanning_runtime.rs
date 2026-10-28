@@ -425,6 +425,9 @@ pub fn configure<A: Adapter>(
 }
 /// Why scanning should stay off, if it should. Pure, so it is safe every tick.
 fn wanted<A: Adapter>(app: &AppHandle, config: &A::Config) -> Result<(), String> {
+    if !crate::licensing::allowed(app) {
+        return Err(crate::licensing::LOCKED.into());
+    }
     if !cfg!(any(target_os = "windows", target_os = "macos")) {
         return Err("Switch scanning is not available on this platform.".into());
     }
@@ -546,6 +549,9 @@ fn input_active(app: &AppHandle, generation: u64, remote: bool) -> bool {
     )
 }
 fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, remote: bool) {
+    if !crate::licensing::allowed(app) {
+        return;
+    }
     let c = app.state::<Controller<A>>();
     if !c.enabled.load(Ordering::SeqCst) {
         return;
@@ -643,6 +649,9 @@ fn dispatch<A: Adapter>(
     input_generation: u64,
     remote: bool,
 ) -> Result<(), String> {
+    if !crate::licensing::allowed(app) {
+        return Err(crate::licensing::LOCKED.into());
+    }
     A::validate_environment(app, environment)?;
     let c = app.state::<Controller<A>>();
     if !c.enabled.load(Ordering::SeqCst) || !input_active(app, input_generation, remote) {
@@ -887,6 +896,15 @@ fn render<A: Adapter>(
     Ok(())
 }
 fn tick<A: Adapter>(app: &AppHandle) {
+    if !crate::licensing::allowed(app) {
+        let enabled = app.state::<Controller<A>>().enabled.load(Ordering::SeqCst);
+        if enabled {
+            disable::<A>(app, crate::licensing::LOCKED);
+        }
+        crate::licensing::recovery_tick(app);
+        return;
+    }
+    crate::licensing::recovery_tick(app);
     if crate::scan_menu_bar::take_click() {
         crate::show_main_window(app, Some(crate::scan_menu_bar::DESTINATION));
     }

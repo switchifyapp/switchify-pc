@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-paste-licence"
+description = "Enables the paste_licence command without any pre-configured scope."
+commands.allow = ["paste_licence"]
+
+[[permission]]
+identifier = "deny-paste-licence"
+description = "Denies the paste_licence command without any pre-configured scope."
+commands.deny = ["paste_licence"]
