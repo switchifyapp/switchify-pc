@@ -144,6 +144,18 @@ fn decode_record(text: &str) -> Result<Record, String> {
         .then_some(record)
         .ok_or_else(|| "Licence storage is unavailable.".into())
 }
+/// A missing file with a working keychain, or a missing file with an
+/// unavailable keychain, starts the trial: nothing readable says otherwise, and
+/// the next launch with the keychain back reconciles to the earliest first run.
+/// An unreadable file fails closed until it is repaired.
+fn initial_record(
+    file: Option<Record>,
+    secure: Option<Record>,
+    file_error: bool,
+    now: i64,
+) -> Option<Record> {
+    Record::merge(file, secure).or_else(|| (!file_error).then(|| Record::new(now)))
+}
 fn entry() -> Result<keyring::Entry, String> {
     keyring::Entry::new(SERVICE, "record").map_err(|_| "Licence storage is unavailable.".into())
 }
@@ -192,8 +204,7 @@ impl Licensing {
         } else {
             None
         };
-        let record = Record::merge(file, secure)
-            .or_else(|| (!file_error && !secure_error).then(|| Record::new(now())));
+        let record = initial_record(file, secure, file_error, now());
         let service = Self {
             data: Mutex::new(Data {
                 record,
@@ -612,6 +623,18 @@ mod tests {
         assert!(service.cached_allowed(now()), "stale until refreshed");
         service.view();
         assert!(!service.cached_allowed(now()));
+    }
+    #[test]
+    fn fresh_install_starts_the_trial_even_when_the_keychain_is_unavailable() {
+        let fresh = initial_record(None, None, false, 5000).unwrap();
+        assert_eq!(fresh.first_run, 5000);
+        assert!(initial_record(None, None, true, 5000).is_none());
+        let older = Record::new(1000);
+        let kept = initial_record(Some(fresh), Some(older), false, 9000).unwrap();
+        assert_eq!(
+            kept.first_run, 1000,
+            "the keychain's earlier trial wins once it is back"
+        );
     }
     #[test]
     fn rejects_corrupt_trial_records() {
