@@ -298,7 +298,10 @@ impl Capture {
                 if !held.is_empty() {
                     bail!(
                         "Release held keys before starting capture: {}.",
-                        held.join(", ")
+                        held.iter()
+                            .map(|k| super::keys::display_name(k))
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     );
                 }
                 Ok(self.shared.finished.load(Acquire))

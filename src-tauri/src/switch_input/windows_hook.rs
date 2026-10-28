@@ -381,7 +381,9 @@ impl State {
         generated: bool,
         ms: u64,
     ) -> bool {
-        if generated || code >= 256 {
+        // A keyboard reporting an unassigned code in the controller range is
+        // not a button: those only ever come from Raw Input HID reports.
+        if generated || code >= 256 || is_gamepad_code(code as usize) {
             return false;
         }
         let consumed = self.physical_key(shared, code, pressed, ms);
@@ -479,6 +481,15 @@ mod tests {
             core,
             names,
         )
+    }
+    #[test]
+    fn the_keyboard_hook_never_treats_a_controller_code_as_a_key() {
+        let (mut state, shared, _, _) = setup(Mode::Learning);
+        let code = gamepad_code(1);
+        state.active[code] = true;
+        assert!(!state.key(&shared, code as u32, true, false, 1));
+        assert!(!shared.owned[code].load(Acquire));
+        assert!(state.observations.is_empty());
     }
     #[test]
     fn gamepad_codes_sit_in_the_unassigned_virtual_key_range() {
