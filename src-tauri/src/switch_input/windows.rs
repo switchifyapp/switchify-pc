@@ -14,8 +14,8 @@ use std::{
 };
 use windows_sys::Win32::{
     Devices::HumanInterfaceDevice::{
-        HidP_GetUsages, HidP_Input, HIDP_STATUS_SUCCESS, HID_USAGE_PAGE_BUTTON,
-        HID_USAGE_PAGE_GENERIC,
+        HidP_GetUsages, HidP_Input, HidP_MaxUsageListLength, HIDP_STATUS_SUCCESS,
+        HID_USAGE_PAGE_BUTTON, HID_USAGE_PAGE_GENERIC,
     },
     Foundation::*,
     System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId},
@@ -30,12 +30,34 @@ use windows_sys::Win32::{
 const USAGE_KEYBOARD: u16 = 6;
 const USAGE_JOYSTICK: u16 = 4;
 const USAGE_GAMEPAD: u16 = 5;
-/// Button usages beyond this cannot be switches, so no larger list is read.
-const MAX_BUTTON_USAGES: usize = 64;
+/// Button usages beyond this cannot be switches, so no larger list is kept.
+const MAX_BUTTON_USAGES: usize = 256;
+
+/// Whether a Raw Input device is a game controller: an HID collection on
+/// the joystick or gamepad usage. Keyboards and mice answer no.
+unsafe fn is_controller(device: HANDLE) -> bool {
+    let mut info: RID_DEVICE_INFO = std::mem::zeroed();
+    info.cbSize = std::mem::size_of::<RID_DEVICE_INFO>() as u32;
+    let mut size = info.cbSize;
+    let read = GetRawInputDeviceInfoW(
+        device,
+        RIDI_DEVICEINFO,
+        (&mut info as *mut RID_DEVICE_INFO).cast(),
+        &mut size,
+    );
+    if read == u32::MAX || read == 0 || info.dwType != RIM_TYPEHID {
+        return false;
+    }
+    let hid = info.Anonymous.hid;
+    hid.usUsagePage == HID_USAGE_PAGE_GENERIC
+        && (hid.usUsage == USAGE_JOYSTICK || hid.usUsage == USAGE_GAMEPAD)
+}
 
 /// The HID parser input for one controller, fetched once per device handle.
 struct HidDevice {
     preparsed: Vec<u8>,
+    /// Room for every Button-page usage the device can report at once.
+    usages: Vec<u16>,
 }
 impl HidDevice {
     unsafe fn load(device: HANDLE) -> Option<Self> {
@@ -52,17 +74,26 @@ impl HidDevice {
             preparsed.as_mut_ptr().cast(),
             &mut size,
         );
-        (read != u32::MAX && read as usize == preparsed.len()).then_some(Self { preparsed })
+        if read == u32::MAX || read as usize != preparsed.len() {
+            return None;
+        }
+        let buttons = HidP_MaxUsageListLength(
+            HidP_Input,
+            HID_USAGE_PAGE_BUTTON,
+            preparsed.as_ptr() as isize,
+        );
+        // A device with no buttons is remembered as a controller but reports nothing.
+        let usages = vec![0u16; (buttons as usize).clamp(1, MAX_BUTTON_USAGES)];
+        Some(Self { preparsed, usages })
     }
     /// Bit `n - 1` set for each pressed button `n` in 1 to 8.
-    unsafe fn buttons(&self, report: *const u8, len: u32) -> Option<u8> {
-        let mut usages = [0u16; MAX_BUTTON_USAGES];
-        let mut count = MAX_BUTTON_USAGES as u32;
+    unsafe fn buttons(&mut self, report: *const u8, len: u32) -> Option<u8> {
+        let mut count = self.usages.len() as u32;
         let status = HidP_GetUsages(
             HidP_Input,
             HID_USAGE_PAGE_BUTTON,
             0,
-            usages.as_mut_ptr(),
+            self.usages.as_mut_ptr(),
             &mut count,
             self.preparsed.as_ptr() as isize,
             report as *mut u8,
@@ -72,7 +103,7 @@ impl HidDevice {
             return None;
         }
         Some(button_mask(
-            &usages[..(count as usize).min(MAX_BUTTON_USAGES)],
+            &self.usages[..(count as usize).min(self.usages.len())],
         ))
     }
 }
@@ -198,6 +229,33 @@ impl Input {
             }
         }
     }
+    /// Remembers a controller as soon as it is present, so unplugging one
+    /// that never reported is still a controller removal, not a keyboard one.
+    unsafe fn device_arrived(&mut self, device: isize) {
+        if is_controller(device as HANDLE) {
+            self.devices
+                .entry(device)
+                .or_insert_with(|| HidDevice::load(device as HANDLE));
+        }
+    }
+    /// Every controller connected right now.
+    unsafe fn enumerate_devices(&mut self) {
+        let mut count = 0u32;
+        let size = std::mem::size_of::<RAWINPUTDEVICELIST>() as u32;
+        if GetRawInputDeviceList(std::ptr::null_mut(), &mut count, size) == u32::MAX || count == 0 {
+            return;
+        }
+        let mut list: Vec<RAWINPUTDEVICELIST> = vec![std::mem::zeroed(); count as usize];
+        let read = GetRawInputDeviceList(list.as_mut_ptr(), &mut count, size);
+        if read == u32::MAX {
+            return;
+        }
+        for entry in list.iter().take((read as usize).min(list.len())) {
+            if entry.dwType == RIM_TYPEHID {
+                self.device_arrived(entry.hDevice as isize);
+            }
+        }
+    }
     fn device_removed(&mut self, device: isize) {
         let now = self.now();
         if self.devices.remove(&device).is_some() {
@@ -301,11 +359,15 @@ unsafe extern "system" fn window(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -
             }
         });
     }
-    if msg == WM_INPUT_DEVICE_CHANGE && wp == GIDC_REMOVAL as usize {
+    if msg == WM_INPUT_DEVICE_CHANGE {
         INPUT.with(|slot| {
             if let Ok(mut slot) = slot.try_borrow_mut() {
                 if let Some(input) = slot.as_mut() {
-                    input.device_removed(lp);
+                    match wp as u32 {
+                        GIDC_ARRIVAL => input.device_arrived(lp),
+                        GIDC_REMOVAL => input.device_removed(lp),
+                        _ => {}
+                    }
                 }
             }
         });
@@ -560,6 +622,7 @@ unsafe fn run(
         && INPUT.with(|slot| {
             let mut slot = slot.borrow_mut();
             let input = slot.as_mut().unwrap();
+            input.enumerate_devices();
             let mut pressed = std::collections::HashSet::new();
             for (code, name) in names.iter().enumerate() {
                 let down = key_down(code);

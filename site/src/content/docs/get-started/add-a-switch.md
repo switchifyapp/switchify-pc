@@ -13,7 +13,7 @@ Switchify PC sees a switch as a key press or a gamepad button press. Anything th
 
 **Choose a keyboard or gamepad mode on your interface.** Most interfaces have a mode setting. Mouse-click modes cannot be learned, so Switchify PC sees nothing when you press. In keyboard mode most interfaces send Space or Enter, and Switchify PC learns those. If your interface can be programmed, set it to F13 or higher (F13 to F20 on a Mac). Nothing else on the computer types those keys, so they never clash. F12 is reserved on Windows and cannot be used.
 
-**Gamepad mode.** Interfaces such as the Smartbox Joycable, the Pretorian USB Switch and the Crick USB Switch Box can send gamepad buttons instead of keys, and so can a game controller such as the Xbox Adaptive Controller. Switchify PC learns buttons 1 to 8 and shows them as *Gamepad 1* to *Gamepad 8*. Button 1 on any connected controller counts as the same switch. Gamepad buttons never type anything, so they cannot clash with the keyboard. Sticks, triggers and the direction pad are not switches.
+**Gamepad mode.** Interfaces such as the Smartbox Joycable, the Pretorian USB Switch and the Crick USB Switch Box can send gamepad buttons instead of keys, and so can a game controller, such as the Xbox Adaptive Controller on Windows. Switchify PC learns buttons 1 to 8 and shows them as *Gamepad 1* to *Gamepad 8*. Button 1 on any connected controller counts as the same switch. Gamepad buttons never type anything, so they cannot clash with the keyboard. Sticks, triggers and the direction pad are not switches.
 
 ## Learn the key
 

@@ -52,6 +52,15 @@ pub fn gamepad_name(button: u8) -> String {
     format!("Gamepad{button}")
 }
 
+/// How a key reads in a message: keyboard keys by name, controller buttons
+/// as "Gamepad 1" to "Gamepad 8", matching the badges in Settings.
+pub fn display_name(code: &str) -> String {
+    match gamepad_button(code) {
+        Some(n) => format!("Gamepad {n}"),
+        None => code.to_string(),
+    }
+}
+
 /// The 1-based button number of a gamepad key name, if it is one.
 pub fn gamepad_button(name: &str) -> Option<u8> {
     let n = name.strip_prefix("Gamepad")?.parse::<u8>().ok()?;
@@ -79,6 +88,8 @@ mod tests {
             assert_eq!(normalize(bad), None, "{bad}");
             assert_eq!(gamepad_button(bad), None, "{bad}");
         }
+        assert_eq!(display_name("Gamepad3"), "Gamepad 3");
+        assert_eq!(display_name("Space"), "Space");
         assert_eq!(normalize("Return").as_deref(), Some("Enter"));
         assert_eq!(normalize("F24").as_deref(), Some("F24"));
     }

@@ -203,7 +203,10 @@ impl Core {
             keys.sort();
             bail!(
                 "Release held keys before starting capture: {}.",
-                keys.join(", ")
+                keys.iter()
+                    .map(|k| keys::display_name(k))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             );
         }
         self.begin(mode, now);
@@ -486,7 +489,10 @@ impl Capture {
                 held.dedup();
                 bail!(
                     "Release held keys before starting capture: {}.",
-                    held.join(", ")
+                    held.iter()
+                        .map(|k| keys::display_name(k))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
             }
             if let Some(native) = &self.native {
@@ -501,9 +507,17 @@ impl Capture {
             self.ensure_native()?;
             let mut core = self.driver.core.lock().unwrap_or_else(|p| p.into_inner());
             #[cfg(target_os = "macos")]
-            let down = macos::pressed_keys();
+            let mut down = macos::pressed_keys();
             #[cfg(not(target_os = "macos"))]
-            let down = core.down.clone();
+            let mut down = core.down.clone();
+            // The system reports held keys; controller buttons are known only
+            // from their reports, which the persistent monitor keeps tracking.
+            down.extend(
+                core.down
+                    .iter()
+                    .filter(|key| gamepad_button(key).is_some())
+                    .cloned(),
+            );
             core.begin_with_pressed_keys(mode, self.driver.now(), down)
         }
     }
@@ -865,6 +879,31 @@ mod tests {
             .unwrap();
         assert!(!c.key("Space", false, 2));
         assert!(c.events.is_empty());
+    }
+    #[test]
+    fn a_button_held_while_off_blocks_startup_under_its_display_name() {
+        // macOS keeps the controller monitor across sessions, so a press
+        // seen while capture is off is remembered and reported on begin.
+        let mut c = Core::default();
+        c.mappings.insert("Gamepad1".into(), "select".into());
+        assert!(!c.key("Gamepad1", true, 0));
+        let held = c
+            .down
+            .iter()
+            .filter(|key| gamepad_button(key).is_some())
+            .cloned()
+            .collect::<HashSet<_>>();
+        let error = c
+            .begin_with_pressed_keys(Mode::Active, 1, held)
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Release held keys before starting capture: Gamepad 1."
+        );
+        assert!(!c.key("Gamepad1", false, 2));
+        c.begin_with_pressed_keys(Mode::Active, 3, HashSet::new())
+            .unwrap();
+        assert!(c.key("Gamepad1", true, 4));
     }
     #[test]
     fn learning_ignores_preheld_keys_until_a_fresh_gesture() {
