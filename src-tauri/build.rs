@@ -3,6 +3,8 @@ use std::process::Command;
 
 fn main() {
     add_command_line_tools_swift_library_path();
+    // Compiled into the licence verifier; rebuild when the public issuer set changes.
+    println!("cargo:rerun-if-env-changed=SWITCHIFY_LICENCE_PUBLIC_KEYS");
     let app_manifest = tauri_build::AppManifest::new().commands(&[
         "get_app_state",
         "redeem_licence",
