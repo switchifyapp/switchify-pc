@@ -133,6 +133,9 @@ impl Capture {
                     },
                     || {
                         driver.ready(pressed_keys());
+                        // Controller buttons share this run loop. Without HID
+                        // access the keyboard tap still runs on its own.
+                        let gamepads = super::macos_gamepad::Monitor::start(driver.clone());
                         if tx.send(Ok(())).is_err() {
                             return;
                         }
@@ -146,6 +149,7 @@ impl Capture {
                             }
                             driver.tick();
                         }
+                        drop(gamepads);
                     },
                 );
                 if installed.is_err() {

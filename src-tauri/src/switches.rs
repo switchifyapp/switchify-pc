@@ -174,4 +174,20 @@ mod tests {
         s.bindings[1].key = "Escape".into();
         assert!(s.validate().is_err());
     }
+    #[test]
+    fn gamepad_buttons_are_switch_keys_within_schema_one() {
+        let mut s = Settings::migrate(&crate::point_scan::Config::default());
+        s.bindings[0].key = "Gamepad1".into();
+        s.bindings[1].key = "Gamepad8".into();
+        s.validate().unwrap();
+        assert_eq!(s.schema_version, 1);
+        let value = serde_json::to_value(&s).unwrap();
+        assert_eq!(value["bindings"][0]["key"], "Gamepad1");
+        assert_eq!(serde_json::from_value::<Settings>(value).unwrap(), s);
+        // One button, one switch, like keys.
+        s.bindings[1].key = "Gamepad1".into();
+        assert!(s.validate().is_err());
+        s.bindings[1].key = "Gamepad9".into();
+        assert!(s.validate().is_err());
+    }
 }

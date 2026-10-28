@@ -1,14 +1,22 @@
 use super::{
-    windows_hook::{Installation, NativeResources, Resource, Shared, State},
-    Driver, Mode, StopReason,
+    gamepad::Gamepads,
+    windows_hook::{
+        gamepad_code, is_gamepad_code, Installation, NativeResources, Resource, Shared, State,
+    },
+    Driver, Mode, StopReason, GAMEPAD_BUTTONS,
 };
 use anyhow::{bail, Result};
 use std::{
     cell::RefCell,
+    collections::HashMap,
     sync::{atomic::Ordering::*, mpsc, Arc},
     time::Duration,
 };
 use windows_sys::Win32::{
+    Devices::HumanInterfaceDevice::{
+        HidP_GetUsages, HidP_Input, HidP_MaxUsageListLength, HIDP_STATUS_SUCCESS,
+        HID_USAGE_PAGE_BUTTON, HID_USAGE_PAGE_GENERIC,
+    },
     Foundation::*,
     System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId},
     UI::{
@@ -16,6 +24,96 @@ use windows_sys::Win32::{
         WindowsAndMessaging::*,
     },
 };
+
+/// HID top-level collections Raw Input delivers: keyboards, and the two
+/// usages a game controller or a switch interface in gamepad mode declares.
+const USAGE_KEYBOARD: u16 = 6;
+const USAGE_JOYSTICK: u16 = 4;
+const USAGE_GAMEPAD: u16 = 5;
+/// Button usages beyond this cannot be switches, so no larger list is kept.
+const MAX_BUTTON_USAGES: usize = 256;
+
+/// Whether a Raw Input device is a game controller: an HID collection on
+/// the joystick or gamepad usage. Keyboards and mice answer no.
+unsafe fn is_controller(device: HANDLE) -> bool {
+    let mut info: RID_DEVICE_INFO = std::mem::zeroed();
+    info.cbSize = std::mem::size_of::<RID_DEVICE_INFO>() as u32;
+    let mut size = info.cbSize;
+    let read = GetRawInputDeviceInfoW(
+        device,
+        RIDI_DEVICEINFO,
+        (&mut info as *mut RID_DEVICE_INFO).cast(),
+        &mut size,
+    );
+    if read == u32::MAX || read == 0 || info.dwType != RIM_TYPEHID {
+        return false;
+    }
+    let hid = info.Anonymous.hid;
+    hid.usUsagePage == HID_USAGE_PAGE_GENERIC
+        && (hid.usUsage == USAGE_JOYSTICK || hid.usUsage == USAGE_GAMEPAD)
+}
+
+/// The HID parser input for one controller, fetched once per device handle.
+struct HidDevice {
+    preparsed: Vec<u8>,
+    /// Room for every Button-page usage the device can report at once.
+    usages: Vec<u16>,
+}
+impl HidDevice {
+    unsafe fn load(device: HANDLE) -> Option<Self> {
+        let mut size = 0u32;
+        if GetRawInputDeviceInfoW(device, RIDI_PREPARSEDDATA, std::ptr::null_mut(), &mut size) != 0
+            || size == 0
+        {
+            return None;
+        }
+        let mut preparsed = vec![0u8; size as usize];
+        let read = GetRawInputDeviceInfoW(
+            device,
+            RIDI_PREPARSEDDATA,
+            preparsed.as_mut_ptr().cast(),
+            &mut size,
+        );
+        if read == u32::MAX || read as usize != preparsed.len() {
+            return None;
+        }
+        let buttons = HidP_MaxUsageListLength(
+            HidP_Input,
+            HID_USAGE_PAGE_BUTTON,
+            preparsed.as_ptr() as isize,
+        );
+        // A device with no buttons is remembered as a controller but reports nothing.
+        let usages = vec![0u16; (buttons as usize).clamp(1, MAX_BUTTON_USAGES)];
+        Some(Self { preparsed, usages })
+    }
+    /// Bit `n - 1` set for each pressed button `n` in 1 to 8.
+    unsafe fn buttons(&mut self, report: *const u8, len: u32) -> Option<u8> {
+        let mut count = self.usages.len() as u32;
+        let status = HidP_GetUsages(
+            HidP_Input,
+            HID_USAGE_PAGE_BUTTON,
+            0,
+            self.usages.as_mut_ptr(),
+            &mut count,
+            self.preparsed.as_ptr() as isize,
+            report as *mut u8,
+            len,
+        );
+        if status != HIDP_STATUS_SUCCESS {
+            return None;
+        }
+        Some(button_mask(
+            &self.usages[..(count as usize).min(self.usages.len())],
+        ))
+    }
+}
+/// The pressed-button bits for a list of pressed Button-page usages.
+fn button_mask(usages: &[u16]) -> u8 {
+    usages
+        .iter()
+        .filter(|usage| (1..=u16::from(GAMEPAD_BUTTONS)).contains(usage))
+        .fold(0u8, |mask, usage| mask | 1 << (usage - 1))
+}
 
 pub fn code_for_name(name: &str) -> Option<u32> {
     Some(match name {
@@ -72,16 +170,102 @@ fn known_keys() -> Vec<(u32, String)> {
     .collect();
     names.extend(('A'..='Z').chain('0'..='9').map(|c| c.to_string()));
     names.extend((1..=24).filter(|f| *f != 12).map(|f| format!("F{f}")));
-    names
+    let mut keys: Vec<(u32, String)> = names
         .into_iter()
         .map(|name| (code_for_name(&name).unwrap(), name))
-        .collect()
+        .collect();
+    keys.extend(
+        (1..=GAMEPAD_BUTTONS)
+            .map(|button| (gamepad_code(button) as u32, super::gamepad_name(button))),
+    );
+    keys
+}
+/// Whether a key is physically down now. Controller buttons are only known
+/// from their reports, so none counts as down at startup.
+unsafe fn key_down(code: usize) -> bool {
+    !is_gamepad_code(code) && GetAsyncKeyState(code as i32) < 0
 }
 
 struct Input {
     state: State,
     shared: Arc<Shared>,
     started: std::time::Instant,
+    gamepads: Gamepads,
+    /// Controllers seen so far; `None` once a device's HID data could not be read.
+    devices: HashMap<isize, Option<HidDevice>>,
+    /// Raw Input message storage, in `u64` so a `RAWINPUT` view is aligned.
+    raw: Vec<u64>,
+}
+impl Input {
+    fn now(&self) -> u64 {
+        self.started.elapsed().as_millis().min(u64::MAX as u128) as u64
+    }
+    /// `len` is how many bytes of `raw` Windows filled in.
+    unsafe fn hid_report(&mut self, raw: *const RAWINPUT, len: usize) {
+        let device = (*raw).header.hDevice as isize;
+        let hid = &(*raw).data.hid;
+        let now = self.now();
+        let entry = self
+            .devices
+            .entry(device)
+            .or_insert_with(|| HidDevice::load(device as HANDLE));
+        let Some(hid_device) = entry else {
+            return;
+        };
+        let offset = std::mem::offset_of!(RAWINPUT, data) + std::mem::offset_of!(RAWHID, bRawData);
+        let data = raw.cast::<u8>().add(offset);
+        let size = hid.dwSizeHid as usize;
+        if size == 0 || len < offset {
+            return;
+        }
+        // Never read past what was delivered, whatever the counts claim.
+        let count = (hid.dwCount as usize).min((len - offset) / size);
+        for index in 0..count {
+            let Some(mask) = hid_device.buttons(data.add(index * size), hid.dwSizeHid) else {
+                continue;
+            };
+            for (button, pressed) in self.gamepads.report(device, mask) {
+                self.state.gamepad(&self.shared, button, pressed, now);
+            }
+        }
+    }
+    /// Remembers a controller as soon as it is present, so unplugging one
+    /// that never reported is still a controller removal, not a keyboard one.
+    unsafe fn device_arrived(&mut self, device: isize) {
+        if is_controller(device as HANDLE) {
+            self.devices
+                .entry(device)
+                .or_insert_with(|| HidDevice::load(device as HANDLE));
+        }
+    }
+    /// Every controller connected right now.
+    unsafe fn enumerate_devices(&mut self) {
+        let mut count = 0u32;
+        let size = std::mem::size_of::<RAWINPUTDEVICELIST>() as u32;
+        if GetRawInputDeviceList(std::ptr::null_mut(), &mut count, size) == u32::MAX || count == 0 {
+            return;
+        }
+        let mut list: Vec<RAWINPUTDEVICELIST> = vec![std::mem::zeroed(); count as usize];
+        let read = GetRawInputDeviceList(list.as_mut_ptr(), &mut count, size);
+        if read == u32::MAX {
+            return;
+        }
+        for entry in list.iter().take((read as usize).min(list.len())) {
+            if entry.dwType == RIM_TYPEHID {
+                self.device_arrived(entry.hDevice as isize);
+            }
+        }
+    }
+    fn device_removed(&mut self, device: isize) {
+        let now = self.now();
+        if self.devices.remove(&device).is_some() {
+            for (button, pressed) in self.gamepads.removed(device) {
+                self.state.gamepad(&self.shared, button, pressed, now);
+            }
+        } else {
+            self.state.device_removed(&self.shared, now);
+        }
+    }
 }
 thread_local! { static INPUT: RefCell<Option<Input>> = const { RefCell::new(None) }; }
 unsafe extern "system" fn keyboard(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
@@ -119,42 +303,71 @@ unsafe extern "system" fn keyboard(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT
 }
 unsafe extern "system" fn window(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     if msg == WM_INPUT {
-        let mut raw: RAWINPUT = std::mem::zeroed();
-        let mut size = std::mem::size_of::<RAWINPUT>() as u32;
-        let read = GetRawInputData(
-            lp as HRAWINPUT,
-            RID_INPUT,
-            &mut raw as *mut _ as *mut _,
-            &mut size,
-            std::mem::size_of::<RAWINPUTHEADER>() as u32,
-        );
-        if read != u32::MAX
-            && read >= std::mem::size_of::<RAWINPUTHEADER>() as u32
-            && raw.header.dwType == RIM_TYPEKEYBOARD
-        {
-            let key = raw.data.keyboard;
-            INPUT.with(|slot| {
-                if let Ok(mut slot) = slot.try_borrow_mut() {
-                    if let Some(input) = slot.as_mut() {
-                        let now = input.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                        input.state.raw(
-                            &input.shared,
-                            key.VKey as u32,
-                            key.Flags & RI_KEY_BREAK as u16 == 0,
-                            crate::input::own_input(key.ExtraInformation as i64),
-                            now,
-                        );
-                    }
+        INPUT.with(|slot| {
+            let Ok(mut slot) = slot.try_borrow_mut() else {
+                return;
+            };
+            let Some(input) = slot.as_mut() else {
+                return;
+            };
+            let header = std::mem::size_of::<RAWINPUTHEADER>() as u32;
+            // A controller report is variable-size, so the buffer is sized per message.
+            let mut size = 0u32;
+            if GetRawInputData(
+                lp as HRAWINPUT,
+                RID_INPUT,
+                std::ptr::null_mut(),
+                &mut size,
+                header,
+            ) == u32::MAX
+                || size < header
+            {
+                return;
+            }
+            let wanted = (size as usize)
+                .max(std::mem::size_of::<RAWINPUT>())
+                .div_ceil(std::mem::size_of::<u64>());
+            if input.raw.len() < wanted {
+                input.raw.resize(wanted, 0);
+            }
+            let mut size = (input.raw.len() * std::mem::size_of::<u64>()) as u32;
+            let read = GetRawInputData(
+                lp as HRAWINPUT,
+                RID_INPUT,
+                input.raw.as_mut_ptr().cast(),
+                &mut size,
+                header,
+            );
+            if read == u32::MAX || read < header {
+                return;
+            }
+            let raw = input.raw.as_ptr().cast::<RAWINPUT>();
+            match (*raw).header.dwType {
+                RIM_TYPEKEYBOARD => {
+                    let key = (*raw).data.keyboard;
+                    let now = input.now();
+                    input.state.raw(
+                        &input.shared,
+                        key.VKey as u32,
+                        key.Flags & RI_KEY_BREAK as u16 == 0,
+                        crate::input::own_input(key.ExtraInformation as i64),
+                        now,
+                    );
                 }
-            });
-        }
+                RIM_TYPEHID => input.hid_report(raw, read as usize),
+                _ => {}
+            }
+        });
     }
-    if msg == WM_INPUT_DEVICE_CHANGE && wp == GIDC_REMOVAL as usize {
+    if msg == WM_INPUT_DEVICE_CHANGE {
         INPUT.with(|slot| {
             if let Ok(mut slot) = slot.try_borrow_mut() {
                 if let Some(input) = slot.as_mut() {
-                    let now = input.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                    input.state.device_removed(&input.shared, now);
+                    match wp as u32 {
+                        GIDC_ARRIVAL => input.device_arrived(lp),
+                        GIDC_REMOVAL => input.device_removed(lp),
+                        _ => {}
+                    }
                 }
             }
         });
@@ -169,6 +382,24 @@ struct Resources {
     hwnd: HWND,
     module: HINSTANCE,
     hook: HHOOK,
+    /// Controller input is best effort: keyboard capture never depends on it.
+    gamepads: bool,
+}
+unsafe fn register_raw(hwnd: HWND, usages: &[u16], flags: u32) -> bool {
+    let devices: Vec<RAWINPUTDEVICE> = usages
+        .iter()
+        .map(|usage| RAWINPUTDEVICE {
+            usUsagePage: HID_USAGE_PAGE_GENERIC,
+            usUsage: *usage,
+            dwFlags: flags,
+            hwndTarget: hwnd,
+        })
+        .collect();
+    RegisterRawInputDevices(
+        devices.as_ptr(),
+        devices.len() as u32,
+        std::mem::size_of::<RAWINPUTDEVICE>() as u32,
+    ) != 0
 }
 impl NativeResources for Resources {
     fn replace_hook(&mut self) -> bool {
@@ -192,16 +423,13 @@ impl NativeResources for Resources {
         unsafe {
             match resource {
                 Resource::RawInput => {
-                    RegisterRawInputDevices(
-                        &RAWINPUTDEVICE {
-                            usUsagePage: 1,
-                            usUsage: 6,
-                            dwFlags: RIDEV_INPUTSINK | RIDEV_DEVNOTIFY,
-                            hwndTarget: self.hwnd,
-                        },
-                        1,
-                        std::mem::size_of::<RAWINPUTDEVICE>() as u32,
-                    ) != 0
+                    let flags = RIDEV_INPUTSINK | RIDEV_DEVNOTIFY;
+                    if !register_raw(self.hwnd, &[USAGE_KEYBOARD], flags) {
+                        return false;
+                    }
+                    self.gamepads =
+                        register_raw(self.hwnd, &[USAGE_JOYSTICK, USAGE_GAMEPAD], flags);
+                    true
                 }
                 Resource::Hook => {
                     self.hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard), self.module, 0);
@@ -217,16 +445,14 @@ impl NativeResources for Resources {
                 Resource::Timer => KillTimer(self.hwnd, 1) != 0,
                 Resource::Hook => UnhookWindowsHookEx(self.hook) != 0,
                 Resource::RawInput => {
-                    RegisterRawInputDevices(
-                        &RAWINPUTDEVICE {
-                            usUsagePage: 1,
-                            usUsage: 6,
-                            dwFlags: RIDEV_REMOVE,
-                            hwndTarget: std::ptr::null_mut(),
-                        },
-                        1,
-                        std::mem::size_of::<RAWINPUTDEVICE>() as u32,
-                    ) != 0
+                    let gamepads = !self.gamepads
+                        || register_raw(
+                            std::ptr::null_mut(),
+                            &[USAGE_JOYSTICK, USAGE_GAMEPAD],
+                            RIDEV_REMOVE,
+                        );
+                    self.gamepads = false;
+                    register_raw(std::ptr::null_mut(), &[USAGE_KEYBOARD], RIDEV_REMOVE) && gamepads
                 }
             }
         }
@@ -243,7 +469,7 @@ impl Capture {
         let mut names: [Option<String>; 256] = std::array::from_fn(|_| None);
         let mut down = [false; 256];
         for (vk, name) in known_keys() {
-            down[vk as usize] = unsafe { GetAsyncKeyState(vk as i32) < 0 };
+            down[vk as usize] = unsafe { key_down(vk as usize) };
             names[vk as usize] = Some(name);
         }
         let pressed = names
@@ -380,21 +606,26 @@ unsafe fn run(
             state: State::new(mode, active, down),
             shared: shared.clone(),
             started: driver.started,
+            gamepads: Gamepads::default(),
+            devices: HashMap::new(),
+            raw: vec![0; std::mem::size_of::<RAWINPUT>().div_ceil(std::mem::size_of::<u64>())],
         })
     });
     let mut resources = Resources {
         hwnd,
         module,
         hook: std::ptr::null_mut(),
+        gamepads: false,
     };
     let mut installation = Installation::start(&mut resources);
     let startup_ready = installation.is_some()
         && INPUT.with(|slot| {
             let mut slot = slot.borrow_mut();
             let input = slot.as_mut().unwrap();
+            input.enumerate_devices();
             let mut pressed = std::collections::HashSet::new();
             for (code, name) in names.iter().enumerate() {
-                let down = GetAsyncKeyState(code as i32) < 0;
+                let down = key_down(code);
                 input.state.refresh_key(code, down);
                 if let Some(name) = name {
                     if down {

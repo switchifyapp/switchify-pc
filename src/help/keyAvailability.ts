@@ -19,11 +19,18 @@ export function keysNotLearned(platform?: DemoPlatform) {
   return null;
 }
 
-export const interfaceModeAdvice = "Set your switch interface to a keyboard mode. Mouse-click and gamepad modes cannot be learned as switches.";
+export const interfaceModeAdvice = "Set your switch interface to a keyboard or gamepad mode. Mouse-click modes cannot be learned as switches.";
+
+// How a saved key reads on a badge: keyboard keys by name, controller
+// buttons as "Gamepad 1" to "Gamepad 8".
+export function switchKeyLabel(key: string) {
+  const button = /^Gamepad([1-8])$/.exec(key);
+  return button ? `Gamepad ${button[1]}` : key;
+}
 // The keys nothing else types: F13 and up, within what this platform can capture.
 export function highKeyRange(platform?: DemoPlatform) {
   return platform === "macos" ? "F13 to F20" : "F13 or higher";
 }
 export function reservedKeyAdvice(platform?: DemoPlatform) {
-  return `Assigned keys stay reserved while Switchify runs. If your interface can be programmed, choose ${highKeyRange(platform)} so switch presses never clash with typing.`;
+  return `Assigned keys stay reserved while Switchify runs. If your interface can be programmed, choose ${highKeyRange(platform)} or a gamepad button so switch presses never clash with typing.`;
 }

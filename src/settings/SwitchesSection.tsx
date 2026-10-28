@@ -1,7 +1,7 @@
 import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { Demonstration, SwitchDemonstrations } from "../help/Demonstration";
 import type { DemoPlatform } from "../help/demonstrations";
-import { interfaceModeAdvice, keysNotLearned, reservedKeyAdvice, unavailableKeyReason } from "../help/keyAvailability";
+import { interfaceModeAdvice, keysNotLearned, reservedKeyAdvice, switchKeyLabel, unavailableKeyReason } from "../help/keyAvailability";
 import { SwitchPractice } from "../scanning/SwitchPractice";
 import { createPortal } from "react-dom";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -71,7 +71,7 @@ function ActionSelect({
 function KeyBadge({ value, unavailable }: { value: string; unavailable: boolean }) {
   return value ? (
     <kbd className="key-badge" data-unavailable={unavailable || undefined}>
-      {value}
+      {switchKeyLabel(value)}
       {unavailable && <span className="sr-only"> (unavailable on this computer)</span>}
     </kbd>
   ) : (
@@ -138,7 +138,7 @@ function SwitchEditor({
         <span>Name</span>
         <Input
           ref={nameRef}
-          aria-label={isNew ? "New switch name" : `Name for ${binding.key}`}
+          aria-label={isNew ? "New switch name" : `Name for ${switchKeyLabel(binding.key)}`}
           value={binding.name}
           maxLength={64}
           placeholder="Head switch, foot pedal, sip..."
