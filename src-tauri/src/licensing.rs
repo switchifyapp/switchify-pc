@@ -208,7 +208,18 @@ impl Licensing {
                 data.storage_warning |= service.save(record).unwrap_or(true);
             }
         }
+        service.seed_access();
         service
+    }
+    /// Observe from the real state at launch. An install that is already
+    /// expired has no active input to clean up and must not raise the window
+    /// on every start, including hidden login starts.
+    fn seed_access(&self) {
+        let allowed = self.view().allowed(now());
+        self.data
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .last_allowed = allowed;
     }
     fn trust(&self) -> Vec<(&str, [u8; 32])> {
         self.keys
@@ -516,6 +527,38 @@ mod tests {
         assert!(data.cleanup_pending); // failed cleanup stays pending
         data.cleanup_pending = false;
         assert!(!data.observe_access(true));
+        assert!(data.observe_access(false));
+    }
+    fn configured_service(record: Record) -> Licensing {
+        Licensing {
+            data: Mutex::new(Data {
+                record: Some(record),
+                storage_warning: false,
+                recovery: false,
+                recovery_armed: false,
+                cleanup_pending: false,
+                last_allowed: true,
+            }),
+            path: std::env::temp_dir().join("switchify-licence-test-never-written.json"),
+            keys: vec![("test".into(), [0; 32])],
+            configured: true,
+        }
+    }
+    #[test]
+    fn launching_an_expired_install_does_not_queue_cleanup() {
+        let mut expired = Record::new(0);
+        expired.last_seen = TRIAL;
+        let service = configured_service(expired);
+        service.seed_access();
+        let mut data = service.data.lock().unwrap();
+        assert!(!data.last_allowed);
+        assert!(!data.observe_access(false));
+        assert!(!data.cleanup_pending);
+        drop(data);
+        let service = configured_service(Record::new(now()));
+        service.seed_access();
+        let mut data = service.data.lock().unwrap();
+        assert!(data.last_allowed);
         assert!(data.observe_access(false));
     }
     #[test]
