@@ -18,6 +18,8 @@ Do not embed the test-vector issuer into production.
 Local `licence.json` and the separate `com.enaboapps.switchify.pc.licence`
 keychain record retain the earliest trial start and latest observed timestamp.
 A revision counter ensures a removed key is not restored from an older mirror.
+The file is checkpointed about once a minute; the keychain mirror is refreshed
+at launch and whenever a key is entered or removed.
 Licence state does not enter account settings, pairing records or cloud sync.
 The trial starts on the first run of a licensing-enabled build, including
 upgrades from older free versions. Offline trial reset prevention is best effort.

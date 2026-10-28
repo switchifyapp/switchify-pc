@@ -211,7 +211,7 @@ impl Licensing {
         if configured {
             let mut data = service.data.lock().unwrap_or_else(|p| p.into_inner());
             if let Some(record) = &data.record {
-                data.storage_warning |= service.save(record).unwrap_or(true);
+                data.storage_warning |= service.save(record, true).unwrap_or(true);
             }
         }
         service.seed_access();
@@ -243,7 +243,10 @@ impl Licensing {
             .map(|(id, key)| (id.as_str(), *key))
             .collect()
     }
-    fn save(&self, record: &Record) -> Result<bool, String> {
+    /// Writes the file, and the keychain mirror when `secure` is set. Returns
+    /// whether the keychain write failed. The per-minute checkpoint only
+    /// touches the file; the mirror is refreshed at launch and on key changes.
+    fn save(&self, record: &Record, secure: bool) -> Result<bool, String> {
         let text =
             serde_json::to_string(record).map_err(|_| "Could not save the licence.".to_string())?;
         let parent = self.path.parent().ok_or("Could not save the licence.")?;
@@ -270,6 +273,9 @@ impl Licensing {
         if result.is_err() {
             let _ = std::fs::remove_file(&temp);
             return Err("Could not save the licence.".into());
+        }
+        if !secure {
+            return Ok(false);
         }
         // File revision commits removal even if the keychain is temporarily locked.
         Ok(entry()
@@ -319,7 +325,7 @@ impl Licensing {
         record.key = Some(key.trim().to_owned());
         record.revision = record.revision.saturating_add(1);
         record.last_seen = effective;
-        let warning = self.save(&record)?;
+        let warning = self.save(&record, true)?;
         data.record = Some(record);
         data.storage_warning = warning;
         drop(data);
@@ -335,7 +341,7 @@ impl Licensing {
             let time = now();
             if time.saturating_sub(record.last_seen) >= 60 {
                 record.last_seen = time;
-                data.storage_warning = self.save(&record).unwrap_or(true);
+                data.storage_warning |= self.save(&record, false).unwrap_or(true);
                 data.record = Some(record);
             }
         }
@@ -349,7 +355,7 @@ impl Licensing {
         record.key = None;
         record.revision = record.revision.saturating_add(1);
         record.last_seen = now().max(record.last_seen);
-        let warning = self.save(&record)?;
+        let warning = self.save(&record, true)?;
         data.record = Some(record);
         data.storage_warning = warning;
         drop(data);
