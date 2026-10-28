@@ -373,8 +373,9 @@ impl Licensing {
         record.revision = record.revision.saturating_add(1);
         record.last_seen = effective;
         let warning = self.save(&record, true)?;
+        let time = record.last_seen;
         data.record = Some(record);
-        data.storage_warning = warning;
+        data.record_checkpoint(time, true, Ok(warning));
         drop(data);
         self.view();
         Ok(())
@@ -415,8 +416,9 @@ impl Licensing {
         record.revision = record.revision.saturating_add(1);
         record.last_seen = now().max(record.last_seen);
         let warning = self.save(&record, true)?;
+        let time = record.last_seen;
         data.record = Some(record);
-        data.storage_warning = warning;
+        data.record_checkpoint(time, true, Ok(warning));
         drop(data);
         self.view();
         Ok(())
