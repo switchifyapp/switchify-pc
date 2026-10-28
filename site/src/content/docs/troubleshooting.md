@@ -7,7 +7,8 @@ Switchify PC's Help page has **Setup** and **Troubleshooting** tabs with the sam
 
 ## Nothing happens when I press the switch
 
-- Check the mode on your switch interface. Mouse-click and gamepad modes cannot be learned; choose the keyboard mode.
+- Check the mode on your switch interface. Mouse-click modes cannot be learned; choose a keyboard or gamepad mode.
+- In gamepad mode only buttons 1 to 8 are learned. If the interface is set to a higher button, a stick or a direction, choose a lower button or the keyboard mode.
 - Make sure you have added the switch in Settings and it has an action. Automatic scanning needs Select; manual scanning also needs Next and Previous.
 - If your interface can be programmed, set it to F13 or higher (F13 to F20 on a Mac). F12 is reserved on Windows.
 - On Windows, if a switch was unplugged while held, plug it back in (or use the same key on another keyboard), then press and release it once. That press clears the stuck state and does nothing else; press Select to start again.

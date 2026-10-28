@@ -16,7 +16,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -195,10 +195,11 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
         return Err(ParseError::Newer(schema_version));
     }
     match schema_version {
-        1 => value = upgrade_v4(upgrade_v3(upgrade_v2(upgrade_v1(value)?)?)?)?,
-        2 => value = upgrade_v4(upgrade_v3(upgrade_v2(value)?)?)?,
-        3 => value = upgrade_v4(upgrade_v3(value)?)?,
-        4 => value = upgrade_v4(value)?,
+        1 => value = upgrade_v5(upgrade_v4(upgrade_v3(upgrade_v2(upgrade_v1(value)?)?)?)?)?,
+        2 => value = upgrade_v5(upgrade_v4(upgrade_v3(upgrade_v2(value)?)?)?)?,
+        3 => value = upgrade_v5(upgrade_v4(upgrade_v3(value)?)?)?,
+        4 => value = upgrade_v5(upgrade_v4(value)?)?,
+        5 => value = upgrade_v5(value)?,
         SCHEMA_VERSION => {}
         _ => {
             return Err(ParseError::Invalid(format!(
@@ -292,6 +293,17 @@ fn upgrade_v4(mut value: Value) -> Result<Value, ParseError> {
         .filter(|preferences| !preferences.contains_key("panelTheme"))
         .ok_or_else(|| ParseError::Invalid("it does not match version 4 settings".into()))?
         .insert("panelTheme".into(), Value::from("system"));
+    value["schemaVersion"] = Value::from(5);
+    Ok(value)
+}
+
+/// Version 5 documents have the same shape, but a version 5 install rejects
+/// gamepad buttons as switch keys. The bump makes such an install report
+/// that it must update instead of refusing the synced switches.
+fn upgrade_v5(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(5)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -666,6 +678,33 @@ mod tests {
     }
 
     #[test]
+    fn gamepad_switch_keys_sync_as_version_six() {
+        // Version 5 installs reject these keys, which is why the schema moved
+        // to 6: they see a newer document and ask for an update instead.
+        let local = local();
+        let mut cloud = local.clone();
+        cloud.switches.bindings = vec![
+            binding("pad", "Gamepad1", Action::Select),
+            binding("next", "Gamepad8", Action::Next),
+        ];
+        let value = serde_json::to_value(cloud.document()).unwrap();
+        assert_eq!(value["schemaVersion"], json!(6));
+        assert_eq!(value["switches"]["bindings"][0]["key"], json!("Gamepad1"));
+        let parsed = parse(value, SCHEMA_VERSION).unwrap();
+        let switches = plan(&local, parsed).unwrap().switches.unwrap();
+        assert_eq!(switches, cloud.switches);
+        // Button 9 is not a switch, so a document naming it is refused.
+        let mut bad = cloud.clone();
+        bad.switches.bindings[0].key = "Gamepad9".into();
+        let parsed = parse(
+            serde_json::to_value(bad.document()).unwrap(),
+            SCHEMA_VERSION,
+        )
+        .unwrap();
+        assert!(plan(&local, parsed).is_err());
+    }
+
+    #[test]
     fn version_four_documents_read_with_panels_matching_the_system() {
         use crate::scan_preferences::PanelTheme;
         let mut local = local();
@@ -715,6 +754,16 @@ mod tests {
             base.point_scan.scan_preferences.panel_theme,
             PanelTheme::System
         );
+
+        // A version 5 document climbs unchanged: nothing was added in 6.
+        let version_five = written_by(serde_json::to_value(cloud.document()).unwrap(), 5);
+        let parsed = parse(version_five.clone(), 5).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert_eq!(parsed.switches, cloud.switches);
+        assert!(matches!(
+            parse(version_five, SCHEMA_VERSION),
+            Err(ParseError::Invalid(_))
+        ));
 
         // A chosen theme syncs, and an unknown one is refused rather than reset.
         let mut chosen = serde_json::to_value(cloud.document()).unwrap();

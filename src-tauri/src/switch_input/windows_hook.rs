@@ -66,6 +66,15 @@ pub(super) fn await_shutdown(
 
 const CAPACITY: usize = 256;
 const ESCAPE: usize = 27;
+/// Controller buttons travel the same edge queue as keys, at virtual-key
+/// codes Windows leaves unassigned (0x97 to 0x9E). Button 1 is the first.
+pub(super) const GAMEPAD_BASE: usize = 0x97;
+pub(super) fn gamepad_code(button: u8) -> usize {
+    GAMEPAD_BASE + usize::from(button) - 1
+}
+pub(super) fn is_gamepad_code(code: usize) -> bool {
+    (GAMEPAD_BASE..GAMEPAD_BASE + usize::from(super::GAMEPAD_BUTTONS)).contains(&code)
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Edge {
     pub generation: u64,
@@ -111,6 +120,13 @@ impl Shared {
     }
     pub fn has_owned(&self) -> bool {
         self.owned.iter().any(|key| key.load(Acquire))
+    }
+    /// A key the hook is suppressing; controller buttons are never suppressed.
+    pub fn has_owned_key(&self) -> bool {
+        self.owned
+            .iter()
+            .enumerate()
+            .any(|(code, key)| !is_gamepad_code(code) && key.load(Acquire))
     }
     pub fn drained(&self) -> bool {
         !self.enabled.load(Acquire) && !self.recovering() && !self.has_owned()
@@ -294,9 +310,15 @@ impl State {
     /// suppressed. Other removals, such as an unrelated Bluetooth keyboard
     /// reconnecting, leave the hook and every switch intact.
     pub fn device_removed(&mut self, shared: &Shared, ms: u64) {
-        if shared.has_owned() {
+        if shared.has_owned_key() {
             self.interrupted(shared, ms);
         }
+    }
+    /// A controller button edge from Raw Input. Nothing is suppressed and
+    /// there is no hook to cross-check, so it skips the hook bookkeeping.
+    pub fn gamepad(&mut self, shared: &Shared, button: u8, pressed: bool, ms: u64) {
+        let code = gamepad_code(button) as u32;
+        self.physical_key(shared, code, pressed, ms);
     }
     pub fn interrupted(&mut self, shared: &Shared, ms: u64) {
         self.observations.clear();
@@ -457,6 +479,68 @@ mod tests {
             core,
             names,
         )
+    }
+    #[test]
+    fn gamepad_codes_sit_in_the_unassigned_virtual_key_range() {
+        assert_eq!(gamepad_code(1), 0x97);
+        assert!(is_gamepad_code(gamepad_code(super::super::GAMEPAD_BUTTONS)));
+        assert!(!is_gamepad_code(
+            gamepad_code(super::super::GAMEPAD_BUTTONS) + 1
+        ));
+        assert!(!is_gamepad_code(32));
+    }
+    #[test]
+    fn gamepad_buttons_learn_and_act_like_keys_without_hook_checks() {
+        for mode in [Mode::Learning, Mode::Active] {
+            let (mut state, shared, mut core, mut names) = setup(mode);
+            let code = gamepad_code(3);
+            names[code] = Some("Gamepad3".into());
+            state.active[code] = true;
+            core.mappings.insert("Gamepad3".into(), "pad".into());
+            state.gamepad(&shared, 3, true, 1);
+            assert!(shared.owned[code].load(Acquire));
+            // No raw keyboard edge ever arrives for a button: that is not a lost hook.
+            assert!(!state.maintenance(&shared, 1400, 4000));
+            assert!(!shared.recovering.load(Acquire));
+            state.gamepad(&shared, 3, false, 1401);
+            core.last_heartbeat = 1401;
+            shared.drain_into(&mut core, &names, 1402);
+            match mode {
+                Mode::Learning => {
+                    assert!(core
+                        .events
+                        .iter()
+                        .any(|e| matches!(e, super::super::Event::Learned { code, .. } if code == "Gamepad3")));
+                }
+                _ => {
+                    assert_eq!(
+                        core.events
+                            .iter()
+                            .filter(|e| matches!(e, super::super::Event::Switch { switch_id, .. } if switch_id == "pad"))
+                            .count(),
+                        2
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn a_held_button_does_not_turn_a_keyboard_removal_into_recovery() {
+        let (mut state, shared, mut core, mut names) = setup(Mode::Active);
+        let code = gamepad_code(1);
+        names[code] = Some("Gamepad1".into());
+        state.active[code] = true;
+        core.mappings.insert("Gamepad1".into(), "pad".into());
+        state.gamepad(&shared, 1, true, 1);
+        state.device_removed(&shared, 2);
+        shared.drain_into(&mut core, &names, 3);
+        assert_eq!(core.status.mode, Mode::Active);
+        assert!(!shared.recovering.load(Acquire));
+        // A held button still blocks the next session until it is released.
+        shared.cancel();
+        assert!(!shared.drained());
+        state.gamepad(&shared, 1, false, 4);
+        assert!(shared.drained());
     }
     #[test]
     fn device_removal_interrupts_only_while_a_switch_is_held() {

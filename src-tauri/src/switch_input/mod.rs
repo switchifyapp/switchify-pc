@@ -1,9 +1,12 @@
 //! App-owned capture and generation-tagged switch edges.
 //! State and macOS adapter adapted from usahp-core under LICENSE-MIT in this directory.
 //! Native callbacks do bounded state work only; consumers drain typed events.
+mod gamepad;
 mod keys;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+mod macos_gamepad;
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(any(target_os = "windows", test))]
@@ -15,7 +18,7 @@ mod windows_worker;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod windows_worker_protocol;
 use anyhow::{bail, Result};
-pub use keys::normalize as normalize_key;
+pub use keys::{gamepad_button, gamepad_name, normalize as normalize_key, GAMEPAD_BUTTONS};
 pub fn prediction_key_code(name: &str) -> Option<u32> {
     #[cfg(target_os = "windows")]
     {
@@ -601,6 +604,9 @@ impl Drop for Capture {
     }
 }
 pub fn supported_key(code: &str) -> bool {
+    if gamepad_button(code).is_some() {
+        return cfg!(any(target_os = "windows", target_os = "macos"));
+    }
     #[cfg(target_os = "windows")]
     {
         code != "F12" && windows::code_for_name(code).is_some()

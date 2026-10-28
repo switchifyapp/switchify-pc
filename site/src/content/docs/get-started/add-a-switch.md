@@ -1,9 +1,9 @@
 ---
 title: Add a switch
-description: Connect a jack or USB switch, let Switchify PC learn its key, and choose what a press and a hold do.
+description: Connect a jack or USB switch, let Switchify PC learn its key or gamepad button, and choose what a press and a hold do.
 ---
 
-Switchify PC sees a switch as a key press. Anything that sends a key when you press it will work: a switch interface with a 3.5 mm socket, a USB switch, or a keyboard key.
+Switchify PC sees a switch as a key press or a gamepad button press. Anything that sends a key or a button when you press it will work: a switch interface with a 3.5 mm socket, a USB switch, a keyboard key, or a game controller.
 
 ## Connect the switch
 
@@ -11,12 +11,14 @@ Switchify PC sees a switch as a key press. Anything that sends a key when you pr
 
 **A USB switch.** Connect it to a USB port. Plugging it in does not configure anything by itself; you still add it below.
 
-**Choose the keyboard mode on your interface.** Most interfaces have a mode setting. Mouse-click and gamepad modes cannot be learned, so Switchify PC sees nothing when you press. In keyboard mode most interfaces send Space or Enter, and Switchify PC learns those. If your interface can be programmed, set it to F13 or higher (F13 to F20 on a Mac). Nothing else on the computer types those keys, so they never clash. F12 is reserved on Windows and cannot be used.
+**Choose a keyboard or gamepad mode on your interface.** Most interfaces have a mode setting. Mouse-click modes cannot be learned, so Switchify PC sees nothing when you press. In keyboard mode most interfaces send Space or Enter, and Switchify PC learns those. If your interface can be programmed, set it to F13 or higher (F13 to F20 on a Mac). Nothing else on the computer types those keys, so they never clash. F12 is reserved on Windows and cannot be used.
+
+**Gamepad mode.** Interfaces such as the Smartbox Joycable, the Pretorian USB Switch and the Crick USB Switch Box can send gamepad buttons instead of keys, and so can a game controller such as the Xbox Adaptive Controller. Switchify PC learns buttons 1 to 8 and shows them as *Gamepad 1* to *Gamepad 8*. Button 1 on any connected controller counts as the same switch. Gamepad buttons never type anything, so they cannot clash with the keyboard. Sticks, triggers and the direction pad are not switches.
 
 ## Learn the key
 
 1. Choose **Switches** in the sidebar, then **Add switch**.
-2. Press and release your switch once. The key it sends appears as a badge.
+2. Press and release your switch once. The key or gamepad button it sends appears as a badge.
 
    ![The learning dialog: Press and release your switch, with a Cancel capture button.](../../../assets/screenshots/add-switch-waiting.png)
 
