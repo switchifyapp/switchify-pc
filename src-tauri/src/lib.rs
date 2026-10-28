@@ -6,6 +6,7 @@ mod dwell;
 #[cfg(target_os = "windows")]
 mod grid3;
 mod input;
+pub mod licence_key;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]

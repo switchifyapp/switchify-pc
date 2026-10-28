@@ -1,0 +1,5 @@
+{
+  "note": "Test only; seed is 32 bytes of 0x07. Never trust this key in production.",
+  "public_key": "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+  "key": "SWPC1.test.eyJ2ZXJzaW9uIjoxLCJsaWNlbmNlX2lkIjoiNmFmNDQwMDAtMTdiNy00ZDg3LWFkMWQtMzJlOWEzMWIzMzFhIiwicHJvZHVjdCI6InN3aXRjaGlmeS1wYyIsImlzc3VlZF9hdCI6MTAwMCwiZXhwaXJlc19hdCI6MjAwMCwic2VhdHMiOjF9.ElpYlNafxxhWhijz_HDR5x5iA7wNoie77UoV3E3U92BzGrcfvB6I7tLIugekk8r0xtRDG_BuEF-ffGVQv82PBg"
+}
