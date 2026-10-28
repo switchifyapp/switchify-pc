@@ -891,7 +891,7 @@ export function App() {
       </div>
     </aside>
     <DemonstrationProvider platform={state.capabilities.platform} suspended={setupOpen || state.pendingPairings.length > 0 || switches.capturing || !!switches.state?.capture.active}><main inert={setupOpen || state.pendingPairings.length > 0}>
-      {state.licence?.configured && <p role="status" className="setting-note">{state.licence.message} See Settings → Licence.</p>}
+      {state.licence?.configured && state.licence.status !== "licensed" && <p role="status" className="setting-note">{state.licence.message} See Settings → Licence.</p>}
       {error && <div className="error-banner" role="alert">{error}<Button onClick={() => setError(null)}>Dismiss</Button></div>}
       <UpdateBanner update={liveUpdater ?? state.updater} openUpdates={openUpdates} />
       <p id="settings-updates-notice" className="sr-only" aria-live={updateFailure ? updateLiveness(updateFailure.status) : "polite"} aria-atomic="true">{updateNotice}</p>
