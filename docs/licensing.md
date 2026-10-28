@@ -24,6 +24,9 @@ Licence state does not enter account settings, pairing records or cloud sync.
 The trial starts on the first run of a licensing-enabled build, including
 upgrades from older free versions. Offline trial reset prevention is best effort.
 A local clock rollback does not rewind the recorded trial timestamp.
+If the keychain record cannot be read and the file is missing, a trial starts
+and the earlier keychain record wins again once it is readable; while it stays
+unreadable the new file is trusted, the same best-effort gap as deleting it.
 
 Before going live, verify on macOS and Windows: activation, restart offline,
 removal, invalid-key replacement, file import, temporary keychain unavailability,

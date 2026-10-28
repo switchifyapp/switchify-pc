@@ -113,7 +113,8 @@ struct Data {
     recovery_armed: bool,
     cleanup_pending: bool,
     last_allowed: bool,
-    /// Cached by `view` so hot paths skip signature verification.
+    /// Cached by `view` so hot paths skip signature verification. Starts
+    /// closed; `open` seeds it before the service is managed.
     access_until: Option<i64>,
 }
 impl Data {
@@ -213,7 +214,7 @@ impl Licensing {
                 recovery_armed: false,
                 cleanup_pending: false,
                 last_allowed: true,
-                access_until: None,
+                access_until: Some(0),
             }),
             path,
             keys,
@@ -352,7 +353,10 @@ impl Licensing {
             let time = now();
             if time.saturating_sub(record.last_seen) >= 60 {
                 record.last_seen = time;
-                data.storage_warning |= self.save(&record, false).unwrap_or(true);
+                // Retry the keychain mirror only while it is known to be stale, so the
+                // healthy case costs no keychain writes and a locked keychain heals.
+                let retry_secure = data.storage_warning;
+                data.storage_warning = self.save(&record, retry_secure).unwrap_or(true);
                 data.record = Some(record);
             }
         }
@@ -567,7 +571,7 @@ mod tests {
             recovery_armed: false,
             cleanup_pending: false,
             last_allowed: true,
-            access_until: None,
+            access_until: Some(0),
         };
         assert!(!data.observe_access(true));
         // An expiry or removal between callbacks cannot update last_allowed.
@@ -588,7 +592,7 @@ mod tests {
                 recovery_armed: false,
                 cleanup_pending: false,
                 last_allowed: true,
-                access_until: None,
+                access_until: Some(0),
             }),
             path: std::env::temp_dir().join("switchify-licence-test-never-written.json"),
             keys: vec![("test".into(), [0; 32])],
@@ -635,6 +639,23 @@ mod tests {
             kept.first_run, 1000,
             "the keychain's earlier trial wins once it is back"
         );
+    }
+    #[test]
+    fn unreadable_file_keeps_the_keychain_record_and_fails_closed_without_one() {
+        let old = Record::new(1000);
+        let kept = initial_record(None, Some(old.clone()), true, 9000).unwrap();
+        assert_eq!(kept.first_run, 1000);
+        assert!(initial_record(None, None, true, 9000).is_none());
+    }
+    #[test]
+    fn file_only_save_never_reports_a_keychain_failure() {
+        let dir = std::env::temp_dir().join(format!("switchify-licence-{}", uuid::Uuid::new_v4()));
+        let mut service = configured_service(Record::new(1000));
+        service.path = dir.join("licence.json");
+        assert_eq!(service.save(&Record::new(1000), false), Ok(false));
+        let saved = decode_record(&std::fs::read_to_string(&service.path).unwrap()).unwrap();
+        assert_eq!(saved.first_run, 1000);
+        let _ = std::fs::remove_dir_all(dir);
     }
     #[test]
     fn rejects_corrupt_trial_records() {
