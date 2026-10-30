@@ -19,6 +19,7 @@ switchify-prediction-neural = { git = "https://github.com/switchifyapp/switchify
 anyhow = "1"
 base64 = "0.23"
 directories = "6.0.0"
+ed25519-dalek = "3.0"
 enigo = "=0.6.1"
 hmac = "0.13"
 keyring = "4.1.6"
