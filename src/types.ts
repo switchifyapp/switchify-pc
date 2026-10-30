@@ -52,7 +52,10 @@ export type PlatformCapabilities = {
   cursorOverlay: boolean;
 };
 
+export type LicenceView = { configured: boolean; status: string; daysRemaining: number; licenceId: string | null; message: string; storageWarning: boolean };
+
 export type AppState = {
+  licence?: LicenceView;
   bluetooth: BluetoothState;
   accessibility: "granted" | "required" | "unavailable";
   desktopId: string;

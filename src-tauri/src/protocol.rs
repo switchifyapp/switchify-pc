@@ -516,6 +516,7 @@ pub struct ProtocolEngine {
     tokens: HashMap<String, String>,
     replay_cache: HashMap<String, i64>,
     connection_order: u64,
+    access_deadline: Option<i64>,
 }
 
 impl ProtocolEngine {
@@ -527,7 +528,12 @@ impl ProtocolEngine {
             tokens: HashMap::new(),
             replay_cache: HashMap::new(),
             connection_order: 0,
+            access_deadline: None,
         }
+    }
+
+    pub fn set_access_deadline(&mut self, deadline: Option<i64>) {
+        self.access_deadline = deadline;
     }
 
     #[cfg_attr(target_os = "windows", allow(dead_code))]
@@ -772,6 +778,28 @@ impl ProtocolEngine {
                 )))
             }
         };
+
+        if self
+            .access_deadline
+            .is_some_and(|deadline| now_ms / 1000 >= deadline)
+            && !matches!(
+                command_type,
+                "connection.ping"
+                    | "pointer.profile"
+                    | "switch.session.stop"
+                    | "switch.profile.list"
+                    | "mouse.repeat.stop"
+                    | "mouse.dragEnd"
+                    | "keyboard.modifierUp"
+                    | "connection.disconnecting"
+            )
+        {
+            return Ok(EngineEvent::Response(error_response(
+                Some(&validated.id),
+                "invalid_state",
+                crate::licensing::LOCKED,
+            )));
+        }
 
         match command_type {
             "connection.ping" => {
@@ -1914,6 +1942,76 @@ mod tests {
         assert!(!is_safe_typed_text(&"😀".repeat(1_001)));
         assert!(!is_safe_typed_text("hello\0world"));
         assert!(!is_safe_typed_text("bad\u{0085}"));
+    }
+
+    #[test]
+    fn expired_licence_blocks_input_but_preserves_authenticated_connection() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine.set_paired_token("remote-1".into(), TOKEN.into());
+        engine.set_access_deadline(Some(NOW / 1000));
+        for (id, kind, payload, expected) in [
+            (
+                "locked-text",
+                "keyboard.typeText",
+                json!({"text":"private"}),
+                false,
+            ),
+            ("locked-mouse", "mouse.move", json!({"dx":1,"dy":1}), false),
+            (
+                "locked-drag",
+                "mouse.dragStart",
+                json!({"button":"left"}),
+                false,
+            ),
+            (
+                "locked-modifier",
+                "keyboard.modifierDown",
+                json!({"key":"ctrl"}),
+                false,
+            ),
+            ("locked-ping", "connection.ping", json!({}), true),
+        ] {
+            let mut command = json!({"version":1,"id":id,"deviceId":"remote-1","timestamp":NOW,"type":kind,"payload":payload});
+            sign(&mut command, TOKEN, SlashEscaping::AndroidHtmlSafe);
+            let event = engine.process_message(&command.to_string(), NOW).unwrap();
+            if expected {
+                assert!(matches!(event, EngineEvent::AuthenticatedConnection(_)));
+            } else {
+                assert!(
+                    matches!(event,EngineEvent::Response(response) if response.contains("invalid_state") && !response.contains("private"))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn licence_expiry_allows_authenticated_stop_and_disconnect_after_input_started() {
+        let mut engine = ProtocolEngine::new("desktop-1".into());
+        engine.set_paired_token("remote-1".into(), TOKEN.into());
+        let mut movement = json!({"version":1,"id":"before-expiry","deviceId":"remote-1","timestamp":NOW,"type":"mouse.move","payload":{"dx":1,"dy":1}});
+        sign(&mut movement, TOKEN, SlashEscaping::AndroidHtmlSafe);
+        assert!(matches!(
+            engine.process_message(&movement.to_string(), NOW).unwrap(),
+            EngineEvent::MouseMove(_)
+        ));
+        engine.set_access_deadline(Some(NOW / 1000));
+        for (id, kind, payload) in [
+            ("stop-expired", "mouse.repeat.stop", json!({})),
+            ("drag-expired", "mouse.dragEnd", json!({})),
+            (
+                "modifier-expired",
+                "keyboard.modifierUp",
+                json!({"key":"ctrl"}),
+            ),
+            ("disconnect-expired", "connection.disconnecting", json!({})),
+        ] {
+            let mut command = json!({"version":1,"id":id,"deviceId":"remote-1","timestamp":NOW,"type":kind,"payload":payload});
+            sign(&mut command, TOKEN, SlashEscaping::AndroidHtmlSafe);
+            assert!(matches!(
+                engine.process_message(&command.to_string(), NOW).unwrap(),
+                EngineEvent::Desktop(_)
+            ));
+        }
     }
 
     #[test]

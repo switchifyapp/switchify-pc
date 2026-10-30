@@ -388,6 +388,20 @@ describe("Switchify PC shell", () => {
     expect(screen.queryByRole("status", { name: "Application update" })).not.toBeInTheDocument();
   });
 
+  it("shows the licence notice only while the computer is not licensed", async () => {
+    const licence = { configured: true, status: "licensed", daysRemaining: 0, licenceId: "id", message: "Licensed for this computer.", storageWarning: false };
+    browserState.licence = licence;
+    const { unmount } = render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    expect(screen.queryByText(/See Settings → Licence/)).not.toBeInTheDocument();
+    unmount();
+    browserState.licence = { ...licence, status: "trial", licenceId: null, message: "12 days left in your full trial." };
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    expect(screen.getByText(/See Settings → Licence/)).toHaveTextContent("12 days left in your full trial. See Settings → Licence.");
+    delete browserState.licence;
+  });
+
   it("renders the connection and permission state", async () => {
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Switchify PC" })).toBeInTheDocument();

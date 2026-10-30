@@ -439,6 +439,9 @@ pub fn stop_mouse_repeat(app: &AppHandle) {
 }
 
 pub fn dwell_click(_app: &AppHandle) -> Result<(), String> {
+    if !crate::licensing::allowed(_app) {
+        return Err(crate::licensing::LOCKED.into());
+    }
     with_runtime(|runtime| {
         let input = runtime.input.as_mut().ok_or_else(|| {
             "Accessibility permission is required before the pointer can click.".to_string()

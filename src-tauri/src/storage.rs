@@ -354,6 +354,10 @@ impl AppStorage {
         self.path.with_file_name(DIAGNOSTIC_HISTORY_FILE)
     }
 
+    pub fn licence_path(&self) -> PathBuf {
+        self.path.with_file_name("licence.json")
+    }
+
     pub fn telemetry_path(&self) -> PathBuf {
         self.path.with_file_name(TELEMETRY_FILE)
     }
