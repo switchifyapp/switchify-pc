@@ -404,6 +404,16 @@ describe("Switchify PC shell", () => {
     delete browserState.licence;
   });
 
+  it("warns a paid user near offline expiry without offering another purchase", async () => {
+    browserState.licence = { configured: true, status: "licensed", daysRemaining: 0, licenceId: "id", message: "Connect within 3 days.", storageWarning: false, offlineDaysRemaining: 3 };
+    try {
+      render(<App />);
+      await screen.findByRole("heading", { name: "Switchify PC" });
+      expect(screen.getByRole("status", { name: "Licence" })).toHaveTextContent("Connect within 3 days.");
+      expect(screen.queryByRole("button", { name: "Buy licence" })).not.toBeInTheDocument();
+    } finally { delete browserState.licence; }
+  });
+
   it("renders the connection and permission state", async () => {
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Switchify PC" })).toBeInTheDocument();

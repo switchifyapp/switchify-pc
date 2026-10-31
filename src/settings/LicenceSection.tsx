@@ -13,12 +13,13 @@ export function LicenceSection({ state }: { state: AppState }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [confirmTransfer, setConfirmTransfer] = useState(false);
   const [recoveryPaused, setRecoveryPaused] = useState(false);
   const scope = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const highlighted = useRef<HTMLButtonElement | null>(null);
   const view = updated ?? state.licence;
-  const locked = view?.configured && ["expired", "unavailable"].includes(view.status);
+  const locked = view?.configured && (view.locked ?? ["expired", "unavailable", "lease_expired", "revoked", "deactivated"].includes(view.status));
   useEffect(() => { setUpdated(null); }, [state.licence]);
   useEffect(() => {
     if (!locked || recoveryPaused || !("__TAURI_INTERNALS__" in window)) return;
@@ -52,7 +53,7 @@ export function LicenceSection({ state }: { state: AppState }) {
     setBusy(true); setError(null);
     try {
       const next = await invoke<LicenceView>(command, args);
-      setUpdated(next); setKey(""); setConfirm(false);
+      setUpdated(next); setKey(""); setConfirm(false); setConfirmTransfer(false);
     } catch (e) { setError(String(e)); }
     finally { setBusy(false); }
   };
@@ -67,14 +68,22 @@ export function LicenceSection({ state }: { state: AppState }) {
           {view?.licenceId && <p className="licence-id">Licence ID: {view.licenceId}</p>}
         </div>
       </div>
-      {view?.storageWarning && <p className="licence-notice">Your licence storage backup is unavailable. Unlock your keychain and restart Switchify PC.</p>}
+      {view?.lastCheckedAt != null && <p className="licence-supporting">Last checked: {new Date(view.lastCheckedAt * 1000).toLocaleDateString()}</p>}
+      {view?.offlineDaysRemaining != null && <p className="licence-supporting">Offline allowance: {view.offlineDaysRemaining} {view.offlineDaysRemaining === 1 ? "day" : "days"} remaining.</p>}
+      {(view?.licenceId || view?.canTransfer) && <Button disabled={busy} onClick={() => void run("check_licence")}>Check licence now</Button>}
+      {view?.canTransfer && <div className="licence-notice">{confirmTransfer ? <>
+        <p>Move this licence here? The previous computer loses access when it next checks online or its offline allowance ends. You can replace an active computer twice in 30 days.</p>
+        <Button disabled={busy} onClick={() => void run("transfer_licence")}>Confirm move</Button>
+        <Button disabled={busy} onClick={() => setConfirmTransfer(false)}>Cancel move</Button>
+      </> : <Button disabled={busy} onClick={() => setConfirmTransfer(true)}>Move licence here</Button>}</div>}
+      {view?.storageWarning && <p className="licence-notice">Your licence storage is unavailable or its backup needs updating. Unlock your keychain and try Check licence now. Your current offline allowance is unchanged.</p>}
       {locked && <p className="licence-notice">Switch control here stays available. Buttons receive focus automatically; press any configured local switch to choose one. Copy your key first, then choose Paste and activate. Using the mouse, Tab key or key entry field pauses automatic button scanning.</p>}
       {locked && recoveryPaused && <Button onClick={() => setRecoveryPaused(false)}>Resume automatic button scanning</Button>}
       {view?.configured && <>
         <div className="licence-activation">
           <div>
             <h3>{view.status === "licensed" ? "Use a different key" : "Activate your licence"}</h3>
-            <p className="licence-supporting">A licence covers one computer and works offline, without a Switchify account.</p>
+            <p className="licence-supporting">Activate one computer online, without a Switchify account. Each successful check allows up to 30 days offline.</p>
           </div>
           <div className="licence-key-field">
             <label htmlFor="licence-key">Licence key</label>
@@ -98,7 +107,7 @@ export function LicenceSection({ state }: { state: AppState }) {
           void file.text().then((text) => run("redeem_licence", { key: text })).catch(() => setError("Could not read this licence file."));
         }} />
         {view.status === "licensed" && <div className="licence-removal">{confirm ? <>
-          <p>Remove the key from this computer? This does not refund your purchase or restart your trial.</p>
+          <p>Connect to the internet to deactivate this computer and free its place. This does not refund your purchase or restart your trial.</p>
           <div className="licence-actions">
             <Button className="secondary danger" disabled={busy} onClick={() => void run("remove_licence")}>Remove key</Button>
             <Button disabled={busy} onClick={() => setConfirm(false)}>Keep key</Button>

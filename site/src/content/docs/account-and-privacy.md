@@ -31,6 +31,26 @@ A release candidate, such as 1.0.0-rc.32, is offered only to people already runn
 
 The **About** tab in Settings shows which version of Switchify PC you have. It also links to the source code, the [licence and credits](/licence/) and this guide.
 
+## Licence checks
+
+Paid activation is independent of your optional Switchify account. First
+activation needs an internet connection. The app checks at launch and daily
+while running, and retries failed checks after 15 minutes. Each successful
+check grants up to 30 days offline. You can also choose **Check licence now**.
+
+These requests send the purchase key at activation, licence ID, a random
+installation ID, an installation public key, request time and a random request
+identifier. They do not send typed text, pairing tokens or your account email.
+The installation private key stays in the OS credential store. The server stores
+activation and transfer records separately from app accounts; deleting an
+account does not erase the purchase or free its active computer.
+
+The service uses short-lived hashed network hints for abuse limits. Function
+logs contain outcome categories, never purchase keys, signatures or request
+bodies. Network infrastructure may process the connection address as part of
+serving the request. See the [licence page](/licence/) for offline limits,
+transfers and refunds.
+
 ## Diagnostics
 
 **Anonymous diagnostics are off until you turn them on.** The setup guide asks you to choose **Share diagnostics** or **Don't share**. If you skipped that, the **Privacy** tab in Settings shows the same two buttons until you choose. Once you have chosen, the Privacy tab shows a single **Share anonymous diagnostic data** switch so you can change your mind at any time. When sharing is on, reports never include typed text, device names or file paths.

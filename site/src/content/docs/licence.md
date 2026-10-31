@@ -17,7 +17,8 @@ not enable paid licensing.
 
 During the trial, a notice at the top of the app shows how many days remain.
 It also points to **Settings → Licence** for entering your key. The notice
-disappears once this computer is licensed.
+disappears once this computer is licensed, and returns when 7 days or fewer
+remain in its offline allowance.
 
 **Buy licence** opens checkout in your default browser. It appears in the
 trial notice and on **Settings → Licence** when this computer is not licensed.
@@ -27,13 +28,28 @@ take a real payment. An internet connection is needed to open checkout.
 Open **Settings → Licence** to paste a key, choose **Paste and activate**, or
 choose **Import licence file** to open a saved text licence file. Your trial
 days or active licence appear in the status panel at the top of this page.
-The key is checked on your computer and needs no
-internet connection or Switchify account. Keep a private copy for reinstalling
-or moving to another computer; stop using the old computer when transferring
-its licence. Removing a key does not refund a purchase or restart the trial.
+Connect to the internet for the first activation. No Switchify account is
+required. The app checks at launch and daily while running; each successful
+check allows up to 30 days offline. The Licence page shows the last successful
+check and days remaining. When 7 days or fewer remain, the app shows a reminder,
+including at 3 days and 1 day. Choose **Check licence now** after reconnecting.
+A failed check leaves the existing allowance intact; it does not add extra days.
+
+Keep a private copy of your purchase key or attachment for reinstalling. If
+another computer has the licence, choose **Move licence here**, then confirm.
+You can replace an active computer twice in a rolling 30 days; contact support
+if you need help after that. The old computer loses access on its next successful
+check, or when its offline allowance ends. To free a computer's place first,
+choose **Remove licence from this computer** while online and confirm.
+Removing a key does not refund a purchase or restart the trial.
+
+A full refund or dispute revokes the licence. A computer stops paid access
+when it receives that verified status, or when its existing offline allowance
+ends. Settings and licence recovery remain available. If you stay offline
+beyond the allowance, connect to the internet and choose **Check licence now**.
 Signing out or deleting your Switchify account does not remove the local key.
 
-If the trial has ended, the Licence page automatically moves focus between
+If the trial or offline allowance has ended, the Licence page automatically moves focus between
 buttons every 1.5 seconds. Any configured local switch selects the focused
 button. Copy your key first, then choose **Paste and activate**. This recovery
 mode controls only this page; it does not type or move the pointer in other
