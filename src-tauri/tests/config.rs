@@ -118,7 +118,7 @@ fn main_window_has_application_commands_and_core_defaults() {
 }
 
 #[test]
-fn purchase_browser_access_is_limited_to_the_test_checkout() {
+fn purchase_browser_access_is_limited_to_the_live_checkout() {
     let main = capability(include_str!("../capabilities/main.json"));
     let opener: Vec<_> = main["permissions"]
         .as_array()
@@ -136,7 +136,7 @@ fn purchase_browser_access_is_limited_to_the_test_checkout() {
         opener,
         vec![&serde_json::json!({
             "identifier": "opener:allow-open-url",
-            "allow": [{ "url": "https://buy.stripe.com/test_dRm28t9gZ2sK3wKezb87K01" }]
+            "allow": [{ "url": "https://buy.stripe.com/9B63cx8cV8R8c3gfDf87K00" }]
         })]
     );
 }

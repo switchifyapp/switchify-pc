@@ -6,7 +6,7 @@
   "permissions": [
     {
       "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "https://buy.stripe.com/test_dRm28t9gZ2sK3wKezb87K01" }]
+      "allow": [{ "url": "https://buy.stripe.com/9B63cx8cV8R8c3gfDf87K00" }]
     },
     "core:webview:allow-set-webview-zoom",
     "core:default",

@@ -6,11 +6,11 @@ import { BuyLicence, licencePurchaseUrl } from "./BuyLicence";
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-it("opens the approved test checkout only after the button is selected", async () => {
+it("opens the approved live checkout only after the button is selected", async () => {
   vi.mocked(openUrl).mockResolvedValue();
   render(<BuyLicence />);
   expect(openUrl).not.toHaveBeenCalled();
-  expect(screen.getByText(/Test checkout/)).toBeInTheDocument();
+  expect(screen.queryByText(/Test checkout/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Buy licence" }));
   await waitFor(() => expect(openUrl).toHaveBeenCalledWith(licencePurchaseUrl));
 });
