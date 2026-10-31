@@ -803,6 +803,17 @@ impl Licensing {
         }
         let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(mut record) = data.record.clone() {
+            // The original seal is the only recoverable authority while the
+            // first OS read waits. Never overwrite it with an unsealed edit.
+            if (record.local_signature.is_some() || record.cached_paid())
+                && (!data.mirror_loaded
+                    || !data
+                        .identity
+                        .as_ref()
+                        .is_some_and(|id| record.authenticated(id)))
+            {
+                return;
+            }
             let time = data.clock.time(now());
             if time.saturating_sub(record.last_seen) >= 60
                 || time.saturating_sub(record.lease_seen) >= 60
@@ -1312,6 +1323,15 @@ mod tests {
         cold.sync_mirror().await;
         assert!(cold.view().locked);
         assert!(cold.view().storage_warning);
+        cold.data.lock().unwrap().clock.started =
+            std::time::Instant::now() - std::time::Duration::from_secs(61);
+        cold.checkpoint();
+        cold.persist_file().await;
+        let retained = decode_record(&std::fs::read_to_string(&cold.path).unwrap()).unwrap();
+        assert!(
+            retained == record,
+            "locked-startup checkpoints retain the original seal and record"
+        );
         assert!(cold.data.lock().unwrap().record.as_ref().unwrap().lease == record.lease);
         cold.identity = source.identity.clone();
         cold.data.lock().unwrap().next_secure_retry = 0;
@@ -1331,6 +1351,36 @@ mod tests {
             cold.view().status,
             "licensed",
             "outage after verification keeps the allowance"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn locked_startup_checkpoint_cannot_restore_an_older_terminal_mirror() {
+        let (source, transport, dir) = online_service();
+        source
+            .check("activate", Some(&purchase()), false)
+            .await
+            .unwrap();
+        *transport.outcome.lock().unwrap() = "deactivated";
+        source.check("check", None, false).await.unwrap(); // Durable old mirror.
+        *transport.outcome.lock().unwrap() = "licensed";
+        source
+            .check("activate", Some(&purchase()), false)
+            .await
+            .unwrap();
+        let record = source.data.lock().unwrap().record.clone().unwrap();
+        let mut cold = restart(&source, record.clone());
+        cold.identity = Arc::new(LockedIdentity);
+        cold.data.lock().unwrap().clock.started =
+            std::time::Instant::now() - std::time::Duration::from_secs(61);
+        cold.checkpoint();
+        cold.persist_file().await;
+        cold.identity = source.identity.clone();
+        cold.sync_mirror().await;
+        assert_eq!(cold.view().status, "licensed");
+        assert_eq!(
+            cold.data.lock().unwrap().record.as_ref().unwrap().lease,
+            record.lease
         );
         std::fs::remove_dir_all(dir).unwrap();
     }
