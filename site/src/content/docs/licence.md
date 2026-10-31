@@ -16,7 +16,9 @@ management and licence entry remain available. Ordinary development builds do
 not enable paid licensing.
 
 Open **Settings → Licence** to paste a key, choose **Paste and activate**, or
-import a text licence file. The key is checked on your computer and needs no
+choose **Import licence file** to open a saved text licence file. Your trial
+days or active licence appear in the status panel at the top of this page.
+The key is checked on your computer and needs no
 internet connection or Switchify account. Keep a private copy for reinstalling
 or moving to another computer; stop using the old computer when transferring
 its licence. Removing a key does not refund a purchase or restart the trial.

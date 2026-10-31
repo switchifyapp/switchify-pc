@@ -33,6 +33,18 @@ it("does not read the clipboard until Paste and activate is selected", async () 
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("paste_licence", undefined));
 });
 
+it("opens the file picker from a button and activates the chosen file", async () => {
+  vi.mocked(invoke).mockResolvedValue(licensed);
+  render(<LicenceSection state={{ ...browserState, licence: licensed }} />);
+  const input = screen.getByLabelText("Licence file");
+  const pickFile = vi.spyOn(input, "click");
+  fireEvent.click(screen.getByRole("button", { name: "Import licence file" }));
+  expect(pickFile).toHaveBeenCalledOnce();
+  expect(invoke).not.toHaveBeenCalled();
+  fireEvent.change(input, { target: { files: [{ size: 32, text: async () => "test-file-key" }] } });
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("redeem_licence", { key: "test-file-key" }));
+});
+
 it("pauses recovery scanning while a keyboard user enters a key", async () => {
   vi.useFakeTimers();
   Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });

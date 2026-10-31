@@ -281,6 +281,30 @@ main { min-width: 0; }
 .setting-note-block .disclosure { margin-top: 4px; }
 .privacy-choice { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
 
+.licence-panel { display: grid; gap: 24px; min-width: 0; max-width: 760px; }
+.licence-status { display: flex; align-items: start; gap: 16px; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 20px; background: var(--surface); }
+.licence-status > svg { flex: 0 0 28px; width: 28px; height: 28px; margin-top: 2px; color: var(--muted); }
+.licence-status [role="status"] { font-weight: 600; }
+.licence-status[data-licensed="true"] { border-left: 4px solid var(--status-ok); }
+.licence-status[data-licensed="true"] > svg { color: var(--status-ok); }
+.licence-status > div { min-width: 0; }
+.licence-id { margin-top: 8px; color: var(--muted); overflow-wrap: anywhere; }
+.licence-supporting { color: var(--muted); overflow-wrap: anywhere; }
+.licence-activation { display: grid; gap: 20px; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 24px; background: var(--surface); }
+.licence-activation h3 + p { margin-top: 8px; }
+.licence-key-field { display: grid; gap: 8px; min-width: 0; }
+.licence-key-field textarea { font-family: inherit; line-height: 1.5; resize: vertical; }
+.licence-key-field textarea:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.licence-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.licence-import { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; border-top: 1px solid var(--border); padding-top: 20px; }
+.licence-notice { border-left: 4px solid var(--status-attention); padding: 12px 16px; background: var(--status-attention-soft); }
+.licence-removal { display: grid; justify-items: start; gap: 16px; border-top: 1px solid var(--border); padding-top: 16px; }
+.licence-panel > .btn { justify-self: start; }
+@media (max-width: 600px) {
+  .licence-activation { padding: 16px; }
+  .licence-actions > .btn { flex: 1 1 100%; }
+}
+
 .update-controls { display: grid; gap: 12px; color: var(--muted); }
 .update-controls > div { display: flex; flex-wrap: wrap; gap: 12px; }
 .update-controls progress { width: 100%; accent-color: var(--brand); }
