@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { Check, KeyRound } from "lucide-react";
 import type { AppState, LicenceView } from "../types";
 import { Button } from "../ui/controls";
 import { SettingGroup } from "./controls";
@@ -13,6 +14,7 @@ export function LicenceSection({ state }: { state: AppState }) {
   const [confirm, setConfirm] = useState(false);
   const [recoveryPaused, setRecoveryPaused] = useState(false);
   const scope = useRef<HTMLDivElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const highlighted = useRef<HTMLButtonElement | null>(null);
   const view = updated ?? state.licence;
   const locked = view?.configured && ["expired", "unavailable"].includes(view.status);
@@ -54,38 +56,55 @@ export function LicenceSection({ state }: { state: AppState }) {
     finally { setBusy(false); }
   };
   return <SettingGroup id="settings-licence" title="Licence" description="Your purchase and trial on this computer">
-    <div ref={scope} onPointerDownCapture={() => setRecoveryPaused(true)} onFocusCapture={(event) => {
+    <div className="licence-panel" ref={scope} onPointerDownCapture={() => setRecoveryPaused(true)} onFocusCapture={(event) => {
       if (event.target.matches("textarea,input,select")) setRecoveryPaused(true);
     }}>
-      <p role="status">{view?.message ?? "Licensing is not enabled in this build."}</p>
-      {view?.storageWarning && <p>Your licence storage backup is unavailable. Unlock your keychain and restart Switchify PC.</p>}
-      {locked && <p>Switch control here stays available. Buttons receive focus automatically; press any configured local switch to choose one. Copy your key first, then choose Paste and activate. Using the mouse, Tab key or key entry field pauses automatic button scanning.</p>}
+      <div className="licence-status" data-licensed={view?.status === "licensed"}>
+        {view?.status === "licensed" ? <Check aria-hidden="true" /> : <KeyRound aria-hidden="true" />}
+        <div>
+          <p role="status">{view?.message ?? "Licensing is not enabled in this build."}</p>
+          {view?.licenceId && <p className="licence-id">Licence ID: {view.licenceId}</p>}
+        </div>
+      </div>
+      {view?.storageWarning && <p className="licence-notice">Your licence storage backup is unavailable. Unlock your keychain and restart Switchify PC.</p>}
+      {locked && <p className="licence-notice">Switch control here stays available. Buttons receive focus automatically; press any configured local switch to choose one. Copy your key first, then choose Paste and activate. Using the mouse, Tab key or key entry field pauses automatic button scanning.</p>}
       {locked && recoveryPaused && <Button onClick={() => setRecoveryPaused(false)}>Resume automatic button scanning</Button>}
       {view?.configured && <>
-        {view.licenceId && <p>Licence ID: {view.licenceId}</p>}
-        <p>€100 one-time purchase for one computer. A key works offline, without a Switchify account.</p>
-        <label htmlFor="licence-key">Licence key</label>
-        <textarea id="licence-key" value={key} maxLength={2048} spellCheck={false} autoComplete="off" onChange={(e) => setKey(e.target.value)} />
-        <div className="actions">
-          <Button disabled={busy || !key.trim()} onClick={() => void run("redeem_licence", { key })}>Activate key</Button>
-          <Button disabled={busy} onClick={() => void run("paste_licence")}>Paste and activate</Button>
+        <div className="licence-activation">
+          <div>
+            <h3>{view.status === "licensed" ? "Use a different key" : "Activate your licence"}</h3>
+            <p className="licence-supporting">€100 one-time purchase for one computer. A key works offline, without a Switchify account.</p>
+          </div>
+          <div className="licence-key-field">
+            <label htmlFor="licence-key">Licence key</label>
+            <textarea className="field-control" id="licence-key" rows={4} value={key} maxLength={2048} spellCheck={false} autoComplete="off" onChange={(e) => setKey(e.target.value)} />
+          </div>
+          <div className="licence-actions">
+            <Button className={key.trim() ? "primary" : "secondary"} disabled={busy || !key.trim()} onClick={() => void run("redeem_licence", { key })}>Activate key</Button>
+            <Button className={key.trim() ? "secondary" : "primary"} disabled={busy} onClick={() => void run("paste_licence")}>Paste and activate</Button>
+          </div>
+          <div className="licence-import">
+            <p className="licence-supporting">Have your key saved in a text file?</p>
+            <Button disabled={busy} onClick={() => fileInput.current?.click()}>Import licence file</Button>
+          </div>
         </div>
-        <label htmlFor="licence-file">Or import a licence file</label>
-        <input id="licence-file" type="file" accept=".txt,.licence" disabled={busy} onChange={(e) => {
+        <input ref={fileInput} aria-label="Licence file" type="file" accept=".txt,.licence" hidden disabled={busy} onChange={(e) => {
           const file = e.target.files?.[0];
           e.target.value = "";
           if (!file) return;
           if (file.size > 4096) { setError("This licence file is too large."); return; }
           void file.text().then((text) => run("redeem_licence", { key: text })).catch(() => setError("Could not read this licence file."));
         }} />
-        {view.status === "licensed" && (confirm ? <div>
+        {view.status === "licensed" && <div className="licence-removal">{confirm ? <>
           <p>Remove the key from this computer? This does not refund your purchase or restart your trial.</p>
-          <Button disabled={busy} onClick={() => void run("remove_licence")}>Remove key</Button>
-          <Button disabled={busy} onClick={() => setConfirm(false)}>Keep key</Button>
-        </div> : <Button disabled={busy} onClick={() => setConfirm(true)}>Remove licence from this computer</Button>)}
+          <div className="licence-actions">
+            <Button className="secondary danger" disabled={busy} onClick={() => void run("remove_licence")}>Remove key</Button>
+            <Button disabled={busy} onClick={() => setConfirm(false)}>Keep key</Button>
+          </div>
+        </> : <Button className="text-button" disabled={busy} onClick={() => setConfirm(true)}>Remove licence from this computer</Button>}</div>}
       </>}
-      {error && <p role="alert">{error}</p>}
-      <p>For a lost key or help entering one, contact <a href="mailto:info@theswitchify.app">info@theswitchify.app</a>.</p>
+      {error && <p className="field-error" role="alert">{error}</p>}
+      <p className="licence-supporting">For a lost key or help entering one, contact <a href="mailto:info@theswitchify.app">info@theswitchify.app</a>.</p>
     </div>
   </SettingGroup>;
 }
