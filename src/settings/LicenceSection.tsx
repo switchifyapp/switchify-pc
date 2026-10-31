@@ -5,6 +5,7 @@ import { Check, KeyRound } from "lucide-react";
 import type { AppState, LicenceView } from "../types";
 import { Button } from "../ui/controls";
 import { SettingGroup } from "./controls";
+import { BuyLicence } from "../licensing/BuyLicence";
 
 export function LicenceSection({ state }: { state: AppState }) {
   const [updated, setUpdated] = useState<LicenceView | null>(null);
@@ -73,7 +74,7 @@ export function LicenceSection({ state }: { state: AppState }) {
         <div className="licence-activation">
           <div>
             <h3>{view.status === "licensed" ? "Use a different key" : "Activate your licence"}</h3>
-            <p className="licence-supporting">€100 one-time purchase for one computer. A key works offline, without a Switchify account.</p>
+            <p className="licence-supporting">A licence covers one computer and works offline, without a Switchify account.</p>
           </div>
           <div className="licence-key-field">
             <label htmlFor="licence-key">Licence key</label>
@@ -87,6 +88,7 @@ export function LicenceSection({ state }: { state: AppState }) {
             <p className="licence-supporting">Have your key saved in a text file?</p>
             <Button disabled={busy} onClick={() => fileInput.current?.click()}>Import licence file</Button>
           </div>
+          {view.status !== "licensed" && <BuyLicence />}
         </div>
         <input ref={fileInput} aria-label="Licence file" type="file" accept=".txt,.licence" hidden disabled={busy} onChange={(e) => {
           const file = e.target.files?.[0];

@@ -4,6 +4,10 @@
   "description": "Application capability for the main Switchify PC window",
   "windows": ["main"],
   "permissions": [
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://buy.stripe.com/test_dRm28t9gZ2sK3wKezb87K01" }]
+    },
     "core:webview:allow-set-webview-zoom",
     "core:default",
     "allow-get-app-state",

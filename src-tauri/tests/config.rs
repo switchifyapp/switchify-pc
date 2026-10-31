@@ -61,7 +61,12 @@ fn permission_names(capability: &serde_json::Value) -> Vec<&str> {
         .as_array()
         .expect("capability permissions")
         .iter()
-        .map(|permission| permission.as_str().expect("permission name"))
+        .map(|permission| {
+            permission
+                .as_str()
+                .or_else(|| permission["identifier"].as_str())
+                .expect("permission name")
+        })
         .collect()
 }
 
@@ -110,6 +115,30 @@ fn main_window_has_application_commands_and_core_defaults() {
     ] {
         assert!(permissions.contains(&permission), "missing {permission}");
     }
+}
+
+#[test]
+fn purchase_browser_access_is_limited_to_the_test_checkout() {
+    let main = capability(include_str!("../capabilities/main.json"));
+    let opener: Vec<_> = main["permissions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|permission| {
+            permission.as_str().unwrap_or("").starts_with("opener:")
+                || permission["identifier"]
+                    .as_str()
+                    .unwrap_or("")
+                    .starts_with("opener:")
+        })
+        .collect();
+    assert_eq!(
+        opener,
+        vec![&serde_json::json!({
+            "identifier": "opener:allow-open-url",
+            "allow": [{ "url": "https://buy.stripe.com/test_dRm28t9gZ2sK3wKezb87K01" }]
+        })]
+    );
 }
 
 #[test]

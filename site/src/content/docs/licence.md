@@ -9,8 +9,8 @@ Switchify PC is open source software. It is licensed under the [GNU Affero Gener
 
 ## Purchase keys and the trial
 
-Builds with licensing enabled provide a full 30-day trial on this computer. A
-Switchify PC licence costs €100 once for one computer. When the trial ends,
+Builds with licensing enabled provide a full 30-day trial on this computer.
+A Switchify PC licence covers one computer. When the trial ends,
 computer scanning, dwell clicking and mobile control stop. Settings, account
 management and licence entry remain available. Ordinary development builds do
 not enable paid licensing.
@@ -18,6 +18,11 @@ not enable paid licensing.
 During the trial, a notice at the top of the app shows how many days remain.
 It also points to **Settings → Licence** for entering your key. The notice
 disappears once this computer is licensed.
+
+**Buy licence** opens checkout in your default browser. It appears in the
+trial notice and on **Settings → Licence** when this computer is not licensed.
+The current link is a Stripe **test checkout**, marked in the app; it does not
+take a real payment. An internet connection is needed to open checkout.
 
 Open **Settings → Licence** to paste a key, choose **Paste and activate**, or
 choose **Import licence file** to open a saved text licence file. Your trial
@@ -38,8 +43,8 @@ Using the mouse, pressing Tab, or typing in the key field pauses automatic
 button scanning on the Licence page. Choose **Resume automatic button
 scanning** when you want to use your local switches again.
 
-Purchases and automatic key delivery are being prepared. Do not use an
-unannounced checkout link until licence delivery is available.
+Live purchases are not available yet. The test checkout is for validating
+licence delivery before release.
 
 The licence also lets you study, change and share the app. If you share it, changed or not, the licence sets out how you must make the source code available. A changed version you share must stay under the same licence. If people use your changed version over a network, you must offer them its source code. The [source code](https://github.com/switchifyapp/switchify-pc) is on GitHub. Read the licence for exactly what applies.
 
