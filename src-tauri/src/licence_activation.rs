@@ -8,6 +8,7 @@ use std::{future::Future, pin::Pin, time::Duration};
 
 const SERVICE: &str = "com.enaboapps.switchify.pc.licence";
 pub const NETWORK_ERROR: &str = "Could not check your licence. Connect to the internet and try again. Your existing offline allowance is unchanged.";
+pub const INVALID_REQUEST_ERROR: &str = "Could not verify this licence request. Check your key and your computer's date and time, or contact support. Your existing offline allowance is unchanged.";
 pub const STORAGE_ERROR: &str = "Your installation key is unavailable. Unlock your keychain and try again. Your existing offline allowance is unchanged.";
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -169,6 +170,24 @@ pub trait Transport: Send + Sync {
     fn post(&self, config: &Config, body: Value) -> ResponseFuture;
 }
 pub struct HttpTransport;
+fn decode_response(status: reqwest::StatusCode, bytes: &[u8]) -> Result<Value, String> {
+    let value: Value = serde_json::from_slice(bytes).map_err(|_| NETWORK_ERROR)?;
+    if status == reqwest::StatusCode::BAD_REQUEST {
+        // A narrowly classified unsigned error gives guidance, never authority
+        // to change an entitlement or accept a proof in an error response.
+        return if value.as_object().is_some_and(|object| {
+            object.len() == 1 && object.get("outcome").is_some_and(|v| v == "invalid")
+        }) {
+            Ok(value)
+        } else {
+            Err(NETWORK_ERROR.into())
+        };
+    }
+    if !status.is_success() && status.as_u16() != 409 && status.as_u16() != 429 {
+        return Err(NETWORK_ERROR.into());
+    }
+    Ok(value)
+}
 impl Transport for HttpTransport {
     fn post(&self, config: &Config, body: Value) -> ResponseFuture {
         let config = config.clone();
@@ -193,10 +212,7 @@ impl Transport for HttpTransport {
                 }
                 bytes.extend_from_slice(&chunk);
             }
-            if !status.is_success() && status.as_u16() != 409 && status.as_u16() != 429 {
-                return Err(NETWORK_ERROR.into());
-            }
-            serde_json::from_slice(&bytes).map_err(|_| NETWORK_ERROR.into())
+            decode_response(status, &bytes)
         })
     }
 }
@@ -216,6 +232,41 @@ pub fn request(
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    #[test]
+    fn only_the_exact_bad_request_outcome_gets_invalid_request_guidance() {
+        use reqwest::StatusCode;
+        let value = decode_response(StatusCode::BAD_REQUEST, br#"{"outcome":"invalid"}"#).unwrap();
+        assert_eq!(value["outcome"], "invalid");
+        for body in [
+            b"not json".as_slice(),
+            br#"{"outcome":"invalid","proof":"untrusted"}"#,
+            br#"{"proof":"untrusted"}"#,
+            br#"{"outcome":"revoked"}"#,
+            br#"{"outcome":"unknown"}"#,
+        ] {
+            assert!(decode_response(StatusCode::BAD_REQUEST, body).is_err());
+        }
+        for status in [
+            StatusCode::UNAUTHORIZED,
+            StatusCode::NOT_FOUND,
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ] {
+            assert!(decode_response(status, br#"{"outcome":"invalid"}"#).is_err());
+        }
+        assert_eq!(
+            decode_response(StatusCode::CONFLICT, br#"{"outcome":"seat_taken"}"#).unwrap()
+                ["outcome"],
+            "seat_taken"
+        );
+        assert_eq!(
+            decode_response(
+                StatusCode::TOO_MANY_REQUESTS,
+                br#"{"outcome":"rate_limited"}"#
+            )
+            .unwrap()["outcome"],
+            "rate_limited"
+        );
+    }
     pub struct FakeIdentity;
     pub struct OtherIdentity;
     impl IdentityStore for OtherIdentity {

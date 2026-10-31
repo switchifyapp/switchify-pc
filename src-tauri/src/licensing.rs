@@ -630,6 +630,9 @@ impl Licensing {
         );
         let response = self.transport.post(config, body).await?;
         if let Some(outcome) = response.get("outcome").and_then(|v| v.as_str()) {
+            if outcome == "invalid" {
+                return Err(activation::INVALID_REQUEST_ERROR.into());
+            }
             if matches!(outcome, "seat_taken" | "takeover_limited") {
                 {
                     let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
@@ -1192,7 +1195,7 @@ mod tests {
                 if outcome == "outage" {
                     return Err(activation::NETWORK_ERROR.into());
                 }
-                if matches!(outcome, "seat_taken" | "takeover_limited") {
+                if matches!(outcome, "seat_taken" | "takeover_limited" | "invalid") {
                     return Ok(json!({"outcome":outcome}));
                 }
                 let request = &body["request"];
@@ -1265,6 +1268,46 @@ mod tests {
         });
         service.transport = transport.clone();
         (service, transport, dir)
+    }
+    #[tokio::test]
+    async fn unverifiable_request_guidance_does_not_replace_or_revoke_cached_access() {
+        let (service, transport, dir) = online_service();
+        service
+            .check("activate", Some(&purchase()), false)
+            .await
+            .unwrap();
+        let before = service.data.lock().unwrap().record.clone();
+        *transport.outcome.lock().unwrap() = "invalid";
+        assert_eq!(
+            service.check("check", None, false).await.unwrap_err(),
+            activation::INVALID_REQUEST_ERROR
+        );
+        assert_eq!(service.view().status, "licensed");
+        assert!(service.data.lock().unwrap().record == before);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn rejected_initial_activation_preserves_trial_and_suggests_key_and_clock_checks() {
+        let (service, transport, dir) = online_service();
+        *transport.outcome.lock().unwrap() = "invalid";
+        assert_eq!(
+            service
+                .check("activate", Some(&purchase()), false)
+                .await
+                .unwrap_err(),
+            activation::INVALID_REQUEST_ERROR
+        );
+        assert_eq!(service.view().status, "trial");
+        assert!(service
+            .data
+            .lock()
+            .unwrap()
+            .record
+            .as_ref()
+            .unwrap()
+            .key
+            .is_none());
+        std::fs::remove_dir_all(dir).ok();
     }
     fn restart(source: &Licensing, record: Record) -> Licensing {
         let mut service = configured_service(record);

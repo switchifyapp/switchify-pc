@@ -35,6 +35,11 @@ check allows up to 30 days offline. The Licence page shows the last successful
 check and days remaining. When 7 days or fewer remain, the app shows a reminder,
 including at 3 days and 1 day. Choose **Check licence now** after reconnecting.
 A failed check leaves the existing allowance intact; it does not add extra days.
+If the app says it could not verify the request, check that you used the complete
+purchase key and that your computer's date and time are correct. Try again, or
+contact info@theswitchify.app if the message continues. This message does not
+revoke an existing allowance. If the app instead asks you to connect, check your
+internet connection before retrying.
 
 After restarting the app, Switchify PC checks the saved licence against this
 computer's protected installation credentials. If your credential store is
