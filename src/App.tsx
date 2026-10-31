@@ -18,6 +18,7 @@ import { useSwitches, type SwitchController } from "./scanning/useSwitches";
 import { lastModeName, selectOpensHome, useScanning, type ScanningController } from "./scanning/useScanning";
 import { areaOptions } from "./scanning/preferences";
 import { homeStatus } from "./homeStatus";
+import { BuyLicence } from "./licensing/BuyLicence";
 import { interfaceModeAdvice, reservedKeyAdvice } from "./help/keyAvailability";
 
 import { SwitchesSection } from "./settings/SwitchesSection";
@@ -898,6 +899,7 @@ export function App() {
             <p className="licence-banner-message">{state.licence.message}</p>
             <p className="licence-banner-hint">See Settings → Licence.</p>
           </div>
+          <BuyLicence />
         </div>
       </div>}
       {error && <div className="error-banner" role="alert">{error}<Button onClick={() => setError(null)}>Dismiss</Button></div>}

@@ -197,6 +197,13 @@ main { min-width: 0; }
 .licence-banner-hint { margin-top: 4px; color: var(--muted); }
 .licence-banner[data-locked="true"] { border-left: 4px solid var(--status-attention); background: var(--status-attention-soft); }
 .licence-banner[data-locked="true"] > svg { color: var(--status-attention); }
+.licence-banner > .licence-buy { margin-left: auto; }
+.licence-buy { display: grid; justify-items: start; gap: 4px; }
+.licence-buy > .licence-supporting { font-size: 14px; }
+@media (max-width: 1000px) {
+  .licence-banner { flex-wrap: wrap; }
+  .licence-banner > .licence-buy { flex-basis: 100%; margin-left: 40px; }
+}
 .view { width: min(100%, 1760px); margin: 0 auto; padding: 32px clamp(32px, 3vw, 56px); container: page / inline-size; }
 .page-header, .section-header { display: flex; align-items: center; justify-content: space-between; gap: 16px 24px; }
 .page-header { margin-bottom: 24px; }

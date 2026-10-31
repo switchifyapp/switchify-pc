@@ -1881,6 +1881,11 @@ pub fn run() {
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .manage(model)
         .manage(UpdateManager::<tauri_plugin_updater::Update>::default())
         .manage(PendingProfileExit::default())
