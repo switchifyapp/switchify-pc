@@ -1,0 +1,21 @@
+{
+  "note": "PUBLIC TEST MATERIAL ONLY. Purchase seed 7, lease seed 8, installation seed 9, each repeated 32 times. Never trust these in production.",
+  "public_key": "E5j2LG0aRXxRumpLXz29L2n8qTIWIY3ImX5Ba9F9k8o",
+  "installation_public_key": "_RckOFqgx1tk-3jNYC-h2ZH96_drE8WO1wLqyDXp9hg",
+  "request": {
+    "version": 1,
+    "action": "renew",
+    "licence_id": "6af44000-17b7-4d87-ad1d-32e9a31b331a",
+    "installation_id": "6af44000-17b7-4d87-ad1d-32e9a31b331b",
+    "public_key": "_RckOFqgx1tk-3jNYC-h2ZH96_drE8WO1wLqyDXp9hg",
+    "timestamp": 1000,
+    "nonce": "6af44000-17b7-4d87-ad1d-32e9a31b331c",
+    "takeover": false,
+    "purchase_key": null
+  },
+  "canonical_request": "{\"action\":\"renew\",\"installation_id\":\"6af44000-17b7-4d87-ad1d-32e9a31b331b\",\"licence_id\":\"6af44000-17b7-4d87-ad1d-32e9a31b331a\",\"nonce\":\"6af44000-17b7-4d87-ad1d-32e9a31b331c\",\"public_key\":\"_RckOFqgx1tk-3jNYC-h2ZH96_drE8WO1wLqyDXp9hg\",\"purchase_key\":null,\"takeover\":false,\"timestamp\":1000,\"version\":1}",
+  "request_signature": "cvBAjGk_i7TyGIKHN1ja68Qa62vPVN0urfSc1iLmeeSwISpRK126Fp3DkwWI7uAdxYIU8gwQ3rClSesr6FOZDg",
+  "lease": "SWPL1.test-lease.eyJ2ZXJzaW9uIjoxLCJwcm9kdWN0Ijoic3dpdGNoaWZ5LXBjIiwibGljZW5jZV9pZCI6IjZhZjQ0MDAwLTE3YjctNGQ4Ny1hZDFkLTMyZTlhMzFiMzMxYSIsImluc3RhbGxhdGlvbl9pZCI6IjZhZjQ0MDAwLTE3YjctNGQ4Ny1hZDFkLTMyZTlhMzFiMzMxYiIsImluc3RhbGxhdGlvbl9rZXkiOiJfUmNrT0ZxZ3gxdGstM2pOWUMtaDJaSDk2X2RyRThXTzF3THF5RFhwOWhnIiwiZ2VuZXJhdGlvbiI6MSwiaXNzdWVkX2F0IjoxMDAwLCJyZXF1ZXN0X25vbmNlIjoiNmFmNDQwMDAtMTdiNy00ZDg3LWFkMWQtMzJlOWEzMWIzMzFjIiwiYWN0aW9uIjoicmVuZXciLCJsZWFzZV9pZCI6ImY4YzZiYTJlLTQ0NzktNDk0OS05ZWY5LTAyM2FjOTBhZjUxOSIsImV4cGlyZXNfYXQiOjI1OTMwMDB9.KzNI6LXTCtCaDHLBpSeqjXenTko3od8UCGTjUuniNJuSQtuGS5H2qY3DZrNUH6ZWn1689B0ejfAqp6fnoObgBQ",
+  "revoked": "SWPS1.test-lease.eyJ2ZXJzaW9uIjoxLCJwcm9kdWN0Ijoic3dpdGNoaWZ5LXBjIiwibGljZW5jZV9pZCI6IjZhZjQ0MDAwLTE3YjctNGQ4Ny1hZDFkLTMyZTlhMzFiMzMxYSIsImluc3RhbGxhdGlvbl9pZCI6IjZhZjQ0MDAwLTE3YjctNGQ4Ny1hZDFkLTMyZTlhMzFiMzMxYiIsImluc3RhbGxhdGlvbl9rZXkiOiJfUmNrT0ZxZ3gxdGstM2pOWUMtaDJaSDk2X2RyRThXTzF3THF5RFhwOWhnIiwiZ2VuZXJhdGlvbiI6MSwiaXNzdWVkX2F0IjoxMDAwLCJyZXF1ZXN0X25vbmNlIjoiNmFmNDQwMDAtMTdiNy00ZDg3LWFkMWQtMzJlOWEzMWIzMzFjIiwiYWN0aW9uIjoicmVuZXciLCJzdGF0dXMiOiJyZXZva2VkIn0.XDKJ98qbWgSavTj6apgeVMJkcnqfi-VJdCHF6kAizJGsDKfpZhwZQkIkZYv6UHoWGwfLoF2GLzMF3RwmeIlwCw",
+  "deactivated": "SWPS1.test-lease.eyJ2ZXJzaW9uIjoxLCJwcm9kdWN0Ijoic3dpdGNoaWZ5LXBjIiwibGljZW5jZV9pZCI6IjZhZjQ0MDAwLTE3YjctNGQ4Ny1hZDFkLTMyZTlhMzFiMzMxYSIsImluc3RhbGxhdGlvbl9pZCI6IjZhZjQ0MDAwLTE3YjctNGQ4Ny1hZDFkLTMyZTlhMzFiMzMxYiIsImluc3RhbGxhdGlvbl9rZXkiOiJfUmNrT0ZxZ3gxdGstM2pOWUMtaDJaSDk2X2RyRThXTzF3THF5RFhwOWhnIiwiZ2VuZXJhdGlvbiI6MSwiaXNzdWVkX2F0IjoxMDAwLCJyZXF1ZXN0X25vbmNlIjoiNmFmNDQwMDAtMTdiNy00ZDg3LWFkMWQtMzJlOWEzMWIzMzFjIiwiYWN0aW9uIjoicmVuZXciLCJzdGF0dXMiOiJkZWFjdGl2YXRlZCJ9.YQ_qJeYXCFdbXyOC-ivEtFoMc9hoUQNg5ND0tXprrxiBANOrp0mp1vjehEN-piCn608kS-7jT268dq5rqFCECA"
+}
