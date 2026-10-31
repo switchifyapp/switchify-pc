@@ -61,3 +61,29 @@ key is limited to 2048 bytes after trimming surrounding whitespace.
 Never change this contract without keeping compatibility tests for already
 issued keys. Run `node --test scripts/licence-keygen.node-test.mjs` and the
 Rust `licence_key` tests to verify the frozen cross-language vector.
+
+## Device allowance contract (activation foundation)
+
+`src-tauri/src/licence_lease.rs` verifies the activation service's `SWPL1`
+leases and `SWPS1` terminal replies. This foundation does not yet replace the
+app's access policy; the activation integration PR does that. A purchase key
+will remain a reusable credential, while paid access requires a device-bound,
+time-limited signed allowance.
+
+Lease trust anchors are separate from purchase trust anchors. `LeaseKeys::new`
+rejects overlapping issuer IDs and public keys. Prefix and issuer are included
+in the signed bytes. Claims bind the product, licence, installation UUID and
+public key, generation, server issue time, action and request nonce. Leases
+also include a lease UUID and required expiry at most 30 days after issuance.
+Cached verification checks the signature, binding and expiry; it needs neither
+a network request nor an unlocked keychain. Fresh replies additionally match
+the outstanding nonce/action, reject older generations and check freshness.
+Only authenticated terminal replies can invalidate a current allowance;
+unsigned errors are never revocation evidence.
+
+`activation-test-vector.json` is copied byte-for-byte from the backend fixture
+in switchify-supabase PR #19. It contains public test material only. The Rust
+tests verify backend-generated lease/status envelopes and reproduce the exact
+canonical installation request and signature. Never compile fixture trust
+anchors into production builds. Keep this vector synchronized when changing
+the activation contract, without changing the frozen SWPC1 purchase format.

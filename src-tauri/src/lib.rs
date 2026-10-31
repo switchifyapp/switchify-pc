@@ -7,6 +7,7 @@ mod dwell;
 mod grid3;
 mod input;
 pub mod licence_key;
+pub mod licence_lease;
 mod licensing;
 use licensing::{paste_licence, redeem_licence, remove_licence, set_licence_recovery};
 #[cfg(target_os = "macos")]
