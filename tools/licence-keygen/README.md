@@ -109,3 +109,12 @@ Reinstall with the keychain intact keeps the identity. If the keychain is lost,
 explicit transfer recovers the licence using its purchase key. VM clones with
 both the credential store and app record copied can share an identity; this
 scheme discourages casual sharing, it cannot prevent modified clients or clones.
+
+
+File persistence and keychain reconciliation run on separate serialized workers,
+without holding the entitlement/input mutex during OS I/O. A pending keychain
+prompt cannot delay a verified revocation or file persistence. Late mirror
+completions merge revisions and cannot replace a newer removal/revocation.
+The trial retains its clock high-water mark; paid allowances keep a separate
+clock watermark that a fresh nonce-bound signed server reply can recover after
+a corrected system-clock jump. Request freshness uses current wall time.

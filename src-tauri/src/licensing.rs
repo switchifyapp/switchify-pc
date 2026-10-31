@@ -32,12 +32,14 @@ impl View {
         self.access_until.is_none_or(|end| now < end)
     }
 }
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
     version: u8,
     first_run: i64,
     last_seen: i64,
+    #[serde(default)]
+    lease_seen: i64,
     revision: u64,
     key: Option<String>,
     #[serde(default)]
@@ -61,6 +63,7 @@ impl Record {
             version: 2,
             first_run: now,
             last_seen: now,
+            lease_seen: 0,
             revision: 0,
             key: None,
             pending_key: None,
@@ -123,7 +126,8 @@ impl Record {
             ..View::default()
         };
         if let Some(key) = &self.key {
-            match licence_key::verify(key, keys, effective) {
+            let paid_time = now.max(self.lease_seen);
+            match licence_key::verify(key, keys, paid_time) {
                 Ok(claims) => {
                     view.licence_id = Some(claims.licence_id.clone());
                     if let Some(status) = &self.terminal_status {
@@ -140,12 +144,12 @@ impl Record {
                             installation_key: &installation.public_key,
                         };
                         if let Ok(lease) =
-                            licence_lease::verify_lease(lease, leases, &binding, effective)
+                            licence_lease::verify_lease(lease, leases, &binding, paid_time)
                         {
                             if lease.generation >= self.generation {
                                 view.status = "licensed".into();
                                 view.access_until = Some(lease.expires_at);
-                                let days = ((lease.expires_at - effective + DAY - 1) / DAY) as u32;
+                                let days = ((lease.expires_at - paid_time + DAY - 1) / DAY) as u32;
                                 view.offline_days_remaining = Some(days);
                                 view.message = if days <= 7 {
                                     format!("Licensed. Connect to the internet within {days} {} to keep using Switchify PC.",if days==1 {"day"} else {"days"})
@@ -200,6 +204,10 @@ struct Data {
     /// `60 * 2^min(n, 6)` seconds so a locked keychain is not prompted every minute.
     secure_failures: u32,
     next_secure_retry: i64,
+    file_dirty: bool,
+    file_warning: bool,
+    mirror_dirty: bool,
+    mirror_loaded: bool,
 }
 impl Data {
     fn observe_access(&mut self, current: bool) -> bool {
@@ -244,6 +252,8 @@ pub struct Licensing {
     identity: Arc<dyn activation::IdentityStore>,
     mirror: Arc<dyn activation::MirrorStore>,
     operation: tokio::sync::Mutex<()>,
+    file_operation: tokio::sync::Mutex<()>,
+    mirror_operation: tokio::sync::Mutex<()>,
 }
 fn now() -> i64 {
     crate::state::now_ms() / 1000
@@ -296,6 +306,36 @@ fn initial_record(
 fn read_secure(store: &dyn activation::MirrorStore) -> Result<Option<Record>, String> {
     store.read()?.map(|text| decode_record(&text)).transpose()
 }
+fn write_record_file(path: &std::path::Path, record: &Record) -> Result<(), String> {
+    let text =
+        serde_json::to_string(record).map_err(|_| "Could not save the licence.".to_string())?;
+    let parent = path.parent().ok_or("Could not save the licence.")?;
+    std::fs::create_dir_all(parent).map_err(|_| "Could not save the licence.".to_string())?;
+    let temp = parent.join(format!("licence-{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| {
+        use std::io::Write;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
+            .open(&temp)
+            .map_err(|_| "Could not save the licence.".to_string())?;
+        file.write_all(text.as_bytes())
+            .map_err(|_| "Could not save the licence.".to_string())?;
+        file.sync_all()
+            .map_err(|_| "Could not save the licence.".to_string())?;
+        crate::storage::replace_file(&temp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+        return Err("Could not save the licence.".into());
+    }
+    Ok(())
+}
 impl Licensing {
     fn open(path: PathBuf) -> Self {
         let config = option_env!("SWITCHIFY_LICENCE_PUBLIC_KEYS").unwrap_or("");
@@ -318,23 +358,13 @@ impl Licensing {
                 None
             }
         };
-        let mut secure_error = false;
-        let secure = if configured {
-            match read_secure(&activation::OsMirrorStore) {
-                Ok(record) => record,
-                Err(_) => {
-                    secure_error = true;
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        let record = initial_record(file, secure, file_error, now());
+        // The file is sufficient to open. Read and heal the keychain mirror on
+        // a worker after launch: a keychain dialog must never hold input locks.
+        let record = initial_record(file, None, file_error, now());
         let service = Self {
             data: Mutex::new(Data {
                 record,
-                storage_warning: file_error || secure_error,
+                storage_warning: file_error,
                 recovery: false,
                 recovery_armed: false,
                 cleanup_pending: false,
@@ -342,6 +372,10 @@ impl Licensing {
                 access_until: Some(0),
                 secure_failures: 0,
                 next_secure_retry: 0,
+                file_dirty: true,
+                file_warning: false,
+                mirror_dirty: true,
+                mirror_loaded: false,
             }),
             path,
             lease_keys: licence_lease::LeaseKeys::new(
@@ -354,15 +388,11 @@ impl Licensing {
             identity: Arc::new(activation::OsIdentityStore),
             mirror: Arc::new(activation::OsMirrorStore),
             operation: tokio::sync::Mutex::new(()),
+            file_operation: tokio::sync::Mutex::new(()),
+            mirror_operation: tokio::sync::Mutex::new(()),
             keys,
             configured,
         };
-        if configured {
-            let mut data = service.data.lock().unwrap_or_else(|p| p.into_inner());
-            if let Some(record) = &data.record {
-                data.storage_warning |= service.save(record, true).unwrap_or(true);
-            }
-        }
         service.seed_access();
         service
     }
@@ -389,43 +419,6 @@ impl Licensing {
             .iter()
             .map(|(id, key)| (id.as_str(), *key))
             .collect()
-    }
-    /// Writes the file, and the keychain mirror when `secure` is set. Returns
-    /// whether the keychain write failed. The per-minute checkpoint only
-    /// touches the file; the mirror is refreshed at launch and on key changes.
-    fn save(&self, record: &Record, secure: bool) -> Result<bool, String> {
-        let text =
-            serde_json::to_string(record).map_err(|_| "Could not save the licence.".to_string())?;
-        let parent = self.path.parent().ok_or("Could not save the licence.")?;
-        std::fs::create_dir_all(parent).map_err(|_| "Could not save the licence.".to_string())?;
-        let temp = parent.join(format!("licence-{}.tmp", uuid::Uuid::new_v4()));
-        let result = (|| {
-            use std::io::Write;
-            let mut options = std::fs::OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options
-                .open(&temp)
-                .map_err(|_| "Could not save the licence.".to_string())?;
-            file.write_all(text.as_bytes())
-                .map_err(|_| "Could not save the licence.".to_string())?;
-            file.sync_all()
-                .map_err(|_| "Could not save the licence.".to_string())?;
-            crate::storage::replace_file(&temp, &self.path)
-        })();
-        if result.is_err() {
-            let _ = std::fs::remove_file(&temp);
-            return Err("Could not save the licence.".into());
-        }
-        if !secure {
-            return Ok(false);
-        }
-        // File revision commits removal even if the keychain is temporarily locked.
-        Ok(self.mirror.write(&text).is_err())
     }
     pub fn view(&self) -> View {
         if !self.configured {
@@ -462,9 +455,7 @@ impl Licensing {
         if !self.configured {
             return Err("Licensing is not enabled in this build.".into());
         }
-        let data = self.data.lock().unwrap_or_else(|p| p.into_inner());
-        let effective = now().max(data.record.as_ref().map_or(0, |r| r.last_seen));
-        licence_key::verify(key, &self.trust(), effective).map_err(|e| e.to_string())
+        licence_key::verify(key, &self.trust(), now()).map_err(|e| e.to_string())
     }
     async fn check(
         &self,
@@ -516,7 +507,7 @@ impl Licensing {
         } else {
             "activate"
         };
-        let timestamp = now().max(original.last_seen);
+        let timestamp = now();
         let nonce = uuid::Uuid::new_v4().to_string();
         let body = activation::request(
             &identity,
@@ -530,20 +521,23 @@ impl Licensing {
         let response = self.transport.post(config, body).await?;
         if let Some(outcome) = response.get("outcome").and_then(|v| v.as_str()) {
             if matches!(outcome, "seat_taken" | "takeover_limited") {
-                let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
-                let mut record = data
-                    .record
-                    .clone()
-                    .ok_or("Licence storage is unavailable.")?;
-                if record.revision != original.revision || record.key != original.key {
-                    return Err("Your licence changed. Try again.".into());
+                {
+                    let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
+                    let mut record = data
+                        .record
+                        .clone()
+                        .ok_or("Licence storage is unavailable.")?;
+                    if record.revision != original.revision || record.key != original.key {
+                        return Err("Your licence changed. Try again.".into());
+                    }
+                    record.pending_key = Some(key);
+                    record.last_outcome = Some(outcome.into());
+                    record.revision = record.revision.saturating_add(1);
+                    data.record = Some(record);
+                    data.file_dirty = true;
+                    data.mirror_dirty = true;
                 }
-                record.pending_key = Some(key);
-                record.last_outcome = Some(outcome.into());
-                record.revision = record.revision.saturating_add(1);
-                let warning = self.save(&record, true)?;
-                data.record = Some(record);
-                data.record_checkpoint(timestamp, true, Ok(warning));
+                self.persist_file().await;
                 return Err(if outcome=="seat_taken" { "This licence is active on another computer. Choose Move licence here to replace it." } else { "This licence has already been moved twice in 30 days. Contact support for help." }.into());
             }
             return Err(activation::NETWORK_ERROR.into());
@@ -577,47 +571,51 @@ impl Licensing {
                 "That purchase has been revoked. Your existing licence is unchanged.".into(),
             );
         }
-        let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
-        let mut record = data
-            .record
-            .clone()
-            .ok_or("Licence storage is unavailable.")?;
-        if record.revision != original.revision || record.key != original.key {
-            return Err("Your licence changed. Try again.".into());
-        }
-        record.key = Some(key);
-        if action != "renew" {
-            record.pending_key = None;
-            record.last_outcome = None;
-        }
-        record.installation = Some(identity.installation);
-        match reply {
-            licence_lease::Reply::Lease(lease) => {
-                record.lease = Some(proof.into());
-                record.generation = lease.generation;
-                record.terminal_status = None;
-                record.last_checked = Some(lease.issued_at);
-                record.last_seen = record.last_seen.max(lease.issued_at);
+        {
+            let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
+            let mut record = data
+                .record
+                .clone()
+                .ok_or("Licence storage is unavailable.")?;
+            if record.revision != original.revision || record.key != original.key {
+                return Err("Your licence changed. Try again.".into());
             }
-            licence_lease::Reply::Status(status) => {
-                record.lease = None;
-                record.generation = status.generation;
-                record.terminal_status = Some(status.status);
-                record.last_checked = Some(status.issued_at);
-                record.last_seen = record.last_seen.max(status.issued_at);
-                if action == "deactivate" {
-                    record.key = None;
+            record.key = Some(key);
+            if action != "renew" {
+                record.pending_key = None;
+                record.last_outcome = None;
+            }
+            record.installation = Some(identity.installation);
+            match reply {
+                licence_lease::Reply::Lease(lease) => {
+                    record.lease = Some(proof.into());
+                    record.generation = lease.generation;
                     record.terminal_status = None;
+                    record.lease_seen = lease.issued_at;
+                    record.last_checked = Some(lease.issued_at);
+                    record.last_seen = record.last_seen.max(lease.issued_at);
+                }
+                licence_lease::Reply::Status(status) => {
+                    record.lease = None;
+                    record.generation = status.generation;
+                    record.terminal_status = Some(status.status);
+                    record.lease_seen = status.issued_at;
+                    record.last_checked = Some(status.issued_at);
+                    record.last_seen = record.last_seen.max(status.issued_at);
+                    if action == "deactivate" {
+                        record.key = None;
+                        record.terminal_status = None;
+                    }
                 }
             }
+            record.revision = record.revision.saturating_add(1);
+            record.last_seen = record.last_seen.max(now());
+            data.record = Some(record);
+            data.file_dirty = true;
+            data.mirror_dirty = true;
         }
-        record.revision = record.revision.saturating_add(1);
-        record.last_seen = record.last_seen.max(now());
-        let saved = self.save(&record, true);
-        data.record = Some(record);
-        data.record_checkpoint(timestamp, true, saved.as_ref().copied().map_err(|_| ()));
-        drop(data);
         self.view();
+        self.persist_file().await;
         Ok(())
     }
     fn checkpoint(&self) {
@@ -627,24 +625,85 @@ impl Licensing {
         let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(mut record) = data.record.clone() {
             let time = now();
-            if time.saturating_sub(record.last_seen) >= 60 {
-                record.last_seen = time;
-                // Retry the keychain mirror only while it is known to be stale, so the
-                // healthy case costs no keychain writes and a locked keychain heals.
-                let retry_secure = data.retry_secure_due(time);
-                if retry_secure {
-                    // Merge what the keychain already holds first, so an earlier
-                    // trial or a newer removal is never overwritten by this session.
-                    if let Ok(Some(stored)) = read_secure(self.mirror.as_ref()) {
-                        record = Record::merge(Some(record), Some(stored))
-                            .unwrap_or_else(|| unreachable!("merge of two records is always Some"));
-                    }
-                }
-                let outcome = self.save(&record, retry_secure).map_err(|_| ());
-                data.record_checkpoint(time, retry_secure, outcome);
+            if time.saturating_sub(record.last_seen) >= 60
+                || time.saturating_sub(record.lease_seen) >= 60
+            {
+                record.last_seen = record.last_seen.max(time);
+                record.lease_seen = record.lease_seen.max(time);
                 data.record = Some(record);
+                data.file_dirty = true;
             }
         }
+    }
+    async fn persist_file(&self) {
+        if !self.configured {
+            return;
+        }
+        let _serial = self.file_operation.lock().await;
+        let snapshot = {
+            let data = self.data.lock().unwrap_or_else(|p| p.into_inner());
+            if !data.file_dirty {
+                return;
+            }
+            data.record.clone()
+        };
+        let Some(record) = snapshot else {
+            return;
+        };
+        let path = self.path.clone();
+        let written = record.clone();
+        let success =
+            tauri::async_runtime::spawn_blocking(move || write_record_file(&path, &written))
+                .await
+                .is_ok_and(|r| r.is_ok());
+        let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
+        if success && data.record.as_ref() == Some(&record) {
+            data.file_dirty = false;
+        }
+        data.file_warning = !success;
+        data.storage_warning = data.file_warning || data.secure_failures > 0;
+    }
+    async fn sync_mirror(&self) {
+        if !self.configured {
+            return;
+        }
+        let _serial = self.mirror_operation.lock().await;
+        let snapshot = {
+            let data = self.data.lock().unwrap_or_else(|p| p.into_inner());
+            if (data.mirror_loaded && !data.mirror_dirty && !data.storage_warning)
+                || (data.storage_warning && !data.retry_secure_due(now()))
+            {
+                return;
+            }
+            data.record.clone()
+        };
+        let store = self.mirror.clone();
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            let stored = read_secure(store.as_ref())?;
+            let merged = Record::merge(snapshot, stored);
+            if let Some(record) = &merged {
+                store.write(
+                    &serde_json::to_string(record).map_err(|_| "Could not save the licence.")?,
+                )?;
+            }
+            Ok::<_, String>(merged)
+        })
+        .await;
+        let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
+        match result {
+            Ok(Ok(written)) => {
+                let merged = Record::merge(data.record.clone(), written.clone());
+                data.file_dirty |= merged != data.record;
+                data.record = merged;
+                data.mirror_dirty = data.record != written;
+                data.mirror_loaded = true;
+                data.record_checkpoint(now(), true, Ok(false));
+            }
+            _ => data.record_checkpoint(now(), true, Ok(true)),
+        }
+        data.storage_warning |= data.file_warning;
+        drop(data);
+        self.view();
     }
 }
 #[tauri::command]
@@ -772,30 +831,49 @@ pub fn install(app: &AppHandle) {
     let path = app.state::<crate::state::AppModel>().storage.licence_path();
     app.manage(Licensing::open(path));
     publish(app);
+    let files = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            files.state::<Licensing>().persist_file().await;
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    });
+    let mirrors = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            mirrors.state::<Licensing>().sync_mirror().await;
+            publish(&mirrors);
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    });
     let background = app.clone();
     tauri::async_runtime::spawn(async move {
+        let mut first = true;
+        let mut retry_after = std::time::Instant::now();
         loop {
             let service = background.state::<Licensing>();
             let needs_check = {
                 let data = service.data.lock().unwrap_or_else(|p| p.into_inner());
                 data.record.as_ref().is_some_and(|r| {
-                    r.key.is_some() && r.terminal_status.as_deref() != Some("revoked")
+                    r.key.is_some()
+                        && r.terminal_status.as_deref() != Some("revoked")
+                        && (first
+                            || r.last_checked
+                                .is_none_or(|checked| now().saturating_sub(checked) >= 86400))
                 })
             };
-            let success = if needs_check {
-                service.check("check", None, false).await.is_ok()
-            } else {
-                true
-            };
-            publish(&background);
-            // Successful online checks slide the signed allowance daily. A
-            // failed check retries after 15 minutes without changing access.
-            tokio::time::sleep(std::time::Duration::from_secs(if success {
-                86400
-            } else {
-                900
-            }))
-            .await;
+            if needs_check && std::time::Instant::now() >= retry_after {
+                let success = service.check("check", None, false).await.is_ok();
+                if success {
+                    first = false;
+                }
+                retry_after = std::time::Instant::now()
+                    + std::time::Duration::from_secs(if success { 60 } else { 900 });
+                publish(&background);
+            }
+            // Poll signed server check time after sleep/resume; retry failures
+            // on a monotonic timer so correcting the clock cannot strand them.
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
     });
     let app = app.clone();
@@ -862,6 +940,9 @@ mod tests {
                     return Ok(json!({"outcome":outcome}));
                 }
                 let request = &body["request"];
+                if (now() - request["timestamp"].as_i64().unwrap()).abs() > 300 {
+                    return Err(activation::NETWORK_ERROR.into());
+                }
                 let terminal = matches!(outcome, "revoked" | "deactivated")
                     || request["action"] == "deactivate";
                 let server_time = now();
@@ -1052,6 +1133,7 @@ mod tests {
         }
         service.identity = Arc::new(activation::tests::FakeIdentity);
         service.checkpoint();
+        service.sync_mirror().await;
         assert!(!service.view().storage_warning);
         service.check("check", None, false).await.unwrap();
         assert_eq!(service.view().status, "licensed");
@@ -1086,6 +1168,126 @@ mod tests {
         assert_eq!(view.status, "needs_activation");
         assert!(view.locked);
         assert!(!view.allowed(1000));
+    }
+    #[tokio::test]
+    async fn corrected_clock_recovers_paid_access_without_resetting_trial_high_water() {
+        let (service, _transport, dir) = online_service();
+        service
+            .check("activate", Some(&purchase()), false)
+            .await
+            .unwrap();
+        let future = now() + 60 * DAY;
+        let stale = {
+            let mut data = service.data.lock().unwrap();
+            let record = data.record.as_mut().unwrap();
+            record.last_seen = future;
+            record.lease_seen = future;
+            record.clone()
+        };
+        service
+            .mirror
+            .write(&serde_json::to_string(&stale).unwrap())
+            .unwrap();
+        assert!(service.view().locked);
+        // The fake endpoint enforces the same +/-300-second request window as
+        // Node. A trial high-water timestamp must never become wire freshness.
+        service.check("check", None, false).await.unwrap();
+        assert_eq!(service.view().status, "licensed");
+        service.sync_mirror().await;
+        assert_eq!(service.view().status, "licensed");
+        assert_eq!(
+            service
+                .data
+                .lock()
+                .unwrap()
+                .record
+                .as_ref()
+                .unwrap()
+                .last_seen,
+            future
+        );
+        service.check("deactivate", None, false).await.unwrap();
+        assert_eq!(
+            service.view().status,
+            "expired",
+            "online recovery cannot restart the trial"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn unconfigured_build_does_not_start_a_persisted_trial() {
+        let (mut service, _transport, dir) = online_service();
+        service.configured = false;
+        service.persist_file().await;
+        service.sync_mirror().await;
+        assert!(!service.path.exists());
+        assert!(!dir.exists());
+    }
+    struct StalledMirror {
+        entered: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+    impl activation::MirrorStore for StalledMirror {
+        fn read(&self) -> Result<Option<String>, String> {
+            Ok(None)
+        }
+        fn write(&self, _text: &str) -> Result<(), String> {
+            if let Some(entered) = self.entered.lock().unwrap().take() {
+                let _ = entered.send(());
+            }
+            self.release
+                .lock()
+                .unwrap()
+                .recv()
+                .map_err(|_| "Mirror closed".into())
+        }
+    }
+    #[tokio::test]
+    async fn stalled_keychain_never_holds_access_lock_or_delays_revocation_cleanup() {
+        let (mut service, transport, dir) = online_service();
+        service
+            .check("activate", Some(&purchase()), false)
+            .await
+            .unwrap();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        service.mirror = Arc::new(StalledMirror {
+            entered: Mutex::new(Some(entered_tx)),
+            release: Mutex::new(release_rx),
+        });
+        let service = Arc::new(service);
+        let worker = service.clone();
+        let task = tokio::spawn(async move {
+            worker.sync_mirror().await;
+        });
+        entered_rx.await.unwrap();
+        assert!(
+            service.data.try_lock().is_ok(),
+            "keychain I/O holds no entitlement lock"
+        );
+        assert!(service.cached_allowed(now()));
+        assert_eq!(service.view().status, "licensed");
+        *transport.outcome.lock().unwrap() = "revoked";
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            service.check("check", None, false),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(service.view().locked);
+        assert!(service.data.lock().unwrap().cleanup_pending);
+        let saved = decode_record(&std::fs::read_to_string(&service.path).unwrap()).unwrap();
+        assert_eq!(saved.terminal_status.as_deref(), Some("revoked"));
+        release_tx.send(()).unwrap();
+        task.await.unwrap();
+        assert_eq!(
+            service.view().status,
+            "revoked",
+            "a stale mirror completion cannot restore access"
+        );
+        assert!(service.data.lock().unwrap().mirror_dirty);
+        std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]
     fn trial_uses_exact_boundary_and_never_restarts_on_rollback() {
@@ -1151,6 +1353,10 @@ mod tests {
             access_until: Some(0),
             secure_failures: 0,
             next_secure_retry: 0,
+            file_dirty: true,
+            file_warning: false,
+            mirror_dirty: true,
+            mirror_loaded: false,
         };
         assert!(!data.observe_access(true));
         // An expiry or removal between callbacks cannot update last_allowed.
@@ -1174,6 +1380,10 @@ mod tests {
                 access_until: Some(0),
                 secure_failures: 0,
                 next_secure_retry: 0,
+                file_dirty: true,
+                file_warning: false,
+                mirror_dirty: true,
+                mirror_loaded: false,
             }),
             path: std::env::temp_dir().join("switchify-licence-test-never-written.json"),
             keys: vec![("test".into(), [0; 32])],
@@ -1185,6 +1395,8 @@ mod tests {
             identity: Arc::new(activation::tests::FakeIdentity),
             mirror: Arc::new(activation::tests::MemoryMirror::default()),
             operation: tokio::sync::Mutex::new(()),
+            file_operation: tokio::sync::Mutex::new(()),
+            mirror_operation: tokio::sync::Mutex::new(()),
         }
     }
     #[test]
@@ -1240,7 +1452,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("switchify-licence-{}", uuid::Uuid::new_v4()));
         let mut service = configured_service(Record::new(1000));
         service.path = dir.join("licence.json");
-        assert_eq!(service.save(&Record::new(1000), false), Ok(false));
+        assert_eq!(write_record_file(&service.path, &Record::new(1000)), Ok(()));
         let saved = decode_record(&std::fs::read_to_string(&service.path).unwrap()).unwrap();
         assert_eq!(saved.first_run, 1000);
         let _ = std::fs::remove_dir_all(dir);
@@ -1257,6 +1469,10 @@ mod tests {
             access_until: Some(0),
             secure_failures: 0,
             next_secure_retry: 0,
+            file_dirty: true,
+            file_warning: false,
+            mirror_dirty: true,
+            mirror_loaded: false,
         };
         // Retries at 60, then 60 + 120, then + 240 ... capped at 64 minutes.
         let mut time = 60;
