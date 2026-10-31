@@ -129,14 +129,19 @@ jobs:
     # Docs-only changes skip every step but keep the matrix check names that
     # branch protection requires, so such pull requests can merge quickly.
     needs: changes
+    # Preserve branch-protected check names while moving execution off the
+    # retiring macos-14 image. Both standard Mac labels use Apple Silicon.
+    name: ${{ matrix.check_name }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             bundles: nsis
-          - os: macos-14
+            check_name: native (windows-latest, nsis)
+          - os: macos-15
             bundles: app,dmg
+            check_name: native (macos-14, app,dmg)
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
