@@ -11,6 +11,8 @@
     "core:webview:allow-set-webview-zoom",
     "core:default",
     "allow-get-app-state",
+    "allow-check-licence",
+    "allow-transfer-licence",
     "allow-redeem-licence",
     "allow-paste-licence",
     "allow-remove-licence",

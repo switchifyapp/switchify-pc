@@ -11,6 +11,9 @@ pub const OFFLINE_SECONDS: i64 = 30 * 86400;
 #[derive(Clone, Default)]
 pub struct LeaseKeys(Vec<(String, [u8; 32])>);
 impl LeaseKeys {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
     pub fn new(
         leases: Vec<(String, [u8; 32])>,
         purchases: &[(String, [u8; 32])],

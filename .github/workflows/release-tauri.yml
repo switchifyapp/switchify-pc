@@ -143,6 +143,7 @@ jobs:
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       SWITCHIFY_TELEMETRY_ENDPOINT: ${{ vars.TIMBERLOGS_ENDPOINT }}
       SWITCHIFY_LICENCE_PUBLIC_KEYS: ${{ vars.SWITCHIFY_LICENCE_PUBLIC_KEYS }}
+      SWITCHIFY_LICENCE_LEASE_PUBLIC_KEYS: ${{ vars.SWITCHIFY_LICENCE_LEASE_PUBLIC_KEYS }}
       SWITCHIFY_SUPABASE_URL: ${{ vars.SWITCHIFY_SUPABASE_URL }}
       SWITCHIFY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.SWITCHIFY_SUPABASE_PUBLISHABLE_KEY }}
     steps:
@@ -257,6 +258,9 @@ jobs:
           chmod 600 "$api_key_path"
           echo "APPLE_API_KEY_PATH=$api_key_path" >> "$GITHUB_ENV"
 
+      - name: Validate paid licence configuration
+        run: node scripts/validate-licence-config.mjs
+
       - name: Render updater configuration
         run: node scripts/render-updater-config.mjs src-tauri/tauri.release.generated.json
 
@@ -340,6 +344,7 @@ jobs:
       SWITCHIFY_CERTUM_CERT_THUMBPRINT: ${{ vars.CERTUM_CERT_THUMBPRINT }}
       SWITCHIFY_TELEMETRY_ENDPOINT: ${{ vars.TIMBERLOGS_ENDPOINT }}
       SWITCHIFY_LICENCE_PUBLIC_KEYS: ${{ vars.SWITCHIFY_LICENCE_PUBLIC_KEYS }}
+      SWITCHIFY_LICENCE_LEASE_PUBLIC_KEYS: ${{ vars.SWITCHIFY_LICENCE_LEASE_PUBLIC_KEYS }}
       SWITCHIFY_SUPABASE_URL: ${{ vars.SWITCHIFY_SUPABASE_URL }}
       SWITCHIFY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.SWITCHIFY_SUPABASE_PUBLISHABLE_KEY }}
     steps:
@@ -403,6 +408,9 @@ jobs:
           if (-not $env:SWITCHIFY_SUPABASE_URL.StartsWith('https://')) {
             throw 'SWITCHIFY_SUPABASE_URL must use https://, or accounts ship disabled.'
           }
+
+      - name: Validate paid licence configuration
+        run: node scripts/validate-licence-config.mjs
 
       - name: Render updater configuration
         run: node scripts/render-updater-config.mjs src-tauri/tauri.release.windows.generated.json --windows

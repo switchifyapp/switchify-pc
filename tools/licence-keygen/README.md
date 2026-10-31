@@ -37,8 +37,11 @@ An issued key is a bearer credential; protect batches like purchased licences.
 Keep the signed key unchanged for resends; do not generate a replacement on
 every email retry. This CLI deliberately does not implement a revocation server.
 
-One seat is a licence condition, not an offline activation counter. A revoked
-key cannot be invalidated on a machine that never checks online.
+Register each partner credential in the activation ledger before delivery,
+using its UUID, SHA-256 digest of the exact UTF-8 key, seats and expiry. The
+backend operator RPC is `pc_register_partner_licence`; see switchify-supabase
+`docs/licensing.md`. One seat means one active installation. A revoked
+computer stops at its next successful check or at its signed allowance expiry.
 
 ## Version 1 contract
 
@@ -62,12 +65,11 @@ Never change this contract without keeping compatibility tests for already
 issued keys. Run `node --test scripts/licence-keygen.node-test.mjs` and the
 Rust `licence_key` tests to verify the frozen cross-language vector.
 
-## Device allowance contract (activation foundation)
+## Device allowance contract
 
 `src-tauri/src/licence_lease.rs` verifies the activation service's `SWPL1`
-leases and `SWPS1` terminal replies. This foundation does not yet replace the
-app's access policy; the activation integration PR does that. A purchase key
-will remain a reusable credential, while paid access requires a device-bound,
+leases and `SWPS1` terminal replies. The app requires a signed allowance for paid access. A purchase key
+remains a reusable credential, while paid access requires a device-bound,
 time-limited signed allowance.
 
 Lease trust anchors are separate from purchase trust anchors. `LeaseKeys::new`
@@ -87,3 +89,23 @@ tests verify backend-generated lease/status envelopes and reproduce the exact
 canonical installation request and signature. Never compile fixture trust
 anchors into production builds. Keep this vector synchronized when changing
 the activation contract, without changing the frozen SWPC1 purchase format.
+
+
+Configured builds require `SWITCHIFY_LICENCE_PUBLIC_KEYS` (purchase map),
+`SWITCHIFY_LICENCE_LEASE_PUBLIC_KEYS` (separate lease map),
+`SWITCHIFY_SUPABASE_URL` and `SWITCHIFY_SUPABASE_PUBLISHABLE_KEY`.
+Only public material goes in build variables. The release workflow validates
+nonempty, separate maps and rejects frozen test signers before building. It
+never generates an issuer, deploys activation or bumps the version. Preserve
+an encrypted backup of each private signer separately; the desktop never needs
+those private keys.
+
+Record v1 migrates to v2 without resetting `first_run` or `last_seen`. A stored
+SWPC1 key requires first online activation; it is not a permanent offline
+entitlement. The installation private key has a separate OS keyring entry;
+record files contain only its public identity and signed allowance. A locked
+keychain defers renewal while a valid cached allowance continues to work.
+Reinstall with the keychain intact keeps the identity. If the keychain is lost,
+explicit transfer recovers the licence using its purchase key. VM clones with
+both the credential store and app record copied can share an identity; this
+scheme discourages casual sharing, it cannot prevent modified clients or clones.

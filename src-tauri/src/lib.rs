@@ -6,10 +6,14 @@ mod dwell;
 #[cfg(target_os = "windows")]
 mod grid3;
 mod input;
+mod licence_activation;
 pub mod licence_key;
 pub mod licence_lease;
 mod licensing;
-use licensing::{paste_licence, redeem_licence, remove_licence, set_licence_recovery};
+use licensing::{
+    check_licence, paste_licence, redeem_licence, remove_licence, set_licence_recovery,
+    transfer_licence,
+};
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
@@ -2018,6 +2022,8 @@ pub fn run() {
             configure_point_scan,
             set_keyboard_layout,
             get_app_state,
+            check_licence,
+            transfer_licence,
             redeem_licence,
             paste_licence,
             remove_licence,

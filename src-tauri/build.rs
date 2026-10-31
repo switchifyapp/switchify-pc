@@ -5,8 +5,13 @@ fn main() {
     add_command_line_tools_swift_library_path();
     // Compiled into the licence verifier; rebuild when the public issuer set changes.
     println!("cargo:rerun-if-env-changed=SWITCHIFY_LICENCE_PUBLIC_KEYS");
+    println!("cargo:rerun-if-env-changed=SWITCHIFY_LICENCE_LEASE_PUBLIC_KEYS");
+    println!("cargo:rerun-if-env-changed=SWITCHIFY_SUPABASE_URL");
+    println!("cargo:rerun-if-env-changed=SWITCHIFY_SUPABASE_PUBLISHABLE_KEY");
     let app_manifest = tauri_build::AppManifest::new().commands(&[
         "get_app_state",
+        "check_licence",
+        "transfer_licence",
         "redeem_licence",
         "paste_licence",
         "remove_licence",

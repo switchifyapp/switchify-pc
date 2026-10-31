@@ -892,14 +892,14 @@ export function App() {
       </div>
     </aside>
     <DemonstrationProvider platform={state.capabilities.platform} suspended={setupOpen || state.pendingPairings.length > 0 || switches.capturing || !!switches.state?.capture.active}><main inert={setupOpen || state.pendingPairings.length > 0}>
-      {state.licence?.configured && state.licence.status !== "licensed" && <div className="licence-banner-wrap">
-        <div className="licence-banner" data-locked={["expired", "unavailable"].includes(state.licence.status)}>
+      {state.licence?.configured && (state.licence.status !== "licensed" || (state.licence.offlineDaysRemaining != null && state.licence.offlineDaysRemaining <= 7)) && <div className="licence-banner-wrap">
+        <div className="licence-banner" data-locked={state.licence.locked ?? ["expired", "unavailable", "lease_expired", "revoked", "deactivated"].includes(state.licence.status)}>
           <KeyRound size={24} aria-hidden="true" />
           <div role="status" aria-label="Licence">
             <p className="licence-banner-message">{state.licence.message}</p>
             <p className="licence-banner-hint">See Settings → Licence.</p>
           </div>
-          <BuyLicence />
+          {state.licence.status !== "licensed" && <BuyLicence />}
         </div>
       </div>}
       {error && <div className="error-banner" role="alert">{error}<Button onClick={() => setError(null)}>Dismiss</Button></div>}

@@ -52,7 +52,7 @@ export type PlatformCapabilities = {
   cursorOverlay: boolean;
 };
 
-export type LicenceView = { configured: boolean; status: string; daysRemaining: number; licenceId: string | null; message: string; storageWarning: boolean };
+export type LicenceView = { configured: boolean; status: string; daysRemaining: number; licenceId: string | null; message: string; storageWarning: boolean; offlineDaysRemaining?: number | null; lastCheckedAt?: number | null; canTransfer?: boolean; locked?: boolean };
 
 export type AppState = {
   licence?: LicenceView;

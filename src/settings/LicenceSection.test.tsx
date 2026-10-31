@@ -51,7 +51,7 @@ it("pauses recovery scanning while a keyboard user enters a key", async () => {
   try {
     render(<LicenceSection state={{ ...browserState, licence: { ...licensed, status: "expired" } }} />);
     await act(async () => { vi.advanceTimersByTime(1500); });
-    expect(screen.getByRole("button", { name: "Paste and activate" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Check licence now" })).toHaveFocus();
     const field = screen.getByLabelText("Licence key");
     act(() => field.focus());
     await act(async () => { vi.advanceTimersByTime(3000); });
@@ -59,7 +59,7 @@ it("pauses recovery scanning while a keyboard user enters a key", async () => {
     expect(invoke).toHaveBeenCalledWith("set_licence_recovery", { active: false });
     fireEvent.change(field, { target: { value: "a manually entered key" } });
     fireEvent.click(screen.getByRole("button", { name: "Resume automatic button scanning" }));
-    await act(async () => { vi.advanceTimersByTime(1500); });
+    await act(async () => { vi.advanceTimersByTime(3000); });
     expect(screen.getByRole("button", { name: "Activate key" })).toHaveFocus();
     expect(field).toHaveValue("a manually entered key");
   } finally {
@@ -67,4 +67,22 @@ it("pauses recovery scanning while a keyboard user enters a key", async () => {
     Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
     vi.useRealTimers();
   }
+});
+
+it("checks an expired offline allowance through the recovery page", async () => {
+  vi.mocked(invoke).mockResolvedValue({ ...licensed, offlineDaysRemaining: 30, locked: false });
+  render(<LicenceSection state={{ ...browserState, licence: { ...licensed, status: "lease_expired", locked: true, message: "Connect to check your licence." } }} />);
+  fireEvent.click(screen.getByRole("button", { name: "Check licence now" }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("check_licence", undefined));
+  expect(await screen.findByText("Offline allowance: 30 days remaining.")).toBeInTheDocument();
+});
+
+it("requires explicit confirmation before replacing another computer", async () => {
+  vi.mocked(invoke).mockResolvedValue({ ...licensed, canTransfer: false });
+  render(<LicenceSection state={{ ...browserState, licence: { ...licensed, status: "trial", canTransfer: true } }} />);
+  fireEvent.click(screen.getByRole("button", { name: "Move licence here" }));
+  expect(invoke).not.toHaveBeenCalled();
+  expect(screen.getByText(/previous computer loses access/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Confirm move" }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("transfer_licence", undefined));
 });

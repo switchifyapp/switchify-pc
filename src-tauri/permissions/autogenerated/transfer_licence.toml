@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-transfer-licence"
+description = "Enables the transfer_licence command without any pre-configured scope."
+commands.allow = ["transfer_licence"]
+
+[[permission]]
+identifier = "deny-transfer-licence"
+description = "Denies the transfer_licence command without any pre-configured scope."
+commands.deny = ["transfer_licence"]
