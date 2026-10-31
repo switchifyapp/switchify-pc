@@ -254,6 +254,7 @@ pub struct Licensing {
     operation: tokio::sync::Mutex<()>,
     file_operation: tokio::sync::Mutex<()>,
     mirror_operation: tokio::sync::Mutex<()>,
+    mirror_read_operation: tokio::sync::Mutex<()>,
 }
 fn now() -> i64 {
     crate::state::now_ms() / 1000
@@ -390,6 +391,7 @@ impl Licensing {
             operation: tokio::sync::Mutex::new(()),
             file_operation: tokio::sync::Mutex::new(()),
             mirror_operation: tokio::sync::Mutex::new(()),
+            mirror_read_operation: tokio::sync::Mutex::new(()),
             keys,
             configured,
         };
@@ -469,12 +471,22 @@ impl Licensing {
             .as_ref()
             .filter(|_| !self.lease_keys.is_empty())
             .ok_or("Licence activation is unavailable in this build. Contact support.")?;
+        if let Some(key) = override_key {
+            self.validate_purchase(key.trim())?;
+        }
+        // Establish the recovered revision baseline before committing any fresh
+        // server result. This awaits only the first read, never a mirror write.
+        self.ensure_mirror_ready().await?;
         let original = {
-            self.data
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .record
-                .clone()
+            let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
+            if data.record.is_none() && override_key.is_some() {
+                // A corrupt file with no recoverable mirror must not prevent
+                // paid recovery, nor manufacture a fresh unpaid trial.
+                let mut recovered = Record::new(0);
+                recovered.last_seen = now();
+                data.record = Some(recovered);
+            }
+            data.record.clone()
         }
         .ok_or("Licence storage is unavailable.")?;
         let key = override_key
@@ -663,47 +675,85 @@ impl Licensing {
         data.file_warning = !success;
         data.storage_warning = data.file_warning || data.secure_failures > 0;
     }
+    async fn ensure_mirror_ready(&self) -> Result<(), String> {
+        let _read = self.mirror_read_operation.lock().await;
+        if self
+            .data
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .mirror_loaded
+        {
+            return Ok(());
+        }
+        let store = self.mirror.clone();
+        let result =
+            tauri::async_runtime::spawn_blocking(move || read_secure(store.as_ref())).await;
+        {
+            let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
+            match result {
+                Ok(Ok(stored)) => {
+                    let merged = Record::merge(data.record.clone(), stored);
+                    data.file_dirty |= merged != data.record;
+                    data.record = merged;
+                    data.mirror_loaded = true;
+                    data.mirror_dirty = true;
+                    data.record_checkpoint(now(), true, Ok(false));
+                    data.storage_warning |= data.file_warning;
+                }
+                _ => {
+                    data.record_checkpoint(now(), true, Ok(true));
+                    return Err(activation::STORAGE_ERROR.into());
+                }
+            }
+        }
+        self.view();
+        Ok(())
+    }
     async fn sync_mirror(&self) {
         if !self.configured {
             return;
         }
         let _serial = self.mirror_operation.lock().await;
-        let snapshot = {
+        {
             let data = self.data.lock().unwrap_or_else(|p| p.into_inner());
             if (data.mirror_loaded && !data.mirror_dirty && !data.storage_warning)
                 || (data.storage_warning && !data.retry_secure_due(now()))
             {
                 return;
             }
-            data.record.clone()
-        };
+        }
+        if self.ensure_mirror_ready().await.is_err() {
+            return;
+        }
+        let snapshot = self
+            .data
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .record
+            .clone();
         let store = self.mirror.clone();
+        let written = snapshot.clone();
         let result = tauri::async_runtime::spawn_blocking(move || {
-            let stored = read_secure(store.as_ref())?;
-            let merged = Record::merge(snapshot, stored);
-            if let Some(record) = &merged {
+            if let Some(record) = written {
                 store.write(
-                    &serde_json::to_string(record).map_err(|_| "Could not save the licence.")?,
+                    &serde_json::to_string(&record).map_err(|_| "Could not save the licence.")?,
                 )?;
             }
-            Ok::<_, String>(merged)
+            Ok::<_, String>(())
         })
         .await;
         let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
         match result {
-            Ok(Ok(written)) => {
-                let merged = Record::merge(data.record.clone(), written.clone());
-                data.file_dirty |= merged != data.record;
-                data.record = merged;
-                data.mirror_dirty = data.record != written;
-                data.mirror_loaded = true;
+            Ok(Ok(())) => {
+                // The read established the baseline before any server commit.
+                // A late write only acknowledges that snapshot; it never merges
+                // its old entitlements back over a newer server response.
+                data.mirror_dirty = data.record != snapshot;
                 data.record_checkpoint(now(), true, Ok(false));
             }
             _ => data.record_checkpoint(now(), true, Ok(true)),
         }
         data.storage_warning |= data.file_warning;
-        drop(data);
-        self.view();
     }
 }
 #[tauri::command]
@@ -1223,13 +1273,38 @@ mod tests {
         assert!(!service.path.exists());
         assert!(!dir.exists());
     }
+    #[tokio::test]
+    async fn paid_recovery_from_unreadable_record_does_not_restart_trial() {
+        let (service, _transport, dir) = online_service();
+        service.data.lock().unwrap().record = None;
+        service
+            .check("activate", Some(&purchase()), false)
+            .await
+            .unwrap();
+        assert_eq!(service.view().status, "licensed");
+        service.check("deactivate", None, false).await.unwrap();
+        assert_eq!(service.view().status, "expired");
+        assert_eq!(
+            service
+                .data
+                .lock()
+                .unwrap()
+                .record
+                .as_ref()
+                .unwrap()
+                .first_run,
+            0
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     struct StalledMirror {
         entered: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
         release: Mutex<std::sync::mpsc::Receiver<()>>,
+        stored: Option<String>,
     }
     impl activation::MirrorStore for StalledMirror {
         fn read(&self) -> Result<Option<String>, String> {
-            Ok(None)
+            Ok(self.stored.clone())
         }
         fn write(&self, _text: &str) -> Result<(), String> {
             if let Some(entered) = self.entered.lock().unwrap().take() {
@@ -1249,11 +1324,21 @@ mod tests {
             .check("activate", Some(&purchase()), false)
             .await
             .unwrap();
+        let mut old = service.data.lock().unwrap().record.clone().unwrap();
+        old.revision = 5;
+        old.first_run -= DAY;
+        std::fs::remove_file(&service.path).unwrap();
+        {
+            let mut data = service.data.lock().unwrap();
+            data.record = Some(Record::new(now()));
+            data.mirror_loaded = false;
+        }
         let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
         service.mirror = Arc::new(StalledMirror {
             entered: Mutex::new(Some(entered_tx)),
             release: Mutex::new(release_rx),
+            stored: Some(serde_json::to_string(&old).unwrap()),
         });
         let service = Arc::new(service);
         let worker = service.clone();
@@ -1279,6 +1364,8 @@ mod tests {
         assert!(service.data.lock().unwrap().cleanup_pending);
         let saved = decode_record(&std::fs::read_to_string(&service.path).unwrap()).unwrap();
         assert_eq!(saved.terminal_status.as_deref(), Some("revoked"));
+        assert!(saved.revision > old.revision);
+        assert_eq!(saved.first_run, old.first_run);
         release_tx.send(()).unwrap();
         task.await.unwrap();
         assert_eq!(
@@ -1287,6 +1374,77 @@ mod tests {
             "a stale mirror completion cannot restore access"
         );
         assert!(service.data.lock().unwrap().mirror_dirty);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    struct PausedReadMirror {
+        entered: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+        stored: String,
+    }
+    impl activation::MirrorStore for PausedReadMirror {
+        fn read(&self) -> Result<Option<String>, String> {
+            if let Some(entered) = self.entered.lock().unwrap().take() {
+                let _ = entered.send(());
+            }
+            self.release
+                .lock()
+                .unwrap()
+                .recv()
+                .map_err(|_| "Mirror closed")?;
+            Ok(Some(self.stored.clone()))
+        }
+        fn write(&self, _text: &str) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    #[tokio::test]
+    async fn delayed_initial_read_establishes_old_revision_before_fresh_server_commit() {
+        let (mut service, transport, dir) = online_service();
+        service
+            .check("activate", Some(&purchase()), false)
+            .await
+            .unwrap();
+        let mut old = service.data.lock().unwrap().record.clone().unwrap();
+        old.revision = 5;
+        old.first_run -= DAY;
+        std::fs::remove_file(&service.path).unwrap();
+        {
+            let mut data = service.data.lock().unwrap();
+            data.record = Some(Record::new(now()));
+            data.mirror_loaded = false;
+        }
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        service.mirror = Arc::new(PausedReadMirror {
+            entered: Mutex::new(Some(entered_tx)),
+            release: Mutex::new(release_rx),
+            stored: serde_json::to_string(&old).unwrap(),
+        });
+        *transport.outcome.lock().unwrap() = "revoked";
+        let service = Arc::new(service);
+        let worker = service.clone();
+        let task =
+            tokio::spawn(async move { worker.check("activate", Some(&purchase()), false).await });
+        tokio::time::timeout(std::time::Duration::from_secs(2), entered_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(service.data.try_lock().is_ok());
+        assert_eq!(
+            service.view().status,
+            "trial",
+            "cached launch state remains usable while keychain read waits"
+        );
+        assert!(
+            !task.is_finished(),
+            "network state cannot commit before the recovered revision is known"
+        );
+        release_tx.send(()).unwrap();
+        task.await.unwrap().unwrap();
+        assert_eq!(service.view().status, "revoked");
+        let saved = decode_record(&std::fs::read_to_string(&service.path).unwrap()).unwrap();
+        assert!(saved.revision > old.revision);
+        assert_eq!(saved.first_run, old.first_run);
         std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]
@@ -1397,6 +1555,7 @@ mod tests {
             operation: tokio::sync::Mutex::new(()),
             file_operation: tokio::sync::Mutex::new(()),
             mirror_operation: tokio::sync::Mutex::new(()),
+            mirror_read_operation: tokio::sync::Mutex::new(()),
         }
     }
     #[test]
