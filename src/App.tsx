@@ -3,7 +3,7 @@ import { Demonstration, DemonstrationProvider } from "./help/Demonstration";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Accessibility, Bluetooth, ChevronDown, ChevronRight, CircleHelp, CircleUserRound, Download,
-  Copy, Home, Keyboard, Menu, MousePointer2, Plus, Power, RefreshCw, Save, Settings,
+  Copy, Home, Keyboard, KeyRound, Menu, MousePointer2, Plus, Power, RefreshCw, Save, Settings,
   SlidersHorizontal, Smartphone, Trash2, Wrench, X,
 } from "lucide-react";
 import { api, type ProfileExitAction } from "./api";
@@ -891,7 +891,15 @@ export function App() {
       </div>
     </aside>
     <DemonstrationProvider platform={state.capabilities.platform} suspended={setupOpen || state.pendingPairings.length > 0 || switches.capturing || !!switches.state?.capture.active}><main inert={setupOpen || state.pendingPairings.length > 0}>
-      {state.licence?.configured && state.licence.status !== "licensed" && <p role="status" className="setting-note">{state.licence.message} See Settings → Licence.</p>}
+      {state.licence?.configured && state.licence.status !== "licensed" && <div className="licence-banner-wrap">
+        <div className="licence-banner" data-locked={["expired", "unavailable"].includes(state.licence.status)}>
+          <KeyRound size={24} aria-hidden="true" />
+          <div role="status" aria-label="Licence">
+            <p className="licence-banner-message">{state.licence.message}</p>
+            <p className="licence-banner-hint">See Settings → Licence.</p>
+          </div>
+        </div>
+      </div>}
       {error && <div className="error-banner" role="alert">{error}<Button onClick={() => setError(null)}>Dismiss</Button></div>}
       <UpdateBanner update={liveUpdater ?? state.updater} openUpdates={openUpdates} />
       <p id="settings-updates-notice" className="sr-only" aria-live={updateFailure ? updateLiveness(updateFailure.status) : "polite"} aria-atomic="true">{updateNotice}</p>

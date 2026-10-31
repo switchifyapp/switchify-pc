@@ -15,6 +15,10 @@ computer scanning, dwell clicking and mobile control stop. Settings, account
 management and licence entry remain available. Ordinary development builds do
 not enable paid licensing.
 
+During the trial, a notice at the top of the app shows how many days remain.
+It also points to **Settings → Licence** for entering your key. The notice
+disappears once this computer is licensed.
+
 Open **Settings → Licence** to paste a key, choose **Paste and activate**, or
 choose **Import licence file** to open a saved text licence file. Your trial
 days or active licence appear in the status panel at the top of this page.

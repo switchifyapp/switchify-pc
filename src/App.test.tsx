@@ -398,7 +398,9 @@ describe("Switchify PC shell", () => {
     browserState.licence = { ...licence, status: "trial", licenceId: null, message: "12 days left in your full trial." };
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
-    expect(screen.getByText(/See Settings → Licence/)).toHaveTextContent("12 days left in your full trial. See Settings → Licence.");
+    const notice = screen.getByRole("status", { name: "Licence" });
+    expect(notice).toHaveTextContent("12 days left in your full trial.");
+    expect(notice).toHaveTextContent("See Settings → Licence.");
     delete browserState.licence;
   });
 
