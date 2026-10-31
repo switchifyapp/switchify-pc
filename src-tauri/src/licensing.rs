@@ -56,11 +56,13 @@ struct Record {
     terminal_status: Option<String>,
     #[serde(default)]
     last_outcome: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    local_signature: Option<String>,
 }
 impl Record {
     fn new(now: i64) -> Self {
         Self {
-            version: 2,
+            version: 3,
             first_run: now,
             last_seen: now,
             lease_seen: 0,
@@ -73,12 +75,15 @@ impl Record {
             last_checked: None,
             terminal_status: None,
             last_outcome: None,
+            local_signature: None,
         }
     }
     fn valid(&self) -> bool {
-        matches!(self.version, 1 | 2)
+        matches!(self.version, 1..=3)
             && self.first_run >= 0
             && self.first_run <= self.last_seen
+            && self.lease_seen >= 0
+            && self.local_signature.as_ref().is_none_or(|s| s.len() <= 128)
             && self
                 .key
                 .as_ref()
@@ -107,10 +112,66 @@ impl Record {
                 };
                 chosen.first_run = a.first_run.min(b.first_run);
                 chosen.last_seen = a.last_seen.max(b.last_seen);
+                // Only the same signed allowance shares a clock epoch. A fresh
+                // server reply may legitimately recover from a forward clock jump.
+                if a.lease.is_some() && a.lease == b.lease && a.installation == b.installation {
+                    chosen.lease_seen = a.lease_seen.max(b.lease_seen);
+                }
                 Some(chosen)
             }
             (a, b) => a.or(b),
         }
+    }
+    fn cache_bytes(&self) -> Vec<u8> {
+        let mut unsigned = self.clone();
+        unsigned.local_signature = None;
+        serde_json::to_vec(&unsigned).expect("fixed local licence record serializes")
+    }
+    fn authenticated(&self, identity: &activation::Identity) -> bool {
+        self.installation.as_ref() == Some(&identity.installation)
+            && self
+                .local_signature
+                .as_ref()
+                .is_some_and(|seal| identity.verify_cache(&self.cache_bytes(), seal))
+    }
+    fn seal(&mut self, identity: &activation::Identity) {
+        self.local_signature = Some(identity.seal_cache(&self.cache_bytes()));
+    }
+    fn cached_paid(&self) -> bool {
+        self.lease.is_some() || self.terminal_status.is_some()
+    }
+    fn reconcile(
+        file: Option<Self>,
+        secure: Option<Self>,
+        identity: &activation::Identity,
+    ) -> Option<Self> {
+        let trusted_file = file.as_ref().filter(|r| r.authenticated(identity)).cloned();
+        let trusted_secure = secure
+            .as_ref()
+            .filter(|r| r.authenticated(identity))
+            .cloned();
+        let mut chosen = if trusted_file.is_some() || trusted_secure.is_some() {
+            Self::merge(trusted_file, trusted_secure)
+        } else {
+            Self::merge(file.clone(), secure.clone()).map(|mut record| {
+                // Old/unsealed records retain purchase and trial history for
+                // online recovery, but cannot carry offline paid authority.
+                record.lease = None;
+                record.revision = 0;
+                record.lease_seen = 0;
+                record.local_signature = None;
+                record
+            })
+        }?;
+        for old in [file, secure].into_iter().flatten() {
+            chosen.first_run = chosen.first_run.min(old.first_run);
+            chosen.last_seen = chosen.last_seen.max(old.last_seen);
+        }
+        // Seal only records already authenticated above, never an imported lease.
+        if chosen.local_signature.is_some() {
+            chosen.seal(identity);
+        }
+        Some(chosen)
     }
     fn view(&self, keys: &[(&str, [u8; 32])], leases: &licence_lease::LeaseKeys, now: i64) -> View {
         let effective = now.max(self.last_seen);
@@ -190,6 +251,30 @@ impl Record {
         view
     }
 }
+struct OfflineClock {
+    epoch: i64,
+    started: std::time::Instant,
+}
+impl OfflineClock {
+    fn new(epoch: i64) -> Self {
+        Self {
+            epoch,
+            started: std::time::Instant::now(),
+        }
+    }
+    fn at(&self, wall: i64, elapsed: std::time::Duration) -> i64 {
+        wall.max(
+            self.epoch
+                .saturating_add(elapsed.as_secs().min(i64::MAX as u64) as i64),
+        )
+    }
+    fn time(&self, wall: i64) -> i64 {
+        self.at(wall, self.started.elapsed())
+    }
+    fn advance(&mut self, minimum: i64) {
+        *self = Self::new(minimum.max(self.time(now())));
+    }
+}
 struct Data {
     record: Option<Record>,
     storage_warning: bool,
@@ -208,6 +293,8 @@ struct Data {
     file_warning: bool,
     mirror_dirty: bool,
     mirror_loaded: bool,
+    identity: Option<Arc<activation::Identity>>,
+    clock: OfflineClock,
 }
 impl Data {
     fn observe_access(&mut self, current: bool) -> bool {
@@ -242,7 +329,7 @@ impl Data {
     }
 }
 pub struct Licensing {
-    data: Mutex<Data>,
+    data: Arc<Mutex<Data>>,
     path: PathBuf,
     keys: Vec<(String, [u8; 32])>,
     configured: bool,
@@ -253,7 +340,7 @@ pub struct Licensing {
     mirror: Arc<dyn activation::MirrorStore>,
     operation: tokio::sync::Mutex<()>,
     file_operation: tokio::sync::Mutex<()>,
-    mirror_operation: tokio::sync::Mutex<()>,
+    mirror_operation: Arc<tokio::sync::Mutex<()>>,
     mirror_read_operation: tokio::sync::Mutex<()>,
 }
 fn now() -> i64 {
@@ -285,7 +372,7 @@ fn decode_record(text: &str) -> Result<Record, String> {
     let mut record: Record =
         serde_json::from_str(text).map_err(|_| "Licence storage is unavailable.".to_string())?;
     let valid = record.valid();
-    record.version = 2;
+    record.version = 3;
     valid
         .then_some(record)
         .ok_or_else(|| "Licence storage is unavailable.".into())
@@ -363,7 +450,7 @@ impl Licensing {
         // a worker after launch: a keychain dialog must never hold input locks.
         let record = initial_record(file, None, file_error, now());
         let service = Self {
-            data: Mutex::new(Data {
+            data: Arc::new(Mutex::new(Data {
                 record,
                 storage_warning: file_error,
                 recovery: false,
@@ -377,7 +464,9 @@ impl Licensing {
                 file_warning: false,
                 mirror_dirty: true,
                 mirror_loaded: false,
-            }),
+                identity: None,
+                clock: OfflineClock::new(now()),
+            })),
             path,
             lease_keys: licence_lease::LeaseKeys::new(
                 parse_keys(option_env!("SWITCHIFY_LICENCE_LEASE_PUBLIC_KEYS").unwrap_or_default()),
@@ -390,7 +479,7 @@ impl Licensing {
             mirror: Arc::new(activation::OsMirrorStore),
             operation: tokio::sync::Mutex::new(()),
             file_operation: tokio::sync::Mutex::new(()),
-            mirror_operation: tokio::sync::Mutex::new(()),
+            mirror_operation: Arc::new(tokio::sync::Mutex::new(())),
             mirror_read_operation: tokio::sync::Mutex::new(()),
             keys,
             configured,
@@ -406,7 +495,9 @@ impl Licensing {
             return true;
         }
         let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
-        let allowed = data.access_until.is_none_or(|end| now < end);
+        let allowed = data
+            .access_until
+            .is_none_or(|end| data.clock.time(now) < end);
         data.cleanup_pending |= data.last_allowed && !allowed;
         allowed
     }
@@ -445,7 +536,11 @@ impl Licensing {
                 ..View::default()
             }
         } else {
-            data.record.as_ref().map(|r|r.view(&self.trust(),&self.lease_keys,now())).unwrap_or_else(|| View { configured:true,status:"unavailable".into(),message:"Unlock your keychain and restart Switchify PC, or enter your licence again.".into(),access_until:Some(0),..View::default() })
+            data.record.as_ref().map(|r| {
+                if r.cached_paid() && (!data.mirror_loaded || !data.identity.as_ref().is_some_and(|id| r.authenticated(id))) {
+                    View { configured:true, status:"verification_pending".into(), message:"Unlock your computer's credential store to verify this licence. Your saved licence is unchanged.".into(), licence_id:r.key.as_ref().and_then(|key| licence_key::verify(key, &self.trust(), now()).ok()).map(|claims| claims.licence_id), access_until:Some(0), locked:true, ..View::default() }
+                } else { r.view(&self.trust(),&self.lease_keys,data.clock.time(now())) }
+            }).unwrap_or_else(|| View { configured:true,status:"unavailable".into(),message:"Unlock your keychain and restart Switchify PC, or enter your licence again.".into(),access_until:Some(0),..View::default() })
         };
         view.locked = !view.allowed(now());
         view.storage_warning = data.storage_warning;
@@ -502,9 +597,12 @@ impl Licensing {
             .to_owned();
         let claims = self.validate_purchase(&key)?;
         let store = self.identity.clone();
-        let identity = tauri::async_runtime::spawn_blocking(move || store.load_or_create())
-            .await
-            .map_err(|_| activation::STORAGE_ERROR)??;
+        let identity = Arc::new(
+            tauri::async_runtime::spawn_blocking(move || store.load_or_create())
+                .await
+                .map_err(|_| activation::STORAGE_ERROR)??,
+        );
+        self.data.lock().unwrap_or_else(|p| p.into_inner()).identity = Some(identity.clone());
         let same_identity = original.installation.as_ref() == Some(&identity.installation);
         let same_purchase = original.key.as_deref() == Some(&key);
         let action = if requested_action == "deactivate" {
@@ -539,12 +637,21 @@ impl Licensing {
                         .record
                         .clone()
                         .ok_or("Licence storage is unavailable.")?;
-                    if record.revision != original.revision || record.key != original.key {
+                    if record.key != original.key
+                        || record.lease != original.lease
+                        || record.terminal_status != original.terminal_status
+                    {
                         return Err("Your licence changed. Try again.".into());
                     }
+                    let authenticated = record.authenticated(&identity);
                     record.pending_key = Some(key);
                     record.last_outcome = Some(outcome.into());
                     record.revision = record.revision.saturating_add(1);
+                    if authenticated {
+                        record.seal(&identity);
+                    } else {
+                        record.local_signature = None;
+                    }
                     data.record = Some(record);
                     data.file_dirty = true;
                     data.mirror_dirty = true;
@@ -589,7 +696,10 @@ impl Licensing {
                 .record
                 .clone()
                 .ok_or("Licence storage is unavailable.")?;
-            if record.revision != original.revision || record.key != original.key {
+            if record.key != original.key
+                || record.lease != original.lease
+                || record.terminal_status != original.terminal_status
+            {
                 return Err("Your licence changed. Try again.".into());
             }
             record.key = Some(key);
@@ -597,7 +707,7 @@ impl Licensing {
                 record.pending_key = None;
                 record.last_outcome = None;
             }
-            record.installation = Some(identity.installation);
+            record.installation = Some(identity.installation.clone());
             match reply {
                 licence_lease::Reply::Lease(lease) => {
                     record.lease = Some(proof.into());
@@ -622,13 +732,70 @@ impl Licensing {
             }
             record.revision = record.revision.saturating_add(1);
             record.last_seen = record.last_seen.max(now());
+            record.seal(&identity);
+            data.clock = OfflineClock::new(record.lease_seen);
             data.record = Some(record);
             data.file_dirty = true;
             data.mirror_dirty = true;
         }
         self.view();
         self.persist_file().await;
+        let terminal_result = {
+            let data = self.data.lock().unwrap_or_else(|p| p.into_inner());
+            data.record
+                .as_ref()
+                .is_some_and(|r| r.terminal_status.is_some() || action == "deactivate")
+        };
+        if terminal_result {
+            self.persist_terminal_mirror().await?;
+        }
         Ok(())
+    }
+    /// Retain terminal results in the OS mirror before reporting success, so
+    /// restoring an older file cannot undo them. A stuck OS prompt must not hold the
+    /// command or input gate indefinitely; the serialized writer continues.
+    async fn persist_terminal_mirror(&self) -> Result<(), String> {
+        let data = self.data.clone();
+        let snapshot = data
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .record
+            .clone();
+        let store = self.mirror.clone();
+        let serial = self.mirror_operation.clone();
+        let task = tokio::spawn(async move {
+            let _guard = serial.lock_owned().await;
+            let written = snapshot.clone();
+            let result = tauri::async_runtime::spawn_blocking(move || {
+                let record = written.ok_or("Licence storage is unavailable.")?;
+                store.write(
+                    &serde_json::to_string(&record).map_err(|_| "Could not save the licence.")?,
+                )
+            })
+            .await
+            .is_ok_and(|r| r.is_ok());
+            let mut data = data.lock().unwrap_or_else(|p| p.into_inner());
+            if result && data.record == snapshot {
+                data.mirror_dirty = false;
+                data.record_checkpoint(now(), true, Ok(false));
+            } else if !result {
+                data.record_checkpoint(now(), true, Ok(true));
+            }
+            data.storage_warning |= data.file_warning;
+            result
+        });
+        if tokio::time::timeout(std::time::Duration::from_secs(1), task)
+            .await
+            .is_ok_and(|r| r.is_ok_and(|ok| ok))
+        {
+            Ok(())
+        } else {
+            self.data
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .storage_warning = true;
+            Err("Your licence status changed, but could not be saved yet. Keep Switchify PC open and check your storage permissions.".into())
+        }
     }
     fn checkpoint(&self) {
         if !self.configured {
@@ -636,12 +803,18 @@ impl Licensing {
         }
         let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(mut record) = data.record.clone() {
-            let time = now();
+            let time = data.clock.time(now());
             if time.saturating_sub(record.last_seen) >= 60
                 || time.saturating_sub(record.lease_seen) >= 60
             {
+                let identity = data.identity.clone().filter(|id| record.authenticated(id));
                 record.last_seen = record.last_seen.max(time);
                 record.lease_seen = record.lease_seen.max(time);
+                record.revision = record.revision.saturating_add(1);
+                if let Some(identity) = identity {
+                    record.seal(&identity);
+                }
+                data.mirror_dirty = true;
                 data.record = Some(record);
                 data.file_dirty = true;
             }
@@ -685,6 +858,20 @@ impl Licensing {
         {
             return Ok(());
         }
+        let identity_store = self.identity.clone();
+        let identity =
+            match tauri::async_runtime::spawn_blocking(move || identity_store.load_or_create())
+                .await
+            {
+                Ok(Ok(identity)) => Arc::new(identity),
+                _ => {
+                    self.data
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .record_checkpoint(now(), true, Ok(true));
+                    return Err(activation::STORAGE_ERROR.into());
+                }
+            };
         let store = self.mirror.clone();
         let result =
             tauri::async_runtime::spawn_blocking(move || read_secure(store.as_ref())).await;
@@ -692,7 +879,11 @@ impl Licensing {
             let mut data = self.data.lock().unwrap_or_else(|p| p.into_inner());
             match result {
                 Ok(Ok(stored)) => {
-                    let merged = Record::merge(data.record.clone(), stored);
+                    let merged = Record::reconcile(data.record.clone(), stored, &identity);
+                    if let Some(record) = &merged {
+                        data.clock.advance(record.lease_seen);
+                    }
+                    data.identity = Some(identity.clone());
                     data.file_dirty |= merged != data.record;
                     data.record = merged;
                     data.mirror_loaded = true;
@@ -900,6 +1091,7 @@ pub fn install(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut first = true;
         let mut retry_after = std::time::Instant::now();
+        let mut last_success = std::time::Instant::now();
         loop {
             let service = background.state::<Licensing>();
             let needs_check = {
@@ -908,6 +1100,7 @@ pub fn install(app: &AppHandle) {
                     r.key.is_some()
                         && r.terminal_status.as_deref() != Some("revoked")
                         && (first
+                            || last_success.elapsed() >= std::time::Duration::from_secs(DAY as u64)
                             || r.last_checked
                                 .is_none_or(|checked| now().saturating_sub(checked) >= 86400))
                 })
@@ -916,6 +1109,7 @@ pub fn install(app: &AppHandle) {
                 let success = service.check("check", None, false).await.is_ok();
                 if success {
                     first = false;
+                    last_success = std::time::Instant::now();
                 }
                 retry_after = std::time::Instant::now()
                     + std::time::Duration::from_secs(if success { 60 } else { 900 });
@@ -973,6 +1167,7 @@ pub fn install(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use activation::IdentityStore;
     use ed25519_dalek::{Signer, SigningKey};
     use serde_json::{json, Value};
 
@@ -1059,6 +1254,195 @@ mod tests {
         });
         service.transport = transport.clone();
         (service, transport, dir)
+    }
+    fn restart(source: &Licensing, record: Record) -> Licensing {
+        let mut service = configured_service(record);
+        service.keys = source.keys.clone();
+        service.lease_keys = source.lease_keys.clone();
+        service.path = source.path.clone();
+        service.identity = source.identity.clone();
+        service.mirror = source.mirror.clone();
+        service.transport = source.transport.clone();
+        service.seed_access();
+        service
+    }
+    #[tokio::test]
+    async fn file_only_transplant_never_grants_paid_access_even_after_seat_conflict() {
+        let (source, transport, dir) = online_service();
+        source.data.lock().unwrap().record = Some(Record::new(0));
+        source
+            .check("activate", Some(&purchase()), false)
+            .await
+            .unwrap();
+        let record = decode_record(&std::fs::read_to_string(&source.path).unwrap()).unwrap();
+        let mut copied = restart(&source, record);
+        copied.identity = Arc::new(activation::tests::OtherIdentity);
+        copied.mirror = Arc::new(activation::tests::MemoryMirror::default());
+        assert!(copied.view().locked, "file alone grants no startup access");
+        copied.sync_mirror().await;
+        assert_eq!(copied.view().status, "needs_activation");
+        assert!(copied.view().locked);
+        *transport.outcome.lock().unwrap() = "seat_taken";
+        assert!(copied.check("check", None, false).await.is_err());
+        assert!(copied.view().locked);
+        assert!(copied
+            .data
+            .lock()
+            .unwrap()
+            .record
+            .as_ref()
+            .unwrap()
+            .lease
+            .is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn cold_restart_waits_for_os_identity_then_recovers_offline_after_unlock() {
+        let (source, transport, dir) = online_service();
+        source
+            .check("activate", Some(&purchase()), false)
+            .await
+            .unwrap();
+        let record = decode_record(&std::fs::read_to_string(&source.path).unwrap()).unwrap();
+        let mut cold = restart(&source, record.clone());
+        cold.identity = Arc::new(LockedIdentity);
+        *transport.outcome.lock().unwrap() = "outage";
+        assert_eq!(cold.view().status, "verification_pending");
+        assert!(cold.view().locked);
+        cold.sync_mirror().await;
+        assert!(cold.view().locked);
+        assert!(cold.view().storage_warning);
+        assert!(cold.data.lock().unwrap().record.as_ref().unwrap().lease == record.lease);
+        cold.identity = source.identity.clone();
+        cold.data.lock().unwrap().next_secure_retry = 0;
+        cold.sync_mirror().await;
+        assert_eq!(cold.view().status, "licensed");
+        assert!(!cold.view().storage_warning);
+        assert!(cold
+            .data
+            .lock()
+            .unwrap()
+            .record
+            .as_ref()
+            .unwrap()
+            .authenticated(&cold.identity.load_or_create().unwrap()));
+        assert!(cold.check("check", None, false).await.is_err());
+        assert_eq!(
+            cold.view().status,
+            "licensed",
+            "outage after verification keeps the allowance"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn authenticated_mirror_defeats_older_and_modified_revocation_rollbacks() {
+        let (source, transport, dir) = online_service();
+        source
+            .check("activate", Some(&purchase()), false)
+            .await
+            .unwrap();
+        let old = source.data.lock().unwrap().record.clone().unwrap();
+        *transport.outcome.lock().unwrap() = "revoked";
+        source.check("check", None, false).await.unwrap();
+        source.sync_mirror().await;
+        for tampered in [false, true] {
+            let mut file = old.clone();
+            if tampered {
+                file.revision = u64::MAX;
+                file.lease_seen = 0;
+            }
+            let cold = restart(&source, file);
+            assert!(
+                cold.view().locked,
+                "no stale access before mirror reconciliation"
+            );
+            cold.sync_mirror().await;
+            assert_eq!(cold.view().status, "revoked");
+            assert!(cold.view().locked);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn frozen_and_rolled_back_wall_clock_cannot_stop_running_lease_expiry() {
+        let (service, _transport, dir) = online_service();
+        service
+            .check("activate", Some(&purchase()), false)
+            .await
+            .unwrap();
+        service.sync_mirror().await;
+        assert!(!service.data.lock().unwrap().mirror_dirty);
+        {
+            let mut data = service.data.lock().unwrap();
+            let issued = data.record.as_ref().unwrap().last_checked.unwrap();
+            data.clock = OfflineClock {
+                epoch: issued,
+                started: std::time::Instant::now() - std::time::Duration::from_secs(TRIAL as u64),
+            };
+            assert!(data.clock.time(issued - DAY) >= issued + TRIAL);
+        }
+        assert_eq!(service.view().status, "lease_expired");
+        assert!(!service.cached_allowed(now()));
+        service.checkpoint();
+        let record = service.data.lock().unwrap().record.clone().unwrap();
+        assert!(record.authenticated(&service.identity.load_or_create().unwrap()));
+        assert!(service.data.lock().unwrap().mirror_dirty);
+        service.sync_mirror().await;
+        let cold = restart(&service, record);
+        cold.sync_mirror().await;
+        assert_eq!(cold.view().status, "lease_expired");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn same_lease_reconciliation_keeps_highest_authenticated_time_marker() {
+        let (service, _transport, dir) = online_service();
+        service
+            .check("activate", Some(&purchase()), false)
+            .await
+            .unwrap();
+        let identity = service.identity.load_or_create().unwrap();
+        let old = service.data.lock().unwrap().record.clone().unwrap();
+        let mut newer = old.clone();
+        newer.lease_seen += TRIAL;
+        newer.seal(&identity);
+        let reconciled = Record::reconcile(Some(old), Some(newer.clone()), &identity).unwrap();
+        assert_eq!(reconciled.lease_seen, newer.lease_seen);
+        assert!(reconciled.authenticated(&identity));
+        assert_eq!(
+            reconciled
+                .view(&service.trust(), &service.lease_keys, now())
+                .status,
+            "lease_expired"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn unsigned_v2_cache_keeps_trial_and_purchase_for_online_recovery() {
+        let (source, _transport, dir) = online_service();
+        source.data.lock().unwrap().record = Some(Record::new(0));
+        source
+            .check("activate", Some(&purchase()), false)
+            .await
+            .unwrap();
+        let mut legacy = source.data.lock().unwrap().record.clone().unwrap();
+        legacy.version = 2;
+        legacy.local_signature = None;
+        let legacy = decode_record(&serde_json::to_string(&legacy).unwrap()).unwrap();
+        let mut cold = restart(&source, legacy);
+        cold.mirror = Arc::new(activation::tests::MemoryMirror::default());
+        cold.sync_mirror().await;
+        assert_eq!(cold.view().status, "needs_activation");
+        assert!(cold.view().locked);
+        assert_eq!(
+            cold.data.lock().unwrap().record.as_ref().unwrap().first_run,
+            0
+        );
+        cold.check("check", None, false).await.unwrap();
+        assert_eq!(cold.view().status, "licensed");
+        assert_eq!(
+            cold.data.lock().unwrap().record.as_ref().unwrap().version,
+            3
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
     #[tokio::test]
     async fn online_activation_outage_replay_refund_and_deactivation_use_one_access_gate() {
@@ -1196,18 +1580,55 @@ mod tests {
             .check("activate", Some(&purchase()), false)
             .await
             .unwrap();
+        let old = service.data.lock().unwrap().record.clone().unwrap();
         service.path = dir.clone(); // A directory cannot be replaced by the record file.
         *transport.outcome.lock().unwrap() = "revoked";
         service.check("check", None, false).await.unwrap();
         assert!(service.view().locked);
         assert!(service.view().storage_warning);
+        let cold = restart(&service, old);
+        assert!(cold.view().locked);
+        cold.sync_mirror().await;
+        assert_eq!(
+            cold.view().status,
+            "revoked",
+            "terminal mirror was durable before the command succeeded"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[tokio::test]
+    async fn modified_cache_without_mirror_requires_online_recovery() {
+        let (source, _transport, dir) = online_service();
+        source.data.lock().unwrap().record = Some(Record::new(0));
+        source
+            .check("activate", Some(&purchase()), false)
+            .await
+            .unwrap();
+        let mut modified = source.data.lock().unwrap().record.clone().unwrap();
+        modified.revision = u64::MAX;
+        modified.lease_seen = 0;
+        let mut cold = restart(&source, modified);
+        cold.mirror = Arc::new(activation::tests::MemoryMirror::default());
+        cold.sync_mirror().await;
+        assert!(cold.view().locked);
+        assert_eq!(cold.view().status, "needs_activation");
+        assert_eq!(
+            cold.data.lock().unwrap().record.as_ref().unwrap().revision,
+            0
+        );
+        cold.check("check", None, false).await.unwrap();
+        assert_eq!(cold.view().status, "licensed");
+        assert_eq!(
+            cold.data.lock().unwrap().record.as_ref().unwrap().revision,
+            1
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]
     fn v1_record_migrates_without_resetting_trial_or_granting_purchase_only_access() {
         let old = json!({"version":1,"first_run":1000,"last_seen":1000+TRIAL,"revision":4,"key":purchase()});
         let record = decode_record(&old.to_string()).unwrap();
-        assert_eq!(record.version, 2);
+        assert_eq!(record.version, 3);
         assert_eq!(record.first_run, 1000);
         assert_eq!(record.revision, 4);
         let keys = [(
@@ -1309,12 +1730,13 @@ mod tests {
         fn write(&self, _text: &str) -> Result<(), String> {
             if let Some(entered) = self.entered.lock().unwrap().take() {
                 let _ = entered.send(());
+                self.release
+                    .lock()
+                    .unwrap()
+                    .recv()
+                    .map_err(|_| "Mirror closed".to_string())?;
             }
-            self.release
-                .lock()
-                .unwrap()
-                .recv()
-                .map_err(|_| "Mirror closed".into())
+            Ok(())
         }
     }
     #[tokio::test]
@@ -1327,6 +1749,7 @@ mod tests {
         let mut old = service.data.lock().unwrap().record.clone().unwrap();
         old.revision = 5;
         old.first_run -= DAY;
+        old.seal(&activation::tests::FakeIdentity.load_or_create().unwrap());
         std::fs::remove_file(&service.path).unwrap();
         {
             let mut data = service.data.lock().unwrap();
@@ -1359,7 +1782,7 @@ mod tests {
         )
         .await
         .unwrap()
-        .unwrap();
+        .unwrap_err(); // Saving is still pending, but revocation is immediate.
         assert!(service.view().locked);
         assert!(service.data.lock().unwrap().cleanup_pending);
         let saved = decode_record(&std::fs::read_to_string(&service.path).unwrap()).unwrap();
@@ -1373,7 +1796,6 @@ mod tests {
             "revoked",
             "a stale mirror completion cannot restore access"
         );
-        assert!(service.data.lock().unwrap().mirror_dirty);
         std::fs::remove_dir_all(dir).unwrap();
     }
     struct PausedReadMirror {
@@ -1407,6 +1829,7 @@ mod tests {
         let mut old = service.data.lock().unwrap().record.clone().unwrap();
         old.revision = 5;
         old.first_run -= DAY;
+        old.seal(&activation::tests::FakeIdentity.load_or_create().unwrap());
         std::fs::remove_file(&service.path).unwrap();
         {
             let mut data = service.data.lock().unwrap();
@@ -1515,6 +1938,8 @@ mod tests {
             file_warning: false,
             mirror_dirty: true,
             mirror_loaded: false,
+            identity: None,
+            clock: OfflineClock::new(now()),
         };
         assert!(!data.observe_access(true));
         // An expiry or removal between callbacks cannot update last_allowed.
@@ -1528,7 +1953,7 @@ mod tests {
     }
     fn configured_service(record: Record) -> Licensing {
         Licensing {
-            data: Mutex::new(Data {
+            data: Arc::new(Mutex::new(Data {
                 record: Some(record),
                 storage_warning: false,
                 recovery: false,
@@ -1542,7 +1967,9 @@ mod tests {
                 file_warning: false,
                 mirror_dirty: true,
                 mirror_loaded: false,
-            }),
+                identity: None,
+                clock: OfflineClock::new(now()),
+            })),
             path: std::env::temp_dir().join("switchify-licence-test-never-written.json"),
             keys: vec![("test".into(), [0; 32])],
             configured: true,
@@ -1554,7 +1981,7 @@ mod tests {
             mirror: Arc::new(activation::tests::MemoryMirror::default()),
             operation: tokio::sync::Mutex::new(()),
             file_operation: tokio::sync::Mutex::new(()),
-            mirror_operation: tokio::sync::Mutex::new(()),
+            mirror_operation: Arc::new(tokio::sync::Mutex::new(())),
             mirror_read_operation: tokio::sync::Mutex::new(()),
         }
     }
@@ -1632,6 +2059,8 @@ mod tests {
             file_warning: false,
             mirror_dirty: true,
             mirror_loaded: false,
+            identity: None,
+            clock: OfflineClock::new(now()),
         };
         // Retries at 60, then 60 + 120, then + 240 ... capped at 64 minutes.
         let mut time = 60;

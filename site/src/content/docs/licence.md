@@ -36,6 +36,21 @@ check and days remaining. When 7 days or fewer remain, the app shows a reminder,
 including at 3 days and 1 day. Choose **Check licence now** after reconnecting.
 A failed check leaves the existing allowance intact; it does not add extra days.
 
+After restarting the app, Switchify PC checks the saved licence against this
+computer's protected installation credentials. If your credential store is
+locked or unavailable, the app still opens and keeps your saved licence, but
+paid control waits for that check. Unlock the store and choose **Check licence
+now**, or leave the app open for it to retry. Once verified in this session,
+the existing offline allowance continues if the store later becomes unavailable.
+Copying the app's saved data to another computer does not activate that computer;
+use your purchase key and the move controls instead.
+
+Keep your computer's date and time correct. Moving the clock backwards does not
+restart the trial or restore days already recorded against the current offline
+allowance. If you correct a date that was far ahead, reconnect and choose
+**Check licence now** to obtain a fresh allowance. Older test-build records may
+also need this online check; your original trial start and purchase key are kept.
+
 Keep a private copy of your purchase key or attachment for reinstalling. If
 another computer has the licence, choose **Move licence here**, then confirm.
 You can replace an active computer twice in a rolling 30 days; contact support
