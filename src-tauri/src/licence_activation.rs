@@ -1,7 +1,7 @@
 //! Network and installation identity adapters. Never expose credentials to the
 //! webview or logs. Tests use injected transports and in-memory identities.
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use ed25519_dalek::{Signer, SigningKey};
+use ed25519_dalek::{Signature, Signer, SigningKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{future::Future, pin::Pin, time::Duration};
@@ -21,6 +21,24 @@ pub struct Identity {
     key: SigningKey,
 }
 impl Identity {
+    // A separate domain prevents a signed HTTP request being reused as a cache seal.
+    pub fn seal_cache(&self, bytes: &[u8]) -> String {
+        let message = [b"Switchify PC local cache v1\0".as_slice(), bytes].concat();
+        URL_SAFE_NO_PAD.encode(self.key.sign(&message).to_bytes())
+    }
+    pub fn verify_cache(&self, bytes: &[u8], signature: &str) -> bool {
+        let Ok(bytes_signature) = URL_SAFE_NO_PAD.decode(signature) else {
+            return false;
+        };
+        let Ok(signature) = Signature::from_slice(&bytes_signature) else {
+            return false;
+        };
+        let message = [b"Switchify PC local cache v1\0".as_slice(), bytes].concat();
+        self.key
+            .verifying_key()
+            .verify_strict(&message, &signature)
+            .is_ok()
+    }
     fn from_seed(id: String, seed: [u8; 32]) -> Self {
         let key = SigningKey::from_bytes(&seed);
         Self {
@@ -199,6 +217,29 @@ pub fn request(
 pub mod tests {
     use super::*;
     pub struct FakeIdentity;
+    pub struct OtherIdentity;
+    impl IdentityStore for OtherIdentity {
+        fn load_or_create(&self) -> Result<Identity, String> {
+            Ok(Identity::from_seed(
+                "6af44000-17b7-4d87-ad1d-32e9a31b331c".into(),
+                [10; 32],
+            ))
+        }
+    }
+    #[test]
+    fn local_cache_seals_bind_the_os_key_and_cannot_be_http_signatures() {
+        let identity = FakeIdentity.load_or_create().unwrap();
+        let bytes = br#"{"revision":1}"#;
+        let seal = identity.seal_cache(bytes);
+        assert!(identity.verify_cache(bytes, &seal));
+        assert!(!identity.verify_cache(br#"{"revision":2}"#, &seal));
+        assert!(!OtherIdentity
+            .load_or_create()
+            .unwrap()
+            .verify_cache(bytes, &seal));
+        let signed = identity.sign(serde_json::json!({"revision":1}));
+        assert!(!identity.verify_cache(bytes, signed["signature"].as_str().unwrap()));
+    }
     #[derive(Default)]
     pub struct MemoryMirror(std::sync::Mutex<Option<String>>);
     impl MirrorStore for MemoryMirror {
