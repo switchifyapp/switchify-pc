@@ -22,8 +22,9 @@ remain in its offline allowance.
 
 **Buy licence** opens checkout in your default browser. It appears in the
 trial notice and on **Settings → Licence** when this computer is not licensed.
-The current link is a Stripe **test checkout**, marked in the app; it does not
-take a real payment. An internet connection is needed to open checkout.
+It opens Stripe checkout for a one-time purchase covering one computer.
+An internet connection is needed to open checkout. Your purchase email includes
+your key and a **Switchify-PC.licence** attachment that you can save and import.
 
 Open **Settings → Licence** to paste a key, choose **Paste and activate**, or
 choose **Import licence file** to open a saved text licence file. Your trial
@@ -58,9 +59,6 @@ applications. For help or a lost key, contact info@theswitchify.app.
 Using the mouse, pressing Tab, or typing in the key field pauses automatic
 button scanning on the Licence page. Choose **Resume automatic button
 scanning** when you want to use your local switches again.
-
-Live purchases are not available yet. The test checkout is for validating
-licence delivery before release.
 
 The licence also lets you study, change and share the app. If you share it, changed or not, the licence sets out how you must make the source code available. A changed version you share must stay under the same licence. If people use your changed version over a network, you must offer them its source code. The [source code](https://github.com/switchifyapp/switchify-pc) is on GitHub. Read the licence for exactly what applies.
 
