@@ -19,6 +19,20 @@ Download the latest release from [GitHub releases](https://github.com/switchifya
 - On Windows, run the installer.
 - On a Mac, open the disk image and drag Switchify PC to Applications.
 
+## Trial and upgrading to 1.4.0
+
+Version 1.4.0 introduces a full 30-day trial and purchase licences for one
+computer. If you upgrade from an earlier free release, your trial starts when
+you first open the licensing-enabled app. You can see the days remaining in
+**Settings → Licence**.
+
+To continue after the trial, import your purchase email's licence attachment
+or paste its key on that page. First activation needs an internet connection;
+a Switchify account is not required. Each successful licence check then allows
+up to 30 days offline. If that allowance ends, reconnect and choose **Check
+licence now**. Settings and licence entry stay available when control is locked.
+See [licences, activation and offline access](/licence/) for the full details.
+
 ## The setup guide
 
 The first time Switchify PC opens, a five-step guide walks you through:
