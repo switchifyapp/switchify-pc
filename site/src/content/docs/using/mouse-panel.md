@@ -17,7 +17,7 @@ Choose **Mouse** from [Home](/using/home-menu/), or give a switch the **Open mou
 - **Keyboard** to open the scanning [keyboard](/using/keyboard/).
 - **Switch to Point** to change to [point scanning](/using/point-scanning/).
 
-The panel has a slim bar along its top with the Switchify PC name and a **Settings** button, then the buttons. Nothing else is written on it: the highlight shows what Select will choose. When something needs your attention, such as the panel waiting or paused, an action that failed, or the pointer moving until you stop it, a short message appears just above the panel, or below it when the panel is at the top of the display, and goes away when you deal with it.
+The panel has a slim bar along its top with the Switchify PC name and a **Settings** button, then the buttons. Nothing else is written on it: the highlight shows what Select will choose. While the panel is waiting or paused, or the pointer is moving until you stop it, nothing is highlighted; press Select to carry on. Only a failure is written out: if an action could not be done, a short message appears just above the panel, or below it when the panel is at the top of the display, and goes away when you deal with it.
 
 ## Speed and repeat
 

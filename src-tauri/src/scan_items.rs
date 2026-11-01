@@ -119,6 +119,7 @@ impl<T: Clone> ItemScanner<T> {
             && matches!(self.nav.current(), Some(Node::Group { .. }))
     }
     /// Offering to leave a group for the rest of its row.
+    #[cfg(test)]
     pub fn escaping_to_groups(&self) -> bool {
         self.nav.escaping() && self.nav.path().len() > 1
     }

@@ -175,23 +175,11 @@ impl Menu {
         self.scan.handle(action)
     }
 
-    /// Draws the menu as a docked panel. While an action has `failed`, nothing
-    /// is highlighted and no message is added: the workflow shows the error
-    /// itself, with what went wrong, beside the panel.
+    /// Draws the menu as a docked panel. Nothing is written beside it:
+    /// waiting, pausing and going back show through the highlight alone, and
+    /// while an action has `failed`, nothing is highlighted and the workflow
+    /// shows the error itself, with what went wrong, beside the panel.
     pub fn frame(&self, screen: Rect, units: f64, dock: Dock, failed: bool) -> Frame {
-        let escaping = self.scan.nav.escaping();
-        let title = self.kind.label();
-        let message = if failed {
-            None
-        } else if self.scan.waiting() {
-            Some(format!("{title} · Select to continue"))
-        } else if self.suspended() {
-            Some(format!("{title} paused · Select to resume"))
-        } else if escaping {
-            Some(crate::scan_panel::back_status(&self.scan).to_owned())
-        } else {
-            None
-        };
         let options = self.scan.options;
         Panel {
             key_width: 176.0,
@@ -212,11 +200,11 @@ impl Menu {
                         .collect()
                 })
                 .collect(),
-            message,
+            message: None,
             dock,
             // Nothing can be chosen while an error or pause waits for Select.
             selected: (!failed && !self.suspended()).then(|| self.scan.highlight(&self.rows)),
-            row_scan: self.scan.row_scan() || self.scan.group_scan() || escaping,
+            row_scan: self.scan.row_scan() || self.scan.group_scan() || self.scan.nav.escaping(),
             thickness: options.thickness,
             appearance: options.panel_theme.appearance(),
         }
@@ -951,7 +939,7 @@ mod tests {
         assert_eq!(close.style.unwrap().role, TileRole::Toolbar);
     }
     #[test]
-    fn errors_pauses_and_waits_float_beside_the_panel_without_a_highlight() {
+    fn errors_pauses_and_waits_clear_the_highlight_and_write_nothing() {
         let screen = Rect {
             x: 0.0,
             y: 0.0,
@@ -966,16 +954,9 @@ mod tests {
         assert!(error.tiles.iter().any(|tile| tile.text == "Close menu"));
         menu.suspend();
         let paused = menu.frame(screen, 1.0, Dock::default(), false);
-        assert_eq!(
-            message(&paused).as_deref(),
-            Some("Home paused · Select to resume")
-        );
+        // A pause shows only as the missing highlight; nothing is written.
+        assert_eq!(message(&paused), None);
         assert!(paused.tiles.iter().all(|tile| !tile.selected));
-        // The message is drawn on the HUD beside the panel, never on a tile.
-        let label = paused.label.unwrap();
-        assert!(label.hud.is_some());
-        let panel = paused.tiles[0].rect;
-        assert!(label.rect.y + label.rect.height <= panel.y);
         assert!(!paused.tiles.iter().any(|tile| tile.text.contains("paused")));
     }
     #[test]

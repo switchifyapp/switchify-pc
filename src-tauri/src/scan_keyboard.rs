@@ -948,35 +948,6 @@ impl Keyboard {
             Key::Close => "Close keyboard".into(),
         }
     }
-    /// The repeating key with any modifiers that go with it, such as
-    /// "Shift+Left arrow".
-    fn repeat_label(&self, stroke: Stroke) -> String {
-        let names = [
-            "Shift",
-            "Ctrl",
-            if self.mac { "Option" } else { "Alt" },
-            if self.mac { "Command" } else { "Windows" },
-        ];
-        let mut parts: Vec<&str> = names
-            .into_iter()
-            .zip(stroke.modifiers)
-            .filter_map(|(name, held)| held.then_some(name))
-            .collect();
-        parts.push(Self::repeat_name(stroke.key));
-        parts.join("+")
-    }
-    fn repeat_name(key: Key) -> &'static str {
-        match key {
-            Key::Named("ArrowUp") => "Up arrow",
-            Key::Named("ArrowDown") => "Down arrow",
-            Key::Named("ArrowLeft") => "Left arrow",
-            Key::Named("ArrowRight") => "Right arrow",
-            Key::Named("PageUp") => "Page Up",
-            Key::Named("PageDown") => "Page Down",
-            Key::Named(name) => name,
-            _ => "key",
-        }
-    }
     fn weight(key: Key) -> f64 {
         match key {
             Key::Character(' ', _) => 4.0,
@@ -1013,36 +984,22 @@ impl Keyboard {
         }
     }
     pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor) -> Frame {
-        self.frame_repeating(screen, units, color, None)
+        self.frame_repeating(screen, units, color, false)
     }
-    /// Draws the keyboard, with the stop instruction while `repeating` names
-    /// a key that repeats.
+    /// Draws the keyboard. While `repeating` a key, nothing is highlighted.
+    /// Only a failure is written out: waiting, pausing, going back and a
+    /// repeating key show through the highlight alone.
     pub fn frame_repeating(
         &self,
         screen: Rect,
         units: f64,
         color: ScannerColor,
-        repeating: Option<(Stroke, &str)>,
+        repeating: bool,
     ) -> Frame {
         let escaping = self.scan.nav.escaping();
         let highlight_row = self.scan.row_scan() || self.scan.group_scan() || escaping;
-        let message = if let Some((stroke, instruction)) = repeating {
-            Some(format!(
-                "Repeating {} · {instruction}",
-                self.repeat_label(stroke)
-            ))
-        } else if self.error {
+        let message = if self.error {
             Some("Input failed · Select to try again".to_owned())
-        } else if self.waiting_after_typing {
-            Some("Press Select to continue typing.".to_owned())
-        } else if self.scan.waiting() {
-            Some("Keyboard waiting · Select to start".to_owned())
-        } else if self.scan.suspended {
-            Some("Keyboard paused · Select to resume".to_owned())
-        } else if escaping {
-            Some(crate::scan_panel::back_status(&self.scan).to_owned())
-        } else if self.disabled() {
-            Some("Suggestions updating · Select to continue".to_owned())
         } else if self.layout_save_error {
             Some("Could not save layout".to_owned())
         } else {
@@ -1075,7 +1032,7 @@ impl Keyboard {
                 .collect(),
             message,
             dock: self.dock,
-            selected: (repeating.is_none() && !self.scan.suspended && !self.disabled())
+            selected: (!repeating && !self.scan.suspended && !self.disabled())
                 .then(|| self.scan.highlight(&self.rows)),
             row_scan: highlight_row,
             thickness: Default::default(),
@@ -1778,10 +1735,8 @@ mod tests {
                 1.0,
                 ScannerColor::Blue,
             );
-            assert_eq!(
-                frame.label.as_ref().map(|label| label.text.as_str()),
-                Some("Press Select to continue typing.")
-            );
+            // The wait shows only as the missing highlight; nothing is written.
+            assert!(frame.label.is_none());
             assert!(!frame.tiles.iter().any(|t| t.selected));
         }
         assert!(k.handle(Action::Select).is_none());
@@ -2054,10 +2009,8 @@ mod tests {
             .iter()
             .all(|tile| tile.rect.y == selected[0].rect.y));
         assert!(selected.iter().all(|tile| tile.style.unwrap().row_scan));
-        assert_eq!(
-            escaping.label.as_ref().map(|label| label.text.as_str()),
-            Some(crate::scan_panel::BACK_TO_ROWS)
-        );
+        // Going back shows through the row highlight alone.
+        assert!(escaping.label.is_none());
         k.handle(Action::Select);
         assert!(k.scan.nav.path().is_empty());
         assert_eq!(k.scan.position(&k.rows), (0, None));
@@ -2099,11 +2052,7 @@ mod tests {
                 assert!(selected
                     .iter()
                     .all(|tile| tile.rect.y == selected[0].rect.y));
-                assert_eq!(
-                    frame.label.as_ref().map(|label| label.text.as_str()),
-                    Some(crate::scan_panel::BACK_TO_ROWS),
-                    "{direction:?} {page:?}"
-                );
+                assert!(frame.label.is_none(), "{direction:?} {page:?}");
                 keyboard.handle(Action::Select);
                 assert_eq!(keyboard.scan.position(&keyboard.rows), (row, None));
             }
@@ -2119,10 +2068,7 @@ mod tests {
         assert!(!linear.scan.nav.escaping());
         let frame = linear.frame(screen, 1.0, ScannerColor::default());
         assert_eq!(frame.tiles.iter().filter(|tile| tile.selected).count(), 1);
-        assert!(
-            frame.label.is_none(),
-            "no going back offered, so no message"
-        );
+        assert!(frame.label.is_none());
     }
     #[test]
     fn qwerty_layout_and_platform_keys() {
@@ -2740,7 +2686,7 @@ mod tests {
             .any(|tile| tile.text.contains("suggestion")));
     }
     #[test]
-    fn prediction_warning_does_not_hide_resume_or_error_instructions() {
+    fn a_pause_writes_nothing_and_a_failure_still_writes_its_message() {
         let mut k = Keyboard::new(false);
         k.prediction_failed = true;
         let screen = Rect {
@@ -2751,7 +2697,7 @@ mod tests {
         };
         k.scan.suspended = true;
         let frame = k.frame(screen, 1.0, ScannerColor::Blue);
-        assert!(frame.label.unwrap().text.contains("Select to resume"));
+        assert!(frame.label.is_none(), "a pause is not written out");
         k.failed();
         let frame = k.frame(screen, 1.0, ScannerColor::Blue);
         assert!(frame.label.unwrap().text.contains("Select to try again"));
@@ -2889,42 +2835,31 @@ mod tests {
                 ..Default::default()
             },
         );
-        // The floating message, if any, and how many keys are highlighted.
+        // How many keys are highlighted; going back is never written out.
         let frame = |k: &Keyboard| {
             let frame = k.frame(screen, 1.0, ScannerColor::default());
-            let message = frame.label.map(|label| label.text);
-            let selected = frame.tiles.iter().filter(|tile| tile.selected).count();
-            (message, selected)
+            assert!(frame.label.is_none());
+            frame.tiles.iter().filter(|tile| tile.selected).count()
         };
         let groups = crate::scan_items::row_groups(k.rows[0].len());
         assert!(groups.len() > 1);
-        assert_eq!(frame(&k), (None, k.rows[0].len()));
+        assert_eq!(frame(&k), k.rows[0].len());
         k.handle(Action::Select);
-        assert_eq!(frame(&k), (None, groups[0].len()));
+        assert_eq!(frame(&k), groups[0].len());
         k.handle(Action::Select);
-        assert_eq!(frame(&k), (None, 1));
+        assert_eq!(frame(&k), 1);
         for _ in 0..groups[0].len() {
             k.handle(Action::Next);
         }
-        assert_eq!(
-            frame(&k),
-            (
-                Some(crate::scan_panel::BACK_TO_GROUPS.into()),
-                groups[0].len()
-            )
-        );
+        assert!(k.scan.escaping_to_groups());
+        assert_eq!(frame(&k), groups[0].len());
         k.handle(Action::Select);
-        assert_eq!(frame(&k), (None, groups[0].len()));
+        assert_eq!(frame(&k), groups[0].len());
         for _ in 0..groups.len() {
             k.handle(Action::Next);
         }
-        assert_eq!(
-            frame(&k),
-            (
-                Some(crate::scan_panel::BACK_TO_ROWS.into()),
-                k.rows[0].len()
-            )
-        );
+        assert!(k.scan.nav.escaping() && !k.scan.escaping_to_groups());
+        assert_eq!(frame(&k), k.rows[0].len());
     }
 
     #[test]
