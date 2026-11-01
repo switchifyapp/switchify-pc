@@ -267,6 +267,10 @@ pub enum TileRole {
     MenuBar,
     /// The name on that bar. Passive: neither scanned nor clicked.
     Title,
+    /// A reserved cell with nothing in it, such as a suggestion slot with no
+    /// word. Drawn as a faint outline so the row reads as a row of slots, but
+    /// never highlighted, scanned or clicked.
+    Placeholder,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TileStyle {

@@ -58,6 +58,37 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
         bitmap.fill(rgb(palette.band));
         return Ok(bitmap);
     }
+    // An empty slot: the panel colour with a faint dashed outline where a key
+    // would be, so the row still reads as a row of slots.
+    if style.is_some_and(|s| s.role == TileRole::Placeholder) {
+        bitmap.fill(rgb(palette.panel));
+        let width = bitmap.width() as f32;
+        let height = bitmap.height() as f32;
+        let stroke_width = tile.scale as f32;
+        let inset = ((2.0 * tile.scale) as f32).max(stroke_width / 2.0);
+        let path = key_outline(
+            width,
+            height,
+            inset.min(width.min(height) / 4.0),
+            (8.0 * tile.scale) as f32,
+        );
+        let mut paint = Paint::default();
+        let [r, g, b] = palette.border;
+        paint.set_color(Color::from_rgba8(r, g, b, PLACEHOLDER_ALPHA));
+        let dash = (4.0 * tile.scale) as f32;
+        bitmap.stroke_path(
+            &path,
+            &paint,
+            &Stroke {
+                width: stroke_width,
+                dash: tiny_skia::StrokeDash::new(vec![dash, dash], 0.0),
+                ..Default::default()
+            },
+            Transform::identity(),
+            None,
+        );
+        return Ok(bitmap);
+    }
     let on_band = style.is_some_and(|s| s.role == TileRole::MenuBar);
     let base = match style.map(|s| s.role) {
         Some(TileRole::Character) => palette.character,
@@ -128,6 +159,84 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
         }
     }
     Ok(bitmap)
+}
+
+/// The opacity of a placeholder slot's outline over the panel.
+const PLACEHOLDER_ALPHA: u8 = 150;
+
+/// The smallest a key label shrinks to keep a long word on one line.
+pub const MIN_LABEL_SHRINK: f64 = 0.75;
+/// The smallest a key label shrinks when a word has to be split over two
+/// lines instead.
+const MIN_SPLIT_SHRINK: f64 = 0.6;
+/// The mark at the end of a split word's first part.
+pub const HYPHEN: &str = "-";
+
+/// How much to scale a key's font so its widest word fits `available` pixels,
+/// given that word's width and the hyphen's width at full size. 1.0 when the
+/// word already fits. A word that would need less than [`MIN_LABEL_SHRINK`]
+/// to stay on one line is split over two lines by [`break_long_words`]
+/// instead, so the scale only drops as far as two hyphenated halves need.
+pub fn label_shrink(widest_word: f64, hyphen: f64, available: f64) -> f64 {
+    if widest_word <= 0.0 || available <= 0.0 || widest_word <= available {
+        return 1.0;
+    }
+    // Platform measurers round widths up to whole pixels, so aim a little
+    // inside the key; otherwise a word meant to shrink onto one line measures
+    // a pixel too wide at the shrunk size and gets split instead.
+    let target = (available - LABEL_TOLERANCE).max(1.0);
+    let one_line = target / widest_word;
+    if one_line >= MIN_LABEL_SHRINK {
+        return one_line;
+    }
+    (2.0 * target / (widest_word + hyphen.max(0.0))).clamp(MIN_SPLIT_SHRINK, 1.0)
+}
+
+/// Pixels of slack between a shrunk label and the key padding, covering the
+/// whole-pixel rounding of platform text measurement.
+const LABEL_TOLERANCE: f64 = 1.0;
+
+/// Splits any word wider than `available` into hyphenated parts on separate
+/// lines, measured with the font that will draw them. Words that fit, spaces
+/// and existing line breaks are kept as they are.
+pub fn break_long_words(
+    text: &str,
+    available: f64,
+    mut measure: impl FnMut(&str) -> f64,
+) -> String {
+    let mut lines = Vec::new();
+    for line in text.split('\n') {
+        let mut words = Vec::new();
+        for word in line.split(' ') {
+            if word.is_empty() || measure(word) <= available {
+                words.push(word.to_owned());
+                continue;
+            }
+            let mut rest = word;
+            let mut parts = Vec::new();
+            while measure(rest) > available {
+                // The longest head that fits with its hyphen, at least one
+                // character and never the whole remainder.
+                let mut cut = rest.chars().next().map_or(0, char::len_utf8);
+                for (index, _) in rest.char_indices().skip(1) {
+                    if measure(&format!("{}{HYPHEN}", &rest[..index])) <= available {
+                        cut = index;
+                    } else {
+                        break;
+                    }
+                }
+                if cut >= rest.len() {
+                    break;
+                }
+                parts.push(format!("{}{HYPHEN}", &rest[..cut]));
+                rest = &rest[cut..];
+            }
+            parts.push(rest.to_owned());
+            words.push(parts.join("\n"));
+        }
+        lines.push(words.join(" "));
+    }
+    lines.join("\n")
 }
 
 pub fn keyboard_font_size(tile: &FrameTile) -> f64 {
@@ -223,6 +332,112 @@ mod tests {
             assert_eq!(keyboard_font_size(&tile(TileRole::Utility, shift)), 16.0);
         }
         assert_eq!(keyboard_font_size(&tile(TileRole::Toolbar, "•")), 16.0);
+    }
+
+    #[test]
+    fn long_words_shrink_to_one_line_down_to_a_floor_then_split_over_two() {
+        assert_eq!(label_shrink(40.0, 4.0, 52.0), 1.0);
+        assert_eq!(label_shrink(52.0, 4.0, 52.0), 1.0);
+        // One line, aiming a pixel inside the key so whole-pixel measurement
+        // of the shrunk font still fits.
+        assert!((label_shrink(65.0, 4.0, 52.0) - 51.0 / 65.0).abs() < 1e-9);
+        // Too wide for one readable line: two halves with a hyphen instead.
+        let split = label_shrink(115.0, 4.0, 52.0);
+        assert!(split > MIN_LABEL_SHRINK && split < 1.0, "{split}");
+        assert!((split - 102.0 / 119.0).abs() < 1e-9);
+        // A short overflow that would split keeps the full size for its halves.
+        assert_eq!(label_shrink(72.0, 4.0, 52.0), 1.0);
+        // Absurdly long words stop shrinking and take more lines.
+        assert_eq!(label_shrink(400.0, 4.0, 52.0), 0.6);
+        // Degenerate measurements never divide by zero or grow the text.
+        assert_eq!(label_shrink(0.0, 4.0, 52.0), 1.0);
+        assert_eq!(label_shrink(40.0, 4.0, 0.0), 1.0);
+    }
+
+    #[test]
+    fn words_wider_than_the_key_split_with_hyphens_and_others_stay() {
+        // Seven pixels a character, like a bold label.
+        let measure = |text: &str| text.chars().count() as f64 * 7.0;
+        assert_eq!(break_long_words("water", 52.0, measure), "water");
+        assert_eq!(break_long_words("thank you", 52.0, measure), "thank you");
+        assert_eq!(
+            break_long_words("\u{2B06}\nNext key", 52.0, measure),
+            "\u{2B06}\nNext key"
+        );
+        // Seven characters fit; six plus the hyphen make the first part.
+        assert_eq!(
+            break_long_words("congratulations", 52.0, measure),
+            "congra-\ntulati-\nons"
+        );
+        assert_eq!(
+            break_long_words("misunderstanding everything", 120.0, measure),
+            "misunderstanding everything"
+        );
+        assert_eq!(
+            break_long_words("misunderstanding everything", 52.0, measure),
+            "misund-\nerstan-\nding everyt-\nhing"
+        );
+        // A key too narrow for even one character never loops forever.
+        assert_eq!(break_long_words("ab", 5.0, measure), "a-\nb");
+        assert_eq!(break_long_words("a", 5.0, measure), "a");
+        // Multi-byte characters split on character boundaries.
+        assert_eq!(break_long_words("ääääääää", 52.0, measure), "ääääää-\nää");
+    }
+
+    #[test]
+    fn placeholder_slots_draw_a_faint_outline_on_the_panel_and_never_a_key_face() {
+        use crate::{
+            panel_theme::Appearance,
+            scanning::{Rect, ScannerColor, TileRole, TileStyle},
+        };
+        let tile = |appearance, selected| FrameTile {
+            thickness: Default::default(),
+            style: Some(TileStyle {
+                role: TileRole::Placeholder,
+                active: false,
+                row_scan: false,
+            }),
+            color: ScannerColor::Red,
+            text: String::new(),
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 64.0,
+                height: 56.0,
+            },
+            scale: 1.0,
+            selected,
+            appearance,
+        };
+        let at = |image: &Pixmap, x: usize, y: usize| {
+            let pixel = (y * 64 + x) * 4;
+            [
+                image.data()[pixel],
+                image.data()[pixel + 1],
+                image.data()[pixel + 2],
+            ]
+        };
+        for appearance in [Appearance::Dark, Appearance::Light] {
+            let palette = appearance.palette();
+            let image = bitmap(&tile(appearance, false)).unwrap();
+            // The middle is the bare panel, not a key face.
+            assert_eq!(at(&image, 32, 28), palette.panel);
+            assert_ne!(at(&image, 32, 28), palette.utility);
+            // The outline is drawn, dashed, so some edge pixels differ from
+            // the panel and some do not.
+            let edge: Vec<_> = (6..58).map(|x| at(&image, x, 2)).collect();
+            assert!(edge.iter().any(|&p| p != palette.panel), "{appearance:?}");
+            assert!(edge.contains(&palette.panel), "{appearance:?}");
+            // The outline is a faint border tint, never the solid border.
+            assert!(edge.iter().all(|&p| p != palette.border), "{appearance:?}");
+            // Every pixel stays opaque so the layered window composites cleanly.
+            assert!(image.data().chunks_exact(4).all(|p| p[3] == 255));
+            // A placeholder is never highlighted, whatever the frame says.
+            assert_eq!(
+                bitmap(&tile(appearance, true)).unwrap().data(),
+                image.data()
+            );
+        }
     }
 
     #[test]

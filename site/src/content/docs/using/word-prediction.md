@@ -15,9 +15,11 @@ phrases follow once the on-device model has started.
 - **Two words from an on-device AI model.**
 - **Three two-word phrases** from the same AI model, in wider slots at the end of the row.
 
-Only slots with a suggestion are shown. An empty slot leaves a gap, so the other suggestions stay in the same place and the scan skips the gap.
+A slot with no suggestion shows a faint dashed outline instead of a word. The outline keeps the slot's place, so the other suggestions stay where they were, and the scan skips it.
 
-When there are no suggestions at all, the row stays blank and the scan skips it. Nothing is written across the keyboard. If prediction fails, a **Retry predictions** key appears on the keyboard; typing still works.
+When there are no suggestions at all, the row shows eight empty outlines and the scan skips the row. Nothing is written across the keyboard. If prediction fails, a **Retry predictions** key appears on the keyboard; typing still works.
+
+A long word shrinks a little to fit its slot. A word that is still too wide is split over two lines with a hyphen. Selecting it types the whole word. The same fitting applies to every key label on the keyboard.
 
 Suggestions only change when they need to, so the scan does not restart under you.
 

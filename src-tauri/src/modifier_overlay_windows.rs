@@ -198,6 +198,33 @@ impl Drop for GdiObject {
     }
 }
 
+/// The bold Segoe UI label font at `size` pixels, owned by the caller.
+fn bold_font(size: f64) -> Result<GdiObject, String> {
+    let font_height = -(size.round() as i32).max(1);
+    let font = unsafe {
+        CreateFontW(
+            font_height,
+            0,
+            0,
+            0,
+            FW_BOLD.0 as i32,
+            0,
+            0,
+            0,
+            DEFAULT_CHARSET,
+            OUT_DEFAULT_PRECIS,
+            CLIP_DEFAULT_PRECIS,
+            DEFAULT_QUALITY,
+            FF_DONTCARE.0 as u32,
+            w!("Segoe UI"),
+        )
+    };
+    if font.is_invalid() {
+        return Err("the modifier overlay font could not be created".into());
+    }
+    Ok(GdiObject(HGDIOBJ(font.0)))
+}
+
 struct SelectedObject {
     dc: HDC,
     previous: HGDIOBJ,
@@ -516,31 +543,70 @@ fn present_pixmap_with_text(
         let output = std::slice::from_raw_parts_mut(bits.cast::<u8>(), rgba.len());
         copy_rgba_to_bgra(rgba, output)?;
 
-        let font_height = -((FONT_SIZE * layout.scale).round() as i32).max(1);
-        let font = CreateFontW(
-            font_height,
-            0,
-            0,
-            0,
-            FW_BOLD.0 as i32,
-            0,
-            0,
-            0,
-            DEFAULT_CHARSET,
-            OUT_DEFAULT_PRECIS,
-            CLIP_DEFAULT_PRECIS,
-            DEFAULT_QUALITY,
-            FF_DONTCARE.0 as u32,
-            w!("Segoe UI"),
-        );
-        if font.is_invalid() {
-            return Err("the modifier overlay font could not be created".into());
-        }
-        let font = GdiObject(HGDIOBJ(font.0));
+        let measure = |text: &str| {
+            let mut text = text.encode_utf16().collect::<Vec<_>>();
+            let mut measured = RECT::default();
+            DrawTextW(
+                memory.0,
+                &mut text,
+                &mut measured,
+                DT_SINGLELINE | DT_CALCRECT | DT_NOPREFIX,
+            );
+            f64::from(measured.right - measured.left)
+        };
+        let font = bold_font(FONT_SIZE * layout.scale)?;
+        // A key label shrinks so its widest word fits between the paddings,
+        // down to a floor; a word still too wide is split with a hyphen
+        // instead of running past the key's edge.
+        let shrink = if center_wrapped {
+            let _measuring = SelectedObject {
+                dc: memory.0,
+                previous: SelectObject(memory.0, font.0),
+            };
+            let hyphen = measure(crate::scan_tile::HYPHEN);
+            labels
+                .iter()
+                .zip(&layout.chips)
+                .map(|(label, chip)| {
+                    let widest = label.split_whitespace().map(measure).fold(0.0, f64::max);
+                    crate::scan_tile::label_shrink(
+                        widest,
+                        hyphen,
+                        f64::from(chip.right - chip.left),
+                    )
+                })
+                .fold(1.0, f64::min)
+        } else {
+            1.0
+        };
+        let font = if shrink < 1.0 {
+            // GDI only has whole-pixel fonts. Shrink from the whole-pixel size
+            // that was measured, round down, and always lose at least a pixel,
+            // otherwise the "shrunk" font could be the one that did not fit.
+            let full = (FONT_SIZE * layout.scale).round().max(1.0);
+            bold_font((full * shrink).floor().min(full - 1.0).max(1.0))?
+        } else {
+            font
+        };
         let _font_selection = SelectedObject {
             dc: memory.0,
             previous: SelectObject(memory.0, font.0),
         };
+        let labels: Vec<String> = labels
+            .iter()
+            .zip(&layout.chips)
+            .map(|(label, chip)| {
+                if center_wrapped {
+                    crate::scan_tile::break_long_words(
+                        label,
+                        f64::from(chip.right - chip.left),
+                        measure,
+                    )
+                } else {
+                    label.clone()
+                }
+            })
+            .collect();
         SetBkMode(memory.0, TRANSPARENT);
         SetTextColor(
             memory.0,
@@ -932,6 +998,28 @@ mod tests {
             keyboard.set_panel_theme(theme);
             keyboard.enable_predictions(true);
             let keyboard_frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+            // Some slots filled, some empty placeholders, and words long
+            // enough to need shrinking in a word slot and a phrase slot.
+            keyboard.predictions(
+                Some(crate::prediction::worker::Batch {
+                    token: 1,
+                    refined: true,
+                    words: [
+                        Some("I"),
+                        Some("the"),
+                        Some("extraordinarily"),
+                        None,
+                        Some("congratulations"),
+                        Some("thank you"),
+                        None,
+                        Some("misunderstanding everything"),
+                    ]
+                    .map(|word| word.map(str::to_owned)),
+                }),
+                false,
+            );
+            let predictions_frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+            keyboard.predictions(None, false);
             let mut page = |page| {
                 keyboard.fixture_page(crate::scan_keyboard::Key::Page(page));
                 keyboard.frame(screen, 1.0, ScannerColor::default())
@@ -945,6 +1033,7 @@ mod tests {
                     mouse.frame(screen, 1.0, ScannerColor::default(), None),
                 ),
                 ("keyboard", keyboard_frame),
+                ("keyboard-predictions", predictions_frame),
                 ("keyboard-numbers", numbers_frame),
                 ("keyboard-symbols", symbols_frame),
                 (

@@ -1184,14 +1184,19 @@ mod tests {
                 1.,
                 ScannerColor::default(),
             );
-            // Only the filled slots are drawn, each in its own place.
-            let tiles = &frame.tiles[3..7];
+            // Every slot is drawn in its own place: the filled ones with
+            // their words, the empty ones as wordless placeholders.
+            let row = &frame.tiles[3..11];
             assert_eq!(
-                tiles.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(),
-                ["one", "four", "six seven", "eight nine"]
+                row.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(),
+                ["one", "", "", "four", "", "six seven", "", "eight nine"]
             );
-            assert!(tiles.iter().all(|t| t.rect.y == tiles[0].rect.y));
-            assert!(frame.tiles[7].rect.y > tiles[0].rect.y);
+            assert!(row.iter().all(|t| t.rect.y == row[0].rect.y));
+            assert!(row.iter().filter(|t| t.text.is_empty()).all(|t| t
+                .style
+                .is_some_and(|s| s.role == crate::scanning::TileRole::Placeholder)));
+            assert!(frame.tiles[11].rect.y > row[0].rect.y);
+            let tiles: Vec<_> = row.iter().filter(|t| !t.text.is_empty()).collect();
             let pitch = (tiles[1].rect.x - tiles[0].rect.x) / 3.0;
             let gap = pitch - tiles[0].rect.width;
             assert!((tiles[1].rect.width - tiles[0].rect.width).abs() < 0.01);
@@ -1207,7 +1212,8 @@ mod tests {
     }
 
     #[test]
-    fn empty_slots_draw_nothing_and_never_replace_the_scan_prompt() {
+    fn empty_slots_draw_placeholders_and_never_replace_the_scan_prompt() {
+        use crate::scanning::TileRole;
         let mut keyboard = Keyboard::new(false);
         keyboard.enable_predictions(true);
         let screen = Rect {
@@ -1217,8 +1223,9 @@ mod tests {
             height: 1080.0,
         };
         // Nothing is written across the keyboard while the suggestion row is
-        // empty: no note, no floating message, and the reserved slots stay
-        // hidden so the other keys never move.
+        // empty: no note, no floating message. The reserved slots draw as
+        // wordless placeholders so the row reads as slots and the other keys
+        // never move.
         let silent = |keyboard: &Keyboard| {
             let frame = keyboard.frame(screen, 1.0, ScannerColor::default());
             assert!(frame.label.is_none());
@@ -1229,6 +1236,15 @@ mod tests {
                 && !tile.text.starts_with("Prediction")));
             frame
         };
+        let placeholders = |keyboard: &Keyboard| {
+            silent(keyboard)
+                .tiles
+                .iter()
+                .filter(|tile| tile.style.is_some_and(|s| s.role == TileRole::Placeholder))
+                .inspect(|tile| assert!(tile.text.is_empty() && !tile.selected))
+                .count()
+        };
+        assert_eq!(placeholders(&keyboard), crate::prediction::SLOTS);
         let keys = |keyboard: &Keyboard| silent(keyboard).tiles.len();
         let loading = keys(&keyboard);
         keyboard.predictions(None, false);
@@ -1254,9 +1270,10 @@ mod tests {
         assert!(frame.tiles.iter().any(|tile| tile.text == "water"));
         assert_eq!(
             frame.tiles.len(),
-            loading + 1,
-            "one suggestion fills one slot"
+            loading,
+            "one suggestion takes the place of one placeholder"
         );
+        assert_eq!(placeholders(&keyboard), crate::prediction::SLOTS - 1);
     }
 
     #[test]
@@ -2531,9 +2548,17 @@ mod tests {
                 );
                 let before = keyboard.frame(screen, 1.0, ScannerColor::default());
                 assert_eq!(empty.tiles[0].rect, before.tiles[0].rect);
-                // The empty row draws nothing in place of its slots.
+                // The empty row draws a placeholder in place of each slot, so
+                // filling the slots changes no tile count or position.
+                assert_eq!(before.tiles.len(), empty.tiles.len());
                 assert_eq!(
-                    before.tiles.len() - empty.tiles.len(),
+                    empty
+                        .tiles
+                        .iter()
+                        .filter(|t| t
+                            .style
+                            .is_some_and(|s| s.role == crate::scanning::TileRole::Placeholder))
+                        .count(),
                     crate::prediction::SLOTS
                 );
                 keyboard.predictions(
@@ -2660,16 +2685,25 @@ mod tests {
         k.enable_predictions(true);
         k.predictions(None, false);
         let frame = k.frame(screen, 1.0, ScannerColor::Blue);
-        // The row under the menu bar holds nothing: no note, no key, and
-        // no floating message either.
+        // The row under the menu bar holds only wordless placeholders: no
+        // note, no key, and no floating message either.
         let background = frame.tiles[0].rect;
         let first_row_top = background.y + crate::scan_panel::MENU_BAR_HEIGHT;
+        let is_placeholder = |tile: &crate::scanning::FrameTile| {
+            tile.style
+                .is_some_and(|s| s.role == crate::scanning::TileRole::Placeholder)
+        };
         assert!(frame
             .tiles
             .iter()
             .skip(1)
             .filter(|tile| !tile.is_menu_bar() && tile.text != crate::scan_panel::MENU_BAR_TITLE)
-            .all(|tile| tile.rect.y > first_row_top + 40.0));
+            .all(|tile| is_placeholder(tile) || tile.rect.y > first_row_top + 40.0));
+        assert!(frame
+            .tiles
+            .iter()
+            .filter(|tile| is_placeholder(tile))
+            .all(|tile| tile.text.is_empty() && !tile.selected));
         assert!(frame.label.is_none());
         // An empty batch is just as quiet.
         k.predictions(
