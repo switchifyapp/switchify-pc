@@ -19,7 +19,7 @@ A slot with no suggestion shows a faint dashed outline instead of a word. The ou
 
 When there are no suggestions at all, the row shows eight empty outlines and the scan skips the row. Nothing is written across the keyboard. If prediction fails, a **Retry predictions** key appears on the keyboard; typing still works.
 
-A long word shrinks a little to fit its slot. Words still fit the slot's width before they wrap onto a second line.
+A long word shrinks a little to fit its slot. A word that is still too wide is split over two lines with a hyphen. Selecting it types the whole word. The same fitting applies to every key label on the keyboard.
 
 Suggestions only change when they need to, so the scan does not restart under you.
 

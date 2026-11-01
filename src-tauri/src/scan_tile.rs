@@ -181,12 +181,20 @@ pub fn label_shrink(widest_word: f64, hyphen: f64, available: f64) -> f64 {
     if widest_word <= 0.0 || available <= 0.0 || widest_word <= available {
         return 1.0;
     }
-    let one_line = available / widest_word;
+    // Platform measurers round widths up to whole pixels, so aim a little
+    // inside the key; otherwise a word meant to shrink onto one line measures
+    // a pixel too wide at the shrunk size and gets split instead.
+    let target = (available - LABEL_TOLERANCE).max(1.0);
+    let one_line = target / widest_word;
     if one_line >= MIN_LABEL_SHRINK {
         return one_line;
     }
-    (2.0 * available / (widest_word + hyphen.max(0.0))).clamp(MIN_SPLIT_SHRINK, 1.0)
+    (2.0 * target / (widest_word + hyphen.max(0.0))).clamp(MIN_SPLIT_SHRINK, 1.0)
 }
+
+/// Pixels of slack between a shrunk label and the key padding, covering the
+/// whole-pixel rounding of platform text measurement.
+const LABEL_TOLERANCE: f64 = 1.0;
 
 /// Splits any word wider than `available` into hyphenated parts on separate
 /// lines, measured with the font that will draw them. Words that fit, spaces
@@ -330,11 +338,13 @@ mod tests {
     fn long_words_shrink_to_one_line_down_to_a_floor_then_split_over_two() {
         assert_eq!(label_shrink(40.0, 4.0, 52.0), 1.0);
         assert_eq!(label_shrink(52.0, 4.0, 52.0), 1.0);
-        assert!((label_shrink(65.0, 4.0, 52.0) - 0.8).abs() < 1e-9);
+        // One line, aiming a pixel inside the key so whole-pixel measurement
+        // of the shrunk font still fits.
+        assert!((label_shrink(65.0, 4.0, 52.0) - 51.0 / 65.0).abs() < 1e-9);
         // Too wide for one readable line: two halves with a hyphen instead.
         let split = label_shrink(115.0, 4.0, 52.0);
         assert!(split > MIN_LABEL_SHRINK && split < 1.0, "{split}");
-        assert!((split - 104.0 / 119.0).abs() < 1e-9);
+        assert!((split - 102.0 / 119.0).abs() < 1e-9);
         // A short overflow that would split keeps the full size for its halves.
         assert_eq!(label_shrink(72.0, 4.0, 52.0), 1.0);
         // Absurdly long words stop shrinking and take more lines.

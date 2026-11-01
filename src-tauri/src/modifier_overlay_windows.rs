@@ -580,7 +580,9 @@ fn present_pixmap_with_text(
             1.0
         };
         let font = if shrink < 1.0 {
-            bold_font(FONT_SIZE * layout.scale * shrink)?
+            // Round the shrunk size down: GDI only has whole-pixel fonts, and
+            // rounding up would undo the fit the shrink was computed for.
+            bold_font((FONT_SIZE * layout.scale * shrink).floor())?
         } else {
             font
         };
