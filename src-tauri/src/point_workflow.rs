@@ -201,8 +201,7 @@ impl Workflow {
             ),
             keyboard_layout_pending: false,
             keyboard_area: screen,
-            mouse: crate::scan_mouse::MousePanel::new(mouse_options, 1, 100)
-                .with_repeat_stop_edge(config.mouse_repeat_stop_edge),
+            mouse: crate::scan_mouse::MousePanel::new(mouse_options, 1, 100),
             mouse_area: screen,
             dock: Default::default(),
             saved_dock: Default::default(),
@@ -254,8 +253,7 @@ impl Workflow {
             self.point.config.mouse_scan,
             1,
             self.mouse.speed_percent,
-        )
-        .with_repeat_stop_edge(self.point.config.mouse_repeat_stop_edge);
+        );
         mouse.dock = self.dock;
         mouse
     }
@@ -643,7 +641,7 @@ impl Workflow {
                 area,
                 self.point.units_per_logical_pixel,
                 self.point.config.mouse_scan.color,
-                None,
+                false,
             ),
         };
         let bounds = frame
@@ -1456,29 +1454,13 @@ impl Technique for Workflow {
                 self.keyboard_area,
                 self.point.units_per_logical_pixel,
                 self.point.config.scanner_color,
-                self.key_repeat
-                    .as_ref()
-                    .filter(|_| self.key_repeating())
-                    .map(|repeat| {
-                        (
-                            repeat.stroke,
-                            self.point.config.mouse_repeat_stop_edge.instruction(),
-                        )
-                    }),
+                self.key_repeat.is_some() && self.key_repeating(),
             ),
             Stage::Mouse | Stage::MouseMoving | Stage::MouseScrolling => self.mouse.frame(
                 self.mouse_area,
                 self.point.units_per_logical_pixel,
                 self.point.config.mouse_scan.color,
-                match self.stage {
-                    Stage::MouseMoving => Some(crate::scan_mouse::RepeatPrompt::Moving),
-                    Stage::MouseScrolling => Some(crate::scan_mouse::RepeatPrompt::Scrolling(
-                        self.scroll_repeat
-                            .as_ref()
-                            .map_or(1, |repeat| repeat.dy().signum()),
-                    )),
-                    _ => None,
-                },
+                matches!(self.stage, Stage::MouseMoving | Stage::MouseScrolling),
             ),
             Stage::Countdown => {
                 let scale = self.point.units_per_logical_pixel;
@@ -1884,7 +1866,7 @@ mod tests {
         assert_eq!(
             workflow
                 .mouse
-                .frame(screen, 1.0, Default::default(), None)
+                .frame(screen, 1.0, Default::default(), false)
                 .label
                 .map(|label| label.text)
                 .as_deref(),
@@ -2374,14 +2356,12 @@ mod tests {
             height: 720.0,
         };
         let mut session = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
-        // The message beside the panel; nothing while scanning normally.
+        // The message beside the panel: only a failure, never a wait.
         let message =
             |session: &Session<Workflow>| session.technique.frame().label.map(|label| label.text);
         session.action(Action::OpenMouse);
-        assert_eq!(
-            message(&session).as_deref(),
-            Some("Mouse waiting · Select to continue")
-        );
+        assert_eq!(message(&session), None);
+        assert!(session.technique.mouse.suspended());
         for action in [
             Action::Select,
             Action::Next,
@@ -2397,10 +2377,9 @@ mod tests {
             Some(Request::MouseMove { dy: 0, .. })
         ));
         assert!(session.technique.stop_mouse_repeat());
-        assert_eq!(
-            message(&session).as_deref(),
-            Some("Mouse waiting · Select to continue")
-        );
+        // The wait is not written out.
+        assert_eq!(message(&session), None);
+        assert!(session.technique.mouse.suspended());
         session.tick(5000, false);
         assert_eq!(session.action(Action::Select), None);
         assert_eq!(message(&session), None);
@@ -2484,10 +2463,8 @@ mod tests {
                 assert_eq!(s.technique.phase(), keyboard);
                 if waits {
                     let frame = s.technique.frame();
-                    assert_eq!(
-                        frame.label.map(|label| label.text).as_deref(),
-                        Some("Keyboard waiting · Select to start")
-                    );
+                    assert!(frame.label.is_none(), "the wait is not written out");
+                    assert!(frame.tiles.iter().all(|tile| !tile.selected));
                     // Select starts the scan without typing.
                     assert_eq!(s.action(Action::Select), None);
                     assert_eq!(
@@ -2755,10 +2732,7 @@ mod tests {
         assert!(moved);
         let frame = session.technique.frame();
         assert!(frame.tiles.iter().all(|tile| !tile.selected));
-        assert_eq!(
-            frame.label.map(|label| label.text).as_deref(),
-            Some("Moving pointer · Press and release a switch to stop")
-        );
+        assert!(frame.label.is_none(), "the move is not written out");
         session.tick(1000, true);
         assert!(
             matches!(session.take_selection(), Some(Request::MouseMove { dx, dy: 0 }) if dx > 0)
@@ -2773,7 +2747,7 @@ mod tests {
         let selected: Vec<_> = session
             .technique
             .mouse
-            .frame(screen, 1.0, Default::default(), None)
+            .frame(screen, 1.0, Default::default(), false)
             .tiles
             .into_iter()
             .filter(|tile| tile.selected)
@@ -3653,10 +3627,8 @@ mod tests {
             Phase::Workflow(WorkflowPhase::KeyboardSuspended)
         );
         let frame = s.technique.frame();
-        assert_eq!(
-            frame.label.map(|label| label.text).as_deref(),
-            Some("Keyboard waiting · Select to start")
-        );
+        assert!(frame.label.is_none(), "the wait is not written out");
+        assert!(frame.tiles.iter().all(|tile| !tile.selected));
     }
     #[test]
     fn keyboard_key_acknowledgement_is_exactly_once_and_reset_discards_state() {
@@ -3729,10 +3701,7 @@ mod tests {
             assert_eq!(s.technique.mouse_repeat_stop_edge(), edge);
             let frame = s.frame();
             assert!(frame.tiles.iter().all(|tile| !tile.selected));
-            assert_eq!(
-                frame.label.map(|label| label.text),
-                Some(format!("Repeating Backspace · {}", edge.instruction()))
-            );
+            assert!(frame.label.is_none(), "repeating is not written out");
 
             s.tick(250, false);
             s.tick(249, false);
@@ -3778,9 +3747,9 @@ mod tests {
             assert!(typed(s.technique.choose_key(Key::Named(name)), name));
             s.technique.execution_succeeded();
             assert!(s.technique.mouse_repeating(), "{name}");
-            let text = s.frame().label.unwrap().text;
-            assert!(text.starts_with("Repeating "), "{text}");
-            assert!(!text.contains("Arrow"), "{text}");
+            let frame = s.frame();
+            assert!(frame.label.is_none(), "{name}");
+            assert!(frame.tiles.iter().all(|tile| !tile.selected), "{name}");
         }
         for key in [
             Key::Named("Enter"),
@@ -3839,12 +3808,7 @@ mod tests {
         ));
         s.technique.execution_succeeded();
         assert!(s.technique.mouse_repeating());
-        assert!(s
-            .frame()
-            .label
-            .unwrap()
-            .text
-            .starts_with("Repeating Shift+Left arrow · "));
+        assert!(s.frame().label.is_none());
         // The one-shot Shift goes with every repeated press.
         s.tick(250, false);
         s.tick(250, false);

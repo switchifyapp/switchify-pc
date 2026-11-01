@@ -42,15 +42,6 @@ pub enum MouseRepeatStopEdge {
     #[default]
     Release,
 }
-impl MouseRepeatStopEdge {
-    pub fn instruction(self) -> &'static str {
-        match self {
-            Self::Press => "Press a switch to stop",
-            Self::Release => "Press and release a switch to stop",
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {

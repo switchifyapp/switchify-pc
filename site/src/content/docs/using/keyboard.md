@@ -46,6 +46,6 @@ The keyboard opens on the display the pointer is on and stays on that display wh
 
 The slim bar along the top of the keyboard shows the Switchify PC name and a **Settings** button. Click the button with a mouse to open the Switchify PC window on its Settings page. The keyboard stays put while the pointer is over the bar, even when it is set to move out of the pointer's way. The bar itself never takes focus from the app you are typing into; the Switchify PC window opens in front of it.
 
-Nothing else is written across the keyboard: the highlight shows what Select will choose. When something needs your attention, such as the keyboard waiting or paused, a key that could not be sent, or a key repeating until you stop it, a short message appears just above the keyboard, or below it when the keyboard is at the top of the display, and goes away when you deal with it.
+Nothing else is written across the keyboard: the highlight shows what Select will choose. While the keyboard is waiting or paused, or a key is repeating, nothing is highlighted; press Select to carry on. Only a failure is written out: if a key could not be sent, or a saved layout could not be stored, a short message appears just above the keyboard, or below it when the keyboard is at the top of the display, and goes away when you deal with it.
 
 Word prediction has its own page: [Word prediction](/using/word-prediction/).

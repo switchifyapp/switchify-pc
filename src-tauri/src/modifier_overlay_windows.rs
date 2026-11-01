@@ -1030,7 +1030,7 @@ mod tests {
             for (name, frame) in [
                 (
                     "mouse",
-                    mouse.frame(screen, 1.0, ScannerColor::default(), None),
+                    mouse.frame(screen, 1.0, ScannerColor::default(), false),
                 ),
                 ("keyboard", keyboard_frame),
                 ("keyboard-predictions", predictions_frame),

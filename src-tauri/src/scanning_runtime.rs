@@ -1489,7 +1489,7 @@ mod repeat_stop_tests {
                 for id in ["one", "remote:1"] {
                     let mut session = repeating(edge, scroll);
                     let frame = session.technique.frame();
-                    assert!(frame.label.unwrap().text.ends_with(edge.instruction()));
+                    assert!(frame.label.is_none() && frame.tiles.iter().all(|t| !t.selected));
                     let mut stop = RepeatStop::default();
                     let mut gestures = Gestures::default();
                     gestures.pressed("previous", 0, &switches());

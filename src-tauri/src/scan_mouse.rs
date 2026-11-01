@@ -28,12 +28,6 @@ pub enum Key {
     Close,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RepeatPrompt {
-    Moving,
-    Scrolling(i32),
-}
-
 pub struct MousePanel {
     pub more: bool,
     pub dock: Dock,
@@ -41,7 +35,6 @@ pub struct MousePanel {
     pub speed_percent: u16,
     pub error: bool,
     notice: Option<&'static str>,
-    repeat_stop_edge: crate::point_scan::MouseRepeatStopEdge,
     positioning: bool,
     displays: usize,
     rows: Vec<Vec<Key>>,
@@ -66,16 +59,11 @@ impl MousePanel {
             speed_percent,
             error: false,
             notice: None,
-            repeat_stop_edge: Default::default(),
             positioning: false,
             displays,
             rows,
             scan,
         }
-    }
-    pub fn with_repeat_stop_edge(mut self, edge: crate::point_scan::MouseRepeatStopEdge) -> Self {
-        self.repeat_stop_edge = edge;
-        self
     }
     fn rows(more: bool, positioning: bool, displays: usize) -> Vec<Vec<Key>> {
         use Key::*;
@@ -237,40 +225,18 @@ impl MousePanel {
             _ => TileRole::Utility,
         }
     }
-    /// A repeating action shows its stop prompt and highlights nothing.
-    pub fn frame(
-        &self,
-        screen: Rect,
-        units: f64,
-        color: ScannerColor,
-        repeating: Option<RepeatPrompt>,
-    ) -> Frame {
+    /// Draws the panel. A `repeating` action highlights nothing. Only a
+    /// failure is written out: waiting, pausing, going back and a repeating
+    /// move show through the highlight alone.
+    pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor, repeating: bool) -> Frame {
         let escaping = self.scan.nav.escaping();
         let highlight_row = self.scan.row_scan() || self.scan.group_scan() || escaping;
-        let message = if let Some(repeating) = repeating {
-            let action = match repeating {
-                RepeatPrompt::Moving => "Moving pointer",
-                RepeatPrompt::Scrolling(dy) if dy > 0 => "Scrolling up",
-                RepeatPrompt::Scrolling(_) => "Scrolling down",
-            };
-            Some(format!(
-                "{action} · {}",
-                self.repeat_stop_edge.instruction()
-            ))
-        } else if self.error {
+        let message = if self.error {
             Some("Mouse action failed · Select to resume".to_owned())
-        } else if let Some(notice) = self.notice {
-            Some(notice.to_owned())
-        } else if self.scan.waiting() {
-            Some("Mouse waiting · Select to continue".to_owned())
-        } else if self.scan.suspended {
-            Some("Mouse paused · Select to resume".to_owned())
-        } else if escaping {
-            Some(crate::scan_panel::back_status(&self.scan).to_owned())
         } else {
-            None
+            self.notice.map(str::to_owned)
         };
-        let scanning = repeating.is_none() && !self.scan.suspended;
+        let scanning = !repeating && !self.scan.suspended;
         Panel {
             key_width: 128.0,
             size: self.scan.options.panel_size,
@@ -337,7 +303,7 @@ mod tests {
                     for row in 0..3 {
                         for column in 0..3 {
                             mouse.dock = Dock { row, column };
-                            let frame = mouse.frame(screen, units, ScannerColor::default(), None);
+                            let frame = mouse.frame(screen, units, ScannerColor::default(), false);
                             let bounds = frame.tiles[0].rect;
                             let scale = (units * size.scale())
                                 .min(width / 568.0)
@@ -360,7 +326,7 @@ mod tests {
                             mouse.error = true;
                             assert_eq!(
                                 mouse
-                                    .frame(screen, units, ScannerColor::default(), None)
+                                    .frame(screen, units, ScannerColor::default(), false)
                                     .tiles[0]
                                     .rect,
                                 bounds
@@ -417,7 +383,7 @@ mod tests {
         assert_eq!(panel.rows[3], [Key::Back]);
         panel.set_displays(2);
         assert_eq!(panel.rows[3], [Key::Back], "position page ignores displays");
-        let frame = panel.frame(screen, 1.0, color, None);
+        let frame = panel.frame(screen, 1.0, color, false);
         let current = frame.tiles.iter().find(|tile| tile.text == "Bottom •");
         assert!(current.is_some_and(|tile| tile.style.unwrap().active));
         assert!(frame.label.is_none());
@@ -430,7 +396,7 @@ mod tests {
         panel.choose(Key::Position(Dock { column: 2, row: 0 }));
         assert_eq!(panel.dock, Dock { column: 2, row: 0 });
         assert_eq!(panel.rows[0][0], Key::Speed(-1));
-        let background = panel.frame(screen, 1.0, color, None).tiles[0].rect;
+        let background = panel.frame(screen, 1.0, color, false).tiles[0].rect;
         assert_eq!(
             (background.x + background.width, background.y),
             (1920.0, 0.0)
@@ -449,7 +415,7 @@ mod tests {
         // The message floating beside the panel; nothing while scanning normally.
         let message = |panel: &MousePanel| {
             panel
-                .frame(screen, 1.0, ScannerColor::default(), None)
+                .frame(screen, 1.0, ScannerColor::default(), false)
                 .label
                 .map(|label| label.text)
         };
@@ -467,17 +433,12 @@ mod tests {
         assert_eq!(panel.handle(Action::Select), Some(Key::RightClick));
         panel.choose(Key::RightClick);
         assert!(panel.suspended());
-        assert_eq!(
-            message(&panel).as_deref(),
-            Some("Mouse waiting · Select to continue")
-        );
+        // A wait is not written out; only the missing highlight shows it.
+        assert_eq!(message(&panel), None);
         // The monitor keys appearing does not end the wait.
         panel.set_displays(2);
         panel.set_displays(1);
-        assert_eq!(
-            message(&panel).as_deref(),
-            Some("Mouse waiting · Select to continue")
-        );
+        assert!(panel.suspended());
         panel.advance(1000, 1000);
         assert_eq!(panel.handle(Action::Select), None);
         assert_eq!(message(&panel), None);
@@ -512,7 +473,7 @@ mod tests {
             width: 1280.0,
             height: 720.0,
         };
-        let frame = panel.frame(screen, 1.0, ScannerColor::default(), None);
+        let frame = panel.frame(screen, 1.0, ScannerColor::default(), false);
         assert!(frame.tiles.iter().any(|tile| tile.selected));
         assert!(frame
             .tiles
@@ -549,7 +510,7 @@ mod tests {
                     Direction::Reverse => Action::Next,
                 });
                 assert!(panel.scan.nav.escaping());
-                let frame = panel.frame(screen, 1.0, ScannerColor::default(), None);
+                let frame = panel.frame(screen, 1.0, ScannerColor::default(), false);
                 let selected: Vec<_> = frame.tiles.iter().filter(|tile| tile.selected).collect();
                 assert_eq!(
                     selected.len(),
@@ -560,10 +521,7 @@ mod tests {
                     .iter()
                     .all(|tile| tile.rect.y == selected[0].rect.y));
                 assert!(selected.iter().all(|tile| tile.style.unwrap().row_scan));
-                assert_eq!(
-                    frame.label.as_ref().map(|label| label.text.as_str()),
-                    Some(crate::scan_panel::BACK_TO_ROWS)
-                );
+                assert!(frame.label.is_none(), "going back is not written out");
                 panel.handle(Action::Select);
                 assert_eq!(panel.scan.position(&panel.rows), (row, None));
             }
@@ -578,7 +536,7 @@ mod tests {
         );
         linear.handle(Action::Back);
         assert!(!linear.scan.nav.escaping());
-        let frame = linear.frame(screen, 1.0, ScannerColor::default(), None);
+        let frame = linear.frame(screen, 1.0, ScannerColor::default(), false);
         assert_eq!(frame.tiles.iter().filter(|tile| tile.selected).count(), 1);
         assert!(
             frame.label.is_none(),
@@ -603,7 +561,7 @@ mod tests {
                 .unwrap()
                 .rect
         };
-        let frame = panel.frame(screen, 1.0, ScannerColor::default(), None);
+        let frame = panel.frame(screen, 1.0, ScannerColor::default(), false);
         assert_eq!(tile(&frame, "←").x, tile(&frame, "↖").x);
         assert_eq!(tile(&frame, "←").width, tile(&frame, "↖").width);
         assert_eq!(tile(&frame, "→").x, tile(&frame, "↗").x);
@@ -617,7 +575,7 @@ mod tests {
         panel.handle(Action::Next);
         assert_eq!(panel.handle(Action::Select), Some(Key::Radar));
         panel.handle(Action::Next);
-        let frame = panel.frame(screen, 1.0, ScannerColor::default(), None);
+        let frame = panel.frame(screen, 1.0, ScannerColor::default(), false);
         let selected: Vec<_> = frame.tiles.iter().filter(|tile| tile.selected).collect();
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].text, "→");
@@ -634,7 +592,7 @@ mod tests {
         };
         let color = ScannerColor::default();
         let mut panel = MousePanel::new(Resolved::default(), 1, 100);
-        let frame = panel.frame(screen, 1.0, color, None);
+        let frame = panel.frame(screen, 1.0, color, false);
         let keyboard = crate::scan_keyboard::Keyboard::new(false).frame(screen, 1.0, color);
         assert!(frame.tiles[0].rect.width < keyboard.tiles[0].rect.width);
         assert_eq!(frame.tiles[0].rect.width, 568.0);
@@ -648,7 +606,7 @@ mod tests {
 
         // The highlight alone shows what Select will choose.
         let highlighted = |panel: &MousePanel| {
-            let frame = panel.frame(screen, 1.0, color, None);
+            let frame = panel.frame(screen, 1.0, color, false);
             assert!(frame.label.is_none());
             let selected: Vec<_> = frame
                 .tiles
@@ -665,28 +623,14 @@ mod tests {
         panel.handle(Action::Select);
         assert_eq!(highlighted(&panel), ["Slower\nLevel 5.0"]);
 
-        // States that need the user's attention float beside the panel.
-        let moving = panel.frame(screen, 1.0, color, Some(RepeatPrompt::Moving));
-        assert!(moving.tiles.iter().all(|tile| !tile.selected));
-        assert_eq!(
-            moving.label.map(|label| label.text).as_deref(),
-            Some("Moving pointer · Press and release a switch to stop")
-        );
-        for (direction, expected) in [
-            (1, "Scrolling up · Press and release a switch to stop"),
-            (-1, "Scrolling down · Press and release a switch to stop"),
-        ] {
-            let scrolling =
-                panel.frame(screen, 1.0, color, Some(RepeatPrompt::Scrolling(direction)));
-            assert!(scrolling.tiles.iter().all(|tile| !tile.selected));
-            assert_eq!(
-                scrolling.label.map(|label| label.text).as_deref(),
-                Some(expected)
-            );
-        }
+        // A repeating move highlights nothing and writes nothing; only a
+        // failure floats beside the panel.
+        let repeating = panel.frame(screen, 1.0, color, true);
+        assert!(repeating.tiles.iter().all(|tile| !tile.selected));
+        assert!(repeating.label.is_none());
 
         panel.failed();
-        let failed = panel.frame(screen, 1.0, color, None);
+        let failed = panel.frame(screen, 1.0, color, false);
         assert!(failed.tiles.iter().all(|tile| !tile.selected));
         assert_eq!(
             failed.label.map(|label| label.text).as_deref(),

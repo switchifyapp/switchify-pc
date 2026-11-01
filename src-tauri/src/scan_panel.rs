@@ -2,7 +2,6 @@
 //! bar and weighted rows of keys. Panels supply content; geometry lives here.
 use crate::{
     panel_theme::Appearance,
-    scan_items::ItemScanner,
     scan_preferences::{PanelSize, Thickness},
     scanning::{
         Frame, FrameLabel, FrameTile, HudPresentation, Rect, ScannerColor, TileRole, TileStyle,
@@ -227,10 +226,10 @@ pub struct Panel {
     pub key_width: f64,
     pub size: PanelSize,
     pub rows: Vec<Vec<PanelKey>>,
-    /// Something that needs the user's attention, such as a failed action, a
-    /// pause or a repeating move with its stop instruction. It floats beside
-    /// the panel while it applies. `None` while scanning normally: the
-    /// highlight shows what Select will choose, so nothing is written out.
+    /// A failure the user must know about, such as an action that could not
+    /// be done. It floats beside the panel while it applies. `None` otherwise:
+    /// the highlight, or its absence, shows the state, so nothing is written
+    /// out while scanning, waiting, pausing, going back or repeating.
     pub message: Option<String>,
     pub dock: Dock,
     /// Row and keys to highlight, all of the row when `None`, or `None` when no
@@ -413,20 +412,10 @@ fn message_label(text: &str, panel: Rect, screen: Rect, scale: f64) -> FrameLabe
 pub const MESSAGE_HEIGHT: f64 = 64.0;
 pub const MESSAGE_MARGIN: f64 = 8.0;
 
-/// The message while an item scanner offers to go back.
-pub fn back_status<T: Clone>(scan: &ItemScanner<T>) -> &'static str {
-    if scan.escaping_to_groups() {
-        BACK_TO_GROUPS
-    } else {
-        BACK_TO_ROWS
-    }
-}
-pub const BACK_TO_ROWS: &str = "Back to rows · Select to return";
-pub const BACK_TO_GROUPS: &str = "Back to groups · Select to return";
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    const FAILED: &str = "Mouse action failed · Select to resume";
 
     fn key(text: &str, weight: f64) -> PanelKey {
         PanelKey {
@@ -588,7 +577,7 @@ mod tests {
             key_width: 380.0,
             size: PanelSize::Medium,
             rows: vec![vec![key("a", 1.0)]],
-            message: Some(BACK_TO_ROWS.into()),
+            message: Some(FAILED.into()),
             dock: Dock { column: 1, row: 0 },
             selected: Some((0, None)),
             row_scan: true,
@@ -611,7 +600,7 @@ mod tests {
         // The message floats below a panel docked at the top, as wide as the
         // panel, on the HUD, and never among the tiles.
         let label = frame.label.unwrap();
-        assert_eq!(label.text, BACK_TO_ROWS);
+        assert_eq!(label.text, FAILED);
         let panel = frame.tiles[0].rect;
         assert_eq!((label.rect.x, label.rect.width), (panel.x, panel.width));
         assert_eq!(label.rect.y, panel.y + panel.height + MESSAGE_MARGIN);
@@ -631,7 +620,7 @@ mod tests {
             key_width: 380.0,
             size: PanelSize::Medium,
             rows: vec![vec![key("a", 1.0)]],
-            message: Some("Mouse paused · Select to resume".into()),
+            message: Some(FAILED.into()),
             dock: Dock::default(),
             selected: None,
             row_scan: false,
@@ -641,7 +630,7 @@ mod tests {
         .frame(screen, 1.0, ScannerColor::default());
         let panel = frame.tiles[0].rect;
         let label = frame.label.clone().unwrap();
-        assert_eq!(label.text, "Mouse paused · Select to resume");
+        assert_eq!(label.text, FAILED);
         assert_eq!(label.rect.y + label.rect.height + MESSAGE_MARGIN, panel.y);
         assert_eq!((label.rect.x, label.rect.width), (panel.x, panel.width));
         move_frame(&mut frame, Dock { column: 0, row: 1 }, screen);
