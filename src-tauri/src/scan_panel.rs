@@ -23,8 +23,8 @@ pub struct PanelKey {
     pub active: bool,
     /// Reserves a cell without drawing it or counting it as a scanner column.
     pub blank: bool,
-    /// Keeps its cell and scanner column without drawing it, such as an
-    /// empty suggestion slot the scan skips.
+    /// Keeps its cell and scanner column but draws only a faint placeholder
+    /// outline, such as an empty suggestion slot the scan skips.
     pub hidden: bool,
 }
 
@@ -340,19 +340,25 @@ impl Panel {
                     left += key_width + gap;
                     continue;
                 }
-                if key.hidden {
-                    left += key_width + gap;
-                    c += 1;
-                    continue;
-                }
+                // A hidden key is still a slot: it draws a faint placeholder
+                // outline in its cell and keeps its scanner column, but the
+                // highlight never lands on it.
                 frame.tiles.push(FrameTile {
                     thickness: self.thickness,
                     color,
                     appearance: self.appearance,
-                    text: key.text.clone(),
+                    text: if key.hidden {
+                        String::new()
+                    } else {
+                        key.text.clone()
+                    },
                     style: Some(TileStyle {
-                        role: key.role,
-                        active: key.active,
+                        role: if key.hidden {
+                            TileRole::Placeholder
+                        } else {
+                            key.role
+                        },
+                        active: key.active && !key.hidden,
                         row_scan: self.row_scan,
                     }),
                     rect: Rect {
@@ -362,9 +368,11 @@ impl Panel {
                         height: (row_height - gap).max(1.0),
                     },
                     scale,
-                    selected: self.selected.as_ref().is_some_and(|(active_row, columns)| {
-                        r == *active_row && columns.as_ref().is_none_or(|keys| keys.contains(&c))
-                    }),
+                    selected: !key.hidden
+                        && self.selected.as_ref().is_some_and(|(active_row, columns)| {
+                            r == *active_row
+                                && columns.as_ref().is_none_or(|keys| keys.contains(&c))
+                        }),
                 });
                 left += key_width + gap;
                 c += 1;
@@ -431,10 +439,15 @@ mod tests {
         }
     }
 
-    #[test]
-    fn hidden_keys_keep_their_cell_and_scanner_column() {
+    fn hidden_key() -> PanelKey {
         let mut hidden = key("", 1.0);
         hidden.hidden = true;
+        hidden
+    }
+
+    #[test]
+    fn hidden_keys_keep_their_cell_and_scanner_column() {
+        let hidden = hidden_key();
         let frame = Panel {
             key_width: 380.0,
             size: PanelSize::Medium,
@@ -458,11 +471,47 @@ mod tests {
         );
         let a = frame.tiles.iter().find(|t| t.text == "a").unwrap();
         let c = frame.tiles.iter().find(|t| t.text == "c").unwrap();
-        // The background, the title, Settings and the two drawn keys; nothing else.
-        assert_eq!(frame.tiles.len(), 5);
+        // The background, the title, Settings, the two drawn keys and the
+        // placeholder in the empty cell; nothing else.
+        assert_eq!(frame.tiles.len(), 6);
         assert!(frame.label.is_none());
         assert!(c.selected && !a.selected);
         assert!(c.rect.x - a.rect.x > 2.0 * a.rect.width);
+        let placeholder = frame
+            .tiles
+            .iter()
+            .find(|t| t.style.is_some_and(|s| s.role == TileRole::Placeholder))
+            .unwrap();
+        assert!(placeholder.text.is_empty());
+        assert!(placeholder.rect.x > a.rect.x && placeholder.rect.x < c.rect.x);
+        assert_eq!(placeholder.rect.width, a.rect.width);
+        // Highlighting the whole row never lights the placeholder.
+        let row = Panel {
+            key_width: 380.0,
+            size: PanelSize::Medium,
+            rows: vec![vec![key("a", 1.0), hidden_key(), key("c", 1.0)]],
+            message: None,
+            dock: Dock::default(),
+            selected: Some((0, None)),
+            row_scan: true,
+            thickness: Thickness::Thick,
+            appearance: Appearance::Dark,
+        }
+        .frame(
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1920.0,
+                height: 1080.0,
+            },
+            1.0,
+            ScannerColor::default(),
+        );
+        for tile in &row.tiles {
+            let placeholder = tile.style.is_some_and(|s| s.role == TileRole::Placeholder);
+            let key = tile.text == "a" || tile.text == "c";
+            assert_eq!(tile.selected, key && !placeholder, "{:?}", tile.text);
+        }
     }
 
     #[test]

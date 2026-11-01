@@ -937,7 +937,6 @@ mod platform {
             return Ok(());
         }
         let label = &view.label;
-        label.setStringValue(&NSString::from_str(&tile.text));
         let [r, g, b] = crate::scan_tile::text_rgb(tile);
         label.setTextColor(Some(&NSColor::colorWithSRGBRed_green_blue_alpha(
             f64::from(r) / 255.0,
@@ -945,18 +944,39 @@ mod platform {
             f64::from(b) / 255.0,
             1.0,
         )));
-        label.setFont(Some(&NSFont::boldSystemFontOfSize(
-            crate::scan_tile::keyboard_font_size(tile) * tile.scale,
-        )));
+        let font_size = crate::scan_tile::keyboard_font_size(tile) * tile.scale;
+        label.setFont(Some(&NSFont::boldSystemFontOfSize(font_size)));
         let padding = 8.0 * tile.scale;
         let width = (frame.width - padding * 2.0).max(1.0);
-        let measured = label
-            .cell()
-            .ok_or("Keyboard label is unavailable.")?
-            .cellSizeForBounds(NSRect::new(
+        let cell = label.cell().ok_or("Keyboard label is unavailable.")?;
+        // A long word shrinks the label, down to a floor, so it fits the key;
+        // a word still too wide is split with a hyphen instead of breaking
+        // wherever the line runs out. Words are measured unwrapped with the
+        // font that draws them.
+        let measure = |text: &str| {
+            label.setStringValue(&NSString::from_str(text));
+            cell.cellSizeForBounds(NSRect::new(
                 NSPoint::new(0.0, 0.0),
-                NSSize::new(width, f64::MAX),
-            ));
+                NSSize::new(f64::MAX, f64::MAX),
+            ))
+            .width
+        };
+        let hyphen = measure(crate::scan_tile::HYPHEN);
+        let widest = tile
+            .text
+            .split_whitespace()
+            .map(measure)
+            .fold(0.0, f64::max);
+        let shrink = crate::scan_tile::label_shrink(widest, hyphen, width);
+        if shrink < 1.0 {
+            label.setFont(Some(&NSFont::boldSystemFontOfSize(font_size * shrink)));
+        }
+        let text = crate::scan_tile::break_long_words(&tile.text, width, measure);
+        label.setStringValue(&NSString::from_str(&text));
+        let measured = cell.cellSizeForBounds(NSRect::new(
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(width, f64::MAX),
+        ));
         let height = measured.height.min(frame.height);
         label.setFrame(NSRect::new(
             NSPoint::new(padding, (frame.height - height) / 2.0),

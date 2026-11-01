@@ -17,7 +17,7 @@ $env:SWITCHIFY_PANEL_FIXTURES = Join-Path $PWD '.cache/panel-fixtures'
 cargo test --manifest-path src-tauri/Cargo.toml export_panel_size_fixtures -- --ignored --nocapture
 ```
 
-Each panel is exported twice: dark as `name-Size.png` and light as `name-Size-light.png`, so the Panel theme palettes can be checked side by side.
+Each panel is exported twice: dark as `name-Size.png` and light as `name-Size-light.png`, so the Panel theme palettes can be checked side by side. `keyboard-predictions-*.png` fills the suggestion row with a mix of filled slots, empty placeholder outlines and words long enough to shrink or split with a hyphen.
 
 ```powershell
 # Example: .cache/panel-fixtures/mouse-Medium.png and mouse-Medium-light.png
