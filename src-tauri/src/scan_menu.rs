@@ -939,7 +939,7 @@ mod tests {
         assert_eq!(close.style.unwrap().role, TileRole::Toolbar);
     }
     #[test]
-    fn errors_pauses_and_waits_float_beside_the_panel_without_a_highlight() {
+    fn errors_pauses_and_waits_clear_the_highlight_and_write_nothing() {
         let screen = Rect {
             x: 0.0,
             y: 0.0,

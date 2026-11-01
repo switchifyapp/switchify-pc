@@ -2686,7 +2686,7 @@ mod tests {
             .any(|tile| tile.text.contains("suggestion")));
     }
     #[test]
-    fn prediction_warning_does_not_hide_resume_or_error_instructions() {
+    fn a_pause_writes_nothing_and_a_failure_still_writes_its_message() {
         let mut k = Keyboard::new(false);
         k.prediction_failed = true;
         let screen = Rect {

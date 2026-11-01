@@ -412,7 +412,7 @@ mod tests {
             width: 1920.0,
             height: 1080.0,
         };
-        // The message floating beside the panel; nothing while scanning normally.
+        // The message floating beside the panel: only a failure, never while scanning.
         let message = |panel: &MousePanel| {
             panel
                 .frame(screen, 1.0, ScannerColor::default(), false)
@@ -538,10 +538,7 @@ mod tests {
         assert!(!linear.scan.nav.escaping());
         let frame = linear.frame(screen, 1.0, ScannerColor::default(), false);
         assert_eq!(frame.tiles.iter().filter(|tile| tile.selected).count(), 1);
-        assert!(
-            frame.label.is_none(),
-            "no going back offered, so no message"
-        );
+        assert!(frame.label.is_none(), "nothing is written beside the panel");
     }
 
     #[test]
