@@ -601,6 +601,13 @@ describe("Switchify PC shell", () => {
     expect(screen.getByRole("button", { name: "New panel, 4 tiles" })).toBeInTheDocument();
   });
 
+  it("says so when the built-in menus cannot be listed", async () => {
+    vi.spyOn(api, "listBuiltinPanels").mockRejectedValue(new Error("Menu storage unavailable"));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Menu storage unavailable");
+  });
+
   it("rearranges a built-in menu and puts it back", async () => {
     const saveBuiltin = vi.spyOn(api, "saveBuiltinPanel");
     render(<App />);
