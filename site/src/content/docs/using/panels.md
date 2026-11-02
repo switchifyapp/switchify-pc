@@ -7,6 +7,8 @@ A panel is a page of tiles that scans like the Home menu. Each tile does one thi
 
 Open **Panels** in the sidebar of the Switchify PC window to see your panels. Each one is shown as a small picture of the panel, drawn the way the scan will draw it, in the light or dark panel theme you chose in Scanning settings.
 
+![The Panels page with two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath and either its description or its number of tiles, and a New panel button.](../../../assets/screenshots/panels.png)
+
 ## Make a panel
 
 Choose **New panel**. Switchify PC makes a starter panel with four tiles: Keyboard, Mouse, Back and Close, and opens it in the editor. Give it a name and, if you like, a description. Names must be different from each other.
@@ -24,6 +26,8 @@ The editor shows the panel's rows. Choose a tile to change it on the right:
 Use **Tile** on a row to add a tile to it, **Add row** to add a row, and the arrows to move tiles and rows. **Remove tile** and the bin on a row take them away. Nothing changes on the scanned panel until you choose **Save panel**; if you leave with unsaved changes, Switchify PC asks first.
 
 The picture under the rows shows the panel as it will scan.
+
+![The editor for the Greetings panel: three rows of tiles with the Hello tile chosen, and on the right its label, width, action "Type Hello, how are you?" and the searchable list of actions.](../../../assets/screenshots/panel-editor.png)
 
 ## What a tile can do
 

@@ -14,8 +14,8 @@ const chrome = process.env.CHROME_PATH ?? {
   darwin: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 }[process.platform] ?? "/usr/bin/google-chrome";
 // Only the screenshots the docs use are written.
-const keep = new Set(["setup-input-access-macos", "setup-add-switch-saved", "setup-start-with-system", "home",
-  "add-switch-waiting", "add-switch-learned", "switch-editor", "pairing-request"]);
+const keep = new Set(process.env.ONLY ? process.env.ONLY.split(",") : ["setup-input-access-macos", "setup-add-switch-saved", "setup-start-with-system", "home",
+  "add-switch-waiting", "add-switch-learned", "switch-editor", "pairing-request", "panels", "panel-editor"]);
 fs.mkdirSync(outDir, { recursive: true });
 
 const bridge = (platform) => {
@@ -51,6 +51,36 @@ const bridge = (platform) => {
   };
   const scan = { config: scanConfig, enabled: true, phase: "idle", paused: false, message: "Ready.", supported: true };
   const remote = { schemaVersion: 1, revision: 1, slots: Array.from({ length: 8 }, () => ({ pressAction: null, holdActions: [] })) };
+  // Two made-up panels and a slice of the action library, enough for the Panels pages.
+  const tile = (label, action, span = 1) => ({ label, action, span });
+  const panels = [
+    { id: "greetings", version: 3, name: "Greetings", description: "Things I say a lot", rows: [
+      [tile("Hello", { type: "text", text: "Hello, how are you?" }), tile("Thank you", { type: "text", text: "Thank you very much." }), tile("Yes", { type: "text", text: "Yes" }), tile("No", { type: "text", text: "No" })],
+      [tile("Keyboard", { type: "openPanel", panel: "keyboard" }), tile("Writing", { type: "openCustomPanel", id: "writing" })],
+      [tile("Back", { type: "back" }), tile("Close", { type: "close" })],
+    ] },
+    { id: "writing", version: 1, name: "Writing", description: "", rows: [
+      [tile("Copy", { type: "command", command: "copy" }), tile("Paste", { type: "command", command: "paste" }), tile("Undo", { type: "command", command: "undo" })],
+      [tile("Save", { type: "key", keys: ["Ctrl", "S"] }, 2), tile("Back", { type: "back" })],
+    ] },
+  ];
+  const entry = (id, name, category, categoryLabel, action, keywords = [], parameter) => ({ id, name, category, categoryLabel, keywords, action, needsPoint: false, ...(parameter ? { parameter } : {}) });
+  const actions = [
+    entry("key", "Press keys", "typing", "Typing", { type: "key", keys: [] }, ["shortcut"], { kind: "keys", min: 1, max: 4 }),
+    entry("text", "Type text", "typing", "Typing", { type: "text", text: "" }, ["phrase"], { kind: "text", maxChars: 200 }),
+    entry("key.Enter", "Enter", "typing", "Typing", { type: "key", keys: ["Enter"] }, ["return"]),
+    entry("command.copy", "Copy", "editing", "Editing", { type: "command", command: "copy" }, ["clipboard"]),
+    entry("command.paste", "Paste", "editing", "Editing", { type: "command", command: "paste" }, ["clipboard"]),
+    entry("command.undo", "Undo", "editing", "Editing", { type: "command", command: "undo" }),
+    entry("command.switchNext", "Switch app forward", "windows", "Apps and windows", { type: "command", command: "switchNext" }, ["alt tab"]),
+    entry("command.playPause", "Play / pause", "media", "Media", { type: "command", command: "playPause" }, ["music"]),
+    entry("click.left", "Left click", "mouse", "Mouse", { type: "click", button: "left", count: 1 }),
+    entry("panel.keyboard", "Open keyboard", "panels", "Panels and menus", { type: "openPanel", panel: "keyboard" }),
+    entry("panel.custom", "Open one of my panels", "panels", "Panels and menus", { type: "openCustomPanel", id: "" }, ["link"], { kind: "panelId" }),
+    entry("back", "Back", "panels", "Panels and menus", { type: "back" }),
+    entry("close", "Close panel", "panels", "Panels and menus", { type: "close" }),
+    entry("pause", "Pause scanning", "scanning", "Scanning", { type: "pause" }),
+  ];
   const callbacks = new Map();
   const listeners = new Map();
   let nextId = 1;
@@ -91,6 +121,10 @@ const bridge = (platform) => {
         case "configure_point_scan": Object.assign(scan.config, args.config ?? {}); return clone(scan);
         case "get_remote_switches": case "save_remote_switches": return clone(remote);
         case "list_switch_profiles": return [];
+        case "list_custom_panels": return clone(panels);
+        case "save_custom_panel": return clone(panels);
+        case "get_panel_actions": return clone(actions);
+        case "check_panel_action": return "";
         case "get_account": case "get_account_status":
           return { available: true, signedIn: false, email: null, pendingEmail: null, keychainUnavailable: false };
         case "get_settings_sync": return { status: "off", lastSyncedAt: null, message: null };
@@ -190,6 +224,18 @@ for (const platform of ["windows", "macos"]) {
   await shot(page, "switches-saved", "main");
   await click(page, "Edit Head switch");
   await shot(page, "switch-editor", ".switch-row[data-open]");
+  await page.close();
+}
+
+// Panels and the editor
+{
+  const page = await open("windows", { height: 900 });
+  await click(page, "Panels");
+  await shot(page, "panels", "main");
+  await page.setViewport({ width: 1280, height: 1150, deviceScaleFactor: 2 });
+  await click(page, "Greetings, 8 tiles");
+  await click(page, "Row 1, tile 1: Hello, Type \"Hello, how are you?\"");
+  await shot(page, "panel-editor", "main");
   await page.close();
 }
 
