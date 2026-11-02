@@ -1,5 +1,7 @@
 //! Switch-owned keyboard state and geometry. No native input or captured text.
 use crate::{
+    custom_panels::Cell,
+    panel_actions::PanelAction,
     scan_items::{ItemScanner, Policy},
     scanning::{Action, Frame, Rect, ScannerColor, TileRole, TileStyle},
 };
@@ -48,6 +50,8 @@ pub enum Key {
     Position(crate::scan_panel::Dock),
     Back,
     Close,
+    /// A tile the user added below the keys: its row and place in the row.
+    Extra(usize, usize),
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Stroke {
@@ -92,12 +96,17 @@ impl Stroke {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Output {
-    Prediction { token: u64, index: usize },
+    Prediction {
+        token: u64,
+        index: usize,
+    },
     RetryPrediction,
     Stroke(Stroke),
     Punctuation(Punctuation),
     Layout(crate::point_scan::KeyboardLayout),
     Close,
+    /// A tile the user added was chosen; the workflow runs its action.
+    Extra(usize, usize),
 }
 
 pub fn rows(page: Page, mac: bool) -> Vec<Vec<Key>> {
@@ -281,6 +290,8 @@ pub struct Keyboard {
     layout_save_error: bool,
     positioning: bool,
     mac: bool,
+    /// The user's rows, shown on every page above the page row.
+    extras: Vec<Vec<Cell>>,
     rows: Vec<Vec<Key>>,
     scan: ItemScanner<Key>,
     activation: Option<u64>,
@@ -332,6 +343,7 @@ impl Keyboard {
             layout_save_error: false,
             positioning: false,
             mac,
+            extras: Vec::new(),
             rows,
             scan,
             activation: None,
@@ -357,6 +369,35 @@ impl Keyboard {
     pub fn with_layout(mut self, layout: crate::point_scan::KeyboardLayout) -> Self {
         self.set_layout(layout);
         self
+    }
+    /// Adds the user's rows below the keys.
+    pub fn with_extras(mut self, extras: Vec<Vec<Cell>>) -> Self {
+        self.extras = extras;
+        self.rebuild_rows();
+        self
+    }
+    /// The built-in keys of the QWERTY Letters page, for a picture of the
+    /// keyboard.
+    pub fn fixed_picture(mac: bool) -> Vec<Vec<(String, f64)>> {
+        let keyboard = Self::configured(mac, Default::default());
+        keyboard
+            .rows
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|&key| (keyboard.display(key), keyboard.weight(key)))
+                    .collect()
+            })
+            .collect()
+    }
+    pub fn extra(&self, row: usize, column: usize) -> Option<&Cell> {
+        self.extras.get(row)?.get(column)
+    }
+    /// A tile the user added could not act. The scan carries on.
+    pub fn cancel_activation(&mut self) {
+        self.activation = None;
+        self.pending_typed = None;
+        self.restart();
     }
     pub fn set_layout(&mut self, layout: crate::point_scan::KeyboardLayout) {
         if self.layout != layout {
@@ -393,6 +434,16 @@ impl Keyboard {
         } else {
             rows_for(self.page, self.mac, self.layout)
         };
+        if !self.positioning && !self.extras.is_empty() {
+            let bottom = self.rows.pop().unwrap_or_default();
+            self.rows
+                .extend(self.extras.iter().enumerate().map(|(row, cells)| {
+                    (0..cells.len())
+                        .map(|column| Key::Extra(row, column))
+                        .collect()
+                }));
+            self.rows.push(bottom);
+        }
         if self.prediction_enabled && self.page == Page::Letters && !self.positioning {
             self.rows.insert(
                 0,
@@ -689,6 +740,30 @@ impl Keyboard {
                 self.rebuild_rows();
             }
             Key::Close => return Some(Output::Close),
+            Key::Extra(row, column) => {
+                let action = self.extra(row, column)?.action.clone();
+                match action {
+                    PanelAction::Pause => {
+                        self.scan.wait();
+                        return None;
+                    }
+                    PanelAction::Reverse => {
+                        let _ = self.scan.handle(Action::Reverse);
+                        return None;
+                    }
+                    _ => {}
+                }
+                if crate::panel_extras::leaves(&action) {
+                    return Some(Output::Extra(row, column));
+                }
+                // Typed or run like a key: the scan waits for the result.
+                self.predictions = None;
+                self.queued_predictions = None;
+                self.activation = self.scan.begin_activation();
+                self.activation?;
+                self.pending_typed = Some(PendingTyped::Other);
+                return Some(Output::Extra(row, column));
+            }
             Key::Character(..) | Key::Named(_) => {
                 let stroke = self.stroke(key);
                 if stroke.character() == Some(' ')
@@ -946,10 +1021,17 @@ impl Keyboard {
             Key::Position(dock) => crate::scan_panel::position_label(dock, self.dock),
             Key::Back => "Back".into(),
             Key::Close => "Close keyboard".into(),
+            Key::Extra(row, column) => self
+                .extra(row, column)
+                .map(|cell| cell.label.clone())
+                .unwrap_or_default(),
         }
     }
-    fn weight(key: Key) -> f64 {
+    fn weight(&self, key: Key) -> f64 {
         match key {
+            Key::Extra(row, column) => self
+                .extra(row, column)
+                .map_or(1.0, |cell| f64::from(cell.span)),
             Key::Character(' ', _) => 4.0,
             Key::Named("Backspace" | "Enter") => 1.9,
             Key::Named("Tab") | Key::Caps | Key::Modifier(_) => 1.6,
@@ -964,6 +1046,11 @@ impl Keyboard {
     fn style(&self, key: Key, row_scan: bool) -> TileStyle {
         TileStyle {
             role: match key {
+                Key::Extra(row, column) => {
+                    self.extra(row, column).map_or(TileRole::Utility, |cell| {
+                        crate::panel_extras::role(&cell.action)
+                    })
+                }
                 Key::Character(..) => TileRole::Character,
                 Key::Page(_)
                 | Key::Layout
@@ -1017,7 +1104,7 @@ impl Keyboard {
                             let style = self.style(key, highlight_row);
                             crate::scan_panel::PanelKey {
                                 text: self.display(key),
-                                weight: Self::weight(key),
+                                weight: self.weight(key),
                                 role: style.role,
                                 active: style.active,
                                 blank: false,

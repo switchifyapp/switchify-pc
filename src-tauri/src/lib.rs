@@ -12,6 +12,7 @@ mod licence_activation;
 pub mod licence_key;
 pub mod licence_lease;
 mod licensing;
+mod panel_extras;
 use licensing::{
     check_licence, paste_licence, redeem_licence, remove_licence, set_licence_recovery,
     transfer_licence,
@@ -919,6 +920,44 @@ fn reset_builtin_panel(
     require_main(&window)?;
     custom_panels::reset_override(&app, builtin_kind(&kind)?)?;
     Ok(list_builtin_panels(app))
+}
+
+/// A native panel as the Panels page shows it: its keys, and the extra rows
+/// the user added below them.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PanelExtrasView {
+    target: String,
+    name: String,
+    fixed: Vec<Vec<panel_extras::PictureCell>>,
+    rows: panel_extras::Rows,
+}
+
+#[tauri::command]
+fn list_panel_extras(app: AppHandle) -> Vec<PanelExtrasView> {
+    let extras = custom_panels::extras(&app);
+    panel_extras::ALL
+        .iter()
+        .map(|&target| PanelExtrasView {
+            target: target.key().into(),
+            name: target.label().into(),
+            fixed: panel_extras::fixed_picture(target),
+            rows: extras.get(target.key()).cloned().unwrap_or_default(),
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn save_panel_extras(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    target: String,
+    rows: panel_extras::Rows,
+) -> Result<Vec<PanelExtrasView>, String> {
+    require_main(&window)?;
+    let target = panel_extras::Target::from_key(&target).ok_or("That panel cannot be changed.")?;
+    custom_panels::save_extras(&app, target, rows)?;
+    Ok(list_panel_extras(app))
 }
 
 /// The searchable library of actions a custom panel tile can perform.
@@ -2114,6 +2153,8 @@ pub fn run() {
             list_builtin_panels,
             save_builtin_panel,
             reset_builtin_panel,
+            list_panel_extras,
+            save_panel_extras,
             save_switch_profile,
             delete_switch_profile,
             complete_profile_exit,

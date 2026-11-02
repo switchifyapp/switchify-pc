@@ -1354,6 +1354,11 @@ pub fn refresh_custom_panels(app: &AppHandle) {
             .set_menu_overrides(crate::builtin_panels::by_kind(
                 &crate::custom_panels::overrides(app),
             ));
+        engine
+            .technique
+            .set_panel_extras(crate::panel_extras::by_target(
+                &crate::custom_panels::extras(app),
+            ));
     }
 }
 /// A point scan already under way, whatever Select would open.

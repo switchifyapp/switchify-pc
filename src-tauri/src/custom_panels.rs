@@ -17,7 +17,8 @@ pub const MAX_DESCRIPTION_CHARS: usize = 200;
 pub const MAX_LABEL_CHARS: usize = 40;
 /// Widest a tile may be, in units of a normal tile.
 pub const MAX_SPAN: u8 = 4;
-/// Version 2 added the built-in menu overrides; a version 1 file still loads.
+/// Version 2 added the built-in menu overrides and the extra rows on the
+/// mouse panel and the keyboard; a version 1 file still loads.
 const STORE_SCHEMA: u32 = 2;
 
 /// One tile. The label is what people read; the action is what Select does.
@@ -41,6 +42,30 @@ pub struct CustomPanel {
     pub name: String,
     pub description: String,
     pub rows: Vec<Vec<Cell>>,
+}
+
+impl Cell {
+    /// Checks one tile. `place` names it in any error.
+    pub fn validate(&self, place: &str) -> Result<(), String> {
+        let label = self.label.trim();
+        if label.is_empty() {
+            return Err(format!("{place}: give the tile a label."));
+        }
+        if label.chars().count() > MAX_LABEL_CHARS {
+            return Err(format!(
+                "{place}: labels use {MAX_LABEL_CHARS} characters or fewer."
+            ));
+        }
+        if label.chars().any(|c| c.is_control() && c != '\n') {
+            return Err(format!("{place}: the label has unusable characters."));
+        }
+        if !(1..=MAX_SPAN).contains(&self.span) {
+            return Err(format!("{place}: tile width is 1 to {MAX_SPAN}."));
+        }
+        self.action
+            .validate()
+            .map_err(|error| format!("{place}: {error}"))
+    }
 }
 
 impl CustomPanel {
@@ -92,25 +117,7 @@ impl CustomPanel {
                 ));
             }
             for (cell_index, cell) in row.iter().enumerate() {
-                let place = format!("Row {}, tile {}", row_index + 1, cell_index + 1);
-                let label = cell.label.trim();
-                if label.is_empty() {
-                    return Err(format!("{place}: give the tile a label."));
-                }
-                if label.chars().count() > MAX_LABEL_CHARS {
-                    return Err(format!(
-                        "{place}: labels use {MAX_LABEL_CHARS} characters or fewer."
-                    ));
-                }
-                if label.chars().any(|c| c.is_control() && c != '\n') {
-                    return Err(format!("{place}: the label has unusable characters."));
-                }
-                if !(1..=MAX_SPAN).contains(&cell.span) {
-                    return Err(format!("{place}: tile width is 1 to {MAX_SPAN}."));
-                }
-                cell.action
-                    .validate()
-                    .map_err(|error| format!("{place}: {error}"))?;
+                cell.validate(&format!("Row {}, tile {}", row_index + 1, cell_index + 1))?;
             }
         }
         Ok(())
@@ -156,6 +163,10 @@ struct Store {
     /// Rearranged built-in menus, keyed by menu name (`builtin_panels::key`).
     #[serde(default)]
     overrides: BTreeMap<String, CustomPanel>,
+    /// Extra rows on the mouse panel and the keyboard, by panel
+    /// (`panel_extras::Target::key`).
+    #[serde(default)]
+    extras: crate::panel_extras::Extras,
 }
 
 impl Default for Store {
@@ -164,15 +175,18 @@ impl Default for Store {
             schema_version: STORE_SCHEMA,
             panels: Vec::new(),
             overrides: BTreeMap::new(),
+            extras: BTreeMap::new(),
         }
     }
 }
 
-/// What the store holds: the user's panels and the rearranged menus.
+/// What the store holds: the user's panels, the rearranged menus and the
+/// extra rows on the native panels.
 #[derive(Debug, Clone, Default, PartialEq)]
 struct Contents {
     panels: Vec<CustomPanel>,
     overrides: BTreeMap<String, CustomPanel>,
+    extras: crate::panel_extras::Extras,
 }
 
 pub struct Controller {
@@ -196,9 +210,11 @@ fn load(bytes: &[u8]) -> Option<Contents> {
     }
     validate_set(&store.panels).ok()?;
     crate::builtin_panels::validate_overrides(&store.overrides).ok()?;
+    crate::panel_extras::validate_all(&store.extras).ok()?;
     Some(Contents {
         panels: store.panels,
         overrides: store.overrides,
+        extras: store.extras,
     })
 }
 
@@ -236,19 +252,25 @@ pub fn overrides(app: &AppHandle) -> BTreeMap<String, CustomPanel> {
     contents(app).overrides
 }
 
+/// The extra rows on the mouse panel and the keyboard, keyed by panel.
+pub fn extras(app: &AppHandle) -> crate::panel_extras::Extras {
+    contents(app).extras
+}
+
 fn write(app: &AppHandle, contents: &Contents) -> Result<(), String> {
     let p = path(app)?;
     std::fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
-    // A file without overrides stays version 1, so an older build can still
+    // A file with only panels stays version 1, so an older build can still
     // read it after a rollback.
     let store = Store {
-        schema_version: if contents.overrides.is_empty() {
+        schema_version: if contents.overrides.is_empty() && contents.extras.is_empty() {
             1
         } else {
             STORE_SCHEMA
         },
         panels: contents.panels.clone(),
         overrides: contents.overrides.clone(),
+        extras: contents.extras.clone(),
     };
     let temp = p.with_extension("json.tmp");
     std::fs::write(
@@ -393,6 +415,57 @@ pub fn replace_overrides(
         .unwrap_or_else(|p| p.into_inner());
     let next = Contents {
         overrides,
+        ..current.clone()
+    };
+    write(app, &next)?;
+    *current = next;
+    drop(current);
+    crate::scanning_runtime::refresh_custom_panels(app);
+    Ok(())
+}
+
+/// Saves the extra rows of one native panel. No rows takes the panel back
+/// to its keys alone.
+pub fn save_extras(
+    app: &AppHandle,
+    target: crate::panel_extras::Target,
+    rows: crate::panel_extras::Rows,
+) -> Result<(), String> {
+    let rows = crate::panel_extras::normalized(rows);
+    crate::panel_extras::validate_rows(&rows)?;
+    let controller = app.state::<Controller>();
+    let mut current = controller
+        .contents
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let mut next = current.clone();
+    if rows.is_empty() {
+        next.extras.remove(target.key());
+    } else {
+        next.extras.insert(target.key().into(), rows);
+    }
+    if next == *current {
+        return Ok(());
+    }
+    write(app, &next)?;
+    *current = next;
+    drop(current);
+    crate::scanning_runtime::refresh_custom_panels(app);
+    let _ = app.emit(EVENT, ());
+    Ok(())
+}
+
+/// Replaces the extra rows of every native panel with a synced set.
+/// Settings sync announces the change itself once the whole apply is done.
+pub fn replace_extras(app: &AppHandle, extras: crate::panel_extras::Extras) -> Result<(), String> {
+    crate::panel_extras::validate_all(&extras)?;
+    let controller = app.state::<Controller>();
+    let mut current = controller
+        .contents
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let next = Contents {
+        extras,
         ..current.clone()
     };
     write(app, &next)?;
@@ -690,6 +763,7 @@ mod tests {
             schema_version: STORE_SCHEMA,
             panels: vec![sample("a", "A")],
             overrides: BTreeMap::new(),
+            extras: BTreeMap::new(),
         })
         .unwrap();
         assert_eq!(load(&good).unwrap().panels.len(), 1);
@@ -698,6 +772,7 @@ mod tests {
             schema_version: 1,
             panels: vec![],
             overrides: BTreeMap::new(),
+            extras: BTreeMap::new(),
         })
         .unwrap();
         assert_eq!(written["schemaVersion"], 1);
@@ -709,6 +784,7 @@ mod tests {
             schema_version: STORE_SCHEMA + 1,
             panels: vec![],
             overrides: BTreeMap::new(),
+            extras: BTreeMap::new(),
         })
         .unwrap();
         assert!(load(&newer).is_none());
@@ -718,6 +794,7 @@ mod tests {
             schema_version: STORE_SCHEMA,
             panels: vec![bad],
             overrides: BTreeMap::new(),
+            extras: BTreeMap::new(),
         })
         .unwrap();
         assert!(load(&invalid).is_none());
@@ -731,9 +808,21 @@ mod tests {
             schema_version: STORE_SCHEMA,
             panels: vec![],
             overrides,
+            extras: BTreeMap::new(),
         })
         .unwrap();
         assert!(load(&stray).is_none());
+        // Extra rows on a panel that takes none refuse the file too.
+        let mut extras = BTreeMap::new();
+        extras.insert("home".into(), sample("a", "A").rows);
+        let misplaced = serde_json::to_vec(&Store {
+            schema_version: STORE_SCHEMA,
+            panels: vec![],
+            overrides: BTreeMap::new(),
+            extras,
+        })
+        .unwrap();
+        assert!(load(&misplaced).is_none());
         assert!(load(b"not json").is_none());
     }
 

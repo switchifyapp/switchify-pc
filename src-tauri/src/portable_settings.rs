@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 8;
+pub const SCHEMA_VERSION: u32 = 9;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -38,6 +38,10 @@ pub struct Document {
     /// name. The same default rule as `panels`.
     #[serde(default)]
     pub menu_overrides: BTreeMap<String, CustomPanel>,
+    /// Added in version 9: extra rows of tiles on the mouse panel and the
+    /// keyboard, by panel. The same default rule as `panels`.
+    #[serde(default)]
+    pub panel_extras: crate::panel_extras::Extras,
 }
 
 /// `AppSettings` without `start_with_system` (registered with this OS),
@@ -128,6 +132,7 @@ pub struct Local {
     pub remote: remote_scan::Config,
     pub panels: Vec<CustomPanel>,
     pub menu_overrides: BTreeMap<String, CustomPanel>,
+    pub panel_extras: crate::panel_extras::Extras,
 }
 
 impl Local {
@@ -151,6 +156,7 @@ impl Local {
             remote: remote_scan::config(app),
             panels: custom_panels::list(app),
             menu_overrides: custom_panels::overrides(app),
+            panel_extras: custom_panels::extras(app),
         }
     }
 
@@ -169,6 +175,7 @@ impl Local {
             remote_switches: self.remote.slots.clone(),
             panels: self.panels.clone(),
             menu_overrides: self.menu_overrides.clone(),
+            panel_extras: self.panel_extras.clone(),
         }
     }
 }
@@ -210,28 +217,21 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
     if schema_version > SCHEMA_VERSION {
         return Err(ParseError::Newer(schema_version));
     }
-    match schema_version {
-        1 => {
-            value = upgrade_v7(upgrade_v6(upgrade_v5(upgrade_v4(upgrade_v3(
-                upgrade_v2(upgrade_v1(value)?)?,
-            )?)?)?)?)?
-        }
-        2 => {
-            value = upgrade_v7(upgrade_v6(upgrade_v5(upgrade_v4(upgrade_v3(
-                upgrade_v2(value)?,
-            )?)?)?)?)?
-        }
-        3 => value = upgrade_v7(upgrade_v6(upgrade_v5(upgrade_v4(upgrade_v3(value)?)?)?)?)?,
-        4 => value = upgrade_v7(upgrade_v6(upgrade_v5(upgrade_v4(value)?)?)?)?,
-        5 => value = upgrade_v7(upgrade_v6(upgrade_v5(value)?)?)?,
-        6 => value = upgrade_v7(upgrade_v6(value)?)?,
-        7 => value = upgrade_v7(value)?,
-        SCHEMA_VERSION => {}
-        _ => {
-            return Err(ParseError::Invalid(format!(
-                "unsupported version {schema_version}"
-            )))
-        }
+    if schema_version == 0 {
+        return Err(ParseError::Invalid("unsupported version 0".into()));
+    }
+    // Each step takes a document of one version to the next.
+    for version in schema_version..SCHEMA_VERSION {
+        value = match version {
+            1 => upgrade_v1(value)?,
+            2 => upgrade_v2(value)?,
+            3 => upgrade_v3(value)?,
+            4 => upgrade_v4(value)?,
+            5 => upgrade_v5(value)?,
+            6 => upgrade_v6(value)?,
+            7 => upgrade_v7(value)?,
+            _ => upgrade_v8(value)?,
+        };
     }
     let document: Document = serde_json::from_value(value.clone())
         .map_err(|error| ParseError::Invalid(error.to_string()))?;
@@ -358,6 +358,20 @@ fn upgrade_v7(mut value: Value) -> Result<Value, ParseError> {
         .filter(|document| !document.contains_key("menuOverrides"))
         .ok_or_else(|| ParseError::Invalid("it does not match version 7 settings".into()))?;
     document.insert("menuOverrides".into(), Value::Object(Default::default()));
+    value["schemaVersion"] = Value::from(8);
+    Ok(value)
+}
+
+/// Version 8 had no extra rows on the mouse panel and the keyboard.
+fn upgrade_v8(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(8)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    let document = value
+        .as_object_mut()
+        .filter(|document| !document.contains_key("panelExtras"))
+        .ok_or_else(|| ParseError::Invalid("it does not match version 8 settings".into()))?;
+    document.insert("panelExtras".into(), Value::Object(Default::default()));
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -374,6 +388,7 @@ pub struct Plan {
     pub remote: Option<remote_scan::Config>,
     pub panels: Option<Vec<CustomPanel>>,
     pub menu_overrides: Option<BTreeMap<String, CustomPanel>>,
+    pub panel_extras: Option<crate::panel_extras::Extras>,
 }
 
 impl Plan {
@@ -411,6 +426,8 @@ pub fn plan(local: &Local, incoming: Document) -> Result<Plan, String> {
     let panels = custom_panels::plan_replacement(&local.panels, incoming.panels)?;
     let menu_overrides =
         custom_panels::plan_override_replacement(&local.menu_overrides, incoming.menu_overrides)?;
+    let panel_extras =
+        crate::panel_extras::plan_replacement(&local.panel_extras, incoming.panel_extras)?;
 
     Ok(Plan {
         settings: (settings != local.settings).then_some(settings),
@@ -422,6 +439,7 @@ pub fn plan(local: &Local, incoming: Document) -> Result<Plan, String> {
         remote: (remote.slots != local.remote.slots).then_some(remote),
         panels,
         menu_overrides,
+        panel_extras,
     })
 }
 
@@ -533,6 +551,10 @@ pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
         custom_panels::replace_overrides(app, overrides)?;
         applied.panels = true;
     }
+    if let Some(extras) = plan.panel_extras {
+        custom_panels::replace_extras(app, extras)?;
+        applied.panels = true;
+    }
     if let Some(config) = plan.point_scan {
         crate::point_scan_runtime::configure(app, config)?;
         applied.point_scan = true;
@@ -567,6 +589,9 @@ pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
 /// A current document as an older version wrote it.
 #[cfg(test)]
 pub(crate) fn written_by(mut value: Value, version: u32) -> Value {
+    if version < 9 {
+        value.as_object_mut().unwrap().remove("panelExtras");
+    }
     if version < 8 {
         value.as_object_mut().unwrap().remove("menuOverrides");
     }
@@ -678,7 +703,57 @@ mod tests {
             },
             panels: vec![custom_panels::sample("greetings", "Greetings")],
             menu_overrides: BTreeMap::new(),
+            panel_extras: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn version_eight_documents_read_with_no_extra_rows() {
+        let hello = custom_panels::Cell {
+            label: "Hello".into(),
+            action: crate::panel_actions::PanelAction::Text {
+                text: "Hello".into(),
+            },
+            span: 1,
+        };
+        let mut local = local();
+        local
+            .panel_extras
+            .insert("keyboard".into(), vec![vec![hello.clone()]]);
+        let mut cloud = local.clone();
+        cloud.panel_extras.clear();
+        let version_eight = written_by(serde_json::to_value(cloud.document()).unwrap(), 8);
+        assert!(version_eight.get("panelExtras").is_none());
+        assert_eq!(version_eight["schemaVersion"], json!(8));
+        let parsed = parse(version_eight.clone(), 8).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert!(parsed.panel_extras.is_empty());
+        // Applying it removes this computer's extra rows, as a removal elsewhere would.
+        assert_eq!(
+            plan(&local, parsed).unwrap().panel_extras,
+            Some(BTreeMap::new())
+        );
+        let mut early = version_eight.clone();
+        early["panelExtras"] = json!({});
+        assert!(matches!(parse(early, 8), Err(ParseError::Invalid(_))));
+        let mut missing = version_eight.clone();
+        missing["schemaVersion"] = json!(SCHEMA_VERSION);
+        assert!(matches!(
+            parse(missing, SCHEMA_VERSION),
+            Err(ParseError::Invalid(_))
+        ));
+        // A version 1 document still climbs every step.
+        let oldest = written_by(serde_json::to_value(cloud.document()).unwrap(), 1);
+        assert_eq!(parse(oldest, 1).unwrap().schema_version, SCHEMA_VERSION);
+        // Extra rows sync, and a panel that takes none refuses the document.
+        let value = serde_json::to_value(local.document()).unwrap();
+        assert_eq!(
+            value["panelExtras"]["keyboard"][0][0]["label"],
+            json!("Hello")
+        );
+        let mut bad = local.document();
+        bad.panel_extras.insert("home".into(), vec![vec![hello]]);
+        assert!(plan(&local, bad).is_err());
     }
 
     #[test]
