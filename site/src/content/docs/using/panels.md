@@ -9,9 +9,35 @@ Open **Panels** in the sidebar of the Switchify PC window to see your panels. Ea
 
 ## Make a panel
 
-Choose **New panel**. Switchify PC makes a starter panel with four tiles: Keyboard, Mouse, Back and Close, and opens it. Give it a name and, if you like, a description, then choose **Save panel**. Names must be different from each other.
+Choose **New panel**. Switchify PC makes a starter panel with four tiles: Keyboard, Mouse, Back and Close, and opens it in the editor. Give it a name and, if you like, a description. Names must be different from each other.
 
 To change a panel later, choose its picture in the list. **Delete panel** removes it; Switchify PC asks first.
+
+## Edit the tiles
+
+The editor shows the panel's rows. Choose a tile to change it on the right:
+
+- **Label** is the word or two written on the tile. Keep it short so it fits.
+- **Width** makes a tile two, three or four times as wide as a normal tile. The tiles in a row share the row's width between them.
+- **Action** is what the tile does. Search the list by what you want, for example "copy", "volume" or "new tab", and choose an action. Some actions need a little more: **Press keys** asks you to press the keys on your keyboard, **Type text** asks for the text, and **Open one of my panels** asks which panel.
+
+Use **Tile** on a row to add a tile to it, **Add row** to add a row, and the arrows to move tiles and rows. **Remove tile** and the bin on a row take them away. Nothing changes on the scanned panel until you choose **Save panel**; if you leave with unsaved changes, Switchify PC asks first.
+
+The picture under the rows shows the panel as it will scan.
+
+## What a tile can do
+
+- **Typing**: press keys such as Enter, Tab or an arrow, press a shortcut such as Ctrl and S, or type a phrase.
+- **Editing**: copy, cut, paste, select all, undo, redo, save, find.
+- **Apps and windows**: switch app forward or backward, app overview, show desktop, minimise, maximise or restore, close window.
+- **Browser**: back, forward, reload, tabs, address bar, zoom.
+- **Media**: play or pause, next and previous track, volume, mute.
+- **Mouse**: left, double and right click, or scroll, where the pointer is. Modified clicks such as Shift-click act there too.
+- **Panels and menus**: open the keyboard, the mouse panel, point scanning, the Switchify window, a built-in menu such as Editing, or another panel of yours; Back; Close.
+- **Scanning**: pause, reverse direction, faster or slower scanning, point scanning mode, keyboard layout, next or previous display.
+- **Power**: shut down or restart the computer, which the computer confirms in the usual way.
+
+Actions act on the window in front, as Home does. A tile that opens a panel you have since deleted says so when chosen.
 
 Your panels are saved on this computer. If you sign in to your account, they go to your other computers with your settings.
 
