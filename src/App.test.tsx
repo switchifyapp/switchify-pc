@@ -593,14 +593,10 @@ describe("Switchify PC shell", () => {
     expect(within(card).getByText("Things I say a lot")).toBeInTheDocument();
 
     fireEvent.click(card);
-    const deleteButton = await screen.findByRole("button", { name: "Delete panel" });
-    fireEvent.click(deleteButton);
-    const confirmation = screen.getByRole("alertdialog", { name: "Delete this panel?" });
-    expect(within(confirmation).getByRole("button", { name: "Keep" })).toHaveFocus();
-    fireEvent.click(within(confirmation).getByRole("button", { name: "Keep" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Delete panel" })).toHaveFocus());
-    fireEvent.click(screen.getByRole("button", { name: "Delete panel" }));
-    fireEvent.click(within(screen.getByRole("alertdialog", { name: "Delete this panel?" })).getByRole("button", { name: "Delete" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete panel" }));
+    const confirmation = screen.getByRole("alertdialog", { name: "Delete Greetings?" });
+    expect(within(confirmation).getByRole("button", { name: "Keep editing" })).toHaveFocus();
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Delete panel" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Greetings, 4 tiles" })).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "New panel, 4 tiles" })).toBeInTheDocument();
   });
