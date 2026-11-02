@@ -86,6 +86,14 @@ impl PanelAction {
             Self::Key { keys } => keys.join("+"),
             Self::Text { text } => text.chars().take(12).collect(),
             Self::Command { command } => command.label().into(),
+            Self::Setting {
+                setting: Setting::KeyboardLayout(layout),
+            } => match layout {
+                KeyboardLayout::Qwerty => "QWERTY",
+                KeyboardLayout::SimpleQwerty => "Simple QWERTY",
+                KeyboardLayout::CommonLetters => "Common letters",
+            }
+            .into(),
             Self::Setting { setting } => setting.label().into(),
             Self::Click { button, count } => match (button, count) {
                 (MouseButton::Left, 1) => "Left click",
@@ -314,7 +322,11 @@ impl Category {
 
 /// A value the picker asks for before an entry becomes an action.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum Parameter {
     /// A key chord of `min` to `max` keys.
     Keys { min: usize, max: usize },
@@ -459,6 +471,19 @@ const ALL_COMMANDS: [Command; 41] = {
         Restart,
     ]
 };
+
+#[cfg(test)]
+const ALL_SETTINGS: [Setting; 9] = [
+    Setting::FasterScan,
+    Setting::SlowerScan,
+    Setting::FasterLine,
+    Setting::SlowerLine,
+    Setting::LineMode,
+    Setting::GridMode,
+    Setting::KeyboardLayout(KeyboardLayout::Qwerty),
+    Setting::KeyboardLayout(KeyboardLayout::SimpleQwerty),
+    Setting::KeyboardLayout(KeyboardLayout::CommonLetters),
+];
 
 fn command_id(command: Command) -> String {
     let json = serde_json::to_value(command).expect("commands serialise");
@@ -825,6 +850,14 @@ mod tests {
                 "{command:?} missing"
             );
         }
+        for setting in ALL_SETTINGS {
+            assert!(
+                entries
+                    .iter()
+                    .any(|entry| entry.action == PanelAction::Setting { setting }),
+                "{setting:?} missing"
+            );
+        }
         for kind in openable_menus() {
             assert!(entries.iter().any(|entry| entry.action
                 == PanelAction::OpenPanel {
@@ -861,6 +894,14 @@ mod tests {
             r#"{"type":"setting","setting":{"keyboardLayout":"commonLetters"}}"#
         );
         assert_eq!(serde_json::from_str::<PanelAction>(&json).unwrap(), setting);
+        let template = catalogue()
+            .into_iter()
+            .find(|entry| entry.id == "text")
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(template.parameter.unwrap()).unwrap(),
+            serde_json::json!({"kind": "text", "maxChars": MAX_TEXT_CHARS})
+        );
         assert!(
             serde_json::from_str::<PanelAction>(r#"{"type":"key","keys":["A"],"extra":1}"#)
                 .is_err()
@@ -949,6 +990,13 @@ mod tests {
             "Good morning"
         );
         assert_eq!(PanelAction::Prediction { slot: 3 }.label(), "Word 3");
+        assert_eq!(
+            PanelAction::Setting {
+                setting: Setting::KeyboardLayout(KeyboardLayout::SimpleQwerty)
+            }
+            .label(),
+            "Simple QWERTY"
+        );
         assert_eq!(
             PanelAction::OpenPanel {
                 panel: BuiltInPanel::Menu(Kind::Windows)
