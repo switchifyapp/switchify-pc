@@ -2181,6 +2181,107 @@ mod tests {
         assert!(!data.retry_secure_due(time + 60));
     }
     #[test]
+    fn activated_record_fits_the_windows_credential_store() {
+        const MAX_TIME: i64 = 253_402_300_799;
+        let id = "6af44000-17b7-4d87-ad1d-32e9a31b331a";
+        let public_key = "x".repeat(43);
+        let key_id = "x".repeat(32);
+        let signature = "x".repeat(86);
+        let signed = |prefix: &str, claims: Value| {
+            let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap());
+            format!("{prefix}.{key_id}.{payload}.{signature}")
+        };
+        let key = signed(
+            "SWPC1",
+            json!({"version":1,"licence_id":id,"product":"switchify-pc","issued_at":MAX_TIME,
+                "expires_at":MAX_TIME,"seats":u32::MAX}),
+        );
+        let lease = signed(
+            "SWPL1",
+            json!({"version":1,"product":"switchify-pc","licence_id":id,"installation_id":id,
+                "installation_key":public_key,"generation":(1u64 << 53) - 1,"issued_at":MAX_TIME,
+                "request_nonce":id,"action":"activate","lease_id":id,"expires_at":MAX_TIME}),
+        );
+        let record = Record {
+            first_run: MAX_TIME,
+            last_seen: MAX_TIME,
+            lease_seen: MAX_TIME,
+            revision: u64::MAX,
+            pending_key: Some(key.clone()),
+            key: Some(key),
+            lease: Some(lease),
+            installation: Some(activation::Installation {
+                id: id.into(),
+                public_key: public_key.clone(),
+            }),
+            generation: u64::MAX,
+            last_checked: Some(MAX_TIME),
+            last_outcome: Some("takeover_limited".into()),
+            local_signature: Some(signature.clone()),
+            ..Record::new(0)
+        };
+        let text = serde_json::to_string(&record).unwrap();
+        assert!(text.len() <= activation::MIRROR_MAX_BYTES, "{}", text.len());
+    }
+    #[test]
+    fn stale_revocation_in_the_mirror_cannot_lock_a_reactivated_licence() {
+        let identity = activation::tests::FakeIdentity.load_or_create().unwrap();
+        let mut revoked = Record::new(1000);
+        revoked.key = Some(purchase());
+        revoked.installation = Some(identity.installation.clone());
+        revoked.terminal_status = Some("revoked".into());
+        revoked.revision = 3;
+        revoked.seal(&identity);
+        let mut activated = revoked.clone();
+        activated.terminal_status = None;
+        activated.lease = Some("lease".into());
+        activated.revision = 5;
+        activated.seal(&identity);
+        let merged = Record::reconcile(Some(activated), Some(revoked), &identity).unwrap();
+        assert_eq!(merged.terminal_status, None);
+        assert_eq!(merged.lease.as_deref(), Some("lease"));
+    }
+    #[test]
+    fn stale_mirror_cannot_undo_a_newer_revocation_in_the_file() {
+        let identity = activation::tests::FakeIdentity.load_or_create().unwrap();
+        let mut licensed = Record::new(1000);
+        licensed.key = Some(purchase());
+        licensed.installation = Some(identity.installation.clone());
+        licensed.lease = Some("lease".into());
+        licensed.revision = 3;
+        licensed.seal(&identity);
+        let mut revoked = licensed.clone();
+        revoked.lease = None;
+        revoked.terminal_status = Some("revoked".into());
+        revoked.revision = 5;
+        revoked.seal(&identity);
+        let merged = Record::reconcile(Some(revoked), Some(licensed), &identity).unwrap();
+        assert_eq!(merged.terminal_status.as_deref(), Some("revoked"));
+        assert!(merged.lease.is_none());
+    }
+    #[test]
+    fn legacy_mirror_keeps_revocation_and_the_earliest_trial_start() {
+        let identity = activation::tests::FakeIdentity.load_or_create().unwrap();
+        let mut revoked = Record::new(1000);
+        revoked.key = Some(purchase());
+        revoked.installation = Some(identity.installation.clone());
+        revoked.terminal_status = Some("revoked".into());
+        revoked.revision = 5;
+        revoked.seal(&identity);
+        let legacy = serde_json::to_string(&revoked).unwrap();
+        let stored = activation::read_mirror(Err(keyring::Error::NoEntry), || Ok(legacy))
+            .unwrap()
+            .map(|text| decode_record(&text).unwrap());
+        let mut file = Record::new(2000);
+        file.installation = Some(identity.installation.clone());
+        file.revision = 1;
+        file.seal(&identity);
+        let merged = Record::reconcile(Some(file), stored, &identity).unwrap();
+        assert_eq!(merged.terminal_status.as_deref(), Some("revoked"));
+        assert_eq!(merged.first_run, 1000);
+        assert!(merged.authenticated(&identity));
+    }
+    #[test]
     fn rejects_corrupt_trial_records() {
         let mut record = Record::new(1000);
         record.first_run = 2000;

@@ -66,20 +66,52 @@ pub trait MirrorStore: Send + Sync {
     fn write(&self, text: &str) -> Result<(), String>;
 }
 pub struct OsMirrorStore;
-impl MirrorStore for OsMirrorStore {
-    fn read(&self) -> Result<Option<String>, String> {
-        let entry = keyring::Entry::new(SERVICE, "record").map_err(|_| STORAGE_ERROR)?;
-        match entry.get_password() {
+/// The Windows credential store holds at most this many bytes per entry.
+#[cfg(test)]
+pub const MIRROR_MAX_BYTES: usize = 2560;
+const LEGACY_MIRROR_ACCOUNT: &str = "record";
+/// A Windows password is UTF-16, which leaves too little room for an activated
+/// record, so bytes go in their own entry. Older builds only understand the
+/// legacy one, so it stays a password: bytes there would lock them out after a
+/// rollback, and every record that fits, including revocations, is still tried.
+#[cfg(windows)]
+const MIRROR_ACCOUNT: &str = "record-v2";
+#[cfg(not(windows))]
+const MIRROR_ACCOUNT: &str = LEGACY_MIRROR_ACCOUNT;
+pub fn read_mirror(
+    current: Result<Vec<u8>, keyring::Error>,
+    legacy: impl FnOnce() -> Result<String, keyring::Error>,
+) -> Result<Option<String>, String> {
+    match current {
+        Ok(secret) => String::from_utf8(secret)
+            .map(Some)
+            .map_err(|_| STORAGE_ERROR.into()),
+        Err(keyring::Error::NoEntry) => match legacy() {
             Ok(text) => Ok(Some(text)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(_) => Err(STORAGE_ERROR.into()),
-        }
+        },
+        Err(_) => Err(STORAGE_ERROR.into()),
+    }
+}
+impl MirrorStore for OsMirrorStore {
+    fn read(&self) -> Result<Option<String>, String> {
+        let entry = keyring::Entry::new(SERVICE, MIRROR_ACCOUNT).map_err(|_| STORAGE_ERROR)?;
+        read_mirror(entry.get_secret(), || {
+            keyring::Entry::new(SERVICE, LEGACY_MIRROR_ACCOUNT)?.get_password()
+        })
     }
     fn write(&self, text: &str) -> Result<(), String> {
-        keyring::Entry::new(SERVICE, "record")
+        keyring::Entry::new(SERVICE, MIRROR_ACCOUNT)
             .map_err(|_| STORAGE_ERROR)?
-            .set_password(text)
-            .map_err(|_| STORAGE_ERROR.into())
+            .set_secret(text.as_bytes())
+            .map_err(|_| STORAGE_ERROR)?;
+        // Best effort: an activated record is expected to be too long here.
+        #[cfg(windows)]
+        if let Ok(legacy) = keyring::Entry::new(SERVICE, LEGACY_MIRROR_ACCOUNT) {
+            let _ = legacy.set_password(text);
+        }
+        Ok(())
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -232,6 +264,30 @@ pub fn request(
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn windows_mirror_has_its_own_entry() {
+        assert_ne!(MIRROR_ACCOUNT, LEGACY_MIRROR_ACCOUNT);
+    }
+    #[test]
+    fn mirror_prefers_the_current_entry_and_falls_back_to_the_legacy_one() {
+        use keyring::Error::{NoEntry, NoStorageAccess};
+        let locked = || NoStorageAccess(Box::new(std::fmt::Error));
+        let unused = || -> Result<String, keyring::Error> { unreachable!() };
+        assert_eq!(
+            read_mirror(Ok(b"current".to_vec()), unused),
+            Ok(Some("current".into()))
+        );
+        assert_eq!(
+            read_mirror(Err(NoEntry), || Ok("legacy".into())),
+            Ok(Some("legacy".into()))
+        );
+        assert_eq!(read_mirror(Err(NoEntry), || Err(NoEntry)), Ok(None));
+        // A locked store must not read as a missing record.
+        assert!(read_mirror(Err(NoEntry), || Err(locked())).is_err());
+        assert!(read_mirror(Err(locked()), unused).is_err());
+        assert!(read_mirror(Ok(vec![0xff]), unused).is_err());
+    }
     #[test]
     fn only_the_exact_bad_request_outcome_gets_invalid_request_guidance() {
         use reqwest::StatusCode;
