@@ -9,7 +9,13 @@ export function usePanels() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const editing = useRef(false);
-  const load = useCallback(() => api.listPanels().then(setPanels).catch((reason) => setError(String(reason))), []);
+  // A load that started before a save or a newer load is ignored, so a stale
+  // list never overwrites a fresh one.
+  const generation = useRef(0);
+  const load = useCallback(() => {
+    const mine = ++generation.current;
+    return api.listPanels().then((list) => { if (mine === generation.current) setPanels(list); }).catch((reason) => { if (mine === generation.current) setError(String(reason)); });
+  }, []);
   useEffect(() => {
     void load();
     const stop = api.onPanelsChanged(() => { if (!editing.current) void load(); });
@@ -17,7 +23,8 @@ export function usePanels() {
   }, [load]);
   const run = async (operation: () => Promise<CustomPanel[]>) => {
     setBusy(true); setError(null);
-    try { setPanels(await operation()); }
+    generation.current++;
+    try { const list = await operation(); setPanels(list); return list; }
     catch (reason) { setError(String(reason)); throw reason; }
     finally { setBusy(false); }
   };

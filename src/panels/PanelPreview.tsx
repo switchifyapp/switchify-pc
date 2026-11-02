@@ -21,7 +21,9 @@ export function previewPalette(theme: PanelTheme | undefined) {
  *  tiles sharing each row's width by span. Purely visual; nothing scans. */
 export function PanelPreview({ panel, theme, title = "Switchify PC", className = "" }: { panel: CustomPanel; theme?: PanelTheme; title?: string; className?: string }) {
   const colours = previewPalette(theme);
-  return <div className={`panel-preview ${className}`.trim()} role="img" aria-label={`Preview of ${panel.name}: ${panel.rows.length} ${panel.rows.length === 1 ? "row" : "rows"}`} style={{ background: colours.panel, borderColor: colours.border, color: colours.text }}>
+  // The name says what is on the panel, row by row, since the tiles are decoration here.
+  const description = panel.rows.map((row) => row.map((cell) => cell.label.trim() || "unlabelled").join(", ")).join("; ");
+  return <div className={`panel-preview ${className}`.trim()} role="img" aria-label={`Preview of ${panel.name}: ${description}`} style={{ background: colours.panel, borderColor: colours.border, color: colours.text }}>
     <div className="panel-preview-band" style={{ background: colours.band, borderColor: colours.bandBorder }}><span>{title}</span></div>
     <div className="panel-preview-rows">
       {panel.rows.map((row, index) => <div className="panel-preview-row" key={index}>

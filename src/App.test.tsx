@@ -563,13 +563,13 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "New panel" }));
     // The starter panel opens straight away, drawn as the scan will show it.
     expect(await screen.findByRole("heading", { name: "New panel", level: 1 })).toBeInTheDocument();
-    const preview = screen.getByRole("img", { name: "Preview of New panel: 2 rows" });
+    const preview = screen.getByRole("img", { name: "Preview of New panel: Keyboard, Mouse; Back, Close" });
     expect(within(preview).getByText("Keyboard")).toBeInTheDocument();
     expect(within(preview).getByText("Close")).toHaveAttribute("data-toolbar", "true");
 
     fireEvent.click(screen.getByRole("button", { name: "All panels" }));
     const card = await screen.findByRole("button", { name: "New panel, 4 tiles" });
-    expect(within(card).getByRole("img", { name: "Preview of New panel: 2 rows" })).toBeInTheDocument();
+    expect(within(card).getByRole("img", { name: "Preview of New panel: Keyboard, Mouse; Back, Close" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "No panels yet" })).not.toBeInTheDocument();
   });
 
@@ -593,11 +593,31 @@ describe("Switchify PC shell", () => {
     expect(within(card).getByText("Things I say a lot")).toBeInTheDocument();
 
     fireEvent.click(card);
-    fireEvent.click(await screen.findByRole("button", { name: "Delete panel" }));
+    const deleteButton = await screen.findByRole("button", { name: "Delete panel" });
+    fireEvent.click(deleteButton);
     const confirmation = screen.getByRole("alertdialog", { name: "Delete this panel?" });
-    fireEvent.click(within(confirmation).getByRole("button", { name: "Delete" }));
+    expect(within(confirmation).getByRole("button", { name: "Keep" })).toHaveFocus();
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Keep" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete panel" })).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "Delete panel" }));
+    fireEvent.click(within(screen.getByRole("alertdialog", { name: "Delete this panel?" })).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Greetings, 4 tiles" })).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "New panel, 4 tiles" })).toBeInTheDocument();
+  });
+
+  it("asks before leaving a panel with unsaved changes", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New panel" }));
+    await screen.findByRole("heading", { name: "New panel", level: 1 });
+    fireEvent.change(screen.getByRole("textbox", { name: "Panel name" }), { target: { value: "Changed" } });
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    expect(confirm).toHaveBeenCalledWith("Discard unsaved panel changes?");
+    expect(screen.getByRole("heading", { name: "New panel", level: 1 })).toBeInTheDocument();
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    expect(await screen.findByRole("heading", { name: "Switchify PC", level: 1 })).toBeInTheDocument();
   });
 
   it("creates a profile and records a desired key", async () => {

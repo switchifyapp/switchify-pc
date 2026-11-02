@@ -605,6 +605,7 @@ export function App() {
   const settingsEventRevision = useRef(0);
   const locallyChangedSettings = useRef(new Set<keyof AppSettings>());
   const profileEditorDirty = useRef(false);
+  const panelEditorDirty = useRef(false);
   const autoSetupHandled = useRef(false);
 
   const syncState = (next: AppState) => {
@@ -773,7 +774,7 @@ export function App() {
 
   useEffect(() => {
     const preventUnsavedUnload = (event: BeforeUnloadEvent) => {
-      if (!profileEditorDirty.current) return;
+      if (!profileEditorDirty.current && !panelEditorDirty.current) return;
       event.preventDefault();
       event.returnValue = "";
     };
@@ -799,7 +800,9 @@ export function App() {
   const selectView = (next: View) => {
     if (next === viewRef.current) return;
     if (profileEditorDirty.current && !window.confirm("Discard unsaved profile changes?")) return;
+    if (panelEditorDirty.current && !window.confirm("Discard unsaved panel changes?")) return;
     profileEditorDirty.current = false;
+    panelEditorDirty.current = false;
     viewRef.current = next;
     setView(next);
   };
@@ -852,7 +855,9 @@ export function App() {
   const openUpdates = () => {
     if (viewRef.current !== "settings") {
       if (profileEditorDirty.current && !window.confirm("Discard unsaved profile changes?")) return;
+      if (panelEditorDirty.current && !window.confirm("Discard unsaved panel changes?")) return;
       profileEditorDirty.current = false;
+      panelEditorDirty.current = false;
       viewRef.current = "settings";
       setView("settings");
     }
@@ -912,7 +917,7 @@ export function App() {
       {view === "switches" && <div className="view"><header className="page-header"><div><h1>Switches</h1><p>The switches you use to control this computer.</p></div></header><SwitchesSection mobileConnected={state.bluetooth === "connected"} platform={state.capabilities.platform} controller={switches} suspended={pairingOpen} /></div>}
       {view === "scanning" && <div className="view"><header className="page-header"><div><h1>Scanning</h1><p>Choose how your switches control the pointer.</p></div></header><ScanningSection controller={scanning} settings={settings ?? undefined} onSettingsChange={changeSettings} /></div>}
       {view === "mouse" && <MouseSettingsView settings={settings} onChange={changeSettings} scanning={scanning} />}
-      {view === "panels" && <PanelsView controller={customPanels} theme={scanning.config.scanPreferences?.panelTheme} />}
+      {view === "panels" && <PanelsView controller={customPanels} theme={scanning.config.scanPreferences?.panelTheme} onDirtyChange={(dirty) => { panelEditorDirty.current = dirty; }} />}
       {(view === "mobile" || view === "devices" || view === "profiles") && <div className="view"><header className="page-header"><div><h1>Mobile</h1><p>Control this computer from Switchify on a phone or tablet.</p></div></header><Tabs name="mobile" label="Mobile connection sections" active={view} onSelect={selectView} tabs={[{id: "mobile", label: "Connection"}, {id: "devices", label: "Paired devices"}, {id: "profiles", label: "Switch Forwarding"}]} /><TabPanel name="mobile" id={view}>
       {view === "mobile" && <MobileConnection state={state} onDisconnect={() => void perform(api.disconnectAll)} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}

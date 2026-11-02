@@ -22,7 +22,7 @@ describe("PanelPreview", () => {
 
   it("draws every row and tile with its span and style", () => {
     render(<PanelPreview panel={panel} theme="dark" />);
-    const preview = screen.getByRole("img", { name: "Preview of Greetings: 2 rows" });
+    const preview = screen.getByRole("img", { name: "Preview of Greetings: Copy, Hello; Back" });
     const hello = within(preview).getByText("Hello");
     expect(hello).toHaveStyle({ flexGrow: 2 });
     expect(within(preview).getByText("Copy")).toHaveStyle({ flexGrow: 1 });
