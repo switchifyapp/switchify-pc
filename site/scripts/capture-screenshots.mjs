@@ -15,7 +15,7 @@ const chrome = process.env.CHROME_PATH ?? {
 }[process.platform] ?? "/usr/bin/google-chrome";
 // Only the screenshots the docs use are written.
 const keep = new Set(process.env.ONLY ? process.env.ONLY.split(",") : ["setup-input-access-macos", "setup-add-switch-saved", "setup-start-with-system", "home",
-  "add-switch-waiting", "add-switch-learned", "switch-editor", "pairing-request", "panels", "panel-editor"]);
+  "add-switch-waiting", "add-switch-learned", "switch-editor", "pairing-request", "panels", "panel-editor", "builtin-menu-editor"]);
 fs.mkdirSync(outDir, { recursive: true });
 
 const bridge = (platform) => {
@@ -63,6 +63,21 @@ const bridge = (platform) => {
       [tile("Copy", { type: "command", command: "copy" }), tile("Paste", { type: "command", command: "paste" }), tile("Undo", { type: "command", command: "undo" })],
       [tile("Save", { type: "key", keys: ["Ctrl", "S"] }, 2), tile("Back", { type: "back" })],
     ] },
+  ];
+  // Two of the built-in menus, as shipped, for the Built-in menus group.
+  const builtins = [
+    { kind: "home", name: "Home", override: null, default: { id: "builtin-home", version: 1, name: "Home", description: "", rows: [
+      [tile("Point", { type: "openPanel", panel: "point" }), tile("Mouse", { type: "openPanel", panel: "mouse" }), tile("Keyboard", { type: "openPanel", panel: "keyboard" })],
+      [tile("Apps and windows", { type: "openPanel", panel: { menu: "windows" } }), tile("Editing", { type: "openPanel", panel: { menu: "editing" } }), tile("Browser", { type: "openPanel", panel: { menu: "browser" } })],
+      [tile("Media", { type: "openPanel", panel: { menu: "media" } }), tile("Zoom", { type: "openPanel", panel: { menu: "zoom" } })],
+      [tile("Switchify", { type: "openPanel", panel: "switchify" }), tile("My panels", { type: "myPanels" }), tile("Close menu", { type: "close" })],
+    ] } },
+    { kind: "editing", name: "Editing", override: null, default: { id: "builtin-editing", version: 1, name: "Editing", description: "", rows: [
+      [tile("Copy", { type: "command", command: "copy" }), tile("Cut", { type: "command", command: "cut" }), tile("Paste", { type: "command", command: "paste" })],
+      [tile("Select all", { type: "command", command: "selectAll" }), tile("Undo", { type: "command", command: "undo" }), tile("Redo", { type: "command", command: "redo" })],
+      [tile("Save", { type: "command", command: "save" }), tile("Find", { type: "command", command: "find" })],
+      [tile("Back", { type: "back" }), tile("Close menu", { type: "close" })],
+    ] } },
   ];
   const entry = (id, name, category, categoryLabel, action, keywords = [], parameter) => ({ id, name, category, categoryLabel, keywords, action, needsPoint: false, ...(parameter ? { parameter } : {}) });
   const actions = [
@@ -122,6 +137,7 @@ const bridge = (platform) => {
         case "get_remote_switches": case "save_remote_switches": return clone(remote);
         case "list_switch_profiles": return [];
         case "list_custom_panels": return clone(panels);
+        case "list_builtin_panels": case "save_builtin_panel": case "reset_builtin_panel": return clone(builtins);
         case "save_custom_panel": return clone(panels);
         case "get_panel_actions": return clone(actions);
         case "check_panel_action": return "";
@@ -231,11 +247,19 @@ for (const platform of ["windows", "macos"]) {
 {
   const page = await open("windows", { height: 900 });
   await click(page, "Panels");
+  await page.waitForSelector('#builtin-menus-heading');
   await shot(page, "panels", "main");
   await page.setViewport({ width: 1280, height: 1150, deviceScaleFactor: 2 });
   await click(page, "Greetings, 8 tiles");
   await click(page, "Row 1, tile 1: Hello, Type \"Hello, how are you?\"");
   await shot(page, "panel-editor", "main");
+  await page.close();
+}
+{
+  const page = await open("windows", { width: 1280, height: 1000 });
+  await click(page, "Panels");
+  await click(page, "Home, as shipped");
+  await shot(page, "builtin-menu-editor", "main");
   await page.close();
 }
 

@@ -1,13 +1,13 @@
 ---
 title: Panels
-description: Make scanning panels of your own, see them drawn as they will appear, and open them from Home under My panels.
+description: Make scanning panels of your own, rearrange Home and the built-in menus, see them drawn as they will appear, and open your panels from Home under My panels.
 ---
 
 A panel is a page of tiles that scans like the Home menu. Each tile does one thing when you choose it: presses keys, types a phrase, runs an action such as Copy or Play, opens the keyboard, the mouse panel or a built-in menu, or opens another panel of yours. The panel stays open after each action so you can choose the next one, until you choose a tile that goes **Back** or closes it.
 
 Open **Panels** in the sidebar of the Switchify PC window to see your panels. Each one is shown as a small picture of the panel, drawn the way the scan will draw it, in the light or dark panel theme you chose in Scanning settings.
 
-![The Panels page with two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath and either its description or its number of tiles, and a New panel button.](../../../assets/screenshots/panels.png)
+![The Panels page with two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath and either its description or its number of tiles, a New panel button, and below them a Built-in menus group showing Home and Editing as shipped.](../../../assets/screenshots/panels.png)
 
 ## Make a panel
 
@@ -44,6 +44,20 @@ The picture under the rows shows the panel as it will scan.
 Actions act on the window in front, as Home does. A tile that opens a panel you have since deleted says so when chosen.
 
 Your panels are saved on this computer. If you sign in to your account, they go to your other computers with your settings.
+
+## Rearrange the built-in menus
+
+Below your panels, **Built-in menus** lists Home and the menus it opens: More actions, Mouse, Editing, Apps and windows, Browser, Tabs, Zoom, Media, Displays and Scanning. Each is drawn as it scans. Choose one to open it in the same editor and move, add or remove its tiles, change their labels, or give a tile a different action. The menu keeps its name. Choose **Save panel** and the next scan uses your arrangement; the card then says **Rearranged**.
+
+Two rules keep a menu usable: it must keep a tile that goes **Back** or closes it, and Home must keep **Close menu**, which ends scanning. The editor says so and keeps Save off until the rule is met.
+
+**Reset to default** puts a menu back the way it was shipped. Switchify PC asks first.
+
+The Shut down and Restart pages, and the pages that appear after you choose a point or from the mouse panel, cannot be changed.
+
+![The editor open on the built-in Home menu: four rows of tiles, a Reset to default button beside Save panel, and no name field.](../../../assets/screenshots/builtin-menu-editor.png)
+
+Rearranged menus are saved on this computer and, if you sign in to your account, go to your other computers with your settings.
 
 ## Open a panel
 

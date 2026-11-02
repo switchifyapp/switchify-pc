@@ -17,6 +17,8 @@ Press and release **Select** to open Home. It scans through these items; press S
 | **Zoom** | Zoom in, zoom out and reset zoom in the app in front, using the Ctrl or Cmd shortcuts with =, - and 0. Browsers, PDF readers, mail apps and many other apps zoom with these keys. Some apps use them for something else; Word, for example, does not zoom. |
 | **Switchify** | Change the scan speed and line speed, switch between line-only and grid-then-line point scanning, change the keyboard layout, pause, reverse direction, and move to the next or previous display. |
 | **My panels** | Shown once you have made panels of your own. Opens a list of them; choose one to open it. A panel stays open after each action, so you can choose the next one, until you choose a tile that goes Back or closes it. |
+
+Home and the menus it opens can be rearranged in the [Panels](/using/panels/) section of the Switchify PC window, and put back the way they were shipped. The table above describes them as shipped.
 | **Close menu** | Close Home without doing anything. |
 
 ## Shut down or restart
