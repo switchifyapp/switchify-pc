@@ -69,29 +69,39 @@ pub struct OsMirrorStore;
 /// The Windows credential store holds at most this many bytes per entry.
 #[cfg(test)]
 pub const MIRROR_MAX_BYTES: usize = 2560;
-/// Earlier builds saved UTF-16 on Windows, which halves the room per entry and
-/// rejected every activated record. Their JSON has a zero as its second byte.
-fn decode_mirror(secret: Vec<u8>) -> Result<String, String> {
-    if secret.get(1) == Some(&0) {
-        let units: Vec<u16> = secret
-            .chunks_exact(2)
-            .map(|unit| u16::from_le_bytes([unit[0], unit[1]]))
-            .collect();
-        return String::from_utf16(&units).map_err(|_| STORAGE_ERROR.into());
+const LEGACY_MIRROR_ACCOUNT: &str = "record";
+/// A Windows password is UTF-16, which leaves too little room for an activated
+/// record, so bytes go in their own entry. Older builds still read the legacy
+/// one: overwriting it would stop them opening a licence after a rollback.
+#[cfg(windows)]
+const MIRROR_ACCOUNT: &str = "record-v2";
+#[cfg(not(windows))]
+const MIRROR_ACCOUNT: &str = LEGACY_MIRROR_ACCOUNT;
+pub fn read_mirror(
+    current: Result<Vec<u8>, keyring::Error>,
+    legacy: impl FnOnce() -> Result<String, keyring::Error>,
+) -> Result<Option<String>, String> {
+    match current {
+        Ok(secret) => String::from_utf8(secret)
+            .map(Some)
+            .map_err(|_| STORAGE_ERROR.into()),
+        Err(keyring::Error::NoEntry) => match legacy() {
+            Ok(text) => Ok(Some(text)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(_) => Err(STORAGE_ERROR.into()),
+        },
+        Err(_) => Err(STORAGE_ERROR.into()),
     }
-    String::from_utf8(secret).map_err(|_| STORAGE_ERROR.into())
 }
 impl MirrorStore for OsMirrorStore {
     fn read(&self) -> Result<Option<String>, String> {
-        let entry = keyring::Entry::new(SERVICE, "record").map_err(|_| STORAGE_ERROR)?;
-        match entry.get_secret() {
-            Ok(secret) => decode_mirror(secret).map(Some),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(_) => Err(STORAGE_ERROR.into()),
-        }
+        let entry = keyring::Entry::new(SERVICE, MIRROR_ACCOUNT).map_err(|_| STORAGE_ERROR)?;
+        read_mirror(entry.get_secret(), || {
+            keyring::Entry::new(SERVICE, LEGACY_MIRROR_ACCOUNT)?.get_password()
+        })
     }
     fn write(&self, text: &str) -> Result<(), String> {
-        keyring::Entry::new(SERVICE, "record")
+        keyring::Entry::new(SERVICE, MIRROR_ACCOUNT)
             .map_err(|_| STORAGE_ERROR)?
             .set_secret(text.as_bytes())
             .map_err(|_| STORAGE_ERROR.into())
@@ -248,12 +258,23 @@ pub fn request(
 pub mod tests {
     use super::*;
     #[test]
-    fn mirror_reads_utf8_and_earlier_utf16_entries() {
-        let text = r#"{"version":3}"#;
-        assert_eq!(decode_mirror(text.as_bytes().to_vec()).unwrap(), text);
-        let wide = text.encode_utf16().flat_map(u16::to_le_bytes).collect();
-        assert_eq!(decode_mirror(wide).unwrap(), text);
-        assert!(decode_mirror(vec![0xff, 0xfe, 0xfd]).is_err());
+    fn mirror_prefers_the_current_entry_and_falls_back_to_the_legacy_one() {
+        use keyring::Error::{NoEntry, NoStorageAccess};
+        let locked = || NoStorageAccess(Box::new(std::fmt::Error));
+        let unused = || -> Result<String, keyring::Error> { unreachable!() };
+        assert_eq!(
+            read_mirror(Ok(b"current".to_vec()), unused),
+            Ok(Some("current".into()))
+        );
+        assert_eq!(
+            read_mirror(Err(NoEntry), || Ok("legacy".into())),
+            Ok(Some("legacy".into()))
+        );
+        assert_eq!(read_mirror(Err(NoEntry), || Err(NoEntry)), Ok(None));
+        // A locked store must not read as a missing record.
+        assert!(read_mirror(Err(NoEntry), || Err(locked())).is_err());
+        assert!(read_mirror(Err(locked()), unused).is_err());
+        assert!(read_mirror(Ok(vec![0xff]), unused).is_err());
     }
     #[test]
     fn only_the_exact_bad_request_outcome_gets_invalid_request_guidance() {
