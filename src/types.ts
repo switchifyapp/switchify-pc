@@ -153,6 +153,15 @@ export type CustomPanel = {
   rows: PanelCell[][];
 };
 
+/** A built-in menu as the Panels page shows it: as shipped, and as rearranged if it was. */
+export type BuiltinPanelView = {
+  /** The menu's name in the backend, such as "home" or "editing". */
+  kind: string;
+  name: string;
+  default: CustomPanel;
+  override: CustomPanel | null;
+};
+
 export type AccountView = {
   available: boolean;
   signedIn: boolean;

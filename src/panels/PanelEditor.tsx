@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronLeft, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronLeft, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { Button, Input, Select } from "../ui/controls";
 import { api } from "../api";
 import { PanelPicture, toolbarAction } from "./PanelPicture";
@@ -16,8 +16,11 @@ const blankTile = (): PanelCell => ({ label: "Back", action: { type: "back" }, s
 
 /** Edits one panel: its name, its rows of tiles, and what each tile does.
  *  Nothing is saved until Save panel; leaving with changes asks first. */
-export function PanelEditor({ panel, panels, theme, busy, error, onClose, onSave, onDelete, onDirtyChange, onClearError }: {
-  panel: CustomPanel; panels: CustomPanel[]; theme?: PanelTheme; busy: boolean; error: string | null;
+/** A built-in menu being rearranged: its name stays, and Reset replaces Delete. */
+export type BuiltinEditing = { kind: string; rearranged: boolean };
+
+export function PanelEditor({ panel, panels, theme, busy, error, builtin, onClose, onSave, onDelete, onDirtyChange, onClearError }: {
+  panel: CustomPanel; panels: CustomPanel[]; theme?: PanelTheme; busy: boolean; error: string | null; builtin?: BuiltinEditing;
   onClose: () => void; onSave: (panel: CustomPanel) => Promise<void>; onDelete: () => Promise<void>; onDirtyChange: (dirty: boolean) => void; onClearError?: () => void;
 }) {
   const [draft, setDraft] = useState(panel);
@@ -34,7 +37,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, onClose, onSave
   const addRowRef = useRef<HTMLButtonElement>(null);
   const ids = useId();
   const dirty = JSON.stringify(draft) !== JSON.stringify(panel);
-  const problems = panelProblems(draft, panels);
+  const problems = panelProblems(draft, panels, builtin?.kind);
   const canSave = dirty && Object.keys(problems).length === 0;
 
   useEffect(() => { onDirtyChange(dirty); return () => onDirtyChange(false); }, [dirty, onDirtyChange]);
@@ -105,20 +108,24 @@ export function PanelEditor({ panel, panels, theme, busy, error, onClose, onSave
 
   return <div className="view panel-editor">
     {confirmation && <div className="modal-backdrop"><section className="profile-dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={`${ids}-confirm`} tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); keepEditing(); } }}>
-      <header><div><h2 id={`${ids}-confirm`}>{confirmation === "delete" ? `Delete ${panel.name}?` : "Discard unsaved changes?"}</h2><p>{confirmation === "delete" ? "Tiles on other panels that open it will say it no longer exists." : "Your changes to this panel have not been saved."}</p></div></header>
+      <header><div><h2 id={`${ids}-confirm`}>{confirmation === "delete" ? (builtin ? `Reset ${panel.name} to default?` : `Delete ${panel.name}?`) : "Discard unsaved changes?"}</h2><p>{confirmation === "delete" ? (builtin ? "The menu goes back to the way it was shipped." : "Tiles on other panels that open it will say it no longer exists.") : "Your changes to this panel have not been saved."}</p></div></header>
       {error && <div className="dialog-error" role="alert">{error}</div>}
-      <footer><span /><Button ref={confirmRef} className="secondary" onClick={keepEditing}>Keep editing</Button><Button className="primary danger" disabled={busy} onClick={() => { if (confirmation === "delete") void onDelete(); else onClose(); }}>{confirmation === "delete" ? "Delete panel" : "Discard changes"}</Button></footer>
+      <footer><span /><Button ref={confirmRef} className="secondary" onClick={keepEditing}>Keep editing</Button><Button className="primary danger" disabled={busy} onClick={() => { if (confirmation === "delete") void onDelete(); else onClose(); }}>{confirmation === "delete" ? (builtin ? "Reset to default" : "Delete panel") : "Discard changes"}</Button></footer>
     </section></div>}
     <div inert={confirmation !== null || undefined}>
-      <header className="page-header"><div><Button ref={backRef} className="text-button panel-back" onClick={requestClose}><ChevronLeft size={18} aria-hidden="true" />All panels</Button><h1>{panel.name}</h1><p>Choose a tile to change what it says and does. Rows share their width between their tiles.</p></div>
-        <div className="panel-header-actions"><Button ref={deleteRef} className="secondary danger" disabled={busy} onClick={requestDelete}><Trash2 size={16} aria-hidden="true" />Delete panel</Button><Button className="primary" disabled={busy || !canSave} onClick={save}><Save size={16} aria-hidden="true" />Save panel</Button></div></header>
+      <header className="page-header"><div><Button ref={backRef} className="text-button panel-back" onClick={requestClose}><ChevronLeft size={18} aria-hidden="true" />All panels</Button><h1>{panel.name}</h1><p>{builtin ? "Rearrange this built-in menu. Keep a Back or Close tile so it can be left." : "Choose a tile to change what it says and does. Rows share their width between their tiles."}</p></div>
+        <div className="panel-header-actions">{builtin
+          ? <Button ref={deleteRef} className="secondary" disabled={busy || !builtin.rearranged} onClick={requestDelete}><RotateCcw size={16} aria-hidden="true" />Reset to default</Button>
+          : <Button ref={deleteRef} className="secondary danger" disabled={busy} onClick={requestDelete}><Trash2 size={16} aria-hidden="true" />Delete panel</Button>}<Button className="primary" disabled={busy || !canSave} onClick={save}><Save size={16} aria-hidden="true" />Save panel</Button></div></header>
       {error && !confirmation && <p className="dialog-error" role="alert">{error}</p>}
       <div className="panel-editor-layout">
         <div className="panel-editor-main">
           <form className="panel-fields" onSubmit={(event) => { event.preventDefault(); save(); }}>
-            <label className="field"><span>Panel name</span><Input value={draft.name} maxLength={maxPanelNameChars} aria-invalid={problems.name ? true : undefined} aria-describedby={problems.name ? `${ids}-name-error` : undefined} onChange={(event) => update({ ...draft, name: event.target.value })} /></label>
-            {problems.name && <p id={`${ids}-name-error`} className="field-error">{problems.name}</p>}
-            <label className="field"><span>Description</span><Input value={draft.description} maxLength={maxPanelDescriptionChars} placeholder="What this panel is for" onChange={(event) => update({ ...draft, description: event.target.value })} /></label>
+            {!builtin && <>
+              <label className="field"><span>Panel name</span><Input value={draft.name} maxLength={maxPanelNameChars} aria-invalid={problems.name ? true : undefined} aria-describedby={problems.name ? `${ids}-name-error` : undefined} onChange={(event) => update({ ...draft, name: event.target.value })} /></label>
+              {problems.name && <p id={`${ids}-name-error`} className="field-error">{problems.name}</p>}
+              <label className="field"><span>Description</span><Input value={draft.description} maxLength={maxPanelDescriptionChars} placeholder="What this panel is for" onChange={(event) => update({ ...draft, description: event.target.value })} /></label>
+            </>}
           </form>
           <section className="panel-grid-editor" aria-label="Tiles">
             <h2>Tiles</h2>

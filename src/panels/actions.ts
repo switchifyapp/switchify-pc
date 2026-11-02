@@ -69,6 +69,7 @@ export function defaultLabel(action: PanelAction, catalogue: PanelActionEntry[],
       return entry ? entry.name.replace(/^Open /, "").replace(/ menu$/, "") : "Menu";
     }
     case "close": return "Close";
+    case "myPanels": return "My panels";
     case "setting": {
       if (typeof action.setting === "object") return { qwerty: "QWERTY", simpleQwerty: "Simple QWERTY", commonLetters: "Common letters" }[action.setting.keyboardLayout];
       const entry = catalogue.find((candidate) => sameAction(candidate.action, action));
@@ -108,13 +109,19 @@ export function searchActions(catalogue: PanelActionEntry[], query: string) {
   });
 }
 
-/** Problems with the whole panel, keyed by field: `name`, `rows`, or `tile-r-c`. */
-export function panelProblems(panel: CustomPanel, panels: CustomPanel[]): Record<string, string> {
+/** Problems with the whole panel, keyed by field: `name`, `rows`, or `tile-r-c`.
+ *  A built-in menu (`builtinKind` set) keeps its name and must keep a way out. */
+export function panelProblems(panel: CustomPanel, panels: CustomPanel[], builtinKind?: string): Record<string, string> {
   const problems: Record<string, string> = {};
   const name = panel.name.trim();
   if (name === "") problems.name = "Give the panel a name.";
   else if (name.length > 50) problems.name = "Panel names use 50 characters or fewer.";
-  else if (panels.some((other) => other.id !== panel.id && other.name.trim().toLowerCase() === name.toLowerCase())) problems.name = "Panel names must be unique.";
+  else if (!builtinKind && panels.some((other) => other.id !== panel.id && other.name.trim().toLowerCase() === name.toLowerCase())) problems.name = "Panel names must be unique.";
+  if (builtinKind) {
+    const actions = panel.rows.flat().map((cell) => cell.action.type);
+    if (!actions.some((type) => type === "back" || type === "close")) problems.rows = "Keep a Back or Close tile so the menu can be left.";
+    else if (builtinKind === "home" && !actions.includes("close")) problems.rows = "Home keeps a Close tile, which ends scanning.";
+  }
   if (panel.rows.length === 0) problems.rows = "Add at least one row.";
   else if (panel.rows.length > maxRows) problems.rows = `A panel has up to ${maxRows} rows.`;
   panel.rows.forEach((row, rowIndex) => {
