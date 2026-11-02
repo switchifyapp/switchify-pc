@@ -7,7 +7,7 @@ A panel is a page of tiles that scans like the Home menu. Each tile does one thi
 
 Open **Panels** in the sidebar of the Switchify PC window to see your panels. Each one is shown as a small picture of the panel, drawn the way the scan will draw it, in the light or dark panel theme you chose in Scanning settings.
 
-![The Panels page with two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath and either its description or its number of tiles, a New panel button, and below them a Built-in menus group showing Home and Editing as shipped.](../../../assets/screenshots/panels.png)
+![The Panels page with two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath and either its description or its number of tiles, a New panel button, and below them a Built-in menus group showing Home and Editing, each marked Not changed.](../../../assets/screenshots/panels.png)
 
 ## Make a panel
 
@@ -51,7 +51,7 @@ Below your panels, **Built-in menus** lists Home and the menus it opens: More ac
 
 Two rules keep a menu usable: it must keep a tile that goes **Back** or closes it, and Home must keep a tile that closes it, which ends scanning. The editor says so and keeps Save off until the rule is met.
 
-**Reset to default** puts a menu back the way it was shipped. Switchify PC asks first.
+**Reset to default** puts a menu back the way it came. Switchify PC asks first.
 
 The Shut down and Restart pages, and the pages that appear after you choose a point or from the mouse panel, cannot be changed.
 

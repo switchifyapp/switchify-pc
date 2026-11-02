@@ -19,7 +19,7 @@ Press and release **Select** to open Home. It scans through these items; press S
 | **My panels** | Shown once you have made panels of your own. Opens a list of them; choose one to open it. A panel stays open after each action, so you can choose the next one, until you choose a tile that goes Back or closes it. |
 | **Close menu** | Close Home without doing anything. |
 
-Home and the menus it opens can be rearranged in the [Panels](/using/panels/) section of the Switchify PC window, and put back the way they were shipped. The table above describes them as shipped.
+Home and the menus it opens can be rearranged in the [Panels](/using/panels/) section of the Switchify PC window, and put back the way they came. The table above describes them before any change.
 
 ## Shut down or restart
 

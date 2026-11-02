@@ -64,7 +64,7 @@ const bridge = (platform) => {
       [tile("Save", { type: "key", keys: ["Ctrl", "S"] }, 2), tile("Back", { type: "back" })],
     ] },
   ];
-  // Two of the built-in menus, as shipped, for the Built-in menus group.
+  // Two of the built-in menus, unchanged, for the Built-in menus group.
   const builtins = [
     { kind: "home", name: "Home", override: null, default: { id: "builtin-home", version: 1, name: "Home", description: "", rows: [
       [tile("Point", { type: "openPanel", panel: "point" }), tile("Mouse", { type: "openPanel", panel: "mouse" }), tile("Keyboard", { type: "openPanel", panel: "keyboard" })],
@@ -258,7 +258,7 @@ for (const platform of ["windows", "macos"]) {
 {
   const page = await open("windows", { width: 1280, height: 1000 });
   await click(page, "Panels");
-  await click(page, "Home, as shipped");
+  await click(page, "Home, not changed");
   await shot(page, "builtin-menu-editor", "main");
   await page.close();
 }
