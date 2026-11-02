@@ -350,6 +350,11 @@ impl Workflow {
     pub fn menu_open(&self) -> bool {
         self.stage == Stage::Menu
     }
+    /// One of the user's panels is open. Its pointer tiles act at the pointer,
+    /// so the runtime keeps the pointer position current while it is open.
+    pub fn custom_panel_open(&self) -> bool {
+        self.stage == Stage::Menu && self.menu.custom_id.is_some()
+    }
     pub fn keyboard_open(&self) -> bool {
         matches!(self.stage, Stage::Keyboard | Stage::KeyboardOpening)
     }
@@ -671,14 +676,30 @@ impl Workflow {
             crate::scan_panel::menu_bar(&frame),
         )
     }
-    fn open(&mut self, kind: Kind) {
+    /// A page as it should open now: Home and the panel list come from the
+    /// user's panels, every other page from its fixed rows.
+    fn build(&self, kind: Kind) -> Menu {
         let options = self.point.config.menu_scan;
-        self.menu = match kind {
+        match kind {
             Kind::Home => Menu::home(options, !self.panels.is_empty()),
             Kind::Panels => Menu::panel_list(&self.panels, options),
             kind => Menu::configured(kind, options),
-        };
+        }
+    }
+    fn open(&mut self, kind: Kind) {
+        self.menu = self.build(kind);
         self.stage = Stage::Menu;
+    }
+    /// Where a pointer action on a custom panel lands: at the pointer. No
+    /// point was chosen, and the pointer is not always known.
+    fn pointer_point(&mut self) -> Option<Point> {
+        match self.pointer {
+            Some((x, y)) => Some((x.round() as i32, y.round() as i32)),
+            None => {
+                self.error = Some("Pointer unavailable. Try again.".into());
+                None
+            }
+        }
     }
     /// Opens one of the user's panels, or reports that it is gone.
     fn open_custom(&mut self, id: &str) -> bool {
@@ -744,10 +765,6 @@ impl Workflow {
     /// open so the next choice can follow, as on a communication board.
     fn custom_selected(&mut self, index: usize) -> Option<Request> {
         let action = self.menu.cell(index)?.action.clone();
-        // Pointer actions act where the pointer is, since no point was chosen.
-        let point = self
-            .pointer
-            .map_or(self.source, |(x, y)| (x.round() as i32, y.round() as i32));
         match action {
             PanelAction::Key { keys } => {
                 self.menu.continue_after_selection();
@@ -758,6 +775,12 @@ impl Workflow {
                 Some(Request::Text(text))
             }
             PanelAction::Command { command } => {
+                // Modifier clicks act at the pointer; the rest need no point.
+                let point = if command.at_point() {
+                    self.pointer_point()?
+                } else {
+                    self.source
+                };
                 self.menu.continue_after_selection();
                 Some(Request::Command { command, point })
             }
@@ -769,6 +792,7 @@ impl Workflow {
                 button: MouseButton::Middle,
                 ..
             } => {
+                let point = self.pointer_point()?;
                 self.menu.continue_after_selection();
                 Some(Request::Command {
                     command: crate::scan_menu::Command::MiddleClick,
@@ -783,6 +807,7 @@ impl Workflow {
                 })
             }
             PanelAction::Scroll { direction } => {
+                let point = self.pointer_point()?;
                 self.menu.continue_after_selection();
                 let (dx, dy) = match direction {
                     ScrollDirection::Up => (0, 3),
@@ -1104,7 +1129,7 @@ impl Workflow {
                 } else {
                     Kind::More
                 };
-                let next = Menu::configured(kind, self.point.config.menu_scan);
+                let next = self.build(kind);
                 self.push_menu(next);
             }
             Item::Command(command) => {
@@ -1201,13 +1226,20 @@ impl Workflow {
                 let next = Menu::panel_list(&self.panels, self.point.config.menu_scan);
                 self.push_menu(next);
             }
-            Item::OpenCustom(index) => match self.panels.get(index) {
-                Some(panel) => {
-                    let next = Menu::custom(panel, self.point.config.menu_scan);
-                    self.push_menu(next);
+            Item::OpenCustom(index) => {
+                // By id, not position: the list may have changed since it opened.
+                let found = self
+                    .menu
+                    .listed_panel_id(index)
+                    .and_then(|id| self.panels.iter().find(|panel| panel.id == id));
+                match found {
+                    Some(panel) => {
+                        let next = Menu::custom(panel, self.point.config.menu_scan);
+                        self.push_menu(next);
+                    }
+                    None => self.error = Some("That panel no longer exists.".into()),
                 }
-                None => self.error = Some("That panel no longer exists.".into()),
-            },
+            }
             Item::Custom(index) => return self.custom_selected(index),
             Item::DragHere => {
                 self.stage = Stage::Executing;
@@ -2103,7 +2135,7 @@ mod tests {
             Some(Request::Chord(vec!["Ctrl".into(), "S".into()]))
         );
         s.technique.execution_succeeded();
-        // Clicks land where the pointer is, since no point was chosen.
+        // Clicks and scrolls land where the pointer is, since no point was chosen.
         s.technique.set_pointer(Some((-300.0, 200.0)));
         assert_eq!(
             choose_in(&mut s, 0, 1),
@@ -2122,6 +2154,16 @@ mod tests {
             })
         );
         s.technique.execution_succeeded();
+        // Without a known pointer a scroll tile cannot act, and says so. The
+        // highlight stays on the tile; Select clears the message.
+        s.technique.set_pointer(None);
+        assert_eq!(choose_in(&mut s, 0, 2), None);
+        assert!(s.technique.frame().label.is_some());
+        s.action(Action::Select);
+        assert!(s.technique.frame().label.is_none());
+        s.action(Action::Next);
+        assert_eq!(s.action(Action::Select), None, "leaves the row");
+        s.technique.set_pointer(Some((-300.0, 200.0)));
         // A link opens the other panel, and Back on it returns here.
         assert_eq!(choose_in(&mut s, 1, 0), None);
         assert_eq!(s.technique.menu.custom_id.as_deref(), Some("second"));
@@ -2151,6 +2193,29 @@ mod tests {
         s.action(Action::Next);
         assert_eq!(s.action(Action::Select), None);
         assert!(!s.active());
+    }
+
+    #[test]
+    fn the_panel_list_opens_panels_by_id_after_the_list_changes() {
+        let mut s = board_session(vec![
+            crate::custom_panels::sample("a", "First"),
+            crate::custom_panels::sample("b", "Second"),
+        ]);
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 3, 1), None);
+        assert_eq!(s.technique.menu.kind, Kind::Panels);
+        // The first panel is deleted while the list is showing. Its tile
+        // says so instead of opening whatever now sits first.
+        s.technique
+            .set_panels(vec![crate::custom_panels::sample("b", "Second")]);
+        assert_eq!(choose_in(&mut s, 0, 0), None);
+        assert_eq!(s.technique.menu.kind, Kind::Panels);
+        assert!(s.technique.frame().label.is_some());
+        s.action(Action::Select);
+        // The other tile still opens its own panel.
+        s.action(Action::Next);
+        assert_eq!(s.action(Action::Select), None);
+        assert_eq!(s.technique.menu.custom_id.as_deref(), Some("b"));
     }
 
     #[test]

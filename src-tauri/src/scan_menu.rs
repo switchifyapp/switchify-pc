@@ -156,8 +156,9 @@ pub struct Menu {
     rows: Vec<Vec<Item>>,
     /// The open custom panel's tiles, indexed by `Item::Custom`.
     cells: Vec<CustomCell>,
-    /// Panel names on the list page, indexed by `Item::OpenCustom`.
+    /// Panel names and ids on the list page, indexed by `Item::OpenCustom`.
     names: Vec<String>,
+    ids: Vec<String>,
     scan: ItemScanner<Item>,
     period: u64,
 }
@@ -194,6 +195,7 @@ impl Menu {
             rows,
             cells: Vec::new(),
             names: Vec::new(),
+            ids: Vec::new(),
             scan,
             period: options.interval_ms,
         }
@@ -215,6 +217,7 @@ impl Menu {
         rows.push(vec![Item::Back, Item::Cancel]);
         let mut menu = Self::with_rows(Kind::Panels, rows, options);
         menu.names = panels.iter().map(|panel| panel.name.clone()).collect();
+        menu.ids = panels.iter().map(|panel| panel.id.clone()).collect();
         menu
     }
     /// One of the user's panels, tile for tile.
@@ -255,6 +258,11 @@ impl Menu {
             .iter()
             .map(|row| row.iter().map(|item| self.item_label(*item)).collect())
             .collect()
+    }
+    /// The id behind a tile of the list page, so the panel is found by id
+    /// even if the list changed since the page opened.
+    pub fn listed_panel_id(&self, index: usize) -> Option<&str> {
+        self.ids.get(index).map(String::as_str)
     }
     pub fn cell(&self, index: usize) -> Option<&CustomCell> {
         self.cells.get(index)
@@ -454,6 +462,19 @@ impl Command {
             Self::ShutDown => "Shut down now",
             Self::Restart => "Restart now",
         }
+    }
+    /// Clicks with a modifier act at a point; every other command acts on
+    /// the window in front.
+    pub fn at_point(self) -> bool {
+        matches!(
+            self,
+            Self::MiddleClick
+                | Self::TripleClick
+                | Self::ShiftClick
+                | Self::CtrlClick
+                | Self::AltClick
+                | Self::MetaClick
+        )
     }
     pub fn stays_open(self) -> bool {
         matches!(

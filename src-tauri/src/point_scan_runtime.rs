@@ -317,9 +317,10 @@ impl Adapter for PointScan {
             environment.following = false;
             // An open menu moves out of the pointer's way as the panels do.
             let menu_pointer = |technique: &Workflow| {
-                (technique.menu_open() && technique.panel_avoids_pointer())
-                    .then(|| display_navigation::pointer(app).ok())
-                    .flatten()
+                (technique.custom_panel_open()
+                    || (technique.menu_open() && technique.panel_avoids_pointer()))
+                .then(|| display_navigation::pointer(app).ok())
+                .flatten()
             };
             if technique.mouse_open() {
                 environment.foreground = crate::scan_host::foreground().ok();
