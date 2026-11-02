@@ -17,19 +17,17 @@ To change a panel later, choose its picture in the list. **Delete panel** remove
 
 ## Edit the tiles
 
-The editor shows the panel's rows. Choose a tile to change it on the right:
+The editor draws the panel as it will scan. Choose a tile on it to change it on the right:
 
 - **Label** is the word or two written on the tile. Keep it short so it fits.
 - **Width** makes a tile two, three or four times as wide as a normal tile. The tiles in a row share the row's width between them.
 - **Action** is what the tile does. Search the list by what you want, for example "copy", "volume" or "new tab", and choose an action. Some actions need a little more: **Press keys** asks you to press the keys on your keyboard, **Type text** asks for the text, and **Open one of my panels** asks which panel.
 
-Use **Tile** on a row to add a tile to it, **Add row** to add a row, and the arrows to move tiles and rows. **Remove tile** and the bin on a row take them away. Nothing changes on the scanned panel until you choose **Save panel**; if you leave with unsaved changes, Switchify PC asks first.
+Beside each row are its tools: add a tile to it, move it up or down, or remove it. **Add row** under the panel adds a row. With a tile chosen, the arrows move it along its row, **Row** moves it to the end of another row or a new one, and **Remove tile** takes it away. Nothing changes on the scanned panel until you choose **Save panel**; if you leave with unsaved changes, Switchify PC asks first.
 
 If something stops the panel saving, such as a tile with no label or a link to a panel that no longer exists, a note under the buttons says what and where. Choose the note to go to that tile.
 
-The picture under the rows shows the panel as it will scan.
-
-![The editor for the Greetings panel: three rows of tiles with the Hello tile chosen, and on the right its label, width, action "Type Hello, how are you?" and the searchable list of actions.](../../../assets/screenshots/panel-editor.png)
+![The editor for the Greetings panel: the panel drawn as it will scan, with tools beside each row and the Hello tile chosen, and on the right its label, width, row, action "Type Hello, how are you?" and the searchable list of actions.](../../../assets/screenshots/panel-editor.png)
 
 ## What a tile can do
 
@@ -57,13 +55,13 @@ Two rules keep a menu usable: it must keep a tile that goes **Back** or closes i
 
 The Shut down and Restart pages, and the pages that appear after you choose a point or from the mouse panel, cannot be changed.
 
-![The editor open on the built-in Home menu: four rows of tiles, a Reset to default button beside Save changes, and no name field.](../../../assets/screenshots/builtin-menu-editor.png)
+![The editor open on the built-in Home menu: its four rows of tiles drawn as they scan with tools beside each row, a Reset to default button beside Save changes, and no name field.](../../../assets/screenshots/builtin-menu-editor.png)
 
 Rearranged menus are saved on this computer and, if you sign in to your account, go to your other computers with your settings.
 
 ## Add tiles around the mouse panel's and the keyboard's keys
 
-Below the built-in menus, **Mouse panel and keyboard** shows the two scanning panels with their keys. The keys cannot be changed, but you can add tiles of your own around them: a phrase you type often, a shortcut, or a link to one of your panels. Choose a panel, then **Add row** for a row below the keys or **Add column** for a column beside them, and give each tile a label and an action as on any panel. Choose **Save changes**; the card then says what you added.
+Below the built-in menus, **Mouse panel and keyboard** shows the two scanning panels with their keys. The keys cannot be changed, but you can add tiles of your own around them: a phrase you type often, a shortcut, or a link to one of your panels. Choose a panel, then **Add row** for a row below the keys or **Add column** for a column beside them, and give each tile a label and an action as on any panel. The keys are drawn faintly and cannot be chosen; your tiles sit among them where they will scan, with each row's tools beside it and each column's tools under it. Choose **Save changes**; the card then says what you added.
 
 Up to four rows fit below the keys, and each row shares the panel's width between its tiles, as on your own panels. Up to two columns of up to six tiles run down the right of the keys from the top row; a column longer than the panel adds rows of its own below it, and a column is as wide as its widest tile.
 
@@ -71,7 +69,7 @@ The rows appear on the mouse panel's Movement page and on every keyboard page, j
 
 **Remove tiles** takes the panel back to its keys alone. Switchify PC asks first.
 
-![The editor open on the Keyboard: its keys drawn faintly, a row of two added tiles, Hello and My panels, a column of two tiles, Hi and Pause, beside the keys, and a Remove tiles button beside Save changes.](../../../assets/screenshots/panel-extras-editor.png)
+![The editor open on the Keyboard: its keys drawn faintly with a row of two added tiles, Hello and My panels, below them and a column of two tiles, Hi and Pause, beside them, tools beside the row and under the column, and a Remove tiles button beside Save changes.](../../../assets/screenshots/panel-extras-editor.png)
 
 Added tiles are saved on this computer and, if you sign in to your account, go to your other computers with your settings.
 

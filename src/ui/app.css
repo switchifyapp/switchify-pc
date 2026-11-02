@@ -287,6 +287,20 @@ main { min-width: 0; }
 /* A native panel's own keys: there to place the user's rows, not to read. */
 .panel-picture-tile[data-fixed] { opacity: 0.55; min-height: 22px; padding: 1px 2px; font-size: 0.8em; white-space: nowrap; }
 .panel-picture-spacer { min-width: 0; }
+.panel-picture-slot { display: flex; min-width: 0; }
+.panel-picture-slot > * { flex: 1 1 0; min-width: 0; }
+/* The editing picture: each line is the drawn row plus its tools beside it. */
+.panel-picture-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.panel-picture-editing .panel-picture-tools { display: flex; flex-wrap: nowrap; gap: 2px; width: 136px; }
+.panel-picture-editing .panel-picture-tools .btn, .panel-picture-column-tools .btn { width: 32px; height: 32px; min-width: 0; min-height: 0; padding: 0; color: inherit; }
+.panel-picture-editing .btn.panel-editor-tile { overflow: hidden; overflow-wrap: break-word; word-break: normal; }
+.panel-picture-large .panel-picture-tile[data-fixed] { overflow-wrap: break-word; }
+.panel-picture-editing .panel-picture-rows { gap: 8px; padding: 12px 8px 12px 12px; }
+.panel-picture-editing .btn.panel-editor-tile { width: 100%; min-width: 0; min-height: 56px; border-radius: 8px; padding: 6px 8px; }
+.panel-picture-column-tools { align-items: flex-start; }
+.panel-picture-column-tools .panel-picture-slot { justify-content: center; }
+.panel-picture-column-tools .panel-picture-slot > .btn { flex: 0 0 auto; }
+.panel-canvas-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .panel-picture-keys { display: flex; gap: 4px; min-width: 0; }
 .panel-picture-large .panel-picture-keys { gap: 8px; }
 .panel-picture-large { font-size: 1rem; }
@@ -308,17 +322,13 @@ main { min-width: 0; }
 .panel-fields .field:first-child { margin-top: 0; }
 .panel-grid-editor { display: grid; gap: 12px; }
 .panel-grid-editor > .btn { justify-self: start; }
-/* Tiles keep a readable width; a row's controls drop below them when the row is full. */
-.panel-editor-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 8px; background: var(--surface); }
-.panel-editor-row[data-selected-row] { border-color: var(--border-strong); }
-.panel-editor-tiles { display: flex; flex: 1 1 440px; gap: 8px; min-width: 0; overflow-x: auto; }
+/* The user's tiles on the editing picture are buttons the width they will scan at. */
 .btn.panel-editor-tile { min-width: 96px; min-height: 64px; border-color: var(--border-strong); padding: 8px 10px; color: var(--text); background: var(--surface-muted); font-weight: 500; overflow-wrap: anywhere; }
 .btn.panel-editor-tile[data-toolbar] { background: var(--surface); }
 .btn.panel-editor-tile[data-selected] { border-color: var(--brand); outline: 2px solid var(--brand); outline-offset: -2px; }
 .btn.panel-editor-tile[data-invalid] { border-color: var(--status-error); }
 .btn.panel-editor-tile em { color: var(--muted); font-style: italic; font-weight: 400; }
-.panel-editor-row-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 4px; }
-.panel-editor-row > .field-error { flex-basis: 100%; }
+
 .panel-editor-picture h2, .panel-grid-editor h2 { margin-bottom: 4px; }
 .panel-inspector { position: sticky; top: 0; max-height: 100dvh; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 20px; background: var(--surface); }
 .panel-inspector-empty { color: var(--muted); }
