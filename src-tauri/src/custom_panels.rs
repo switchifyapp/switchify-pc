@@ -228,14 +228,15 @@ fn write(app: &AppHandle, panels: &[CustomPanel]) -> Result<(), String> {
 /// copy's, whatever the caller sent, so a stale editor can never lower it.
 pub fn save(app: &AppHandle, panel: CustomPanel) -> Result<Vec<CustomPanel>, String> {
     let mut panel = panel.normalized();
-    panel.validate()?;
     let controller = app.state::<Controller>();
     let mut panels = controller.panels.lock().unwrap_or_else(|p| p.into_inner());
     let existing = panels.iter().position(|candidate| candidate.id == panel.id);
+    // The store owns the version, so the editor may send any value.
+    panel.version = existing.map_or(1, |index| panels[index].version.saturating_add(1));
+    panel.validate()?;
     if existing.is_none() && panels.len() >= MAX_PANELS {
         return Err(format!("No more than {MAX_PANELS} panels can be saved."));
     }
-    panel.version = existing.map_or(1, |index| panels[index].version.saturating_add(1));
     let mut next = panels.clone();
     match existing {
         Some(index) => next[index] = panel,
@@ -348,11 +349,11 @@ pub fn merge(
         .collect();
     let mut seen = HashSet::new();
     for panel in &mut merged {
-        if !seen.insert(panel.name.to_lowercase()) {
+        if !seen.insert(panel.name.trim().to_lowercase()) {
             let base: String = panel.name.chars().take(MAX_NAME_CHARS - 6).collect();
             let name = (2..)
                 .map(|n| format!("{base} ({n})"))
-                .find(|candidate| !seen.contains(&candidate.to_lowercase()))
+                .find(|candidate| !seen.contains(&candidate.trim().to_lowercase()))
                 .expect("an unused suffix always exists");
             seen.insert(name.to_lowercase());
             panel.name = name;
