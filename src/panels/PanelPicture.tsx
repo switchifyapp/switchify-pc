@@ -46,7 +46,9 @@ export function PanelPicture({ panel, fixed, columns = [], theme, title = "Switc
     <div className="panel-picture-band" style={{ background: colours.band, borderColor: colours.bandBorder }}><span>{title}</span></div>
     <div className="panel-picture-rows">
       {lines.map((line, index) => <div className="panel-picture-row" key={line.key}>
-        {line.blank ? <span className="panel-picture-spacer" style={{ flexGrow: keysWeight, flexBasis: 0 }} /> : line.keys}
+        {line.blank ? <span className="panel-picture-spacer" style={{ flexGrow: keysWeight, flexBasis: 0 }} />
+          // With columns beside them, every line keeps its keys to the keys' width so the columns line up.
+          : columns.length > 0 ? <span className="panel-picture-keys" style={{ flexGrow: keysWeight, flexBasis: 0 }}>{line.keys}</span> : line.keys}
         {columns.map((column, c) => column[index]
           ? <PictureTile key={`column-${c}`} cell={column[index]} colours={colours} width={columnWidth(column)} data-column={c + 1} />
           : <span key={`column-${c}`} className="panel-picture-spacer" style={{ flexGrow: columnWidth(column), flexBasis: 0 }} />)}

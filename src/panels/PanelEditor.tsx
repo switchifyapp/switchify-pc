@@ -42,6 +42,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
   const backRef = useRef<HTMLButtonElement>(null);
   const deleteRef = useRef<HTMLButtonElement>(null);
   const addRowRef = useRef<HTMLButtonElement>(null);
+  const addColumnRef = useRef<HTMLButtonElement>(null);
   const ids = useId();
   const dirty = JSON.stringify(draft) !== JSON.stringify(panel) || JSON.stringify(columns) !== JSON.stringify(extras?.columns ?? []);
   const problems = { ...panelProblems(draft, panels, builtin?.kind, extras !== undefined), ...(extras ? columnProblems(columns, panels, draft.id) : {}) };
@@ -58,8 +59,8 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
   const replaceIn = (lines: PanelCell[][], selection: Selection, cell: PanelCell) => lines.map((line, r) => r === selection.row ? line.map((candidate, c) => c === selection.cell ? cell : candidate) : line);
   const setCell = (selection: Selection, cell: PanelCell) => selection.column ? setColumns(replaceIn(columns, selection, cell)) : updateRows(replaceIn(draft.rows, selection, cell));
   const problemOf = (selection: Selection) => problems[selection.column ? `ctile-${selection.row}-${selection.cell}` : `tile-${selection.row}-${selection.cell}`] ?? null;
-  /** Focus goes to a row's group once the tile that had it is gone. */
-  const focusAfterRemoval = () => requestAnimationFrame(() => addRowRef.current?.focus());
+  /** Focus goes to the section's Add button once the tile that had it is gone. */
+  const focusAfterRemoval = (column = false) => requestAnimationFrame(() => (column ? addColumnRef : addRowRef).current?.focus());
 
   const addTile = (rowIndex: number) => {
     if (draft.rows[rowIndex].length >= maxTilesPerRow) return;
@@ -75,7 +76,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
     const lines = (selection.column ? columns : draft.rows).map((line, r) => r === selection.row ? line.filter((_, c) => c !== selection.cell) : line).filter((line) => line.length > 0);
     if (selection.column) setColumns(lines); else updateRows(lines);
     setSelected(null);
-    focusAfterRemoval();
+    focusAfterRemoval(selection.column === true);
   };
   const addColumnTile = (columnIndex: number) => {
     if (columns[columnIndex].length >= maxColumnTiles) return;
@@ -90,7 +91,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
   const removeColumn = (columnIndex: number) => {
     setColumns(columns.filter((_, c) => c !== columnIndex));
     setSelected(null);
-    focusAfterRemoval();
+    focusAfterRemoval(true);
   };
   const moveColumn = (columnIndex: number, direction: -1 | 1) => {
     const target = columnIndex + direction;
@@ -122,6 +123,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
     [rows[rowIndex], rows[target]] = [rows[target], rows[rowIndex]];
     updateRows(rows);
     // The chosen tile travels with its row, whichever of the two it is in.
+    if (selected?.column) return;
     setSelected(selected?.row === rowIndex ? { ...selected, row: target } : selected?.row === target ? { ...selected, row: rowIndex } : selected);
   };
   /** Gives the tile a new action. A label the user wrote stays; one that
@@ -211,7 +213,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
               </div>
               {problems[`column-${columnIndex}`] && <p className="field-error">{problems[`column-${columnIndex}`]}</p>}
             </div>)}
-            <Button className="secondary" disabled={columns.length >= maxExtraColumns} onClick={addColumn}><Plus size={16} aria-hidden="true" />Add column</Button>
+            <Button ref={addColumnRef} className="secondary" disabled={columns.length >= maxExtraColumns} onClick={addColumn}><Plus size={16} aria-hidden="true" />Add column</Button>
           </section>}
           <section className="panel-editor-picture" aria-label="Picture"><h2>As it will scan</h2><PanelPicture panel={draft} fixed={extras?.fixed} columns={extras ? columns : undefined} theme={theme} className="panel-picture-large" /></section>
         </div>

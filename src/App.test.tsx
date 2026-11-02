@@ -694,10 +694,18 @@ describe("Switchify PC shell", () => {
     expect(saveExtras.mock.calls[0][2]).toHaveLength(1);
     expect((saveExtras.mock.calls[0][2] as unknown[][])[0]).toHaveLength(2);
     expect(await screen.findByRole("button", { name: "Mouse panel, 1 column" })).toBeInTheDocument();
-    // Two columns at most.
+    // Two columns at most. Moving a row leaves a chosen column tile where it is,
+    // and removing a column puts focus back on Add column.
     fireEvent.click(screen.getByRole("button", { name: "Mouse panel, 1 column" }));
     fireEvent.click(await screen.findByRole("button", { name: "Add column" }));
     expect(screen.getByRole("button", { name: "Add column" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Add row" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add row" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Column 2, tile 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Move row 1 down" }));
+    expect(screen.getByRole("heading", { name: "Column 2, tile 1" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove column 2" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add column" })).toHaveFocus());
   });
 
   it("takes only a few rows below the mouse panel's keys", async () => {
