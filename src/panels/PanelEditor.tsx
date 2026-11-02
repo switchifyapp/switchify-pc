@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronLeft, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { Button, Input, Select } from "../ui/controls";
 import { api } from "../api";
-import { PanelPicture, toolbarAction } from "./PanelPicture";
+import { PanelPicture, toolbarAction, type TilePlace } from "./PanelPicture";
 import { actionProblem, chordFromEvent, columnProblems, defaultLabel, describeAction, friendlyKey, maxColumnTiles, maxExtraColumns, maxExtraRows, maxLabelChars, maxRows, maxSpan, maxTextChars, maxTilesPerRow, panelProblems, sameAction, searchActions } from "./actions";
 import type { PanelTheme } from "../scanning/preferences";
 import type { CustomPanel, PanelAction, PanelActionEntry, PanelCell, PictureCell } from "../types";
@@ -12,7 +12,7 @@ export const maxPanelDescriptionChars = 200;
 
 /** A tile in a row, or (`column` set) a tile in one of a native panel's
  *  columns, where `row` is the column's index. */
-type Selection = { row: number; cell: number; column?: true };
+type Selection = TilePlace;
 
 const blankTile = (): PanelCell => ({ label: "Back", action: { type: "back" }, span: 1 });
 
@@ -45,7 +45,6 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
   const addColumnRef = useRef<HTMLButtonElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const rowsRef = useRef<HTMLElement>(null);
-  const columnsRef = useRef<HTMLElement>(null);
   const ids = useId();
   const dirty = JSON.stringify(draft) !== JSON.stringify(panel) || JSON.stringify(columns) !== JSON.stringify(extras?.columns ?? []);
   const problems = { ...panelProblems(draft, panels, builtin?.kind, extras !== undefined), ...(extras ? columnProblems(columns, panels, draft.id) : {}) };
@@ -68,7 +67,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
       const place = `${line[1] === "row" ? "Row" : "Column"} ${Number(line[2]) + 1}`;
       return { label: `${place}: ${message}`, go: () => reveal(document.querySelector<HTMLElement>(`[aria-label="Add tile to ${place.toLowerCase()}"]`)) };
     }
-    const section = key === "name" ? nameRef : key.startsWith("column") ? columnsRef : rowsRef;
+    const section = key === "name" ? nameRef : rowsRef;
     return { label: `To save: ${message}`, go: () => reveal(section.current) };
   });
 
@@ -128,6 +127,23 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
     updateRows(draft.rows.filter((_, r) => r !== rowIndex));
     setSelected(null);
     focusAfterRemoval();
+  };
+  /** Moves a tile to the end of another row or column, or a new one. A row
+   *  or column left empty goes with it. */
+  const moveTileTo = (selection: Selection, target: number | "new") => {
+    const lines = selection.column ? columns : draft.rows;
+    const cell = lines[selection.row]?.[selection.cell];
+    if (!cell) return;
+    let next = lines.map((line, r) => r === selection.row ? line.filter((_, c) => c !== selection.cell) : line);
+    let index = target === "new" ? next.length : target;
+    if (target === "new") next = [...next, []];
+    next = next.map((line, r) => r === index ? [...line, cell] : line);
+    if (next[selection.row].length === 0) {
+      next = next.filter((_, r) => r !== selection.row);
+      if (index > selection.row) index -= 1;
+    }
+    if (selection.column) setColumns(next); else updateRows(next);
+    setSelected({ ...selection, row: index, cell: next[index].length - 1 });
   };
   const moveTile = (selection: Selection, direction: -1 | 1) => {
     const lines = selection.column ? columns : draft.rows;
@@ -196,56 +212,43 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
               <label className="field"><span>Description</span><Input value={draft.description} maxLength={maxPanelDescriptionChars} placeholder="What this panel is for" onChange={(event) => update({ ...draft, description: event.target.value })} /></label>
             </>}
           </form>
-          <section ref={rowsRef} tabIndex={-1} className="panel-grid-editor" aria-label={extras ? "Your rows" : "Tiles"}>
-            <h2>{extras ? "Your rows" : "Tiles"}</h2>
+          <section ref={rowsRef} tabIndex={-1} className="panel-grid-editor" aria-label="Tiles">
+            <h2>As it will scan</h2>
+            <p className="capability-note">{extras ? "Choose one of your tiles to change it. Each row and column has its tools beside it." : "Choose a tile to change it. Each row has its tools beside it."}</p>
             {problems.rows && <p className="field-error">{problems.rows}</p>}
-            {extras && draft.rows.length === 0 && <p className="capability-note">No rows yet. Add a row, then give its tiles labels and actions.</p>}
-            {draft.rows.map((row, rowIndex) => <div className="panel-editor-row" key={rowIndex} data-selected-row={(!selected?.column && selected?.row === rowIndex) || undefined}>
-              <div className="panel-editor-tiles" role="group" aria-label={`Row ${rowIndex + 1}`}>
-                {row.map((cell, cellIndex) => {
-                  const here = !selected?.column && selected?.row === rowIndex && selected.cell === cellIndex;
-                  const problem = problems[`tile-${rowIndex}-${cellIndex}`];
-                  return <Button key={cellIndex} id={tileId({ row: rowIndex, cell: cellIndex })} className="panel-editor-tile" style={{ flexGrow: cell.span, flexBasis: 0 }} data-selected={here || undefined} data-toolbar={toolbarAction(cell.action) || undefined} data-invalid={problem ? true : undefined} aria-pressed={here} aria-label={`Row ${rowIndex + 1}, tile ${cellIndex + 1}: ${cell.label.trim() || "no label"}, ${describeAction(cell.action, catalogue, panels)}${problem ? `, ${problem}` : ""}`} onClick={() => choose({ row: rowIndex, cell: cellIndex })}>{cell.label.trim() || <em>No label</em>}</Button>;
-                })}
-              </div>
-              <div className="panel-editor-row-actions">
-                <Button className="secondary" disabled={row.length >= maxTilesPerRow} aria-label={`Add tile to row ${rowIndex + 1}`} onClick={() => addTile(rowIndex)}><Plus size={16} aria-hidden="true" />Tile</Button>
-                <Button className="icon-button" disabled={rowIndex === 0} aria-label={`Move row ${rowIndex + 1} up`} onClick={() => moveRow(rowIndex, -1)}><ArrowUp size={18} /></Button>
-                <Button className="icon-button" disabled={rowIndex === draft.rows.length - 1} aria-label={`Move row ${rowIndex + 1} down`} onClick={() => moveRow(rowIndex, 1)}><ArrowDown size={18} /></Button>
-                <Button className="icon-button danger-icon" aria-label={`Remove row ${rowIndex + 1}`} onClick={() => removeRow(rowIndex)}><Trash2 size={18} /></Button>
-              </div>
-              {problems[`row-${rowIndex}`] && <p className="field-error">{problems[`row-${rowIndex}`]}</p>}
-            </div>)}
-            <Button ref={addRowRef} className="secondary" disabled={draft.rows.length >= rowLimit} onClick={addRow}><Plus size={16} aria-hidden="true" />Add row</Button>
-          </section>
-          {extras && <section ref={columnsRef} tabIndex={-1} className="panel-grid-editor" aria-label="Your columns">
-            <h2>Your columns</h2>
-            <p className="capability-note">A column runs down the right of the keys from the top row. Its tiles are listed top to bottom.</p>
             {problems.columns && <p className="field-error">{problems.columns}</p>}
-            {columns.map((column, columnIndex) => <div className="panel-editor-row" key={columnIndex} data-selected-row={(selected?.column && selected.row === columnIndex) || undefined}>
-              <div className="panel-editor-tiles" role="group" aria-label={`Column ${columnIndex + 1}`}>
-                {column.map((cell, cellIndex) => {
-                  const here = selected?.column === true && selected.row === columnIndex && selected.cell === cellIndex;
-                  const problem = problems[`ctile-${columnIndex}-${cellIndex}`];
-                  return <Button key={cellIndex} id={tileId({ row: columnIndex, cell: cellIndex, column: true })} className="panel-editor-tile" style={{ flexGrow: cell.span, flexBasis: 0 }} data-selected={here || undefined} data-toolbar={toolbarAction(cell.action) || undefined} data-invalid={problem ? true : undefined} aria-pressed={here} aria-label={`Column ${columnIndex + 1}, tile ${cellIndex + 1}: ${cell.label.trim() || "no label"}, ${describeAction(cell.action, catalogue, panels)}${problem ? `, ${problem}` : ""}`} onClick={() => choose({ row: columnIndex, cell: cellIndex, column: true })}>{cell.label.trim() || <em>No label</em>}</Button>;
-                })}
-              </div>
-              <div className="panel-editor-row-actions">
-                <Button className="secondary" disabled={column.length >= maxColumnTiles} aria-label={`Add tile to column ${columnIndex + 1}`} onClick={() => addColumnTile(columnIndex)}><Plus size={16} aria-hidden="true" />Tile</Button>
-                <Button className="icon-button" disabled={columnIndex === 0} aria-label={`Move column ${columnIndex + 1} left`} onClick={() => moveColumn(columnIndex, -1)}><ArrowLeft size={18} /></Button>
-                <Button className="icon-button" disabled={columnIndex === columns.length - 1} aria-label={`Move column ${columnIndex + 1} right`} onClick={() => moveColumn(columnIndex, 1)}><ArrowRight size={18} /></Button>
-                <Button className="icon-button danger-icon" aria-label={`Remove column ${columnIndex + 1}`} onClick={() => removeColumn(columnIndex)}><Trash2 size={18} /></Button>
-              </div>
-              {problems[`column-${columnIndex}`] && <p className="field-error">{problems[`column-${columnIndex}`]}</p>}
-            </div>)}
-            <Button ref={addColumnRef} className="secondary" disabled={columns.length >= maxExtraColumns} onClick={addColumn}><Plus size={16} aria-hidden="true" />Add column</Button>
-          </section>}
-          <section className="panel-editor-picture" aria-label="Picture"><h2>As it will scan</h2><PanelPicture panel={draft} fixed={extras?.fixed} columns={extras ? columns : undefined} theme={theme} className="panel-picture-large" /></section>
+            {[...draft.rows.map((_, index) => [`row-${index}`, `Row ${index + 1}`]), ...columns.map((_, index) => [`column-${index}`, `Column ${index + 1}`])].map(([key, place]) => problems[key] && <p key={key} className="field-error">{place}: {problems[key]}</p>)}
+            <PanelPicture panel={draft} fixed={extras?.fixed} columns={extras ? columns : undefined} theme={theme} className="panel-picture-large panel-picture-editing" editing={{
+              tile: (cell, place) => {
+                const here = selected?.column === place.column && selected?.row === place.row && selected?.cell === place.cell;
+                const problem = problemOf(place);
+                const where = `${place.column ? "Column" : "Row"} ${place.row + 1}, tile ${place.cell + 1}`;
+                return <Button id={tileId(place)} className="panel-editor-tile" data-selected={here || undefined} data-toolbar={toolbarAction(cell.action) || undefined} data-invalid={problem ? true : undefined} aria-pressed={here} aria-label={`${where}: ${cell.label.trim() || "no label"}, ${describeAction(cell.action, catalogue, panels)}${problem ? `, ${problem}` : ""}`} onClick={() => choose(place)}>{cell.label.trim() || <em>No label</em>}</Button>;
+              },
+              rowTools: (rowIndex) => <>
+                <Button className="icon-button" disabled={draft.rows[rowIndex].length >= maxTilesPerRow} aria-label={`Add tile to row ${rowIndex + 1}`} onClick={() => addTile(rowIndex)}><Plus size={16} /></Button>
+                <Button className="icon-button" disabled={rowIndex === 0} aria-label={`Move row ${rowIndex + 1} up`} onClick={() => moveRow(rowIndex, -1)}><ArrowUp size={16} /></Button>
+                <Button className="icon-button" disabled={rowIndex === draft.rows.length - 1} aria-label={`Move row ${rowIndex + 1} down`} onClick={() => moveRow(rowIndex, 1)}><ArrowDown size={16} /></Button>
+                <Button className="icon-button danger-icon" aria-label={`Remove row ${rowIndex + 1}`} onClick={() => removeRow(rowIndex)}><Trash2 size={16} /></Button>
+              </>,
+              columnTools: (columnIndex) => <>
+                <Button className="icon-button" disabled={columns[columnIndex].length >= maxColumnTiles} aria-label={`Add tile to column ${columnIndex + 1}`} onClick={() => addColumnTile(columnIndex)}><Plus size={16} /></Button>
+                <Button className="icon-button" disabled={columnIndex === 0} aria-label={`Move column ${columnIndex + 1} left`} onClick={() => moveColumn(columnIndex, -1)}><ArrowLeft size={16} /></Button>
+                <Button className="icon-button" disabled={columnIndex === columns.length - 1} aria-label={`Move column ${columnIndex + 1} right`} onClick={() => moveColumn(columnIndex, 1)}><ArrowRight size={16} /></Button>
+                <Button className="icon-button danger-icon" aria-label={`Remove column ${columnIndex + 1}`} onClick={() => removeColumn(columnIndex)}><Trash2 size={16} /></Button>
+              </>,
+            }} />
+            <div className="panel-canvas-actions">
+              <Button ref={addRowRef} className="secondary" disabled={draft.rows.length >= rowLimit} onClick={addRow}><Plus size={16} aria-hidden="true" />Add row</Button>
+              {extras && <Button ref={addColumnRef} className="secondary" disabled={columns.length >= maxExtraColumns} onClick={addColumn}><Plus size={16} aria-hidden="true" />Add column</Button>}
+            </div>
+            {extras && draft.rows.length === 0 && columns.length === 0 && <p className="capability-note">No tiles of your own yet. Add a row below the keys or a column beside them, then give its tiles labels and actions.</p>}
+          </section>
         </div>
         <aside className="panel-inspector" aria-label="Selected tile">
           {selected && current
-            ? <TileInspector pick={pick} selection={selected} cell={current} catalogue={catalogue} panels={panels} self={draft.id} problem={problemOf(selected)} rowLength={(selected.column ? columns : draft.rows)[selected.row].length}
-              onChange={(cell) => setCell(selected, cell)} onAction={(action) => chooseAction(selected, current, action)} onMove={(direction) => moveTile(selected, direction)} onRemove={() => removeTile(selected)} />
+            ? <TileInspector pick={pick} selection={selected} cell={current} catalogue={catalogue} panels={panels} self={draft.id} problem={problemOf(selected)} lines={selected.column ? columns : draft.rows} lineLimit={selected.column ? maxExtraColumns : rowLimit} tileLimit={selected.column ? maxColumnTiles : maxTilesPerRow}
+              onChange={(cell) => setCell(selected, cell)} onAction={(action) => chooseAction(selected, current, action)} onMove={(direction) => moveTile(selected, direction)} onMoveTo={(target) => moveTileTo(selected, target)} onRemove={() => removeTile(selected)} />
             : <div className="panel-inspector-empty"><h2>No tile chosen</h2><p>Choose a tile on the left to change its label, width and action, or add a tile to a row.</p></div>}
         </aside>
       </div>
@@ -253,10 +256,14 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
   </div>;
 }
 
-function TileInspector({ pick, selection, cell, catalogue, panels, self, problem, rowLength, onChange, onAction, onMove, onRemove }: {
-  pick: number; selection: Selection; cell: PanelCell; catalogue: PanelActionEntry[]; panels: CustomPanel[]; self: string; problem: string | null; rowLength: number;
-  onChange: (cell: PanelCell) => void; onAction: (action: PanelAction) => void; onMove: (direction: -1 | 1) => void; onRemove: () => void;
+function TileInspector({ pick, selection, cell, catalogue, panels, self, problem, lines, lineLimit, tileLimit, onChange, onAction, onMove, onMoveTo, onRemove }: {
+  pick: number; selection: Selection; cell: PanelCell; catalogue: PanelActionEntry[]; panels: CustomPanel[]; self: string; problem: string | null;
+  /** The rows, or the columns when the tile is in one, and how many of each may exist. */
+  lines: PanelCell[][]; lineLimit: number; tileLimit: number;
+  onChange: (cell: PanelCell) => void; onAction: (action: PanelAction) => void; onMove: (direction: -1 | 1) => void; onMoveTo: (target: number | "new") => void; onRemove: () => void;
 }) {
+  const rowLength = lines[selection.row].length;
+  const lineNoun = selection.column ? "column" : "row";
   const [query, setQuery] = useState("");
   const ids = useId();
   // A newly chosen tile starts with an empty search; the inspector itself stays mounted so focus does.
@@ -283,6 +290,10 @@ function TileInspector({ pick, selection, cell, catalogue, panels, self, problem
     <label className="field"><span>Label</span><Input value={cell.label} maxLength={maxLabelChars} aria-invalid={labelProblem ? true : undefined} aria-describedby={labelProblem ? `${ids}-label-error` : undefined} onChange={(event) => onChange({ ...cell, label: event.target.value })} /></label>
     {labelProblem && <p id={`${ids}-label-error`} className="field-error">{labelProblem}</p>}
     <label className="field"><span>Width</span><Select value={cell.span} aria-label="Tile width" onChange={(event) => onChange({ ...cell, span: Number(event.target.value) })}>{Array.from({ length: maxSpan }, (_, index) => index + 1).map((span) => <option key={span} value={span}>{span === 1 ? "Normal" : `${span} tiles wide`}</option>)}</Select></label>
+    <label className="field"><span>{selection.column ? "Column" : "Row"}</span><Select value={String(selection.row)} aria-label={`Move tile to ${lineNoun}`} onChange={(event) => { const value = event.target.value; if (value === "new") onMoveTo("new"); else if (Number(value) !== selection.row) onMoveTo(Number(value)); }}>
+      {lines.map((line, index) => <option key={index} value={index} disabled={index !== selection.row && line.length >= tileLimit}>{selection.column ? "Column" : "Row"} {index + 1}{index === selection.row ? " (here)" : line.length >= tileLimit ? " (full)" : ""}</option>)}
+      <option value="new" disabled={lines.length >= lineLimit}>New {lineNoun}{lines.length >= lineLimit ? " (no room)" : ""}</option>
+    </Select></label>
     <div className="tile-inspector-actions">
       <Button className="icon-button" disabled={selection.cell === 0} aria-label={selection.column ? "Move tile up" : "Move tile left"} onClick={() => onMove(-1)}>{selection.column ? <ArrowUp size={18} /> : <ArrowLeft size={18} />}</Button>
       <Button className="icon-button" disabled={selection.cell === rowLength - 1} aria-label={selection.column ? "Move tile down" : "Move tile right"} onClick={() => onMove(1)}>{selection.column ? <ArrowDown size={18} /> : <ArrowRight size={18} />}</Button>

@@ -563,9 +563,9 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "New panel" }));
     // The starter panel opens straight away, drawn as the scan will show it.
     expect(await screen.findByRole("heading", { name: "New panel", level: 1 })).toBeInTheDocument();
-    const picture = screen.getByRole("img", { name: "Picture of New panel: Keyboard, Mouse; Back, Close" });
-    expect(within(picture).getByText("Keyboard")).toBeInTheDocument();
-    expect(within(picture).getByText("Close")).toHaveAttribute("data-toolbar", "true");
+    const picture = screen.getByRole("group", { name: "New panel as it will scan: Keyboard, Mouse; Back, Close" });
+    expect(within(picture).getByRole("button", { name: /^Row 1, tile 1: Keyboard/ })).toBeInTheDocument();
+    expect(within(picture).getByRole("button", { name: /^Row 2, tile 2: Close/ })).toHaveAttribute("data-toolbar", "true");
 
     fireEvent.click(screen.getByRole("button", { name: "All panels" }));
     const card = await screen.findByRole("button", { name: "New panel, 4 tiles" });
@@ -655,7 +655,7 @@ describe("Switchify PC shell", () => {
     expect(screen.queryByRole("textbox", { name: "Panel name" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove tiles" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
-    expect(screen.getByText("No rows yet. Add a row, then give its tiles labels and actions.")).toBeInTheDocument();
+    expect(screen.getByText("No tiles of your own yet. Add a row below the keys or a column beside them, then give its tiles labels and actions.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add row" }));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(saveExtras).toHaveBeenCalled());
@@ -685,8 +685,8 @@ describe("Switchify PC shell", () => {
     expect(screen.getByRole("button", { name: "Move tile up" })).toBeEnabled();
     fireEvent.change(screen.getByRole("textbox", { name: "Label" }), { target: { value: "Second" } });
     expect(screen.getByRole("button", { name: /^Column 1, tile 2: Second/ })).toBeInTheDocument();
-    const picture = screen.getByRole("img", { name: "Picture of Mouse panel: its keys only; columns: Back, Second" });
-    expect(within(picture).getByText("Second")).toHaveAttribute("data-column", "1");
+    const picture = screen.getByRole("group", { name: "Mouse panel as it will scan: its keys only; columns: Back, Second" });
+    expect(within(picture).getByRole("button", { name: /^Column 1, tile 2: Second/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(saveExtras).toHaveBeenCalled());
     expect(saveExtras.mock.calls[0][0]).toBe("mouse");
@@ -704,7 +704,14 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Column 2, tile 1/ }));
     fireEvent.click(screen.getByRole("button", { name: "Move row 1 down" }));
     expect(screen.getByRole("heading", { name: "Column 2, tile 1" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Remove column 2" }));
+    // A tile can move to another column, or a new row of its own.
+    fireEvent.change(screen.getByRole("combobox", { name: "Move tile to column" }), { target: { value: "0" } });
+    expect(screen.getByRole("heading", { name: "Column 1, tile 3" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Column 2, tile 1/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Row 1, tile 1/ }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Move tile to row" }), { target: { value: "new" } });
+    expect(screen.getByRole("heading", { name: "Row 2, tile 1" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove column 1" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Add column" })).toHaveFocus());
   });
 

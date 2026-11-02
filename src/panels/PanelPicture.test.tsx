@@ -62,6 +62,25 @@ describe("PanelPicture", () => {
     expect(rows[1].querySelectorAll(".panel-picture-spacer")).toHaveLength(1);
   });
 
+  it("draws the user's tiles with the editor's buttons and tools when editing", () => {
+    const tile = (label: string) => ({ label, action: { type: "text", text: label } as const, span: 1 });
+    render(<PanelPicture panel={panel} columns={[[tile("A")]]} theme="dark" editing={{
+      tile: (cell, place) => <button type="button">{place.column ? "column" : "row"} {place.row + 1}.{place.cell + 1} {cell.label}</button>,
+      rowTools: (row) => <button type="button">tools for row {row + 1}</button>,
+      columnTools: (column) => <button type="button">tools for column {column + 1}</button>,
+    }} />);
+    const group = screen.getByRole("group", { name: "Greetings as it will scan: Copy, Hello; Back; columns: A" });
+    expect(within(group).getByRole("button", { name: "row 1.2 Hello" })).toBeInTheDocument();
+    expect(within(group).getByRole("button", { name: "column 1.1 A" })).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Row 2" })).getByRole("button", { name: "row 2.1 Back" })).toBeInTheDocument();
+    expect(within(group).getByRole("button", { name: "tools for row 2" })).toBeInTheDocument();
+    expect(within(group).getByRole("button", { name: "tools for column 1" })).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    // A native panel's keys are scenery while editing: not read out one by one.
+    render(<PanelPicture panel={panel} fixed={[[{ label: "q", weight: 1 }]]} theme="dark" editing={{ tile: () => null, rowTools: () => null, columnTools: () => null }} />);
+    expect(screen.getByText("q")).toHaveAttribute("aria-hidden", "true");
+  });
+
   it("follows the chosen panel theme, or the computer when set to system", () => {
     expect(picturePalette("dark").panel).toBe("#141820");
     expect(picturePalette("light").panel).toBe("#f0f2f6");
