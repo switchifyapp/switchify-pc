@@ -108,8 +108,8 @@ keychain defers renewal while a valid cached allowance continues to work.
 On Windows the mirror is UTF-8 bytes in a `record-v2` entry: the credential store
 allows 2,560 bytes per entry, and a UTF-16 password leaves too little room for an
 activated record. The older `record` entry is read until `record-v2` exists. It
-stays a password and still receives every record that fits, so an earlier build
-still opens after a rollback and still sees revocations.
+stays a password and each record that fits is also tried there, so an earlier build
+still opens after a rollback and can see revocations.
 Reinstall with the keychain intact keeps the identity. If the keychain is lost,
 explicit transfer recovers the licence using its purchase key. VM clones with
 both the credential store and app record copied can share an identity; this

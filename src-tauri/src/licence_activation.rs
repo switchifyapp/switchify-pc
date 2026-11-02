@@ -73,7 +73,7 @@ const LEGACY_MIRROR_ACCOUNT: &str = "record";
 /// A Windows password is UTF-16, which leaves too little room for an activated
 /// record, so bytes go in their own entry. Older builds only understand the
 /// legacy one, so it stays a password: bytes there would lock them out after a
-/// rollback, and it keeps receiving every record that fits, including revocations.
+/// rollback, and every record that fits, including revocations, is still tried.
 #[cfg(windows)]
 const MIRROR_ACCOUNT: &str = "record-v2";
 #[cfg(not(windows))]
@@ -266,7 +266,7 @@ pub mod tests {
     use super::*;
     #[cfg(windows)]
     #[test]
-    fn windows_mirror_never_replaces_the_legacy_entry_format() {
+    fn windows_mirror_has_its_own_entry() {
         assert_ne!(MIRROR_ACCOUNT, LEGACY_MIRROR_ACCOUNT);
     }
     #[test]
