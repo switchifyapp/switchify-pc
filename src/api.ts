@@ -70,14 +70,14 @@ let browserBuiltins: BuiltinPanelView[] = structuredClone(browserBuiltinDefaults
 const browserKey = (label: string, weight = 1) => ({ label, weight });
 const browserKeys = (labels: string, weight = 1) => labels.split("").map((label) => browserKey(label, weight));
 const browserExtrasDefaults: PanelExtrasView[] = [
-  { target: "mouse", name: "Mouse panel", rows: [], fixed: [
+  { target: "mouse", name: "Mouse panel", rows: [], columns: [], fixed: [
     ["Left click", "Right click", "Double click", "Start drag"].map((label) => browserKey(label)),
     ["↖", "↑", "↗", "Scroll up"].map((label) => browserKey(label)),
     ["←", "Radar", "→"].map((label) => browserKey(label)),
     ["↙", "↓", "↘", "Scroll down"].map((label) => browserKey(label)),
     ["Actions", "More controls", "Keyboard", "Switch to Point"].map((label) => browserKey(label)),
   ] },
-  { target: "keyboard", name: "Keyboard", rows: [], fixed: [
+  { target: "keyboard", name: "Keyboard", rows: [], columns: [], fixed: [
     [browserKey("⇥", 1.6), ...browserKeys("qwertyuiop"), browserKey("⌫", 1.9)],
     [browserKey("Caps lock", 1.6), ...browserKeys("asdfghjkl'"), browserKey("↩", 1.9)],
     [browserKey("⬆", 1.6), ...browserKeys("zxcvbnm,./")],
@@ -194,9 +194,9 @@ export const api = {
   listPanelExtras: () => "__TAURI_INTERNALS__" in window
     ? call<PanelExtrasView[]>("list_panel_extras")
     : Promise.resolve(structuredClone(browserExtras)),
-  savePanelExtras: (target: string, rows: PanelCell[][]) => {
-    if ("__TAURI_INTERNALS__" in window) return call<PanelExtrasView[]>("save_panel_extras", { target, rows });
-    browserExtras = browserExtras.map((view) => view.target === target ? { ...view, rows: structuredClone(rows) } : view);
+  savePanelExtras: (target: string, rows: PanelCell[][], columns: PanelCell[][]) => {
+    if ("__TAURI_INTERNALS__" in window) return call<PanelExtrasView[]>("save_panel_extras", { target, rows, columns });
+    browserExtras = browserExtras.map((view) => view.target === target ? { ...view, rows: structuredClone(rows), columns: structuredClone(columns) } : view);
     return Promise.resolve(structuredClone(browserExtras));
   },
   onPanelsChanged: async (handler: () => void): Promise<UnlistenFn> => {

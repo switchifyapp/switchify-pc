@@ -83,14 +83,14 @@ const bridge = (platform) => {
   const key = (label, weight = 1) => ({ label, weight });
   const keys = (labels, weight = 1) => labels.split("").map((label) => key(label, weight));
   const extras = [
-    { target: "mouse", name: "Mouse panel", rows: [], fixed: [
+    { target: "mouse", name: "Mouse panel", rows: [], columns: [], fixed: [
       ["Left click", "Right click", "Double click", "Start drag"].map((label) => key(label)),
       ["↖", "↑", "↗", "Scroll up"].map((label) => key(label)),
       ["←", "Radar", "→"].map((label) => key(label)),
       ["↙", "↓", "↘", "Scroll down"].map((label) => key(label)),
       ["Actions", "More controls", "Keyboard", "Switch to Point"].map((label) => key(label)),
     ] },
-    { target: "keyboard", name: "Keyboard", rows: [[tile("Hello", { type: "text", text: "Hello, how are you?" }, 2), tile("My panels", { type: "myPanels" })]], fixed: [
+    { target: "keyboard", name: "Keyboard", rows: [[tile("Hello", { type: "text", text: "Hello, how are you?" }, 2), tile("My panels", { type: "myPanels" })]], columns: [[tile("Hi", { type: "text", text: "Hi there" }), tile("Pause", { type: "pause" })]], fixed: [
       [key("⇥", 1.6), ...keys("qwertyuiop"), key("⌫", 1.9)],
       [key("Caps lock", 1.6), ...keys("asdfghjkl'"), key("↩", 1.9)],
       [key("⬆", 1.6), ...keys("zxcvbnm,./")],
@@ -285,7 +285,7 @@ for (const platform of ["windows", "macos"]) {
 {
   const page = await open("windows", { width: 1280, height: 1100 });
   await click(page, "Panels");
-  await click(page, "Keyboard, 1 extra row");
+  await click(page, "Keyboard, 1 extra row and 1 column");
   await shot(page, "panel-extras-editor", "main");
   await page.close();
 }

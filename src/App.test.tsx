@@ -653,7 +653,7 @@ describe("Switchify PC shell", () => {
     expect(await screen.findByRole("heading", { name: "Keyboard", level: 1 })).toBeInTheDocument();
     // No name to edit, nothing to remove yet, and no rows is fine as it is.
     expect(screen.queryByRole("textbox", { name: "Panel name" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Remove rows" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove tiles" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save panel" })).toBeDisabled();
     expect(screen.getByText("No rows yet. Add a row, then give its tiles labels and actions.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add row" }));
@@ -664,11 +664,40 @@ describe("Switchify PC shell", () => {
     const added = await screen.findByRole("button", { name: "Keyboard, 1 extra row" });
     expect(within(added).getByRole("img", { name: "Picture of Keyboard: its keys, then Back" })).toBeInTheDocument();
     fireEvent.click(added);
-    fireEvent.click(await screen.findByRole("button", { name: "Remove rows" }));
-    const confirm = screen.getByRole("alertdialog", { name: "Remove the rows below Keyboard?" });
-    fireEvent.click(within(confirm).getByRole("button", { name: "Remove rows" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove tiles" }));
+    const confirm = screen.getByRole("alertdialog", { name: "Remove the tiles added to Keyboard?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Remove tiles" }));
     expect(await screen.findByRole("button", { name: "Keyboard, keys only" })).toBeInTheDocument();
     expect(saveExtras.mock.calls[1][1]).toEqual([]);
+    expect(saveExtras.mock.calls[1][2]).toEqual([]);
+  });
+
+  it("adds a column of tiles beside the mouse panel's keys", async () => {
+    const saveExtras = vi.spyOn(api, "savePanelExtras");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mouse panel, keys only" }));
+    await screen.findByRole("heading", { name: "Mouse panel", level: 1 });
+    fireEvent.click(screen.getByRole("button", { name: "Add column" }));
+    // The new tile is chosen, in the column, and moves up and down rather than left and right.
+    expect(screen.getByRole("heading", { name: "Column 1, tile 1" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add tile to column 1" }));
+    expect(screen.getByRole("button", { name: "Move tile up" })).toBeEnabled();
+    fireEvent.change(screen.getByRole("textbox", { name: "Label" }), { target: { value: "Second" } });
+    expect(screen.getByRole("button", { name: /^Column 1, tile 2: Second/ })).toBeInTheDocument();
+    const picture = screen.getByRole("img", { name: "Picture of Mouse panel: its keys only; columns: Back, Second" });
+    expect(within(picture).getByText("Second")).toHaveAttribute("data-column", "1");
+    fireEvent.click(screen.getByRole("button", { name: "Save panel" }));
+    await waitFor(() => expect(saveExtras).toHaveBeenCalled());
+    expect(saveExtras.mock.calls[0][0]).toBe("mouse");
+    expect(saveExtras.mock.calls[0][1]).toEqual([]);
+    expect(saveExtras.mock.calls[0][2]).toHaveLength(1);
+    expect((saveExtras.mock.calls[0][2] as unknown[][])[0]).toHaveLength(2);
+    expect(await screen.findByRole("button", { name: "Mouse panel, 1 column" })).toBeInTheDocument();
+    // Two columns at most.
+    fireEvent.click(screen.getByRole("button", { name: "Mouse panel, 1 column" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add column" }));
+    expect(screen.getByRole("button", { name: "Add column" })).toBeDisabled();
   });
 
   it("takes only a few rows below the mouse panel's keys", async () => {
