@@ -105,6 +105,9 @@ SWPC1 key requires first online activation; it is not a permanent offline
 entitlement. The installation private key has a separate OS keyring entry;
 record files contain only its public identity and signed allowance. A locked
 keychain defers renewal while a valid cached allowance continues to work.
+The mirror is stored as UTF-8 bytes: the Windows credential store allows 2,560
+bytes per entry, and a UTF-16 password would leave too little room for an
+activated record.
 Reinstall with the keychain intact keeps the identity. If the keychain is lost,
 explicit transfer recovers the licence using its purchase key. VM clones with
 both the credential store and app record copied can share an identity; this

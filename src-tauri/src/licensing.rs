@@ -2181,6 +2181,40 @@ mod tests {
         assert!(!data.retry_secure_due(time + 60));
     }
     #[test]
+    fn activated_record_fits_the_windows_credential_store() {
+        const MAX_TIME: i64 = 253_402_300_799;
+        let id = "6af44000-17b7-4d87-ad1d-32e9a31b331a";
+        let public_key = "x".repeat(43);
+        let claims = json!({"version":1,"product":"switchify-pc","licence_id":id,"installation_id":id,
+            "installation_key":public_key,"generation":u32::MAX,"issued_at":MAX_TIME,"request_nonce":id,
+            "action":"activate","lease_id":id,"expires_at":MAX_TIME});
+        let lease = format!(
+            "SWPL1.pc-2026-1.{}.{}",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap()),
+            "x".repeat(86)
+        );
+        let record = Record {
+            first_run: MAX_TIME,
+            last_seen: MAX_TIME,
+            lease_seen: MAX_TIME,
+            revision: u64::MAX,
+            key: Some(purchase()),
+            pending_key: Some(purchase()),
+            lease: Some(lease),
+            installation: Some(activation::Installation {
+                id: id.into(),
+                public_key,
+            }),
+            generation: u64::MAX,
+            last_checked: Some(MAX_TIME),
+            last_outcome: Some("takeover_limited".into()),
+            local_signature: Some("x".repeat(86)),
+            ..Record::new(0)
+        };
+        let text = serde_json::to_string(&record).unwrap();
+        assert!(text.len() <= activation::MIRROR_MAX_BYTES, "{}", text.len());
+    }
+    #[test]
     fn rejects_corrupt_trial_records() {
         let mut record = Record::new(1000);
         record.first_run = 2000;

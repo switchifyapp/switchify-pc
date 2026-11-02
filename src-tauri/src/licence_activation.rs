@@ -66,11 +66,26 @@ pub trait MirrorStore: Send + Sync {
     fn write(&self, text: &str) -> Result<(), String>;
 }
 pub struct OsMirrorStore;
+/// The Windows credential store holds at most this many bytes per entry.
+#[cfg(test)]
+pub const MIRROR_MAX_BYTES: usize = 2560;
+/// Earlier builds saved UTF-16 on Windows, which halves the room per entry and
+/// rejected every activated record. Their JSON has a zero as its second byte.
+fn decode_mirror(secret: Vec<u8>) -> Result<String, String> {
+    if secret.get(1) == Some(&0) {
+        let units: Vec<u16> = secret
+            .chunks_exact(2)
+            .map(|unit| u16::from_le_bytes([unit[0], unit[1]]))
+            .collect();
+        return String::from_utf16(&units).map_err(|_| STORAGE_ERROR.into());
+    }
+    String::from_utf8(secret).map_err(|_| STORAGE_ERROR.into())
+}
 impl MirrorStore for OsMirrorStore {
     fn read(&self) -> Result<Option<String>, String> {
         let entry = keyring::Entry::new(SERVICE, "record").map_err(|_| STORAGE_ERROR)?;
-        match entry.get_password() {
-            Ok(text) => Ok(Some(text)),
+        match entry.get_secret() {
+            Ok(secret) => decode_mirror(secret).map(Some),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(_) => Err(STORAGE_ERROR.into()),
         }
@@ -78,7 +93,7 @@ impl MirrorStore for OsMirrorStore {
     fn write(&self, text: &str) -> Result<(), String> {
         keyring::Entry::new(SERVICE, "record")
             .map_err(|_| STORAGE_ERROR)?
-            .set_password(text)
+            .set_secret(text.as_bytes())
             .map_err(|_| STORAGE_ERROR.into())
     }
 }
@@ -232,6 +247,14 @@ pub fn request(
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    #[test]
+    fn mirror_reads_utf8_and_earlier_utf16_entries() {
+        let text = r#"{"version":3}"#;
+        assert_eq!(decode_mirror(text.as_bytes().to_vec()).unwrap(), text);
+        let wide = text.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        assert_eq!(decode_mirror(wide).unwrap(), text);
+        assert!(decode_mirror(vec![0xff, 0xfe, 0xfd]).is_err());
+    }
     #[test]
     fn only_the_exact_bad_request_outcome_gets_invalid_request_guidance() {
         use reqwest::StatusCode;
