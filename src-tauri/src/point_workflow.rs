@@ -2255,6 +2255,38 @@ mod tests {
     }
 
     #[test]
+    fn a_my_panels_tile_on_any_menu_lists_the_panels_once_there_are_some() {
+        use crate::builtin_panels::{default_document, key};
+        let mut editing = default_document(Kind::Editing);
+        editing.rows[0][0] = crate::custom_panels::Cell {
+            label: "Mine".into(),
+            action: PanelAction::MyPanels,
+            span: 1,
+        };
+        let overrides = crate::builtin_panels::by_kind(&std::collections::BTreeMap::from([(
+            key(Kind::Editing),
+            editing,
+        )]));
+        // Without panels the tile is left out of Editing too.
+        let mut s = board_session(vec![]);
+        s.technique.set_menu_overrides(overrides.clone());
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 1, 1), None);
+        assert_eq!(s.technique.menu.kind, Kind::Editing);
+        assert_eq!(s.technique.menu.frame_labels()[0], ["Cut", "Paste"]);
+        // With a panel it lists them, and Back returns to Editing.
+        let mut s = board_session(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+        s.technique.set_menu_overrides(overrides);
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 1, 1), None);
+        assert_eq!(s.technique.menu.frame_labels()[0], ["Mine", "Cut", "Paste"]);
+        assert_eq!(choose_in(&mut s, 0, 0), None);
+        assert_eq!(s.technique.menu.kind, Kind::Panels);
+        assert_eq!(choose_in(&mut s, 1, 0), None);
+        assert_eq!(s.technique.menu.kind, Kind::Editing);
+    }
+
+    #[test]
     fn rearranged_menus_scan_as_rearranged_and_keep_their_behaviour() {
         use crate::builtin_panels::{default_document, key};
         use crate::scan_menu::Command;

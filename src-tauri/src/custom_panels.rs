@@ -239,8 +239,14 @@ pub fn overrides(app: &AppHandle) -> BTreeMap<String, CustomPanel> {
 fn write(app: &AppHandle, contents: &Contents) -> Result<(), String> {
     let p = path(app)?;
     std::fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
+    // A file without overrides stays version 1, so an older build can still
+    // read it after a rollback.
     let store = Store {
-        schema_version: STORE_SCHEMA,
+        schema_version: if contents.overrides.is_empty() {
+            1
+        } else {
+            STORE_SCHEMA
+        },
         panels: contents.panels.clone(),
         overrides: contents.overrides.clone(),
     };
@@ -687,6 +693,15 @@ mod tests {
         })
         .unwrap();
         assert_eq!(load(&good).unwrap().panels.len(), 1);
+        // Without overrides the file is still written as version 1 (see `write`).
+        let written = serde_json::to_value(Store {
+            schema_version: 1,
+            panels: vec![],
+            overrides: BTreeMap::new(),
+        })
+        .unwrap();
+        assert_eq!(written["schemaVersion"], 1);
+        assert_eq!(written["overrides"], serde_json::json!({}));
         // A version 1 file has no overrides and still loads.
         let old = br#"{"schemaVersion":1,"panels":[]}"#;
         assert_eq!(load(old).unwrap(), Contents::default());
