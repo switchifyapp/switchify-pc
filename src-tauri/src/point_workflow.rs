@@ -188,8 +188,8 @@ pub struct Workflow {
     panels: Vec<CustomPanel>,
     /// Built-in menus the user rearranged, by menu.
     menu_overrides: std::collections::BTreeMap<Kind, CustomPanel>,
-    /// Extra rows of tiles below the mouse panel's and the keyboard's keys.
-    panel_extras: std::collections::BTreeMap<ExtraTarget, crate::panel_extras::Rows>,
+    /// Extra tiles around the mouse panel's and the keyboard's keys.
+    panel_extras: std::collections::BTreeMap<ExtraTarget, crate::panel_extras::PanelExtras>,
     source: Point,
     destination: Point,
     elapsed: u64,
@@ -262,15 +262,15 @@ impl Workflow {
     pub fn set_menu_overrides(&mut self, overrides: std::collections::BTreeMap<Kind, CustomPanel>) {
         self.menu_overrides = overrides;
     }
-    /// Replaces the extra rows on the mouse panel and the keyboard. An open
-    /// panel keeps its rows until it is reopened.
+    /// Replaces the extra tiles on the mouse panel and the keyboard. An open
+    /// panel keeps its tiles until it is reopened.
     pub fn set_panel_extras(
         &mut self,
-        extras: std::collections::BTreeMap<ExtraTarget, crate::panel_extras::Rows>,
+        extras: std::collections::BTreeMap<ExtraTarget, crate::panel_extras::PanelExtras>,
     ) {
         self.panel_extras = extras;
     }
-    fn extras_for(&self, target: ExtraTarget) -> crate::panel_extras::Rows {
+    fn extras_for(&self, target: ExtraTarget) -> crate::panel_extras::PanelExtras {
         self.panel_extras.get(&target).cloned().unwrap_or_default()
     }
     fn new_keyboard(&self) -> crate::scan_keyboard::Keyboard {
@@ -948,8 +948,8 @@ impl Workflow {
     }
     fn mouse_key(&mut self, key: crate::scan_mouse::Key) -> Option<Request> {
         use crate::scan_mouse::Key;
-        if let Key::Extra(row, column) = key {
-            let action = self.mouse.extra(row, column)?.action.clone();
+        if matches!(key, Key::Extra(..) | Key::Column(..)) {
+            let action = self.mouse.cell(key)?.action.clone();
             // A page opened over a held drag could never end it.
             let opens_page = matches!(
                 action,
@@ -1073,7 +1073,8 @@ impl Workflow {
             | Key::Dock
             | Key::Position(_)
             | Key::Back
-            | Key::Extra(..) => None,
+            | Key::Extra(..)
+            | Key::Column(..) => None,
         }
     }
     /// A tile the user added to the mouse panel or the keyboard was chosen.
@@ -1262,8 +1263,8 @@ impl Workflow {
                 self.keyboard_closed();
                 None
             }
-            Some(crate::scan_keyboard::Output::Extra(row, column)) => {
-                let action = self.keyboard.extra(row, column)?.action.clone();
+            Some(crate::scan_keyboard::Output::Tile(key)) => {
+                let action = self.keyboard.cell(key)?.action.clone();
                 let request = self.extra_action(action, ExtraTarget::Keyboard);
                 // Nothing to wait for: the keyboard scans on.
                 if request.is_none() && self.stage == Stage::Keyboard {
@@ -4088,7 +4089,7 @@ mod tests {
         let mine = extra("Mine", PanelAction::MyPanels, 2);
         workflow.set_panel_extras(std::collections::BTreeMap::from([(
             ExtraTarget::Mouse,
-            vec![vec![hello, mine]],
+            crate::panel_extras::PanelExtras::rows(vec![vec![hello, mine]]),
         )]));
         workflow.open_mouse(true);
         // The row sits above the panel's bottom row; a span of two is twice as wide.
@@ -4133,7 +4134,11 @@ mod tests {
         // Close switches to Point, as the panel's own key does.
         workflow.set_panel_extras(std::collections::BTreeMap::from([(
             ExtraTarget::Mouse,
-            vec![vec![extra("Done", PanelAction::Close, 1)]],
+            crate::panel_extras::PanelExtras::rows(vec![vec![extra(
+                "Done",
+                PanelAction::Close,
+                1,
+            )]]),
         )]));
         workflow.open_mouse(true);
         assert_eq!(
@@ -4154,9 +4159,9 @@ mod tests {
         let mut wide = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         wide.set_panel_extras(std::collections::BTreeMap::from([(
             ExtraTarget::Mouse,
-            vec![(0..8)
+            crate::panel_extras::PanelExtras::rows(vec![(0..8)
                 .map(|n| extra(&format!("Tile {n}"), PanelAction::Close, 4))
-                .collect()],
+                .collect()]),
         )]));
         let (mut plain, mut wide) = (plain, wide);
         plain.open_mouse(true);
@@ -4171,6 +4176,90 @@ mod tests {
     }
 
     #[test]
+    fn extra_columns_run_down_the_right_of_both_panels() {
+        use crate::panel_extras::PanelExtras;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let hello = extra(
+            "Hello",
+            PanelAction::Text {
+                text: "Hello".into(),
+            },
+            1,
+        );
+        let column: Vec<_> = (0..6)
+            .map(|n| extra(&format!("C{n}"), PanelAction::Close, 1))
+            .collect();
+        // Mouse: a column of six beside five rows adds a sixth row below.
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        workflow.set_panel_extras(std::collections::BTreeMap::from([(
+            ExtraTarget::Mouse,
+            PanelExtras {
+                rows: Vec::new(),
+                columns: vec![vec![hello.clone()], column.clone()],
+            },
+        )]));
+        workflow.open_mouse(true);
+        let frame = workflow.frame();
+        let (drag, first, c0, c5, actions) = (
+            tile_rect(&frame, "Start drag"),
+            tile_rect(&frame, "Hello"),
+            tile_rect(&frame, "C0"),
+            tile_rect(&frame, "C5"),
+            tile_rect(&frame, "Actions"),
+        );
+        assert_eq!(first.y, drag.y, "column 1 starts beside the top row");
+        assert!(first.x > drag.x + drag.width, "to the right of the keys");
+        assert!(c0.x > first.x + first.width, "column 2 further right");
+        assert!((c0.x - c5.x).abs() < 0.01, "a column lines up");
+        assert!(
+            c5.y > actions.y,
+            "the sixth tile makes a row below the panel"
+        );
+        assert_eq!(
+            workflow.choose_mouse_key(crate::scan_mouse::Key::Column(0, 0)),
+            Some(Request::Text("Hello".into()))
+        );
+        assert_eq!(
+            workflow.choose_mouse_key(crate::scan_mouse::Key::Column(1, 5)),
+            Some(Request::OpenPoint)
+        );
+        // Keyboard: the column lines up down rows of different widths, and
+        // a tile beside the suggestions can be chosen.
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        workflow.set_panel_extras(std::collections::BTreeMap::from([(
+            ExtraTarget::Keyboard,
+            PanelExtras {
+                rows: Vec::new(),
+                columns: vec![column.clone()],
+            },
+        )]));
+        workflow.open_home();
+        workflow.selected(Item::Keyboard);
+        workflow.execution_succeeded();
+        let frame = workflow.frame();
+        let (c0, c4, space, letters) = (
+            tile_rect(&frame, "C0"),
+            tile_rect(&frame, "C4"),
+            tile_rect(&frame, "Space"),
+            tile_rect(&frame, "Letters"),
+        );
+        // Rows of different widths: within a key gap of each other.
+        assert!((c0.x - c4.x).abs() < 9.0, "lines up");
+        assert!((c0.width - c4.width).abs() < 9.0);
+        assert!(c0.x > space.x + space.width && c0.x > letters.x);
+        assert_eq!(
+            workflow.choose_key(crate::scan_keyboard::Key::Column(0, 0)),
+            None
+        );
+        assert!(!workflow.keyboard_open(), "Close closed the keyboard");
+    }
+
+    #[test]
     fn extra_tiles_on_the_keyboard_type_like_keys_and_close_it() {
         use crate::scan_keyboard::{Key, Page};
         let screen = Rect {
@@ -4182,7 +4271,7 @@ mod tests {
         let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         workflow.set_panel_extras(std::collections::BTreeMap::from([(
             ExtraTarget::Keyboard,
-            vec![vec![
+            crate::panel_extras::PanelExtras::rows(vec![vec![
                 extra(
                     "Hello",
                     PanelAction::Text {
@@ -4191,7 +4280,7 @@ mod tests {
                     1,
                 ),
                 extra("Done", PanelAction::Close, 1),
-            ]],
+            ]]),
         )]));
         workflow.open_home();
         assert_eq!(
@@ -4224,7 +4313,7 @@ mod tests {
         workflow.set_panels(vec![]);
         workflow.set_panel_extras(std::collections::BTreeMap::from([(
             ExtraTarget::Keyboard,
-            vec![vec![
+            crate::panel_extras::PanelExtras::rows(vec![vec![
                 extra(
                     "Gone",
                     PanelAction::OpenCustomPanel {
@@ -4233,7 +4322,7 @@ mod tests {
                     1,
                 ),
                 extra("Done", PanelAction::Close, 1),
-            ]],
+            ]]),
         )]));
         workflow.open_home();
         workflow.selected(Item::Keyboard);
@@ -4242,7 +4331,7 @@ mod tests {
         // So does a tile that opens the keyboard from the keyboard.
         workflow.set_panel_extras(std::collections::BTreeMap::from([(
             ExtraTarget::Keyboard,
-            vec![vec![
+            crate::panel_extras::PanelExtras::rows(vec![vec![
                 extra(
                     "Keys",
                     PanelAction::OpenPanel {
@@ -4251,7 +4340,7 @@ mod tests {
                     1,
                 ),
                 extra("Done", PanelAction::Close, 1),
-            ]],
+            ]]),
         )]));
         workflow.open_home();
         workflow.selected(Item::Keyboard);
@@ -4271,9 +4360,9 @@ mod tests {
         let mut wide = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         wide.set_panel_extras(std::collections::BTreeMap::from([(
             ExtraTarget::Keyboard,
-            vec![(0..8)
+            crate::panel_extras::PanelExtras::rows(vec![(0..8)
                 .map(|n| extra(&format!("Tile {n}"), PanelAction::Close, 4))
-                .collect()],
+                .collect()]),
         )]));
         wide.open_home();
         wide.selected(Item::Keyboard);

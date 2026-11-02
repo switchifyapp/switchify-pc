@@ -1,6 +1,7 @@
 //! Switch-owned mouse panel. Native input stays in the scanning adapter.
 use crate::{
     custom_panels::Cell,
+    panel_extras::PanelExtras,
     scan_items::{ItemScanner, Policy},
     scan_panel::{Dock, Panel, PanelKey},
     scan_preferences::Resolved,
@@ -29,6 +30,8 @@ pub enum Key {
     Close,
     /// A tile the user added below the keys: its row and place in the row.
     Extra(usize, usize),
+    /// A tile the user added beside the keys: its column and place in it.
+    Column(usize, usize),
 }
 
 pub struct MousePanel {
@@ -40,8 +43,9 @@ pub struct MousePanel {
     notice: Option<&'static str>,
     positioning: bool,
     displays: usize,
-    /// The user's rows, shown on the Movement page above its bottom row.
-    extras: Vec<Vec<Cell>>,
+    /// The user's tiles, shown on the Movement page: rows above its bottom
+    /// row, columns down its right.
+    extras: PanelExtras,
     rows: Vec<Vec<Key>>,
     scan: ItemScanner<Key>,
 }
@@ -55,7 +59,7 @@ impl MousePanel {
     }
 
     pub fn new(options: Resolved, displays: usize, speed_percent: u16) -> Self {
-        let rows = Self::rows(false, false, displays, &[]);
+        let rows = Self::rows(false, false, displays, &PanelExtras::default());
         let scan = ItemScanner::configured_rows(&rows, Policy::KEYBOARD, options);
         Self {
             more: false,
@@ -66,13 +70,13 @@ impl MousePanel {
             notice: None,
             positioning: false,
             displays,
-            extras: Vec::new(),
+            extras: PanelExtras::default(),
             rows,
             scan,
         }
     }
-    /// Adds the user's rows below the keys.
-    pub fn with_extras(mut self, extras: Vec<Vec<Cell>>) -> Self {
+    /// Adds the user's tiles around the keys.
+    pub fn with_extras(mut self, extras: PanelExtras) -> Self {
         self.extras = extras;
         self.rebuild_rows();
         self
@@ -86,14 +90,80 @@ impl MousePanel {
             .map(|row| row.iter().map(|&key| (panel.label(key), 1.0)).collect())
             .collect()
     }
-    pub fn extra(&self, row: usize, column: usize) -> Option<&Cell> {
-        self.extras.get(row)?.get(column)
+    /// The tile a key the user added stands for.
+    pub fn cell(&self, key: Key) -> Option<&Cell> {
+        match key {
+            Key::Extra(row, column) => self.extras.rows.get(row)?.get(column),
+            Key::Column(column, index) => self.extras.columns.get(column)?.get(index),
+            _ => None,
+        }
+    }
+    /// The width of the panel's own rows, in key widths with their gaps.
+    fn keys_width() -> f64 {
+        (4.0 * 128.0 + 3.0 * crate::scan_panel::KEY_GAP) / 128.0
+    }
+    /// A column is as wide as its widest tile.
+    fn column_width(&self, column: usize) -> f64 {
+        self.extras.columns.get(column).map_or(1.0, |cells| {
+            cells
+                .iter()
+                .map(|cell| f64::from(cell.span))
+                .fold(1.0, f64::max)
+        })
+    }
+    /// The blank that keeps a row's keys to the keys' width once columns
+    /// follow them, so every column lines up. A row a column added below
+    /// the panel is blank across the whole width of the keys.
+    fn row_filler(&self, row: &[Key]) -> Option<PanelKey> {
+        if self.extras.columns.is_empty() {
+            return None;
+        }
+        let gap = crate::scan_panel::KEY_GAP;
+        let keys: Vec<Key> = row
+            .iter()
+            .copied()
+            .filter(|key| !matches!(key, Key::Column(..)))
+            .collect();
+        let widest = Self::keys_width() * 128.0;
+        let slack = if keys.is_empty() {
+            widest
+        } else {
+            let slots = keys.len() + usize::from(keys.contains(&Key::Move(1, 0)));
+            let width: f64 = keys.iter().map(|&key| self.tile(key).weight).sum::<f64>() * 128.0
+                + slots.saturating_sub(1) as f64 * gap
+                + f64::from(keys.contains(&Key::Move(1, 0))) * 128.0;
+            widest - width - gap
+        };
+        (slack > 0.5).then(|| {
+            let mut blank = PanelKey::blank();
+            blank.weight = slack / 128.0;
+            blank
+        })
+    }
+    /// A key as the panel draws it.
+    fn tile(&self, key: Key) -> PanelKey {
+        PanelKey {
+            text: self.label(key),
+            weight: match key {
+                Key::Extra(row, column) => self.extra_weight(row, column),
+                Key::Column(column, _) => self.column_width(column),
+                _ => 1.0,
+            },
+            role: self.role(key),
+            active: match key {
+                Key::Drag => self.dragging,
+                Key::Position(dock) => dock == self.dock,
+                _ => false,
+            },
+            blank: false,
+            hidden: false,
+        }
     }
     /// A tile's share of its row. An extra row shares the width of the
     /// panel's own rows between its tiles by span, as a row on the user's
     /// panels does, so the keys decide how wide the panel is.
     fn extra_weight(&self, row: usize, column: usize) -> f64 {
-        let Some(cells) = self.extras.get(row) else {
+        let Some(cells) = self.extras.rows.get(row) else {
             return 1.0;
         };
         let total: f64 = cells.iter().map(|cell| f64::from(cell.span)).sum();
@@ -101,10 +171,10 @@ impl MousePanel {
         // The Movement page's rows are four keys wide, with three gaps; the
         // row's own gaps come out of that width.
         let gaps = cells.len().saturating_sub(1) as f64 * crate::scan_panel::KEY_GAP;
-        let keys = (4.0 * 128.0 + 3.0 * crate::scan_panel::KEY_GAP - gaps) / 128.0;
+        let keys = Self::keys_width() - gaps / 128.0;
         span * keys / total.max(1.0)
     }
-    fn rows(more: bool, positioning: bool, displays: usize, extras: &[Vec<Cell>]) -> Vec<Vec<Key>> {
+    fn rows(more: bool, positioning: bool, displays: usize, extras: &PanelExtras) -> Vec<Vec<Key>> {
         use Key::*;
         if positioning {
             crate::scan_panel::position_rows(Position, Back)
@@ -116,11 +186,21 @@ impl MousePanel {
                 vec![Move(-1, 1), Move(0, 1), Move(1, 1), Scroll(-1)],
             ];
             rows.extend(
-                extras.iter().enumerate().map(|(row, cells)| {
+                extras.rows.iter().enumerate().map(|(row, cells)| {
                     (0..cells.len()).map(|column| Extra(row, column)).collect()
                 }),
             );
             rows.push(vec![Actions, More, Keyboard, Close]);
+            // Columns run down the right from the top row; a column longer
+            // than the panel adds rows of its own below.
+            for (column, cells) in extras.columns.iter().enumerate() {
+                for index in 0..cells.len() {
+                    if index >= rows.len() {
+                        rows.push(Vec::new());
+                    }
+                    rows[index].push(Column(column, index));
+                }
+            }
             rows
         } else {
             let mut rows = vec![vec![Speed(-1), Speed(1)]];
@@ -154,9 +234,9 @@ impl MousePanel {
             }
             // The panel is left behind.
             Key::Actions | Key::Keyboard | Key::Close => self.scan.restart(),
-            Key::Extra(row, column)
+            Key::Extra(..) | Key::Column(..)
                 if self
-                    .extra(row, column)
+                    .cell(key)
                     .is_some_and(|cell| crate::panel_extras::leaves(&cell.action)) =>
             {
                 self.scan.restart()
@@ -272,15 +352,15 @@ impl MousePanel {
             Position(dock) => crate::scan_panel::position_label(dock, self.dock),
             Back => "Back".into(),
             Close => "Switch to Point".into(),
-            Extra(row, column) => self
-                .extra(row, column)
+            Extra(..) | Column(..) => self
+                .cell(key)
                 .map(|cell| cell.label.clone())
                 .unwrap_or_default(),
         }
     }
     fn role(&self, key: Key) -> TileRole {
         match key {
-            Key::Extra(row, column) => self.extra(row, column).map_or(TileRole::Utility, |cell| {
+            Key::Extra(..) | Key::Column(..) => self.cell(key).map_or(TileRole::Utility, |cell| {
                 crate::panel_extras::role(&cell.action)
             }),
             Key::Move(..) => TileRole::Character,
@@ -313,28 +393,31 @@ impl MousePanel {
                 .rows
                 .iter()
                 .map(|row| {
-                    row.iter()
-                        .flat_map(|&key| {
-                            let tile = PanelKey {
-                                text: self.label(key),
-                                weight: match key {
-                                    Key::Extra(row, column) => self.extra_weight(row, column),
-                                    _ => 1.0,
-                                },
-                                role: self.role(key),
-                                active: match key {
-                                    Key::Drag => self.dragging,
-                                    Key::Position(dock) => dock == self.dock,
-                                    _ => false,
-                                },
-                                blank: false,
-                                hidden: false,
-                            };
-                            // Keep → under its diagonal arrow, with Radar between.
-                            let blank = matches!(key, Key::Move(1, 0)).then(PanelKey::blank);
-                            std::iter::once(tile).chain(blank)
-                        })
-                        .collect()
+                    let mut keys: Vec<PanelKey> = Vec::new();
+                    for &key in row.iter().filter(|key| !matches!(key, Key::Column(..))) {
+                        keys.push(self.tile(key));
+                        // Keep → under its diagonal arrow, with Radar between.
+                        if key == Key::Move(1, 0) {
+                            keys.push(PanelKey::blank());
+                        }
+                    }
+                    keys.extend(self.row_filler(row));
+                    // Every row carries a slot for each column, so a column
+                    // lines up where a row has no tile in it.
+                    for column in 0..self.extras.columns.len() {
+                        let tile = row
+                            .iter()
+                            .find(|key| matches!(key, Key::Column(c, _) if *c == column));
+                        keys.push(match tile {
+                            Some(&key) => self.tile(key),
+                            None => {
+                                let mut blank = PanelKey::blank();
+                                blank.weight = self.column_width(column);
+                                blank
+                            }
+                        });
+                    }
+                    keys
                 })
                 .collect(),
             message,

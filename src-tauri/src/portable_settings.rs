@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 9;
+pub const SCHEMA_VERSION: u32 = 10;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -38,8 +38,9 @@ pub struct Document {
     /// name. The same default rule as `panels`.
     #[serde(default)]
     pub menu_overrides: BTreeMap<String, CustomPanel>,
-    /// Added in version 9: extra rows of tiles on the mouse panel and the
-    /// keyboard, by panel. The same default rule as `panels`.
+    /// Added in version 9 as rows of tiles on the mouse panel and the
+    /// keyboard, by panel; version 10 holds rows and columns. The same
+    /// default rule as `panels`.
     #[serde(default)]
     pub panel_extras: crate::panel_extras::Extras,
 }
@@ -230,7 +231,8 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
             5 => upgrade_v5(value)?,
             6 => upgrade_v6(value)?,
             7 => upgrade_v7(value)?,
-            _ => upgrade_v8(value)?,
+            8 => upgrade_v8(value)?,
+            _ => upgrade_v9(value)?,
         };
     }
     let document: Document = serde_json::from_value(value.clone())
@@ -372,6 +374,28 @@ fn upgrade_v8(mut value: Value) -> Result<Value, ParseError> {
         .filter(|document| !document.contains_key("panelExtras"))
         .ok_or_else(|| ParseError::Invalid("it does not match version 8 settings".into()))?;
     document.insert("panelExtras".into(), Value::Object(Default::default()));
+    value["schemaVersion"] = Value::from(9);
+    Ok(value)
+}
+
+/// Version 9 held each panel's extra tiles as its rows alone; version 10
+/// holds rows and columns.
+fn upgrade_v9(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(9)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    let invalid = || ParseError::Invalid("it does not match version 9 settings".into());
+    let extras = value
+        .get_mut("panelExtras")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(invalid)?;
+    for rows in extras.values_mut() {
+        if !rows.is_array() {
+            return Err(invalid());
+        }
+        let old = rows.take();
+        *rows = serde_json::json!({ "rows": old, "columns": [] });
+    }
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -589,6 +613,13 @@ pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
 /// A current document as an older version wrote it.
 #[cfg(test)]
 pub(crate) fn written_by(mut value: Value, version: u32) -> Value {
+    if version < 10 {
+        if let Some(extras) = value.get_mut("panelExtras").and_then(Value::as_object_mut) {
+            for panel in extras.values_mut() {
+                *panel = panel["rows"].take();
+            }
+        }
+    }
     if version < 9 {
         value.as_object_mut().unwrap().remove("panelExtras");
     }
@@ -717,9 +748,10 @@ mod tests {
             span: 1,
         };
         let mut local = local();
-        local
-            .panel_extras
-            .insert("keyboard".into(), vec![vec![hello.clone()]]);
+        local.panel_extras.insert(
+            "keyboard".into(),
+            crate::panel_extras::PanelExtras::rows(vec![vec![hello.clone()]]),
+        );
         let mut cloud = local.clone();
         cloud.panel_extras.clear();
         let version_eight = written_by(serde_json::to_value(cloud.document()).unwrap(), 8);
@@ -748,12 +780,49 @@ mod tests {
         // Extra rows sync, and a panel that takes none refuses the document.
         let value = serde_json::to_value(local.document()).unwrap();
         assert_eq!(
-            value["panelExtras"]["keyboard"][0][0]["label"],
+            value["panelExtras"]["keyboard"]["rows"][0][0]["label"],
             json!("Hello")
         );
         let mut bad = local.document();
-        bad.panel_extras.insert("home".into(), vec![vec![hello]]);
+        bad.panel_extras.insert(
+            "home".into(),
+            crate::panel_extras::PanelExtras::rows(vec![vec![hello]]),
+        );
         assert!(plan(&local, bad).is_err());
+    }
+
+    #[test]
+    fn version_nine_documents_keep_their_rows_and_gain_no_columns() {
+        let hello = custom_panels::Cell {
+            label: "Hello".into(),
+            action: crate::panel_actions::PanelAction::Text {
+                text: "Hello".into(),
+            },
+            span: 1,
+        };
+        let mut local = local();
+        local.panel_extras.insert(
+            "mouse".into(),
+            crate::panel_extras::PanelExtras {
+                rows: vec![vec![hello.clone()]],
+                columns: vec![vec![hello.clone()]],
+            },
+        );
+        let version_nine = written_by(serde_json::to_value(local.document()).unwrap(), 9);
+        assert_eq!(
+            version_nine["panelExtras"]["mouse"][0][0]["label"],
+            json!("Hello")
+        );
+        let parsed = parse(version_nine.clone(), 9).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert_eq!(parsed.panel_extras["mouse"].rows, vec![vec![hello]]);
+        assert!(parsed.panel_extras["mouse"].columns.is_empty());
+        // Applying it drops this computer's columns, as a removal elsewhere would.
+        let planned = plan(&local, parsed).unwrap().panel_extras.unwrap();
+        assert!(planned["mouse"].columns.is_empty());
+        let mut early = version_nine.clone();
+        early["panelExtras"]["mouse"] = json!({ "rows": [], "columns": [] });
+        assert!(matches!(parse(early, 9), Err(ParseError::Invalid(_))));
     }
 
     #[test]

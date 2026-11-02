@@ -922,8 +922,8 @@ fn reset_builtin_panel(
     Ok(list_builtin_panels(app))
 }
 
-/// A native panel as the Panels page shows it: its keys, and the extra rows
-/// the user added below them.
+/// A native panel as the Panels page shows it: its keys, and the extra
+/// tiles the user added around them.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PanelExtrasView {
@@ -931,6 +931,7 @@ struct PanelExtrasView {
     name: String,
     fixed: Vec<Vec<panel_extras::PictureCell>>,
     rows: panel_extras::Rows,
+    columns: panel_extras::Rows,
 }
 
 #[tauri::command]
@@ -938,11 +939,15 @@ fn list_panel_extras(app: AppHandle) -> Vec<PanelExtrasView> {
     let extras = custom_panels::extras(&app);
     panel_extras::ALL
         .iter()
-        .map(|&target| PanelExtrasView {
-            target: target.key().into(),
-            name: target.label().into(),
-            fixed: panel_extras::fixed_picture(target),
-            rows: extras.get(target.key()).cloned().unwrap_or_default(),
+        .map(|&target| {
+            let panel = extras.get(target.key()).cloned().unwrap_or_default();
+            PanelExtrasView {
+                target: target.key().into(),
+                name: target.label().into(),
+                fixed: panel_extras::fixed_picture(target),
+                rows: panel.rows,
+                columns: panel.columns,
+            }
         })
         .collect()
 }
@@ -953,10 +958,18 @@ fn save_panel_extras(
     app: AppHandle,
     target: String,
     rows: panel_extras::Rows,
+    columns: Option<panel_extras::Rows>,
 ) -> Result<Vec<PanelExtrasView>, String> {
     require_main(&window)?;
     let target = panel_extras::Target::from_key(&target).ok_or("That panel cannot be changed.")?;
-    custom_panels::save_extras(&app, target, rows)?;
+    custom_panels::save_extras(
+        &app,
+        target,
+        panel_extras::PanelExtras {
+            rows,
+            columns: columns.unwrap_or_default(),
+        },
+    )?;
     Ok(list_panel_extras(app))
 }
 
