@@ -1,12 +1,14 @@
 //! Point selection policy, menu navigation and execution requests. No OS input.
 use crate::{
+    custom_panels::CustomPanel,
+    panel_actions::{BuiltInPanel, MouseButton, PanelAction, ScrollDirection},
     point_scan::{Engine, PointSettings},
-    scan_menu::{Item, Kind, Menu},
+    scan_menu::{Item, Kind, Menu, PageRef},
     scanning::{Action, Frame, FrameLabel, Rect, Technique, UpdateContext},
 };
 use serde::Serialize;
 pub type Point = (i32, i32);
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Request {
     Prediction {
         token: u64,
@@ -55,6 +57,10 @@ pub enum Request {
     },
     Setting(crate::scan_menu::Setting),
     Display(bool),
+    /// A key chord chosen on one of the user's panels.
+    Chord(Vec<String>),
+    /// Text chosen on one of the user's panels. Never logged.
+    Text(String),
     DragStart(Point),
     DragMove(Point),
     DragEnd(Point),
@@ -173,10 +179,12 @@ pub struct Workflow {
     point: Engine,
     stage: Stage,
     menu: Menu,
-    /// The menus Back leads through, outermost first. Only their kinds are
+    /// The menus Back leads through, outermost first. Only their identity is
     /// kept: Back rebuilds the parent so it scans from the top like any other
     /// freshly opened menu.
-    parent_menu: Vec<Kind>,
+    parent_menu: Vec<PageRef>,
+    /// The user's own panels, as last loaded. Home lists them when there are any.
+    panels: Vec<CustomPanel>,
     source: Point,
     destination: Point,
     elapsed: u64,
@@ -228,6 +236,7 @@ impl Workflow {
             stage: Stage::Idle,
             menu: Menu::configured(Kind::Actions, menu_options),
             parent_menu: vec![],
+            panels: vec![],
             source: (0, 0),
             destination: (0, 0),
             elapsed: 0,
@@ -235,6 +244,11 @@ impl Workflow {
             error: None,
             following: false,
         })
+    }
+    /// Replaces the user's panels. An open page keeps its tiles until it is
+    /// reopened.
+    pub fn set_panels(&mut self, panels: Vec<CustomPanel>) {
+        self.panels = panels;
     }
     fn new_keyboard(&self) -> crate::scan_keyboard::Keyboard {
         let mut keyboard = crate::scan_keyboard::Keyboard::configured(
@@ -336,6 +350,11 @@ impl Workflow {
     pub fn menu_open(&self) -> bool {
         self.stage == Stage::Menu
     }
+    /// One of the user's panels is open. Its pointer tiles act at the pointer,
+    /// so the runtime keeps the pointer position current while it is open.
+    pub fn custom_panel_open(&self) -> bool {
+        self.stage == Stage::Menu && self.menu.custom_id.is_some()
+    }
     pub fn keyboard_open(&self) -> bool {
         matches!(self.stage, Stage::Keyboard | Stage::KeyboardOpening)
     }
@@ -363,7 +382,7 @@ impl Workflow {
                 || self
                     .parent_menu
                     .first()
-                    .is_some_and(|kind| *kind == Kind::Home))
+                    .is_some_and(|page| *page == PageRef::Kind(Kind::Home)))
     }
     fn open_home(&mut self) {
         self.mouse_actions_open = false;
@@ -657,8 +676,49 @@ impl Workflow {
             crate::scan_panel::menu_bar(&frame),
         )
     }
+    /// A page as it should open now: Home and the panel list come from the
+    /// user's panels, every other page from its fixed rows.
+    fn build(&self, kind: Kind) -> Menu {
+        let options = self.point.config.menu_scan;
+        match kind {
+            Kind::Home => Menu::home(options, !self.panels.is_empty()),
+            Kind::Panels => Menu::panel_list(&self.panels, options),
+            kind => Menu::configured(kind, options),
+        }
+    }
     fn open(&mut self, kind: Kind) {
-        self.menu = Menu::configured(kind, self.point.config.menu_scan);
+        self.menu = self.build(kind);
+        self.stage = Stage::Menu;
+    }
+    /// Where a pointer action on a custom panel lands: at the pointer. No
+    /// point was chosen, and the pointer is not always known.
+    fn pointer_point(&mut self) -> Option<Point> {
+        match self.pointer {
+            Some((x, y)) => Some((x.round() as i32, y.round() as i32)),
+            None => {
+                self.error = Some("Pointer unavailable. Try again.".into());
+                None
+            }
+        }
+    }
+    /// Opens one of the user's panels, or reports that it is gone.
+    fn open_custom(&mut self, id: &str) -> bool {
+        match self.panels.iter().find(|panel| panel.id == id) {
+            Some(panel) => {
+                self.menu = Menu::custom(panel, self.point.config.menu_scan);
+                self.stage = Stage::Menu;
+                true
+            }
+            None => {
+                self.error = Some("That panel no longer exists.".into());
+                false
+            }
+        }
+    }
+    /// Opens `next` with the current page on the Back stack.
+    fn push_menu(&mut self, next: Menu) {
+        let previous = std::mem::replace(&mut self.menu, next);
+        self.parent_menu.push(previous.page_ref());
         self.stage = Stage::Menu;
     }
     /// The point has been used. The next scan waits for Select unless the
@@ -687,11 +747,116 @@ impl Workflow {
         (self.following && self.stage == Stage::Point) || self.home_open()
     }
     fn restore_actions(&mut self) {
-        if let Some(kind) = self.parent_menu.pop() {
-            self.menu = Menu::configured(kind, self.point.config.menu_scan);
-            self.stage = Stage::Menu;
-        } else {
-            self.open(Kind::Actions);
+        match self.parent_menu.pop() {
+            Some(PageRef::Kind(kind)) => self.open(kind),
+            Some(PageRef::Custom(id)) => {
+                if !self.open_custom(&id) {
+                    self.open_home();
+                }
+            }
+            // The user's pages are reached from Home; the point menus from a point.
+            None if self.menu.custom_id.is_some() || self.menu.kind == Kind::Panels => {
+                self.open_home()
+            }
+            None => self.open(Kind::Actions),
+        }
+    }
+    /// A tile of the open custom panel was chosen. Actions leave the panel
+    /// open so the next choice can follow, as on a communication board.
+    fn custom_selected(&mut self, index: usize) -> Option<Request> {
+        let action = self.menu.cell(index)?.action.clone();
+        match action {
+            PanelAction::Key { keys } => {
+                self.menu.continue_after_selection();
+                Some(Request::Chord(keys))
+            }
+            PanelAction::Text { text } => {
+                self.menu.continue_after_selection();
+                Some(Request::Text(text))
+            }
+            PanelAction::Command { command } => {
+                // Modifier clicks act at the pointer; the rest need no point.
+                let point = if command.at_point() {
+                    self.pointer_point()?
+                } else {
+                    self.source
+                };
+                self.menu.continue_after_selection();
+                Some(Request::Command { command, point })
+            }
+            PanelAction::Setting { setting } => {
+                self.menu.continue_after_selection();
+                Some(Request::Setting(setting))
+            }
+            PanelAction::Click {
+                button: MouseButton::Middle,
+                ..
+            } => {
+                let point = self.pointer_point()?;
+                self.menu.continue_after_selection();
+                Some(Request::Command {
+                    command: crate::scan_menu::Command::MiddleClick,
+                    point,
+                })
+            }
+            PanelAction::Click { button, count } => {
+                self.menu.continue_after_selection();
+                Some(Request::MouseClick {
+                    right: button == MouseButton::Right,
+                    count,
+                })
+            }
+            PanelAction::Scroll { direction } => {
+                let point = self.pointer_point()?;
+                self.menu.continue_after_selection();
+                let (dx, dy) = match direction {
+                    ScrollDirection::Up => (0, 3),
+                    ScrollDirection::Down => (0, -3),
+                    ScrollDirection::Left => (-3, 0),
+                    ScrollDirection::Right => (3, 0),
+                };
+                Some(Request::Scroll { point, dx, dy })
+            }
+            PanelAction::OpenPanel { panel } => match panel {
+                BuiltInPanel::Keyboard => self.selected(Item::Keyboard),
+                BuiltInPanel::Mouse => self.selected(Item::MousePanel),
+                BuiltInPanel::Point => self.selected(Item::PointScan),
+                BuiltInPanel::Switchify => self.selected(Item::Switchify),
+                BuiltInPanel::Menu(Kind::Home) => {
+                    self.open_home();
+                    None
+                }
+                BuiltInPanel::Menu(kind) => self.selected(Item::Group(kind)),
+            },
+            PanelAction::OpenCustomPanel { id } => {
+                if let Some(panel) = self.panels.iter().find(|panel| panel.id == id) {
+                    let next = Menu::custom(panel, self.point.config.menu_scan);
+                    self.push_menu(next);
+                } else {
+                    self.error = Some("That panel no longer exists.".into());
+                }
+                None
+            }
+            PanelAction::Pause => {
+                self.menu.suspend();
+                None
+            }
+            PanelAction::Reverse => {
+                self.menu.handle(Action::Reverse);
+                None
+            }
+            PanelAction::Display { next } => {
+                self.menu.continue_after_selection();
+                Some(Request::Display(next))
+            }
+            PanelAction::Back => {
+                self.restore_actions();
+                None
+            }
+            PanelAction::Close => {
+                self.reset();
+                None
+            }
         }
     }
     /// Opens the mouse panel. Opened by a selection, it follows the user's
@@ -964,9 +1129,8 @@ impl Workflow {
                 } else {
                     Kind::More
                 };
-                let next = Menu::configured(kind, self.point.config.menu_scan);
-                self.parent_menu
-                    .push(std::mem::replace(&mut self.menu, next).kind);
+                let next = self.build(kind);
+                self.push_menu(next);
             }
             Item::Command(command) => {
                 if self.mouse_actions_open
@@ -1025,8 +1189,7 @@ impl Workflow {
             }
             Item::Scroll | Item::Drag => {
                 let next = Menu::configured(Kind::Scroll, self.point.config.menu_scan);
-                self.parent_menu
-                    .push(std::mem::replace(&mut self.menu, next).kind);
+                self.push_menu(next);
                 if item == Item::Drag {
                     self.stage = Stage::Destination;
                     self.point.start();
@@ -1059,6 +1222,25 @@ impl Workflow {
                 self.stage = Stage::Destination;
                 self.point.start();
             }
+            Item::Panels => {
+                let next = Menu::panel_list(&self.panels, self.point.config.menu_scan);
+                self.push_menu(next);
+            }
+            Item::OpenCustom(index) => {
+                // By id, not position: the list may have changed since it opened.
+                let found = self
+                    .menu
+                    .listed_panel_id(index)
+                    .and_then(|id| self.panels.iter().find(|panel| panel.id == id));
+                match found {
+                    Some(panel) => {
+                        let next = Menu::custom(panel, self.point.config.menu_scan);
+                        self.push_menu(next);
+                    }
+                    None => self.error = Some("That panel no longer exists.".into()),
+                }
+            }
+            Item::Custom(index) => return self.custom_selected(index),
             Item::DragHere => {
                 self.stage = Stage::Executing;
                 self.elapsed = 0;
@@ -1105,11 +1287,7 @@ impl Technique for Workflow {
         self.leaving_home = false;
         self.pending = None;
         self.following = false;
-        self.stage = Stage::Menu;
-        self.menu = Menu::configured(
-            if home { Kind::Home } else { Kind::Actions },
-            self.point.config.menu_scan,
-        );
+        self.open(if home { Kind::Home } else { Kind::Actions });
         self.parent_menu.clear();
         self.menu.suspend();
         self.error = Some(message);
@@ -1764,12 +1942,313 @@ mod tests {
         assert_eq!(s.technique.menu.kind, Kind::Home);
     }
 
+    fn board(id: &str, name: &str, cells: Vec<Vec<(&str, PanelAction)>>) -> CustomPanel {
+        CustomPanel {
+            id: id.into(),
+            version: 1,
+            name: name.into(),
+            description: String::new(),
+            rows: cells
+                .into_iter()
+                .map(|row| {
+                    row.into_iter()
+                        .map(|(label, action)| crate::custom_panels::Cell {
+                            label: label.into(),
+                            action,
+                            span: 1,
+                        })
+                        .collect()
+                })
+                .collect(),
+        }
+    }
+
+    /// A scan whose menus start from the top again after each action, so a
+    /// test can choose by row and column every time.
+    fn board_session(panels: Vec<CustomPanel>) -> Session<Workflow> {
+        let mut config = Config {
+            block_interval_ms: 250,
+            ..Config::default()
+        };
+        config.scan_preferences.start_from = crate::scan_preferences::StartFrom::Beginning;
+        let mut session = Session::new(
+            Workflow::new(
+                config.point(),
+                Rect {
+                    x: -1000.0,
+                    y: 20.0,
+                    width: 1000.0,
+                    height: 800.0,
+                },
+                1.0,
+            )
+            .unwrap(),
+            false,
+        );
+        session.technique.set_panels(panels);
+        session
+    }
+
+    #[test]
+    fn home_lists_the_users_panels_only_once_there_are_some() {
+        let mut s = home_session();
+        s.action(Action::Select);
+        let last = s.technique.menu.frame_labels().pop().unwrap();
+        assert_eq!(last, ["Switchify", "Close menu"]);
+        s.technique
+            .set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+        // The open Home keeps its rows; the next Home shows the new item.
+        assert_eq!(
+            s.technique.menu.frame_labels().pop().unwrap(),
+            ["Switchify", "Close menu"]
+        );
+        s.action(Action::Stop);
+        let mut s = next_session(&s);
+        s.technique
+            .set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+        s.action(Action::Select);
+        assert_eq!(
+            s.technique.menu.frame_labels().pop().unwrap(),
+            ["Switchify", "My panels", "Close menu"]
+        );
+    }
+
+    #[test]
+    fn a_users_panel_opens_from_home_runs_its_tiles_and_stays_open() {
+        use crate::scan_menu::Command;
+        let mut s = board_session(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+        s.action(Action::Select);
+        // Home, last row: Switchify, My panels, Close menu.
+        assert_eq!(choose_in(&mut s, 3, 1), None);
+        assert_eq!(s.technique.menu.kind, Kind::Panels);
+        assert_eq!(
+            s.technique.menu.frame_labels(),
+            vec![vec!["Greetings"], vec!["Back", "Close menu"]]
+        );
+        // A row with one tile is chosen with a single Select.
+        assert_eq!(s.action(Action::Select), None);
+        assert_eq!(s.technique.menu.kind, Kind::Custom);
+        assert_eq!(s.technique.menu.custom_id.as_deref(), Some("greetings"));
+        assert!(
+            s.technique.home_open(),
+            "a panel from Home acts on the window in front"
+        );
+        assert_eq!(
+            s.technique.menu.frame_labels(),
+            vec![vec!["Copy", "Hello"], vec!["Back"]]
+        );
+        // The wide tile is drawn twice as wide as its neighbour.
+        let frame = s.technique.frame();
+        let tiles: Vec<_> = frame
+            .tiles
+            .iter()
+            .filter(|t| t.text == "Copy" || t.text == "Hello")
+            .collect();
+        assert!((tiles[1].rect.width - 2.0 * tiles[0].rect.width).abs() < 0.01);
+
+        // A command runs with the panel left open for the next choice.
+        assert_eq!(
+            choose_in(&mut s, 0, 0),
+            Some(Request::Command {
+                command: Command::Copy,
+                point: (0, 0)
+            })
+        );
+        s.technique.execution_succeeded();
+        assert_eq!(s.technique.menu.kind, Kind::Custom);
+        assert!(s.active());
+        // Text is typed as it was written.
+        assert_eq!(
+            choose_in(&mut s, 0, 1),
+            Some(Request::Text("Hello there".into()))
+        );
+        s.technique.execution_succeeded();
+        assert_eq!(s.technique.menu.kind, Kind::Custom);
+        // Back goes to the list, and Back again to Home.
+        s.action(Action::Next);
+        assert_eq!(s.action(Action::Select), None);
+        assert_eq!(s.technique.menu.kind, Kind::Panels);
+        assert_eq!(choose_in(&mut s, 1, 0), None);
+        assert_eq!(s.technique.menu.kind, Kind::Home);
+        assert!(s.technique.home_open());
+    }
+
+    #[test]
+    fn panel_tiles_press_keys_click_scroll_link_and_close() {
+        let mut s = board_session(vec![
+            board(
+                "first",
+                "First",
+                vec![
+                    vec![
+                        (
+                            "Save",
+                            PanelAction::Key {
+                                keys: vec!["Ctrl".into(), "S".into()],
+                            },
+                        ),
+                        (
+                            "Click",
+                            PanelAction::Click {
+                                button: MouseButton::Left,
+                                count: 2,
+                            },
+                        ),
+                        (
+                            "Up",
+                            PanelAction::Scroll {
+                                direction: ScrollDirection::Up,
+                            },
+                        ),
+                    ],
+                    vec![
+                        (
+                            "Second",
+                            PanelAction::OpenCustomPanel {
+                                id: "second".into(),
+                            },
+                        ),
+                        (
+                            "Gone",
+                            PanelAction::OpenCustomPanel {
+                                id: "missing".into(),
+                            },
+                        ),
+                        (
+                            "Editing",
+                            PanelAction::OpenPanel {
+                                panel: BuiltInPanel::Menu(Kind::Editing),
+                            },
+                        ),
+                    ],
+                    vec![("Close", PanelAction::Close)],
+                ],
+            ),
+            board("second", "Second", vec![vec![("Back", PanelAction::Back)]]),
+        ]);
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 3, 1), None);
+        assert_eq!(choose_in(&mut s, 0, 0), None);
+        assert_eq!(s.technique.menu.custom_id.as_deref(), Some("first"));
+        assert_eq!(
+            choose_in(&mut s, 0, 0),
+            Some(Request::Chord(vec!["Ctrl".into(), "S".into()]))
+        );
+        s.technique.execution_succeeded();
+        // Clicks and scrolls land where the pointer is, since no point was chosen.
+        s.technique.set_pointer(Some((-300.0, 200.0)));
+        assert_eq!(
+            choose_in(&mut s, 0, 1),
+            Some(Request::MouseClick {
+                right: false,
+                count: 2
+            })
+        );
+        s.technique.execution_succeeded();
+        assert_eq!(
+            choose_in(&mut s, 0, 2),
+            Some(Request::Scroll {
+                point: (-300, 200),
+                dx: 0,
+                dy: 3
+            })
+        );
+        s.technique.execution_succeeded();
+        // Without a known pointer a scroll tile cannot act, and says so. The
+        // highlight stays on the tile; Select clears the message.
+        s.technique.set_pointer(None);
+        assert_eq!(choose_in(&mut s, 0, 2), None);
+        assert!(s.technique.frame().label.is_some());
+        s.action(Action::Select);
+        assert!(s.technique.frame().label.is_none());
+        s.action(Action::Next);
+        assert_eq!(s.action(Action::Select), None, "leaves the row");
+        s.technique.set_pointer(Some((-300.0, 200.0)));
+        // A link opens the other panel, and Back on it returns here.
+        assert_eq!(choose_in(&mut s, 1, 0), None);
+        assert_eq!(s.technique.menu.custom_id.as_deref(), Some("second"));
+        assert_eq!(s.action(Action::Select), None);
+        assert_eq!(s.technique.menu.custom_id.as_deref(), Some("first"));
+        // A link to a deleted panel says so and leaves this panel open.
+        assert_eq!(choose_in(&mut s, 1, 1), None);
+        assert_eq!(s.technique.menu.custom_id.as_deref(), Some("first"));
+        let label = s.technique.frame().label.map(|label| label.text);
+        assert!(
+            label
+                .as_deref()
+                .is_some_and(|text| text.starts_with("That panel no longer exists.")),
+            "{label:?}"
+        );
+        // Select clears the message and scanning carries on from the same tile.
+        s.action(Action::Select);
+        // A built-in menu opens from the next tile, and Back returns to the panel.
+        s.action(Action::Next);
+        assert_eq!(s.action(Action::Select), None);
+        assert_eq!(s.technique.menu.kind, Kind::Editing);
+        let back = s.technique.menu.frame_labels().len() - 1;
+        assert_eq!(choose_in(&mut s, back, 0), None);
+        assert_eq!(s.technique.menu.custom_id.as_deref(), Some("first"));
+        // Close ends the scan.
+        s.action(Action::Next);
+        s.action(Action::Next);
+        assert_eq!(s.action(Action::Select), None);
+        assert!(!s.active());
+    }
+
+    #[test]
+    fn the_panel_list_opens_panels_by_id_after_the_list_changes() {
+        let mut s = board_session(vec![
+            crate::custom_panels::sample("a", "First"),
+            crate::custom_panels::sample("b", "Second"),
+        ]);
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 3, 1), None);
+        assert_eq!(s.technique.menu.kind, Kind::Panels);
+        // The first panel is deleted while the list is showing. Its tile
+        // says so instead of opening whatever now sits first.
+        s.technique
+            .set_panels(vec![crate::custom_panels::sample("b", "Second")]);
+        assert_eq!(choose_in(&mut s, 0, 0), None);
+        assert_eq!(s.technique.menu.kind, Kind::Panels);
+        assert!(s.technique.frame().label.is_some());
+        s.action(Action::Select);
+        // The other tile still opens its own panel.
+        s.action(Action::Next);
+        assert_eq!(s.action(Action::Select), None);
+        assert_eq!(s.technique.menu.custom_id.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn with_the_usual_start_the_highlight_stays_on_the_chosen_tile() {
+        use crate::scan_menu::Command;
+        let mut s = home_session();
+        s.technique
+            .set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 3, 1), None);
+        assert_eq!(s.action(Action::Select), None);
+        let copy = Some(Request::Command {
+            command: Command::Copy,
+            point: (0, 0),
+        });
+        assert_eq!(choose_in(&mut s, 0, 0), copy);
+        s.technique.execution_succeeded();
+        // Select again repeats the tile; Next moves along the row.
+        assert_eq!(s.action(Action::Select), copy);
+        s.technique.execution_succeeded();
+        s.action(Action::Next);
+        assert_eq!(
+            s.action(Action::Select),
+            Some(Request::Text("Hello there".into()))
+        );
+    }
+
     #[test]
     fn leaving_home_that_fails_returns_to_home_not_to_an_unchosen_point() {
         for (row, request) in [(0, Request::OpenPoint), (3, Request::OpenSwitchify)] {
             let mut s = home_session();
             s.action(Action::Select);
-            assert_eq!(choose_in(&mut s, row, 0), Some(request));
+            assert_eq!(choose_in(&mut s, row, 0), Some(request.clone()));
             s.execution_failed("Input could not be released.".into());
             assert_eq!(s.technique.menu.kind, Kind::Home, "{request:?}");
             assert!(s.technique.home_open());

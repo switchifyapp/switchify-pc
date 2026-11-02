@@ -61,8 +61,6 @@ pub enum PanelAction {
     Click { button: MouseButton, count: u8 },
     /// Scroll at the chosen point.
     Scroll { direction: ScrollDirection },
-    /// Choose a word-prediction suggestion, 1-based.
-    Prediction { slot: u8 },
     /// Open a built-in panel or menu.
     OpenPanel { panel: BuiltInPanel },
     /// Open another custom panel by its id.
@@ -114,7 +112,6 @@ impl PanelAction {
                 ScrollDirection::Right => "Scroll right",
             }
             .into(),
-            Self::Prediction { slot } => format!("Word {slot}"),
             Self::OpenPanel { panel } => match panel {
                 BuiltInPanel::Keyboard => "Keyboard".into(),
                 BuiltInPanel::Mouse => "Mouse".into(),
@@ -157,15 +154,6 @@ impl PanelAction {
             Self::Click { count, .. } => {
                 if !(1..=3).contains(count) {
                     return Err("A click may be single, double or triple.".into());
-                }
-                Ok(())
-            }
-            Self::Prediction { slot } => {
-                if !(1..=crate::prediction::SLOTS as u8).contains(slot) {
-                    return Err(format!(
-                        "Word slots run from 1 to {}.",
-                        crate::prediction::SLOTS
-                    ));
                 }
                 Ok(())
             }
@@ -288,7 +276,6 @@ pub enum Category {
     Browser,
     Media,
     Mouse,
-    Prediction,
     Panels,
     Scanning,
     Power,
@@ -303,21 +290,19 @@ impl Category {
             Self::Browser => "Browser",
             Self::Media => "Media",
             Self::Mouse => "Mouse",
-            Self::Prediction => "Word prediction",
             Self::Panels => "Panels and menus",
             Self::Scanning => "Scanning",
             Self::Power => "Power",
         }
     }
     #[cfg(test)]
-    pub const ALL: [Category; 10] = [
+    pub const ALL: [Category; 9] = [
         Self::Typing,
         Self::Editing,
         Self::Windows,
         Self::Browser,
         Self::Media,
         Self::Mouse,
-        Self::Prediction,
         Self::Panels,
         Self::Scanning,
         Self::Power,
@@ -645,15 +630,6 @@ pub fn catalogue() -> Vec<CatalogueEntry> {
         row.needs_point = true;
         entries.push(row);
     }
-    for slot in 1..=crate::prediction::SLOTS as u8 {
-        entries.push(entry(
-            &format!("prediction.{slot}"),
-            format!("Word suggestion {slot}"),
-            Category::Prediction,
-            &["predict", "suggest", "autocomplete"],
-            PanelAction::Prediction { slot },
-        ));
-    }
     for (id, name, panel, keywords) in [
         (
             "panel.keyboard",
@@ -953,9 +929,6 @@ mod tests {
         let error = text("secret\u{7}").validate().unwrap_err();
         assert!(!error.contains("secret"), "errors must not echo typed text");
         assert_eq!(text("Hello there\n").validate(), Ok(()));
-        assert!(PanelAction::Prediction { slot: 0 }.validate().is_err());
-        assert!(PanelAction::Prediction { slot: 9 }.validate().is_err());
-        assert_eq!(PanelAction::Prediction { slot: 8 }.validate(), Ok(()));
         assert!(PanelAction::Click {
             button: MouseButton::Left,
             count: 4
@@ -1019,7 +992,6 @@ there"
             .label(),
             "Hi there"
         );
-        assert_eq!(PanelAction::Prediction { slot: 3 }.label(), "Word 3");
         assert_eq!(
             PanelAction::Setting {
                 setting: Setting::KeyboardLayout(KeyboardLayout::SimpleQwerty)

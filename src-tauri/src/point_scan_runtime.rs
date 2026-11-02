@@ -317,9 +317,10 @@ impl Adapter for PointScan {
             environment.following = false;
             // An open menu moves out of the pointer's way as the panels do.
             let menu_pointer = |technique: &Workflow| {
-                (technique.menu_open() && technique.panel_avoids_pointer())
-                    .then(|| display_navigation::pointer(app).ok())
-                    .flatten()
+                (technique.custom_panel_open()
+                    || (technique.menu_open() && technique.panel_avoids_pointer()))
+                .then(|| display_navigation::pointer(app).ok())
+                .flatten()
             };
             if technique.mouse_open() {
                 environment.foreground = crate::scan_host::foreground().ok();
@@ -552,6 +553,7 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
         crate::panel_position::path(app)
             .map_or_else(Default::default, |path| crate::panel_position::load(&path)),
     );
+    e.set_panels(crate::custom_panels::list(app));
     let keyboard_area = crate::scan_host::work_area(bounds(&display))?;
     e.set_keyboard_area(keyboard_area);
     Ok((

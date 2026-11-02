@@ -106,7 +106,6 @@ export type PanelAction =
   | { type: "setting"; setting: string | { keyboardLayout: "qwerty" | "simpleQwerty" | "commonLetters" } }
   | { type: "click"; button: "left" | "right" | "middle"; count: number }
   | { type: "scroll"; direction: "up" | "down" | "left" | "right" }
-  | { type: "prediction"; slot: number }
   | { type: "openPanel"; panel: BuiltInPanel }
   | { type: "openCustomPanel"; id: string }
   | { type: "pause" }
@@ -117,7 +116,7 @@ export type PanelAction =
 
 export type PanelActionCategory =
   | "typing" | "editing" | "windows" | "browser" | "media" | "mouse"
-  | "prediction" | "panels" | "scanning" | "power";
+  | "panels" | "scanning" | "power";
 
 export type PanelActionParameter =
   | { kind: "keys"; min: number; max: number }

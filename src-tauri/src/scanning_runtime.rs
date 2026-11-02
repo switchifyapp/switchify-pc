@@ -1342,6 +1342,15 @@ pub fn update_point_setting(
     publish::<PointScan>(app);
     Ok(())
 }
+/// Gives a running point scan the user's panels as they are now saved.
+pub fn refresh_custom_panels(app: &AppHandle) {
+    use crate::point_scan_runtime::PointScan;
+    let controller = app.state::<Controller<PointScan>>();
+    let mut data = controller.data.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(engine) = data.engine.as_mut() {
+        engine.technique.set_panels(crate::custom_panels::list(app));
+    }
+}
 /// A point scan already under way, whatever Select would open.
 fn point_session(
     technique: crate::point_workflow::Workflow,

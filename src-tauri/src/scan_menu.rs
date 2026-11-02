@@ -1,5 +1,7 @@
 //! Menu rows and navigation are independent of native windows and input.
 use crate::{
+    custom_panels::CustomPanel,
+    panel_actions::PanelAction,
     scan_items::{ItemScanner, Policy},
     scan_panel::{Dock, Panel, PanelKey},
     scanning::{Action, Frame, Rect, TileRole},
@@ -34,6 +36,12 @@ pub enum Item {
     DragHere,
     DestinationAgain,
     CancelDrag,
+    /// Opens the list of the user's own panels.
+    Panels,
+    /// Opens the user's panel at this index in the list page.
+    OpenCustom(usize),
+    /// A tile of the open custom panel, by index into its cells.
+    Custom(usize),
 }
 impl Item {
     pub fn label(self) -> &'static str {
@@ -66,6 +74,8 @@ impl Item {
             Self::DragHere => "Drag here",
             Self::DestinationAgain => "New destination",
             Self::CancelDrag => "Cancel drag",
+            Self::Panels => "My panels",
+            Self::OpenCustom(_) | Self::Custom(_) => "Panel",
         }
     }
     /// Keys that leave or close the menu are drawn like the panels' toolbar keys.
@@ -97,7 +107,12 @@ pub enum Kind {
     ConfirmDrag,
     ShutDown,
     Restart,
+    /// The list of the user's own panels. Its rows come from the panels.
+    Panels,
+    /// One of the user's own panels. Its rows come from the panel.
+    Custom,
 }
+/// The pages with fixed rows. `Panels` and `Custom` are built from data.
 #[cfg(test)]
 pub(crate) const ALL_MENU_KINDS: [Kind; 18] = [
     Kind::Home,
@@ -119,9 +134,31 @@ pub(crate) const ALL_MENU_KINDS: [Kind; 18] = [
     Kind::ShutDown,
     Kind::Restart,
 ];
+/// A page on the Back stack: a fixed page, or one of the user's panels by id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PageRef {
+    Kind(Kind),
+    Custom(String),
+}
+
+/// A tile of a custom panel, as the menu scans it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CustomCell {
+    pub label: String,
+    pub span: u8,
+    pub action: PanelAction,
+}
+
 pub struct Menu {
     pub kind: Kind,
+    /// Set while one of the user's panels is open.
+    pub custom_id: Option<String>,
     rows: Vec<Vec<Item>>,
+    /// The open custom panel's tiles, indexed by `Item::Custom`.
+    cells: Vec<CustomCell>,
+    /// Panel names and ids on the list page, indexed by `Item::OpenCustom`.
+    names: Vec<String>,
+    ids: Vec<String>,
     scan: ItemScanner<Item>,
     period: u64,
 }
@@ -144,13 +181,116 @@ impl Menu {
         )
     }
     pub fn configured(kind: Kind, options: crate::scan_preferences::Resolved) -> Self {
-        let rows = kind.rows();
+        Self::with_rows(kind, kind.rows(), options)
+    }
+    fn with_rows(
+        kind: Kind,
+        rows: Vec<Vec<Item>>,
+        options: crate::scan_preferences::Resolved,
+    ) -> Self {
         let scan = ItemScanner::configured_rows(&rows, Policy::MENU, options);
         Self {
             kind,
+            custom_id: None,
             rows,
+            cells: Vec::new(),
+            names: Vec::new(),
+            ids: Vec::new(),
             scan,
             period: options.interval_ms,
+        }
+    }
+    /// Home, with My panels beside Switchify once the user has made a panel.
+    pub fn home(options: crate::scan_preferences::Resolved, with_panels: bool) -> Self {
+        let mut rows = Kind::Home.rows();
+        if with_panels {
+            if let Some(last) = rows.last_mut() {
+                last.insert(1, Item::Panels);
+            }
+        }
+        Self::with_rows(Kind::Home, rows, options)
+    }
+    /// The user's panels by name, three to a row, then Back and Close menu.
+    pub fn panel_list(panels: &[CustomPanel], options: crate::scan_preferences::Resolved) -> Self {
+        let items: Vec<Item> = (0..panels.len()).map(Item::OpenCustom).collect();
+        let mut rows: Vec<Vec<Item>> = items.chunks(3).map(|row| row.to_vec()).collect();
+        rows.push(vec![Item::Back, Item::Cancel]);
+        let mut menu = Self::with_rows(Kind::Panels, rows, options);
+        menu.names = panels.iter().map(|panel| panel.name.clone()).collect();
+        menu.ids = panels.iter().map(|panel| panel.id.clone()).collect();
+        menu
+    }
+    /// One of the user's panels, tile for tile.
+    pub fn custom(panel: &CustomPanel, options: crate::scan_preferences::Resolved) -> Self {
+        let mut cells = Vec::new();
+        let rows = panel
+            .rows
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|cell| {
+                        cells.push(CustomCell {
+                            label: cell.label.clone(),
+                            span: cell.span,
+                            action: cell.action.clone(),
+                        });
+                        Item::Custom(cells.len() - 1)
+                    })
+                    .collect()
+            })
+            .collect();
+        let mut menu = Self::with_rows(Kind::Custom, rows, options);
+        menu.custom_id = Some(panel.id.clone());
+        menu.cells = cells;
+        menu
+    }
+    /// What Back should reopen to come back to this page.
+    pub fn page_ref(&self) -> PageRef {
+        match &self.custom_id {
+            Some(id) => PageRef::Custom(id.clone()),
+            None => PageRef::Kind(self.kind),
+        }
+    }
+    /// The labels on each row, as drawn.
+    #[cfg(test)]
+    pub fn frame_labels(&self) -> Vec<Vec<String>> {
+        self.rows
+            .iter()
+            .map(|row| row.iter().map(|item| self.item_label(*item)).collect())
+            .collect()
+    }
+    /// The id behind a tile of the list page, so the panel is found by id
+    /// even if the list changed since the page opened.
+    pub fn listed_panel_id(&self, index: usize) -> Option<&str> {
+        self.ids.get(index).map(String::as_str)
+    }
+    pub fn cell(&self, index: usize) -> Option<&CustomCell> {
+        self.cells.get(index)
+    }
+    fn item_label(&self, item: Item) -> String {
+        match item {
+            Item::Custom(index) => self.cells.get(index).map(|cell| cell.label.clone()),
+            Item::OpenCustom(index) => self.names.get(index).cloned(),
+            _ => None,
+        }
+        .unwrap_or_else(|| item.label().into())
+    }
+    fn item_weight(&self, item: Item) -> f64 {
+        match item {
+            Item::Custom(index) => self
+                .cells
+                .get(index)
+                .map_or(1.0, |cell| f64::from(cell.span)),
+            _ => 1.0,
+        }
+    }
+    fn item_role(&self, item: Item) -> TileRole {
+        match item {
+            Item::Custom(index) => match self.cells.get(index).map(|cell| &cell.action) {
+                Some(PanelAction::Back | PanelAction::Close) => TileRole::Toolbar,
+                _ => TileRole::Utility,
+            },
+            _ => item.role(),
         }
     }
     pub fn suspended(&self) -> bool {
@@ -192,9 +332,9 @@ impl Menu {
                 .map(|row| {
                     row.iter()
                         .map(|item| PanelKey {
-                            text: item.label().into(),
-                            weight: 1.0,
-                            role: item.role(),
+                            text: self.item_label(*item),
+                            weight: self.item_weight(*item),
+                            role: self.item_role(*item),
                             active: false,
                             blank: false,
                             hidden: false,
@@ -323,6 +463,19 @@ impl Command {
             Self::Restart => "Restart now",
         }
     }
+    /// Clicks with a modifier act at a point; every other command acts on
+    /// the window in front.
+    pub fn at_point(self) -> bool {
+        matches!(
+            self,
+            Self::MiddleClick
+                | Self::TripleClick
+                | Self::ShiftClick
+                | Self::CtrlClick
+                | Self::AltClick
+                | Self::MetaClick
+        )
+    }
     pub fn stays_open(self) -> bool {
         matches!(
             self,
@@ -404,6 +557,8 @@ impl Kind {
             Self::Scanning => "Scanning",
             Self::ShutDown => "Shut down",
             Self::Restart => "Restart",
+            Self::Panels => "My panels",
+            Self::Custom => "Panel",
         }
     }
     fn rows(self) -> Vec<Vec<Item>> {
@@ -535,6 +690,8 @@ impl Kind {
             // One row with the action in the middle: whatever the scan pattern or
             // direction, the first highlight on this page is Back or Close menu,
             // and the action needs a deliberate move and a second Select.
+            // Placeholders: `Menu::panel_list` and `Menu::custom` supply the rows.
+            Self::Panels | Self::Custom => return vec![vec![Back, Cancel]],
             Self::ShutDown => return vec![vec![Back, Command(C::ShutDown), Cancel]],
             Self::Restart => return vec![vec![Back, Command(C::Restart), Cancel]],
             Self::Scanning => vec![

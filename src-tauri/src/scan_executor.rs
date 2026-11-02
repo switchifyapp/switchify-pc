@@ -88,6 +88,21 @@ pub fn execute<I: InputInjector>(
             }
             input.type_text(&format!("{} ", punctuation.mark))
         }
+        Request::Chord(keys) => {
+            if input.has_active_drag() {
+                return Err("End the active drag before pressing keys.".into());
+            }
+            input.release_all()?;
+            let keys: Vec<&str> = keys.iter().map(String::as_str).collect();
+            input.scan_chord(&keys, None)
+        }
+        Request::Text(text) => {
+            if input.has_active_drag() {
+                return Err("End the active drag before typing.".into());
+            }
+            input.release_all()?;
+            input.type_text(&text)
+        }
         Request::Command { command, point } => execute_command(input, command, point),
         Request::Setting(_) | Request::Display(_) => {
             Err("Scanning action requires the scan controller.".into())
@@ -889,6 +904,38 @@ mod tests {
         }
     }
     #[test]
+    fn panel_chords_and_text_use_fake_input_and_wait_for_a_drag_to_end() {
+        let mut input = DesktopInput::new(Fake::default());
+        execute(
+            &mut input,
+            Request::Chord(vec!["Ctrl".into(), "S".into()]),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            input.injector.events,
+            [
+                "key Ctrl true",
+                "key S true",
+                "key S false",
+                "key Ctrl false"
+            ]
+        );
+        input.injector.events.clear();
+        execute(&mut input, Request::Text("Hello there".into()), true).unwrap();
+        assert_eq!(input.injector.events, ["text Hello there"]);
+        input.injector.events.clear();
+        execute(&mut input, Request::DragStart((10, 20)), true).unwrap();
+        assert!(execute(&mut input, Request::Text("x".into()), true).is_err());
+        assert!(execute(&mut input, Request::Chord(vec!["A".into()]), true).is_err());
+        assert!(!input
+            .injector
+            .events
+            .iter()
+            .any(|e| e.starts_with("text") || e.starts_with("key")));
+    }
+
+    #[test]
     fn keyboard_releases_failed_keys_and_rejects_external_modifiers() {
         use crate::scan_keyboard::{Key, Stroke};
         let request = Request::Keyboard(Stroke {
@@ -900,7 +947,7 @@ mod tests {
             fail_release: true,
             ..Default::default()
         });
-        assert!(execute(&mut input, request, true).is_err());
+        assert!(execute(&mut input, request.clone(), true).is_err());
         input.injector.fail_release = false;
         input.release_all().unwrap();
         assert!(input
@@ -1203,7 +1250,7 @@ mod tests {
                 command,
                 point: (10, 20),
             };
-            assert!(execute(&mut input, request, true).is_err());
+            assert!(execute(&mut input, request.clone(), true).is_err());
             assert!(!input.injector.events.iter().any(|e| e.starts_with("power")));
             execute(&mut input, Request::OpenPoint, true).unwrap();
 
