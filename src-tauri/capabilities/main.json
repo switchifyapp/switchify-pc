@@ -50,6 +50,8 @@
     "allow-list-builtin-panels",
     "allow-save-builtin-panel",
     "allow-reset-builtin-panel",
+    "allow-list-panel-extras",
+    "allow-save-panel-extras",
     "allow-save-switch-profile",
     "allow-delete-switch-profile",
     "allow-complete-profile-exit",

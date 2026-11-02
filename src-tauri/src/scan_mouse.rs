@@ -1,5 +1,6 @@
 //! Switch-owned mouse panel. Native input stays in the scanning adapter.
 use crate::{
+    custom_panels::Cell,
     scan_items::{ItemScanner, Policy},
     scan_panel::{Dock, Panel, PanelKey},
     scan_preferences::Resolved,
@@ -26,6 +27,8 @@ pub enum Key {
     Position(Dock),
     Back,
     Close,
+    /// A tile the user added below the keys: its row and place in the row.
+    Extra(usize, usize),
 }
 
 pub struct MousePanel {
@@ -37,6 +40,8 @@ pub struct MousePanel {
     notice: Option<&'static str>,
     positioning: bool,
     displays: usize,
+    /// The user's rows, shown on the Movement page above its bottom row.
+    extras: Vec<Vec<Cell>>,
     rows: Vec<Vec<Key>>,
     scan: ItemScanner<Key>,
 }
@@ -50,7 +55,7 @@ impl MousePanel {
     }
 
     pub fn new(options: Resolved, displays: usize, speed_percent: u16) -> Self {
-        let rows = Self::rows(false, false, displays);
+        let rows = Self::rows(false, false, displays, &[]);
         let scan = ItemScanner::configured_rows(&rows, Policy::KEYBOARD, options);
         Self {
             more: false,
@@ -61,22 +66,47 @@ impl MousePanel {
             notice: None,
             positioning: false,
             displays,
+            extras: Vec::new(),
             rows,
             scan,
         }
     }
-    fn rows(more: bool, positioning: bool, displays: usize) -> Vec<Vec<Key>> {
+    /// Adds the user's rows below the keys.
+    pub fn with_extras(mut self, extras: Vec<Vec<Cell>>) -> Self {
+        self.extras = extras;
+        self.rebuild_rows();
+        self
+    }
+    /// The built-in keys of the Movement page, for a picture of the panel.
+    pub fn fixed_picture() -> Vec<Vec<(String, f64)>> {
+        let panel = Self::new(Resolved::default(), 1, 100);
+        panel
+            .rows
+            .iter()
+            .map(|row| row.iter().map(|&key| (panel.label(key), 1.0)).collect())
+            .collect()
+    }
+    pub fn extra(&self, row: usize, column: usize) -> Option<&Cell> {
+        self.extras.get(row)?.get(column)
+    }
+    fn rows(more: bool, positioning: bool, displays: usize, extras: &[Vec<Cell>]) -> Vec<Vec<Key>> {
         use Key::*;
         if positioning {
             crate::scan_panel::position_rows(Position, Back)
         } else if !more {
-            vec![
+            let mut rows = vec![
                 vec![Click, RightClick, DoubleClick, Drag],
                 vec![Move(-1, -1), Move(0, -1), Move(1, -1), Scroll(1)],
                 vec![Move(-1, 0), Radar, Move(1, 0)],
                 vec![Move(-1, 1), Move(0, 1), Move(1, 1), Scroll(-1)],
-                vec![Actions, More, Keyboard, Close],
-            ]
+            ];
+            rows.extend(
+                extras.iter().enumerate().map(|(row, cells)| {
+                    (0..cells.len()).map(|column| Extra(row, column)).collect()
+                }),
+            );
+            rows.push(vec![Actions, More, Keyboard, Close]);
+            rows
         } else {
             let mut rows = vec![vec![Speed(-1), Speed(1)]];
             if displays > 1 {
@@ -109,6 +139,13 @@ impl MousePanel {
             }
             // The panel is left behind.
             Key::Actions | Key::Keyboard | Key::Close => self.scan.restart(),
+            Key::Extra(row, column)
+                if self
+                    .extra(row, column)
+                    .is_some_and(|cell| crate::panel_extras::leaves(&cell.action)) =>
+            {
+                self.scan.restart()
+            }
             // The radar returns through `repeat_stopped` or `restart`.
             Key::Radar => {}
             _ => self.scan.continue_after_selection(),
@@ -118,8 +155,16 @@ impl MousePanel {
     pub fn repeat_stopped(&mut self) {
         self.scan.continue_after_selection();
     }
+    /// A Pause tile the user added: waits for Select.
+    pub fn pause(&mut self) {
+        self.scan.wait();
+    }
+    /// A Reverse tile the user added.
+    pub fn reverse(&mut self) {
+        let _ = self.scan.handle(Action::Reverse);
+    }
     fn rebuild_rows(&mut self) {
-        self.rows = Self::rows(self.more, self.positioning, self.displays);
+        self.rows = Self::rows(self.more, self.positioning, self.displays, &self.extras);
         self.scan = ItemScanner::configured_rows(&self.rows, Policy::KEYBOARD, self.scan.options);
     }
     pub fn handle(&mut self, action: Action) -> Option<Key> {
@@ -155,7 +200,9 @@ impl MousePanel {
     pub fn set_displays(&mut self, displays: usize) {
         if self.displays != displays {
             self.displays = displays;
-            if !self.positioning && self.rows != Self::rows(self.more, false, displays) {
+            if !self.positioning
+                && self.rows != Self::rows(self.more, false, displays, &self.extras)
+            {
                 let (suspended, waiting) = (self.scan.suspended, self.scan.waiting());
                 self.rebuild_rows();
                 self.scan.suspended = suspended;
@@ -210,10 +257,17 @@ impl MousePanel {
             Position(dock) => crate::scan_panel::position_label(dock, self.dock),
             Back => "Back".into(),
             Close => "Switch to Point".into(),
+            Extra(row, column) => self
+                .extra(row, column)
+                .map(|cell| cell.label.clone())
+                .unwrap_or_default(),
         }
     }
-    fn role(key: Key) -> TileRole {
+    fn role(&self, key: Key) -> TileRole {
         match key {
+            Key::Extra(row, column) => self.extra(row, column).map_or(TileRole::Utility, |cell| {
+                crate::panel_extras::role(&cell.action)
+            }),
             Key::Move(..) => TileRole::Character,
             Key::More
             | Key::Movement
@@ -248,8 +302,13 @@ impl MousePanel {
                         .flat_map(|&key| {
                             let tile = PanelKey {
                                 text: self.label(key),
-                                weight: 1.0,
-                                role: Self::role(key),
+                                weight: match key {
+                                    Key::Extra(row, column) => self
+                                        .extra(row, column)
+                                        .map_or(1.0, |cell| f64::from(cell.span)),
+                                    _ => 1.0,
+                                },
+                                role: self.role(key),
                                 active: match key {
                                     Key::Drag => self.dragging,
                                     Key::Position(dock) => dock == self.dock,

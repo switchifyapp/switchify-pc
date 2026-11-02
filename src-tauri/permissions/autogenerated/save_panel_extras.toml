@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-panel-extras"
+description = "Enables the save_panel_extras command without any pre-configured scope."
+commands.allow = ["save_panel_extras"]
+
+[[permission]]
+identifier = "deny-save-panel-extras"
+description = "Denies the save_panel_extras command without any pre-configured scope."
+commands.deny = ["save_panel_extras"]

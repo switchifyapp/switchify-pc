@@ -2,6 +2,7 @@
 use crate::{
     custom_panels::CustomPanel,
     panel_actions::{BuiltInPanel, MouseButton, PanelAction, ScrollDirection},
+    panel_extras::Target as ExtraTarget,
     point_scan::{Engine, PointSettings},
     scan_menu::{Item, Kind, Menu, PageRef},
     scanning::{Action, Frame, FrameLabel, Rect, Technique, UpdateContext},
@@ -187,6 +188,8 @@ pub struct Workflow {
     panels: Vec<CustomPanel>,
     /// Built-in menus the user rearranged, by menu.
     menu_overrides: std::collections::BTreeMap<Kind, CustomPanel>,
+    /// Extra rows of tiles below the mouse panel's and the keyboard's keys.
+    panel_extras: std::collections::BTreeMap<ExtraTarget, crate::panel_extras::Rows>,
     source: Point,
     destination: Point,
     elapsed: u64,
@@ -240,6 +243,7 @@ impl Workflow {
             parent_menu: vec![],
             panels: vec![],
             menu_overrides: Default::default(),
+            panel_extras: Default::default(),
             source: (0, 0),
             destination: (0, 0),
             elapsed: 0,
@@ -258,6 +262,17 @@ impl Workflow {
     pub fn set_menu_overrides(&mut self, overrides: std::collections::BTreeMap<Kind, CustomPanel>) {
         self.menu_overrides = overrides;
     }
+    /// Replaces the extra rows on the mouse panel and the keyboard. An open
+    /// panel keeps its rows until it is reopened.
+    pub fn set_panel_extras(
+        &mut self,
+        extras: std::collections::BTreeMap<ExtraTarget, crate::panel_extras::Rows>,
+    ) {
+        self.panel_extras = extras;
+    }
+    fn extras_for(&self, target: ExtraTarget) -> crate::panel_extras::Rows {
+        self.panel_extras.get(&target).cloned().unwrap_or_default()
+    }
     fn new_keyboard(&self) -> crate::scan_keyboard::Keyboard {
         let mut keyboard = crate::scan_keyboard::Keyboard::configured(
             cfg!(target_os = "macos"),
@@ -266,7 +281,8 @@ impl Workflow {
         .with_layout(self.point.config.keyboard_layout)
         .with_wait_after_typing(
             self.point.config.keyboard_scan.next_scan == crate::scan_preferences::NextScan::Wait,
-        );
+        )
+        .with_extras(self.extras_for(ExtraTarget::Keyboard));
         keyboard.dock = self.dock;
         keyboard
     }
@@ -275,7 +291,8 @@ impl Workflow {
             self.point.config.mouse_scan,
             1,
             self.mouse.speed_percent,
-        );
+        )
+        .with_extras(self.extras_for(ExtraTarget::Mouse));
         mouse.dock = self.dock;
         mouse
     }
@@ -766,6 +783,10 @@ impl Workflow {
         (self.following && self.stage == Stage::Point) || self.home_open()
     }
     fn restore_actions(&mut self) {
+        // A page opened from the mouse panel goes back to it.
+        if self.mouse_actions_open && self.parent_menu.is_empty() {
+            return self.return_to_mouse_panel();
+        }
         match self.parent_menu.pop() {
             Some(PageRef::Kind(kind)) => self.open(kind),
             Some(PageRef::Custom(id)) => {
@@ -927,6 +948,11 @@ impl Workflow {
     }
     fn mouse_key(&mut self, key: crate::scan_mouse::Key) -> Option<Request> {
         use crate::scan_mouse::Key;
+        if let Key::Extra(row, column) = key {
+            let action = self.mouse.extra(row, column)?.action.clone();
+            self.mouse.choose(key);
+            return self.extra_action(action, ExtraTarget::Mouse);
+        }
         if key == Key::Actions {
             if self.mouse.dragging {
                 self.mouse.block_actions("End drag before opening Actions");
@@ -1028,8 +1054,138 @@ impl Workflow {
                 self.open(Kind::MouseActions);
                 None
             }
-            Key::Radar | Key::More | Key::Movement | Key::Dock | Key::Position(_) | Key::Back => {
+            Key::Radar
+            | Key::More
+            | Key::Movement
+            | Key::Dock
+            | Key::Position(_)
+            | Key::Back
+            | Key::Extra(..) => None,
+        }
+    }
+    /// A tile the user added to the mouse panel or the keyboard was chosen.
+    /// It acts as the same tile does on one of the user's panels; a way out
+    /// leaves the panel as its own Close key does.
+    fn extra_action(&mut self, action: PanelAction, origin: ExtraTarget) -> Option<Request> {
+        match action {
+            PanelAction::Key { keys } => Some(Request::Chord(keys)),
+            PanelAction::Text { text } => Some(Request::Text(text)),
+            PanelAction::Command { command } => {
+                let point = if command.at_point() {
+                    self.pointer_point()?
+                } else {
+                    self.source
+                };
+                Some(Request::Command { command, point })
+            }
+            PanelAction::Setting { setting } => Some(Request::Setting(setting)),
+            PanelAction::Click {
+                button: MouseButton::Middle,
+                ..
+            } => {
+                let point = self.pointer_point()?;
+                Some(Request::Command {
+                    command: crate::scan_menu::Command::MiddleClick,
+                    point,
+                })
+            }
+            PanelAction::Click { button, count } => Some(Request::MouseClick {
+                right: button == MouseButton::Right,
+                count,
+            }),
+            PanelAction::Scroll { direction } => {
+                let point = self.pointer_point()?;
+                let (dx, dy) = match direction {
+                    ScrollDirection::Up => (0, 3),
+                    ScrollDirection::Down => (0, -3),
+                    ScrollDirection::Left => (-3, 0),
+                    ScrollDirection::Right => (3, 0),
+                };
+                Some(Request::Scroll { point, dx, dy })
+            }
+            PanelAction::Display { next } => Some(Request::Display(next)),
+            PanelAction::OpenPanel { panel } => match panel {
+                BuiltInPanel::Keyboard => self.selected(Item::Keyboard),
+                BuiltInPanel::Mouse => self.open_mouse(true),
+                BuiltInPanel::Point => self.open_point(),
+                BuiltInPanel::Switchify => self.selected(Item::Switchify),
+                BuiltInPanel::Menu(Kind::Home) => {
+                    self.open_home();
+                    None
+                }
+                BuiltInPanel::Menu(kind) => {
+                    self.leave_for_page(origin);
+                    self.open(kind);
+                    None
+                }
+            },
+            PanelAction::OpenCustomPanel { id } => {
+                if !self.panels.iter().any(|panel| panel.id == id) {
+                    match origin {
+                        ExtraTarget::Mouse => {
+                            self.mouse.block_actions("That panel no longer exists")
+                        }
+                        ExtraTarget::Keyboard => self.keyboard.cancel_activation(),
+                    }
+                    return None;
+                }
+                self.leave_for_page(origin);
+                self.open_custom(&id);
                 None
+            }
+            PanelAction::MyPanels => {
+                self.leave_for_page(origin);
+                self.menu = Menu::panel_list(&self.panels, self.point.config.menu_scan);
+                self.stage = Stage::Menu;
+                None
+            }
+            // The keyboard pauses and reverses itself.
+            PanelAction::Pause => {
+                if origin == ExtraTarget::Mouse {
+                    self.mouse.pause();
+                }
+                None
+            }
+            PanelAction::Reverse => {
+                if origin == ExtraTarget::Mouse {
+                    self.mouse.reverse();
+                }
+                None
+            }
+            PanelAction::Back | PanelAction::Close => match origin {
+                ExtraTarget::Mouse => self.open_point(),
+                ExtraTarget::Keyboard => {
+                    self.keyboard_closed();
+                    None
+                }
+            },
+        }
+    }
+    /// Leaves the mouse panel or the keyboard for a page of tiles. From the
+    /// mouse panel, Back on that page returns to it; from the keyboard, Back
+    /// goes Home.
+    fn leave_for_page(&mut self, origin: ExtraTarget) {
+        self.parent_menu.clear();
+        self.pending = None;
+        self.error = None;
+        self.elapsed = 0;
+        self.move_repeat = None;
+        self.scroll_repeat = None;
+        self.radar = None;
+        match origin {
+            ExtraTarget::Mouse => {
+                self.mouse_actions_open = true;
+                self.mouse.dragging = false;
+                self.source = self
+                    .pointer
+                    .map_or((0, 0), |(x, y)| (x.round() as i32, y.round() as i32));
+            }
+            ExtraTarget::Keyboard => {
+                self.mouse_actions_open = false;
+                self.return_to_mouse = false;
+                self.return_to_home = false;
+                self.parent_menu.push(PageRef::Kind(Kind::Home));
+                self.source = (0, 0);
             }
         }
     }
@@ -1086,6 +1242,15 @@ impl Workflow {
             Some(crate::scan_keyboard::Output::Close) => {
                 self.keyboard_closed();
                 None
+            }
+            Some(crate::scan_keyboard::Output::Extra(row, column)) => {
+                let action = self.keyboard.extra(row, column)?.action.clone();
+                let request = self.extra_action(action, ExtraTarget::Keyboard);
+                // Nothing to wait for: the keyboard scans on.
+                if request.is_none() && self.stage == Stage::Keyboard {
+                    self.keyboard.cancel_activation();
+                }
+                request
             }
             None => None,
         }
@@ -3866,6 +4031,170 @@ mod tests {
         assert_eq!(panel, top.rect(screen, (panel.width, panel.height)));
         assert!(frame.strips.is_empty(), "Home acts at no point");
     }
+    fn extra(label: &str, action: PanelAction, span: u8) -> crate::custom_panels::Cell {
+        crate::custom_panels::Cell {
+            label: label.into(),
+            action,
+            span,
+        }
+    }
+    fn tile_rect(frame: &Frame, text: &str) -> Rect {
+        frame
+            .tiles
+            .iter()
+            .find(|tile| tile.text.starts_with(text))
+            .unwrap_or_else(|| panic!("no tile {text}"))
+            .rect
+    }
+
+    #[test]
+    fn extra_tiles_on_the_mouse_panel_act_and_leave_as_their_action_says() {
+        use crate::scan_mouse::Key;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        workflow.set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+        let hello = extra(
+            "Hello",
+            PanelAction::Text {
+                text: "Hello".into(),
+            },
+            1,
+        );
+        let mine = extra("Mine", PanelAction::MyPanels, 2);
+        workflow.set_panel_extras(std::collections::BTreeMap::from([(
+            ExtraTarget::Mouse,
+            vec![vec![hello, mine]],
+        )]));
+        workflow.open_mouse(true);
+        // The row sits above the panel's bottom row; a span of two is twice as wide.
+        let frame = workflow.frame();
+        let (hello, mine, actions) = (
+            tile_rect(&frame, "Hello"),
+            tile_rect(&frame, "Mine"),
+            tile_rect(&frame, "Actions"),
+        );
+        assert!(tile_rect(&frame, "Left click").y < hello.y && hello.y < actions.y);
+        assert_eq!(hello.y, mine.y);
+        assert!(mine.width > hello.width * 1.9);
+        // Typing leaves the panel open and scanning.
+        assert_eq!(
+            workflow.choose_mouse_key(Key::Extra(0, 0)),
+            Some(Request::Text("Hello".into()))
+        );
+        workflow.execution_succeeded();
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert!(!workflow.mouse.suspended());
+        // My panels lists the panels, and Back returns to the mouse panel.
+        assert_eq!(workflow.choose_mouse_key(Key::Extra(0, 1)), None);
+        assert_eq!(workflow.menu.kind, Kind::Panels);
+        assert!(workflow.mouse_open());
+        assert_eq!(workflow.selected(Item::Back), None);
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        // A tile that is gone from the row does nothing.
+        assert_eq!(workflow.choose_mouse_key(Key::Extra(3, 0)), None);
+        // Close switches to Point, as the panel's own key does.
+        workflow.set_panel_extras(std::collections::BTreeMap::from([(
+            ExtraTarget::Mouse,
+            vec![vec![extra("Done", PanelAction::Close, 1)]],
+        )]));
+        workflow.open_mouse(true);
+        assert_eq!(
+            workflow.choose_mouse_key(Key::Extra(0, 0)),
+            Some(Request::OpenPoint)
+        );
+        assert!(matches!(workflow.phase(), Phase::Point(_)));
+        // The More controls page and the Position page keep their rows.
+        workflow.open_mouse(true);
+        workflow.choose_mouse_key(Key::More);
+        assert!(workflow
+            .frame()
+            .tiles
+            .iter()
+            .all(|tile| tile.text != "Done"));
+    }
+
+    #[test]
+    fn extra_tiles_on_the_keyboard_type_like_keys_and_close_it() {
+        use crate::scan_keyboard::{Key, Page};
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        workflow.set_panel_extras(std::collections::BTreeMap::from([(
+            ExtraTarget::Keyboard,
+            vec![vec![
+                extra(
+                    "Hello",
+                    PanelAction::Text {
+                        text: "Hello".into(),
+                    },
+                    1,
+                ),
+                extra("Done", PanelAction::Close, 1),
+            ]],
+        )]));
+        workflow.open_home();
+        assert_eq!(
+            workflow.selected(Item::Keyboard),
+            Some(Request::OpenKeyboard)
+        );
+        workflow.execution_succeeded();
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+        // The row sits above the page row, on every page.
+        let frame = workflow.frame();
+        assert!(tile_rect(&frame, "Hello").y < tile_rect(&frame, "Letters").y);
+        assert!(tile_rect(&frame, "Hello").y > tile_rect(&frame, "Space").y);
+        assert_eq!(workflow.choose_key(Key::Page(Page::Numbers)), None);
+        let frame = workflow.frame();
+        assert!(tile_rect(&frame, "Hello").y < tile_rect(&frame, "Numbers").y);
+        // Typing waits for the result like a key, then scans on.
+        assert_eq!(
+            workflow.choose_key(Key::Extra(0, 0)),
+            Some(Request::Text("Hello".into()))
+        );
+        assert_eq!(
+            workflow.handle(Action::Select),
+            None,
+            "waiting for the text"
+        );
+        workflow.execution_succeeded();
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+        assert!(!workflow.keyboard.suspended());
+        // A tile that cannot act leaves the keyboard scanning.
+        workflow.set_panels(vec![]);
+        workflow.set_panel_extras(std::collections::BTreeMap::from([(
+            ExtraTarget::Keyboard,
+            vec![vec![
+                extra(
+                    "Gone",
+                    PanelAction::OpenCustomPanel {
+                        id: "greetings".into(),
+                    },
+                    1,
+                ),
+                extra("Done", PanelAction::Close, 1),
+            ]],
+        )]));
+        workflow.open_home();
+        workflow.selected(Item::Keyboard);
+        workflow.execution_succeeded();
+        assert_eq!(workflow.choose_key(Key::Extra(0, 0)), None);
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+        assert!(!workflow.keyboard.suspended());
+        // Close closes the keyboard; opened from Home, it goes back there.
+        assert_eq!(workflow.choose_key(Key::Extra(0, 1)), None);
+        assert!(!workflow.keyboard_open());
+        assert!(workflow.home_open());
+    }
+
     #[test]
     fn mouse_keyboard_return_and_drag_state() {
         let screen = Rect {
