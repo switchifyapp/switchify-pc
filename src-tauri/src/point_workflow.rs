@@ -9,6 +9,16 @@ use crate::{
 };
 use serde::Serialize;
 pub type Point = (i32, i32);
+
+/// A page the editor asks to try: one of the user's panels, a built-in
+/// menu, or a native panel.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TrialTarget {
+    Panel { id: String },
+    Menu { menu: Kind },
+    Native { panel: ExtraTarget },
+}
 #[derive(Debug, Clone, PartialEq)]
 pub enum Request {
     Prediction {
@@ -269,6 +279,39 @@ impl Workflow {
         extras: std::collections::BTreeMap<ExtraTarget, crate::panel_extras::PanelExtras>,
     ) {
         self.panel_extras = extras;
+    }
+    /// Starts on the page the editor asked to try, as if it had just been
+    /// chosen from Home, so Back and Close go where they always do.
+    pub fn open_for_trial(&mut self, target: &TrialTarget) -> Result<Option<Request>, String> {
+        self.reset();
+        self.open_home();
+        match target {
+            TrialTarget::Panel { id } => {
+                let panel = self
+                    .panels
+                    .iter()
+                    .find(|panel| panel.id == *id)
+                    .ok_or("That panel no longer exists.")?;
+                let next = Menu::custom(panel, self.point.config.menu_scan);
+                self.push_menu(next);
+                Ok(None)
+            }
+            TrialTarget::Menu { menu: Kind::Home } => Ok(None),
+            TrialTarget::Menu { menu } => {
+                if !crate::builtin_panels::editable(*menu) {
+                    return Err("That menu cannot be tried on its own.".into());
+                }
+                let next = self.build(*menu);
+                self.push_menu(next);
+                Ok(None)
+            }
+            TrialTarget::Native {
+                panel: ExtraTarget::Mouse,
+            } => Ok(self.open_mouse(true)),
+            TrialTarget::Native {
+                panel: ExtraTarget::Keyboard,
+            } => Ok(self.selected(Item::Keyboard)),
+        }
     }
     fn extras_for(&self, target: ExtraTarget) -> crate::panel_extras::PanelExtras {
         self.panel_extras.get(&target).cloned().unwrap_or_default()
@@ -4173,6 +4216,67 @@ mod tests {
             tile_rect(&after, "Tile 7").width
         );
         assert!(tile_rect(&after, "Tile 0").width < tile_rect(&after, "Left click").width);
+    }
+
+    #[test]
+    fn a_trial_opens_the_page_over_home_so_back_returns_there() {
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        workflow.set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+        // One of the user's panels, with Back leading Home.
+        assert_eq!(
+            workflow.open_for_trial(&TrialTarget::Panel {
+                id: "greetings".into()
+            }),
+            Ok(None)
+        );
+        assert_eq!(workflow.menu.custom_id.as_deref(), Some("greetings"));
+        assert_eq!(workflow.selected(Item::Back), None);
+        assert!(workflow.home_open());
+        // A panel that is gone, and a menu that needs a point, are refused.
+        assert!(workflow
+            .open_for_trial(&TrialTarget::Panel { id: "gone".into() })
+            .is_err());
+        assert!(workflow
+            .open_for_trial(&TrialTarget::Menu {
+                menu: Kind::Actions
+            })
+            .is_err());
+        // A built-in menu, Home itself, and the native panels.
+        assert_eq!(
+            workflow.open_for_trial(&TrialTarget::Menu {
+                menu: Kind::Editing
+            }),
+            Ok(None)
+        );
+        assert_eq!(workflow.menu.kind, Kind::Editing);
+        assert_eq!(
+            workflow.open_for_trial(&TrialTarget::Menu { menu: Kind::Home }),
+            Ok(None)
+        );
+        assert!(workflow.home_open());
+        assert_eq!(
+            workflow.open_for_trial(&TrialTarget::Native {
+                panel: ExtraTarget::Mouse
+            }),
+            Ok(Some(Request::OpenMouse))
+        );
+        assert!(workflow.mouse_open());
+        assert_eq!(
+            workflow.open_for_trial(&TrialTarget::Native {
+                panel: ExtraTarget::Keyboard
+            }),
+            Ok(Some(Request::OpenKeyboard))
+        );
+        workflow.execution_succeeded();
+        assert!(workflow.keyboard_open());
+        workflow.keyboard_closed();
+        assert!(workflow.home_open(), "the keyboard closes back to Home");
     }
 
     #[test]

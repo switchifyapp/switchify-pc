@@ -53,6 +53,7 @@ fn main() {
         "reset_builtin_panel",
         "list_panel_extras",
         "save_panel_extras",
+        "try_panel",
         "save_switch_profile",
         "delete_switch_profile",
         "complete_profile_exit",

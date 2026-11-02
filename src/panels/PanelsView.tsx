@@ -41,7 +41,7 @@ function extrasPanel(view: PanelExtrasView): CustomPanel {
 }
 
 export function PanelsView({ controller, theme, onDirtyChange }: { controller: PanelsController; theme?: PanelTheme; onDirtyChange: (dirty: boolean) => void }) {
-  const { panels, builtins, extras, busy, error, clearError, save, remove, saveBuiltin, resetBuiltin, saveExtras, setEditing } = controller;
+  const { panels, builtins, extras, busy, error, clearError, save, remove, saveBuiltin, resetBuiltin, saveExtras, tryPanel, setEditing } = controller;
   const [open, setOpen] = useState<CustomPanel | null>(null);
   const [builtin, setBuiltin] = useState<BuiltinEditing | null>(null);
   const [extra, setExtra] = useState<ExtrasEditing | null>(null);
@@ -64,9 +64,9 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
     if (saved === null) return;
     openPanel(saved, null);
   };
-  if (open && extra) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} extras={extra} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveExtras(extra.target, panel.rows, extra.columns).then(closePanel, () => undefined)} onSaveExtras={(rows, columns) => saveExtras(extra.target, rows, columns).then(closePanel, () => undefined)} onDelete={() => saveExtras(extra.target, [], []).then(closePanel, () => undefined)} />;
-  if (open && builtin) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} builtin={builtin} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveBuiltin(builtin.kind, panel).then(closePanel, () => undefined)} onDelete={() => resetBuiltin(builtin.kind).then(closePanel, () => undefined)} />;
-  if (open) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => save(panel).then(closePanel, () => undefined)} onDelete={() => remove(open.id).then(closePanel, () => undefined)} />;
+  if (open && extra) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} extras={extra} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveExtras(extra.target, panel.rows, extra.columns).then(closePanel, () => undefined)} onSaveExtras={(rows, columns) => saveExtras(extra.target, rows, columns).then(closePanel, () => undefined)} onDelete={() => saveExtras(extra.target, [], []).then(closePanel, () => undefined)} onTry={() => tryPanel({ kind: "native", panel: extra.target as "mouse" | "keyboard" }).then(() => undefined, () => undefined)} />;
+  if (open && builtin) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} builtin={builtin} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveBuiltin(builtin.kind, panel).then(closePanel, () => undefined)} onDelete={() => resetBuiltin(builtin.kind).then(closePanel, () => undefined)} onTry={() => tryPanel({ kind: "menu", menu: builtin.kind }).then(() => undefined, () => undefined)} />;
+  if (open) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => save(panel).then(closePanel, () => undefined)} onDelete={() => remove(open.id).then(closePanel, () => undefined)} onTry={() => tryPanel({ kind: "panel", id: open.id }).then(() => undefined, () => undefined)} />;
   return <div className="view">
     <header className="page-header"><div><h1>Panels</h1><p>Scanning panels of your own. Home lists them under My panels.</p></div><Button className="primary" disabled={busy || panels === null} onClick={() => void create()}><Plus size={16} />New panel</Button></header>
     {error && <p className="field-error" role="alert">{error}</p>}

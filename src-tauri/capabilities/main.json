@@ -52,6 +52,7 @@
     "allow-reset-builtin-panel",
     "allow-list-panel-extras",
     "allow-save-panel-extras",
+    "allow-try-panel",
     "allow-save-switch-profile",
     "allow-delete-switch-profile",
     "allow-complete-profile-exit",

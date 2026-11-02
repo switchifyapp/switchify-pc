@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AccountView, AppSettings, AppState, BuiltinPanelView, CustomPanel, PanelAction, PanelActionEntry, PanelCell, PanelExtrasView, SwitchProfile, SyncView, UpdateProgress } from "./types";
+import type { AccountView, AppSettings, AppState, BuiltinPanelView, CustomPanel, PanelAction, PanelActionEntry, PanelCell, PanelExtrasView, SwitchProfile, SyncView, TrialTarget, UpdateProgress } from "./types";
 
 export type ProfileExitAction = "hide" | "quit";
 export type NavigationTarget = "home" | "settings" | "profiles";
@@ -199,6 +199,10 @@ export const api = {
     browserExtras = browserExtras.map((view) => view.target === target ? { ...view, rows: structuredClone(rows), columns: structuredClone(columns) } : view);
     return Promise.resolve(structuredClone(browserExtras));
   },
+  /** Opens a panel in the scanner and puts the window away. */
+  tryPanel: (target: TrialTarget) => "__TAURI_INTERNALS__" in window
+    ? call<void>("try_panel", { target })
+    : Promise.resolve(),
   onPanelsChanged: async (handler: () => void): Promise<UnlistenFn> => {
     if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
     return listen("custom-panels-changed", () => handler());

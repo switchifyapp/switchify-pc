@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronLeft, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronLeft, Play, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { Button, Input, Select } from "../ui/controls";
 import { api } from "../api";
 import { PanelPicture, toolbarAction, type TilePlace } from "./PanelPicture";
@@ -25,9 +25,9 @@ export type BuiltinEditing = { kind: string; rearranged: boolean };
  *  Delete. */
 export type ExtrasEditing = { target: string; fixed: PictureCell[][]; columns: PanelCell[][]; hasTiles: boolean };
 
-export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras, onClose, onSave, onSaveExtras, onDelete, onDirtyChange, onClearError }: {
+export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras, onClose, onSave, onSaveExtras, onDelete, onTry, onDirtyChange, onClearError }: {
   panel: CustomPanel; panels: CustomPanel[]; theme?: PanelTheme; busy: boolean; error: string | null; builtin?: BuiltinEditing; extras?: ExtrasEditing;
-  onClose: () => void; onSave: (panel: CustomPanel) => Promise<void>; onSaveExtras?: (rows: PanelCell[][], columns: PanelCell[][]) => Promise<void>; onDelete: () => Promise<void>; onDirtyChange: (dirty: boolean) => void; onClearError?: () => void;
+  onClose: () => void; onSave: (panel: CustomPanel) => Promise<void>; onSaveExtras?: (rows: PanelCell[][], columns: PanelCell[][]) => Promise<void>; onDelete: () => Promise<void>; onTry?: () => Promise<void>; onDirtyChange: (dirty: boolean) => void; onClearError?: () => void;
 }) {
   const [draft, setDraft] = useState(panel);
   const [columns, setColumns] = useState<PanelCell[][]>(extras?.columns ?? []);
@@ -195,7 +195,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
     </section></div>}
     <div inert={confirmation !== null || undefined}>
       <header className="page-header"><div><Button ref={backRef} className="text-button panel-back" onClick={requestClose}><ChevronLeft size={18} aria-hidden="true" />All panels</Button><h1>{panel.name}</h1><p>{extras ? "Add rows of your own below the keys, or columns beside them. The keys stay as they are; your tiles scan with them." : builtin ? (builtin.kind === "home" ? "Rearrange Home. Keep a Close tile, which ends scanning." : "Rearrange this built-in menu. Keep a Back or Close tile so it can be left.") : "Choose a tile to change what it says and does. Rows share their width between their tiles."}</p></div>
-        <div className="panel-header-actions">{extras
+        <div className="panel-header-actions">{onTry && <Button className="secondary" disabled={busy || dirty} title={dirty ? "Save first, then try" : "Open this panel in the scanner"} onClick={() => { onClearError?.(); void onTry(); }}><Play size={16} aria-hidden="true" />Try it</Button>}{extras
           ? <Button ref={deleteRef} className="secondary danger" disabled={busy || !extras.hasTiles} title={extras.hasTiles ? undefined : "No tiles added yet"} onClick={requestDelete}><Trash2 size={16} aria-hidden="true" />Remove tiles</Button>
           : builtin
           ? <Button ref={deleteRef} className="secondary" disabled={busy || !builtin.rearranged} title={builtin.rearranged ? undefined : "Not changed yet"} onClick={requestDelete}><RotateCcw size={16} aria-hidden="true" />Reset to default</Button>

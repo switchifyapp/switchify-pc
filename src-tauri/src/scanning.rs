@@ -422,6 +422,13 @@ impl<T: Technique> Session<T> {
     pub fn paused(&self) -> bool {
         self.paused
     }
+    /// Begins the session on a page the technique opens itself, as trying a
+    /// panel from its editor does, rather than on the page Select would open.
+    pub fn begin_with<R>(&mut self, open: impl FnOnce(&mut T) -> R) -> R {
+        self.active = true;
+        self.paused = false;
+        open(&mut self.technique)
+    }
     pub fn action(&mut self, action: Action) -> Option<T::Selection> {
         if matches!(action, Action::Cancel | Action::Stop) {
             self.reset();

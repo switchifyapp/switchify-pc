@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { BuiltinPanelView, CustomPanel, PanelCell, PanelExtrasView } from "../types";
+import type { BuiltinPanelView, CustomPanel, PanelCell, PanelExtrasView, TrialTarget } from "../types";
 
 /** The user's panels, kept current while settings sync changes them. A
  *  refresh never lands while an edit is open, which it would discard. */
@@ -52,6 +52,7 @@ export function usePanels() {
     saveBuiltin: (kind: string, panel: CustomPanel) => run(() => api.saveBuiltinPanel(kind, panel), setBuiltins),
     resetBuiltin: (kind: string) => run(() => api.resetBuiltinPanel(kind), setBuiltins),
     saveExtras: (target: string, rows: PanelCell[][], columns: PanelCell[][]) => run(() => api.savePanelExtras(target, rows, columns), setExtras),
+    tryPanel: (target: TrialTarget) => run(() => api.tryPanel(target), () => undefined),
   };
 }
 export type PanelsController = ReturnType<typeof usePanels>;
