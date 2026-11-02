@@ -616,6 +616,7 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save panel" }));
     await waitFor(() => expect(saveBuiltin).toHaveBeenCalled());
     expect(saveBuiltin.mock.calls[0][0]).toBe("home");
+    expect((saveBuiltin.mock.calls[0][1] as { id: string }).id).toBe("builtin-home");
     expect((saveBuiltin.mock.calls[0][1] as { rows: unknown[] }).rows).toHaveLength(3);
     const rearranged = await screen.findByRole("button", { name: "Home, rearranged" });
     fireEvent.click(rearranged);

@@ -64,7 +64,7 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
       </li>)}</ul>}
     {builtins.length > 0 && <section className="panel-group" aria-labelledby="builtin-menus-heading">
       <header className="section-header"><div><h2 id="builtin-menus-heading">Built-in menus</h2><p>Home and the menus it opens. Rearrange one, or put it back the way it was shipped.</p></div></header>
-      <ul className="panel-grid" aria-label="Built-in menus">{builtins.map((menu) => <li key={menu.kind}>
+      <ul className="panel-grid">{builtins.map((menu) => <li key={menu.kind}>
         <Button className="panel-card" onClick={(event) => openBuiltin(menu, event.currentTarget)} aria-label={`${menu.name}, ${menu.override ? "rearranged" : "as shipped"}`}>
           <PanelPicture panel={menu.override ?? menu.default} theme={theme} />
           <span className="panel-card-text"><strong>{menu.name}</strong><small>{menu.override ? "Rearranged" : "As shipped"}</small></span>

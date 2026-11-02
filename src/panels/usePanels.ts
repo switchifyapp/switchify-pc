@@ -15,7 +15,7 @@ export function usePanels() {
   const generation = useRef(0);
   const load = useCallback(() => {
     const mine = ++generation.current;
-    void api.listBuiltinPanels().then((list) => { if (mine === generation.current) setBuiltins(list); }).catch(() => undefined);
+    void api.listBuiltinPanels().then((list) => { if (mine === generation.current) setBuiltins(list); }).catch((reason) => { if (mine === generation.current) setError(String(reason)); });
     return api.listPanels().then((list) => { if (mine === generation.current) setPanels(list); }).catch((reason) => {
       if (mine !== generation.current) return;
       setError(String(reason));
