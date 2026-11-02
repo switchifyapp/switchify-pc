@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { BuiltinPanelView, CustomPanel } from "../types";
+import type { BuiltinPanelView, CustomPanel, PanelCell, PanelExtrasView } from "../types";
 
 /** The user's panels, kept current while settings sync changes them. A
  *  refresh never lands while an edit is open, which it would discard. */
 export function usePanels() {
   const [panels, setPanels] = useState<CustomPanel[] | null>(null);
   const [builtins, setBuiltins] = useState<BuiltinPanelView[]>([]);
+  const [extras, setExtras] = useState<PanelExtrasView[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const editing = useRef(false);
@@ -16,6 +17,7 @@ export function usePanels() {
   const load = useCallback(() => {
     const mine = ++generation.current;
     void api.listBuiltinPanels().then((list) => { if (mine === generation.current) setBuiltins(list); }).catch((reason) => { if (mine === generation.current) setError(String(reason)); });
+    void api.listPanelExtras().then((list) => { if (mine === generation.current) setExtras(list); }).catch((reason) => { if (mine === generation.current) setError(String(reason)); });
     return api.listPanels().then((list) => { if (mine === generation.current) setPanels(list); }).catch((reason) => {
       if (mine !== generation.current) return;
       setError(String(reason));
@@ -40,6 +42,7 @@ export function usePanels() {
   return {
     panels,
     builtins,
+    extras,
     busy,
     error,
     clearError: () => setError(null),
@@ -48,6 +51,7 @@ export function usePanels() {
     remove: (panelId: string) => run(() => api.deletePanel(panelId), setPanels),
     saveBuiltin: (kind: string, panel: CustomPanel) => run(() => api.saveBuiltinPanel(kind, panel), setBuiltins),
     resetBuiltin: (kind: string) => run(() => api.resetBuiltinPanel(kind), setBuiltins),
+    saveExtras: (target: string, rows: PanelCell[][]) => run(() => api.savePanelExtras(target, rows), setExtras),
   };
 }
 export type PanelsController = ReturnType<typeof usePanels>;

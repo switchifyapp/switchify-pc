@@ -1,4 +1,4 @@
-import type { CustomPanel, PanelAction, PanelCell } from "../types";
+import type { CustomPanel, PanelAction, PanelCell, PictureCell } from "../types";
 import type { PanelTheme } from "../scanning/preferences";
 import { lightPanels } from "../scanning/preferences";
 
@@ -18,17 +18,26 @@ export function picturePalette(theme: PanelTheme | undefined) {
 }
 
 /** A panel drawn as the scan will show it: a title band, then the rows of
- *  tiles sharing each row's width by span. Purely visual; nothing scans. */
-export function PanelPicture({ panel, theme, title = "Switchify PC", className = "" }: { panel: CustomPanel; theme?: PanelTheme; title?: string; className?: string }) {
+ *  tiles sharing each row's width by span. A native panel's own keys
+ *  (`fixed`) are drawn faintly, with the user's rows above the last of
+ *  them, where the panel scans them.
+ *  Purely visual; nothing scans. */
+export function PanelPicture({ panel, fixed, theme, title = "Switchify PC", className = "" }: { panel: CustomPanel; fixed?: PictureCell[][]; theme?: PanelTheme; title?: string; className?: string }) {
   const colours = picturePalette(theme);
   // The name says what is on the panel, row by row, since the tiles are decoration here.
-  const description = panel.rows.map((row) => row.map((cell) => cell.label.trim() || "unlabelled").join(", ")).join("; ");
+  const rows = panel.rows.map((row) => row.map((cell) => cell.label.trim() || "unlabelled").join(", ")).join("; ");
+  const description = fixed ? (rows ? `its keys, then ${rows}` : "its keys only") : rows;
+  const fixedRow = (row: PictureCell[], index: number) => <div className="panel-picture-row" key={`fixed-${index}`}>
+    {row.map((key, column) => <span key={column} className="panel-picture-tile" data-fixed="true" style={{ flexGrow: key.weight, flexBasis: 0, background: colours.utility, borderColor: colours.border }}>{key.label}</span>)}
+  </div>;
   return <div className={`panel-picture ${className}`.trim()} role="img" aria-label={`Picture of ${panel.name}: ${description}`} style={{ background: colours.panel, borderColor: colours.border, color: colours.text }}>
     <div className="panel-picture-band" style={{ background: colours.band, borderColor: colours.bandBorder }}><span>{title}</span></div>
     <div className="panel-picture-rows">
+      {fixed?.slice(0, -1).map(fixedRow)}
       {panel.rows.map((row, index) => <div className="panel-picture-row" key={index}>
         {row.map((cell, column) => <PictureTile key={column} cell={cell} colours={colours} />)}
       </div>)}
+      {fixed?.slice(-1).map((row) => fixedRow(row, fixed.length - 1))}
     </div>
   </div>;
 }

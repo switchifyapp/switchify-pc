@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AccountView, AppSettings, AppState, BuiltinPanelView, CustomPanel, PanelAction, PanelActionEntry, SwitchProfile, SyncView, UpdateProgress } from "./types";
+import type { AccountView, AppSettings, AppState, BuiltinPanelView, CustomPanel, PanelAction, PanelActionEntry, PanelCell, PanelExtrasView, SwitchProfile, SyncView, UpdateProgress } from "./types";
 
 export type ProfileExitAction = "hide" | "quit";
 export type NavigationTarget = "home" | "settings" | "profiles";
@@ -66,8 +66,28 @@ const browserBuiltinDefaults: BuiltinPanelView[] = [
   ] } },
 ];
 let browserBuiltins: BuiltinPanelView[] = structuredClone(browserBuiltinDefaults);
-/** Tests share one module; each starts with no panels and the menus as shipped. */
-export function resetBrowserPanels() { browserPanels = []; browserBuiltins = structuredClone(browserBuiltinDefaults); }
+// The mouse panel's and the keyboard's keys, enough for a plain browser to draw them.
+const browserKey = (label: string, weight = 1) => ({ label, weight });
+const browserKeys = (labels: string, weight = 1) => labels.split("").map((label) => browserKey(label, weight));
+const browserExtrasDefaults: PanelExtrasView[] = [
+  { target: "mouse", name: "Mouse panel", rows: [], fixed: [
+    ["Left click", "Right click", "Double click", "Start drag"].map((label) => browserKey(label)),
+    ["↖", "↑", "↗", "Scroll up"].map((label) => browserKey(label)),
+    ["←", "Radar", "→"].map((label) => browserKey(label)),
+    ["↙", "↓", "↘", "Scroll down"].map((label) => browserKey(label)),
+    ["Actions", "More controls", "Keyboard", "Switch to Point"].map((label) => browserKey(label)),
+  ] },
+  { target: "keyboard", name: "Keyboard", rows: [], fixed: [
+    [browserKey("⇥", 1.6), ...browserKeys("qwertyuiop"), browserKey("⌫", 1.9)],
+    [browserKey("Caps lock", 1.6), ...browserKeys("asdfghjkl'"), browserKey("↩", 1.9)],
+    [browserKey("⬆", 1.6), ...browserKeys("zxcvbnm,./")],
+    [browserKey("Ctrl", 1.6), browserKey("Alt", 1.6), browserKey("Space", 4), browserKey("Windows", 1.6)],
+    [browserKey("Close keyboard", 1.5), browserKey("Letters •", 1.3), browserKey("Navigation", 1.3), browserKey("Numbers", 1.3), browserKey("Symbols", 1.3), browserKey("Position", 1.5), browserKey("Use simple QWERTY", 1.5)],
+  ] },
+];
+let browserExtras: PanelExtrasView[] = structuredClone(browserExtrasDefaults);
+/** Tests share one module; each starts with no panels, the menus as shipped and no extra rows. */
+export function resetBrowserPanels() { browserPanels = []; browserBuiltins = structuredClone(browserBuiltinDefaults); browserExtras = structuredClone(browserExtrasDefaults); }
 
 let browserProfiles: SwitchProfile[] = [{
   id: "builtin.keyboard",
@@ -169,6 +189,15 @@ export const api = {
     if ("__TAURI_INTERNALS__" in window) return call<BuiltinPanelView[]>("reset_builtin_panel", { kind });
     browserBuiltins = browserBuiltins.map((menu) => menu.kind === kind ? { ...menu, override: null } : menu);
     return Promise.resolve(structuredClone(browserBuiltins));
+  },
+  /** The mouse panel and the keyboard with the rows added below their keys. */
+  listPanelExtras: () => "__TAURI_INTERNALS__" in window
+    ? call<PanelExtrasView[]>("list_panel_extras")
+    : Promise.resolve(structuredClone(browserExtras)),
+  savePanelExtras: (target: string, rows: PanelCell[][]) => {
+    if ("__TAURI_INTERNALS__" in window) return call<PanelExtrasView[]>("save_panel_extras", { target, rows });
+    browserExtras = browserExtras.map((view) => view.target === target ? { ...view, rows: structuredClone(rows) } : view);
+    return Promise.resolve(structuredClone(browserExtras));
   },
   onPanelsChanged: async (handler: () => void): Promise<UnlistenFn> => {
     if (!("__TAURI_INTERNALS__" in window)) return () => undefined;

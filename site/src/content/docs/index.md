@@ -13,7 +13,7 @@ It is open source under the AGPL-3.0. See [licences, trial and purchase keys](/l
 - **Open menus for the things you do every day.** Switch and close windows, copy and paste, go back and forward in the browser, play and pause media, and change volume, all from a scanning menu that opens on a press.
 - **Type.** Switchify PC has its own scanning keyboard with word prediction that runs on the computer. Nothing you type leaves it.
 - **Move the pointer step by step** from a mouse panel, or send it out across the screen with Radar.
-- **Make panels of your own.** A panel is a page of tiles that scans like Home: each tile types a phrase, presses keys, runs an action or opens another panel. Build them in the Panels section and open them from Home. Home and the built-in menus can be rearranged there too. See [Panels](/using/panels/).
+- **Make panels of your own.** A panel is a page of tiles that scans like Home: each tile types a phrase, presses keys, runs an action or opens another panel. Build them in the Panels section and open them from Home. Home and the built-in menus can be rearranged there too, and the mouse panel and keyboard can take rows of your own tiles. See [Panels](/using/panels/).
 - **Set the pace.** Automatic or manual scanning, the scan rate, how many passes before it stops, highlight colour and thickness, and panel size are all yours to change.
 
 ## Two ways to connect a switch

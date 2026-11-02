@@ -162,6 +162,18 @@ export type BuiltinPanelView = {
   override: CustomPanel | null;
 };
 
+/** One of a native panel's built-in keys, as a picture of the panel draws it. */
+export type PictureCell = { label: string; weight: number };
+
+/** The Mouse panel or the Keyboard as the Panels page shows it: its keys, and
+ *  the rows the user added below them. */
+export type PanelExtrasView = {
+  target: "mouse" | "keyboard";
+  name: string;
+  fixed: PictureCell[][];
+  rows: PanelCell[][];
+};
+
 export type AccountView = {
   available: boolean;
   signedIn: boolean;

@@ -4,6 +4,8 @@ export const maxLabelChars = 40;
 export const maxTextChars = 200;
 export const maxChordKeys = 4;
 export const maxRows = 12;
+/** Rows a native panel takes below its keys, so it stays on screen. */
+export const maxExtraRows = 4;
 export const maxTilesPerRow = 8;
 export const maxSpan = 4;
 
@@ -110,11 +112,14 @@ export function searchActions(catalogue: PanelActionEntry[], query: string) {
 }
 
 /** Problems with the whole panel, keyed by field: `name`, `rows`, or `tile-r-c`.
- *  A built-in menu (`builtinKind` set) keeps its name and must keep a way out. */
-export function panelProblems(panel: CustomPanel, panels: CustomPanel[], builtinKind?: string): Record<string, string> {
+ *  A built-in menu (`builtinKind` set) keeps its name and must keep a way out.
+ *  Extra rows below a native panel's keys (`extras`) have no name, may be
+ *  none at all, and are few. */
+export function panelProblems(panel: CustomPanel, panels: CustomPanel[], builtinKind?: string, extras = false): Record<string, string> {
   const problems: Record<string, string> = {};
   const name = panel.name.trim();
-  if (name === "") problems.name = "Give the panel a name.";
+  if (extras) { /* The panel's own name stays. */ }
+  else if (name === "") problems.name = "Give the panel a name.";
   else if (name.length > 50) problems.name = "Panel names use 50 characters or fewer.";
   else if (!builtinKind && panels.some((other) => other.id !== panel.id && other.name.trim().toLowerCase() === name.toLowerCase())) problems.name = "Panel names must be unique.";
   if (builtinKind) {
@@ -122,7 +127,8 @@ export function panelProblems(panel: CustomPanel, panels: CustomPanel[], builtin
     if (!actions.some((type) => type === "back" || type === "close")) problems.rows = "Keep a Back or Close tile so the menu can be left.";
     else if (builtinKind === "home" && !actions.includes("close")) problems.rows = "Home keeps a Close tile, which ends scanning.";
   }
-  if (panel.rows.length === 0) problems.rows = "Add at least one row.";
+  if (extras) { if (panel.rows.length > maxExtraRows) problems.rows = `A panel takes up to ${maxExtraRows} extra rows.`; }
+  else if (panel.rows.length === 0) problems.rows = "Add at least one row.";
   else if (panel.rows.length > maxRows) problems.rows = `A panel has up to ${maxRows} rows.`;
   panel.rows.forEach((row, rowIndex) => {
     if (row.length === 0) problems[`row-${rowIndex}`] = "Add a tile to this row or remove the row.";
