@@ -31,6 +31,21 @@ describe("PanelPicture", () => {
     expect(within(picture).getByText("Switchify PC")).toBeInTheDocument();
   });
 
+  it("draws a native panel's keys faintly before the rows added below them", () => {
+    const fixed = [[{ label: "q", weight: 1 }], [{ label: "Space", weight: 4 }]];
+    render(<PanelPicture panel={panel} fixed={fixed} theme="dark" />);
+    const picture = screen.getByRole("img", { name: "Picture of Greetings: its keys, then Copy, Hello; Back" });
+    const space = within(picture).getByText("Space");
+    expect(space).toHaveAttribute("data-fixed", "true");
+    expect(space).toHaveStyle({ flexGrow: 4 });
+    expect(within(picture).getByText("Hello")).not.toHaveAttribute("data-fixed");
+    // The rows sit above the last row of keys, as they do on the panel.
+    expect(within(picture).getByText("q").compareDocumentPosition(within(picture).getByText("Copy")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(picture).getByText("Back").compareDocumentPosition(space) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    render(<PanelPicture panel={{ ...panel, rows: [] }} fixed={fixed} theme="dark" />);
+    expect(screen.getByRole("img", { name: "Picture of Greetings: its keys only" })).toBeInTheDocument();
+  });
+
   it("follows the chosen panel theme, or the computer when set to system", () => {
     expect(picturePalette("dark").panel).toBe("#141820");
     expect(picturePalette("light").panel).toBe("#f0f2f6");

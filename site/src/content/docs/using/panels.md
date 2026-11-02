@@ -1,13 +1,13 @@
 ---
 title: Panels
-description: Make scanning panels of your own, rearrange Home and the built-in menus, see them drawn as they will appear, and open your panels from Home under My panels.
+description: Make scanning panels of your own, rearrange Home and the built-in menus, add tiles below the mouse panel's and the keyboard's keys, and open your panels from Home under My panels.
 ---
 
 A panel is a page of tiles that scans like the Home menu. Each tile does one thing when you choose it: presses keys, types a phrase, runs an action such as Copy or Play, opens the keyboard, the mouse panel or a built-in menu, or opens another panel of yours. The panel stays open after each action so you can choose the next one, until you choose a tile that goes **Back** or closes it.
 
 Open **Panels** in the sidebar of the Switchify PC window to see your panels. Each one is shown as a small picture of the panel, drawn the way the scan will draw it, in the light or dark panel theme you chose in Scanning settings.
 
-![The Panels page with two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath and either its description or its number of tiles, a New panel button, and below them a Built-in menus group showing Home and Editing, each marked Not changed.](../../../assets/screenshots/panels.png)
+![The Panels page with two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath and either its description or its number of tiles, a New panel button, below them a Built-in menus group showing Home and Editing, each marked Not changed, and then a Mouse panel and keyboard group.](../../../assets/screenshots/panels.png)
 
 ## Make a panel
 
@@ -58,6 +58,18 @@ The Shut down and Restart pages, and the pages that appear after you choose a po
 ![The editor open on the built-in Home menu: four rows of tiles, a Reset to default button beside Save panel, and no name field.](../../../assets/screenshots/builtin-menu-editor.png)
 
 Rearranged menus are saved on this computer and, if you sign in to your account, go to your other computers with your settings.
+
+## Add tiles below the mouse panel's and the keyboard's keys
+
+Below the built-in menus, **Mouse panel and keyboard** shows the two scanning panels with their keys. The keys cannot be changed, but you can add rows of your own tiles below them: a phrase you type often, a shortcut, or a link to one of your panels. Choose a panel, then **Add row**, and give each tile a label and an action as on any panel. Up to four rows fit. Choose **Save panel**; the card then says how many rows you added.
+
+The rows appear on the mouse panel's Movement page and on every keyboard page, just above the bottom row, and scan like the rest. A tile acts as it does on your panels. On the keyboard, a tile that types waits for the text to land before scanning on, like a key. **Back** and **Close** leave the panel as its own Close key does. A tile that opens a menu or one of your panels from the mouse panel comes back to it with Back; from the keyboard, Back goes to Home.
+
+**Remove rows** takes the panel back to its keys alone. Switchify PC asks first.
+
+![The editor open on the Keyboard: its keys drawn faintly, a row of two added tiles, Hello and My panels, and a Remove rows button beside Save panel.](../../../assets/screenshots/panel-extras-editor.png)
+
+Added rows are saved on this computer and, if you sign in to your account, go to your other computers with your settings.
 
 ## Open a panel
 

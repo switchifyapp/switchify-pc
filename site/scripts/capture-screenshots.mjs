@@ -15,7 +15,7 @@ const chrome = process.env.CHROME_PATH ?? {
 }[process.platform] ?? "/usr/bin/google-chrome";
 // Only the screenshots the docs use are written.
 const keep = new Set(process.env.ONLY ? process.env.ONLY.split(",") : ["setup-input-access-macos", "setup-add-switch-saved", "setup-start-with-system", "home",
-  "add-switch-waiting", "add-switch-learned", "switch-editor", "pairing-request", "panels", "panel-editor", "builtin-menu-editor"]);
+  "add-switch-waiting", "add-switch-learned", "switch-editor", "pairing-request", "panels", "panel-editor", "builtin-menu-editor", "panel-extras-editor"]);
 fs.mkdirSync(outDir, { recursive: true });
 
 const bridge = (platform) => {
@@ -79,6 +79,25 @@ const bridge = (platform) => {
       [tile("Back", { type: "back" }), tile("Close menu", { type: "close" })],
     ] } },
   ];
+  // The mouse panel and the keyboard, the keyboard with a row added below its keys.
+  const key = (label, weight = 1) => ({ label, weight });
+  const keys = (labels, weight = 1) => labels.split("").map((label) => key(label, weight));
+  const extras = [
+    { target: "mouse", name: "Mouse panel", rows: [], fixed: [
+      ["Left click", "Right click", "Double click", "Start drag"].map((label) => key(label)),
+      ["↖", "↑", "↗", "Scroll up"].map((label) => key(label)),
+      ["←", "Radar", "→"].map((label) => key(label)),
+      ["↙", "↓", "↘", "Scroll down"].map((label) => key(label)),
+      ["Actions", "More controls", "Keyboard", "Switch to Point"].map((label) => key(label)),
+    ] },
+    { target: "keyboard", name: "Keyboard", rows: [[tile("Hello", { type: "text", text: "Hello, how are you?" }, 2), tile("My panels", { type: "myPanels" })]], fixed: [
+      [key("⇥", 1.6), ...keys("qwertyuiop"), key("⌫", 1.9)],
+      [key("Caps lock", 1.6), ...keys("asdfghjkl'"), key("↩", 1.9)],
+      [key("⬆", 1.6), ...keys("zxcvbnm,./")],
+      [key("Ctrl", 1.6), key("Alt", 1.6), key("Space", 4), key("Windows", 1.6)],
+      [key("Close keyboard", 1.5), key("Letters •", 1.3), key("Navigation", 1.3), key("Numbers", 1.3), key("Symbols", 1.3), key("Position", 1.5), key("Use simple QWERTY", 1.5)],
+    ] },
+  ];
   const entry = (id, name, category, categoryLabel, action, keywords = [], parameter) => ({ id, name, category, categoryLabel, keywords, action, needsPoint: false, ...(parameter ? { parameter } : {}) });
   const actions = [
     entry("key", "Press keys", "typing", "Typing", { type: "key", keys: [] }, ["shortcut"], { kind: "keys", min: 1, max: 4 }),
@@ -138,6 +157,7 @@ const bridge = (platform) => {
         case "list_switch_profiles": return [];
         case "list_custom_panels": return clone(panels);
         case "list_builtin_panels": case "save_builtin_panel": case "reset_builtin_panel": return clone(builtins);
+        case "list_panel_extras": case "save_panel_extras": return clone(extras);
         case "save_custom_panel": return clone(panels);
         case "get_panel_actions": return clone(actions);
         case "check_panel_action": return "";
@@ -247,7 +267,7 @@ for (const platform of ["windows", "macos"]) {
 {
   const page = await open("windows", { height: 900 });
   await click(page, "Panels");
-  await page.waitForSelector('#builtin-menus-heading');
+  await page.waitForSelector('#panel-extras-heading');
   await shot(page, "panels", "main");
   await page.setViewport({ width: 1280, height: 1150, deviceScaleFactor: 2 });
   await click(page, "Greetings, 8 tiles");
@@ -260,6 +280,13 @@ for (const platform of ["windows", "macos"]) {
   await click(page, "Panels");
   await click(page, "Home, not changed");
   await shot(page, "builtin-menu-editor", "main");
+  await page.close();
+}
+{
+  const page = await open("windows", { width: 1280, height: 1100 });
+  await click(page, "Panels");
+  await click(page, "Keyboard, 1 extra row");
+  await shot(page, "panel-extras-editor", "main");
   await page.close();
 }
 

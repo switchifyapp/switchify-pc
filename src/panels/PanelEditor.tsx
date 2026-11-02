@@ -3,9 +3,9 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronLeft, Plus, RotateCcw
 import { Button, Input, Select } from "../ui/controls";
 import { api } from "../api";
 import { PanelPicture, toolbarAction } from "./PanelPicture";
-import { actionProblem, chordFromEvent, defaultLabel, describeAction, friendlyKey, maxLabelChars, maxRows, maxSpan, maxTextChars, maxTilesPerRow, panelProblems, sameAction, searchActions } from "./actions";
+import { actionProblem, chordFromEvent, defaultLabel, describeAction, friendlyKey, maxExtraRows, maxLabelChars, maxRows, maxSpan, maxTextChars, maxTilesPerRow, panelProblems, sameAction, searchActions } from "./actions";
 import type { PanelTheme } from "../scanning/preferences";
-import type { CustomPanel, PanelAction, PanelActionEntry, PanelCell } from "../types";
+import type { CustomPanel, PanelAction, PanelActionEntry, PanelCell, PictureCell } from "../types";
 
 export const maxPanelNameChars = 50;
 export const maxPanelDescriptionChars = 200;
@@ -18,9 +18,12 @@ const blankTile = (): PanelCell => ({ label: "Back", action: { type: "back" }, s
  *  Nothing is saved until Save panel; leaving with changes asks first. */
 /** A built-in menu being rearranged: its name stays, and Reset replaces Delete. */
 export type BuiltinEditing = { kind: string; rearranged: boolean };
+/** The rows below a native panel's keys being edited: the keys are shown
+ *  but fixed, the rows may be none, and Remove rows replaces Delete. */
+export type ExtrasEditing = { target: string; fixed: PictureCell[][]; hasRows: boolean };
 
-export function PanelEditor({ panel, panels, theme, busy, error, builtin, onClose, onSave, onDelete, onDirtyChange, onClearError }: {
-  panel: CustomPanel; panels: CustomPanel[]; theme?: PanelTheme; busy: boolean; error: string | null; builtin?: BuiltinEditing;
+export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras, onClose, onSave, onDelete, onDirtyChange, onClearError }: {
+  panel: CustomPanel; panels: CustomPanel[]; theme?: PanelTheme; busy: boolean; error: string | null; builtin?: BuiltinEditing; extras?: ExtrasEditing;
   onClose: () => void; onSave: (panel: CustomPanel) => Promise<void>; onDelete: () => Promise<void>; onDirtyChange: (dirty: boolean) => void; onClearError?: () => void;
 }) {
   const [draft, setDraft] = useState(panel);
@@ -37,8 +40,9 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, onClos
   const addRowRef = useRef<HTMLButtonElement>(null);
   const ids = useId();
   const dirty = JSON.stringify(draft) !== JSON.stringify(panel);
-  const problems = panelProblems(draft, panels, builtin?.kind);
+  const problems = panelProblems(draft, panels, builtin?.kind, extras !== undefined);
   const canSave = dirty && Object.keys(problems).length === 0;
+  const rowLimit = extras ? maxExtraRows : maxRows;
 
   useEffect(() => { onDirtyChange(dirty); return () => onDirtyChange(false); }, [dirty, onDirtyChange]);
   useEffect(() => { void api.panelActions().then(setCatalogue).catch(() => setCatalogue([])); }, []);
@@ -57,7 +61,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, onClos
     choose({ row: rowIndex, cell: draft.rows[rowIndex].length });
   };
   const addRow = () => {
-    if (draft.rows.length >= maxRows) return;
+    if (draft.rows.length >= rowLimit) return;
     updateRows([...draft.rows, [blankTile()]]);
     choose({ row: draft.rows.length, cell: 0 });
   };
@@ -108,28 +112,31 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, onClos
 
   return <div className="view panel-editor">
     {confirmation && <div className="modal-backdrop"><section className="profile-dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={`${ids}-confirm`} tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); keepEditing(); } }}>
-      <header><div><h2 id={`${ids}-confirm`}>{confirmation === "delete" ? (builtin ? `Reset ${panel.name} to default?` : `Delete ${panel.name}?`) : "Discard unsaved changes?"}</h2><p>{confirmation === "delete" ? (builtin ? "The menu goes back to the way it came." : "Tiles on other panels that open it will say it no longer exists.") : "Your changes to this panel have not been saved."}</p></div></header>
+      <header><div><h2 id={`${ids}-confirm`}>{confirmation === "delete" ? (extras ? `Remove the rows below ${panel.name}?` : builtin ? `Reset ${panel.name} to default?` : `Delete ${panel.name}?`) : "Discard unsaved changes?"}</h2><p>{confirmation === "delete" ? (extras ? "The panel goes back to its keys alone." : builtin ? "The menu goes back to the way it came." : "Tiles on other panels that open it will say it no longer exists.") : "Your changes to this panel have not been saved."}</p></div></header>
       {error && <div className="dialog-error" role="alert">{error}</div>}
-      <footer><span /><Button ref={confirmRef} className="secondary" onClick={keepEditing}>Keep editing</Button><Button className="primary danger" disabled={busy} onClick={() => { if (confirmation === "delete") void onDelete(); else onClose(); }}>{confirmation === "delete" ? (builtin ? "Reset to default" : "Delete panel") : "Discard changes"}</Button></footer>
+      <footer><span /><Button ref={confirmRef} className="secondary" onClick={keepEditing}>Keep editing</Button><Button className="primary danger" disabled={busy} onClick={() => { if (confirmation === "delete") void onDelete(); else onClose(); }}>{confirmation === "delete" ? (extras ? "Remove rows" : builtin ? "Reset to default" : "Delete panel") : "Discard changes"}</Button></footer>
     </section></div>}
     <div inert={confirmation !== null || undefined}>
-      <header className="page-header"><div><Button ref={backRef} className="text-button panel-back" onClick={requestClose}><ChevronLeft size={18} aria-hidden="true" />All panels</Button><h1>{panel.name}</h1><p>{builtin ? (builtin.kind === "home" ? "Rearrange Home. Keep a Close tile, which ends scanning." : "Rearrange this built-in menu. Keep a Back or Close tile so it can be left.") : "Choose a tile to change what it says and does. Rows share their width between their tiles."}</p></div>
-        <div className="panel-header-actions">{builtin
+      <header className="page-header"><div><Button ref={backRef} className="text-button panel-back" onClick={requestClose}><ChevronLeft size={18} aria-hidden="true" />All panels</Button><h1>{panel.name}</h1><p>{extras ? "Add rows of your own below the keys. The keys stay as they are; your rows scan after them." : builtin ? (builtin.kind === "home" ? "Rearrange Home. Keep a Close tile, which ends scanning." : "Rearrange this built-in menu. Keep a Back or Close tile so it can be left.") : "Choose a tile to change what it says and does. Rows share their width between their tiles."}</p></div>
+        <div className="panel-header-actions">{extras
+          ? <Button ref={deleteRef} className="secondary danger" disabled={busy || !extras.hasRows} title={extras.hasRows ? undefined : "No rows added yet"} onClick={requestDelete}><Trash2 size={16} aria-hidden="true" />Remove rows</Button>
+          : builtin
           ? <Button ref={deleteRef} className="secondary" disabled={busy || !builtin.rearranged} title={builtin.rearranged ? undefined : "Not changed yet"} onClick={requestDelete}><RotateCcw size={16} aria-hidden="true" />Reset to default</Button>
           : <Button ref={deleteRef} className="secondary danger" disabled={busy} onClick={requestDelete}><Trash2 size={16} aria-hidden="true" />Delete panel</Button>}<Button className="primary" disabled={busy || !canSave} onClick={save}><Save size={16} aria-hidden="true" />Save panel</Button></div></header>
       {error && !confirmation && <p className="dialog-error" role="alert">{error}</p>}
       <div className="panel-editor-layout">
         <div className="panel-editor-main">
           <form className="panel-fields" onSubmit={(event) => { event.preventDefault(); save(); }}>
-            {!builtin && <>
+            {!builtin && !extras && <>
               <label className="field"><span>Panel name</span><Input value={draft.name} maxLength={maxPanelNameChars} aria-invalid={problems.name ? true : undefined} aria-describedby={problems.name ? `${ids}-name-error` : undefined} onChange={(event) => update({ ...draft, name: event.target.value })} /></label>
               {problems.name && <p id={`${ids}-name-error`} className="field-error">{problems.name}</p>}
               <label className="field"><span>Description</span><Input value={draft.description} maxLength={maxPanelDescriptionChars} placeholder="What this panel is for" onChange={(event) => update({ ...draft, description: event.target.value })} /></label>
             </>}
           </form>
-          <section className="panel-grid-editor" aria-label="Tiles">
-            <h2>Tiles</h2>
+          <section className="panel-grid-editor" aria-label={extras ? "Your rows" : "Tiles"}>
+            <h2>{extras ? "Your rows" : "Tiles"}</h2>
             {problems.rows && <p className="field-error">{problems.rows}</p>}
+            {extras && draft.rows.length === 0 && <p className="capability-note">No rows yet. Add a row, then give its tiles labels and actions.</p>}
             {draft.rows.map((row, rowIndex) => <div className="panel-editor-row" key={rowIndex} data-selected-row={selected?.row === rowIndex || undefined}>
               <div className="panel-editor-tiles" role="group" aria-label={`Row ${rowIndex + 1}`}>
                 {row.map((cell, cellIndex) => {
@@ -146,9 +153,9 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, onClos
               </div>
               {problems[`row-${rowIndex}`] && <p className="field-error">{problems[`row-${rowIndex}`]}</p>}
             </div>)}
-            <Button ref={addRowRef} className="secondary" disabled={draft.rows.length >= maxRows} onClick={addRow}><Plus size={16} aria-hidden="true" />Add row</Button>
+            <Button ref={addRowRef} className="secondary" disabled={draft.rows.length >= rowLimit} onClick={addRow}><Plus size={16} aria-hidden="true" />Add row</Button>
           </section>
-          <section className="panel-editor-picture" aria-label="Picture"><h2>As it will scan</h2><PanelPicture panel={draft} theme={theme} className="panel-picture-large" /></section>
+          <section className="panel-editor-picture" aria-label="Picture"><h2>As it will scan</h2><PanelPicture panel={draft} fixed={extras?.fixed} theme={theme} className="panel-picture-large" /></section>
         </div>
         <aside className="panel-inspector" aria-label="Selected tile">
           {selected && current

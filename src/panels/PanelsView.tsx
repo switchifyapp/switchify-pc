@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { LayoutGrid, Plus } from "lucide-react";
 import { Button } from "../ui/controls";
 import { PanelPicture } from "./PanelPicture";
-import { PanelEditor, type BuiltinEditing } from "./PanelEditor";
+import { PanelEditor, type BuiltinEditing, type ExtrasEditing } from "./PanelEditor";
 import type { PanelsController } from "./usePanels";
 import type { PanelTheme } from "../scanning/preferences";
-import type { BuiltinPanelView, CustomPanel } from "../types";
+import type { BuiltinPanelView, CustomPanel, PanelExtrasView } from "../types";
 
 /** A first panel to build on: the two panels people open most, then Back and Close. */
 export function starterPanel(existing: CustomPanel[]): CustomPanel {
@@ -28,19 +28,32 @@ export function tileCount(panel: CustomPanel) {
   return panel.rows.reduce((count, row) => count + row.length, 0);
 }
 
+/** What a native panel's card says about the rows below its keys. */
+export function extrasSummary(view: PanelExtrasView) {
+  return view.rows.length === 0 ? "keys only" : view.rows.length === 1 ? "1 extra row" : `${view.rows.length} extra rows`;
+}
+
+/** The rows below a native panel's keys, in the shape the editor edits. */
+function extrasPanel(view: PanelExtrasView): CustomPanel {
+  return { id: `extras-${view.target}`, version: 1, name: view.name, description: "", rows: view.rows };
+}
+
 export function PanelsView({ controller, theme, onDirtyChange }: { controller: PanelsController; theme?: PanelTheme; onDirtyChange: (dirty: boolean) => void }) {
-  const { panels, builtins, busy, error, clearError, save, remove, saveBuiltin, resetBuiltin, setEditing } = controller;
+  const { panels, builtins, extras, busy, error, clearError, save, remove, saveBuiltin, resetBuiltin, saveExtras, setEditing } = controller;
   const [open, setOpen] = useState<CustomPanel | null>(null);
   const [builtin, setBuiltin] = useState<BuiltinEditing | null>(null);
+  const [extra, setExtra] = useState<ExtrasEditing | null>(null);
   const openerRef = useRef<HTMLButtonElement | null>(null);
   // Leaving the page by any route lets sync refresh the list again.
   useEffect(() => () => setEditing(false), [setEditing]);
-  const openPanel = (panel: CustomPanel, opener: HTMLButtonElement | null) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin(null); setOpen(panel); };
-  const openBuiltin = (menu: BuiltinPanelView, opener: HTMLButtonElement) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin({ kind: menu.kind, rearranged: menu.override !== null }); setOpen(menu.override ?? menu.default); };
+  const openPanel = (panel: CustomPanel, opener: HTMLButtonElement | null) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin(null); setExtra(null); setOpen(panel); };
+  const openBuiltin = (menu: BuiltinPanelView, opener: HTMLButtonElement) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin({ kind: menu.kind, rearranged: menu.override !== null }); setExtra(null); setOpen(menu.override ?? menu.default); };
+  const openExtras = (view: PanelExtrasView, opener: HTMLButtonElement) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin(null); setExtra({ target: view.target, fixed: view.fixed, hasRows: view.rows.length > 0 }); setOpen(extrasPanel(view)); };
   const closePanel = () => {
     setEditing(false);
     setOpen(null);
     setBuiltin(null);
+    setExtra(null);
     requestAnimationFrame(() => (openerRef.current?.isConnected ? openerRef.current : document.querySelector<HTMLButtonElement>(".page-header button"))?.focus());
   };
   const create = async () => {
@@ -49,6 +62,7 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
     if (saved === null) return;
     openPanel(saved, null);
   };
+  if (open && extra) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} extras={extra} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveExtras(extra.target, panel.rows).then(closePanel, () => undefined)} onDelete={() => saveExtras(extra.target, []).then(closePanel, () => undefined)} />;
   if (open && builtin) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} builtin={builtin} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveBuiltin(builtin.kind, panel).then(closePanel, () => undefined)} onDelete={() => resetBuiltin(builtin.kind).then(closePanel, () => undefined)} />;
   if (open) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => save(panel).then(closePanel, () => undefined)} onDelete={() => remove(open.id).then(closePanel, () => undefined)} />;
   return <div className="view">
@@ -68,6 +82,15 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
         <Button className="panel-card" onClick={(event) => openBuiltin(menu, event.currentTarget)} aria-label={`${menu.name}, ${menu.override ? "rearranged" : "not changed"}`}>
           <PanelPicture panel={menu.override ?? menu.default} theme={theme} />
           <span className="panel-card-text"><strong>{menu.name}</strong><small>{menu.override ? "Rearranged" : "Not changed"}</small></span>
+        </Button>
+      </li>)}</ul>
+    </section>}
+    {extras.length > 0 && <section className="panel-group" aria-labelledby="panel-extras-heading">
+      <header className="section-header"><div><h2 id="panel-extras-heading">Mouse panel and keyboard</h2><p>Their keys stay as they are. Add rows of your own tiles below them.</p></div></header>
+      <ul className="panel-grid">{extras.map((view) => <li key={view.target}>
+        <Button className="panel-card" onClick={(event) => openExtras(view, event.currentTarget)} aria-label={`${view.name}, ${extrasSummary(view)}`}>
+          <PanelPicture panel={extrasPanel(view)} fixed={view.fixed} theme={theme} />
+          <span className="panel-card-text"><strong>{view.name}</strong><small>{extrasSummary(view).replace(/^keys/, "Keys")}</small></span>
         </Button>
       </li>)}</ul>
     </section>}
