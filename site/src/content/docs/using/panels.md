@@ -7,7 +7,7 @@ A panel is a page of tiles that scans like the Home menu. Each tile does one thi
 
 Open **Panels** in the sidebar of the Switchify PC window to see your panels. Each one is shown as a small picture of the panel, drawn the way the scan will draw it, in the light or dark panel theme you chose in Scanning settings.
 
-![The Panels page with two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name and description underneath, and a New panel button.](../../../assets/screenshots/panels.png)
+![The Panels page with two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath and either its description or its number of tiles, and a New panel button.](../../../assets/screenshots/panels.png)
 
 ## Make a panel
 
