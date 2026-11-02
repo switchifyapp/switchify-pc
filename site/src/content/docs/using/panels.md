@@ -35,7 +35,7 @@ The picture under the rows shows the panel as it will scan.
 - **Mouse**: left, double and right click, or scroll, where the pointer is. Modified clicks such as Shift-click act there too.
 - **Panels and menus**: open the keyboard, the mouse panel, point scanning, the Switchify window, a built-in menu such as Editing, or another panel of yours; Back; Close.
 - **Scanning**: pause, reverse direction, faster or slower scanning, point scanning mode, keyboard layout, next or previous display.
-- **Power**: shut down or restart the computer, which the computer confirms in the usual way.
+- **Power**: shut down or restart the computer. A power tile acts as soon as it is chosen, so give it a row of its own or put it behind a link; open apps may still ask you to save.
 
 Actions act on the window in front, as Home does. A tile that opens a panel you have since deleted says so when chosen.
 

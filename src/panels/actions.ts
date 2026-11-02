@@ -24,10 +24,13 @@ export function friendlyKey(key: string) {
   return friendlyKeys[key] ?? key;
 }
 
-/** A chord from a keydown: the modifiers held, then the key, each once. */
-export function chordFromEvent(event: { key: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean }): string[] | null {
-  const pressed = canonicalKey(event.key);
-  if (!pressed) return null;
+/** A chord from a keydown: the modifiers held, then the key. A modifier on
+ *  its own is not a chord yet (the key is still to come), so it is null. The
+ *  physical key code stands in when Shift turned a digit into a symbol. */
+export function chordFromEvent(event: { key: string; code?: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean }): string[] | null {
+  const fromCode = event.code?.match(/^(?:Key([A-Z])|Digit([0-9]))$/);
+  const pressed = canonicalKey(event.key) ?? (fromCode ? (fromCode[1] ?? fromCode[2]) : null);
+  if (!pressed || modifierKeys.includes(pressed)) return null;
   const modifiers = [event.ctrlKey && "Ctrl", event.altKey && "Alt", event.shiftKey && "Shift", event.metaKey && "Meta"].filter((key): key is string => Boolean(key));
   return [...new Set([...modifiers, pressed])].slice(0, maxChordKeys);
 }
@@ -66,6 +69,11 @@ export function defaultLabel(action: PanelAction, catalogue: PanelActionEntry[],
       return entry ? entry.name.replace(/^Open /, "").replace(/ menu$/, "") : "Menu";
     }
     case "close": return "Close";
+    case "setting": {
+      if (typeof action.setting === "object") return { qwerty: "QWERTY", simpleQwerty: "Simple QWERTY", commonLetters: "Common letters" }[action.setting.keyboardLayout];
+      const entry = catalogue.find((candidate) => sameAction(candidate.action, action));
+      return entry?.name ?? "Setting";
+    }
     default: {
       const entry = catalogue.find((candidate) => sameAction(candidate.action, action));
       return entry?.name ?? action.type;

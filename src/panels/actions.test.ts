@@ -18,7 +18,9 @@ describe("panel action helpers", () => {
     expect(canonicalKey("é")).toBeNull();
     expect(canonicalKey("=")).toBeNull();
     expect(chordFromEvent({ key: "s", ctrlKey: true, altKey: false, shiftKey: false, metaKey: false })).toEqual(["Ctrl", "S"]);
-    expect(chordFromEvent({ key: "Control", ctrlKey: true, altKey: false, shiftKey: false, metaKey: false })).toEqual(["Ctrl"]);
+    expect(chordFromEvent({ key: "Control", ctrlKey: true, altKey: false, shiftKey: false, metaKey: false })).toBeNull();
+    expect(chordFromEvent({ key: "!", code: "Digit1", ctrlKey: false, altKey: false, shiftKey: true, metaKey: false })).toEqual(["Shift", "1"]);
+    expect(chordFromEvent({ key: "Tab", ctrlKey: false, altKey: false, shiftKey: false, metaKey: false })).toEqual(["Tab"]);
   });
 
   it("reports what stops an action from being saved", () => {
@@ -43,6 +45,7 @@ describe("panel action helpers", () => {
     expect(defaultLabel({ type: "openCustomPanel", id: "b" }, catalogue, panels)).toBe("Board");
     expect(defaultLabel({ type: "openPanel", panel: "keyboard" }, catalogue, panels)).toBe("Keyboard");
     expect(defaultLabel({ type: "close" }, catalogue, panels)).toBe("Close");
+    expect(defaultLabel({ type: "setting", setting: { keyboardLayout: "simpleQwerty" } }, catalogue, panels)).toBe("Simple QWERTY");
     const menus: PanelActionEntry[] = [{ id: "menu.editing", name: "Open Editing menu", category: "panels", categoryLabel: "Panels and menus", keywords: [], action: { type: "openPanel", panel: { menu: "editing" } }, needsPoint: false }];
     expect(defaultLabel({ type: "openPanel", panel: { menu: "editing" } }, menus, panels)).toBe("Editing");
     expect(describeAction({ type: "key", keys: ["Ctrl", "ArrowUp"] }, catalogue, panels)).toBe("Press Ctrl + Up Arrow");
