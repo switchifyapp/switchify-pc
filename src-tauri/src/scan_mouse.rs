@@ -111,9 +111,6 @@ impl MousePanel {
                 .fold(1.0, f64::max)
         })
     }
-    /// The blank that keeps a row's keys to the keys' width once columns
-    /// follow them, so every column lines up. A row a column added below
-    /// the panel is blank across the whole width of the keys.
     /// The columns drawn on the current page: only the Movement page has them.
     fn drawn_columns(&self) -> usize {
         if self.more || self.positioning {
@@ -122,6 +119,9 @@ impl MousePanel {
             self.extras.columns.len()
         }
     }
+    /// The blank that keeps a row's keys to the keys' width once columns
+    /// follow them, so every column lines up. A row a column added below
+    /// the panel is blank across the whole width of the keys.
     fn row_filler(&self, row: &[Key]) -> Option<PanelKey> {
         if self.drawn_columns() == 0 {
             return None;
