@@ -950,6 +950,19 @@ impl Workflow {
         use crate::scan_mouse::Key;
         if let Key::Extra(row, column) = key {
             let action = self.mouse.extra(row, column)?.action.clone();
+            // A page opened over a held drag could never end it.
+            let opens_page = matches!(
+                action,
+                PanelAction::OpenPanel {
+                    panel: BuiltInPanel::Menu(_)
+                } | PanelAction::OpenCustomPanel { .. }
+                    | PanelAction::MyPanels
+            );
+            if opens_page && self.mouse.dragging {
+                self.mouse
+                    .block_actions("End drag before leaving the panel");
+                return None;
+            }
             self.mouse.choose(key);
             return self.extra_action(action, ExtraTarget::Mouse);
         }
@@ -1105,6 +1118,12 @@ impl Workflow {
             }
             PanelAction::Display { next } => Some(Request::Display(next)),
             PanelAction::OpenPanel { panel } => match panel {
+                // The keyboard is already open; reopening it would forget
+                // where it returns to.
+                BuiltInPanel::Keyboard if origin == ExtraTarget::Keyboard => {
+                    self.keyboard.cancel_activation();
+                    None
+                }
                 BuiltInPanel::Keyboard => self.selected(Item::Keyboard),
                 BuiltInPanel::Mouse => self.open_mouse(true),
                 BuiltInPanel::Point => self.open_point(),
@@ -1249,6 +1268,7 @@ impl Workflow {
                 // Nothing to wait for: the keyboard scans on.
                 if request.is_none() && self.stage == Stage::Keyboard {
                     self.keyboard.cancel_activation();
+                    self.error = None;
                 }
                 request
             }
@@ -4097,6 +4117,19 @@ mod tests {
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
         // A tile that is gone from the row does nothing.
         assert_eq!(workflow.choose_mouse_key(Key::Extra(3, 0)), None);
+        // A held drag is ended before a page can open over it.
+        assert_eq!(
+            workflow.choose_mouse_key(Key::Drag),
+            Some(Request::MouseDrag)
+        );
+        assert_eq!(workflow.choose_mouse_key(Key::Extra(0, 1)), None);
+        assert!(workflow.mouse.dragging && workflow.mouse_open());
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert_eq!(
+            workflow.choose_mouse_key(Key::Drag),
+            Some(Request::MouseDrag)
+        );
+        assert!(!workflow.mouse.dragging);
         // Close switches to Point, as the panel's own key does.
         workflow.set_panel_extras(std::collections::BTreeMap::from([(
             ExtraTarget::Mouse,
@@ -4177,6 +4210,24 @@ mod tests {
                     "Gone",
                     PanelAction::OpenCustomPanel {
                         id: "greetings".into(),
+                    },
+                    1,
+                ),
+                extra("Done", PanelAction::Close, 1),
+            ]],
+        )]));
+        workflow.open_home();
+        workflow.selected(Item::Keyboard);
+        workflow.execution_succeeded();
+        assert_eq!(workflow.choose_key(Key::Extra(0, 0)), None);
+        // So does a tile that opens the keyboard from the keyboard.
+        workflow.set_panel_extras(std::collections::BTreeMap::from([(
+            ExtraTarget::Keyboard,
+            vec![vec![
+                extra(
+                    "Keys",
+                    PanelAction::OpenPanel {
+                        panel: BuiltInPanel::Keyboard,
                     },
                     1,
                 ),
