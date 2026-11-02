@@ -246,6 +246,7 @@ pub fn save(app: &AppHandle, panel: CustomPanel) -> Result<Vec<CustomPanel>, Str
     write(app, &next)?;
     *panels = next;
     drop(panels);
+    crate::scanning_runtime::refresh_custom_panels(app);
     let _ = app.emit(EVENT, ());
     Ok(list(app))
 }
@@ -264,6 +265,7 @@ pub fn delete(app: &AppHandle, id: &str) -> Result<Vec<CustomPanel>, String> {
     write(app, &next)?;
     *panels = next;
     drop(panels);
+    crate::scanning_runtime::refresh_custom_panels(app);
     let _ = app.emit(EVENT, ());
     Ok(list(app))
 }
@@ -276,6 +278,8 @@ pub fn replace(app: &AppHandle, panels: Vec<CustomPanel>) -> Result<(), String> 
     let mut current = controller.panels.lock().unwrap_or_else(|p| p.into_inner());
     write(app, &panels)?;
     *current = panels;
+    drop(current);
+    crate::scanning_runtime::refresh_custom_panels(app);
     Ok(())
 }
 
