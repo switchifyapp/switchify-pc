@@ -29,7 +29,7 @@ If something stops the panel saving, such as a tile with no label or a link to a
 
 ## Try a panel
 
-**Try it** opens the panel in the scanner straight away, as it would open from Home, so you can see and use it without leaving the editor. The Switchify PC window goes out of the way first, because the tiles act on whatever window is in front. Save first: Try it uses the panel as it was last saved, so it is off while there are unsaved changes. Choose the panel's **Switchify** tile, or Switchify PC on the taskbar, to come back to the editor. Built-in menus, the mouse panel and the keyboard can be tried the same way.
+**Try it** opens the panel in the scanner straight away, as it would open from Home, so you can see and use it without leaving the editor. The Switchify PC window goes out of the way first, because the tiles act on whatever window is in front. Save first: Try it uses the panel as it was last saved, so it is off while there are unsaved changes. To come back to the editor, choose **Switchify** on Home (Back takes you there from a panel), or Switchify PC on the taskbar or in the Dock. Built-in menus, the mouse panel and the keyboard can be tried the same way.
 
 ![The editor for the Greetings panel: the panel drawn as it will scan, with tools beside each row and the Hello tile chosen, and on the right its label, width, row, action "Type Hello, how are you?" and the searchable list of actions.](../../../assets/screenshots/panel-editor.png)
 

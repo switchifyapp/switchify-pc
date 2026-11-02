@@ -178,6 +178,9 @@ impl PendingNavigation {
 }
 
 pub(crate) fn show_main_window(app: &AppHandle, destination: Option<&str>) {
+    // Trying a panel hides the app on macOS; the Switchify tile brings it back.
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -995,6 +998,14 @@ async fn try_panel(
     })
     .map_err(|e| e.to_string())?;
     rx.await.map_err(|e| e.to_string())??;
+    // Minimising hands the foreground to the next window on Windows; on
+    // macOS only hiding the app brings the previous app forward.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = window;
+        app.hide().map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
     window.minimize().map_err(|e| e.to_string())
 }
 

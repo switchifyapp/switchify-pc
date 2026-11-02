@@ -1388,28 +1388,53 @@ pub fn try_panel(
     let request = session.begin_with(|workflow| workflow.open_for_trial(&target))?;
     d.engine = Some(session);
     d.display = Some(display);
-    PointScan::prepare(app)?;
-    let Data {
-        display, engine, ..
-    } = &mut *d;
-    if !PointScan::settle_environment(
-        app,
-        display.as_mut(),
-        engine.as_mut().map(|e| &mut e.technique),
-    )? {
-        return Ok(());
+    // From here the engine is in place, so a failure resets the scanner as
+    // a switch action's failure would, rather than leaving it half started.
+    let result = (|| -> Result<(), String> {
+        PointScan::prepare(app)?;
+        let Data {
+            display, engine, ..
+        } = &mut *d;
+        if !PointScan::settle_environment(
+            app,
+            display.as_mut(),
+            engine.as_mut().map(|e| &mut e.technique),
+        )? {
+            return Ok(());
+        }
+        PointScan::validate_environment(app, d.display.as_ref())?;
+        // Opening the mouse panel is a change of mode, kept as a preference.
+        if let Some(mode) = d.engine.as_ref().map(|e| &e.technique) {
+            let mut config = d.config.clone();
+            if PointScan::sync_mode(&mut config, mode) {
+                if config_path::<PointScan>(app)
+                    .and_then(|path| write_config(&path, &config))
+                    .is_err()
+                {
+                    eprintln!("Switchify could not save the scanning mode.");
+                }
+                d.config = config;
+            }
+        }
+        let input_generation = d.input_generation;
+        d.last_tick = Instant::now();
+        let display = d.display.clone();
+        drop(d);
+        if let Some(request) = request {
+            dispatch::<PointScan>(app, request, display.as_ref(), input_generation, false)?;
+        }
+        render::<PointScan>(app, None)
+    })();
+    match result {
+        Ok(()) => {
+            publish::<PointScan>(app);
+            Ok(())
+        }
+        Err(error) => {
+            disable::<PointScan>(app, &error);
+            Err(error)
+        }
     }
-    PointScan::validate_environment(app, d.display.as_ref())?;
-    let input_generation = d.input_generation;
-    d.last_tick = Instant::now();
-    let display = d.display.clone();
-    drop(d);
-    if let Some(request) = request {
-        dispatch::<PointScan>(app, request, display.as_ref(), input_generation, false)?;
-    }
-    render::<PointScan>(app, None)?;
-    publish::<PointScan>(app);
-    Ok(())
 }
 /// A point scan already under way, whatever Select would open.
 fn point_session(
