@@ -722,7 +722,7 @@ describe("Switchify PC shell", () => {
     expect(screen.getByRole("heading", { name: "Row 2, tile 1" })).toBeInTheDocument();
     fireEvent.click(hint);
     expect(screen.getByRole("heading", { name: "Row 1, tile 2" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: /^Row 1, tile 2/ })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Row 1, tile 2: no label/ })).toHaveFocus());
     expect(screen.getByRole("button", { name: "Save panel" })).toBeDisabled();
     // Several problems: a count, going to the first.
     fireEvent.click(screen.getByRole("button", { name: /^Row 2, tile 2/ }));
