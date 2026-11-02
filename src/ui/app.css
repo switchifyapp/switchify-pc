@@ -300,7 +300,7 @@ main { min-width: 0; }
 /* Tiles keep a readable width; a row's controls drop below them when the row is full. */
 .panel-editor-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 8px; background: var(--surface); }
 .panel-editor-row[data-selected-row] { border-color: var(--border-strong); }
-.panel-editor-tiles { display: flex; flex: 1 1 440px; gap: 8px; min-width: 0; }
+.panel-editor-tiles { display: flex; flex: 1 1 440px; gap: 8px; min-width: 0; overflow-x: auto; }
 .btn.panel-editor-tile { min-width: 96px; min-height: 64px; border-color: var(--border-strong); padding: 8px 10px; color: var(--text); background: var(--surface-muted); font-weight: 500; overflow-wrap: anywhere; }
 .btn.panel-editor-tile[data-toolbar] { background: var(--surface); }
 .btn.panel-editor-tile[data-selected] { border-color: var(--brand); outline: 2px solid var(--brand); outline-offset: -2px; }

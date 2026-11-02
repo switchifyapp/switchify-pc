@@ -122,11 +122,14 @@ describe("PanelEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: /Row 1, tile 1: Keyboard/ }));
     await screen.findByRole("button", { name: "Copy" });
     fireEvent.change(screen.getByRole("textbox", { name: "Label" }), { target: { value: "Letters" } });
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "cop" } });
     const right = screen.getByRole("button", { name: "Move tile right" });
     right.focus();
     fireEvent.click(right);
     expect(screen.getByRole("heading", { name: "Row 1, tile 2" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Move tile right" })).toHaveFocus();
+    // The search survives the move; choosing another tile clears it.
+    expect(screen.getByRole("searchbox")).toHaveValue("cop");
     // The written label stays through a change of action after the move.
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     expect(screen.getByRole("textbox", { name: "Label" })).toHaveValue("Letters");

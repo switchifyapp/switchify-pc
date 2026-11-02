@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronLeft, Plus, Save, Trash2 } from "lucide-react";
 import { Button, Input, Select } from "../ui/controls";
 import { api } from "../api";
-import { PanelPreview, toolbarAction } from "./PanelPreview";
+import { PanelPicture, toolbarAction } from "./PanelPicture";
 import { actionProblem, chordFromEvent, defaultLabel, describeAction, friendlyKey, maxLabelChars, maxRows, maxSpan, maxTextChars, maxTilesPerRow, panelProblems, sameAction, searchActions } from "./actions";
 import type { PanelTheme } from "../scanning/preferences";
 import type { CustomPanel, PanelAction, PanelActionEntry, PanelCell } from "../types";
@@ -16,12 +16,16 @@ const blankTile = (): PanelCell => ({ label: "Back", action: { type: "back" }, s
 
 /** Edits one panel: its name, its rows of tiles, and what each tile does.
  *  Nothing is saved until Save panel; leaving with changes asks first. */
-export function PanelEditor({ panel, panels, theme, busy, error, onClose, onSave, onDelete, onDirtyChange }: {
+export function PanelEditor({ panel, panels, theme, busy, error, onClose, onSave, onDelete, onDirtyChange, onClearError }: {
   panel: CustomPanel; panels: CustomPanel[]; theme?: PanelTheme; busy: boolean; error: string | null;
-  onClose: () => void; onSave: (panel: CustomPanel) => Promise<void>; onDelete: () => Promise<void>; onDirtyChange: (dirty: boolean) => void;
+  onClose: () => void; onSave: (panel: CustomPanel) => Promise<void>; onDelete: () => Promise<void>; onDirtyChange: (dirty: boolean) => void; onClearError?: () => void;
 }) {
   const [draft, setDraft] = useState(panel);
   const [selected, setSelected] = useState<Selection | null>(null);
+  // Counts the times a tile was chosen afresh, so the inspector's search is
+  // cleared then and not when the same tile moves.
+  const [pick, setPick] = useState(0);
+  const choose = (selection: Selection) => { setSelected(selection); setPick((count) => count + 1); };
   const [confirmation, setConfirmation] = useState<"discard" | "delete" | null>(null);
   const [catalogue, setCatalogue] = useState<PanelActionEntry[]>([]);
   const confirmRef = useRef<HTMLButtonElement>(null);
@@ -47,12 +51,12 @@ export function PanelEditor({ panel, panels, theme, busy, error, onClose, onSave
   const addTile = (rowIndex: number) => {
     if (draft.rows[rowIndex].length >= maxTilesPerRow) return;
     updateRows(draft.rows.map((row, r) => r === rowIndex ? [...row, blankTile()] : row));
-    setSelected({ row: rowIndex, cell: draft.rows[rowIndex].length });
+    choose({ row: rowIndex, cell: draft.rows[rowIndex].length });
   };
   const addRow = () => {
     if (draft.rows.length >= maxRows) return;
     updateRows([...draft.rows, [blankTile()]]);
-    setSelected({ row: draft.rows.length, cell: 0 });
+    choose({ row: draft.rows.length, cell: 0 });
   };
   const removeTile = (selection: Selection) => {
     const rows = draft.rows.map((row, r) => r === selection.row ? row.filter((_, c) => c !== selection.cell) : row).filter((row) => row.length > 0);
@@ -90,7 +94,8 @@ export function PanelEditor({ panel, panels, theme, busy, error, onClose, onSave
     setCell(selection, { ...cell, action, label });
   };
 
-  const requestClose = () => dirty ? setConfirmation("discard") : onClose();
+  const requestClose = () => { if (!dirty) { onClose(); return; } onClearError?.(); setConfirmation("discard"); };
+  const requestDelete = () => { onClearError?.(); setConfirmation("delete"); };
   const keepEditing = () => {
     const opener = confirmation === "delete" ? deleteRef.current : backRef.current;
     setConfirmation(null);
@@ -106,7 +111,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, onClose, onSave
     </section></div>}
     <div inert={confirmation !== null || undefined}>
       <header className="page-header"><div><Button ref={backRef} className="text-button panel-back" onClick={requestClose}><ChevronLeft size={18} aria-hidden="true" />All panels</Button><h1>{panel.name}</h1><p>Choose a tile to change what it says and does. Rows share their width between their tiles.</p></div>
-        <div className="panel-header-actions"><Button ref={deleteRef} className="secondary danger" disabled={busy} onClick={() => setConfirmation("delete")}><Trash2 size={16} aria-hidden="true" />Delete panel</Button><Button className="primary" disabled={busy || !canSave} onClick={save}><Save size={16} aria-hidden="true" />Save panel</Button></div></header>
+        <div className="panel-header-actions"><Button ref={deleteRef} className="secondary danger" disabled={busy} onClick={requestDelete}><Trash2 size={16} aria-hidden="true" />Delete panel</Button><Button className="primary" disabled={busy || !canSave} onClick={save}><Save size={16} aria-hidden="true" />Save panel</Button></div></header>
       {error && !confirmation && <p className="dialog-error" role="alert">{error}</p>}
       <div className="panel-editor-layout">
         <div className="panel-editor-main">
@@ -123,7 +128,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, onClose, onSave
                 {row.map((cell, cellIndex) => {
                   const here = selected?.row === rowIndex && selected.cell === cellIndex;
                   const problem = problems[`tile-${rowIndex}-${cellIndex}`];
-                  return <Button key={cellIndex} className="panel-editor-tile" style={{ flexGrow: cell.span, flexBasis: 0 }} data-selected={here || undefined} data-toolbar={toolbarAction(cell.action) || undefined} data-invalid={problem ? true : undefined} aria-pressed={here} aria-label={`Row ${rowIndex + 1}, tile ${cellIndex + 1}: ${cell.label.trim() || "no label"}, ${describeAction(cell.action, catalogue, panels)}${problem ? `, ${problem}` : ""}`} onClick={() => setSelected({ row: rowIndex, cell: cellIndex })}>{cell.label.trim() || <em>No label</em>}</Button>;
+                  return <Button key={cellIndex} className="panel-editor-tile" style={{ flexGrow: cell.span, flexBasis: 0 }} data-selected={here || undefined} data-toolbar={toolbarAction(cell.action) || undefined} data-invalid={problem ? true : undefined} aria-pressed={here} aria-label={`Row ${rowIndex + 1}, tile ${cellIndex + 1}: ${cell.label.trim() || "no label"}, ${describeAction(cell.action, catalogue, panels)}${problem ? `, ${problem}` : ""}`} onClick={() => choose({ row: rowIndex, cell: cellIndex })}>{cell.label.trim() || <em>No label</em>}</Button>;
                 })}
               </div>
               <div className="panel-editor-row-actions">
@@ -136,11 +141,11 @@ export function PanelEditor({ panel, panels, theme, busy, error, onClose, onSave
             </div>)}
             <Button ref={addRowRef} className="secondary" disabled={draft.rows.length >= maxRows} onClick={addRow}><Plus size={16} aria-hidden="true" />Add row</Button>
           </section>
-          <section className="panel-editor-preview" aria-label="Preview"><h2>As it will scan</h2><PanelPreview panel={draft} theme={theme} className="panel-preview-large" /></section>
+          <section className="panel-editor-picture" aria-label="Picture"><h2>As it will scan</h2><PanelPicture panel={draft} theme={theme} className="panel-picture-large" /></section>
         </div>
         <aside className="panel-inspector" aria-label="Selected tile">
           {selected && current
-            ? <TileInspector selection={selected} cell={current} catalogue={catalogue} panels={panels} self={draft.id} problem={problems[`tile-${selected.row}-${selected.cell}`] ?? null} rowLength={draft.rows[selected.row].length}
+            ? <TileInspector pick={pick} selection={selected} cell={current} catalogue={catalogue} panels={panels} self={draft.id} problem={problems[`tile-${selected.row}-${selected.cell}`] ?? null} rowLength={draft.rows[selected.row].length}
               onChange={(cell) => setCell(selected, cell)} onAction={(action) => chooseAction(selected, current, action)} onMove={(direction) => moveTile(selected, direction)} onRemove={() => removeTile(selected)} />
             : <div className="panel-inspector-empty"><h2>No tile chosen</h2><p>Choose a tile on the left to change its label, width and action, or add a tile to a row.</p></div>}
         </aside>
@@ -149,14 +154,14 @@ export function PanelEditor({ panel, panels, theme, busy, error, onClose, onSave
   </div>;
 }
 
-function TileInspector({ selection, cell, catalogue, panels, self, problem, rowLength, onChange, onAction, onMove, onRemove }: {
-  selection: Selection; cell: PanelCell; catalogue: PanelActionEntry[]; panels: CustomPanel[]; self: string; problem: string | null; rowLength: number;
+function TileInspector({ pick, selection, cell, catalogue, panels, self, problem, rowLength, onChange, onAction, onMove, onRemove }: {
+  pick: number; selection: Selection; cell: PanelCell; catalogue: PanelActionEntry[]; panels: CustomPanel[]; self: string; problem: string | null; rowLength: number;
   onChange: (cell: PanelCell) => void; onAction: (action: PanelAction) => void; onMove: (direction: -1 | 1) => void; onRemove: () => void;
 }) {
   const [query, setQuery] = useState("");
   const ids = useId();
-  // A new tile starts with an empty search; the inspector itself stays mounted so focus does.
-  useEffect(() => setQuery(""), [selection.row, selection.cell]);
+  // A newly chosen tile starts with an empty search; the inspector itself stays mounted so focus does.
+  useEffect(() => setQuery(""), [pick]);
   const others = useMemo(() => panels.filter((candidate) => candidate.id !== self), [panels, self]);
   const results = useMemo(() => searchActions(catalogue, query), [catalogue, query]);
   const grouped = useMemo(() => {
