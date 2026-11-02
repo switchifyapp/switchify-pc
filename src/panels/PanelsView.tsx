@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ChevronLeft, LayoutGrid, Plus, Trash2 } from "lucide-react";
 import { Button, Input } from "../ui/controls";
-import { PanelPreview } from "./PanelPreview";
+import { PanelPicture } from "./PanelPicture";
 import type { PanelsController } from "./usePanels";
 import type { PanelTheme } from "../scanning/preferences";
 import type { CustomPanel } from "../types";
@@ -56,7 +56,7 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
       : panels.length === 0 ? <section className="empty-state" aria-label="No panels yet"><LayoutGrid size={32} aria-hidden="true" /><h2>No panels yet</h2><p>A panel is a page of tiles that scans like Home. Each tile presses keys, types a phrase, runs an action or opens another panel. Make one and it appears in Home under My panels.</p></section>
       : <ul className="panel-grid" aria-label="Your panels">{panels.map((panel) => <li key={panel.id}>
         <Button className="panel-card" onClick={(event) => openPanel(panel, event.currentTarget)} aria-label={`${panel.name}, ${tileCount(panel)} tiles`}>
-          <PanelPreview panel={panel} theme={theme} />
+          <PanelPicture panel={panel} theme={theme} />
           <span className="panel-card-text"><strong>{panel.name}</strong><small>{panel.description.trim() || `${tileCount(panel)} ${tileCount(panel) === 1 ? "tile" : "tiles"}`}</small></span>
         </Button>
       </li>)}</ul>}
@@ -81,7 +81,7 @@ function PanelDetail({ panel, panels, theme, busy, error, onDirtyChange, onClose
     <header className="page-header"><div><Button className="text-button panel-back" onClick={requestClose}><ChevronLeft size={18} aria-hidden="true" />All panels</Button><h1>{panel.name}</h1><p>Change the panel's name and description. Home shows the name under My panels.</p></div></header>
     {error && <p className="field-error" role="alert">{error}</p>}
     <div className="panel-detail-layout">
-      <PanelPreview panel={draft} theme={theme} className="panel-preview-large" />
+      <PanelPicture panel={draft} theme={theme} className="panel-picture-large" />
       <form className="panel-fields" onSubmit={(event) => { event.preventDefault(); if (!nameError) void onSave({ ...draft, name }); }}>
         <label className="field"><span>Panel name</span><Input value={draft.name} maxLength={maxPanelNameChars} aria-invalid={nameError ? true : undefined} aria-describedby={nameError ? "panel-name-error" : undefined} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
         {nameError && <p id="panel-name-error" className="field-error">{nameError}</p>}

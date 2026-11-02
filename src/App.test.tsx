@@ -554,7 +554,7 @@ describe("Switchify PC shell", () => {
     expect(screen.queryByLabelText("Verification code for Galaxy")).not.toBeInTheDocument();
   });
 
-  it("lists panels with previews and makes a starter panel", async () => {
+  it("lists panels with pictures and makes a starter panel", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
     expect(await screen.findByRole("heading", { name: "Panels", level: 1 })).toBeInTheDocument();
@@ -563,13 +563,13 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "New panel" }));
     // The starter panel opens straight away, drawn as the scan will show it.
     expect(await screen.findByRole("heading", { name: "New panel", level: 1 })).toBeInTheDocument();
-    const preview = screen.getByRole("img", { name: "Preview of New panel: Keyboard, Mouse; Back, Close" });
-    expect(within(preview).getByText("Keyboard")).toBeInTheDocument();
-    expect(within(preview).getByText("Close")).toHaveAttribute("data-toolbar", "true");
+    const picture = screen.getByRole("img", { name: "Picture of New panel: Keyboard, Mouse; Back, Close" });
+    expect(within(picture).getByText("Keyboard")).toBeInTheDocument();
+    expect(within(picture).getByText("Close")).toHaveAttribute("data-toolbar", "true");
 
     fireEvent.click(screen.getByRole("button", { name: "All panels" }));
     const card = await screen.findByRole("button", { name: "New panel, 4 tiles" });
-    expect(within(card).getByRole("img", { name: "Preview of New panel: Keyboard, Mouse; Back, Close" })).toBeInTheDocument();
+    expect(within(card).getByRole("img", { name: "Picture of New panel: Keyboard, Mouse; Back, Close" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "No panels yet" })).not.toBeInTheDocument();
   });
 
