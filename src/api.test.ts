@@ -116,7 +116,7 @@ describe("custom panels", () => {
     version: 1,
     name: "Greetings",
     description: "",
-    rows: [[{ label: "Hello", action: { type: "text" as const, text: "Hello there" }, weight: 1 }]],
+    rows: [[{ label: "Hello", action: { type: "text" as const, text: "Hello there" }, span: 1 }]],
   };
 
   it("saves, lists and deletes through the backend", async () => {

@@ -12,8 +12,8 @@ pub const MAX_CELLS_PER_ROW: usize = 8;
 pub const MAX_NAME_CHARS: usize = 50;
 pub const MAX_DESCRIPTION_CHARS: usize = 200;
 pub const MAX_LABEL_CHARS: usize = 40;
-const MIN_WEIGHT: f64 = 0.5;
-const MAX_WEIGHT: f64 = 4.0;
+/// Widest a tile may be, in units of a normal tile.
+pub const MAX_SPAN: u8 = 4;
 const STORE_SCHEMA: u32 = 1;
 
 /// One tile. The label is what people read; the action is what Select does.
@@ -22,12 +22,13 @@ const STORE_SCHEMA: u32 = 1;
 pub struct Cell {
     pub label: String,
     pub action: PanelAction,
-    /// Share of the row's width relative to its neighbours.
-    pub weight: f64,
+    /// Width in units of a normal tile, 1 to 4. The row shares its width
+    /// out by span. An integer, so the synced document round-trips exactly.
+    pub span: u8,
 }
 
 /// A saved panel. `version` rises on every change so other computers and
-/// caches notice; `rows` are ragged, each row sharing its width by weight.
+/// caches notice; `rows` are ragged, each row sharing its width by span.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CustomPanel {
@@ -61,10 +62,20 @@ impl CustomPanel {
                 "Panel names use {MAX_NAME_CHARS} characters or fewer."
             ));
         }
+        if name.chars().any(char::is_control) {
+            return Err("The panel name has unusable characters.".into());
+        }
         if self.description.chars().count() > MAX_DESCRIPTION_CHARS {
             return Err(format!(
                 "Panel descriptions use {MAX_DESCRIPTION_CHARS} characters or fewer."
             ));
+        }
+        if self
+            .description
+            .chars()
+            .any(|c| c.is_control() && c != '\n')
+        {
+            return Err("The panel description has unusable characters.".into());
         }
         if self.rows.is_empty() || self.rows.len() > MAX_ROWS {
             return Err(format!("A panel has 1 to {MAX_ROWS} rows."));
@@ -90,10 +101,8 @@ impl CustomPanel {
                 if label.chars().any(|c| c.is_control() && c != '\n') {
                     return Err(format!("{place}: the label has unusable characters."));
                 }
-                if !cell.weight.is_finite() || !(MIN_WEIGHT..=MAX_WEIGHT).contains(&cell.weight) {
-                    return Err(format!(
-                        "{place}: tile width is between {MIN_WEIGHT} and {MAX_WEIGHT}."
-                    ));
+                if !(1..=MAX_SPAN).contains(&cell.span) {
+                    return Err(format!("{place}: tile width is 1 to {MAX_SPAN}."));
                 }
                 cell.action
                     .validate()
@@ -174,14 +183,20 @@ fn load(bytes: &[u8]) -> Option<Vec<CustomPanel>> {
     Some(store.panels)
 }
 
+/// Loads the saved panels. A file this build cannot use (damaged, or
+/// written by a newer build) is set aside as `panels.json.bad` rather than
+/// overwritten by the next save, so nothing is lost for good.
 pub fn install(app: &AppHandle) {
-    let panels = path(app)
-        .ok()
-        .and_then(|p| std::fs::read(p).ok())
-        .and_then(|bytes| load(&bytes))
-        .unwrap_or_default();
+    let panels = path(app).ok().and_then(|p| {
+        let bytes = std::fs::read(&p).ok()?;
+        let loaded = load(&bytes);
+        if loaded.is_none() {
+            let _ = std::fs::rename(&p, p.with_extension("json.bad"));
+        }
+        loaded
+    });
     app.manage(Controller {
-        panels: Mutex::new(panels),
+        panels: Mutex::new(panels.unwrap_or_default()),
     });
 }
 
@@ -253,14 +268,13 @@ pub fn delete(app: &AppHandle, id: &str) -> Result<Vec<CustomPanel>, String> {
 }
 
 /// Replaces every panel with a synced set that `plan_replacement` prepared.
+/// Settings sync announces the change itself once the whole apply is done.
 pub fn replace(app: &AppHandle, panels: Vec<CustomPanel>) -> Result<(), String> {
     validate_set(&panels)?;
     let controller = app.state::<Controller>();
     let mut current = controller.panels.lock().unwrap_or_else(|p| p.into_inner());
     write(app, &panels)?;
     *current = panels;
-    drop(current);
-    let _ = app.emit(EVENT, ());
     Ok(())
 }
 
@@ -361,20 +375,20 @@ pub(crate) fn sample(id: &str, name: &str) -> CustomPanel {
                     action: PanelAction::Command {
                         command: crate::scan_menu::Command::Copy,
                     },
-                    weight: 1.0,
+                    span: 1,
                 },
                 Cell {
                     label: "Hello".into(),
                     action: PanelAction::Text {
                         text: "Hello there".into(),
                     },
-                    weight: 2.0,
+                    span: 2,
                 },
             ],
             vec![Cell {
                 label: "Back".into(),
                 action: PanelAction::Back,
-                weight: 1.0,
+                span: 1,
             }],
         ],
     }
@@ -397,10 +411,10 @@ mod tests {
                 "description": "",
                 "rows": [
                     [
-                        {"label": "Copy", "action": {"type": "command", "command": "copy"}, "weight": 1.0},
-                        {"label": "Hello", "action": {"type": "text", "text": "Hello there"}, "weight": 2.0}
+                        {"label": "Copy", "action": {"type": "command", "command": "copy"}, "span": 1},
+                        {"label": "Hello", "action": {"type": "text", "text": "Hello there"}, "span": 2}
                     ],
-                    [{"label": "Back", "action": {"type": "back"}, "weight": 1.0}]
+                    [{"label": "Back", "action": {"type": "back"}, "span": 1}]
                 ]
             })
         );
@@ -442,10 +456,17 @@ mod tests {
         let error = panel.validate().unwrap_err();
         assert!(error.starts_with("Row 1, tile 1"), "{error}");
         panel = sample("ok", "Ok");
-        panel.rows[0][0].weight = 0.1;
+        panel.rows[0][0].span = 0;
         assert!(panel.validate().is_err());
         panel = sample("ok", "Ok");
-        panel.rows[0][0].weight = f64::NAN;
+        panel.rows[0][0].span = MAX_SPAN + 1;
+        assert!(panel.validate().is_err());
+        panel = sample("ok", "Ok\tTab");
+        assert!(panel.validate().is_err());
+        panel = sample("ok", "Ok");
+        panel.description = "Line one\nline two".into();
+        assert_eq!(panel.validate(), Ok(()));
+        panel.description = "Bell\u{7}".into();
         assert!(panel.validate().is_err());
         panel = sample("ok", "Ok");
         panel.rows[0][1].action = PanelAction::Text {

@@ -140,8 +140,8 @@ export type PanelActionEntry = {
 export type PanelCell = {
   label: string;
   action: PanelAction;
-  /** Share of the row's width relative to its neighbours, 0.5 to 4. */
-  weight: number;
+  /** Width in units of a normal tile, 1 to 4. */
+  span: number;
 };
 
 /** A user-built panel. The backend owns `version`. */

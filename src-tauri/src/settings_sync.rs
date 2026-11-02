@@ -1761,6 +1761,26 @@ mod tests {
         assert_eq!(engine.sync(None).await.status, Status::NeedsChoice);
     }
 
+    #[test]
+    fn a_base_saved_before_panels_still_loads_from_disk() {
+        let base = Base {
+            user_id: "u".into(),
+            revision: 3,
+            cloud: untouched(),
+            local: untouched(),
+        };
+        let mut value = serde_json::to_value(&base).unwrap();
+        for side in ["cloud", "local"] {
+            let document = value[side].as_object_mut().unwrap();
+            document.remove("panels");
+            document["schemaVersion"] = serde_json::json!(6);
+        }
+        let bytes = serde_json::to_vec(&value).unwrap();
+        let loaded: Base = serde_json::from_slice(&bytes).unwrap();
+        assert!(loaded.cloud.panels.is_empty() && loaded.local.panels.is_empty());
+        assert_eq!(loaded.cloud.schema_version, 6);
+    }
+
     #[tokio::test]
     async fn updating_from_an_older_version_uploads_nothing_until_a_change() {
         for version in 1..SCHEMA_VERSION {
