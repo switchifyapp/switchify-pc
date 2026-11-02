@@ -91,6 +91,51 @@ export type SwitchProfile = {
   bindings: SwitchBinding[];
 };
 
+/** A built-in menu a custom panel tile can open. Matches `scan_menu::Kind`. */
+export type MenuKind =
+  | "home" | "more" | "mouse" | "editing" | "windows" | "browser" | "tabs"
+  | "zoom" | "media" | "displays" | "scanning" | "shutDown" | "restart";
+
+export type BuiltInPanel = "keyboard" | "mouse" | "point" | "switchify" | { menu: MenuKind };
+
+/** What selecting a tile on a custom panel does. Matches `panel_actions::PanelAction`. */
+export type PanelAction =
+  | { type: "key"; keys: string[] }
+  | { type: "text"; text: string }
+  | { type: "command"; command: string }
+  | { type: "setting"; setting: string | { keyboardLayout: "qwerty" | "simpleQwerty" | "commonLetters" } }
+  | { type: "click"; button: "left" | "right" | "middle"; count: number }
+  | { type: "scroll"; direction: "up" | "down" | "left" | "right" }
+  | { type: "prediction"; slot: number }
+  | { type: "openPanel"; panel: BuiltInPanel }
+  | { type: "openCustomPanel"; id: string }
+  | { type: "pause" }
+  | { type: "reverse" }
+  | { type: "display"; next: boolean }
+  | { type: "back" }
+  | { type: "close" };
+
+export type PanelActionCategory =
+  | "typing" | "editing" | "windows" | "browser" | "media" | "mouse"
+  | "prediction" | "panels" | "scanning" | "power";
+
+export type PanelActionParameter =
+  | { kind: "keys"; min: number; max: number }
+  | { kind: "text"; maxChars: number }
+  | { kind: "panelId" };
+
+/** One row of the action library. `parameter` is set when the action needs a value first. */
+export type PanelActionEntry = {
+  id: string;
+  name: string;
+  category: PanelActionCategory;
+  categoryLabel: string;
+  keywords: string[];
+  action: PanelAction;
+  parameter?: PanelActionParameter;
+  needsPoint: boolean;
+};
+
 export type AccountView = {
   available: boolean;
   signedIn: boolean;

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-panel-actions"
+description = "Enables the get_panel_actions command without any pre-configured scope."
+commands.allow = ["get_panel_actions"]
+
+[[permission]]
+identifier = "deny-get-panel-actions"
+description = "Denies the get_panel_actions command without any pre-configured scope."
+commands.deny = ["get_panel_actions"]

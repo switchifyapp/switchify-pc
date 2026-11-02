@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AccountView, AppSettings, AppState, SwitchProfile, SyncView, UpdateProgress } from "./types";
+import type { AccountView, AppSettings, AppState, PanelAction, PanelActionEntry, SwitchProfile, SyncView, UpdateProgress } from "./types";
 
 export type ProfileExitAction = "hide" | "quit";
 export type NavigationTarget = "home" | "settings" | "profiles";
@@ -112,6 +112,14 @@ export const api = {
     browserProfiles = browserProfiles.filter((item) => item.id !== profileId || item.builtIn);
     return Promise.resolve(structuredClone(browserProfiles));
   },
+  /** The action library for custom panels, filtered by every word of `query` when given. */
+  panelActions: (query?: string) => "__TAURI_INTERNALS__" in window
+    ? call<PanelActionEntry[]>("get_panel_actions", { query: query ?? null })
+    : Promise.resolve([]),
+  /** Validates an action built from a template and returns its default tile label. */
+  checkPanelAction: (action: PanelAction) => "__TAURI_INTERNALS__" in window
+    ? invoke<string>("check_panel_action", { action })
+    : Promise.resolve(action.type),
   completeProfileExit: () => "__TAURI_INTERNALS__" in window
     ? invoke<void>("complete_profile_exit")
     : Promise.resolve(),

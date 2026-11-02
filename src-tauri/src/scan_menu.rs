@@ -4,6 +4,7 @@ use crate::{
     scan_panel::{Dock, Panel, PanelKey},
     scanning::{Action, Frame, Rect, TileRole},
 };
+use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
     Home,
@@ -75,7 +76,8 @@ impl Item {
         }
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Kind {
     Home,
     More,
@@ -212,7 +214,8 @@ impl Menu {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Command {
     MiddleClick,
     TripleClick,
@@ -332,7 +335,8 @@ impl Command {
         )
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Setting {
     FasterScan,
     SlowerScan,
