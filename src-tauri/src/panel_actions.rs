@@ -84,7 +84,11 @@ impl PanelAction {
     pub fn label(&self) -> String {
         match self {
             Self::Key { keys } => keys.join("+"),
-            Self::Text { text } => text.chars().take(12).collect(),
+            Self::Text { text } => text
+                .chars()
+                .map(|c| if c.is_whitespace() { ' ' } else { c })
+                .take(12)
+                .collect(),
             Self::Command { command } => command.label().into(),
             Self::Setting {
                 setting: Setting::KeyboardLayout(layout),
@@ -226,8 +230,8 @@ pub fn validate_chord(keys: &[String]) -> Result<(), String> {
     if keys.is_empty() || keys.len() > MAX_CHORD_KEYS {
         return Err(format!("A key press uses 1 to {MAX_CHORD_KEYS} keys."));
     }
-    if let Some(key) = keys.iter().find(|key| !valid_key(key)) {
-        return Err(format!("\"{key}\" is not a key the app can press."));
+    if keys.iter().any(|key| !valid_key(key)) {
+        return Err("One of the keys is not a key the app can press.".into());
     }
     if keys.iter().all(|key| is_modifier(key)) {
         return Err("Add a key to press with the modifiers.".into());
@@ -471,6 +475,20 @@ const ALL_COMMANDS: [Command; 41] = {
         Restart,
     ]
 };
+
+/// Fails to compile when a `Command` is added, so `ALL_COMMANDS` is updated too.
+#[cfg(test)]
+fn command_count() -> usize {
+    use Command::*;
+    match Command::Copy {
+        MiddleClick | TripleClick | ShiftClick | CtrlClick | AltClick | MetaClick | Copy | Cut
+        | Paste | SelectAll | Undo | Redo | Save | Find | SwitchNext | SwitchPrevious
+        | Overview | Desktop | Minimize | Maximize | CloseWindow | BrowserBack | BrowserForward
+        | Reload | NewTab | CloseTab | ReopenTab | NextTab | PreviousTab | Address | ZoomIn
+        | ZoomOut | ZoomReset | PlayPause | NextTrack | PreviousTrack | VolumeUp | VolumeDown
+        | Mute | ShutDown | Restart => 41,
+    }
+}
 
 #[cfg(test)]
 const ALL_SETTINGS: [Setting; 9] = [
@@ -842,6 +860,9 @@ mod tests {
     #[test]
     fn every_command_setting_and_openable_menu_is_listed() {
         let entries = catalogue();
+        assert_eq!(ALL_COMMANDS.len(), command_count());
+        let distinct: HashSet<_> = ALL_COMMANDS.iter().map(|c| format!("{c:?}")).collect();
+        assert_eq!(distinct.len(), ALL_COMMANDS.len());
         for command in ALL_COMMANDS {
             assert!(
                 entries
@@ -988,6 +1009,15 @@ mod tests {
             }
             .label(),
             "Good morning"
+        );
+        assert_eq!(
+            PanelAction::Text {
+                text: "Hi
+there"
+                    .into()
+            }
+            .label(),
+            "Hi there"
         );
         assert_eq!(PanelAction::Prediction { slot: 3 }.label(), "Word 3");
         assert_eq!(
