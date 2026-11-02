@@ -14,13 +14,20 @@ export function usePanels() {
   const generation = useRef(0);
   const load = useCallback(() => {
     const mine = ++generation.current;
-    return api.listPanels().then((list) => { if (mine === generation.current) setPanels(list); }).catch((reason) => { if (mine === generation.current) setError(String(reason)); });
+    return api.listPanels().then((list) => { if (mine === generation.current) setPanels(list); }).catch((reason) => {
+      if (mine !== generation.current) return;
+      setError(String(reason));
+      // A page that never loaded still offers New panel, with the error beside it.
+      setPanels((current) => current ?? []);
+    });
   }, []);
   useEffect(() => {
     void load();
     const stop = api.onPanelsChanged(() => { if (!editing.current) void load(); });
     return () => { void stop.then((unlisten) => unlisten()); };
   }, [load]);
+  // Stable, so the page's unmount cleanup runs once rather than on every render.
+  const setEditing = useCallback((open: boolean) => { editing.current = open; if (!open) void load(); }, [load]);
   const run = async (operation: () => Promise<CustomPanel[]>) => {
     setBusy(true); setError(null);
     generation.current++;
@@ -33,7 +40,7 @@ export function usePanels() {
     busy,
     error,
     clearError: () => setError(null),
-    setEditing: (open: boolean) => { editing.current = open; if (!open) void load(); },
+    setEditing,
     save: (panel: CustomPanel) => run(() => api.savePanel(panel)),
     remove: (panelId: string) => run(() => api.deletePanel(panelId)),
   };
