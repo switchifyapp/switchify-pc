@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-builtin-panel"
+description = "Enables the save_builtin_panel command without any pre-configured scope."
+commands.allow = ["save_builtin_panel"]
+
+[[permission]]
+identifier = "deny-save-builtin-panel"
+description = "Denies the save_builtin_panel command without any pre-configured scope."
+commands.deny = ["save_builtin_panel"]

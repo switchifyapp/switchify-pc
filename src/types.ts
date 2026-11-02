@@ -108,6 +108,7 @@ export type PanelAction =
   | { type: "scroll"; direction: "up" | "down" | "left" | "right" }
   | { type: "openPanel"; panel: BuiltInPanel }
   | { type: "openCustomPanel"; id: string }
+  | { type: "myPanels" }
   | { type: "pause" }
   | { type: "reverse" }
   | { type: "display"; next: boolean }

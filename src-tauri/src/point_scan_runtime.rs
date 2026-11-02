@@ -554,6 +554,9 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
             .map_or_else(Default::default, |path| crate::panel_position::load(&path)),
     );
     e.set_panels(crate::custom_panels::list(app));
+    e.set_menu_overrides(crate::builtin_panels::by_kind(
+        &crate::custom_panels::overrides(app),
+    ));
     let keyboard_area = crate::scan_host::work_area(bounds(&display))?;
     e.set_keyboard_area(keyboard_area);
     Ok((

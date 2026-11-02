@@ -2,7 +2,10 @@
 //! and the per-id merge used by settings sync. No native windows or input.
 use crate::panel_actions::{self, PanelAction};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, sync::Mutex};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Mutex,
+};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const EVENT: &str = "custom-panels-changed";
@@ -14,7 +17,8 @@ pub const MAX_DESCRIPTION_CHARS: usize = 200;
 pub const MAX_LABEL_CHARS: usize = 40;
 /// Widest a tile may be, in units of a normal tile.
 pub const MAX_SPAN: u8 = 4;
-const STORE_SCHEMA: u32 = 1;
+/// Version 2 added the built-in menu overrides; a version 1 file still loads.
+const STORE_SCHEMA: u32 = 2;
 
 /// One tile. The label is what people read; the action is what Select does.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -149,6 +153,9 @@ pub fn validate_set(panels: &[CustomPanel]) -> Result<(), String> {
 struct Store {
     schema_version: u32,
     panels: Vec<CustomPanel>,
+    /// Rearranged built-in menus, keyed by menu name (`builtin_panels::key`).
+    #[serde(default)]
+    overrides: BTreeMap<String, CustomPanel>,
 }
 
 impl Default for Store {
@@ -156,12 +163,20 @@ impl Default for Store {
         Self {
             schema_version: STORE_SCHEMA,
             panels: Vec::new(),
+            overrides: BTreeMap::new(),
         }
     }
 }
 
+/// What the store holds: the user's panels and the rearranged menus.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Contents {
+    panels: Vec<CustomPanel>,
+    overrides: BTreeMap<String, CustomPanel>,
+}
+
 pub struct Controller {
-    panels: Mutex<Vec<CustomPanel>>,
+    contents: Mutex<Contents>,
 }
 
 fn path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -174,20 +189,24 @@ fn path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 
 /// Reads the saved panels, dropping the file's contents if any panel is
 /// invalid rather than running with a half-usable set.
-fn load(bytes: &[u8]) -> Option<Vec<CustomPanel>> {
+fn load(bytes: &[u8]) -> Option<Contents> {
     let store: Store = serde_json::from_slice(bytes).ok()?;
-    if store.schema_version != STORE_SCHEMA {
+    if !(1..=STORE_SCHEMA).contains(&store.schema_version) {
         return None;
     }
     validate_set(&store.panels).ok()?;
-    Some(store.panels)
+    crate::builtin_panels::validate_overrides(&store.overrides).ok()?;
+    Some(Contents {
+        panels: store.panels,
+        overrides: store.overrides,
+    })
 }
 
 /// Loads the saved panels. A file this build cannot use (damaged, or
 /// written by a newer build) is set aside as `panels.json.bad` rather than
 /// overwritten by the next save, so nothing is lost for good.
 pub fn install(app: &AppHandle) {
-    let panels = path(app).ok().and_then(|p| {
+    let contents = path(app).ok().and_then(|p| {
         let bytes = std::fs::read(&p).ok()?;
         let loaded = load(&bytes);
         if loaded.is_none() {
@@ -196,24 +215,40 @@ pub fn install(app: &AppHandle) {
         loaded
     });
     app.manage(Controller {
-        panels: Mutex::new(panels.unwrap_or_default()),
+        contents: Mutex::new(contents.unwrap_or_default()),
     });
 }
 
-pub fn list(app: &AppHandle) -> Vec<CustomPanel> {
+fn contents(app: &AppHandle) -> Contents {
     app.state::<Controller>()
-        .panels
+        .contents
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .clone()
 }
 
-fn write(app: &AppHandle, panels: &[CustomPanel]) -> Result<(), String> {
+pub fn list(app: &AppHandle) -> Vec<CustomPanel> {
+    contents(app).panels
+}
+
+/// The rearranged built-in menus, keyed by menu name.
+pub fn overrides(app: &AppHandle) -> BTreeMap<String, CustomPanel> {
+    contents(app).overrides
+}
+
+fn write(app: &AppHandle, contents: &Contents) -> Result<(), String> {
     let p = path(app)?;
     std::fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
+    // A file without overrides stays version 1, so an older build can still
+    // read it after a rollback.
     let store = Store {
-        schema_version: STORE_SCHEMA,
-        panels: panels.to_vec(),
+        schema_version: if contents.overrides.is_empty() {
+            1
+        } else {
+            STORE_SCHEMA
+        },
+        panels: contents.panels.clone(),
+        overrides: contents.overrides.clone(),
     };
     let temp = p.with_extension("json.tmp");
     std::fs::write(
@@ -229,7 +264,11 @@ fn write(app: &AppHandle, panels: &[CustomPanel]) -> Result<(), String> {
 pub fn save(app: &AppHandle, panel: CustomPanel) -> Result<Vec<CustomPanel>, String> {
     let mut panel = panel.normalized();
     let controller = app.state::<Controller>();
-    let mut panels = controller.panels.lock().unwrap_or_else(|p| p.into_inner());
+    let mut current = controller
+        .contents
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let panels = &current.panels;
     let existing = panels.iter().position(|candidate| candidate.id == panel.id);
     // The store owns the version, so the editor may send any value.
     panel.version = existing.map_or(1, |index| panels[index].version.saturating_add(1));
@@ -237,15 +276,15 @@ pub fn save(app: &AppHandle, panel: CustomPanel) -> Result<Vec<CustomPanel>, Str
     if existing.is_none() && panels.len() >= MAX_PANELS {
         return Err(format!("No more than {MAX_PANELS} panels can be saved."));
     }
-    let mut next = panels.clone();
+    let mut next = current.clone();
     match existing {
-        Some(index) => next[index] = panel,
-        None => next.push(panel),
+        Some(index) => next.panels[index] = panel,
+        None => next.panels.push(panel),
     }
-    validate_set(&next)?;
+    validate_set(&next.panels)?;
     write(app, &next)?;
-    *panels = next;
-    drop(panels);
+    *current = next;
+    drop(current);
     crate::scanning_runtime::refresh_custom_panels(app);
     let _ = app.emit(EVENT, ());
     Ok(list(app))
@@ -253,18 +292,18 @@ pub fn save(app: &AppHandle, panel: CustomPanel) -> Result<Vec<CustomPanel>, Str
 
 pub fn delete(app: &AppHandle, id: &str) -> Result<Vec<CustomPanel>, String> {
     let controller = app.state::<Controller>();
-    let mut panels = controller.panels.lock().unwrap_or_else(|p| p.into_inner());
-    if !panels.iter().any(|panel| panel.id == id) {
+    let mut current = controller
+        .contents
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if !current.panels.iter().any(|panel| panel.id == id) {
         return Err("That panel no longer exists.".into());
     }
-    let next: Vec<_> = panels
-        .iter()
-        .filter(|panel| panel.id != id)
-        .cloned()
-        .collect();
+    let mut next = current.clone();
+    next.panels.retain(|panel| panel.id != id);
     write(app, &next)?;
-    *panels = next;
-    drop(panels);
+    *current = next;
+    drop(current);
     crate::scanning_runtime::refresh_custom_panels(app);
     let _ = app.emit(EVENT, ());
     Ok(list(app))
@@ -275,12 +314,154 @@ pub fn delete(app: &AppHandle, id: &str) -> Result<Vec<CustomPanel>, String> {
 pub fn replace(app: &AppHandle, panels: Vec<CustomPanel>) -> Result<(), String> {
     validate_set(&panels)?;
     let controller = app.state::<Controller>();
-    let mut current = controller.panels.lock().unwrap_or_else(|p| p.into_inner());
-    write(app, &panels)?;
-    *current = panels;
+    let mut current = controller
+        .contents
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let next = Contents {
+        panels,
+        ..current.clone()
+    };
+    write(app, &next)?;
+    *current = next;
     drop(current);
     crate::scanning_runtime::refresh_custom_panels(app);
     Ok(())
+}
+
+/// Saves a rearranged built-in menu. The version rises above the saved
+/// copy's, as for a panel.
+pub fn save_override(
+    app: &AppHandle,
+    kind: crate::scan_menu::Kind,
+    panel: CustomPanel,
+) -> Result<(), String> {
+    let mut panel = panel.normalized();
+    let key = crate::builtin_panels::key(kind);
+    let controller = app.state::<Controller>();
+    let mut current = controller
+        .contents
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    panel.version = current
+        .overrides
+        .get(&key)
+        .map_or(1, |saved| saved.version.saturating_add(1));
+    crate::builtin_panels::validate_override(kind, &panel)?;
+    let mut next = current.clone();
+    next.overrides.insert(key, panel);
+    write(app, &next)?;
+    *current = next;
+    drop(current);
+    crate::scanning_runtime::refresh_custom_panels(app);
+    let _ = app.emit(EVENT, ());
+    Ok(())
+}
+
+/// Puts a built-in menu back as shipped.
+pub fn reset_override(app: &AppHandle, kind: crate::scan_menu::Kind) -> Result<(), String> {
+    let key = crate::builtin_panels::key(kind);
+    let controller = app.state::<Controller>();
+    let mut current = controller
+        .contents
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if !current.overrides.contains_key(&key) {
+        return Ok(());
+    }
+    let mut next = current.clone();
+    next.overrides.remove(&key);
+    write(app, &next)?;
+    *current = next;
+    drop(current);
+    crate::scanning_runtime::refresh_custom_panels(app);
+    let _ = app.emit(EVENT, ());
+    Ok(())
+}
+
+/// Replaces every rearranged menu with a synced set. Settings sync
+/// announces the change itself once the whole apply is done.
+pub fn replace_overrides(
+    app: &AppHandle,
+    overrides: BTreeMap<String, CustomPanel>,
+) -> Result<(), String> {
+    crate::builtin_panels::validate_overrides(&overrides)?;
+    let controller = app.state::<Controller>();
+    let mut current = controller
+        .contents
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let next = Contents {
+        overrides,
+        ..current.clone()
+    };
+    write(app, &next)?;
+    *current = next;
+    drop(current);
+    crate::scanning_runtime::refresh_custom_panels(app);
+    Ok(())
+}
+
+/// Prepares synced overrides to replace `local`: validates them and keeps
+/// versions moving forward. Returns `None` when nothing would change.
+pub fn plan_override_replacement(
+    local: &BTreeMap<String, CustomPanel>,
+    incoming: BTreeMap<String, CustomPanel>,
+) -> Result<Option<BTreeMap<String, CustomPanel>>, String> {
+    let mut incoming: BTreeMap<String, CustomPanel> = incoming
+        .into_iter()
+        .map(|(key, panel)| (key, panel.normalized()))
+        .collect();
+    crate::builtin_panels::validate_overrides(&incoming)?;
+    for (key, panel) in &mut incoming {
+        if let Some(existing) = local.get(key) {
+            panel.version = if existing.same_content(panel) {
+                existing.version.max(panel.version)
+            } else {
+                panel.version.max(existing.version.saturating_add(1))
+            };
+        }
+    }
+    if incoming == *local {
+        return Ok(None);
+    }
+    Ok(Some(incoming))
+}
+
+/// Three-way merge of rearranged menus, one menu at a time: a menu changed
+/// on one side wins, changed on both the account wins, and an edit is never
+/// lost to a reset on the other side.
+pub fn merge_overrides(
+    base_local: &BTreeMap<String, CustomPanel>,
+    base_cloud: &BTreeMap<String, CustomPanel>,
+    local: &BTreeMap<String, CustomPanel>,
+    cloud: &BTreeMap<String, CustomPanel>,
+) -> BTreeMap<String, CustomPanel> {
+    let keys: std::collections::BTreeSet<&String> = local.keys().chain(cloud.keys()).collect();
+    let changed = |a: Option<&CustomPanel>, b: Option<&CustomPanel>| match (a, b) {
+        (Some(a), Some(b)) => !a.same_content(b),
+        (None, None) => false,
+        _ => true,
+    };
+    keys.into_iter()
+        .filter_map(|key| {
+            let (l, c) = (local.get(key), cloud.get(key));
+            let local_changed = changed(l, base_local.get(key));
+            let cloud_changed = changed(c, base_cloud.get(key));
+            let mut chosen = match (local_changed, cloud_changed) {
+                (false, _) => c.cloned(),
+                (true, false) => l.cloned(),
+                (true, true) => c.or(l).cloned(),
+            }?;
+            chosen.version = [l, c]
+                .into_iter()
+                .flatten()
+                .map(|p| p.version)
+                .max()
+                .unwrap_or(chosen.version);
+            Some((key.clone(), chosen))
+        })
+        .collect()
 }
 
 /// Prepares an incoming set to replace `local`: validates it, and gives a
@@ -508,12 +689,26 @@ mod tests {
         let good = serde_json::to_vec(&Store {
             schema_version: STORE_SCHEMA,
             panels: vec![sample("a", "A")],
+            overrides: BTreeMap::new(),
         })
         .unwrap();
-        assert_eq!(load(&good).unwrap().len(), 1);
+        assert_eq!(load(&good).unwrap().panels.len(), 1);
+        // Without overrides the file is still written as version 1 (see `write`).
+        let written = serde_json::to_value(Store {
+            schema_version: 1,
+            panels: vec![],
+            overrides: BTreeMap::new(),
+        })
+        .unwrap();
+        assert_eq!(written["schemaVersion"], 1);
+        assert_eq!(written["overrides"], serde_json::json!({}));
+        // A version 1 file has no overrides and still loads.
+        let old = br#"{"schemaVersion":1,"panels":[]}"#;
+        assert_eq!(load(old).unwrap(), Contents::default());
         let newer = serde_json::to_vec(&Store {
             schema_version: STORE_SCHEMA + 1,
             panels: vec![],
+            overrides: BTreeMap::new(),
         })
         .unwrap();
         assert!(load(&newer).is_none());
@@ -522,9 +717,23 @@ mod tests {
         let invalid = serde_json::to_vec(&Store {
             schema_version: STORE_SCHEMA,
             panels: vec![bad],
+            overrides: BTreeMap::new(),
         })
         .unwrap();
         assert!(load(&invalid).is_none());
+        // An override that is not a menu, or lost its way out, refuses the file.
+        let mut overrides = BTreeMap::new();
+        overrides.insert(
+            "shutDown".into(),
+            crate::builtin_panels::default_document(crate::scan_menu::Kind::ShutDown),
+        );
+        let stray = serde_json::to_vec(&Store {
+            schema_version: STORE_SCHEMA,
+            panels: vec![],
+            overrides,
+        })
+        .unwrap();
+        assert!(load(&stray).is_none());
         assert!(load(b"not json").is_none());
     }
 
@@ -551,6 +760,58 @@ mod tests {
         let mut bad = sample("b", "B");
         bad.rows.clear();
         assert!(plan_replacement(&local, vec![bad]).is_err());
+    }
+
+    #[test]
+    fn menu_overrides_merge_one_menu_at_a_time_and_keep_versions_forward() {
+        use crate::builtin_panels::{default_document, key};
+        use crate::scan_menu::Kind;
+        let home = || default_document(Kind::Home);
+        let mut moved = home();
+        moved.rows.reverse();
+        let one = |panel: CustomPanel| BTreeMap::from([(key(Kind::Home), panel)]);
+        // Rearranged here, untouched on the account: ours wins.
+        let merged = merge_overrides(
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &one(moved.clone()),
+            &BTreeMap::new(),
+        );
+        assert_eq!(merged, one(moved.clone()));
+        // Reset on the account, untouched here: the reset wins.
+        let merged = merge_overrides(
+            &one(moved.clone()),
+            &one(moved.clone()),
+            &one(moved.clone()),
+            &BTreeMap::new(),
+        );
+        assert!(merged.is_empty());
+        // Reset on the account but edited here: the edit survives.
+        let mut edited = moved.clone();
+        edited.rows[0][0].label = "Mine".into();
+        let merged = merge_overrides(
+            &one(moved.clone()),
+            &one(moved.clone()),
+            &one(edited.clone()),
+            &BTreeMap::new(),
+        );
+        assert_eq!(merged[&key(Kind::Home)].rows[0][0].label, "Mine");
+        // Replacement planning: same content is no change; new content moves the version on.
+        assert_eq!(
+            plan_override_replacement(&one(moved.clone()), one(moved.clone())),
+            Ok(None)
+        );
+        let mut local_v3 = moved.clone();
+        local_v3.version = 3;
+        let planned = plan_override_replacement(&one(local_v3), one(edited))
+            .unwrap()
+            .unwrap();
+        assert_eq!(planned[&key(Kind::Home)].version, 4);
+        assert!(plan_override_replacement(
+            &BTreeMap::new(),
+            BTreeMap::from([("nonsense".to_string(), home())])
+        )
+        .is_err());
     }
 
     #[test]

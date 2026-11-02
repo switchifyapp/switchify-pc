@@ -1,5 +1,6 @@
 mod account;
 mod ble_lifecycle;
+mod builtin_panels;
 mod custom_panels;
 mod diagnostics;
 mod display_navigation;
@@ -863,6 +864,61 @@ fn delete_custom_panel(
 ) -> Result<Vec<custom_panels::CustomPanel>, String> {
     require_main(&window)?;
     custom_panels::delete(&app, &panel_id)
+}
+
+/// A built-in menu as the Panels page shows it: as shipped, and as rearranged if it was.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BuiltinPanelView {
+    kind: String,
+    name: String,
+    default: custom_panels::CustomPanel,
+    #[serde(rename = "override")]
+    rearranged: Option<custom_panels::CustomPanel>,
+}
+
+#[tauri::command]
+fn list_builtin_panels(app: AppHandle) -> Vec<BuiltinPanelView> {
+    let overrides = custom_panels::overrides(&app);
+    builtin_panels::EDITABLE
+        .iter()
+        .map(|&kind| {
+            let key = builtin_panels::key(kind);
+            BuiltinPanelView {
+                name: kind.label().into(),
+                default: builtin_panels::default_document(kind),
+                rearranged: overrides.get(&key).cloned(),
+                kind: key,
+            }
+        })
+        .collect()
+}
+
+fn builtin_kind(kind: &str) -> Result<scan_menu::Kind, String> {
+    builtin_panels::kind_from_key(kind).ok_or_else(|| "That menu cannot be changed.".into())
+}
+
+#[tauri::command]
+fn save_builtin_panel(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    kind: String,
+    panel: custom_panels::CustomPanel,
+) -> Result<Vec<BuiltinPanelView>, String> {
+    require_main(&window)?;
+    custom_panels::save_override(&app, builtin_kind(&kind)?, panel)?;
+    Ok(list_builtin_panels(app))
+}
+
+#[tauri::command]
+fn reset_builtin_panel(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    kind: String,
+) -> Result<Vec<BuiltinPanelView>, String> {
+    require_main(&window)?;
+    custom_panels::reset_override(&app, builtin_kind(&kind)?)?;
+    Ok(list_builtin_panels(app))
 }
 
 /// The searchable library of actions a custom panel tile can perform.
@@ -2055,6 +2111,9 @@ pub fn run() {
             list_custom_panels,
             save_custom_panel,
             delete_custom_panel,
+            list_builtin_panels,
+            save_builtin_panel,
+            reset_builtin_panel,
             save_switch_profile,
             delete_switch_profile,
             complete_profile_exit,

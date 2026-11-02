@@ -275,6 +275,12 @@ fn merge(base: &Base, local: &Document, cloud: &Document) -> Document {
             &cloud.remote_switches,
         ),
         panels: crate::custom_panels::merge(&bl.panels, &bc.panels, &local.panels, &cloud.panels),
+        menu_overrides: crate::custom_panels::merge_overrides(
+            &bl.menu_overrides,
+            &bc.menu_overrides,
+            &local.menu_overrides,
+            &cloud.menu_overrides,
+        ),
     }
 }
 
@@ -907,6 +913,7 @@ impl Host for AppHost {
             point_scan: crate::point_scan::Config::default(),
             remote: crate::remote_scan::Config::default(),
             panels: Vec::new(),
+            menu_overrides: Default::default(),
         }
         .document()
     }
@@ -966,6 +973,7 @@ mod tests {
             point_scan: crate::point_scan::Config::default(),
             remote: crate::remote_scan::Config::default(),
             panels: Vec::new(),
+            menu_overrides: Default::default(),
         }
         .document()
     }
@@ -1181,6 +1189,16 @@ mod tests {
                     document.panels = panels;
                 } else {
                     document.panels = expected.panels.clone();
+                }
+                if let Some(overrides) = crate::custom_panels::plan_override_replacement(
+                    &expected.menu_overrides,
+                    document.menu_overrides.clone(),
+                )
+                .unwrap()
+                {
+                    document.menu_overrides = overrides;
+                } else {
+                    document.menu_overrides = expected.menu_overrides.clone();
                 }
                 let transform = self.transform.lock().unwrap().take();
                 let stored = transform.map_or(document.clone(), |t| t(document));
