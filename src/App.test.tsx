@@ -737,6 +737,26 @@ describe("Switchify PC shell", () => {
     expect(within(screen.getByRole("status")).getByRole("button", { name: "2 things need attention. Go to the first" })).toBeInTheDocument();
   });
 
+  it("tries a saved panel in the scanner, but not one with unsaved changes", async () => {
+    const tryPanel = vi.spyOn(api, "tryPanel").mockResolvedValue(undefined);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New panel" }));
+    await screen.findByRole("heading", { name: "New panel", level: 1 });
+    fireEvent.click(screen.getByRole("button", { name: "Try it" }));
+    await waitFor(() => expect(tryPanel).toHaveBeenCalledTimes(1));
+    expect((tryPanel.mock.calls[0][0] as { kind: string }).kind).toBe("panel");
+    fireEvent.change(screen.getByRole("textbox", { name: "Panel name" }), { target: { value: "Changed" } });
+    expect(screen.getByRole("button", { name: "Try it" })).toBeDisabled();
+    // Built-in menus and the native panels try as themselves.
+    fireEvent.click(screen.getByRole("button", { name: "All panels" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Discard changes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Keyboard, keys only" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try it" }));
+    await waitFor(() => expect(tryPanel).toHaveBeenCalledTimes(2));
+    expect(tryPanel.mock.calls[1][0]).toEqual({ kind: "native", panel: "keyboard" });
+  });
+
   it("takes only a few rows below the mouse panel's keys", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Panels" }));

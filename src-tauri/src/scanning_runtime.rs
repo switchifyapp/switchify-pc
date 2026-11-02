@@ -1361,6 +1361,81 @@ pub fn refresh_custom_panels(app: &AppHandle) {
             ));
     }
 }
+/// Starts a point scan on the page the editor asked to try, as a switch
+/// starting the scan would, but on that page rather than Home.
+pub fn try_panel(
+    app: &AppHandle,
+    target: crate::point_workflow::TrialTarget,
+) -> Result<(), String> {
+    use crate::point_scan_runtime::PointScan;
+    if !crate::licensing::allowed(app) {
+        return Err(crate::licensing::LOCKED.into());
+    }
+    let c = app.state::<Controller<PointScan>>();
+    if !c.enabled.load(Ordering::SeqCst) {
+        return Err("Scanning is not ready. The Home page says why.".into());
+    }
+    if crate::remote_scan::active(app) {
+        return Err("A phone is scanning. Try the panel from there, or stop it first.".into());
+    }
+    hide_prompt();
+    let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+    let (mut technique, display) = PointScan::create(app, d.config.clone())?;
+    if let Some(previous) = d.engine.as_ref() {
+        PointScan::carry_over(&previous.technique, &mut technique);
+    }
+    let mut session = Session::new(technique, PointScan::switches(&d.config).automatic);
+    let request = session.begin_with(|workflow| workflow.open_for_trial(&target))?;
+    d.engine = Some(session);
+    d.display = Some(display);
+    // From here the engine is in place, so a failure resets the scanner as
+    // a switch action's failure would, rather than leaving it half started.
+    let result = (|| -> Result<(), String> {
+        PointScan::prepare(app)?;
+        let Data {
+            display, engine, ..
+        } = &mut *d;
+        if !PointScan::settle_environment(
+            app,
+            display.as_mut(),
+            engine.as_mut().map(|e| &mut e.technique),
+        )? {
+            return Ok(());
+        }
+        PointScan::validate_environment(app, d.display.as_ref())?;
+        // Opening the mouse panel is a change of mode, kept as a preference.
+        if let Some(mode) = d.engine.as_ref().map(|e| &e.technique) {
+            let mut config = d.config.clone();
+            if PointScan::sync_mode(&mut config, mode) {
+                if config_path::<PointScan>(app)
+                    .and_then(|path| write_config(&path, &config))
+                    .is_err()
+                {
+                    eprintln!("Switchify could not save the scanning mode.");
+                }
+                d.config = config;
+            }
+        }
+        let input_generation = d.input_generation;
+        d.last_tick = Instant::now();
+        let display = d.display.clone();
+        drop(d);
+        if let Some(request) = request {
+            dispatch::<PointScan>(app, request, display.as_ref(), input_generation, false)?;
+        }
+        render::<PointScan>(app, None)
+    })();
+    match result {
+        Ok(()) => {
+            publish::<PointScan>(app);
+            Ok(())
+        }
+        Err(error) => {
+            disable::<PointScan>(app, &error);
+            Err(error)
+        }
+    }
+}
 /// A point scan already under way, whatever Select would open.
 fn point_session(
     technique: crate::point_workflow::Workflow,

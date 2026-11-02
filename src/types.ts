@@ -176,6 +176,9 @@ export type PanelExtrasView = {
   columns: PanelCell[][];
 };
 
+/** A page the editor can try in the scanner. */
+export type TrialTarget = { kind: "panel"; id: string } | { kind: "menu"; menu: string } | { kind: "native"; panel: "mouse" | "keyboard" };
+
 export type AccountView = {
   available: boolean;
   signedIn: boolean;

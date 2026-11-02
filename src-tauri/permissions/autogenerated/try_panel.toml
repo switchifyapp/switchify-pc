@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-try-panel"
+description = "Enables the try_panel command without any pre-configured scope."
+commands.allow = ["try_panel"]
+
+[[permission]]
+identifier = "deny-try-panel"
+description = "Denies the try_panel command without any pre-configured scope."
+commands.deny = ["try_panel"]

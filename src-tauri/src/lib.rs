@@ -178,6 +178,9 @@ impl PendingNavigation {
 }
 
 pub(crate) fn show_main_window(app: &AppHandle, destination: Option<&str>) {
+    // Trying a panel hides the app on macOS; the Switchify tile brings it back.
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -971,6 +974,39 @@ fn save_panel_extras(
     });
     custom_panels::save_extras(&app, target, panel_extras::PanelExtras { rows, columns })?;
     Ok(list_panel_extras(app))
+}
+
+/// Opens a panel in the scanner from its editor. The window goes out of the
+/// way first: the scan acts on whatever is in front, and the editor's own
+/// fields must not be what the tried tiles type into.
+#[tauri::command]
+async fn try_panel(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    target: point_workflow::TrialTarget,
+) -> Result<(), String> {
+    require_main(&window)?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let result = if switch_practice::active(&handle) {
+            Err("Finish switch practice before trying a panel.".into())
+        } else {
+            scanning_runtime::try_panel(&handle, target)
+        };
+        let _ = tx.send(result);
+    })
+    .map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())??;
+    // Minimising hands the foreground to the next window on Windows; on
+    // macOS only hiding the app brings the previous app forward.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = window;
+        app.hide().map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    window.minimize().map_err(|e| e.to_string())
 }
 
 /// The searchable library of actions a custom panel tile can perform.
@@ -2168,6 +2204,7 @@ pub fn run() {
             reset_builtin_panel,
             list_panel_extras,
             save_panel_extras,
+            try_panel,
             save_switch_profile,
             delete_switch_profile,
             complete_profile_exit,
