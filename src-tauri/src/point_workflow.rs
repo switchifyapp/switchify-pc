@@ -4149,6 +4149,25 @@ mod tests {
             .tiles
             .iter()
             .all(|tile| tile.text != "Done"));
+        // A row of wide tiles shares the panel's width; the keys decide it.
+        let plain = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        let mut wide = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        wide.set_panel_extras(std::collections::BTreeMap::from([(
+            ExtraTarget::Mouse,
+            vec![(0..8)
+                .map(|n| extra(&format!("Tile {n}"), PanelAction::Close, 4))
+                .collect()],
+        )]));
+        let (mut plain, mut wide) = (plain, wide);
+        plain.open_mouse(true);
+        wide.open_mouse(true);
+        let (before, after) = (plain.frame(), wide.frame());
+        assert_eq!(before.tiles[0].rect.width, after.tiles[0].rect.width);
+        assert_eq!(
+            tile_rect(&after, "Tile 0").width,
+            tile_rect(&after, "Tile 7").width
+        );
+        assert!(tile_rect(&after, "Tile 0").width < tile_rect(&after, "Left click").width);
     }
 
     #[test]
@@ -4244,6 +4263,27 @@ mod tests {
         assert_eq!(workflow.choose_key(Key::Extra(0, 1)), None);
         assert!(!workflow.keyboard_open());
         assert!(workflow.home_open());
+        // A row of wide tiles shares the keyboard's width; the keys decide it.
+        let mut plain = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        plain.open_home();
+        plain.selected(Item::Keyboard);
+        plain.execution_succeeded();
+        let mut wide = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        wide.set_panel_extras(std::collections::BTreeMap::from([(
+            ExtraTarget::Keyboard,
+            vec![(0..8)
+                .map(|n| extra(&format!("Tile {n}"), PanelAction::Close, 4))
+                .collect()],
+        )]));
+        wide.open_home();
+        wide.selected(Item::Keyboard);
+        wide.execution_succeeded();
+        let (before, after) = (plain.frame(), wide.frame());
+        assert_eq!(before.tiles[0].rect.width, after.tiles[0].rect.width);
+        assert_eq!(
+            tile_rect(&after, "Tile 0").width,
+            tile_rect(&after, "Tile 7").width
+        );
     }
 
     #[test]

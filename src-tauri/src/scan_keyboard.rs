@@ -393,6 +393,29 @@ impl Keyboard {
     pub fn extra(&self, row: usize, column: usize) -> Option<&Cell> {
         self.extras.get(row)?.get(column)
     }
+    /// A tile's share of its row. An extra row shares the width of the
+    /// keyboard's widest row of keys between its tiles by span, as a row on
+    /// the user's panels does, so the keys decide how wide the keyboard is.
+    fn extra_weight(&self, row: usize, column: usize) -> f64 {
+        let Some(cells) = self.extras.get(row) else {
+            return 1.0;
+        };
+        let gap = crate::scan_panel::KEY_GAP;
+        // The widest row of keys, with the gaps between them, in key widths.
+        let widest = self
+            .rows
+            .iter()
+            .filter(|keys| !keys.iter().any(|key| matches!(key, Key::Extra(..))))
+            .map(|keys| {
+                keys.iter().map(|&key| self.weight(key)).sum::<f64>()
+                    + keys.len().saturating_sub(1) as f64 * gap / 68.0
+            })
+            .fold(1.0, f64::max);
+        let keys = widest - cells.len().saturating_sub(1) as f64 * gap / 68.0;
+        let total: f64 = cells.iter().map(|cell| f64::from(cell.span)).sum();
+        let span = cells.get(column).map_or(1.0, |cell| f64::from(cell.span));
+        span * keys.max(1.0) / total.max(1.0)
+    }
     /// A tile the user added could not act. The scan carries on.
     pub fn cancel_activation(&mut self) {
         self.activation = None;
@@ -1029,9 +1052,7 @@ impl Keyboard {
     }
     fn weight(&self, key: Key) -> f64 {
         match key {
-            Key::Extra(row, column) => self
-                .extra(row, column)
-                .map_or(1.0, |cell| f64::from(cell.span)),
+            Key::Extra(row, column) => self.extra_weight(row, column),
             Key::Character(' ', _) => 4.0,
             Key::Named("Backspace" | "Enter") => 1.9,
             Key::Named("Tab") | Key::Caps | Key::Modifier(_) => 1.6,

@@ -89,6 +89,21 @@ impl MousePanel {
     pub fn extra(&self, row: usize, column: usize) -> Option<&Cell> {
         self.extras.get(row)?.get(column)
     }
+    /// A tile's share of its row. An extra row shares the width of the
+    /// panel's own rows between its tiles by span, as a row on the user's
+    /// panels does, so the keys decide how wide the panel is.
+    fn extra_weight(&self, row: usize, column: usize) -> f64 {
+        let Some(cells) = self.extras.get(row) else {
+            return 1.0;
+        };
+        let total: f64 = cells.iter().map(|cell| f64::from(cell.span)).sum();
+        let span = cells.get(column).map_or(1.0, |cell| f64::from(cell.span));
+        // The Movement page's rows are four keys wide, with three gaps; the
+        // row's own gaps come out of that width.
+        let gaps = cells.len().saturating_sub(1) as f64 * crate::scan_panel::KEY_GAP;
+        let keys = (4.0 * 128.0 + 3.0 * crate::scan_panel::KEY_GAP - gaps) / 128.0;
+        span * keys / total.max(1.0)
+    }
     fn rows(more: bool, positioning: bool, displays: usize, extras: &[Vec<Cell>]) -> Vec<Vec<Key>> {
         use Key::*;
         if positioning {
@@ -303,9 +318,7 @@ impl MousePanel {
                             let tile = PanelKey {
                                 text: self.label(key),
                                 weight: match key {
-                                    Key::Extra(row, column) => self
-                                        .extra(row, column)
-                                        .map_or(1.0, |cell| f64::from(cell.span)),
+                                    Key::Extra(row, column) => self.extra_weight(row, column),
                                     _ => 1.0,
                                 },
                                 role: self.role(key),
