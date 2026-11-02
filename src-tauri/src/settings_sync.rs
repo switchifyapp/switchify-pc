@@ -22,6 +22,7 @@ use tauri::{AppHandle, Emitter, Manager};
 pub const SYNC_EVENT: &str = "settings-sync-changed";
 pub const PROFILES_EVENT: &str = "switch-profiles-changed";
 pub const REMOTE_SWITCHES_EVENT: &str = "remote-switches-changed";
+pub const PANELS_EVENT: &str = crate::custom_panels::EVENT;
 const STATE_FILE: &str = "settings-sync.json";
 /// How often local settings are compared with the last synced copy.
 const POLL: Duration = Duration::from_secs(3);
@@ -34,6 +35,7 @@ const MAX_PAYLOAD_BYTES: usize = 200 * 1024;
 /// The custom profile limit enforced when settings are applied.
 const MAX_SYNCED_PROFILES: usize = 32;
 const TOO_MANY_PROFILES: &str = "Your computers have more than 32 switch profiles between them. Delete some on this computer, then sync again.";
+const TOO_MANY_PANELS: &str = "Your computers have more than 32 panels between them. Delete some on this computer, then sync again.";
 const UPDATE_REQUIRED: &str =
     "Your synced settings were saved by a newer Switchify PC. Update Switchify PC on this computer to keep syncing.";
 
@@ -272,6 +274,7 @@ fn merge(base: &Base, local: &Document, cloud: &Document) -> Document {
             &local.remote_switches,
             &cloud.remote_switches,
         ),
+        panels: crate::custom_panels::merge(&bl.panels, &bc.panels, &local.panels, &cloud.panels),
     }
 }
 
@@ -527,6 +530,9 @@ impl Engine {
                     if document.profiles.len() > MAX_SYNCED_PROFILES {
                         return Err(TOO_MANY_PROFILES.into());
                     }
+                    if document.panels.len() > crate::custom_panels::MAX_PANELS {
+                        return Err(TOO_MANY_PANELS.into());
+                    }
                     let applied = if document == local {
                         Some(local.clone())
                     } else {
@@ -666,7 +672,9 @@ impl Engine {
 fn payload(document: &Document) -> Result<Value, String> {
     let value = serde_json::to_value(document).map_err(|error| error.to_string())?;
     if value.to_string().len() > MAX_PAYLOAD_BYTES {
-        return Err("Settings are too large to sync. Remove some switch profiles.".into());
+        return Err(
+            "Settings are too large to sync. Remove some switch profiles or panels.".into(),
+        );
     }
     Ok(value)
 }
@@ -884,6 +892,9 @@ impl Host for AppHost {
             if applied.remote {
                 let _ = self.app.emit(REMOTE_SWITCHES_EVENT, ());
             }
+            if applied.panels {
+                let _ = self.app.emit(PANELS_EVENT, ());
+            }
             Ok(Some(result))
         })
     }
@@ -895,6 +906,7 @@ impl Host for AppHost {
             switches: crate::switches::Settings::default(),
             point_scan: crate::point_scan::Config::default(),
             remote: crate::remote_scan::Config::default(),
+            panels: Vec::new(),
         }
         .document()
     }
@@ -953,6 +965,7 @@ mod tests {
             switches: crate::switches::Settings::default(),
             point_scan: crate::point_scan::Config::default(),
             remote: crate::remote_scan::Config::default(),
+            panels: Vec::new(),
         }
         .document()
     }
@@ -1158,6 +1171,16 @@ mod tests {
                     document.profiles = profiles;
                 } else {
                     document.profiles = expected.profiles.clone();
+                }
+                if let Some(panels) = crate::custom_panels::plan_replacement(
+                    &expected.panels,
+                    document.panels.clone(),
+                )
+                .unwrap()
+                {
+                    document.panels = panels;
+                } else {
+                    document.panels = expected.panels.clone();
                 }
                 let transform = self.transform.lock().unwrap().take();
                 let stored = transform.map_or(document.clone(), |t| t(document));
@@ -1489,6 +1512,55 @@ mod tests {
         assert_eq!(names(&host_a.local_now()), ["P from A", "Q from B"]);
     }
 
+    fn with_panels(
+        mut document: Document,
+        panels: Vec<crate::custom_panels::CustomPanel>,
+    ) -> Document {
+        document.panels = panels;
+        document
+    }
+
+    #[test]
+    fn panels_added_on_two_computers_are_both_kept() {
+        use crate::custom_panels::sample;
+        let base = with_panels(untouched(), vec![sample("a", "Desk")]);
+        let local = with_panels(
+            untouched(),
+            vec![sample("a", "Desk"), sample("b", "Laptop")],
+        );
+        let cloud = with_panels(
+            untouched(),
+            vec![sample("a", "Desk"), sample("c", "Tablet")],
+        );
+        let merged = merge(&base_of(&base), &local, &cloud);
+        let names: Vec<_> = merged.panels.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["Desk", "Tablet", "Laptop"]);
+    }
+
+    #[tokio::test]
+    async fn too_many_panels_after_a_merge_is_a_clear_error() {
+        use crate::custom_panels::sample;
+        let make = |prefix: u32| -> Vec<crate::custom_panels::CustomPanel> {
+            (0..20)
+                .map(|n| sample(&format!("p{prefix}-{n}"), &format!("Panel {prefix}-{n}")))
+                .collect()
+        };
+        let remote = Arc::new(FakeRemote::default());
+        let host = Arc::new(FakeHost::new(untouched()));
+        let engine = engine(&remote, &host);
+        engine.sync(None).await;
+        *remote.row.lock().unwrap() = Some(Row {
+            revision: 2,
+            schema_version: SCHEMA_VERSION,
+            payload: serde_json::to_value(with_panels(untouched(), make(1))).unwrap(),
+        });
+        host.set_local(with_panels(untouched(), make(2)));
+        let view = engine.sync(None).await;
+        assert_eq!(view.status, Status::Error);
+        assert_eq!(view.message.as_deref(), Some(TOO_MANY_PANELS));
+        assert!(host.applied.lock().unwrap().is_empty(), "nothing applied");
+    }
+
     #[tokio::test]
     async fn too_many_profiles_after_a_merge_is_a_clear_error() {
         let make = |prefix: u32| -> Vec<SwitchProfile> {
@@ -1687,6 +1759,26 @@ mod tests {
         host.set_local(with_speed(untouched(), 4));
         // Same revision number as the old base, but it must not count.
         assert_eq!(engine.sync(None).await.status, Status::NeedsChoice);
+    }
+
+    #[test]
+    fn a_base_saved_before_panels_still_loads_from_disk() {
+        let base = Base {
+            user_id: "u".into(),
+            revision: 3,
+            cloud: untouched(),
+            local: untouched(),
+        };
+        let mut value = serde_json::to_value(&base).unwrap();
+        for side in ["cloud", "local"] {
+            let document = value[side].as_object_mut().unwrap();
+            document.remove("panels");
+            document["schemaVersion"] = serde_json::json!(6);
+        }
+        let bytes = serde_json::to_vec(&value).unwrap();
+        let loaded: Base = serde_json::from_slice(&bytes).unwrap();
+        assert!(loaded.cloud.panels.is_empty() && loaded.local.panels.is_empty());
+        assert_eq!(loaded.cloud.schema_version, 6);
     }
 
     #[tokio::test]

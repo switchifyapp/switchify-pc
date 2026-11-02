@@ -1,5 +1,6 @@
 mod account;
 mod ble_lifecycle;
+mod custom_panels;
 mod diagnostics;
 mod display_navigation;
 mod dwell;
@@ -837,6 +838,31 @@ fn platform_dwell_click(app: &AppHandle) -> Result<(), String> {
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn platform_dwell_click(_app: &AppHandle) -> Result<(), String> {
     Err("Dwell click is unavailable on this platform.".into())
+}
+
+#[tauri::command]
+fn list_custom_panels(app: AppHandle) -> Vec<custom_panels::CustomPanel> {
+    custom_panels::list(&app)
+}
+
+#[tauri::command]
+fn save_custom_panel(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    panel: custom_panels::CustomPanel,
+) -> Result<Vec<custom_panels::CustomPanel>, String> {
+    require_main(&window)?;
+    custom_panels::save(&app, panel)
+}
+
+#[tauri::command]
+fn delete_custom_panel(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    panel_id: String,
+) -> Result<Vec<custom_panels::CustomPanel>, String> {
+    require_main(&window)?;
+    custom_panels::delete(&app, &panel_id)
 }
 
 /// The searchable library of actions a custom panel tile can perform.
@@ -1883,6 +1909,7 @@ pub fn run() {
             app.manage(switch_practice::Controller::default());
             switch_runtime::install(app.handle());
             remote_scan::install(app.handle());
+            custom_panels::install(app.handle());
             prediction::resume_forgetting(app.handle());
             point_scan_runtime::install(app.handle());
             settings_sync::install(app.handle());
@@ -2025,6 +2052,9 @@ pub fn run() {
             list_switch_profiles,
             get_panel_actions,
             check_panel_action,
+            list_custom_panels,
+            save_custom_panel,
+            delete_custom_panel,
             save_switch_profile,
             delete_switch_profile,
             complete_profile_exit,

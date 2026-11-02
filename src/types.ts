@@ -136,6 +136,23 @@ export type PanelActionEntry = {
   needsPoint: boolean;
 };
 
+/** One tile on a custom panel. */
+export type PanelCell = {
+  label: string;
+  action: PanelAction;
+  /** Width in units of a normal tile, 1 to 4. */
+  span: number;
+};
+
+/** A user-built panel. The backend owns `version`. */
+export type CustomPanel = {
+  id: string;
+  version: number;
+  name: string;
+  description: string;
+  rows: PanelCell[][];
+};
+
 export type AccountView = {
   available: boolean;
   signedIn: boolean;

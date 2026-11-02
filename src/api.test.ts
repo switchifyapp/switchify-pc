@@ -104,3 +104,40 @@ describe("panel action library", () => {
     await expect(api.panelActions("copy")).resolves.toEqual([]);
   });
 });
+
+describe("custom panels", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    vi.clearAllMocks();
+  });
+
+  const panel = {
+    id: "greetings",
+    version: 1,
+    name: "Greetings",
+    description: "",
+    rows: [[{ label: "Hello", action: { type: "text" as const, text: "Hello there" }, span: 1 }]],
+  };
+
+  it("saves, lists and deletes through the backend", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.mocked(invoke).mockResolvedValue([panel]);
+    await expect(api.savePanel(panel)).resolves.toEqual([panel]);
+    expect(invoke).toHaveBeenCalledWith("save_custom_panel", { panel });
+    await api.listPanels();
+    expect(invoke).toHaveBeenLastCalledWith("list_custom_panels", undefined);
+    await api.deletePanel("greetings");
+    expect(invoke).toHaveBeenLastCalledWith("delete_custom_panel", { panelId: "greetings" });
+    await api.onPanelsChanged(() => undefined);
+    expect(listen).toHaveBeenCalledWith("custom-panels-changed", expect.any(Function));
+  });
+
+  it("keeps panels in memory in a plain browser and bumps the version", async () => {
+    await expect(api.listPanels()).resolves.toEqual([]);
+    const saved = await api.savePanel(panel);
+    expect(saved[0].version).toBe(1);
+    const again = await api.savePanel({ ...panel, name: "Hi" });
+    expect(again[0]).toMatchObject({ name: "Hi", version: 2 });
+    await expect(api.deletePanel("greetings")).resolves.toEqual([]);
+  });
+});

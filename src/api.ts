@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AccountView, AppSettings, AppState, PanelAction, PanelActionEntry, SwitchProfile, SyncView, UpdateProgress } from "./types";
+import type { AccountView, AppSettings, AppState, CustomPanel, PanelAction, PanelActionEntry, SwitchProfile, SyncView, UpdateProgress } from "./types";
 
 export type ProfileExitAction = "hide" | "quit";
 export type NavigationTarget = "home" | "settings" | "profiles";
@@ -47,6 +47,8 @@ const browserAccount: AccountView = { available: false, signedIn: false, email: 
 const accountCall = (command: string, args?: Record<string, unknown>) => "__TAURI_INTERNALS__" in window
   ? invoke<AccountView>(command, args)
   : Promise.resolve(structuredClone(browserAccount));
+
+let browserPanels: CustomPanel[] = [];
 
 let browserProfiles: SwitchProfile[] = [{
   id: "builtin.keyboard",
@@ -120,6 +122,25 @@ export const api = {
   checkPanelAction: (action: PanelAction) => "__TAURI_INTERNALS__" in window
     ? invoke<string>("check_panel_action", { action })
     : Promise.resolve(action.type),
+  listPanels: () => "__TAURI_INTERNALS__" in window
+    ? call<CustomPanel[]>("list_custom_panels")
+    : Promise.resolve(structuredClone(browserPanels)),
+  savePanel: (panel: CustomPanel) => {
+    if ("__TAURI_INTERNALS__" in window) return call<CustomPanel[]>("save_custom_panel", { panel });
+    const existing = browserPanels.find((item) => item.id === panel.id);
+    const saved = { ...structuredClone(panel), version: existing ? existing.version + 1 : 1 };
+    browserPanels = [...browserPanels.filter((item) => item.id !== panel.id), saved];
+    return Promise.resolve(structuredClone(browserPanels));
+  },
+  deletePanel: (panelId: string) => {
+    if ("__TAURI_INTERNALS__" in window) return call<CustomPanel[]>("delete_custom_panel", { panelId });
+    browserPanels = browserPanels.filter((item) => item.id !== panelId);
+    return Promise.resolve(structuredClone(browserPanels));
+  },
+  onPanelsChanged: async (handler: () => void): Promise<UnlistenFn> => {
+    if (!("__TAURI_INTERNALS__" in window)) return () => undefined;
+    return listen("custom-panels-changed", () => handler());
+  },
   completeProfileExit: () => "__TAURI_INTERNALS__" in window
     ? invoke<void>("complete_profile_exit")
     : Promise.resolve(),
