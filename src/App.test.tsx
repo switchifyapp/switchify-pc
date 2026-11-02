@@ -612,7 +612,7 @@ describe("Switchify PC shell", () => {
     const saveBuiltin = vi.spyOn(api, "saveBuiltinPanel");
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
-    const home = await screen.findByRole("button", { name: "Home, as shipped" });
+    const home = await screen.findByRole("button", { name: "Home, not changed" });
     expect(within(home).getByRole("img", { name: /Picture of Home: Point, Mouse, Keyboard/ })).toBeInTheDocument();
     fireEvent.click(home);
     expect(await screen.findByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
@@ -630,13 +630,13 @@ describe("Switchify PC shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Reset to default" }));
     const confirm = screen.getByRole("alertdialog", { name: "Reset Home to default?" });
     fireEvent.click(within(confirm).getByRole("button", { name: "Reset to default" }));
-    expect(await screen.findByRole("button", { name: "Home, as shipped" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Home, not changed" })).toBeInTheDocument();
   });
 
   it("keeps a way out of a built-in menu", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Editing, as shipped" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Editing, not changed" }));
     await screen.findByRole("heading", { name: "Editing", level: 1 });
     fireEvent.click(screen.getByRole("button", { name: "Remove row 4" }));
     expect(screen.getByText("Keep a Back or Close tile so the menu can be left.")).toBeInTheDocument();
