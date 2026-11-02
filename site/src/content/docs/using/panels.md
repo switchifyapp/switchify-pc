@@ -49,7 +49,7 @@ Your panels are saved on this computer. If you sign in to your account, they go 
 
 Below your panels, **Built-in menus** lists Home and the menus it opens: More actions, Mouse, Editing, Apps and windows, Browser, Tabs, Zoom, Media, Displays and Scanning. Each is drawn as it scans. Choose one to open it in the same editor and move, add or remove its tiles, change their labels, or give a tile a different action. The menu keeps its name. Choose **Save panel** and the next scan uses your arrangement; the card then says **Rearranged**.
 
-Two rules keep a menu usable: it must keep a tile that goes **Back** or closes it, and Home must keep **Close menu**, which ends scanning. The editor says so and keeps Save off until the rule is met.
+Two rules keep a menu usable: it must keep a tile that goes **Back** or closes it, and Home must keep a tile that closes it, which ends scanning. The editor says so and keeps Save off until the rule is met.
 
 **Reset to default** puts a menu back the way it was shipped. Switchify PC asks first.
 
