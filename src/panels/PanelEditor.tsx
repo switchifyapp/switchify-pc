@@ -45,7 +45,6 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
   const addColumnRef = useRef<HTMLButtonElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const rowsRef = useRef<HTMLElement>(null);
-  const columnsRef = useRef<HTMLElement>(null);
   const ids = useId();
   const dirty = JSON.stringify(draft) !== JSON.stringify(panel) || JSON.stringify(columns) !== JSON.stringify(extras?.columns ?? []);
   const problems = { ...panelProblems(draft, panels, builtin?.kind, extras !== undefined), ...(extras ? columnProblems(columns, panels, draft.id) : {}) };
@@ -68,7 +67,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
       const place = `${line[1] === "row" ? "Row" : "Column"} ${Number(line[2]) + 1}`;
       return { label: `${place}: ${message}`, go: () => reveal(document.querySelector<HTMLElement>(`[aria-label="Add tile to ${place.toLowerCase()}"]`)) };
     }
-    const section = key === "name" ? nameRef : key.startsWith("column") ? columnsRef : rowsRef;
+    const section = key === "name" ? nameRef : rowsRef;
     return { label: `To save: ${message}`, go: () => reveal(section.current) };
   });
 

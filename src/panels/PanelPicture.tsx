@@ -52,9 +52,10 @@ export function PanelPicture({ panel, fixed, columns = [], editing, theme, title
     : <PictureTile cell={cell} colours={colours} width={width} data-column={place.column ? place.row + 1 : undefined} />;
   type Line = { key: string; keys: React.ReactNode[]; blank: boolean; row?: number };
   const lines: Line[] = [
-    ...(fixed ?? []).slice(0, -1).map((row, index): Line => ({ key: `fixed-${index}`, blank: false, keys: row.map((key, column) => <FixedTile key={column} cell={key} colours={colours} />) })),
+    // While editing, the keys are scenery: the group's label already says they are there.
+    ...(fixed ?? []).slice(0, -1).map((row, index): Line => ({ key: `fixed-${index}`, blank: false, keys: row.map((key, column) => <FixedTile key={column} cell={key} colours={colours} hidden={editing !== undefined} />) })),
     ...panel.rows.map((row, index): Line => ({ key: `row-${index}`, blank: false, row: index, keys: row.map((cell, column) => <span key={column} className="panel-picture-slot" style={{ flexGrow: cell.span, flexBasis: 0 }}>{userTile(cell, { row: index, cell: column })}</span>) })),
-    ...(fixed ?? []).slice(-1).map((row): Line => ({ key: "fixed-last", blank: false, keys: row.map((key, column) => <FixedTile key={column} cell={key} colours={colours} />) })),
+    ...(fixed ?? []).slice(-1).map((row): Line => ({ key: "fixed-last", blank: false, keys: row.map((key, column) => <FixedTile key={column} cell={key} colours={colours} hidden={editing !== undefined} />) })),
   ];
   const longest = Math.max(0, ...columns.map((column) => column.length));
   for (let index = lines.length; index < longest; index++) lines.push({ key: `below-${index}`, blank: true, keys: [] });
@@ -89,8 +90,8 @@ export function PanelPicture({ panel, fixed, columns = [], editing, theme, title
   </div>;
 }
 
-function FixedTile({ cell, colours }: { cell: PictureCell; colours: Palette }) {
-  return <span className="panel-picture-tile" data-fixed="true" style={{ flexGrow: cell.weight, flexBasis: 0, background: colours.utility, borderColor: colours.border }}>{cell.label}</span>;
+function FixedTile({ cell, colours, hidden }: { cell: PictureCell; colours: Palette; hidden?: boolean }) {
+  return <span className="panel-picture-tile" data-fixed="true" aria-hidden={hidden || undefined} style={{ flexGrow: cell.weight, flexBasis: 0, background: colours.utility, borderColor: colours.border }}>{cell.label}</span>;
 }
 
 function PictureTile({ cell, colours, width, "data-column": column }: { cell: PanelCell; colours: Palette; width?: number; "data-column"?: number }) {

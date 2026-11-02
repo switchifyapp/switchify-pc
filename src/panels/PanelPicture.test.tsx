@@ -76,6 +76,9 @@ describe("PanelPicture", () => {
     expect(within(group).getByRole("button", { name: "tools for row 2" })).toBeInTheDocument();
     expect(within(group).getByRole("button", { name: "tools for column 1" })).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    // A native panel's keys are scenery while editing: not read out one by one.
+    render(<PanelPicture panel={panel} fixed={[[{ label: "q", weight: 1 }]]} theme="dark" editing={{ tile: () => null, rowTools: () => null, columnTools: () => null }} />);
+    expect(screen.getByText("q")).toHaveAttribute("aria-hidden", "true");
   });
 
   it("follows the chosen panel theme, or the computer when set to system", () => {
