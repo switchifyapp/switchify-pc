@@ -25,6 +25,8 @@ The editor shows the panel's rows. Choose a tile to change it on the right:
 
 Use **Tile** on a row to add a tile to it, **Add row** to add a row, and the arrows to move tiles and rows. **Remove tile** and the bin on a row take them away. Nothing changes on the scanned panel until you choose **Save panel**; if you leave with unsaved changes, Switchify PC asks first.
 
+If something stops the panel saving, such as a tile with no label or a link to a panel that no longer exists, a note under the buttons says what and where. Choose the note to go to that tile.
+
 The picture under the rows shows the panel as it will scan.
 
 ![The editor for the Greetings panel: three rows of tiles with the Hello tile chosen, and on the right its label, width, action "Type Hello, how are you?" and the searchable list of actions.](../../../assets/screenshots/panel-editor.png)
@@ -47,7 +49,7 @@ Your panels are saved on this computer. If you sign in to your account, they go 
 
 ## Rearrange the built-in menus
 
-Below your panels, **Built-in menus** lists Home and the menus it opens: More actions, Mouse, Editing, Apps and windows, Browser, Tabs, Zoom, Media, Displays and Scanning. Each is drawn as it scans. Choose one to open it in the same editor and move, add or remove its tiles, change their labels, or give a tile a different action. The menu keeps its name. Choose **Save panel** and the next scan uses your arrangement; the card then says **Rearranged**.
+Below your panels, **Built-in menus** lists Home and the menus it opens: More actions, Mouse, Editing, Apps and windows, Browser, Tabs, Zoom, Media, Displays and Scanning. Each is drawn as it scans. Choose one to open it in the same editor and move, add or remove its tiles, change their labels, or give a tile a different action. The menu keeps its name. Choose **Save changes** and the next scan uses your arrangement; the card then says **Rearranged**.
 
 Two rules keep a menu usable: it must keep a tile that goes **Back** or closes it, and Home must keep a tile that closes it, which ends scanning. The editor says so and keeps Save off until the rule is met.
 
@@ -55,13 +57,13 @@ Two rules keep a menu usable: it must keep a tile that goes **Back** or closes i
 
 The Shut down and Restart pages, and the pages that appear after you choose a point or from the mouse panel, cannot be changed.
 
-![The editor open on the built-in Home menu: four rows of tiles, a Reset to default button beside Save panel, and no name field.](../../../assets/screenshots/builtin-menu-editor.png)
+![The editor open on the built-in Home menu: four rows of tiles, a Reset to default button beside Save changes, and no name field.](../../../assets/screenshots/builtin-menu-editor.png)
 
 Rearranged menus are saved on this computer and, if you sign in to your account, go to your other computers with your settings.
 
 ## Add tiles around the mouse panel's and the keyboard's keys
 
-Below the built-in menus, **Mouse panel and keyboard** shows the two scanning panels with their keys. The keys cannot be changed, but you can add tiles of your own around them: a phrase you type often, a shortcut, or a link to one of your panels. Choose a panel, then **Add row** for a row below the keys or **Add column** for a column beside them, and give each tile a label and an action as on any panel. Choose **Save panel**; the card then says what you added.
+Below the built-in menus, **Mouse panel and keyboard** shows the two scanning panels with their keys. The keys cannot be changed, but you can add tiles of your own around them: a phrase you type often, a shortcut, or a link to one of your panels. Choose a panel, then **Add row** for a row below the keys or **Add column** for a column beside them, and give each tile a label and an action as on any panel. Choose **Save changes**; the card then says what you added.
 
 Up to four rows fit below the keys, and each row shares the panel's width between its tiles, as on your own panels. Up to two columns of up to six tiles run down the right of the keys from the top row; a column longer than the panel adds rows of its own below it, and a column is as wide as its widest tile.
 
@@ -69,7 +71,7 @@ The rows appear on the mouse panel's Movement page and on every keyboard page, j
 
 **Remove tiles** takes the panel back to its keys alone. Switchify PC asks first.
 
-![The editor open on the Keyboard: its keys drawn faintly, a row of two added tiles, Hello and My panels, a column of two tiles, Hi and Pause, beside the keys, and a Remove tiles button beside Save panel.](../../../assets/screenshots/panel-extras-editor.png)
+![The editor open on the Keyboard: its keys drawn faintly, a row of two added tiles, Hello and My panels, a column of two tiles, Hi and Pause, beside the keys, and a Remove tiles button beside Save changes.](../../../assets/screenshots/panel-extras-editor.png)
 
 Added tiles are saved on this computer and, if you sign in to your account, go to your other computers with your settings.
 

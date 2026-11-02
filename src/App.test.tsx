@@ -620,7 +620,7 @@ describe("Switchify PC shell", () => {
     expect(screen.queryByRole("textbox", { name: "Panel name" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reset to default" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Remove row 1" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save panel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(saveBuiltin).toHaveBeenCalled());
     expect(saveBuiltin.mock.calls[0][0]).toBe("home");
     expect((saveBuiltin.mock.calls[0][1] as { id: string }).id).toBe("builtin-home");
@@ -640,7 +640,7 @@ describe("Switchify PC shell", () => {
     await screen.findByRole("heading", { name: "Editing", level: 1 });
     fireEvent.click(screen.getByRole("button", { name: "Remove row 4" }));
     expect(screen.getByText("Keep a Back or Close tile so the menu can be left.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save panel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
   });
 
   it("adds rows of tiles below the keyboard's keys and removes them again", async () => {
@@ -654,10 +654,10 @@ describe("Switchify PC shell", () => {
     // No name to edit, nothing to remove yet, and no rows is fine as it is.
     expect(screen.queryByRole("textbox", { name: "Panel name" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove tiles" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save panel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
     expect(screen.getByText("No rows yet. Add a row, then give its tiles labels and actions.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add row" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save panel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(saveExtras).toHaveBeenCalled());
     expect(saveExtras.mock.calls[0][0]).toBe("keyboard");
     expect(saveExtras.mock.calls[0][1]).toHaveLength(1);
@@ -687,7 +687,7 @@ describe("Switchify PC shell", () => {
     expect(screen.getByRole("button", { name: /^Column 1, tile 2: Second/ })).toBeInTheDocument();
     const picture = screen.getByRole("img", { name: "Picture of Mouse panel: its keys only; columns: Back, Second" });
     expect(within(picture).getByText("Second")).toHaveAttribute("data-column", "1");
-    fireEvent.click(screen.getByRole("button", { name: "Save panel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(saveExtras).toHaveBeenCalled());
     expect(saveExtras.mock.calls[0][0]).toBe("mouse");
     expect(saveExtras.mock.calls[0][1]).toEqual([]);
@@ -708,6 +708,28 @@ describe("Switchify PC shell", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Add column" })).toHaveFocus());
   });
 
+  it("says what stops a panel saving and goes to the tile", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New panel" }));
+    await screen.findByRole("heading", { name: "New panel", level: 1 });
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole("button", { name: /^Row 1, tile 2/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Label" }), { target: { value: "   " } });
+    // The note names the tile. Choosing it after moving on selects that tile again.
+    const hint = within(screen.getByRole("status")).getByRole("button", { name: "Row 1, tile 2: Give the tile a label." });
+    fireEvent.click(screen.getByRole("button", { name: /^Row 2, tile 1/ }));
+    expect(screen.getByRole("heading", { name: "Row 2, tile 1" })).toBeInTheDocument();
+    fireEvent.click(hint);
+    expect(screen.getByRole("heading", { name: "Row 1, tile 2" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Row 1, tile 2: no label/ })).toHaveFocus());
+    expect(screen.getByRole("button", { name: "Save panel" })).toBeDisabled();
+    // Several problems: a count, going to the first.
+    fireEvent.click(screen.getByRole("button", { name: /^Row 2, tile 2/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Label" }), { target: { value: "   " } });
+    expect(within(screen.getByRole("status")).getByRole("button", { name: "2 things need attention. Go to the first" })).toBeInTheDocument();
+  });
+
   it("takes only a few rows below the mouse panel's keys", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
@@ -715,7 +737,7 @@ describe("Switchify PC shell", () => {
     await screen.findByRole("heading", { name: "Mouse panel", level: 1 });
     for (let added = 0; added < 4; added++) fireEvent.click(screen.getByRole("button", { name: "Add row" }));
     expect(screen.getByRole("button", { name: "Add row" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save panel" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
   });
 
   it("asks before leaving a panel with unsaved changes", async () => {

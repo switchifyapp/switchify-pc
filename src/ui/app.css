@@ -299,6 +299,10 @@ main { min-width: 0; }
    right. Tiles in the grid are buttons the width they will scan at. */
 .panel-editor .panel-back { justify-self: start; margin: 0 0 8px -12px; }
 .panel-header-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+/* Why Save is off, under the header; the button takes you to the problem. */
+.save-hint { margin: -12px 0 20px; text-align: right; }
+.save-hint[data-empty] { margin: 0; }
+.save-hint .btn { color: var(--status-error); font-weight: 500; }
 .panel-editor-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); gap: 32px; align-items: start; }
 .panel-editor-main { display: grid; gap: 28px; min-width: 0; }
 .panel-fields .field:first-child { margin-top: 0; }
