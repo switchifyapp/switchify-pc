@@ -6,6 +6,25 @@ export const maxChordKeys = 4;
 export const maxRows = 12;
 /** Rows a native panel takes below its keys, so it stays on screen. */
 export const maxExtraRows = 4;
+/** Columns a native panel takes beside its keys, and tiles in each. */
+export const maxExtraColumns = 2;
+export const maxColumnTiles = 6;
+
+/** Problems with the columns beside a native panel's keys, keyed like
+ *  `panelProblems`: `columns`, `column-N` and `ctile-N-M`. */
+export function columnProblems(columns: PanelCell[][], panels: CustomPanel[], self: string): Record<string, string> {
+  const problems: Record<string, string> = {};
+  if (columns.length > maxExtraColumns) problems.columns = `A panel takes up to ${maxExtraColumns} extra columns.`;
+  columns.forEach((column, columnIndex) => {
+    if (column.length === 0) problems[`column-${columnIndex}`] = "Add a tile to this column or remove the column.";
+    else if (column.length > maxColumnTiles) problems[`column-${columnIndex}`] = `A column holds up to ${maxColumnTiles} tiles.`;
+    column.forEach((cell, cellIndex) => {
+      const problem = cellProblem(cell, panels, self);
+      if (problem) problems[`ctile-${columnIndex}-${cellIndex}`] = problem;
+    });
+  });
+  return problems;
+}
 export const maxTilesPerRow = 8;
 export const maxSpan = 4;
 

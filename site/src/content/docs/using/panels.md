@@ -1,6 +1,6 @@
 ---
 title: Panels
-description: Make scanning panels of your own, rearrange Home and the built-in menus, add tiles below the mouse panel's and the keyboard's keys, and open your panels from Home under My panels.
+description: Make scanning panels of your own, rearrange Home and the built-in menus, add tiles around the mouse panel's and the keyboard's keys, and open your panels from Home under My panels.
 ---
 
 A panel is a page of tiles that scans like the Home menu. Each tile does one thing when you choose it: presses keys, types a phrase, runs an action such as Copy or Play, opens the keyboard, the mouse panel or a built-in menu, or opens another panel of yours. The panel stays open after each action so you can choose the next one, until you choose a tile that goes **Back** or closes it.
@@ -59,17 +59,19 @@ The Shut down and Restart pages, and the pages that appear after you choose a po
 
 Rearranged menus are saved on this computer and, if you sign in to your account, go to your other computers with your settings.
 
-## Add tiles below the mouse panel's and the keyboard's keys
+## Add tiles around the mouse panel's and the keyboard's keys
 
-Below the built-in menus, **Mouse panel and keyboard** shows the two scanning panels with their keys. The keys cannot be changed, but you can add rows of your own tiles below them: a phrase you type often, a shortcut, or a link to one of your panels. Choose a panel, then **Add row**, and give each tile a label and an action as on any panel. Up to four rows fit, and each row shares the panel's width between its tiles, as on your own panels. Choose **Save panel**; the card then says how many rows you added.
+Below the built-in menus, **Mouse panel and keyboard** shows the two scanning panels with their keys. The keys cannot be changed, but you can add tiles of your own around them: a phrase you type often, a shortcut, or a link to one of your panels. Choose a panel, then **Add row** for a row below the keys or **Add column** for a column beside them, and give each tile a label and an action as on any panel. Choose **Save panel**; the card then says what you added.
 
-The rows appear on the mouse panel's Movement page and on every keyboard page, just above the bottom row, and scan like the rest. A tile acts as it does on your panels. On the keyboard, a tile that types waits for the text to land before scanning on, like a key. **Back** and **Close** leave the panel: from the keyboard they close it, and from the mouse panel they switch to point scanning, as its own Switch to Point key does. A tile that opens a menu or one of your panels from the mouse panel comes back to it with Back; from the keyboard, Back goes to Home.
+Up to four rows fit below the keys, and each row shares the panel's width between its tiles, as on your own panels. Up to two columns of up to six tiles run down the right of the keys from the top row; a column longer than the panel adds rows of its own below it, and a column is as wide as its widest tile.
 
-**Remove rows** takes the panel back to its keys alone. Switchify PC asks first.
+The rows appear on the mouse panel's Movement page and on every keyboard page, just above the bottom row; the columns appear on the same pages, to the right. All of them scan like the rest: a column's tiles are the last in their rows. A tile acts as it does on your panels. On the keyboard, a tile that types waits for the text to land before scanning on, like a key. **Back** and **Close** leave the panel: from the keyboard they close it, and from the mouse panel they switch to point scanning, as its own Switch to Point key does. A tile that opens a menu or one of your panels from the mouse panel comes back to it with Back; from the keyboard, Back goes to Home.
 
-![The editor open on the Keyboard: its keys drawn faintly, a row of two added tiles, Hello and My panels, and a Remove rows button beside Save panel.](../../../assets/screenshots/panel-extras-editor.png)
+**Remove tiles** takes the panel back to its keys alone. Switchify PC asks first.
 
-Added rows are saved on this computer and, if you sign in to your account, go to your other computers with your settings.
+![The editor open on the Keyboard: its keys drawn faintly, a row of two added tiles, Hello and My panels, a column of two tiles, Hi and Pause, beside the keys, and a Remove tiles button beside Save panel.](../../../assets/screenshots/panel-extras-editor.png)
+
+Added tiles are saved on this computer and, if you sign in to your account, go to your other computers with your settings.
 
 ## Open a panel
 

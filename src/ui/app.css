@@ -286,6 +286,9 @@ main { min-width: 0; }
 .panel-picture-tile { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 30px; border: 1px solid; border-radius: 4px; padding: 2px 6px; overflow: hidden; text-align: center; overflow-wrap: anywhere; }
 /* A native panel's own keys: there to place the user's rows, not to read. */
 .panel-picture-tile[data-fixed] { opacity: 0.55; min-height: 22px; padding: 1px 2px; font-size: 0.8em; white-space: nowrap; }
+.panel-picture-spacer { min-width: 0; }
+.panel-picture-keys { display: flex; gap: 4px; min-width: 0; }
+.panel-picture-large .panel-picture-keys { gap: 8px; }
 .panel-picture-large { font-size: 1rem; }
 .panel-picture-large .panel-picture-tile[data-fixed] { min-height: 40px; padding: 4px 6px; white-space: normal; }
 .panel-picture-large .panel-picture-band { height: 28px; font-size: 0.875rem; }

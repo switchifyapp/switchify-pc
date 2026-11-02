@@ -28,9 +28,11 @@ export function tileCount(panel: CustomPanel) {
   return panel.rows.reduce((count, row) => count + row.length, 0);
 }
 
-/** What a native panel's card says about the rows below its keys. */
+/** What a native panel's card says about the tiles around its keys. */
 export function extrasSummary(view: PanelExtrasView) {
-  return view.rows.length === 0 ? "keys only" : view.rows.length === 1 ? "1 extra row" : `${view.rows.length} extra rows`;
+  const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+  const parts = [view.rows.length > 0 && count(view.rows.length, "extra row"), view.columns.length > 0 && count(view.columns.length, "column")].filter((part): part is string => Boolean(part));
+  return parts.length === 0 ? "keys only" : parts.join(" and ");
 }
 
 /** The rows below a native panel's keys, in the shape the editor edits. */
@@ -48,7 +50,7 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
   useEffect(() => () => setEditing(false), [setEditing]);
   const openPanel = (panel: CustomPanel, opener: HTMLButtonElement | null) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin(null); setExtra(null); setOpen(panel); };
   const openBuiltin = (menu: BuiltinPanelView, opener: HTMLButtonElement) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin({ kind: menu.kind, rearranged: menu.override !== null }); setExtra(null); setOpen(menu.override ?? menu.default); };
-  const openExtras = (view: PanelExtrasView, opener: HTMLButtonElement) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin(null); setExtra({ target: view.target, fixed: view.fixed, hasRows: view.rows.length > 0 }); setOpen(extrasPanel(view)); };
+  const openExtras = (view: PanelExtrasView, opener: HTMLButtonElement) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin(null); setExtra({ target: view.target, fixed: view.fixed, columns: view.columns, hasTiles: view.rows.length > 0 || view.columns.length > 0 }); setOpen(extrasPanel(view)); };
   const closePanel = () => {
     setEditing(false);
     setOpen(null);
@@ -62,7 +64,7 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
     if (saved === null) return;
     openPanel(saved, null);
   };
-  if (open && extra) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} extras={extra} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveExtras(extra.target, panel.rows).then(closePanel, () => undefined)} onDelete={() => saveExtras(extra.target, []).then(closePanel, () => undefined)} />;
+  if (open && extra) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} extras={extra} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveExtras(extra.target, panel.rows, extra.columns).then(closePanel, () => undefined)} onSaveExtras={(rows, columns) => saveExtras(extra.target, rows, columns).then(closePanel, () => undefined)} onDelete={() => saveExtras(extra.target, [], []).then(closePanel, () => undefined)} />;
   if (open && builtin) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} builtin={builtin} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveBuiltin(builtin.kind, panel).then(closePanel, () => undefined)} onDelete={() => resetBuiltin(builtin.kind).then(closePanel, () => undefined)} />;
   if (open) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => save(panel).then(closePanel, () => undefined)} onDelete={() => remove(open.id).then(closePanel, () => undefined)} />;
   return <div className="view">
@@ -86,10 +88,10 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
       </li>)}</ul>
     </section>}
     {extras.length > 0 && <section className="panel-group" aria-labelledby="panel-extras-heading">
-      <header className="section-header"><div><h2 id="panel-extras-heading">Mouse panel and keyboard</h2><p>Their keys stay as they are. Add rows of your own tiles below them.</p></div></header>
+      <header className="section-header"><div><h2 id="panel-extras-heading">Mouse panel and keyboard</h2><p>Their keys stay as they are. Add rows of your own tiles below them, or columns beside them.</p></div></header>
       <ul className="panel-grid">{extras.map((view) => <li key={view.target}>
         <Button className="panel-card" onClick={(event) => openExtras(view, event.currentTarget)} aria-label={`${view.name}, ${extrasSummary(view)}`}>
-          <PanelPicture panel={extrasPanel(view)} fixed={view.fixed} theme={theme} />
+          <PanelPicture panel={extrasPanel(view)} fixed={view.fixed} columns={view.columns} theme={theme} />
           <span className="panel-card-text"><strong>{view.name}</strong><small>{extrasSummary(view).replace(/^keys/, "Keys")}</small></span>
         </Button>
       </li>)}</ul>

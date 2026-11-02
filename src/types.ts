@@ -165,13 +165,15 @@ export type BuiltinPanelView = {
 /** One of a native panel's built-in keys, as a picture of the panel draws it. */
 export type PictureCell = { label: string; weight: number };
 
-/** The Mouse panel or the Keyboard as the Panels page shows it: its keys, and
- *  the rows the user added below them. */
+/** The Mouse panel or the Keyboard as the Panels page shows it: its keys, the
+ *  rows the user added below them and the columns beside them. */
 export type PanelExtrasView = {
   target: "mouse" | "keyboard";
   name: string;
   fixed: PictureCell[][];
   rows: PanelCell[][];
+  /** Each column runs down the right of the keys from the top row. */
+  columns: PanelCell[][];
 };
 
 export type AccountView = {

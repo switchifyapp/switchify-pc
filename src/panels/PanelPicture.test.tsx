@@ -46,6 +46,22 @@ describe("PanelPicture", () => {
     expect(screen.getByRole("img", { name: "Picture of Greetings: its keys only" })).toBeInTheDocument();
   });
 
+  it("draws columns beside the keys, from the top, with lines added for a long column", () => {
+    const fixed = [[{ label: "q", weight: 1 }], [{ label: "Space", weight: 4 }]];
+    const tile = (label: string) => ({ label, action: { type: "text", text: label } as const, span: 1 });
+    const columns = [[tile("A"), tile("B"), tile("C"), tile("D"), tile("E")], [{ ...tile("Wide"), span: 2 }]];
+    render(<PanelPicture panel={panel} fixed={fixed} columns={columns} theme="dark" />);
+    const picture = screen.getByRole("img", { name: "Picture of Greetings: its keys, then Copy, Hello; Back; columns: A, B, C, D, E; Wide" });
+    const rows = picture.querySelectorAll(".panel-picture-row");
+    // Two rows of keys and two of tiles, then a fifth line for E.
+    expect(rows).toHaveLength(5);
+    expect(within(rows[0] as HTMLElement).getByText("A")).toHaveAttribute("data-column", "1");
+    expect(within(rows[0] as HTMLElement).getByText("Wide")).toHaveAttribute("data-column", "2");
+    expect(within(rows[4] as HTMLElement).getByText("E")).toBeInTheDocument();
+    // The second column keeps its width where it has no tile.
+    expect(rows[1].querySelectorAll(".panel-picture-spacer")).toHaveLength(1);
+  });
+
   it("follows the chosen panel theme, or the computer when set to system", () => {
     expect(picturePalette("dark").panel).toBe("#141820");
     expect(picturePalette("light").panel).toBe("#f0f2f6");

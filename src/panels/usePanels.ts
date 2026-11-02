@@ -51,7 +51,7 @@ export function usePanels() {
     remove: (panelId: string) => run(() => api.deletePanel(panelId), setPanels),
     saveBuiltin: (kind: string, panel: CustomPanel) => run(() => api.saveBuiltinPanel(kind, panel), setBuiltins),
     resetBuiltin: (kind: string) => run(() => api.resetBuiltinPanel(kind), setBuiltins),
-    saveExtras: (target: string, rows: PanelCell[][]) => run(() => api.savePanelExtras(target, rows), setExtras),
+    saveExtras: (target: string, rows: PanelCell[][], columns: PanelCell[][]) => run(() => api.savePanelExtras(target, rows, columns), setExtras),
   };
 }
 export type PanelsController = ReturnType<typeof usePanels>;
