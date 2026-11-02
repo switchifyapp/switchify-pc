@@ -63,7 +63,7 @@ Rearranged menus are saved on this computer and, if you sign in to your account,
 
 Below the built-in menus, **Mouse panel and keyboard** shows the two scanning panels with their keys. The keys cannot be changed, but you can add rows of your own tiles below them: a phrase you type often, a shortcut, or a link to one of your panels. Choose a panel, then **Add row**, and give each tile a label and an action as on any panel. Up to four rows fit. Choose **Save panel**; the card then says how many rows you added.
 
-The rows appear on the mouse panel's Movement page and on every keyboard page, just above the bottom row, and scan like the rest. A tile acts as it does on your panels. On the keyboard, a tile that types waits for the text to land before scanning on, like a key. **Back** and **Close** leave the panel as its own Close key does. A tile that opens a menu or one of your panels from the mouse panel comes back to it with Back; from the keyboard, Back goes to Home.
+The rows appear on the mouse panel's Movement page and on every keyboard page, just above the bottom row, and scan like the rest. A tile acts as it does on your panels. On the keyboard, a tile that types waits for the text to land before scanning on, like a key. **Back** and **Close** leave the panel: from the keyboard they close it, and from the mouse panel they switch to point scanning, as its own Switch to Point key does. A tile that opens a menu or one of your panels from the mouse panel comes back to it with Back; from the keyboard, Back goes to Home.
 
 **Remove rows** takes the panel back to its keys alone. Switchify PC asks first.
 
