@@ -3,7 +3,7 @@ import { Demonstration, DemonstrationProvider } from "./help/Demonstration";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Accessibility, Bluetooth, ChevronDown, ChevronRight, CircleHelp, CircleUserRound, Download,
-  Copy, Home, Keyboard, KeyRound, Menu, MousePointer2, Plus, Power, RefreshCw, Save, Settings,
+  Copy, Home, Keyboard, KeyRound, LayoutGrid, Menu, MousePointer2, Plus, Power, RefreshCw, Save, Settings,
   SlidersHorizontal, Smartphone, Trash2, Wrench, X,
 } from "lucide-react";
 import { api, type ProfileExitAction } from "./api";
@@ -14,6 +14,8 @@ import { SettingsView } from "./settings/SettingsView";
 import { MouseSettingsView } from "./settings/MouseSettingsView";
 import { updateDescription, updateInFlight, updateLiveness, updateProgress, updateStanding, useUpdateProgress, type UpdateAction } from "./settings/UpdatesSection";
 import { TabPanel, Tabs } from "./Tabs";
+import { PanelsView } from "./panels/PanelsView";
+import { usePanels } from "./panels/usePanels";
 import { useSwitches, type SwitchController } from "./scanning/useSwitches";
 import { lastModeName, selectOpensHome, useScanning, type ScanningController } from "./scanning/useScanning";
 import { areaOptions } from "./scanning/preferences";
@@ -24,7 +26,7 @@ import { interfaceModeAdvice, reservedKeyAdvice } from "./help/keyAvailability";
 import { SwitchesSection } from "./settings/SwitchesSection";
 import { ScanningSection } from "./settings/ScanningSection";
 
-type View = "switches" | "scanning" | "mouse" | "mobile" | "home" | "devices" | "profiles" | "settings" | "support" | "account";
+type View = "switches" | "scanning" | "mouse" | "panels" | "mobile" | "home" | "devices" | "profiles" | "settings" | "support" | "account";
 
 const brandIconUrl = new URL("../src-tauri/icons/icon.png", import.meta.url).href;
 const mobileQrUrl = new URL("./assets/mobile-download-qr.png", import.meta.url).href;
@@ -540,6 +542,7 @@ export function App() {
   cancelCapture.current = switches.cancelCapture;
   useEffect(() => { if (pairingOpen && captureActive) void cancelCapture.current(); }, [pairingOpen, captureActive]);
   const [view, setView] = useState<View>("home");
+  const customPanels = usePanels();
   const viewRef = useRef<View>("home");
   const [profiles, setProfiles] = useState<SwitchProfile[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -789,7 +792,7 @@ export function App() {
     return () => { void stop.then((unlisten) => unlisten()); };
   }, [view]);
   const nav = useMemo(() => [
-    ["home", "Home", <Home size={19} />], ["switches", "Switches", <Keyboard size={19} />], ["scanning", "Scanning", <SlidersHorizontal size={19} />], ["mouse", "Mouse", <MousePointer2 size={19} />], ["mobile", "Mobile", <Smartphone size={19} />], ["settings", "Settings", <Settings size={19} />],
+    ["home", "Home", <Home size={19} />], ["switches", "Switches", <Keyboard size={19} />], ["scanning", "Scanning", <SlidersHorizontal size={19} />], ["mouse", "Mouse", <MousePointer2 size={19} />], ["panels", "Panels", <LayoutGrid size={19} />], ["mobile", "Mobile", <Smartphone size={19} />], ["settings", "Settings", <Settings size={19} />],
     ["support", "Help", <CircleHelp size={19} />],
   ] as const, []);
 
@@ -909,6 +912,7 @@ export function App() {
       {view === "switches" && <div className="view"><header className="page-header"><div><h1>Switches</h1><p>The switches you use to control this computer.</p></div></header><SwitchesSection mobileConnected={state.bluetooth === "connected"} platform={state.capabilities.platform} controller={switches} suspended={pairingOpen} /></div>}
       {view === "scanning" && <div className="view"><header className="page-header"><div><h1>Scanning</h1><p>Choose how your switches control the pointer.</p></div></header><ScanningSection controller={scanning} settings={settings ?? undefined} onSettingsChange={changeSettings} /></div>}
       {view === "mouse" && <MouseSettingsView settings={settings} onChange={changeSettings} scanning={scanning} />}
+      {view === "panels" && <PanelsView controller={customPanels} theme={scanning.config.scanPreferences?.panelTheme} />}
       {(view === "mobile" || view === "devices" || view === "profiles") && <div className="view"><header className="page-header"><div><h1>Mobile</h1><p>Control this computer from Switchify on a phone or tablet.</p></div></header><Tabs name="mobile" label="Mobile connection sections" active={view} onSelect={selectView} tabs={[{id: "mobile", label: "Connection"}, {id: "devices", label: "Paired devices"}, {id: "profiles", label: "Switch Forwarding"}]} /><TabPanel name="mobile" id={view}>
       {view === "mobile" && <MobileConnection state={state} onDisconnect={() => void perform(api.disconnectAll)} />}
       {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}

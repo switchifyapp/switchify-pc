@@ -49,6 +49,8 @@ const accountCall = (command: string, args?: Record<string, unknown>) => "__TAUR
   : Promise.resolve(structuredClone(browserAccount));
 
 let browserPanels: CustomPanel[] = [];
+/** Tests share one module; each starts with no panels. */
+export function resetBrowserPanels() { browserPanels = []; }
 
 let browserProfiles: SwitchProfile[] = [{
   id: "builtin.keyboard",

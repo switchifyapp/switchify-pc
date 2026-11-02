@@ -2,6 +2,11 @@ import type { PointScanConfig, ScannerColor } from './useScanning';
 export type PanelSize = 'small' | 'medium' | 'large';
 /** Light or dark panels. `system` follows the computer's setting. */
 export type PanelTheme = 'system' | 'light' | 'dark';
+/** Whether panels will be light, as the panels themselves decide. */
+export function lightPanels(theme: PanelTheme | undefined) {
+  if (theme === 'light' || theme === 'dark') return theme === 'light';
+  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: light)').matches;
+}
 export type ScanArea = 'point' | 'menu' | 'keyboard' | 'mouse';
 export type ScanOptions = {
   automatic: boolean;

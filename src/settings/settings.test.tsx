@@ -49,7 +49,7 @@ describe("Switchify PC settings", () => {
     await screen.findByRole("heading", { name: "Switchify PC" });
     const navigation = screen.getByRole("navigation");
     expect(within(navigation).getAllByRole("button").map((button) => button.textContent))
-      .toEqual(["Home", "Switches", "Scanning", "Mouse", "Mobile", "Settings", "Help"]);
+      .toEqual(["Home", "Switches", "Scanning", "Mouse", "Panels", "Mobile", "Settings", "Help"]);
     fireEvent.click(within(navigation).getByRole("button", { name: "Scanning" }));
     fireEvent.click(screen.getByRole("button", { name: "Customise mouse scanning" }));
     expect(screen.getByText(/Actions opens editing, window, browser, media, display and scanning commands/)).toBeInTheDocument();

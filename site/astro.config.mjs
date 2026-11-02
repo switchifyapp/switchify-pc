@@ -28,6 +28,7 @@ export default defineConfig({
           label: 'Using the computer',
           items: [
             { label: 'Home menu', slug: 'using/home-menu' },
+            { label: 'Panels', slug: 'using/panels' },
             { label: 'Point scanning', slug: 'using/point-scanning' },
             { label: 'Mouse panel and radar', slug: 'using/mouse-panel' },
             { label: 'Keyboard', slug: 'using/keyboard' },

@@ -2,17 +2,12 @@ import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { lastModeName, mouseRepeatStopInstruction, selectOpensHome, type ScanningController, type ScannerColor, type PointScanConfig } from '../scanning/useScanning';
-import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, savedKeyboardWait, itemScanning, itemScanningLabels, type ItemScanning, type PanelSize, type PanelTheme, type ScanArea, type ScanOptions } from '../scanning/preferences';
+import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, savedKeyboardWait, itemScanning, itemScanningLabels, lightPanels, type ItemScanning, type PanelSize, type PanelTheme, type ScanArea, type ScanOptions } from '../scanning/preferences';
 import { SettingGroup, Toggle, OptionGroup } from './controls';
 import { api } from '../api';
 import type { AppSettings } from '../types';
 
 const speedOptions = ["Very slow", "Slow", "Medium", "Fast", "Very fast"].map((label, value) => ({ label, value }));
-/** Whether the sample should show light panels, as the panels themselves decide. */
-function lightPanels(theme: PanelTheme | undefined) {
-  if (theme === 'light' || theme === 'dark') return theme === 'light';
-  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: light)').matches;
-}
 
 export function ScannerPreferences({ controller, settings: appSettings, onSettingsChange }: { controller: ScanningController; settings?: AppSettings; onSettingsChange?: (next: AppSettings) => void }) {
   const { config, state, update, chooseKeyboardLayout, pending } = controller;

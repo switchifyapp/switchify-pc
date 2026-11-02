@@ -269,6 +269,33 @@ main { min-width: 0; }
 .empty-state { display: grid; justify-items: center; border: 1px dashed var(--border-strong); border-radius: var(--radius-card); padding: 48px 24px; color: var(--muted); text-align: center; }
 .empty-state :is(h2, h3) { margin-top: 14px; color: var(--text); }
 .empty-state p { max-width: 56ch; margin-top: 6px; }
+/* --- Panels -----------------------------------------------------------------
+   Each card is a button showing the panel as the scan draws it, with the name
+   below. Previews use the native panels' own colours, not the app's. */
+.panel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; margin: 0; padding: 0; list-style: none; }
+.btn.panel-card { display: grid; gap: 12px; width: 100%; border-color: var(--border); border-radius: var(--radius-card); padding: 16px; color: inherit; background: var(--surface); font-weight: 400; text-align: left; align-content: start; }
+.btn.panel-card:hover { background: var(--surface-hover); }
+.panel-card-text { display: grid; gap: 2px; min-width: 0; }
+.panel-card-text strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-card-text small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-preview { display: grid; grid-template-rows: auto 1fr; width: 100%; border: 1px solid; border-radius: 8px; overflow: hidden; font-size: 0.75rem; line-height: 1.2; }
+.panel-preview-band { display: flex; align-items: center; height: 18px; border-bottom: 1px solid; padding: 0 8px; font-size: 0.6875rem; font-weight: 600; }
+.panel-preview-rows { display: grid; gap: 4px; padding: 6px; }
+.panel-preview-row { display: flex; gap: 4px; min-width: 0; }
+.panel-preview-tile { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 30px; border: 1px solid; border-radius: 4px; padding: 2px 6px; overflow: hidden; text-align: center; overflow-wrap: anywhere; }
+.panel-preview-large { font-size: 1rem; }
+.panel-preview-large .panel-preview-band { height: 28px; font-size: 0.875rem; }
+.panel-preview-large .panel-preview-rows { gap: 8px; padding: 12px; }
+.panel-preview-large .panel-preview-row { gap: 8px; }
+.panel-preview-large .panel-preview-tile { min-height: 56px; border-radius: 8px; padding: 6px 10px; }
+.panel-detail-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr); gap: 32px; align-items: start; }
+.panel-detail .panel-back { justify-self: start; margin: 0 0 8px -12px; }
+.panel-fields .field:first-child { margin-top: 0; }
+.panel-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.panel-delete-confirm { display: grid; gap: 12px; width: 100%; border: 1px solid var(--status-error-border); border-radius: var(--radius-card); padding: 16px; background: var(--status-error-soft); color: var(--text); }
+.panel-delete-confirm .btn { justify-self: start; }
+@media (max-width: 900px) { .panel-detail-layout { grid-template-columns: 1fr; } }
+
 .btn.profile-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; justify-content: stretch; gap: 16px; width: 100%; min-height: 80px; border-width: 0 0 1px; border-color: var(--border); border-radius: 0; padding: 16px 20px; color: inherit; background: transparent; font-weight: 400; text-align: left; }
 .btn.profile-row:last-child { border-bottom: 0; }
 .btn.profile-row:hover { background: var(--surface-hover); }

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import { api, browserState } from "./api";
+import { api, browserState, resetBrowserPanels } from "./api";
 import type { AccountView, BluetoothState, SwitchProfile } from "./types";
 
 import * as switchHooks from "./scanning/useSwitches";
@@ -24,6 +24,7 @@ describe("Switchify PC shell", () => {
     browserState.updater = { status: "unconfigured", version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
     browserState.setup = { shown: true, completed: false, autoOpenEligible: false };
     browserState.switchKeysReleased = false;
+    resetBrowserPanels();
   });
 
   afterEach(() => {
@@ -551,6 +552,52 @@ describe("Switchify PC shell", () => {
 
     expect(await screen.findByRole("dialog", { name: "Input access" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Verification code for Galaxy")).not.toBeInTheDocument();
+  });
+
+  it("lists panels with previews and makes a starter panel", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    expect(await screen.findByRole("heading", { name: "Panels", level: 1 })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "No panels yet" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "New panel" }));
+    // The starter panel opens straight away, drawn as the scan will show it.
+    expect(await screen.findByRole("heading", { name: "New panel", level: 1 })).toBeInTheDocument();
+    const preview = screen.getByRole("img", { name: "Preview of New panel: 2 rows" });
+    expect(within(preview).getByText("Keyboard")).toBeInTheDocument();
+    expect(within(preview).getByText("Close")).toHaveAttribute("data-toolbar", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "All panels" }));
+    const card = await screen.findByRole("button", { name: "New panel, 4 tiles" });
+    expect(within(card).getByRole("img", { name: "Preview of New panel: 2 rows" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "No panels yet" })).not.toBeInTheDocument();
+  });
+
+  it("renames, validates and deletes a panel", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New panel" }));
+    await screen.findByRole("heading", { name: "New panel", level: 1 });
+    fireEvent.click(screen.getByRole("button", { name: "All panels" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New panel" }));
+    await screen.findByRole("heading", { name: "New panel 2", level: 1 });
+
+    const name = screen.getByRole("textbox", { name: "Panel name" });
+    fireEvent.change(name, { target: { value: " new PANEL " } });
+    expect(screen.getByText("Panel names must be unique.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save panel" })).toBeDisabled();
+    fireEvent.change(name, { target: { value: "Greetings" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Description" }), { target: { value: "Things I say a lot" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save panel" }));
+    const card = await screen.findByRole("button", { name: "Greetings, 4 tiles" });
+    expect(within(card).getByText("Things I say a lot")).toBeInTheDocument();
+
+    fireEvent.click(card);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete panel" }));
+    const confirmation = screen.getByRole("alertdialog", { name: "Delete this panel?" });
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Greetings, 4 tiles" })).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "New panel, 4 tiles" })).toBeInTheDocument();
   });
 
   it("creates a profile and records a desired key", async () => {
