@@ -17,7 +17,7 @@ type Selection = { row: number; cell: number; column?: true };
 const blankTile = (): PanelCell => ({ label: "Back", action: { type: "back" }, span: 1 });
 
 /** Edits one panel: its name, its rows of tiles, and what each tile does.
- *  Nothing is saved until Save panel; leaving with changes asks first. */
+ *  Nothing is saved until Save; leaving with changes asks first. */
 /** A built-in menu being rearranged: its name stays, and Reset replaces Delete. */
 export type BuiltinEditing = { kind: string; rearranged: boolean };
 /** The tiles around a native panel's keys being edited: the keys are shown
@@ -52,6 +52,8 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
   const canSave = dirty && Object.keys(problems).length === 0;
   const rowLimit = extras ? maxExtraRows : maxRows;
   const saveLabel = extras || builtin ? "Save changes" : "Save panel";
+  /** Brings an element into view and gives it focus. */
+  const reveal = (element: HTMLElement | null) => { element?.scrollIntoView?.({ block: "center" }); element?.focus(); };
   const tileId = (selection: Selection) => `${ids}-${selection.column ? "ctile" : "tile"}-${selection.row}-${selection.cell}`;
   /** What stops the panel saving, each with a way to the place it is about,
    *  so a problem out of view is never a mystery. */
@@ -59,10 +61,15 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
     const tile = key.match(/^(c?)tile-(\d+)-(\d+)$/);
     if (tile) {
       const selection: Selection = { row: Number(tile[2]), cell: Number(tile[3]), ...(tile[1] ? { column: true as const } : {}) };
-      return { label: `${selection.column ? "Column" : "Row"} ${selection.row + 1}, tile ${selection.cell + 1}: ${message}`, go: () => { choose(selection); requestAnimationFrame(() => { const element = document.getElementById(tileId(selection)); element?.scrollIntoView({ block: "center" }); element?.focus(); }); } };
+      return { label: `${selection.column ? "Column" : "Row"} ${selection.row + 1}, tile ${selection.cell + 1}: ${message}`, go: () => { choose(selection); requestAnimationFrame(() => reveal(document.getElementById(tileId(selection)))); } };
+    }
+    const line = key.match(/^(row|column)-(\d+)$/);
+    if (line) {
+      const place = `${line[1] === "row" ? "Row" : "Column"} ${Number(line[2]) + 1}`;
+      return { label: `${place}: ${message}`, go: () => reveal(document.querySelector<HTMLElement>(`[aria-label="Add tile to ${place.toLowerCase()}"]`)) };
     }
     const section = key === "name" ? nameRef : key.startsWith("column") ? columnsRef : rowsRef;
-    return { label: `To save: ${message}`, go: () => { section.current?.scrollIntoView({ block: "center" }); section.current?.focus(); } };
+    return { label: `To save: ${message}`, go: () => reveal(section.current) };
   });
 
   useEffect(() => { onDirtyChange(dirty); return () => onDirtyChange(false); }, [dirty, onDirtyChange]);
@@ -177,7 +184,8 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
           : builtin
           ? <Button ref={deleteRef} className="secondary" disabled={busy || !builtin.rearranged} title={builtin.rearranged ? undefined : "Not changed yet"} onClick={requestDelete}><RotateCcw size={16} aria-hidden="true" />Reset to default</Button>
           : <Button ref={deleteRef} className="secondary danger" disabled={busy} onClick={requestDelete}><Trash2 size={16} aria-hidden="true" />Delete panel</Button>}<Button className="primary" disabled={busy || !canSave} onClick={save}><Save size={16} aria-hidden="true" />{saveLabel}</Button></div></header>
-      {attention.length > 0 && <p className="save-hint" role="status"><Button className="text-button" onClick={attention[0].go}>{attention.length === 1 ? attention[0].label : `${attention.length} things need attention. Go to the first`}</Button></p>}
+      {/* Always present, so screen readers hear a problem appear. */}
+      <p className="save-hint" role="status" data-empty={attention.length === 0 || undefined}>{attention.length > 0 && <Button className="text-button" onClick={attention[0].go}>{attention.length === 1 ? attention[0].label : `${attention.length} things need attention. Go to the first`}</Button>}</p>
       {error && !confirmation && <p className="dialog-error" role="alert">{error}</p>}
       <div className="panel-editor-layout">
         <div className="panel-editor-main">

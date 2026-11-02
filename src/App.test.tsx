@@ -713,7 +713,7 @@ describe("Switchify PC shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
     fireEvent.click(await screen.findByRole("button", { name: "New panel" }));
     await screen.findByRole("heading", { name: "New panel", level: 1 });
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
     fireEvent.click(screen.getByRole("button", { name: /^Row 1, tile 2/ }));
     fireEvent.change(screen.getByRole("textbox", { name: "Label" }), { target: { value: "   " } });
     // The note names the tile. Choosing it after moving on selects that tile again.
@@ -722,6 +722,7 @@ describe("Switchify PC shell", () => {
     expect(screen.getByRole("heading", { name: "Row 2, tile 1" })).toBeInTheDocument();
     fireEvent.click(hint);
     expect(screen.getByRole("heading", { name: "Row 1, tile 2" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Row 1, tile 2/ })).toHaveFocus());
     expect(screen.getByRole("button", { name: "Save panel" })).toBeDisabled();
     // Several problems: a count, going to the first.
     fireEvent.click(screen.getByRole("button", { name: /^Row 2, tile 2/ }));
