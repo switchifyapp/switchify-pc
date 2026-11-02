@@ -15,6 +15,9 @@ pub fn fit_scale(screen: Rect, units: f64, size: PanelSize, width: f64, height: 
         .min(screen.height.max(1.0) / height)
 }
 
+/// The space between keys in a row, before scaling.
+pub const KEY_GAP: f64 = 8.0;
+
 pub struct PanelKey {
     pub text: String,
     pub weight: f64,
@@ -247,7 +250,7 @@ impl Panel {
             .iter()
             .map(|row| {
                 row.iter().map(|key| key.weight).sum::<f64>() * self.key_width
-                    + row.len().saturating_sub(1) as f64 * 8.0
+                    + row.len().saturating_sub(1) as f64 * KEY_GAP
             })
             .fold(0.0, f64::max)
             + 32.0;
