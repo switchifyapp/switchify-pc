@@ -204,7 +204,20 @@ fn path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 /// Reads the saved panels, dropping the file's contents if any panel is
 /// invalid rather than running with a half-usable set.
 fn load(bytes: &[u8]) -> Option<Contents> {
-    let store: Store = serde_json::from_slice(bytes).ok()?;
+    let mut value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    // A file from a build that held only rows of extra tiles still loads.
+    if let Some(extras) = value
+        .get_mut("extras")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for panel in extras.values_mut() {
+            if panel.is_array() {
+                let rows = panel.take();
+                *panel = serde_json::json!({ "rows": rows, "columns": [] });
+            }
+        }
+    }
+    let store: Store = serde_json::from_value(value).ok()?;
     if !(1..=STORE_SCHEMA).contains(&store.schema_version) {
         return None;
     }
@@ -424,25 +437,25 @@ pub fn replace_overrides(
     Ok(())
 }
 
-/// Saves the extra rows of one native panel. No rows takes the panel back
-/// to its keys alone.
+/// Saves the extra tiles of one native panel. None takes the panel back to
+/// its keys alone.
 pub fn save_extras(
     app: &AppHandle,
     target: crate::panel_extras::Target,
-    rows: crate::panel_extras::Rows,
+    extras: crate::panel_extras::PanelExtras,
 ) -> Result<(), String> {
-    let rows = crate::panel_extras::normalized(rows);
-    crate::panel_extras::validate_rows(&rows)?;
+    let extras = extras.normalized();
+    extras.validate()?;
     let controller = app.state::<Controller>();
     let mut current = controller
         .contents
         .lock()
         .unwrap_or_else(|p| p.into_inner());
     let mut next = current.clone();
-    if rows.is_empty() {
+    if extras.is_empty() {
         next.extras.remove(target.key());
     } else {
-        next.extras.insert(target.key().into(), rows);
+        next.extras.insert(target.key().into(), extras);
     }
     if next == *current {
         return Ok(());
@@ -455,7 +468,7 @@ pub fn save_extras(
     Ok(())
 }
 
-/// Replaces the extra rows of every native panel with a synced set.
+/// Replaces the extra tiles of every native panel with a synced set.
 /// Settings sync announces the change itself once the whole apply is done.
 pub fn replace_extras(app: &AppHandle, extras: crate::panel_extras::Extras) -> Result<(), String> {
     crate::panel_extras::validate_all(&extras)?;
@@ -812,9 +825,17 @@ mod tests {
         })
         .unwrap();
         assert!(load(&stray).is_none());
+        // A file holding only rows of extra tiles, from an earlier build, loads.
+        let only_rows = br#"{"schemaVersion":2,"panels":[],"overrides":{},"extras":{"mouse":[[{"label":"Hi","action":{"type":"text","text":"Hi"},"span":1}]]}}"#;
+        let loaded = load(only_rows).unwrap();
+        assert_eq!(loaded.extras["mouse"].rows.len(), 1);
+        assert!(loaded.extras["mouse"].columns.is_empty());
         // Extra rows on a panel that takes none refuse the file too.
         let mut extras = BTreeMap::new();
-        extras.insert("home".into(), sample("a", "A").rows);
+        extras.insert(
+            "home".into(),
+            crate::panel_extras::PanelExtras::rows(sample("a", "A").rows),
+        );
         let misplaced = serde_json::to_vec(&Store {
             schema_version: STORE_SCHEMA,
             panels: vec![],

@@ -2,6 +2,7 @@
 use crate::{
     custom_panels::Cell,
     panel_actions::PanelAction,
+    panel_extras::PanelExtras,
     scan_items::{ItemScanner, Policy},
     scanning::{Action, Frame, Rect, ScannerColor, TileRole, TileStyle},
 };
@@ -52,6 +53,8 @@ pub enum Key {
     Close,
     /// A tile the user added below the keys: its row and place in the row.
     Extra(usize, usize),
+    /// A tile the user added beside the keys: its column and place in it.
+    Column(usize, usize),
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Stroke {
@@ -106,7 +109,7 @@ pub enum Output {
     Layout(crate::point_scan::KeyboardLayout),
     Close,
     /// A tile the user added was chosen; the workflow runs its action.
-    Extra(usize, usize),
+    Tile(Key),
 }
 
 pub fn rows(page: Page, mac: bool) -> Vec<Vec<Key>> {
@@ -290,8 +293,9 @@ pub struct Keyboard {
     layout_save_error: bool,
     positioning: bool,
     mac: bool,
-    /// The user's rows, shown on every page above the page row.
-    extras: Vec<Vec<Cell>>,
+    /// The user's tiles, shown on every page: rows above the page row,
+    /// columns down the right.
+    extras: PanelExtras,
     rows: Vec<Vec<Key>>,
     scan: ItemScanner<Key>,
     activation: Option<u64>,
@@ -343,7 +347,7 @@ impl Keyboard {
             layout_save_error: false,
             positioning: false,
             mac,
-            extras: Vec::new(),
+            extras: PanelExtras::default(),
             rows,
             scan,
             activation: None,
@@ -370,8 +374,8 @@ impl Keyboard {
         self.set_layout(layout);
         self
     }
-    /// Adds the user's rows below the keys.
-    pub fn with_extras(mut self, extras: Vec<Vec<Cell>>) -> Self {
+    /// Adds the user's tiles around the keys.
+    pub fn with_extras(mut self, extras: PanelExtras) -> Self {
         self.extras = extras;
         self.rebuild_rows();
         self
@@ -390,28 +394,87 @@ impl Keyboard {
             })
             .collect()
     }
-    pub fn extra(&self, row: usize, column: usize) -> Option<&Cell> {
-        self.extras.get(row)?.get(column)
+    /// The tile a key the user added stands for.
+    pub fn cell(&self, key: Key) -> Option<&Cell> {
+        match key {
+            Key::Extra(row, column) => self.extras.rows.get(row)?.get(column),
+            Key::Column(column, index) => self.extras.columns.get(column)?.get(index),
+            _ => None,
+        }
+    }
+    /// The widest row of keys, in key widths, with the gaps between them.
+    /// The user's tiles are left out: they take their width from the keys.
+    fn widest_keys(&self) -> f64 {
+        let gap = crate::scan_panel::KEY_GAP;
+        self.rows
+            .iter()
+            .map(|keys| {
+                let fixed: Vec<Key> = keys
+                    .iter()
+                    .copied()
+                    .filter(|key| !matches!(key, Key::Extra(..) | Key::Column(..)))
+                    .collect();
+                if fixed.is_empty() {
+                    return 0.0;
+                }
+                fixed.iter().map(|&key| self.weight(key)).sum::<f64>()
+                    + fixed.len().saturating_sub(1) as f64 * gap / 68.0
+            })
+            .fold(1.0, f64::max)
+    }
+    /// A column is as wide as its widest tile.
+    fn column_width(&self, column: usize) -> f64 {
+        self.extras.columns.get(column).map_or(1.0, |cells| {
+            cells
+                .iter()
+                .map(|cell| f64::from(cell.span))
+                .fold(1.0, f64::max)
+        })
+    }
+    /// The columns drawn on the current page: none while positioning.
+    fn drawn_columns(&self) -> usize {
+        if self.positioning {
+            0
+        } else {
+            self.extras.columns.len()
+        }
+    }
+    /// The blank that keeps a row's keys to the widest row's width once
+    /// columns follow them, so every column lines up. A row a column added
+    /// below the keyboard is blank across the whole width of the keys.
+    fn row_filler(&self, row: &[Key]) -> Option<crate::scan_panel::PanelKey> {
+        if self.drawn_columns() == 0 {
+            return None;
+        }
+        let gap = crate::scan_panel::KEY_GAP;
+        let keys: Vec<Key> = row
+            .iter()
+            .copied()
+            .filter(|key| !matches!(key, Key::Column(..)))
+            .collect();
+        let widest = self.widest_keys() * 68.0;
+        let slack = if keys.is_empty() {
+            widest
+        } else {
+            let width = keys.iter().map(|&key| self.weight(key)).sum::<f64>() * 68.0
+                + keys.len().saturating_sub(1) as f64 * gap;
+            widest - width - gap
+        };
+        (slack > 0.5).then(|| {
+            let mut blank = crate::scan_panel::PanelKey::blank();
+            blank.weight = slack / 68.0;
+            blank
+        })
     }
     /// A tile's share of its row. An extra row shares the width of the
     /// keyboard's widest row of keys between its tiles by span, as a row on
     /// the user's panels does, so the keys decide how wide the keyboard is.
     fn extra_weight(&self, row: usize, column: usize) -> f64 {
-        let Some(cells) = self.extras.get(row) else {
+        let Some(cells) = self.extras.rows.get(row) else {
             return 1.0;
         };
         let gap = crate::scan_panel::KEY_GAP;
-        // The widest row of keys, with the gaps between them, in key widths.
-        let widest = self
-            .rows
-            .iter()
-            .filter(|keys| !keys.iter().any(|key| matches!(key, Key::Extra(..))))
-            .map(|keys| {
-                keys.iter().map(|&key| self.weight(key)).sum::<f64>()
-                    + keys.len().saturating_sub(1) as f64 * gap / 68.0
-            })
-            .fold(1.0, f64::max);
-        let keys = widest - cells.len().saturating_sub(1) as f64 * gap / 68.0;
+        let keys = self.widest_keys() - cells.len().saturating_sub(1) as f64 * gap / 68.0;
         let total: f64 = cells.iter().map(|cell| f64::from(cell.span)).sum();
         let span = cells.get(column).map_or(1.0, |cell| f64::from(cell.span));
         span * keys.max(1.0) / total.max(1.0)
@@ -457,10 +520,10 @@ impl Keyboard {
         } else {
             rows_for(self.page, self.mac, self.layout)
         };
-        if !self.positioning && !self.extras.is_empty() {
+        if !self.positioning && !self.extras.rows.is_empty() {
             let bottom = self.rows.pop().unwrap_or_default();
             self.rows
-                .extend(self.extras.iter().enumerate().map(|(row, cells)| {
+                .extend(self.extras.rows.iter().enumerate().map(|(row, cells)| {
                     (0..cells.len())
                         .map(|column| Key::Extra(row, column))
                         .collect()
@@ -475,6 +538,19 @@ impl Keyboard {
         }
         if self.prediction_enabled && self.prediction_failed && !self.positioning {
             self.rows.last_mut().unwrap().push(Key::RetryPrediction);
+        }
+        if !self.positioning {
+            // Columns run down the right from the top row; a column longer
+            // than the keyboard adds rows of its own below.
+            let lengths: Vec<usize> = self.extras.columns.iter().map(Vec::len).collect();
+            for (column, length) in lengths.into_iter().enumerate() {
+                for index in 0..length {
+                    if index >= self.rows.len() {
+                        self.rows.push(Vec::new());
+                    }
+                    self.rows[index].push(Key::Column(column, index));
+                }
+            }
         }
         self.scan.replace_rows(&self.rows);
         self.scan.restart();
@@ -549,10 +625,23 @@ impl Keyboard {
             return false;
         }
         // The highlighted slots: one, a group of the row, or the whole row.
-        let columns = self.scan.highlight(&self.rows).1;
+        // A tile the user added beside the suggestions is never disabled,
+        // and a row holding one is always worth stopping at.
+        let slots = crate::prediction::SLOTS;
+        let Some(columns) = self.scan.highlight(&self.rows).1 else {
+            return self.rows[0].len() <= slots
+                && self
+                    .predictions
+                    .as_ref()
+                    .is_none_or(|b| b.words.iter().all(Option::is_none));
+        };
+        if columns.end > slots {
+            return false;
+        }
+        let columns = columns.start..columns.end.min(slots);
         self.predictions.as_ref().is_none_or(|b| {
             b.words
-                .get(columns.unwrap_or(0..b.words.len()))
+                .get(columns)
                 .is_none_or(|slots| slots.iter().all(Option::is_none))
         })
     }
@@ -763,8 +852,8 @@ impl Keyboard {
                 self.rebuild_rows();
             }
             Key::Close => return Some(Output::Close),
-            Key::Extra(row, column) => {
-                let action = self.extra(row, column)?.action.clone();
+            Key::Extra(..) | Key::Column(..) => {
+                let action = self.cell(key)?.action.clone();
                 match action {
                     PanelAction::Pause => {
                         self.scan.wait();
@@ -777,7 +866,7 @@ impl Keyboard {
                     _ => {}
                 }
                 if crate::panel_extras::leaves(&action) {
-                    return Some(Output::Extra(row, column));
+                    return Some(Output::Tile(key));
                 }
                 // Typed or run like a key: the scan waits for the result.
                 self.predictions = None;
@@ -785,7 +874,7 @@ impl Keyboard {
                 self.activation = self.scan.begin_activation();
                 self.activation?;
                 self.pending_typed = Some(PendingTyped::Other);
-                return Some(Output::Extra(row, column));
+                return Some(Output::Tile(key));
             }
             Key::Character(..) | Key::Named(_) => {
                 let stroke = self.stroke(key);
@@ -1044,8 +1133,8 @@ impl Keyboard {
             Key::Position(dock) => crate::scan_panel::position_label(dock, self.dock),
             Key::Back => "Back".into(),
             Key::Close => "Close keyboard".into(),
-            Key::Extra(row, column) => self
-                .extra(row, column)
+            Key::Extra(..) | Key::Column(..) => self
+                .cell(key)
                 .map(|cell| cell.label.clone())
                 .unwrap_or_default(),
         }
@@ -1053,6 +1142,7 @@ impl Keyboard {
     fn weight(&self, key: Key) -> f64 {
         match key {
             Key::Extra(row, column) => self.extra_weight(row, column),
+            Key::Column(column, _) => self.column_width(column),
             Key::Character(' ', _) => 4.0,
             Key::Named("Backspace" | "Enter") => 1.9,
             Key::Named("Tab") | Key::Caps | Key::Modifier(_) => 1.6,
@@ -1067,8 +1157,8 @@ impl Keyboard {
     fn style(&self, key: Key, row_scan: bool) -> TileStyle {
         TileStyle {
             role: match key {
-                Key::Extra(row, column) => {
-                    self.extra(row, column).map_or(TileRole::Utility, |cell| {
+                Key::Extra(..) | Key::Column(..) => {
+                    self.cell(key).map_or(TileRole::Utility, |cell| {
                         crate::panel_extras::role(&cell.action)
                     })
                 }
@@ -1120,22 +1210,41 @@ impl Keyboard {
                 .rows
                 .iter()
                 .map(|row| {
-                    row.iter()
-                        .map(|&key| {
-                            let style = self.style(key, highlight_row);
-                            crate::scan_panel::PanelKey {
-                                text: self.display(key),
-                                weight: self.weight(key),
-                                role: style.role,
-                                active: style.active,
-                                blank: false,
-                                // An empty suggestion slot keeps its place
-                                // so the others do not move under the scan.
-                                hidden: matches!(key, Key::Prediction(_))
-                                    && self.label(key).is_empty(),
+                    let tile = |key: Key| {
+                        let style = self.style(key, highlight_row);
+                        crate::scan_panel::PanelKey {
+                            text: self.display(key),
+                            weight: self.weight(key),
+                            role: style.role,
+                            active: style.active,
+                            blank: false,
+                            // An empty suggestion slot keeps its place
+                            // so the others do not move under the scan.
+                            hidden: matches!(key, Key::Prediction(_)) && self.label(key).is_empty(),
+                        }
+                    };
+                    let mut keys: Vec<crate::scan_panel::PanelKey> = row
+                        .iter()
+                        .filter(|key| !matches!(key, Key::Column(..)))
+                        .map(|&key| tile(key))
+                        .collect();
+                    keys.extend(self.row_filler(row));
+                    // Every row carries a slot for each column, so a column
+                    // lines up where a row has no tile in it.
+                    for column in 0..self.drawn_columns() {
+                        let found = row
+                            .iter()
+                            .find(|key| matches!(key, Key::Column(c, _) if *c == column));
+                        keys.push(match found {
+                            Some(&key) => tile(key),
+                            None => {
+                                let mut blank = crate::scan_panel::PanelKey::blank();
+                                blank.weight = self.column_width(column);
+                                blank
                             }
-                        })
-                        .collect()
+                        });
+                    }
+                    keys
                 })
                 .collect(),
             message,
@@ -2968,6 +3077,53 @@ mod tests {
         }
         assert!(k.scan.nav.escaping() && !k.scan.escaping_to_groups());
         assert_eq!(frame(&k), k.rows[0].len());
+    }
+
+    #[test]
+    fn a_tile_beside_the_suggestions_is_reached_under_row_groups() {
+        use crate::scan_preferences::Resolved;
+        let tile = Cell {
+            label: "Hi".into(),
+            action: PanelAction::Text { text: "Hi".into() },
+            span: 1,
+        };
+        let mut k = Keyboard::configured(
+            false,
+            Resolved {
+                row_groups: true,
+                ..Default::default()
+            },
+        )
+        .with_extras(PanelExtras {
+            rows: Vec::new(),
+            columns: vec![vec![tile]],
+        });
+        k.enable_predictions(true);
+        let instant = crate::prediction::worker::Batch {
+            token: 1,
+            refined: true,
+            words: crate::prediction::slots(["one", "two", "three"]),
+        };
+        // No suggestions yet, then only the instant words: the row and the
+        // group holding the user's tile are never skipped.
+        for batch in [None, Some(instant)] {
+            k.predictions(batch, false);
+            k.restart();
+            assert_eq!(
+                k.scan.highlight(&k.rows).0,
+                0,
+                "the row is worth stopping at"
+            );
+            k.handle(Action::Select);
+            let mut reached = false;
+            for _ in 0..12 {
+                if let (0, Some(columns)) = k.scan.highlight(&k.rows) {
+                    reached |= columns.end > crate::prediction::SLOTS;
+                }
+                k.handle(Action::Next);
+            }
+            assert!(reached, "the tile's group is highlighted");
+        }
     }
 
     #[test]
