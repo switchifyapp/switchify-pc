@@ -2224,6 +2224,24 @@ mod tests {
         assert!(text.len() <= activation::MIRROR_MAX_BYTES, "{}", text.len());
     }
     #[test]
+    fn stale_mirror_cannot_undo_a_newer_revocation_in_the_file() {
+        let identity = activation::tests::FakeIdentity.load_or_create().unwrap();
+        let mut licensed = Record::new(1000);
+        licensed.key = Some(purchase());
+        licensed.installation = Some(identity.installation.clone());
+        licensed.lease = Some("lease".into());
+        licensed.revision = 3;
+        licensed.seal(&identity);
+        let mut revoked = licensed.clone();
+        revoked.lease = None;
+        revoked.terminal_status = Some("revoked".into());
+        revoked.revision = 5;
+        revoked.seal(&identity);
+        let merged = Record::reconcile(Some(revoked), Some(licensed), &identity).unwrap();
+        assert_eq!(merged.terminal_status.as_deref(), Some("revoked"));
+        assert!(merged.lease.is_none());
+    }
+    #[test]
     fn legacy_mirror_keeps_revocation_and_the_earliest_trial_start() {
         let identity = activation::tests::FakeIdentity.load_or_create().unwrap();
         let mut revoked = Record::new(1000);

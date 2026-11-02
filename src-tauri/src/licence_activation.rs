@@ -71,8 +71,9 @@ pub struct OsMirrorStore;
 pub const MIRROR_MAX_BYTES: usize = 2560;
 const LEGACY_MIRROR_ACCOUNT: &str = "record";
 /// A Windows password is UTF-16, which leaves too little room for an activated
-/// record, so bytes go in their own entry. Older builds still read the legacy
-/// one: overwriting it would stop them opening a licence after a rollback.
+/// record, so bytes go in their own entry. Older builds only understand the
+/// legacy one, so it stays a password: bytes there would lock them out after a
+/// rollback, and it keeps receiving every record that fits, including revocations.
 #[cfg(windows)]
 const MIRROR_ACCOUNT: &str = "record-v2";
 #[cfg(not(windows))]
@@ -104,7 +105,13 @@ impl MirrorStore for OsMirrorStore {
         keyring::Entry::new(SERVICE, MIRROR_ACCOUNT)
             .map_err(|_| STORAGE_ERROR)?
             .set_secret(text.as_bytes())
-            .map_err(|_| STORAGE_ERROR.into())
+            .map_err(|_| STORAGE_ERROR)?;
+        // Best effort: an activated record is expected to be too long here.
+        #[cfg(windows)]
+        if let Ok(legacy) = keyring::Entry::new(SERVICE, LEGACY_MIRROR_ACCOUNT) {
+            let _ = legacy.set_password(text);
+        }
+        Ok(())
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -257,6 +264,11 @@ pub fn request(
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn windows_mirror_never_replaces_the_legacy_entry_format() {
+        assert_ne!(MIRROR_ACCOUNT, LEGACY_MIRROR_ACCOUNT);
+    }
     #[test]
     fn mirror_prefers_the_current_entry_and_falls_back_to_the_legacy_one() {
         use keyring::Error::{NoEntry, NoStorageAccess};
