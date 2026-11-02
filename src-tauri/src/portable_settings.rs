@@ -7,6 +7,7 @@
 //! the same path as a local save so runtime state and overlays stay in step.
 
 use crate::{
+    custom_panels::{self, CustomPanel},
     point_scan, remote_scan,
     state::{AppSettings, SwitchProfile},
     switches,
@@ -16,7 +17,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 6;
+pub const SCHEMA_VERSION: u32 = 7;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -28,6 +29,11 @@ pub struct Document {
     pub switches: switches::Settings,
     pub point_scan: point_scan::Config,
     pub remote_switches: Vec<remote_scan::Slot>,
+    /// Added in version 7: user-built panels, merged one by one like profiles.
+    /// The default only fills in a merge base saved by an older build;
+    /// documents must still carry it (see `parse`).
+    #[serde(default)]
+    pub panels: Vec<CustomPanel>,
 }
 
 /// `AppSettings` without `start_with_system` (registered with this OS),
@@ -116,6 +122,7 @@ pub struct Local {
     pub switches: switches::Settings,
     pub point_scan: point_scan::Config,
     pub remote: remote_scan::Config,
+    pub panels: Vec<CustomPanel>,
 }
 
 impl Local {
@@ -137,6 +144,7 @@ impl Local {
                 .view()
                 .config,
             remote: remote_scan::config(app),
+            panels: custom_panels::list(app),
         }
     }
 
@@ -153,6 +161,7 @@ impl Local {
             switches: self.switches.clone(),
             point_scan: portable_point_scan(&self.point_scan),
             remote_switches: self.remote.slots.clone(),
+            panels: self.panels.clone(),
         }
     }
 }
@@ -195,11 +204,16 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
         return Err(ParseError::Newer(schema_version));
     }
     match schema_version {
-        1 => value = upgrade_v5(upgrade_v4(upgrade_v3(upgrade_v2(upgrade_v1(value)?)?)?)?)?,
-        2 => value = upgrade_v5(upgrade_v4(upgrade_v3(upgrade_v2(value)?)?)?)?,
-        3 => value = upgrade_v5(upgrade_v4(upgrade_v3(value)?)?)?,
-        4 => value = upgrade_v5(upgrade_v4(value)?)?,
-        5 => value = upgrade_v5(value)?,
+        1 => {
+            value = upgrade_v6(upgrade_v5(upgrade_v4(upgrade_v3(upgrade_v2(
+                upgrade_v1(value)?,
+            )?)?)?)?)?
+        }
+        2 => value = upgrade_v6(upgrade_v5(upgrade_v4(upgrade_v3(upgrade_v2(value)?)?)?)?)?,
+        3 => value = upgrade_v6(upgrade_v5(upgrade_v4(upgrade_v3(value)?)?)?)?,
+        4 => value = upgrade_v6(upgrade_v5(upgrade_v4(value)?)?)?,
+        5 => value = upgrade_v6(upgrade_v5(value)?)?,
+        6 => value = upgrade_v6(value)?,
         SCHEMA_VERSION => {}
         _ => {
             return Err(ParseError::Invalid(format!(
@@ -304,6 +318,20 @@ fn upgrade_v5(mut value: Value) -> Result<Value, ParseError> {
     if value.get("schemaVersion") != Some(&Value::from(5)) {
         return Err(ParseError::Invalid("version mismatch".into()));
     }
+    value["schemaVersion"] = Value::from(6);
+    Ok(value)
+}
+
+/// Version 6 had no user-built panels.
+fn upgrade_v6(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(6)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    let document = value
+        .as_object_mut()
+        .filter(|document| !document.contains_key("panels"))
+        .ok_or_else(|| ParseError::Invalid("it does not match version 6 settings".into()))?;
+    document.insert("panels".into(), Value::Array(Vec::new()));
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -318,6 +346,7 @@ pub struct Plan {
     pub point_scan: Option<point_scan::Config>,
     pub keyboard_layout: Option<point_scan::KeyboardLayout>,
     pub remote: Option<remote_scan::Config>,
+    pub panels: Option<Vec<CustomPanel>>,
 }
 
 impl Plan {
@@ -352,6 +381,7 @@ pub fn plan(local: &Local, incoming: Document) -> Result<Plan, String> {
     point_scan.validate()?;
 
     let profiles = merge_profiles(&local.profiles, incoming.profiles)?;
+    let panels = custom_panels::plan_replacement(&local.panels, incoming.panels)?;
 
     Ok(Plan {
         settings: (settings != local.settings).then_some(settings),
@@ -361,6 +391,7 @@ pub fn plan(local: &Local, incoming: Document) -> Result<Plan, String> {
         keyboard_layout: (keyboard_layout != local.point_scan.keyboard_layout)
             .then_some(keyboard_layout),
         remote: (remote.slots != local.remote.slots).then_some(remote),
+        panels,
     })
 }
 
@@ -436,6 +467,7 @@ pub struct Applied {
     pub switches: bool,
     pub point_scan: bool,
     pub remote: bool,
+    pub panels: bool,
 }
 
 /// Reads this install, plans the incoming document against it and applies
@@ -462,6 +494,10 @@ pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
     if let Some(config) = plan.remote {
         remote_scan::save(app, config)?;
         applied.remote = true;
+    }
+    if let Some(panels) = plan.panels {
+        custom_panels::replace(app, panels)?;
+        applied.panels = true;
     }
     if let Some(config) = plan.point_scan {
         crate::point_scan_runtime::configure(app, config)?;
@@ -497,6 +533,9 @@ pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
 /// A current document as an older version wrote it.
 #[cfg(test)]
 pub(crate) fn written_by(mut value: Value, version: u32) -> Value {
+    if version < 7 {
+        value.as_object_mut().unwrap().remove("panels");
+    }
     if version < 5 {
         value
             .pointer_mut("/pointScan/scanPreferences")
@@ -600,6 +639,7 @@ mod tests {
                 revision: 7,
                 ..remote_scan::Config::default()
             },
+            panels: vec![custom_panels::sample("greetings", "Greetings")],
         }
     }
 
@@ -688,7 +728,7 @@ mod tests {
             binding("next", "Gamepad8", Action::Next),
         ];
         let value = serde_json::to_value(cloud.document()).unwrap();
-        assert_eq!(value["schemaVersion"], json!(6));
+        assert_eq!(value["schemaVersion"], json!(SCHEMA_VERSION));
         assert_eq!(value["switches"]["bindings"][0]["key"], json!("Gamepad1"));
         let parsed = parse(value, SCHEMA_VERSION).unwrap();
         let switches = plan(&local, parsed).unwrap().switches.unwrap();
@@ -696,6 +736,49 @@ mod tests {
         // Button 9 is not a switch, so a document naming it is refused.
         let mut bad = cloud.clone();
         bad.switches.bindings[0].key = "Gamepad9".into();
+        let parsed = parse(
+            serde_json::to_value(bad.document()).unwrap(),
+            SCHEMA_VERSION,
+        )
+        .unwrap();
+        assert!(plan(&local, parsed).is_err());
+    }
+
+    #[test]
+    fn version_six_documents_read_with_no_custom_panels() {
+        let local = local();
+        let mut cloud = local.clone();
+        cloud.panels.clear();
+        let version_six = written_by(serde_json::to_value(cloud.document()).unwrap(), 6);
+        assert!(version_six.get("panels").is_none());
+        let parsed = parse(version_six.clone(), 6).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert!(parsed.panels.is_empty());
+        // Applying it removes this computer's panels, as a deletion elsewhere would.
+        let planned = plan(&local, parsed).unwrap();
+        assert_eq!(planned.panels, Some(Vec::new()));
+
+        // A version 6 document never carried panels, and a version 7 one must.
+        let mut early = version_six.clone();
+        early["panels"] = json!([]);
+        assert!(matches!(parse(early, 6), Err(ParseError::Invalid(_))));
+        let mut missing = version_six.clone();
+        missing["schemaVersion"] = json!(SCHEMA_VERSION);
+        assert!(matches!(
+            parse(missing, SCHEMA_VERSION),
+            Err(ParseError::Invalid(_))
+        ));
+
+        // Panels sync with their tiles, and an invalid panel refuses the document.
+        let value = serde_json::to_value(local.document()).unwrap();
+        assert_eq!(
+            value["panels"][0]["rows"][0][1]["action"]["type"],
+            json!("text")
+        );
+        let parsed = parse(value, SCHEMA_VERSION).unwrap();
+        assert!(plan(&local, parsed).unwrap().is_empty());
+        let mut bad = local.clone();
+        bad.panels[0].rows.clear();
         let parsed = parse(
             serde_json::to_value(bad.document()).unwrap(),
             SCHEMA_VERSION,
