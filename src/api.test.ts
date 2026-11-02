@@ -77,3 +77,30 @@ describe("runtime state events", () => {
     expect(handler).toHaveBeenCalledWith("settings");
   });
 });
+
+describe("panel action library", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    vi.clearAllMocks();
+  });
+
+  it("asks the backend for the catalogue with the search words", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.mocked(invoke).mockResolvedValueOnce([]);
+    await api.panelActions("alt tab");
+    expect(invoke).toHaveBeenCalledWith("get_panel_actions", { query: "alt tab" });
+    await api.panelActions();
+    expect(invoke).toHaveBeenLastCalledWith("get_panel_actions", { query: null });
+  });
+
+  it("checks a built action through the backend", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.mocked(invoke).mockResolvedValueOnce("Ctrl+S");
+    await expect(api.checkPanelAction({ type: "key", keys: ["Ctrl", "S"] })).resolves.toBe("Ctrl+S");
+    expect(invoke).toHaveBeenCalledWith("check_panel_action", { action: { type: "key", keys: ["Ctrl", "S"] } });
+  });
+
+  it("has an empty library in a plain browser", async () => {
+    await expect(api.panelActions("copy")).resolves.toEqual([]);
+  });
+});

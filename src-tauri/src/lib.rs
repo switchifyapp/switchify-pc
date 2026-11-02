@@ -25,6 +25,7 @@ mod macos_relaunch;
 mod modifier_overlay;
 mod mouse_repeat;
 mod overlay;
+mod panel_actions;
 mod panel_position;
 mod panel_theme;
 mod point_scan;
@@ -838,6 +839,22 @@ fn platform_dwell_click(_app: &AppHandle) -> Result<(), String> {
     Err("Dwell click is unavailable on this platform.".into())
 }
 
+/// The searchable library of actions a custom panel tile can perform.
+/// With a query, only entries whose name, category or keywords match every
+/// word of it.
+#[tauri::command]
+fn get_panel_actions(query: Option<String>) -> Vec<panel_actions::CatalogueEntry> {
+    panel_actions::search(query.as_deref().unwrap_or(""))
+}
+
+/// Checks a tile action the editor built from a template and returns its
+/// default label. The error never echoes typed text.
+#[tauri::command]
+fn check_panel_action(action: panel_actions::PanelAction) -> Result<String, String> {
+    action.validate()?;
+    Ok(action.label())
+}
+
 #[tauri::command]
 fn list_switch_profiles(model: State<'_, AppModel>) -> Vec<SwitchProfile> {
     model
@@ -939,42 +956,7 @@ fn valid_binding(binding: &state::SwitchBinding) -> bool {
 }
 
 fn valid_key(key: &str) -> bool {
-    matches!(
-        key,
-        "Space"
-            | "Enter"
-            | "Escape"
-            | "Tab"
-            | "Backspace"
-            | "Delete"
-            | "ArrowUp"
-            | "ArrowDown"
-            | "ArrowLeft"
-            | "ArrowRight"
-            | "Home"
-            | "End"
-            | "PageUp"
-            | "PageDown"
-            | "Ctrl"
-            | "Alt"
-            | "Shift"
-            | "Meta"
-            | "F1"
-            | "F2"
-            | "F3"
-            | "F4"
-            | "F5"
-            | "F6"
-            | "F7"
-            | "F8"
-            | "F9"
-            | "F10"
-            | "F11"
-            | "F12"
-    ) || key.len() == 1
-        && key
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric())
+    panel_actions::valid_key(key)
 }
 
 #[tauri::command]
@@ -2041,6 +2023,8 @@ pub fn run() {
             mark_setup_shown,
             complete_setup,
             list_switch_profiles,
+            get_panel_actions,
+            check_panel_action,
             save_switch_profile,
             delete_switch_profile,
             complete_profile_exit,

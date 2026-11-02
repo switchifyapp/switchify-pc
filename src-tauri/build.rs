@@ -43,6 +43,8 @@ fn main() {
         "mark_setup_shown",
         "complete_setup",
         "list_switch_profiles",
+        "get_panel_actions",
+        "check_panel_action",
         "save_switch_profile",
         "delete_switch_profile",
         "complete_profile_exit",
