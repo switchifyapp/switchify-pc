@@ -434,8 +434,16 @@ impl Keyboard {
     /// The blank that keeps a row's keys to the widest row's width once
     /// columns follow them, so every column lines up. A row a column added
     /// below the keyboard is blank across the whole width of the keys.
+    /// The columns drawn on the current page: none while positioning.
+    fn drawn_columns(&self) -> usize {
+        if self.positioning {
+            0
+        } else {
+            self.extras.columns.len()
+        }
+    }
     fn row_filler(&self, row: &[Key]) -> Option<crate::scan_panel::PanelKey> {
-        if self.extras.columns.is_empty() {
+        if self.drawn_columns() == 0 {
             return None;
         }
         let gap = crate::scan_panel::KEY_GAP;
@@ -627,7 +635,7 @@ impl Keyboard {
                     .as_ref()
                     .is_none_or(|b| b.words.iter().all(Option::is_none));
         };
-        if columns.start >= slots {
+        if columns.end > slots {
             return false;
         }
         let columns = columns.start..columns.end.min(slots);
@@ -1223,7 +1231,7 @@ impl Keyboard {
                     keys.extend(self.row_filler(row));
                     // Every row carries a slot for each column, so a column
                     // lines up where a row has no tile in it.
-                    for column in 0..self.extras.columns.len() {
+                    for column in 0..self.drawn_columns() {
                         let found = row
                             .iter()
                             .find(|key| matches!(key, Key::Column(c, _) if *c == column));
@@ -3069,6 +3077,53 @@ mod tests {
         }
         assert!(k.scan.nav.escaping() && !k.scan.escaping_to_groups());
         assert_eq!(frame(&k), k.rows[0].len());
+    }
+
+    #[test]
+    fn a_tile_beside_the_suggestions_is_reached_under_row_groups() {
+        use crate::scan_preferences::Resolved;
+        let tile = Cell {
+            label: "Hi".into(),
+            action: PanelAction::Text { text: "Hi".into() },
+            span: 1,
+        };
+        let mut k = Keyboard::configured(
+            false,
+            Resolved {
+                row_groups: true,
+                ..Default::default()
+            },
+        )
+        .with_extras(PanelExtras {
+            rows: Vec::new(),
+            columns: vec![vec![tile]],
+        });
+        k.enable_predictions(true);
+        let instant = crate::prediction::worker::Batch {
+            token: 1,
+            refined: true,
+            words: crate::prediction::slots(["one", "two", "three"]),
+        };
+        // No suggestions yet, then only the instant words: the row and the
+        // group holding the user's tile are never skipped.
+        for batch in [None, Some(instant)] {
+            k.predictions(batch, false);
+            k.restart();
+            assert_eq!(
+                k.scan.highlight(&k.rows).0,
+                0,
+                "the row is worth stopping at"
+            );
+            k.handle(Action::Select);
+            let mut reached = false;
+            for _ in 0..12 {
+                if let (0, Some(columns)) = k.scan.highlight(&k.rows) {
+                    reached |= columns.end > crate::prediction::SLOTS;
+                }
+                k.handle(Action::Next);
+            }
+            assert!(reached, "the tile's group is highlighted");
+        }
     }
 
     #[test]

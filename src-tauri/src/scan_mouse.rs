@@ -114,8 +114,16 @@ impl MousePanel {
     /// The blank that keeps a row's keys to the keys' width once columns
     /// follow them, so every column lines up. A row a column added below
     /// the panel is blank across the whole width of the keys.
+    /// The columns drawn on the current page: only the Movement page has them.
+    fn drawn_columns(&self) -> usize {
+        if self.more || self.positioning {
+            0
+        } else {
+            self.extras.columns.len()
+        }
+    }
     fn row_filler(&self, row: &[Key]) -> Option<PanelKey> {
-        if self.extras.columns.is_empty() {
+        if self.drawn_columns() == 0 {
             return None;
         }
         let gap = crate::scan_panel::KEY_GAP;
@@ -404,7 +412,7 @@ impl MousePanel {
                     keys.extend(self.row_filler(row));
                     // Every row carries a slot for each column, so a column
                     // lines up where a row has no tile in it.
-                    for column in 0..self.extras.columns.len() {
+                    for column in 0..self.drawn_columns() {
                         let tile = row
                             .iter()
                             .find(|key| matches!(key, Key::Column(c, _) if *c == column));

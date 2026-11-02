@@ -962,14 +962,14 @@ fn save_panel_extras(
 ) -> Result<Vec<PanelExtrasView>, String> {
     require_main(&window)?;
     let target = panel_extras::Target::from_key(&target).ok_or("That panel cannot be changed.")?;
-    custom_panels::save_extras(
-        &app,
-        target,
-        panel_extras::PanelExtras {
-            rows,
-            columns: columns.unwrap_or_default(),
-        },
-    )?;
+    // A caller that says nothing about the columns leaves them as they are.
+    let columns = columns.unwrap_or_else(|| {
+        custom_panels::extras(&app)
+            .get(target.key())
+            .map(|panel| panel.columns.clone())
+            .unwrap_or_default()
+    });
+    custom_panels::save_extras(&app, target, panel_extras::PanelExtras { rows, columns })?;
     Ok(list_panel_extras(app))
 }
 

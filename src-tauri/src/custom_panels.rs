@@ -204,7 +204,20 @@ fn path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 /// Reads the saved panels, dropping the file's contents if any panel is
 /// invalid rather than running with a half-usable set.
 fn load(bytes: &[u8]) -> Option<Contents> {
-    let store: Store = serde_json::from_slice(bytes).ok()?;
+    let mut value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    // A file from a build that held only rows of extra tiles still loads.
+    if let Some(extras) = value
+        .get_mut("extras")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for panel in extras.values_mut() {
+            if panel.is_array() {
+                let rows = panel.take();
+                *panel = serde_json::json!({ "rows": rows, "columns": [] });
+            }
+        }
+    }
+    let store: Store = serde_json::from_value(value).ok()?;
     if !(1..=STORE_SCHEMA).contains(&store.schema_version) {
         return None;
     }
@@ -812,6 +825,11 @@ mod tests {
         })
         .unwrap();
         assert!(load(&stray).is_none());
+        // A file holding only rows of extra tiles, from an earlier build, loads.
+        let only_rows = br#"{"schemaVersion":2,"panels":[],"overrides":{},"extras":{"mouse":[[{"label":"Hi","action":{"type":"text","text":"Hi"},"span":1}]]}}"#;
+        let loaded = load(only_rows).unwrap();
+        assert_eq!(loaded.extras["mouse"].rows.len(), 1);
+        assert!(loaded.extras["mouse"].columns.is_empty());
         // Extra rows on a panel that takes none refuse the file too.
         let mut extras = BTreeMap::new();
         extras.insert(
