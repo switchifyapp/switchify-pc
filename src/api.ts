@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AccountView, AppSettings, AppState, CustomPanel, PanelAction, PanelActionEntry, SwitchProfile, SyncView, UpdateProgress } from "./types";
+import type { AccountView, AppSettings, AppState, BuiltinPanelView, CustomPanel, PanelAction, PanelActionEntry, SwitchProfile, SyncView, UpdateProgress } from "./types";
 
 export type ProfileExitAction = "hide" | "quit";
 export type NavigationTarget = "home" | "settings" | "profiles";
@@ -49,8 +49,25 @@ const accountCall = (command: string, args?: Record<string, unknown>) => "__TAUR
   : Promise.resolve(structuredClone(browserAccount));
 
 let browserPanels: CustomPanel[] = [];
-/** Tests share one module; each starts with no panels. */
-export function resetBrowserPanels() { browserPanels = []; }
+// Two of the built-in menus, enough for a plain browser to show the page.
+const browserTile = (label: string, action: PanelAction) => ({ label, action, span: 1 });
+const browserBuiltinDefaults: BuiltinPanelView[] = [
+  { kind: "home", name: "Home", override: null, default: { id: "builtin-home", version: 1, name: "Home", description: "", rows: [
+    [browserTile("Point", { type: "openPanel", panel: "point" }), browserTile("Mouse", { type: "openPanel", panel: "mouse" }), browserTile("Keyboard", { type: "openPanel", panel: "keyboard" })],
+    [browserTile("Apps and windows", { type: "openPanel", panel: { menu: "windows" } }), browserTile("Editing", { type: "openPanel", panel: { menu: "editing" } }), browserTile("Browser", { type: "openPanel", panel: { menu: "browser" } })],
+    [browserTile("Media", { type: "openPanel", panel: { menu: "media" } }), browserTile("Zoom", { type: "openPanel", panel: { menu: "zoom" } })],
+    [browserTile("Switchify", { type: "openPanel", panel: "switchify" }), browserTile("My panels", { type: "myPanels" }), browserTile("Close menu", { type: "close" })],
+  ] } },
+  { kind: "editing", name: "Editing", override: null, default: { id: "builtin-editing", version: 1, name: "Editing", description: "", rows: [
+    [browserTile("Copy", { type: "command", command: "copy" }), browserTile("Cut", { type: "command", command: "cut" }), browserTile("Paste", { type: "command", command: "paste" })],
+    [browserTile("Select all", { type: "command", command: "selectAll" }), browserTile("Undo", { type: "command", command: "undo" }), browserTile("Redo", { type: "command", command: "redo" })],
+    [browserTile("Save", { type: "command", command: "save" }), browserTile("Find", { type: "command", command: "find" })],
+    [browserTile("Back", { type: "back" }), browserTile("Close menu", { type: "close" })],
+  ] } },
+];
+let browserBuiltins: BuiltinPanelView[] = structuredClone(browserBuiltinDefaults);
+/** Tests share one module; each starts with no panels and the menus as shipped. */
+export function resetBrowserPanels() { browserPanels = []; browserBuiltins = structuredClone(browserBuiltinDefaults); }
 
 let browserProfiles: SwitchProfile[] = [{
   id: "builtin.keyboard",
@@ -138,6 +155,20 @@ export const api = {
     if ("__TAURI_INTERNALS__" in window) return call<CustomPanel[]>("delete_custom_panel", { panelId });
     browserPanels = browserPanels.filter((item) => item.id !== panelId);
     return Promise.resolve(structuredClone(browserPanels));
+  },
+  /** The built-in menus, as shipped and as rearranged. */
+  listBuiltinPanels: () => "__TAURI_INTERNALS__" in window
+    ? call<BuiltinPanelView[]>("list_builtin_panels")
+    : Promise.resolve(structuredClone(browserBuiltins)),
+  saveBuiltinPanel: (kind: string, panel: CustomPanel) => {
+    if ("__TAURI_INTERNALS__" in window) return call<BuiltinPanelView[]>("save_builtin_panel", { kind, panel });
+    browserBuiltins = browserBuiltins.map((menu) => menu.kind === kind ? { ...menu, override: { ...structuredClone(panel), version: (menu.override?.version ?? 0) + 1 } } : menu);
+    return Promise.resolve(structuredClone(browserBuiltins));
+  },
+  resetBuiltinPanel: (kind: string) => {
+    if ("__TAURI_INTERNALS__" in window) return call<BuiltinPanelView[]>("reset_builtin_panel", { kind });
+    browserBuiltins = browserBuiltins.map((menu) => menu.kind === kind ? { ...menu, override: null } : menu);
+    return Promise.resolve(structuredClone(browserBuiltins));
   },
   onPanelsChanged: async (handler: () => void): Promise<UnlistenFn> => {
     if (!("__TAURI_INTERNALS__" in window)) return () => undefined;

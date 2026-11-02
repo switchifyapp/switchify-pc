@@ -601,6 +601,48 @@ describe("Switchify PC shell", () => {
     expect(screen.getByRole("button", { name: "New panel, 4 tiles" })).toBeInTheDocument();
   });
 
+  it("says so when the built-in menus cannot be listed", async () => {
+    vi.spyOn(api, "listBuiltinPanels").mockRejectedValue(new Error("Menu storage unavailable"));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Menu storage unavailable");
+  });
+
+  it("rearranges a built-in menu and puts it back", async () => {
+    const saveBuiltin = vi.spyOn(api, "saveBuiltinPanel");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    const home = await screen.findByRole("button", { name: "Home, not changed" });
+    expect(within(home).getByRole("img", { name: /Picture of Home: Point, Mouse, Keyboard/ })).toBeInTheDocument();
+    fireEvent.click(home);
+    expect(await screen.findByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
+    // The name is fixed, and Reset is off until the menu has been rearranged.
+    expect(screen.queryByRole("textbox", { name: "Panel name" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reset to default" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Remove row 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save panel" }));
+    await waitFor(() => expect(saveBuiltin).toHaveBeenCalled());
+    expect(saveBuiltin.mock.calls[0][0]).toBe("home");
+    expect((saveBuiltin.mock.calls[0][1] as { id: string }).id).toBe("builtin-home");
+    expect((saveBuiltin.mock.calls[0][1] as { rows: unknown[] }).rows).toHaveLength(3);
+    const rearranged = await screen.findByRole("button", { name: "Home, rearranged" });
+    fireEvent.click(rearranged);
+    fireEvent.click(await screen.findByRole("button", { name: "Reset to default" }));
+    const confirm = screen.getByRole("alertdialog", { name: "Reset Home to default?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Reset to default" }));
+    expect(await screen.findByRole("button", { name: "Home, not changed" })).toBeInTheDocument();
+  });
+
+  it("keeps a way out of a built-in menu", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Editing, not changed" }));
+    await screen.findByRole("heading", { name: "Editing", level: 1 });
+    fireEvent.click(screen.getByRole("button", { name: "Remove row 4" }));
+    expect(screen.getByText("Keep a Back or Close tile so the menu can be left.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save panel" })).toBeDisabled();
+  });
+
   it("asks before leaving a panel with unsaved changes", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<App />);
