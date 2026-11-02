@@ -1349,6 +1349,11 @@ pub fn refresh_custom_panels(app: &AppHandle) {
     let mut data = controller.data.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(engine) = data.engine.as_mut() {
         engine.technique.set_panels(crate::custom_panels::list(app));
+        engine
+            .technique
+            .set_menu_overrides(crate::builtin_panels::by_kind(
+                &crate::custom_panels::overrides(app),
+            ));
     }
 }
 /// A point scan already under way, whatever Select would open.

@@ -14,10 +14,10 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 7;
+pub const SCHEMA_VERSION: u32 = 8;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -34,6 +34,10 @@ pub struct Document {
     /// documents must still carry it (see `parse`).
     #[serde(default)]
     pub panels: Vec<CustomPanel>,
+    /// Added in version 8: the built-in menus the user rearranged, by menu
+    /// name. The same default rule as `panels`.
+    #[serde(default)]
+    pub menu_overrides: BTreeMap<String, CustomPanel>,
 }
 
 /// `AppSettings` without `start_with_system` (registered with this OS),
@@ -123,6 +127,7 @@ pub struct Local {
     pub point_scan: point_scan::Config,
     pub remote: remote_scan::Config,
     pub panels: Vec<CustomPanel>,
+    pub menu_overrides: BTreeMap<String, CustomPanel>,
 }
 
 impl Local {
@@ -145,6 +150,7 @@ impl Local {
                 .config,
             remote: remote_scan::config(app),
             panels: custom_panels::list(app),
+            menu_overrides: custom_panels::overrides(app),
         }
     }
 
@@ -162,6 +168,7 @@ impl Local {
             point_scan: portable_point_scan(&self.point_scan),
             remote_switches: self.remote.slots.clone(),
             panels: self.panels.clone(),
+            menu_overrides: self.menu_overrides.clone(),
         }
     }
 }
@@ -205,15 +212,20 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
     }
     match schema_version {
         1 => {
-            value = upgrade_v6(upgrade_v5(upgrade_v4(upgrade_v3(upgrade_v2(
-                upgrade_v1(value)?,
+            value = upgrade_v7(upgrade_v6(upgrade_v5(upgrade_v4(upgrade_v3(
+                upgrade_v2(upgrade_v1(value)?)?,
             )?)?)?)?)?
         }
-        2 => value = upgrade_v6(upgrade_v5(upgrade_v4(upgrade_v3(upgrade_v2(value)?)?)?)?)?,
-        3 => value = upgrade_v6(upgrade_v5(upgrade_v4(upgrade_v3(value)?)?)?)?,
-        4 => value = upgrade_v6(upgrade_v5(upgrade_v4(value)?)?)?,
-        5 => value = upgrade_v6(upgrade_v5(value)?)?,
-        6 => value = upgrade_v6(value)?,
+        2 => {
+            value = upgrade_v7(upgrade_v6(upgrade_v5(upgrade_v4(upgrade_v3(
+                upgrade_v2(value)?,
+            )?)?)?)?)?
+        }
+        3 => value = upgrade_v7(upgrade_v6(upgrade_v5(upgrade_v4(upgrade_v3(value)?)?)?)?)?,
+        4 => value = upgrade_v7(upgrade_v6(upgrade_v5(upgrade_v4(value)?)?)?)?,
+        5 => value = upgrade_v7(upgrade_v6(upgrade_v5(value)?)?)?,
+        6 => value = upgrade_v7(upgrade_v6(value)?)?,
+        7 => value = upgrade_v7(value)?,
         SCHEMA_VERSION => {}
         _ => {
             return Err(ParseError::Invalid(format!(
@@ -332,6 +344,20 @@ fn upgrade_v6(mut value: Value) -> Result<Value, ParseError> {
         .filter(|document| !document.contains_key("panels"))
         .ok_or_else(|| ParseError::Invalid("it does not match version 6 settings".into()))?;
     document.insert("panels".into(), Value::Array(Vec::new()));
+    value["schemaVersion"] = Value::from(7);
+    Ok(value)
+}
+
+/// Version 7 had no rearranged menus.
+fn upgrade_v7(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(7)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    let document = value
+        .as_object_mut()
+        .filter(|document| !document.contains_key("menuOverrides"))
+        .ok_or_else(|| ParseError::Invalid("it does not match version 7 settings".into()))?;
+    document.insert("menuOverrides".into(), Value::Object(Default::default()));
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -347,6 +373,7 @@ pub struct Plan {
     pub keyboard_layout: Option<point_scan::KeyboardLayout>,
     pub remote: Option<remote_scan::Config>,
     pub panels: Option<Vec<CustomPanel>>,
+    pub menu_overrides: Option<BTreeMap<String, CustomPanel>>,
 }
 
 impl Plan {
@@ -382,6 +409,8 @@ pub fn plan(local: &Local, incoming: Document) -> Result<Plan, String> {
 
     let profiles = merge_profiles(&local.profiles, incoming.profiles)?;
     let panels = custom_panels::plan_replacement(&local.panels, incoming.panels)?;
+    let menu_overrides =
+        custom_panels::plan_override_replacement(&local.menu_overrides, incoming.menu_overrides)?;
 
     Ok(Plan {
         settings: (settings != local.settings).then_some(settings),
@@ -392,6 +421,7 @@ pub fn plan(local: &Local, incoming: Document) -> Result<Plan, String> {
             .then_some(keyboard_layout),
         remote: (remote.slots != local.remote.slots).then_some(remote),
         panels,
+        menu_overrides,
     })
 }
 
@@ -499,6 +529,10 @@ pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
         custom_panels::replace(app, panels)?;
         applied.panels = true;
     }
+    if let Some(overrides) = plan.menu_overrides {
+        custom_panels::replace_overrides(app, overrides)?;
+        applied.panels = true;
+    }
     if let Some(config) = plan.point_scan {
         crate::point_scan_runtime::configure(app, config)?;
         applied.point_scan = true;
@@ -533,6 +567,9 @@ pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
 /// A current document as an older version wrote it.
 #[cfg(test)]
 pub(crate) fn written_by(mut value: Value, version: u32) -> Value {
+    if version < 8 {
+        value.as_object_mut().unwrap().remove("menuOverrides");
+    }
     if version < 7 {
         value.as_object_mut().unwrap().remove("panels");
     }
@@ -640,6 +677,7 @@ mod tests {
                 ..remote_scan::Config::default()
             },
             panels: vec![custom_panels::sample("greetings", "Greetings")],
+            menu_overrides: BTreeMap::new(),
         }
     }
 
@@ -736,6 +774,51 @@ mod tests {
         // Button 9 is not a switch, so a document naming it is refused.
         let mut bad = cloud.clone();
         bad.switches.bindings[0].key = "Gamepad9".into();
+        let parsed = parse(
+            serde_json::to_value(bad.document()).unwrap(),
+            SCHEMA_VERSION,
+        )
+        .unwrap();
+        assert!(plan(&local, parsed).is_err());
+    }
+
+    #[test]
+    fn version_seven_documents_read_with_no_rearranged_menus() {
+        use crate::builtin_panels::{default_document, key};
+        use crate::scan_menu::Kind;
+        let mut local = local();
+        let mut home = default_document(Kind::Home);
+        home.rows.reverse();
+        local.menu_overrides.insert(key(Kind::Home), home.clone());
+        let mut cloud = local.clone();
+        cloud.menu_overrides.clear();
+        let version_seven = written_by(serde_json::to_value(cloud.document()).unwrap(), 7);
+        assert!(version_seven.get("menuOverrides").is_none());
+        let parsed = parse(version_seven.clone(), 7).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert!(parsed.menu_overrides.is_empty());
+        // Applying it resets this computer's menus, as a reset elsewhere would.
+        assert_eq!(
+            plan(&local, parsed).unwrap().menu_overrides,
+            Some(BTreeMap::new())
+        );
+        let mut early = version_seven.clone();
+        early["menuOverrides"] = json!({});
+        assert!(matches!(parse(early, 7), Err(ParseError::Invalid(_))));
+        let mut missing = version_seven.clone();
+        missing["schemaVersion"] = json!(SCHEMA_VERSION);
+        assert!(matches!(
+            parse(missing, SCHEMA_VERSION),
+            Err(ParseError::Invalid(_))
+        ));
+        // A rearranged menu syncs, and a menu that may not change refuses the document.
+        let value = serde_json::to_value(local.document()).unwrap();
+        assert_eq!(value["menuOverrides"]["home"]["id"], json!("builtin-home"));
+        let parsed = parse(value, SCHEMA_VERSION).unwrap();
+        assert!(plan(&local, parsed).unwrap().is_empty());
+        let mut bad = local.clone();
+        bad.menu_overrides
+            .insert("shutDown".into(), default_document(Kind::ShutDown));
         let parsed = parse(
             serde_json::to_value(bad.document()).unwrap(),
             SCHEMA_VERSION,

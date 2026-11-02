@@ -185,6 +185,8 @@ pub struct Workflow {
     parent_menu: Vec<PageRef>,
     /// The user's own panels, as last loaded. Home lists them when there are any.
     panels: Vec<CustomPanel>,
+    /// Built-in menus the user rearranged, by menu.
+    menu_overrides: std::collections::BTreeMap<Kind, CustomPanel>,
     source: Point,
     destination: Point,
     elapsed: u64,
@@ -237,6 +239,7 @@ impl Workflow {
             menu: Menu::configured(Kind::Actions, menu_options),
             parent_menu: vec![],
             panels: vec![],
+            menu_overrides: Default::default(),
             source: (0, 0),
             destination: (0, 0),
             elapsed: 0,
@@ -249,6 +252,11 @@ impl Workflow {
     /// reopened.
     pub fn set_panels(&mut self, panels: Vec<CustomPanel>) {
         self.panels = panels;
+    }
+    /// Replaces the rearranged menus. An open page keeps its tiles until it
+    /// is reopened.
+    pub fn set_menu_overrides(&mut self, overrides: std::collections::BTreeMap<Kind, CustomPanel>) {
+        self.menu_overrides = overrides;
     }
     fn new_keyboard(&self) -> crate::scan_keyboard::Keyboard {
         let mut keyboard = crate::scan_keyboard::Keyboard::configured(
@@ -676,12 +684,23 @@ impl Workflow {
             crate::scan_panel::menu_bar(&frame),
         )
     }
-    /// A page as it should open now: Home and the panel list come from the
-    /// user's panels, every other page from its fixed rows.
+    /// A page as it should open now: the editable menus from their document
+    /// (as shipped or rearranged), the panel list from the user's panels,
+    /// every other page from its fixed rows.
     fn build(&self, kind: Kind) -> Menu {
         let options = self.point.config.menu_scan;
+        if crate::builtin_panels::editable(kind) {
+            let mut document = crate::builtin_panels::document(kind, &self.menu_overrides);
+            if self.panels.is_empty() {
+                // Nothing to list yet, so the tile that would list it is left out.
+                for row in &mut document.rows {
+                    row.retain(|cell| cell.action != PanelAction::MyPanels);
+                }
+                document.rows.retain(|row| !row.is_empty());
+            }
+            return Menu::builtin(kind, &document, options);
+        }
         match kind {
-            Kind::Home => Menu::home(options, !self.panels.is_empty()),
             Kind::Panels => Menu::panel_list(&self.panels, options),
             kind => Menu::configured(kind, options),
         }
@@ -761,10 +780,13 @@ impl Workflow {
             None => self.open(Kind::Actions),
         }
     }
-    /// A tile of the open custom panel was chosen. Actions leave the panel
-    /// open so the next choice can follow, as on a communication board.
+    /// A tile of the open custom panel, or of a built-in menu built from
+    /// its document, was chosen. On the user's panels, actions leave the
+    /// panel open so the next choice can follow, as on a communication
+    /// board. On the built-in menus they behave as the menus always have.
     fn custom_selected(&mut self, index: usize) -> Option<Request> {
         let action = self.menu.cell(index)?.action.clone();
+        let builtin = self.menu.custom_id.is_none();
         match action {
             PanelAction::Key { keys } => {
                 self.menu.continue_after_selection();
@@ -774,6 +796,7 @@ impl Workflow {
                 self.menu.continue_after_selection();
                 Some(Request::Text(text))
             }
+            PanelAction::Command { command } if builtin => self.selected(Item::Command(command)),
             PanelAction::Command { command } => {
                 // Modifier clicks act at the pointer; the rest need no point.
                 let point = if command.at_point() {
@@ -784,8 +807,15 @@ impl Workflow {
                 self.menu.continue_after_selection();
                 Some(Request::Command { command, point })
             }
+            PanelAction::MyPanels => {
+                let next = Menu::panel_list(&self.panels, self.point.config.menu_scan);
+                self.push_menu(next);
+                None
+            }
             PanelAction::Setting { setting } => {
-                self.menu.continue_after_selection();
+                if !builtin {
+                    self.menu.continue_after_selection();
+                }
                 Some(Request::Setting(setting))
             }
             PanelAction::Click {
@@ -838,6 +868,9 @@ impl Workflow {
                 None
             }
             PanelAction::Pause => {
+                if builtin {
+                    return self.selected(Item::Pause);
+                }
                 self.menu.suspend();
                 None
             }
@@ -845,14 +878,17 @@ impl Workflow {
                 self.menu.handle(Action::Reverse);
                 None
             }
+            PanelAction::Display { next } if builtin => self.selected(Item::Display(next)),
             PanelAction::Display { next } => {
                 self.menu.continue_after_selection();
                 Some(Request::Display(next))
             }
+            PanelAction::Back if builtin => self.selected(Item::Back),
             PanelAction::Back => {
                 self.restore_actions();
                 None
             }
+            PanelAction::Close if builtin => self.selected(Item::Cancel),
             PanelAction::Close => {
                 self.reset();
                 None
@@ -2216,6 +2252,47 @@ mod tests {
         s.action(Action::Next);
         assert_eq!(s.action(Action::Select), None);
         assert_eq!(s.technique.menu.custom_id.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn rearranged_menus_scan_as_rearranged_and_keep_their_behaviour() {
+        use crate::builtin_panels::{default_document, key};
+        use crate::scan_menu::Command;
+        let mut s = board_session(vec![]);
+        // Home rearranged: Editing first, and its last row reversed.
+        let mut home = default_document(Kind::Home);
+        home.rows.swap(0, 1);
+        home.rows.last_mut().unwrap().reverse();
+        let mut editing = default_document(Kind::Editing);
+        editing.rows[0].reverse();
+        let overrides = crate::builtin_panels::by_kind(&std::collections::BTreeMap::from([
+            (key(Kind::Home), home),
+            (key(Kind::Editing), editing),
+        ]));
+        s.technique.set_menu_overrides(overrides);
+        s.action(Action::Select);
+        assert!(s.technique.home_open());
+        let labels = s.technique.menu.frame_labels();
+        assert_eq!(labels[0], ["Apps and windows", "Editing", "Browser"]);
+        // Without panels, My panels is left out of the rearranged row too.
+        assert_eq!(labels.last().unwrap(), &["Close menu", "Switchify"]);
+        // A command from a rearranged menu under Home still returns to Home.
+        assert_eq!(choose_in(&mut s, 0, 1), None);
+        assert_eq!(s.technique.menu.kind, Kind::Editing);
+        assert_eq!(s.technique.menu.frame_labels()[0], ["Paste", "Cut", "Copy"]);
+        assert_eq!(
+            choose_in(&mut s, 0, 2),
+            Some(Request::Command {
+                command: Command::Copy,
+                point: (0, 0)
+            })
+        );
+        s.technique.execution_succeeded();
+        assert_eq!(s.technique.menu.kind, Kind::Home);
+        assert!(s.technique.home_open());
+        // Close menu, now first in its row, ends the scan as before.
+        assert_eq!(choose_in(&mut s, 3, 0), None);
+        assert!(!s.active());
     }
 
     #[test]

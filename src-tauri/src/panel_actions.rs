@@ -65,6 +65,8 @@ pub enum PanelAction {
     OpenPanel { panel: BuiltInPanel },
     /// Open another custom panel by its id.
     OpenCustomPanel { id: String },
+    /// Open the list of the user's panels.
+    MyPanels,
     /// Pause or resume scanning.
     Pause,
     /// Reverse the scan direction.
@@ -120,6 +122,7 @@ impl PanelAction {
                 BuiltInPanel::Menu(kind) => kind.label().into(),
             },
             Self::OpenCustomPanel { .. } => "Panel".into(),
+            Self::MyPanels => "My panels".into(),
             Self::Pause => "Pause scanning".into(),
             Self::Reverse => "Reverse direction".into(),
             Self::Display { next: true } => "Next display".into(),
@@ -686,6 +689,13 @@ pub fn catalogue() -> Vec<CatalogueEntry> {
             PanelAction::OpenCustomPanel { id: String::new() },
         )
     });
+    entries.push(entry(
+        "panel.list",
+        "Open my panels",
+        Category::Panels,
+        &["list", "my panels"],
+        PanelAction::MyPanels,
+    ));
     entries.push(entry(
         "back",
         "Back",

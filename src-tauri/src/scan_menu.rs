@@ -86,7 +86,7 @@ impl Item {
         }
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Kind {
     Home,
@@ -200,15 +200,17 @@ impl Menu {
             period: options.interval_ms,
         }
     }
-    /// Home, with My panels beside Switchify once the user has made a panel.
-    pub fn home(options: crate::scan_preferences::Resolved, with_panels: bool) -> Self {
-        let mut rows = Kind::Home.rows();
-        if with_panels {
-            if let Some(last) = rows.last_mut() {
-                last.insert(1, Item::Panels);
-            }
-        }
-        Self::with_rows(Kind::Home, rows, options)
+    /// A built-in menu from its document, as shipped or as the user
+    /// rearranged it. It keeps its kind, so its menu behaviour stays.
+    pub fn builtin(
+        kind: Kind,
+        document: &CustomPanel,
+        options: crate::scan_preferences::Resolved,
+    ) -> Self {
+        let mut menu = Self::custom(document, options);
+        menu.kind = kind;
+        menu.custom_id = None;
+        menu
     }
     /// The user's panels by name, three to a row, then Back and Close menu.
     pub fn panel_list(panels: &[CustomPanel], options: crate::scan_preferences::Resolved) -> Self {
@@ -288,6 +290,10 @@ impl Menu {
         match item {
             Item::Custom(index) => match self.cells.get(index).map(|cell| &cell.action) {
                 Some(PanelAction::Back | PanelAction::Close) => TileRole::Toolbar,
+                // Home on an action menu is drawn like Back, as it always was.
+                Some(PanelAction::OpenPanel {
+                    panel: crate::panel_actions::BuiltInPanel::Menu(Kind::Home),
+                }) if self.kind != Kind::Home => TileRole::Toolbar,
                 _ => TileRole::Utility,
             },
             _ => item.role(),
@@ -561,7 +567,7 @@ impl Kind {
             Self::Custom => "Panel",
         }
     }
-    fn rows(self) -> Vec<Vec<Item>> {
+    pub(crate) fn rows(self) -> Vec<Vec<Item>> {
         use self::Command as C;
         use Item::*;
         let items = match self {
