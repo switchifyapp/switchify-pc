@@ -84,7 +84,7 @@ Added tiles are saved on this computer and, if you sign in to your account, go t
 
 ## Open a panel
 
-Press Select to open Home. Once you have made a panel, Home has a **My panels** item beside Switchify. Choose it to see your panels by name, then choose one to open it.
+Press Select to open Home. Once you have made a panel, Home has a **My panels** item beside Switchify. Choose it to see your panels by name, then choose one to open it. The same item sits beside Close menu on the page that opens after you choose a point and on the mouse panel's Actions page, so your panels are one choice away from anywhere.
 
 On a panel, **Back** returns to the list, and from the list Back returns to Home. **Close** ends scanning, as Close menu does on Home.
 

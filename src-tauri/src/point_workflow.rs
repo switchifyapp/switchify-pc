@@ -95,8 +95,15 @@ fn repeatable(stroke: crate::scan_keyboard::Stroke) -> bool {
                 if crate::mouse_repeat::RepeatKey::parse(name).is_some()
         )
 }
-fn selection_policy(point: Point, options: crate::scan_preferences::Resolved) -> (Point, Menu) {
-    (point, Menu::configured(Kind::Actions, options))
+fn selection_policy(
+    point: Point,
+    options: crate::scan_preferences::Resolved,
+    has_panels: bool,
+) -> (Point, Menu) {
+    (
+        point,
+        Menu::configured_for(Kind::Actions, options, has_panels),
+    )
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
@@ -249,7 +256,7 @@ impl Workflow {
             key_repeat_initial_delay_ms: 500,
             point: Engine::new(config, screen, scale)?,
             stage: Stage::Idle,
-            menu: Menu::configured(Kind::Actions, menu_options),
+            menu: Menu::configured_for(Kind::Actions, menu_options, false),
             parent_menu: vec![],
             panels: vec![],
             menu_overrides: Default::default(),
@@ -762,7 +769,7 @@ impl Workflow {
         }
         match kind {
             Kind::Panels => Menu::panel_list(&self.panels, options),
-            kind => Menu::configured(kind, options),
+            kind => Menu::configured_for(kind, options, !self.panels.is_empty()),
         }
     }
     fn open(&mut self, kind: Kind) {
@@ -1718,7 +1725,11 @@ impl Technique for Workflow {
                         self.destination = point;
                         self.open(Kind::ConfirmDrag);
                     } else {
-                        let (target, menu) = selection_policy(point, self.point.config.menu_scan);
+                        let (target, menu) = selection_policy(
+                            point,
+                            self.point.config.menu_scan,
+                            !self.panels.is_empty(),
+                        );
                         self.source = target;
                         self.menu = menu;
                         self.elapsed = 0;
@@ -2275,6 +2286,60 @@ mod tests {
         assert_eq!(
             s.technique.menu.frame_labels().pop().unwrap(),
             ["Switchify", "My panels", "Close menu"]
+        );
+    }
+
+    #[test]
+    fn the_point_and_mouse_action_pages_reach_the_users_panels() {
+        let mut s = board_session(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 0, 0), Some(Request::OpenPoint));
+        s.action(Action::Select);
+        s.action(Action::Select);
+        assert_eq!(s.technique.menu.kind, Kind::Actions);
+        assert_eq!(
+            s.technique.menu.frame_labels().pop().unwrap(),
+            ["New point", "My panels", "Close menu"]
+        );
+        // My panels lists the panels; Back returns to the point's page, not Home.
+        assert_eq!(choose_in(&mut s, 3, 1), None);
+        assert_eq!(s.technique.menu.kind, Kind::Panels);
+        assert_eq!(choose_in(&mut s, 1, 0), None);
+        assert_eq!(s.technique.menu.kind, Kind::Actions);
+        assert!(!s.technique.home_open());
+        // The mouse panel's Actions page has it in the same place.
+        use crate::scan_mouse::Key;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        workflow.set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+        workflow.handle(Action::OpenMouse);
+        workflow.set_pointer(Some((321.4, 246.6)));
+        assert_eq!(workflow.mouse_key(Key::Actions), None);
+        assert_eq!(workflow.menu.kind, Kind::MouseActions);
+        assert_eq!(
+            workflow.menu.frame_labels().pop().unwrap(),
+            ["Back", "My panels", "Close menu"]
+        );
+        assert_eq!(workflow.selected(Item::Panels), None);
+        assert_eq!(workflow.menu.kind, Kind::Panels);
+    }
+
+    #[test]
+    fn the_action_pages_leave_my_panels_out_until_there_is_a_panel() {
+        let mut s = board_session(vec![]);
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 0, 0), Some(Request::OpenPoint));
+        s.action(Action::Select);
+        s.action(Action::Select);
+        assert_eq!(s.technique.menu.kind, Kind::Actions);
+        assert_eq!(
+            s.technique.menu.frame_labels().pop().unwrap(),
+            ["New point", "Close menu"]
         );
     }
 

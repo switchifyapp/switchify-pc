@@ -183,6 +183,21 @@ impl Menu {
     pub fn configured(kind: Kind, options: crate::scan_preferences::Resolved) -> Self {
         Self::with_rows(kind, kind.rows(), options)
     }
+    /// A fixed page as the user sees it: without the My panels tile while
+    /// there are no panels to list, as Home leaves it out too.
+    pub fn configured_for(
+        kind: Kind,
+        options: crate::scan_preferences::Resolved,
+        has_panels: bool,
+    ) -> Self {
+        let mut rows = kind.rows();
+        if !has_panels {
+            for row in &mut rows {
+                row.retain(|item| *item != Item::Panels);
+            }
+        }
+        Self::with_rows(kind, rows, options)
+    }
     fn with_rows(
         kind: Kind,
         rows: Vec<Vec<Item>>,
@@ -584,12 +599,14 @@ impl Kind {
                     vec![Switchify, Cancel],
                 ]
             }
+            // The user's panels sit in the navigation row of both action pages,
+            // so they are one choice away from any point and from the mouse panel.
             Self::Actions => {
                 return vec![
                     vec![LeftClick, RightClick, DoubleClick],
                     vec![Scroll, Drag, More],
                     vec![Keyboard, MousePanel, Home],
-                    vec![NewPoint, Cancel],
+                    vec![NewPoint, Panels, Cancel],
                 ]
             }
             Self::Scroll => return vec![vec![Up, Down], vec![Left, Right], vec![Back, Cancel]],
@@ -609,18 +626,22 @@ impl Kind {
                 Group(Self::Scanning),
                 Back,
             ],
-            Self::MouseActions => vec![
-                Group(Self::Mouse),
-                Group(Self::Editing),
-                Group(Self::Windows),
-                Group(Self::Browser),
-                Group(Self::Media),
-                Group(Self::Displays),
-                Group(Self::MouseScanning),
-                Keyboard,
-                Home,
-                Back,
-            ],
+            Self::MouseActions => {
+                return vec![
+                    vec![
+                        Group(Self::Mouse),
+                        Group(Self::Editing),
+                        Group(Self::Windows),
+                    ],
+                    vec![
+                        Group(Self::Browser),
+                        Group(Self::Media),
+                        Group(Self::Displays),
+                    ],
+                    vec![Group(Self::MouseScanning), Keyboard, Home],
+                    vec![Back, Panels, Cancel],
+                ]
+            }
             Self::MouseScanning => vec![
                 Pause,
                 Reverse,
@@ -831,7 +852,13 @@ mod tests {
                 assert_eq!(rows[0][0], Item::Back);
                 assert_eq!(rows[0][2], Item::Cancel);
             } else if let Some(back) = back {
-                assert_eq!(rows.last().unwrap(), &[back, Item::Cancel], "{kind:?}");
+                // The action pages keep My panels between the way back and Close menu.
+                let expected = if matches!(kind, Kind::Actions | Kind::MouseActions) {
+                    vec![back, Item::Panels, Item::Cancel]
+                } else {
+                    vec![back, Item::Cancel]
+                };
+                assert_eq!(rows.last().unwrap(), &expected, "{kind:?}");
             } else {
                 assert_eq!(rows.last().unwrap().last(), Some(&Item::Cancel));
                 assert!(!rows.iter().flatten().any(|item| *item == Item::Back));
@@ -1036,6 +1063,25 @@ mod tests {
         }
         for kind in [Kind::Actions, Kind::MouseActions] {
             assert!(kind.rows().iter().flatten().any(|item| *item == Item::Home));
+        }
+    }
+    #[test]
+    fn the_action_pages_offer_my_panels_only_once_there_are_panels() {
+        let options = crate::scan_preferences::Resolved::default();
+        for kind in [Kind::Actions, Kind::MouseActions] {
+            let with = Menu::configured_for(kind, options, true);
+            let without = Menu::configured_for(kind, options, false);
+            assert_eq!(with.rows, kind.rows(), "{kind:?}");
+            assert_eq!(with.rows.last().unwrap()[1], Item::Panels, "{kind:?}");
+            assert_eq!(without.rows.len(), with.rows.len(), "{kind:?}");
+            let last = without.rows.last().unwrap();
+            assert_eq!(last.len(), 2, "{kind:?}");
+            assert_eq!(last[1], Item::Cancel, "{kind:?}");
+            assert!(!without
+                .rows
+                .iter()
+                .flatten()
+                .any(|item| *item == Item::Panels));
         }
     }
     #[test]
