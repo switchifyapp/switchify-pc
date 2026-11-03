@@ -49,7 +49,7 @@ const accountCall = (command: string, args?: Record<string, unknown>) => "__TAUR
   : Promise.resolve(structuredClone(browserAccount));
 
 let browserPanels: CustomPanel[] = [];
-// Two of the built-in menus, enough for a plain browser to show the page.
+// A few of the built-in menus, enough for a plain browser to show the page.
 const browserTile = (label: string, action: PanelAction) => ({ label, action, span: 1 });
 const browserBuiltinDefaults: BuiltinPanelView[] = [
   { kind: "home", name: "Home", override: null, default: { id: "builtin-home", version: 1, name: "Home", description: "", rows: [

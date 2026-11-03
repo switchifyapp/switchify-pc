@@ -79,7 +79,7 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
     setOpen(null);
     setBuiltin(null);
     setExtra(null);
-    requestAnimationFrame(() => (document.querySelector<HTMLButtonElement>(`[data-opener="${openerRef.current}"]`) ?? document.querySelector<HTMLButtonElement>(".page-header button"))?.focus());
+    requestAnimationFrame(() => (document.querySelector<HTMLButtonElement>(`[data-opener="${openerRef.current ?? "new-panel"}"]`) ?? document.querySelector<HTMLButtonElement>('[data-opener="new-panel"]'))?.focus());
   };
   const create = async () => {
     const panel = starterPanel(panels ?? []);
@@ -106,12 +106,13 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
     </li>;
   };
   const extrasItem = (view: PanelExtrasView) => <li key={view.target}>{row(`extras-${view.target}`, view.name, extrasSummary(view), () => openExtras(view))}</li>;
-  const placed = new Set(["home", "more", ...HOME_MENUS, ...MORE_MENUS, ...Object.keys(INSIDE)]);
+  // A menu inside another counts as placed only while its parent is there to list it under.
+  const placed = new Set(["home", "more", ...HOME_MENUS, ...MORE_MENUS, ...Object.keys(INSIDE).filter((kind) => menu(INSIDE[kind]))]);
   const unplaced = builtins.filter((candidate) => !placed.has(candidate.kind));
   const onHome = menu("home") !== undefined || extras.length > 0 || HOME_MENUS.some(menu);
   const onMore = menu("more") !== undefined || MORE_MENUS.some(menu);
   return <div className="view">
-    <header className="page-header"><div><h1>Panels</h1><p>Scanning panels of your own. Home lists them under My panels.</p></div><Button className="primary" disabled={busy || panels === null} onClick={() => void create()}><Plus size={16} />New panel</Button></header>
+    <header className="page-header"><div><h1>Panels</h1><p>Panels of your own, which Home lists under My panels, then the built-in menus and panels.</p></div><Button data-opener="new-panel" className="primary" disabled={busy || panels === null} onClick={() => void create()}><Plus size={16} />New panel</Button></header>
     {error && <p className="field-error" role="alert">{error}</p>}
     {panels === null ? <p className="capability-note">Loading your panels...</p>
       : panels.length === 0 ? <section className="empty-state" aria-label="No panels yet"><LayoutGrid size={32} aria-hidden="true" /><h2>No panels yet</h2><p>A panel is a page of tiles that scans like Home. Each tile presses keys, types a phrase, runs an action or opens another panel. Make one and it appears in Home under My panels.</p></section>
