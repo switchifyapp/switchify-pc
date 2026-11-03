@@ -287,7 +287,7 @@ for (const platform of ["windows", "macos"]) {
 {
   const page = await open("windows", { height: 900 });
   await click(page, "Panels");
-  await page.waitForSelector('#more-group-heading');
+  await page.waitForSelector('#builtin-heading');
   await shot(page, "panels", "main");
   await page.setViewport({ width: 1280, height: 1150, deviceScaleFactor: 2 });
   await click(page, "Greetings, 8 tiles");

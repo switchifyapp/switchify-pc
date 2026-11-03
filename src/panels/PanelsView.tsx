@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { LayoutGrid, Plus } from "lucide-react";
+import { ChevronRight, LayoutGrid, Plus } from "lucide-react";
 import { Button } from "../ui/controls";
 import { PanelPicture } from "./PanelPicture";
 import { PanelEditor, type BuiltinEditing, type ExtrasEditing } from "./PanelEditor";
@@ -28,7 +28,7 @@ export function tileCount(panel: CustomPanel) {
   return panel.rows.reduce((count, row) => count + row.length, 0);
 }
 
-/** What a native panel's card says about the tiles around its keys. */
+/** What a native panel's row says about the tiles around its keys. */
 export function extrasSummary(view: PanelExtrasView) {
   const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
   const parts = [view.rows.length > 0 && count(view.rows.length, "extra row"), view.columns.length > 0 && count(view.columns.length, "column")].filter((part): part is string => Boolean(part));
@@ -41,8 +41,8 @@ function extrasPanel(view: PanelExtrasView): CustomPanel {
 }
 
 /**
- * Where each built-in menu is reached from, so the page can list them under
- * the menu that opens them. Menus on both Home and More are listed once,
+ * Where each built-in menu is reached from, so the page can list it under
+ * the menu that opens it. Menus on both Home and More are listed once,
  * under Home, and say so; Tabs sits inside Browser.
  */
 const HOME_MENUS = ["windows", "editing", "browser", "media", "zoom"];
@@ -57,7 +57,7 @@ export function builtinSummary(menu: BuiltinPanelView) {
   return place ? `${state}, ${place}` : state;
 }
 
-/** The summary as the card shows it: each part capitalised, with a dot between. */
+/** The summary as the row shows it: each part capitalised, with a dot between. */
 function sentence(text: string) {
   return text.split(", ").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" · ");
 }
@@ -67,18 +67,19 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
   const [open, setOpen] = useState<CustomPanel | null>(null);
   const [builtin, setBuiltin] = useState<BuiltinEditing | null>(null);
   const [extra, setExtra] = useState<ExtrasEditing | null>(null);
-  const openerRef = useRef<HTMLButtonElement | null>(null);
+  // The card or row that opened the editor, found again by id once the list is back.
+  const openerRef = useRef<string | null>(null);
   // Leaving the page by any route lets sync refresh the list again.
   useEffect(() => () => setEditing(false), [setEditing]);
-  const openPanel = (panel: CustomPanel, opener: HTMLButtonElement | null) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin(null); setExtra(null); setOpen(panel); };
-  const openBuiltin = (menu: BuiltinPanelView, opener: HTMLButtonElement) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin({ kind: menu.kind, rearranged: menu.override !== null }); setExtra(null); setOpen(menu.override ?? menu.default); };
-  const openExtras = (view: PanelExtrasView, opener: HTMLButtonElement) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin(null); setExtra({ target: view.target, fixed: view.fixed, columns: view.columns, hasTiles: view.rows.length > 0 || view.columns.length > 0 }); setOpen(extrasPanel(view)); };
+  const openPanel = (panel: CustomPanel, opener: string | null) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin(null); setExtra(null); setOpen(panel); };
+  const openBuiltin = (menu: BuiltinPanelView) => { openerRef.current = `builtin-${menu.kind}`; clearError(); setEditing(true); setBuiltin({ kind: menu.kind, rearranged: menu.override !== null }); setExtra(null); setOpen(menu.override ?? menu.default); };
+  const openExtras = (view: PanelExtrasView) => { openerRef.current = `extras-${view.target}`; clearError(); setEditing(true); setBuiltin(null); setExtra({ target: view.target, fixed: view.fixed, columns: view.columns, hasTiles: view.rows.length > 0 || view.columns.length > 0 }); setOpen(extrasPanel(view)); };
   const closePanel = () => {
     setEditing(false);
     setOpen(null);
     setBuiltin(null);
     setExtra(null);
-    requestAnimationFrame(() => (openerRef.current?.isConnected ? openerRef.current : document.querySelector<HTMLButtonElement>(".page-header button"))?.focus());
+    requestAnimationFrame(() => (document.querySelector<HTMLButtonElement>(`[data-opener="${openerRef.current}"]`) ?? document.querySelector<HTMLButtonElement>(".page-header button"))?.focus());
   };
   const create = async () => {
     const panel = starterPanel(panels ?? []);
@@ -89,63 +90,60 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
   if (open && extra) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} extras={extra} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveExtras(extra.target, panel.rows, extra.columns).then(closePanel, () => undefined)} onSaveExtras={(rows, columns) => saveExtras(extra.target, rows, columns).then(closePanel, () => undefined)} onDelete={() => saveExtras(extra.target, [], []).then(closePanel, () => undefined)} onTry={() => tryPanel({ kind: "native", panel: extra.target as "mouse" | "keyboard" }).then(() => undefined, () => undefined)} />;
   if (open && builtin) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} builtin={builtin} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveBuiltin(builtin.kind, panel).then(closePanel, () => undefined)} onDelete={() => resetBuiltin(builtin.kind).then(closePanel, () => undefined)} onTry={() => tryPanel({ kind: "menu", menu: builtin.kind }).then(() => undefined, () => undefined)} />;
   if (open) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => save(panel).then(closePanel, () => undefined)} onDelete={() => remove(open.id).then(closePanel, () => undefined)} onTry={() => tryPanel({ kind: "panel", id: open.id }).then(() => undefined, () => undefined)} />;
+  // The built-in menus and panels are a list, one row each, under the menu that opens them.
   const menu = (kind: string) => builtins.find((candidate) => candidate.kind === kind);
-  const builtinCard = (view: BuiltinPanelView) => <Button className="panel-card" onClick={(event) => openBuiltin(view, event.currentTarget)} aria-label={`${view.name}, ${builtinSummary(view)}`}>
-    <PanelPicture panel={view.override ?? view.default} theme={theme} />
-    <span className="panel-card-text"><strong>{view.name}</strong><small>{sentence(builtinSummary(view))}</small></span>
+  const row = (id: string, name: string, summary: string, onClick: () => void) => <Button className="menu-row" data-opener={id} onClick={onClick} aria-label={`${name}, ${summary}`}>
+    <span className="menu-row-text"><strong>{name}</strong><small>{sentence(summary)}</small></span>
+    <ChevronRight size={18} aria-hidden="true" />
   </Button>;
-  // A menu's card, with the cards of the menus inside it listed under it.
   const builtinItem = (kind: string): ReactNode => {
     const view = menu(kind);
     if (!view) return null;
     const inside = builtins.filter((candidate) => INSIDE[candidate.kind] === kind);
     return <li key={kind}>
-      {builtinCard(view)}
-      {inside.length > 0 && <ul className="panel-grid-inside" aria-label={`Inside ${view.name}`}>{inside.map((child) => <li key={child.kind}>{builtinCard(child)}</li>)}</ul>}
+      {row(`builtin-${kind}`, view.name, builtinSummary(view), () => openBuiltin(view))}
+      {inside.length > 0 && <ul className="menu-list-inside" aria-label={`Inside ${view.name}`}>{inside.map((child) => <li key={child.kind}>{row(`builtin-${child.kind}`, child.name, builtinSummary(child), () => openBuiltin(child))}</li>)}</ul>}
     </li>;
   };
-  const extrasItem = (view: PanelExtrasView) => <li key={view.target}>
-    <Button className="panel-card" onClick={(event) => openExtras(view, event.currentTarget)} aria-label={`${view.name}, ${extrasSummary(view)}`}>
-      <PanelPicture panel={extrasPanel(view)} fixed={view.fixed} columns={view.columns} theme={theme} />
-      <span className="panel-card-text"><strong>{view.name}</strong><small>{extrasSummary(view).replace(/^keys/, "Keys")}</small></span>
-    </Button>
-  </li>;
+  const extrasItem = (view: PanelExtrasView) => <li key={view.target}>{row(`extras-${view.target}`, view.name, extrasSummary(view), () => openExtras(view))}</li>;
   const placed = new Set(["home", "more", ...HOME_MENUS, ...MORE_MENUS, ...Object.keys(INSIDE)]);
   const unplaced = builtins.filter((candidate) => !placed.has(candidate.kind));
-  const home = menu("home");
-  const more = menu("more");
+  const onHome = menu("home") !== undefined || extras.length > 0 || HOME_MENUS.some(menu);
+  const onMore = menu("more") !== undefined || MORE_MENUS.some(menu);
   return <div className="view">
-    <header className="page-header"><div><h1>Panels</h1><p>Home, the menus it opens, panels of your own, and the mouse panel and keyboard. Choose one to change it; each is drawn as it scans.</p></div></header>
+    <header className="page-header"><div><h1>Panels</h1><p>Scanning panels of your own. Home lists them under My panels.</p></div><Button className="primary" disabled={busy || panels === null} onClick={() => void create()}><Plus size={16} />New panel</Button></header>
     {error && <p className="field-error" role="alert">{error}</p>}
-    {(home || extras.length > 0 || HOME_MENUS.some(menu)) && <section className="panel-group" aria-labelledby="home-group-heading">
-      <header className="section-header"><div><h2 id="home-group-heading">Home</h2><p>Scanning starts here. Home opens the mouse panel, the keyboard and these menus. Rearrange a menu or put it back the way it came; add tiles of your own around the mouse panel's and the keyboard's keys.</p></div></header>
-      <ul className="panel-grid">
-        {home && builtinItem("home")}
-        {extras.map(extrasItem)}
-        {HOME_MENUS.map(builtinItem)}
-      </ul>
-    </section>}
-    <section className="panel-group" aria-labelledby="my-panels-heading">
-      <header className="section-header"><div><h2 id="my-panels-heading">My panels</h2><p>Panels of your own. Home lists them under My panels.</p></div><Button className="primary" disabled={busy || panels === null} onClick={() => void create()}><Plus size={16} />New panel</Button></header>
-      {panels === null ? <p className="capability-note">Loading your panels...</p>
-        : panels.length === 0 ? <section className="empty-state" aria-label="No panels yet"><LayoutGrid size={32} aria-hidden="true" /><h2>No panels yet</h2><p>A panel is a page of tiles that scans like Home. Each tile presses keys, types a phrase, runs an action or opens another panel. Make one and it appears in Home under My panels.</p></section>
-        : <ul className="panel-grid" aria-label="Your panels">{panels.map((panel) => <li key={panel.id}>
-          <Button className="panel-card" onClick={(event) => openPanel(panel, event.currentTarget)} aria-label={`${panel.name}, ${tileCount(panel)} tiles`}>
-            <PanelPicture panel={panel} theme={theme} />
-            <span className="panel-card-text"><strong>{panel.name}</strong><small>{panel.description.trim() || `${tileCount(panel)} ${tileCount(panel) === 1 ? "tile" : "tiles"}`}</small></span>
-          </Button>
-        </li>)}</ul>}
-    </section>
-    {(more || MORE_MENUS.some(menu)) && <section className="panel-group" aria-labelledby="more-group-heading">
-      <header className="section-header"><div><h2 id="more-group-heading">More actions</h2><p>After you choose a point, More on the Actions page opens this menu. It opens most of Home's menus too, and these three of its own.</p></div></header>
-      <ul className="panel-grid">
-        {more && builtinItem("more")}
-        {MORE_MENUS.map(builtinItem)}
-      </ul>
-    </section>}
-    {unplaced.length > 0 && <section className="panel-group" aria-labelledby="other-menus-heading">
-      <header className="section-header"><div><h2 id="other-menus-heading">Other menus</h2></div></header>
-      <ul className="panel-grid">{unplaced.map((view) => builtinItem(view.kind))}</ul>
+    {panels === null ? <p className="capability-note">Loading your panels...</p>
+      : panels.length === 0 ? <section className="empty-state" aria-label="No panels yet"><LayoutGrid size={32} aria-hidden="true" /><h2>No panels yet</h2><p>A panel is a page of tiles that scans like Home. Each tile presses keys, types a phrase, runs an action or opens another panel. Make one and it appears in Home under My panels.</p></section>
+      : <ul className="panel-grid" aria-label="Your panels">{panels.map((panel) => <li key={panel.id}>
+        <Button className="panel-card" data-opener={panel.id} onClick={() => openPanel(panel, panel.id)} aria-label={`${panel.name}, ${tileCount(panel)} tiles`}>
+          <PanelPicture panel={panel} theme={theme} />
+          <span className="panel-card-text"><strong>{panel.name}</strong><small>{panel.description.trim() || `${tileCount(panel)} ${tileCount(panel) === 1 ? "tile" : "tiles"}`}</small></span>
+        </Button>
+      </li>)}</ul>}
+    {(onHome || onMore || unplaced.length > 0) && <section className="panel-group" aria-labelledby="builtin-heading">
+      <header className="section-header"><div><h2 id="builtin-heading">Built-in menus and panels</h2><p>Listed under the menu that opens them. More actions is a tile on the page that opens after you choose a point, and its menu opens most of Home's menus too. Rearrange a menu or put it back the way it came, or add tiles of your own around the mouse panel's and the keyboard's keys.</p></div></header>
+      <div className="menu-lists">
+        {onHome && <section>
+          <h3 id="home-list-heading">On Home</h3>
+          <ul className="menu-list" aria-labelledby="home-list-heading">
+            {builtinItem("home")}
+            {extras.map(extrasItem)}
+            {HOME_MENUS.map(builtinItem)}
+          </ul>
+        </section>}
+        {onMore && <section>
+          <h3 id="more-list-heading">On More actions</h3>
+          <ul className="menu-list" aria-labelledby="more-list-heading">
+            {builtinItem("more")}
+            {MORE_MENUS.map(builtinItem)}
+          </ul>
+        </section>}
+        {unplaced.length > 0 && <section>
+          <h3 id="other-list-heading">Other menus</h3>
+          <ul className="menu-list" aria-labelledby="other-list-heading">{unplaced.map((view) => builtinItem(view.kind))}</ul>
+        </section>}
+      </div>
     </section>}
   </div>;
 }
