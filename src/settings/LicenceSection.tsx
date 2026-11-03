@@ -80,9 +80,10 @@ export function LicenceSection({ state }: { state: AppState }) {
       {locked && <p className="licence-notice">Switch control here stays available. Buttons receive focus automatically; press any configured local switch to choose one. Copy your key first, then choose Paste and activate. Using the mouse, Tab key or key entry field pauses automatic button scanning.</p>}
       {locked && recoveryPaused && <Button onClick={() => setRecoveryPaused(false)}>Resume automatic button scanning</Button>}
       {view?.configured && <>
-        <div className="licence-activation">
+        {/* Once a licence is active the page's job is done: no key entry until it is removed. */}
+        {view.status !== "licensed" && <div className="licence-activation">
           <div>
-            <h3>{view.status === "licensed" ? "Use a different key" : "Activate your licence"}</h3>
+            <h3>Activate your licence</h3>
             <p className="licence-supporting">Activate one computer online, without a Switchify account. Each successful check allows up to 30 days offline.</p>
           </div>
           <div className="licence-key-field">
@@ -97,15 +98,15 @@ export function LicenceSection({ state }: { state: AppState }) {
             <p className="licence-supporting">Have your key saved in a text file?</p>
             <Button disabled={busy} onClick={() => fileInput.current?.click()}>Import licence file</Button>
           </div>
-          {view.status !== "licensed" && <BuyLicence />}
-        </div>
-        <input ref={fileInput} aria-label="Licence file" type="file" accept=".txt,.licence" hidden disabled={busy} onChange={(e) => {
+          <BuyLicence />
+        </div>}
+        {view.status !== "licensed" && <input ref={fileInput} aria-label="Licence file" type="file" accept=".txt,.licence" hidden disabled={busy} onChange={(e) => {
           const file = e.target.files?.[0];
           e.target.value = "";
           if (!file) return;
           if (file.size > 4096) { setError("This licence file is too large."); return; }
           void file.text().then((text) => run("redeem_licence", { key: text })).catch(() => setError("Could not read this licence file."));
-        }} />
+        }} />}
         {view.status === "licensed" && <div className="licence-removal">{confirm ? <>
           <p>Connect to the internet to deactivate this computer and free its place. This does not refund your purchase or restart your trial.</p>
           <div className="licence-actions">

@@ -8,13 +8,22 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() =
 import { invoke } from "@tauri-apps/api/core";
 const licensed: LicenceView = { configured: true, status: "licensed", daysRemaining: 0, licenceId: "id", message: "Licensed offline.", storageWarning: false };
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
-it("keeps a valid licence visible when a replacement key is rejected", async () => {
-  vi.mocked(invoke).mockRejectedValue("This licence key is invalid.");
+it("offers no key entry while a licence is active, only removal", () => {
   render(<LicenceSection state={{ ...browserState, licence: licensed }} />);
+  expect(screen.getByText("Licensed offline.")).toBeInTheDocument();
+  expect(screen.queryByLabelText("Licence key")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Paste and activate" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Import licence file" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Use a different key")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Remove licence from this computer" })).toBeInTheDocument();
+});
+it("keeps the trial notice visible when a key is rejected", async () => {
+  vi.mocked(invoke).mockRejectedValue("This licence key is invalid.");
+  render(<LicenceSection state={{ ...browserState, licence: { ...licensed, status: "expired", licenceId: null, message: "Trial ended." } }} />);
   fireEvent.change(screen.getByLabelText("Licence key"), { target: { value: "invalid-key" } });
   fireEvent.click(screen.getByRole("button", { name: "Activate key" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("This licence key is invalid.");
-  expect(screen.getByText("Licensed offline.")).toBeInTheDocument();
+  expect(screen.getByText("Trial ended.")).toBeInTheDocument();
 });
 it("only removes a licence after the local confirmation", async () => {
   vi.mocked(invoke).mockResolvedValue({ ...licensed, status: "expired", licenceId: null, message: "Trial ended." });
@@ -27,7 +36,7 @@ it("only removes a licence after the local confirmation", async () => {
 });
 it("does not read the clipboard until Paste and activate is selected", async () => {
   vi.mocked(invoke).mockResolvedValue(licensed);
-  render(<LicenceSection state={{ ...browserState, licence: licensed }} />);
+  render(<LicenceSection state={{ ...browserState, licence: { ...licensed, status: "expired", licenceId: null } }} />);
   expect(invoke).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Paste and activate" }));
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("paste_licence", undefined));
@@ -35,7 +44,7 @@ it("does not read the clipboard until Paste and activate is selected", async () 
 
 it("opens the file picker from a button and activates the chosen file", async () => {
   vi.mocked(invoke).mockResolvedValue(licensed);
-  render(<LicenceSection state={{ ...browserState, licence: licensed }} />);
+  render(<LicenceSection state={{ ...browserState, licence: { ...licensed, status: "expired", licenceId: null } }} />);
   const input = screen.getByLabelText("Licence file");
   const pickFile = vi.spyOn(input, "click");
   fireEvent.click(screen.getByRole("button", { name: "Import licence file" }));
