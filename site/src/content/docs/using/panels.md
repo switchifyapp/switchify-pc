@@ -5,9 +5,15 @@ description: Make scanning panels of your own, rearrange Home and the built-in m
 
 A panel is a page of tiles that scans like the Home menu. Each tile does one thing when you choose it: presses keys, types a phrase, runs an action such as Copy or Play, opens the keyboard, the mouse panel or a built-in menu, or opens another panel of yours. The panel stays open after each action so you can choose the next one, until you choose a tile that goes **Back** or closes it.
 
-Open **Panels** in the sidebar of the Switchify PC window to see your panels. Each one is shown as a small picture of the panel, drawn the way the scan will draw it, in the light or dark panel theme you chose in Scanning settings.
+Open **Panels** in the sidebar of the Switchify PC window. Everything that scans is listed under the menu that opens it, so you can see what belongs to what:
 
-![The Panels page with two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath and either its description or its number of tiles, a New panel button, below them a Built-in menus group showing Home and Editing, each marked Not changed, and then a Mouse panel and keyboard group.](../../../assets/screenshots/panels.png)
+- **Home** comes first: the Home menu, then the mouse panel, the keyboard and the menus Home opens: Apps and windows, Editing, Browser with Tabs inside it, Media and Zoom.
+- **My panels** holds the panels you make, with the **New panel** button.
+- **More actions** is the menu that opens after you choose a point. It opens most of Home's menus too, so those cards stay under Home and say **Also on More**; here are More itself and the three menus only it opens: Mouse, Displays and Scanning.
+
+Each card is a small picture of the panel, drawn the way the scan will draw it, in the light or dark panel theme you chose in Scanning settings.
+
+![The Panels page in three groups. Home shows the Home menu, the mouse panel, the keyboard, Editing and Browser with Tabs listed under it; My panels shows Greetings and Writing with a New panel button; More actions shows More and Displays. Each menu card is marked Not changed.](../../../assets/screenshots/panels.png)
 
 ## Make a panel
 
@@ -51,7 +57,7 @@ Your panels are saved on this computer. If you sign in to your account, they go 
 
 ## Rearrange the built-in menus
 
-Below your panels, **Built-in menus** lists Home and the menus it opens: More actions, Mouse, Editing, Apps and windows, Browser, Tabs, Zoom, Media, Displays and Scanning. Each is drawn as it scans. Choose one to open it in the same editor and move, add or remove its tiles, change their labels, or give a tile a different action. The menu keeps its name. Choose **Save changes** and the next scan uses your arrangement; the card then says **Rearranged**.
+Home and the menus it opens, More actions and the menus it opens, and Tabs inside Browser can all be rearranged. Choose a menu's card to open it in the same editor and move, add or remove its tiles, change their labels, or give a tile a different action. The menu keeps its name. Choose **Save changes** and the next scan uses your arrangement; the card then says **Rearranged**.
 
 Two rules keep a menu usable: it must keep a tile that goes **Back** or closes it, and Home must keep a tile that closes it, which ends scanning. The editor says so and keeps Save off until the rule is met.
 
@@ -65,7 +71,7 @@ Rearranged menus are saved on this computer and, if you sign in to your account,
 
 ## Add tiles around the mouse panel's and the keyboard's keys
 
-Below the built-in menus, **Mouse panel and keyboard** shows the two scanning panels with their keys. The keys cannot be changed, but you can add tiles of your own around them: a phrase you type often, a shortcut, or a link to one of your panels. Choose a panel, then **Add row** for a row below the keys or **Add column** for a column beside them, and give each tile a label and an action as on any panel. The keys are drawn faintly and cannot be chosen; your tiles sit among them where they will scan, with each row's tools beside it and each column's tools under it. With a tile chosen, **Row** or **Column** on the right moves it to another row or column, or a new one. Choose **Save changes**; the card then says what you added.
+The **Mouse panel** and **Keyboard** cards in the Home group show the two scanning panels with their keys. The keys cannot be changed, but you can add tiles of your own around them: a phrase you type often, a shortcut, or a link to one of your panels. Choose a panel, then **Add row** for a row below the keys or **Add column** for a column beside them, and give each tile a label and an action as on any panel. The keys are drawn faintly and cannot be chosen; your tiles sit among them where they will scan, with each row's tools beside it and each column's tools under it. With a tile chosen, **Row** or **Column** on the right moves it to another row or column, or a new one. Choose **Save changes**; the card then says what you added.
 
 Up to four rows fit below the keys, and each row shares the panel's width between its tiles, as on your own panels. Up to two columns of up to six tiles run down the right of the keys from the top row; a column longer than the panel adds rows of its own below it, and a column is as wide as its widest tile.
 

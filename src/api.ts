@@ -64,6 +64,26 @@ const browserBuiltinDefaults: BuiltinPanelView[] = [
     [browserTile("Save", { type: "command", command: "save" }), browserTile("Find", { type: "command", command: "find" })],
     [browserTile("Back", { type: "back" }), browserTile("Close menu", { type: "close" })],
   ] } },
+  { kind: "browser", name: "Browser", override: null, default: { id: "builtin-browser", version: 1, name: "Browser", description: "", rows: [
+    [browserTile("Back", { type: "command", command: "browserBack" }), browserTile("Forward", { type: "command", command: "browserForward" }), browserTile("Reload", { type: "command", command: "reload" })],
+    [browserTile("Tabs", { type: "openPanel", panel: { menu: "tabs" } }), browserTile("Address bar", { type: "command", command: "address" })],
+    [browserTile("Back", { type: "back" }), browserTile("Close menu", { type: "close" })],
+  ] } },
+  { kind: "tabs", name: "Tabs", override: null, default: { id: "builtin-tabs", version: 1, name: "Tabs", description: "", rows: [
+    [browserTile("New tab", { type: "command", command: "newTab" }), browserTile("Close tab", { type: "command", command: "closeTab" }), browserTile("Reopen tab", { type: "command", command: "reopenTab" })],
+    [browserTile("Next tab", { type: "command", command: "nextTab" }), browserTile("Previous tab", { type: "command", command: "previousTab" })],
+    [browserTile("Back", { type: "back" }), browserTile("Close menu", { type: "close" })],
+  ] } },
+  { kind: "more", name: "More actions", override: null, default: { id: "builtin-more", version: 1, name: "More actions", description: "", rows: [
+    [browserTile("Mouse", { type: "openPanel", panel: { menu: "mouse" } }), browserTile("Editing", { type: "openPanel", panel: { menu: "editing" } }), browserTile("Apps and windows", { type: "openPanel", panel: { menu: "windows" } })],
+    [browserTile("Browser", { type: "openPanel", panel: { menu: "browser" } }), browserTile("Zoom", { type: "openPanel", panel: { menu: "zoom" } }), browserTile("Media", { type: "openPanel", panel: { menu: "media" } })],
+    [browserTile("Displays", { type: "openPanel", panel: { menu: "displays" } }), browserTile("Scanning", { type: "openPanel", panel: { menu: "scanning" } })],
+    [browserTile("Back", { type: "back" }), browserTile("Close menu", { type: "close" })],
+  ] } },
+  { kind: "displays", name: "Displays", override: null, default: { id: "builtin-displays", version: 1, name: "Displays", description: "", rows: [
+    [browserTile("Next display", { type: "display", next: true }), browserTile("Previous display", { type: "display", next: false })],
+    [browserTile("Back", { type: "back" }), browserTile("Close menu", { type: "close" })],
+  ] } },
 ];
 let browserBuiltins: BuiltinPanelView[] = structuredClone(browserBuiltinDefaults);
 // The mouse panel's and the keyboard's keys, enough for a plain browser to draw them.

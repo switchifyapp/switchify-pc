@@ -633,10 +633,31 @@ describe("Switchify PC shell", () => {
     expect(await screen.findByRole("button", { name: "Home, not changed" })).toBeInTheDocument();
   });
 
+  it("lists each card under the menu that opens it", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    // Home first with what it opens, then the user's panels, then More's own menus.
+    const home = await screen.findByRole("region", { name: "Home" });
+    expect(within(home).getByRole("button", { name: "Home, not changed" })).toBeInTheDocument();
+    expect(within(home).getByRole("button", { name: "Keyboard, keys only" })).toBeInTheDocument();
+    expect(within(home).getByRole("button", { name: "Editing, not changed, also on More" })).toBeInTheDocument();
+    const inside = within(home).getByRole("list", { name: "Inside Browser" });
+    expect(within(inside).getByRole("button", { name: "Tabs, not changed, in Browser" })).toBeInTheDocument();
+    const mine = screen.getByRole("region", { name: "My panels" });
+    expect(within(mine).getByRole("button", { name: "New panel" })).toBeInTheDocument();
+    const more = screen.getByRole("region", { name: "More actions" });
+    expect(within(more).getByRole("button", { name: "More actions, not changed" })).toBeInTheDocument();
+    expect(within(more).getByRole("button", { name: "Displays, not changed" })).toBeInTheDocument();
+    expect(within(more).queryByRole("button", { name: /Editing/ })).not.toBeInTheDocument();
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+    expect(headings.indexOf("Home")).toBeLessThan(headings.indexOf("My panels"));
+    expect(headings.indexOf("My panels")).toBeLessThan(headings.indexOf("More actions"));
+  });
+
   it("keeps a way out of a built-in menu", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Editing, not changed" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Editing, not changed, also on More" }));
     await screen.findByRole("heading", { name: "Editing", level: 1 });
     fireEvent.click(screen.getByRole("button", { name: "Remove row 4" }));
     expect(screen.getByText("Keep a Back or Close tile so the menu can be left.")).toBeInTheDocument();
