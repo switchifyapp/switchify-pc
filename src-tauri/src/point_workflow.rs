@@ -150,6 +150,13 @@ enum Stage {
     Destination,
     Executing,
 }
+/// Which of the saved documents changed, so only the page built from it is rebuilt.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Saved {
+    Panels,
+    Menus,
+    Extras,
+}
 /// A navigation key chosen on the scanned keyboard. It repeats once choosing
 /// it has typed it, until a switch stops it.
 struct KeyRepeat {
@@ -272,20 +279,81 @@ impl Workflow {
     /// Replaces the user's panels. An open page keeps its tiles until it is
     /// reopened.
     pub fn set_panels(&mut self, panels: Vec<CustomPanel>) {
+        if self.panels == panels {
+            return;
+        }
         self.panels = panels;
+        self.refresh_page(Saved::Panels);
     }
-    /// Replaces the rearranged menus. An open page keeps its tiles until it
-    /// is reopened.
+    /// Replaces the rearranged menus. An open menu follows the change.
     pub fn set_menu_overrides(&mut self, overrides: std::collections::BTreeMap<Kind, CustomPanel>) {
+        if self.menu_overrides == overrides {
+            return;
+        }
         self.menu_overrides = overrides;
+        self.refresh_page(Saved::Menus);
     }
     /// Replaces the extra tiles on the mouse panel and the keyboard. An open
-    /// panel keeps its tiles until it is reopened.
+    /// panel follows the change.
     pub fn set_panel_extras(
         &mut self,
         extras: std::collections::BTreeMap<ExtraTarget, crate::panel_extras::PanelExtras>,
     ) {
+        if self.panel_extras == extras {
+            return;
+        }
         self.panel_extras = extras;
+        self.refresh_page(Saved::Extras);
+    }
+    /// Rebuilds the open page from the documents it was built from, so an
+    /// edit saved in the Panels page shows straight away. Scanning starts
+    /// again from the top of the page, keeping a pause or a wait for a
+    /// switch; a panel that is gone gives way to the page under it. A page
+    /// in the middle of a move or a scroll is left alone until it is next
+    /// opened. Saving something else leaves the open page alone, so the
+    /// scan keeps its place.
+    fn refresh_page(&mut self, saved: Saved) {
+        match self.stage {
+            Stage::Menu if saved != Saved::Extras => {
+                let (suspended, waiting) = (self.menu.suspended(), self.menu.waiting());
+                match self.menu.page_ref() {
+                    PageRef::Custom(_) if saved == Saved::Menus => return,
+                    PageRef::Custom(id) => {
+                        if !self.open_custom(&id) {
+                            self.error = None;
+                            self.restore_actions();
+                        }
+                    }
+                    // The list is built from the panels alone.
+                    PageRef::Kind(Kind::Panels) if saved == Saved::Menus => return,
+                    // The menus and the action pages list the panels, so they follow both.
+                    PageRef::Kind(kind)
+                        if kind == Kind::Panels
+                            || (matches!(kind, Kind::Actions | Kind::MouseActions)
+                                && saved == Saved::Panels)
+                            || crate::builtin_panels::editable(kind) =>
+                    {
+                        self.menu = self.build(kind);
+                    }
+                    PageRef::Kind(_) => return,
+                }
+                if suspended {
+                    self.menu.suspend();
+                }
+                if waiting {
+                    self.menu.wait();
+                }
+            }
+            Stage::Keyboard if saved == Saved::Extras => {
+                let extras = self.extras_for(ExtraTarget::Keyboard);
+                self.keyboard.set_extras(extras);
+            }
+            Stage::Mouse if saved == Saved::Extras => {
+                let extras = self.extras_for(ExtraTarget::Mouse);
+                self.mouse.set_extras(extras);
+            }
+            _ => {}
+        }
     }
     /// Starts on the page the editor asked to try, as if it had just been
     /// chosen from Home, so Back and Close go where they always do.
@@ -2287,10 +2355,10 @@ mod tests {
         assert_eq!(last, ["Switchify", "Close menu"]);
         s.technique
             .set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
-        // The open Home keeps its rows; the next Home shows the new item.
+        // The open Home gains the item there and then.
         assert_eq!(
             s.technique.menu.frame_labels().pop().unwrap(),
-            ["Switchify", "Close menu"]
+            ["Switchify", "My panels", "Close menu"]
         );
         s.action(Action::Stop);
         let mut s = next_session(&s);
@@ -2384,6 +2452,120 @@ mod tests {
         assert_eq!(workflow.selected(Item::Back), None);
         assert!(workflow.mouse_open());
         assert!(workflow.stage == Stage::Mouse);
+    }
+
+    #[test]
+    fn an_open_panel_follows_its_edit_and_leaves_when_deleted() {
+        let mut s = board_session(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 3, 1), None);
+        assert_eq!(s.technique.menu.kind, Kind::Panels);
+        assert_eq!(s.action(Action::Select), None);
+        assert_eq!(s.technique.menu.custom_id.as_deref(), Some("greetings"));
+        // The edit shows at once, on the same page, scanning from its top.
+        let mut edited = crate::custom_panels::sample("greetings", "Greetings");
+        edited.rows[0][0].label = "Duplicate".into();
+        s.technique.set_panels(vec![edited.clone()]);
+        assert_eq!(s.technique.menu.custom_id.as_deref(), Some("greetings"));
+        assert_eq!(s.technique.menu.frame_labels()[0][0], "Duplicate");
+        assert!(s.technique.menu_open());
+        // Saving something unchanged, or another page's tiles, keeps the
+        // scan where it is: the page is not rebuilt.
+        s.action(Action::Next);
+        let highlighted = s
+            .technique
+            .frame()
+            .tiles
+            .iter()
+            .position(|tile| tile.selected);
+        s.technique.set_panels(vec![edited]);
+        s.technique
+            .set_panel_extras(std::collections::BTreeMap::from([(
+                ExtraTarget::Keyboard,
+                crate::panel_extras::PanelExtras::rows(vec![vec![extra(
+                    "Hi",
+                    PanelAction::Back,
+                    1,
+                )]]),
+            )]));
+        assert_eq!(
+            s.technique
+                .frame()
+                .tiles
+                .iter()
+                .position(|tile| tile.selected),
+            highlighted
+        );
+        // A page waiting for a switch after a selection keeps waiting.
+        s.technique.menu.wait();
+        let mut again = crate::custom_panels::sample("greetings", "Greetings");
+        again.rows[0][0].label = "Twice".into();
+        s.technique.set_panels(vec![again]);
+        assert!(s.technique.menu.waiting());
+        // Deleting it leaves the page for the list, which no longer lists it.
+        s.technique.set_panels(vec![]);
+        assert_eq!(s.technique.menu.kind, Kind::Panels);
+        assert_eq!(
+            s.technique.menu.frame_labels(),
+            vec![vec!["Back", "Close menu"]]
+        );
+        assert!(s.technique.error.is_none());
+    }
+
+    #[test]
+    fn an_open_menu_and_list_follow_their_edits() {
+        let mut s = board_session(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+        s.action(Action::Select);
+        assert_eq!(s.technique.menu.kind, Kind::Home);
+        // Rearranging Home while it is open changes it there and then.
+        let mut home = crate::builtin_panels::default_document(Kind::Home);
+        home.rows.remove(0);
+        s.technique
+            .set_menu_overrides(std::collections::BTreeMap::from([(Kind::Home, home)]));
+        assert_eq!(s.technique.menu.kind, Kind::Home);
+        assert_ne!(s.technique.menu.frame_labels()[0][0], "Point");
+        assert!(s.technique.home_open());
+        // The list of panels follows a rename.
+        s.technique.set_menu_overrides(Default::default());
+        assert_eq!(choose_in(&mut s, 3, 1), None);
+        assert_eq!(s.technique.menu.kind, Kind::Panels);
+        s.technique
+            .set_panels(vec![crate::custom_panels::sample("greetings", "Hellos")]);
+        assert_eq!(s.technique.menu.kind, Kind::Panels);
+        assert_eq!(s.technique.menu.frame_labels()[0], vec!["Hellos"]);
+    }
+
+    #[test]
+    fn an_open_mouse_panel_follows_its_extra_tiles() {
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        workflow.open_mouse(true);
+        assert!(workflow.mouse_open());
+        workflow.set_panel_extras(std::collections::BTreeMap::from([(
+            ExtraTarget::Mouse,
+            crate::panel_extras::PanelExtras::rows(vec![vec![extra(
+                "Hello",
+                PanelAction::Text {
+                    text: "Hello".into(),
+                },
+                1,
+            )]]),
+        )]));
+        assert!(workflow.mouse_open());
+        let frame = workflow.frame();
+        assert!(tile_rect(&frame, "Hello").y < tile_rect(&frame, "Actions").y);
+        // Removing the tiles takes them off the open panel too.
+        workflow.set_panel_extras(Default::default());
+        assert!(!workflow
+            .frame()
+            .tiles
+            .iter()
+            .any(|tile| tile.text == "Hello"));
     }
 
     #[test]
@@ -2601,7 +2783,7 @@ mod tests {
     }
 
     #[test]
-    fn the_panel_list_opens_panels_by_id_after_the_list_changes() {
+    fn the_panel_list_relists_when_a_panel_is_deleted() {
         let mut s = board_session(vec![
             crate::custom_panels::sample("a", "First"),
             crate::custom_panels::sample("b", "Second"),
@@ -2609,16 +2791,12 @@ mod tests {
         s.action(Action::Select);
         assert_eq!(choose_in(&mut s, 3, 1), None);
         assert_eq!(s.technique.menu.kind, Kind::Panels);
-        // The first panel is deleted while the list is showing. Its tile
-        // says so instead of opening whatever now sits first.
+        // The first panel is deleted while the list is showing: the list
+        // drops it at once, and the remaining tile opens its own panel.
         s.technique
             .set_panels(vec![crate::custom_panels::sample("b", "Second")]);
-        assert_eq!(choose_in(&mut s, 0, 0), None);
         assert_eq!(s.technique.menu.kind, Kind::Panels);
-        assert!(s.technique.frame().label.is_some());
-        s.action(Action::Select);
-        // The other tile still opens its own panel.
-        s.action(Action::Next);
+        assert_eq!(s.technique.menu.frame_labels()[0], vec!["Second"]);
         assert_eq!(s.action(Action::Select), None);
         assert_eq!(s.technique.menu.custom_id.as_deref(), Some("b"));
     }
