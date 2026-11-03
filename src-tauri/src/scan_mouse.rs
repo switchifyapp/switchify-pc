@@ -81,6 +81,12 @@ impl MousePanel {
         self.rebuild_rows();
         self
     }
+    /// Replaces the user's tiles while the panel is open. The page stays;
+    /// scanning starts again from its top.
+    pub fn set_extras(&mut self, extras: PanelExtras) {
+        self.extras = extras;
+        self.rebuild_rows();
+    }
     /// The built-in keys of the Movement page, for a picture of the panel.
     pub fn fixed_picture() -> Vec<Vec<(String, f64)>> {
         let panel = Self::new(Resolved::default(), 1, 100);

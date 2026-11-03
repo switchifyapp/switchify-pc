@@ -380,6 +380,12 @@ impl Keyboard {
         self.rebuild_rows();
         self
     }
+    /// Replaces the user's tiles while the keyboard is open. The page and a
+    /// pause stay; scanning starts again from the top.
+    pub fn set_extras(&mut self, extras: PanelExtras) {
+        self.extras = extras;
+        self.rebuild_rows_keeping_pause();
+    }
     /// The built-in keys of the QWERTY Letters page, for a picture of the
     /// keyboard.
     pub fn fixed_picture(mac: bool) -> Vec<Vec<(String, f64)>> {

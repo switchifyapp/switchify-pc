@@ -1347,18 +1347,31 @@ pub fn refresh_custom_panels(app: &AppHandle) {
     use crate::point_scan_runtime::PointScan;
     let controller = app.state::<Controller<PointScan>>();
     let mut data = controller.data.lock().unwrap_or_else(|p| p.into_inner());
-    if let Some(engine) = data.engine.as_mut() {
-        engine.technique.set_panels(crate::custom_panels::list(app));
-        engine
-            .technique
-            .set_menu_overrides(crate::builtin_panels::by_kind(
-                &crate::custom_panels::overrides(app),
-            ));
-        engine
-            .technique
-            .set_panel_extras(crate::panel_extras::by_target(
-                &crate::custom_panels::extras(app),
-            ));
+    let Some(engine) = data.engine.as_mut() else {
+        return;
+    };
+    engine.technique.set_panels(crate::custom_panels::list(app));
+    engine
+        .technique
+        .set_menu_overrides(crate::builtin_panels::by_kind(
+            &crate::custom_panels::overrides(app),
+        ));
+    engine
+        .technique
+        .set_panel_extras(crate::panel_extras::by_target(
+            &crate::custom_panels::extras(app),
+        ));
+    let active = engine.active();
+    drop(data);
+    // An open page has followed the change; draw it as it is now. The
+    // overlays belong to the main thread.
+    if active {
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Err(error) = render::<PointScan>(&handle, None) {
+                disable::<PointScan>(&handle, &error);
+            }
+        });
     }
 }
 /// Starts a point scan on the page the editor asked to try, as a switch
