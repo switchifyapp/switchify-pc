@@ -324,9 +324,13 @@ impl Workflow {
                             self.restore_actions();
                         }
                     }
-                    // The menus list the panels, so they follow both.
+                    // The list is built from the panels alone.
+                    PageRef::Kind(Kind::Panels) if saved == Saved::Menus => return,
+                    // The menus and the action pages list the panels, so they follow both.
                     PageRef::Kind(kind)
-                        if kind == Kind::Panels || crate::builtin_panels::editable(kind) =>
+                        if kind == Kind::Panels
+                            || matches!(kind, Kind::Actions | Kind::MouseActions)
+                            || crate::builtin_panels::editable(kind) =>
                     {
                         self.menu = self.build(kind);
                     }
