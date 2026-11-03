@@ -329,7 +329,8 @@ impl Workflow {
                     // The menus and the action pages list the panels, so they follow both.
                     PageRef::Kind(kind)
                         if kind == Kind::Panels
-                            || matches!(kind, Kind::Actions | Kind::MouseActions)
+                            || (matches!(kind, Kind::Actions | Kind::MouseActions)
+                                && saved == Saved::Panels)
                             || crate::builtin_panels::editable(kind) =>
                     {
                         self.menu = self.build(kind);
