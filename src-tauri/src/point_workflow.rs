@@ -150,6 +150,13 @@ enum Stage {
     Destination,
     Executing,
 }
+/// Which of the saved documents changed, so only the page built from it is rebuilt.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Saved {
+    Panels,
+    Menus,
+    Extras,
+}
 /// A navigation key chosen on the scanned keyboard. It repeats once choosing
 /// it has typed it, until a switch stops it.
 struct KeyRepeat {
@@ -272,13 +279,19 @@ impl Workflow {
     /// Replaces the user's panels. An open page keeps its tiles until it is
     /// reopened.
     pub fn set_panels(&mut self, panels: Vec<CustomPanel>) {
+        if self.panels == panels {
+            return;
+        }
         self.panels = panels;
-        self.refresh_page();
+        self.refresh_page(Saved::Panels);
     }
     /// Replaces the rearranged menus. An open menu follows the change.
     pub fn set_menu_overrides(&mut self, overrides: std::collections::BTreeMap<Kind, CustomPanel>) {
+        if self.menu_overrides == overrides {
+            return;
+        }
         self.menu_overrides = overrides;
-        self.refresh_page();
+        self.refresh_page(Saved::Menus);
     }
     /// Replaces the extra tiles on the mouse panel and the keyboard. An open
     /// panel follows the change.
@@ -286,25 +299,32 @@ impl Workflow {
         &mut self,
         extras: std::collections::BTreeMap<ExtraTarget, crate::panel_extras::PanelExtras>,
     ) {
+        if self.panel_extras == extras {
+            return;
+        }
         self.panel_extras = extras;
-        self.refresh_page();
+        self.refresh_page(Saved::Extras);
     }
     /// Rebuilds the open page from the documents it was built from, so an
     /// edit saved in the Panels page shows straight away. Scanning starts
-    /// again from the top of the page; a panel that is gone gives way to the
-    /// page under it. A page in the middle of a move or a scroll is left
-    /// alone until it is next opened.
-    fn refresh_page(&mut self) {
+    /// again from the top of the page, keeping a pause or a wait for a
+    /// switch; a panel that is gone gives way to the page under it. A page
+    /// in the middle of a move or a scroll is left alone until it is next
+    /// opened. Saving something else leaves the open page alone, so the
+    /// scan keeps its place.
+    fn refresh_page(&mut self, saved: Saved) {
         match self.stage {
-            Stage::Menu => {
-                let suspended = self.menu.suspended();
+            Stage::Menu if saved != Saved::Extras => {
+                let (suspended, waiting) = (self.menu.suspended(), self.menu.waiting());
                 match self.menu.page_ref() {
+                    PageRef::Custom(_) if saved == Saved::Menus => return,
                     PageRef::Custom(id) => {
                         if !self.open_custom(&id) {
                             self.error = None;
                             self.restore_actions();
                         }
                     }
+                    // The menus list the panels, so they follow both.
                     PageRef::Kind(kind)
                         if kind == Kind::Panels || crate::builtin_panels::editable(kind) =>
                     {
@@ -315,12 +335,15 @@ impl Workflow {
                 if suspended {
                     self.menu.suspend();
                 }
+                if waiting {
+                    self.menu.wait();
+                }
             }
-            Stage::Keyboard => {
+            Stage::Keyboard if saved == Saved::Extras => {
                 let extras = self.extras_for(ExtraTarget::Keyboard);
                 self.keyboard.set_extras(extras);
             }
-            Stage::Mouse => {
+            Stage::Mouse if saved == Saved::Extras => {
                 let extras = self.extras_for(ExtraTarget::Mouse);
                 self.mouse.set_extras(extras);
             }
@@ -2437,10 +2460,43 @@ mod tests {
         // The edit shows at once, on the same page, scanning from its top.
         let mut edited = crate::custom_panels::sample("greetings", "Greetings");
         edited.rows[0][0].label = "Duplicate".into();
-        s.technique.set_panels(vec![edited]);
+        s.technique.set_panels(vec![edited.clone()]);
         assert_eq!(s.technique.menu.custom_id.as_deref(), Some("greetings"));
         assert_eq!(s.technique.menu.frame_labels()[0][0], "Duplicate");
         assert!(s.technique.menu_open());
+        // Saving something unchanged, or another page's tiles, keeps the
+        // scan where it is: the page is not rebuilt.
+        s.action(Action::Next);
+        let highlighted = s
+            .technique
+            .frame()
+            .tiles
+            .iter()
+            .position(|tile| tile.selected);
+        s.technique.set_panels(vec![edited]);
+        s.technique
+            .set_panel_extras(std::collections::BTreeMap::from([(
+                ExtraTarget::Keyboard,
+                crate::panel_extras::PanelExtras::rows(vec![vec![extra(
+                    "Hi",
+                    PanelAction::Back,
+                    1,
+                )]]),
+            )]));
+        assert_eq!(
+            s.technique
+                .frame()
+                .tiles
+                .iter()
+                .position(|tile| tile.selected),
+            highlighted
+        );
+        // A page waiting for a switch after a selection keeps waiting.
+        s.technique.menu.wait();
+        let mut again = crate::custom_panels::sample("greetings", "Greetings");
+        again.rows[0][0].label = "Twice".into();
+        s.technique.set_panels(vec![again]);
+        assert!(s.technique.menu.waiting());
         // Deleting it leaves the page for the list, which no longer lists it.
         s.technique.set_panels(vec![]);
         assert_eq!(s.technique.menu.kind, Kind::Panels);

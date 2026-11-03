@@ -81,11 +81,21 @@ impl MousePanel {
         self.rebuild_rows();
         self
     }
-    /// Replaces the user's tiles while the panel is open. The page stays;
-    /// scanning starts again from its top.
+    /// Replaces the user's tiles while the panel is open. The page and a
+    /// pause stay; scanning starts again from its top.
     pub fn set_extras(&mut self, extras: PanelExtras) {
         self.extras = extras;
+        self.rebuild_rows_keeping_pause();
+    }
+    /// Rebuilds the rows without losing a pause, whether the user's or an
+    /// error's, and without starting a scan that was waiting for a switch.
+    fn rebuild_rows_keeping_pause(&mut self) {
+        let (suspended, waiting) = (self.scan.suspended, self.scan.waiting());
         self.rebuild_rows();
+        self.scan.suspended = suspended;
+        if waiting {
+            self.scan.wait();
+        }
     }
     /// The built-in keys of the Movement page, for a picture of the panel.
     pub fn fixed_picture() -> Vec<Vec<(String, f64)>> {
@@ -312,12 +322,7 @@ impl MousePanel {
             if !self.positioning
                 && self.rows != Self::rows(self.more, false, displays, &self.extras)
             {
-                let (suspended, waiting) = (self.scan.suspended, self.scan.waiting());
-                self.rebuild_rows();
-                self.scan.suspended = suspended;
-                if waiting {
-                    self.scan.wait();
-                }
+                self.rebuild_rows_keeping_pause();
             }
         }
     }
@@ -448,6 +453,32 @@ impl MousePanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_extra_tiles_keep_an_error_pause_and_a_wait() {
+        let mut panel = MousePanel::new(Resolved::default(), 1, 100);
+        panel.failed();
+        assert!(panel.suspended());
+        let tile = |label: &str| crate::custom_panels::Cell {
+            label: label.into(),
+            action: crate::panel_actions::PanelAction::Back,
+            span: 1,
+        };
+        panel.set_extras(PanelExtras::rows(vec![vec![tile("Hello")]]));
+        assert!(panel.suspended(), "the error pause survives the new rows");
+        assert!(panel
+            .rows
+            .iter()
+            .flatten()
+            .any(|key| matches!(key, Key::Extra(0, 0))));
+        // A panel waiting for a switch after a selection keeps waiting.
+        let mut panel = MousePanel::new(Resolved::default(), 1, 100);
+        panel.scan.wait();
+        assert!(panel.scan.waiting());
+        panel.set_extras(PanelExtras::default());
+        assert!(panel.scan.waiting());
+        assert!(!panel.suspended());
+    }
 
     #[test]
     fn compact_geometry_scales_uniformly_and_keeps_direction_columns() {

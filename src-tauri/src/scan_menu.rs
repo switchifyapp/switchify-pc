@@ -320,6 +320,13 @@ impl Menu {
     pub fn suspend(&mut self) {
         self.scan.suspended = true;
     }
+    /// The page is waiting for a switch before it scans again.
+    pub fn waiting(&self) -> bool {
+        self.scan.waiting()
+    }
+    pub fn wait(&mut self) {
+        self.scan.wait();
+    }
     pub fn set_period(&mut self, period: u64) {
         self.period = period;
         self.restart_interval();
