@@ -425,8 +425,9 @@ impl Workflow {
     pub fn menu_open(&self) -> bool {
         self.stage == Stage::Menu
     }
-    /// One of the user's panels is open. Its pointer tiles act at the pointer,
-    /// so the runtime keeps the pointer position current while it is open.
+    /// One of the user's panels is open. Its pointer tiles act at the pointer, or
+    /// at the chosen point when it was opened from the point's page, so the
+    /// runtime keeps the pointer position current while it is open.
     pub fn custom_panel_open(&self) -> bool {
         self.stage == Stage::Menu && self.menu.custom_id.is_some()
     }
