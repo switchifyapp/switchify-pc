@@ -63,9 +63,8 @@ if you need help after that. The old computer loses access on its next successfu
 check, or when its offline allowance ends. To free a computer's place first,
 choose **Remove licence from this computer** while online and confirm.
 Removing a key does not refund a purchase or restart the trial. While a
-licence is active the page shows only its status and these controls; the key
-field comes back once the licence is removed, so to use a different key,
-remove the current one first.
+licence is active the key field is hidden. To use a different key, choose
+**Remove licence from this computer** first; the key field then returns.
 
 A full refund or dispute revokes the licence. A computer stops paid access
 when it receives that verified status, or when its existing offline allowance
