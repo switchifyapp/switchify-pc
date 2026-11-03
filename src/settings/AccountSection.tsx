@@ -5,7 +5,7 @@ import { Button, Input, StatusIcon } from "../ui/controls";
 import type { AccountView, AppSettings, SyncView } from "../types";
 import { Toggle } from "./controls";
 
-const syncs = "Pointer, repeat, dwell and cursor settings; your switches and their keys; scanning and keyboard layout; your switch profiles; and remote switches.";
+const syncs = "Pointer, repeat, dwell and cursor settings; your switches and their keys; scanning and keyboard layout; your switch profiles; remote switches; and your panels, including changes to the built-in menus and the tiles you add around the mouse panel's and the keyboard's keys.";
 const staysHere = "Phone pairings, phone approval, diagnostics sharing, learned words, setup progress and starting with your computer.";
 
 type FocusTarget = "email" | "code" | "signOut" | "deleteAccount" | "keepAccount";

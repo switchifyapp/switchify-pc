@@ -13,7 +13,7 @@ Switchify PC lives in the system tray on Windows or the menu bar on a Mac, with 
 
 Signing in is optional. It uses the same Switchify account as the Android app: enter your email and the six-digit code it receives. There is no password.
 
-**What syncs** between your computers: pointer, repeat, dwell and cursor settings; your switches and what they do; scanning preferences; keyboard layout; Switch Forwarding profiles; and remote switch slots.
+**What syncs** between your computers: pointer, repeat, dwell and cursor settings; your switches and what they do; scanning preferences; keyboard layout; Switch Forwarding profiles; remote switch slots; and your [panels](/using/panels/), including rearranged built-in menus and the tiles you add around the mouse panel's and the keyboard's keys.
 
 **What never syncs:** paired devices and their pairing tokens, the **Approve phones on this account automatically** setting, your diagnostics choice, setup progress, start with system, and learned words.
 

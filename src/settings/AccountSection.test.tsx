@@ -310,6 +310,7 @@ describe("AccountSection", () => {
     expect(screen.getByText("Syncs", { selector: "dt" })).toBeInTheDocument();
     expect(screen.getByText("Stays on this computer", { selector: "dt" })).toBeInTheDocument();
     expect(screen.getByText(/^Phone pairings, phone approval/)).toBeInTheDocument();
+    expect(screen.getByText(/and your panels, including changes to the built-in menus/)).toBeInTheDocument();
     cleanup();
     start(signedOut);
     await screen.findByLabelText("Email");
