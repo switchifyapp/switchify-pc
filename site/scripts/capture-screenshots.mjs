@@ -64,7 +64,7 @@ const bridge = (platform) => {
       [tile("Save", { type: "key", keys: ["Ctrl", "S"] }, 2), tile("Back", { type: "back" })],
     ] },
   ];
-  // Two of the built-in menus, unchanged, for the Built-in menus group.
+  // A few of the built-in menus, unchanged, enough to show the Home and More actions groups.
   const builtins = [
     { kind: "home", name: "Home", override: null, default: { id: "builtin-home", version: 1, name: "Home", description: "", rows: [
       [tile("Point", { type: "openPanel", panel: "point" }), tile("Mouse", { type: "openPanel", panel: "mouse" }), tile("Keyboard", { type: "openPanel", panel: "keyboard" })],
@@ -76,6 +76,26 @@ const bridge = (platform) => {
       [tile("Copy", { type: "command", command: "copy" }), tile("Cut", { type: "command", command: "cut" }), tile("Paste", { type: "command", command: "paste" })],
       [tile("Select all", { type: "command", command: "selectAll" }), tile("Undo", { type: "command", command: "undo" }), tile("Redo", { type: "command", command: "redo" })],
       [tile("Save", { type: "command", command: "save" }), tile("Find", { type: "command", command: "find" })],
+      [tile("Back", { type: "back" }), tile("Close menu", { type: "close" })],
+    ] } },
+    { kind: "browser", name: "Browser", override: null, default: { id: "builtin-browser", version: 1, name: "Browser", description: "", rows: [
+      [tile("Back", { type: "command", command: "browserBack" }), tile("Forward", { type: "command", command: "browserForward" }), tile("Reload", { type: "command", command: "reload" })],
+      [tile("Tabs", { type: "openPanel", panel: { menu: "tabs" } }), tile("Address bar", { type: "command", command: "address" })],
+      [tile("Back", { type: "back" }), tile("Close menu", { type: "close" })],
+    ] } },
+    { kind: "tabs", name: "Tabs", override: null, default: { id: "builtin-tabs", version: 1, name: "Tabs", description: "", rows: [
+      [tile("New tab", { type: "command", command: "newTab" }), tile("Close tab", { type: "command", command: "closeTab" }), tile("Reopen tab", { type: "command", command: "reopenTab" })],
+      [tile("Next tab", { type: "command", command: "nextTab" }), tile("Previous tab", { type: "command", command: "previousTab" })],
+      [tile("Back", { type: "back" }), tile("Close menu", { type: "close" })],
+    ] } },
+    { kind: "more", name: "More actions", override: null, default: { id: "builtin-more", version: 1, name: "More actions", description: "", rows: [
+      [tile("Mouse", { type: "openPanel", panel: { menu: "mouse" } }), tile("Editing", { type: "openPanel", panel: { menu: "editing" } }), tile("Apps and windows", { type: "openPanel", panel: { menu: "windows" } })],
+      [tile("Browser", { type: "openPanel", panel: { menu: "browser" } }), tile("Zoom", { type: "openPanel", panel: { menu: "zoom" } }), tile("Media", { type: "openPanel", panel: { menu: "media" } })],
+      [tile("Displays", { type: "openPanel", panel: { menu: "displays" } }), tile("Scanning", { type: "openPanel", panel: { menu: "scanning" } })],
+      [tile("Back", { type: "back" }), tile("Close menu", { type: "close" })],
+    ] } },
+    { kind: "displays", name: "Displays", override: null, default: { id: "builtin-displays", version: 1, name: "Displays", description: "", rows: [
+      [tile("Next display", { type: "display", next: true }), tile("Previous display", { type: "display", next: false })],
       [tile("Back", { type: "back" }), tile("Close menu", { type: "close" })],
     ] } },
   ];
@@ -267,7 +287,7 @@ for (const platform of ["windows", "macos"]) {
 {
   const page = await open("windows", { height: 900 });
   await click(page, "Panels");
-  await page.waitForSelector('#panel-extras-heading');
+  await page.waitForSelector('#builtin-heading');
   await shot(page, "panels", "main");
   await page.setViewport({ width: 1280, height: 1150, deviceScaleFactor: 2 });
   await click(page, "Greetings, 8 tiles");

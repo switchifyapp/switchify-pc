@@ -612,9 +612,7 @@ describe("Switchify PC shell", () => {
     const saveBuiltin = vi.spyOn(api, "saveBuiltinPanel");
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
-    const home = await screen.findByRole("button", { name: "Home, not changed" });
-    expect(within(home).getByRole("img", { name: /Picture of Home: Point, Mouse, Keyboard/ })).toBeInTheDocument();
-    fireEvent.click(home);
+    fireEvent.click(await screen.findByRole("button", { name: "Home, not changed" }));
     expect(await screen.findByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
     // The name is fixed, and Reset is off until the menu has been rearranged.
     expect(screen.queryByRole("textbox", { name: "Panel name" })).not.toBeInTheDocument();
@@ -633,10 +631,39 @@ describe("Switchify PC shell", () => {
     expect(await screen.findByRole("button", { name: "Home, not changed" })).toBeInTheDocument();
   });
 
+  it("lists the built-in menus and panels under the menu that opens them", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    // The user's panels come first; the built-ins are one list per opener.
+    const builtins = await screen.findByRole("region", { name: "Built-in menus and panels" });
+    expect(screen.getByRole("heading", { name: "Panels", level: 1 }).compareDocumentPosition(builtins) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const home = within(builtins).getByRole("list", { name: "On Home" });
+    const names = within(home).getAllByRole("button").map((button) => button.getAttribute("aria-label"));
+    expect(names).toEqual(["Home, not changed", "Mouse panel, keys only", "Keyboard, keys only", "Editing, not changed, also on More", "Browser, not changed, also on More", "Tabs, not changed, in Browser"]);
+    expect(within(within(home).getByRole("list", { name: "Inside Browser" })).getByRole("button", { name: "Tabs, not changed, in Browser" })).toHaveTextContent("Not changed · In Browser");
+    const more = within(builtins).getByRole("list", { name: "On More actions" });
+    expect(within(more).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["More actions, not changed", "Displays, not changed"]);
+    // Leaving a nested row's editor puts focus back on that row.
+    fireEvent.click(within(home).getByRole("button", { name: "Tabs, not changed, in Browser" }));
+    await screen.findByRole("heading", { name: "Tabs", level: 1 });
+    fireEvent.click(screen.getByRole("button", { name: "All panels" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Tabs, not changed, in Browser" })).toHaveFocus());
+  });
+
+  it("keeps a menu it does not know where to place", async () => {
+    const stray = { kind: "later", name: "Later", override: null, default: { id: "builtin-later", version: 1, name: "Later", description: "", rows: [[{ label: "Back", action: { type: "back" as const }, span: 1 }]] } };
+    vi.spyOn(api, "listBuiltinPanels").mockResolvedValue([stray]);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    const other = await screen.findByRole("list", { name: "Other menus" });
+    expect(within(other).getByRole("button", { name: "Later, not changed" })).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "On More actions" })).not.toBeInTheDocument();
+  });
+
   it("keeps a way out of a built-in menu", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Editing, not changed" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Editing, not changed, also on More" }));
     await screen.findByRole("heading", { name: "Editing", level: 1 });
     fireEvent.click(screen.getByRole("button", { name: "Remove row 4" }));
     expect(screen.getByText("Keep a Back or Close tile so the menu can be left.")).toBeInTheDocument();
@@ -647,9 +674,7 @@ describe("Switchify PC shell", () => {
     const saveExtras = vi.spyOn(api, "savePanelExtras");
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
-    const keyboard = await screen.findByRole("button", { name: "Keyboard, keys only" });
-    expect(within(keyboard).getByRole("img", { name: "Picture of Keyboard: its keys only" })).toBeInTheDocument();
-    fireEvent.click(keyboard);
+    fireEvent.click(await screen.findByRole("button", { name: "Keyboard, keys only" }));
     expect(await screen.findByRole("heading", { name: "Keyboard", level: 1 })).toBeInTheDocument();
     // No name to edit, nothing to remove yet, and no rows is fine as it is.
     expect(screen.queryByRole("textbox", { name: "Panel name" })).not.toBeInTheDocument();
@@ -662,7 +687,7 @@ describe("Switchify PC shell", () => {
     expect(saveExtras.mock.calls[0][0]).toBe("keyboard");
     expect(saveExtras.mock.calls[0][1]).toHaveLength(1);
     const added = await screen.findByRole("button", { name: "Keyboard, 1 extra row" });
-    expect(within(added).getByRole("img", { name: "Picture of Keyboard: its keys, then Back" })).toBeInTheDocument();
+    expect(added).toHaveTextContent("1 extra row");
     fireEvent.click(added);
     fireEvent.click(await screen.findByRole("button", { name: "Remove tiles" }));
     const confirm = screen.getByRole("alertdialog", { name: "Remove the tiles added to Keyboard?" });
