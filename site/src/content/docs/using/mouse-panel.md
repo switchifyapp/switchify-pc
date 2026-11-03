@@ -13,7 +13,7 @@ Choose **Mouse** from [Home](/using/home-menu/), or give a switch the **Open mou
 - **Scroll up** and **Scroll down**.
 - **Slower** and **Faster** pointer speed. Each shows the current level, from 1 to 10, and a press moves it half a level.
 - **Monitor left, right, up, down** to jump the pointer to another display.
-- **Actions** for the same editing, window, browser and media items as Home, and Home itself. Zoom is in Home: choose **Home**, then **Zoom**, and choose **Mouse** afterwards to bring the panel back.
+- **Actions** for the same editing, window, browser and media items as Home, Home itself, and **My panels** once you have made [panels](/using/panels/) of your own. Zoom is in Home: choose **Home**, then **Zoom**, and choose **Mouse** afterwards to bring the panel back.
 - **Keyboard** to open the scanning [keyboard](/using/keyboard/).
 - **Switch to Point** to change to [point scanning](/using/point-scanning/).
 - Rows and columns of your own tiles, if you added any in the [Panels](/using/panels/) section. Rows sit just above the bottom row; columns run down the right of the keys.
