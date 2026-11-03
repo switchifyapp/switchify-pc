@@ -776,9 +776,17 @@ impl Workflow {
         self.menu = self.build(kind);
         self.stage = Stage::Menu;
     }
-    /// Where a pointer action on a custom panel lands: at the pointer. No
-    /// point was chosen, and the pointer is not always known.
+    /// The point a panel opened from the point's page acts at, as that page's
+    /// own clicks do. Opened from anywhere else, no point was chosen.
+    fn chosen_point(&self) -> Option<Point> {
+        (self.parent_menu.first() == Some(&PageRef::Kind(Kind::Actions))).then_some(self.source)
+    }
+    /// Where a pointer action on a custom panel lands: at the chosen point
+    /// when there is one, otherwise at the pointer, which is not always known.
     fn pointer_point(&mut self) -> Option<Point> {
+        if let Some(point) = self.chosen_point() {
+            return Some(point);
+        }
         match self.pointer {
             Some((x, y)) => Some((x.round() as i32, y.round() as i32)),
             None => {
@@ -902,9 +910,14 @@ impl Workflow {
             }
             PanelAction::Click { button, count } => {
                 self.menu.continue_after_selection();
-                Some(Request::MouseClick {
-                    right: button == MouseButton::Right,
-                    count,
+                let right = button == MouseButton::Right;
+                Some(match self.chosen_point() {
+                    Some(point) => Request::Click {
+                        point,
+                        right,
+                        count,
+                    },
+                    None => Request::MouseClick { right, count },
                 })
             }
             PanelAction::Scroll { direction } => {
@@ -2289,9 +2302,35 @@ mod tests {
         );
     }
 
+    /// A panel with one Left click tile and a Back tile.
+    fn clicking_panel() -> CustomPanel {
+        use crate::custom_panels::Cell;
+        let cell = |label: &str, action: PanelAction| Cell {
+            label: label.into(),
+            action,
+            span: 1,
+        };
+        CustomPanel {
+            id: "clicker".into(),
+            version: 1,
+            name: "Clicker".into(),
+            description: String::new(),
+            rows: vec![
+                vec![cell(
+                    "Click",
+                    PanelAction::Click {
+                        button: MouseButton::Left,
+                        count: 1,
+                    },
+                )],
+                vec![cell("Back", PanelAction::Back)],
+            ],
+        }
+    }
+
     #[test]
     fn the_point_and_mouse_action_pages_reach_the_users_panels() {
-        let mut s = board_session(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+        let mut s = board_session(vec![clicking_panel()]);
         s.action(Action::Select);
         assert_eq!(choose_in(&mut s, 0, 0), Some(Request::OpenPoint));
         s.action(Action::Select);
@@ -2301,8 +2340,19 @@ mod tests {
             s.technique.menu.frame_labels().pop().unwrap(),
             ["New point", "My panels", "Close menu"]
         );
-        // My panels lists the panels; Back returns to the point's page, not Home.
+        // My panels lists the panels; a panel's clicks land at the chosen point,
+        // as the page's own do, and Back returns to the point's page, not Home.
         assert_eq!(choose_in(&mut s, 3, 1), None);
+        assert_eq!(s.technique.menu.kind, Kind::Panels);
+        // The list's first row holds the one panel, so the row press opens it.
+        assert_eq!(s.action(Action::Select), None);
+        assert!(s.technique.menu.custom_id.is_some());
+        // Rows of one tile select on the row press.
+        let point = s.technique.source;
+        assert_eq!(s.action(Action::Select), Some(default_click(point)));
+        assert!(s.technique.menu.custom_id.is_some(), "the panel stays open");
+        s.action(Action::Next);
+        assert_eq!(s.action(Action::Select), None);
         assert_eq!(s.technique.menu.kind, Kind::Panels);
         assert_eq!(choose_in(&mut s, 1, 0), None);
         assert_eq!(s.technique.menu.kind, Kind::Actions);
@@ -2327,6 +2377,30 @@ mod tests {
         );
         assert_eq!(workflow.selected(Item::Panels), None);
         assert_eq!(workflow.menu.kind, Kind::Panels);
+        // Back goes to the Actions page, then to the mouse panel itself.
+        assert_eq!(workflow.selected(Item::Back), None);
+        assert_eq!(workflow.menu.kind, Kind::MouseActions);
+        assert_eq!(workflow.selected(Item::Back), None);
+        assert!(workflow.mouse_open());
+        assert!(workflow.stage == Stage::Mouse);
+    }
+
+    #[test]
+    fn a_panel_opened_from_home_still_clicks_at_the_pointer() {
+        let mut s = board_session(vec![clicking_panel()]);
+        s.action(Action::Select);
+        assert_eq!(choose_in(&mut s, 3, 1), None);
+        // The list's first row holds the one panel, so the row press opens it.
+        assert_eq!(s.action(Action::Select), None);
+        assert!(s.technique.menu.custom_id.is_some());
+        s.technique.set_pointer(Some((40.0, 50.0)));
+        assert_eq!(
+            s.action(Action::Select),
+            Some(Request::MouseClick {
+                right: false,
+                count: 1
+            })
+        );
     }
 
     #[test]

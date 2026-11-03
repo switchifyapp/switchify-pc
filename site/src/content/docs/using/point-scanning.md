@@ -38,7 +38,7 @@ With **Auto select** on, a countdown starts at the chosen point and a left click
 | **Drag** | Start a drag here. Nothing is held yet. Point scanning runs again to choose the destination, then **Drag here** performs it, or **New destination** lets you choose again. |
 | **More** | Other clicks at the point (middle, triple, Shift, Ctrl, Alt and Windows or Command click), and the same editing, apps and windows, browser, zoom, media, display and scanning items as Home. |
 | **Keyboard** | Open the scanning [keyboard](/using/keyboard/) with focus left where it is. |
-| **My panels** | Shown once you have made [panels](/using/panels/) of your own. Opens the list of them; choose one to open it. |
+| **My panels** | Shown once you have made [panels](/using/panels/) of your own. Opens the list of them; choose one to open it. Its mouse tiles act at the point. |
 | **New point** | Start a fresh scan on the same display. |
 | **Home**, **Close menu** | Leave the menu. |
 
