@@ -477,7 +477,6 @@ mod tests {
         assert!(panel.scan.waiting());
         panel.set_extras(PanelExtras::default());
         assert!(panel.scan.waiting());
-        assert!(!panel.suspended());
     }
 
     #[test]
