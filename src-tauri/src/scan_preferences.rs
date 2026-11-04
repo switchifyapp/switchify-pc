@@ -122,7 +122,8 @@ pub struct Preferences {
     pub keyboard: Overrides,
     pub mouse: Overrides,
 }
-pub const MAX_FIRST_ITEM_MS: u64 = 5000;
+/// The choices Settings offers, so a saved value always shows as chosen.
+pub const FIRST_ITEM_MS: [u64; 5] = [0, 500, 1000, 1500, 2000];
 fn valid_group_rate(value: u16) -> bool {
     matches!(value, 100 | 150 | 200)
 }
@@ -221,7 +222,11 @@ impl Preferences {
             thickness: local.thickness.unwrap_or(self.thickness),
             next_scan: local.next_scan.unwrap_or(self.next_scan),
             start_from: local.start_from.unwrap_or(self.start_from),
-            first_item_ms: self.first_item_ms.min(MAX_FIRST_ITEM_MS),
+            first_item_ms: if FIRST_ITEM_MS.contains(&self.first_item_ms) {
+                self.first_item_ms
+            } else {
+                0
+            },
             group_rate_percent: if valid_group_rate(self.group_rate_percent) {
                 self.group_rate_percent
             } else {
@@ -264,7 +269,7 @@ pub fn deserialize_preferences<'de, D: serde::Deserializer<'de>>(
     if !valid_passes(preferences.pass_limit) {
         preferences.pass_limit = 3;
     }
-    if preferences.first_item_ms > MAX_FIRST_ITEM_MS {
+    if !FIRST_ITEM_MS.contains(&preferences.first_item_ms) {
         preferences.first_item_ms = 0;
     }
     if !valid_group_rate(preferences.group_rate_percent) {
@@ -502,6 +507,7 @@ mod tests {
         // Values this version does not know fall back alone.
         for (first, rate) in [
             (serde_json::json!(9000), serde_json::json!(175)),
+            (serde_json::json!(750), serde_json::json!(120)),
             (serde_json::json!("slow"), serde_json::json!(-1)),
             (serde_json::json!(null), serde_json::json!(1e9)),
         ] {

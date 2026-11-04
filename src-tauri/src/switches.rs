@@ -29,8 +29,9 @@ pub struct Settings {
 fn is_zero(value: &u64) -> bool {
     *value == 0
 }
-pub const MAX_ACCEPT_MS: u64 = 2000;
-pub const MAX_IGNORE_REPEAT_MS: u64 = 5000;
+/// The choices Settings offers, so a saved value always shows as chosen.
+pub const ACCEPT_MS: [u64; 6] = [0, 100, 200, 300, 500, 1000];
+pub const IGNORE_REPEAT_MS: [u64; 5] = [0, 250, 500, 1000, 2000];
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -46,8 +47,8 @@ impl Settings {
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1
             || !(250..=5000).contains(&self.hold_interval_ms)
-            || self.accept_ms > MAX_ACCEPT_MS
-            || self.ignore_repeat_ms > MAX_IGNORE_REPEAT_MS
+            || !ACCEPT_MS.contains(&self.accept_ms)
+            || !IGNORE_REPEAT_MS.contains(&self.ignore_repeat_ms)
             || self.bindings.len() > 128
         {
             return Err("Unsupported switch settings or switch timing.".into());
@@ -112,7 +113,8 @@ impl Settings {
         if n == 0 {
             4000
         } else {
-            4000.max((n + 2) * self.hold_interval_ms)
+            // Hold actions start once the press counts.
+            4000.max((n + 2) * self.hold_interval_ms + self.accept_ms)
         }
     }
     pub fn migrate(config: &crate::point_scan::Config) -> Self {
@@ -168,17 +170,28 @@ mod tests {
         let off = serde_json::to_value(&s).unwrap();
         assert!(off.get("acceptMs").is_none());
         assert!(off.get("ignoreRepeatMs").is_none());
-        s.accept_ms = MAX_ACCEPT_MS;
-        s.ignore_repeat_ms = MAX_IGNORE_REPEAT_MS;
+        s.accept_ms = 1000;
+        s.ignore_repeat_ms = 2000;
         s.validate().unwrap();
         let on = serde_json::to_value(&s).unwrap();
-        assert_eq!(on["acceptMs"], 2000);
+        assert_eq!(on["acceptMs"], 1000);
         assert_eq!(serde_json::from_value::<Settings>(on).unwrap(), s);
-        s.accept_ms += 1;
+        // Only the choices Settings offers.
+        s.accept_ms = 150;
         assert!(s.validate().is_err());
         s.accept_ms = 0;
-        s.ignore_repeat_ms += 1;
+        s.ignore_repeat_ms = 5000;
         assert!(s.validate().is_err());
+    }
+    #[test]
+    fn the_emergency_hold_outlasts_hold_actions_after_the_hold_time() {
+        let mut s = Settings::migrate(&crate::point_scan::Config::default());
+        s.bindings[0].hold_actions = vec![Action::Next, Action::Back, Action::Stop];
+        s.hold_interval_ms = 1000;
+        s.accept_ms = 1000;
+        assert_eq!(s.escape_ms(), 6000);
+        s.bindings[0].hold_actions.clear();
+        assert_eq!(s.escape_ms(), 4000);
     }
     #[test]
     fn legacy_bindings_migrate_without_losing_keys() {

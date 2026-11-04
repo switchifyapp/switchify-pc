@@ -265,8 +265,14 @@ impl<T: Clone> ItemScanner<T> {
     }
     /// How long the highlight stays on the current item, given the scan rate.
     fn step_ms(&self, period: u64) -> u64 {
-        let inside_group = !self.nav.path().is_empty();
-        let step = if inside_group {
+        // Items inside a row or group, and the slot that leaves it, take the
+        // group rate; rows and the groups of a long row keep the scan rate.
+        let item_in_group = !self.nav.path().is_empty()
+            && !matches!(
+                self.nav.current(),
+                Some(Node::Group { .. } | Node::Branch(_))
+            );
+        let step = if item_in_group {
             period.saturating_mul(u64::from(self.options.group_rate_percent)) / 100
         } else {
             period
@@ -335,6 +341,8 @@ impl<T: Clone> ItemScanner<T> {
             Action::Reverse => {
                 self.forward = !self.forward;
                 self.restart_interval();
+                // Turning round is not starting again.
+                self.first = false;
             }
             _ => {}
         }
@@ -450,6 +458,34 @@ mod tests {
         scan.restart();
         scan.handle(Action::Next);
         assert!(!scan.advance(499, 500));
+        assert!(scan.advance(1, 500));
+    }
+
+    #[test]
+    fn groups_of_a_long_row_keep_the_scan_rate_and_reversing_adds_no_extra_time() {
+        let rows = [vec!["a", "b", "c", "d", "e", "f", "g"], vec!["close"]];
+        let options = Resolved {
+            row_groups: true,
+            first_item_ms: 1000,
+            group_rate_percent: 200,
+            ..Default::default()
+        };
+        let mut scan = ItemScanner::configured_rows(&rows, Policy::MENU, options);
+        scan.handle(Action::Select);
+        assert!(scan.group_scan());
+        // The first group: the scan rate plus the extra time, not doubled.
+        assert!(!scan.advance(1499, 500));
+        assert!(scan.advance(1, 500));
+        assert!(!scan.advance(499, 500));
+        assert!(scan.advance(1, 500));
+        scan.handle(Action::Reverse);
+        assert!(!scan.advance(499, 500));
+        assert!(scan.advance(1, 500));
+        // Keys inside a group take the group rate.
+        scan.handle(Action::Select);
+        assert!(!scan.advance(1999, 500));
+        assert!(scan.advance(1, 500));
+        assert!(!scan.advance(999, 500));
         assert!(scan.advance(1, 500));
     }
 

@@ -70,12 +70,14 @@ impl Gestures {
     }
     fn candidate(&self, now: u64) -> Option<Action> {
         let p = self.press.as_ref()?;
-        let elapsed = now.saturating_sub(p.started);
-        if elapsed < self.interval_ms.max(self.accept_ms) || p.binding.hold_actions.is_empty() {
+        // Hold actions count from when the press counts, so the press action
+        // always has a full interval of its own.
+        let held = now.saturating_sub(p.started).checked_sub(self.accept_ms)?;
+        if held < self.interval_ms || p.binding.hold_actions.is_empty() {
             return None;
         }
         let index =
-            (elapsed / self.interval_ms - 1).min(p.binding.hold_actions.len() as u64 - 1) as usize;
+            (held / self.interval_ms - 1).min(p.binding.hold_actions.len() as u64 - 1) as usize;
         Some(p.binding.hold_actions[index])
     }
     pub fn prompt(&self, now: u64) -> Option<Prompt> {
@@ -232,15 +234,26 @@ mod tests {
         assert!(!g.held());
         g.pressed("one", 1000, &settings);
         assert_eq!(g.released("one", 1300), Some(Action::Select));
-        // Hold actions are not offered before the press counts.
+        // Hold actions start once the press counts, so a hold time longer
+        // than the hold interval still leaves room for the press action.
         let slow = Settings {
             accept_ms: 1500,
             ..settings
         };
         g.pressed("one", 5000, &slow);
-        assert!(g.prompt(6200).is_none());
-        assert_eq!(g.prompt(6500).unwrap().action, Action::Next);
-        assert_eq!(g.released("one", 6500), Some(Action::Next));
+        assert!(g.prompt(7499).is_none());
+        assert_eq!(g.prompt(7500).unwrap().action, Action::Next);
+        assert_eq!(g.prompt(8500).unwrap().action, Action::Stop);
+        assert_eq!(g.released("one", 8500), Some(Action::Stop));
+        for (release, expected) in [
+            (10_499, None),
+            (10_500, Some(Action::Select)),
+            (11_499, Some(Action::Select)),
+            (11_500, Some(Action::Next)),
+        ] {
+            g.pressed("one", 9000, &slow);
+            assert_eq!(g.released("one", release), expected);
+        }
     }
     #[test]
     fn presses_too_soon_after_one_that_counted_are_ignored() {

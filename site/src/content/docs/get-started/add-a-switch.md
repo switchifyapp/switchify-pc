@@ -55,7 +55,7 @@ Choose **Add hold action** to add one, and use the arrows to change the order. T
 
 If a switch gets pressed by accident, or one press selects twice, change these under **More options** on the Switches page, in **Press timing**. Both are off to begin with.
 
-- **Hold before a press counts**: off, or 0.1 to 1 second. A press released sooner than this does nothing, so a tremor or a brief bump is ignored. Hold actions are only offered once the press counts.
+- **Hold before a press counts**: off, or 0.1 to 1 second. A press released sooner than this does nothing, so a tremor or a brief bump is ignored. Hold action timing starts once the press counts, so each hold action, and the emergency stop, take that much longer.
 - **Ignore presses after a press**: off, or 0.25 to 2 seconds. After a press that counts, any switch pressed within this time does nothing. The time starts when you release the switch. This stops a switch that bounces, or a quick second press, from selecting again.
 
 These apply to switches connected to the computer, not to switches forwarded from Switchify Remote. Escape and the emergency stop below still work.

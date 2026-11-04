@@ -13,7 +13,7 @@ Chosen options in Settings have a filled background and a checkmark. A separate 
 - **Manual** scanning moves only when you press Next or Previous. It needs Select, Next and Previous.
 - **Initial direction** can be forward or reverse.
 - **Pass limit**: stop after 1, 2, 3, 5 passes, or never. The default is 3.
-- **Extra time on the first item**: off, or 0.5 to 2 seconds. The first item stays highlighted for longer when scanning starts, starts again, or moves into a row or group, giving you time to react.
+- **Extra time on the first item**: off, or 0.5 to 2 seconds. The first item stays highlighted for longer when scanning starts, starts again after a selection, or moves into or back out of a row or group, giving you time to react.
 - **Inside a row or group**: the same rate, 1.5 times as long, or twice as long. Items inside a row or group stay highlighted for this long compared with the scan rate. Rows and groups themselves move at the scan rate.
 
 The last two are shared by menus, the keyboard and the mouse panel, and only change automatic scanning. Point scanning keeps its own line speed.

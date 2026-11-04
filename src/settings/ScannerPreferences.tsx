@@ -235,7 +235,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
       setting="first-item" legend="Extra time on the first item" columns="five" disabled={disabled} value={settings.firstItemMs ?? 0}
       options={[0, 500, 1000, 1500, 2000].map(value => ({ value, label: value ? `${value / 1000} s` : 'Off' }))}
       onChange={firstItemMs => update('scanPreferences', { ...settings, firstItemMs })}
-      note={{ summary: 'The first item stays highlighted for longer when scanning starts, starts again, or moves into a row or group, giving you time to react. Menus, the keyboard and the mouse panel use it in automatic scanning.' }}
+      note={{ summary: 'The first item stays highlighted for longer when scanning starts, starts again after a selection, or moves into or back out of a row or group, giving you time to react. Menus, the keyboard and the mouse panel use it in automatic scanning.' }}
     />}
     {area === 'shared' && <OptionGroup<number>
       setting="group-rate" legend="Inside a row or group" columns="three" disabled={disabled} value={settings.groupRatePercent ?? 100}

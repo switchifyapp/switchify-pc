@@ -671,4 +671,8 @@ it("saves press timing, which starts off", async () => {
   await waitFor(() => expect(current.settings.ignoreRepeatMs).toBe(500));
   expect(current.settings.acceptMs).toBe(300);
   expect(within(ignore).getByRole("button", { name: "0.5s" })).toHaveAttribute("aria-pressed", "true");
+  // Hold actions, and the hold that resets the scan, start once a press counts.
+  open("Head switch");
+  await screen.findByText("Hold 1.3s for Next, 2.3s for Stop scanning. Release to run the action shown.");
+  await screen.findByText(/Holding any switch for 4.3s resets the scan/);
 });

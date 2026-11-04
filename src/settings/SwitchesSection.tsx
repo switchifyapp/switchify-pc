@@ -35,9 +35,10 @@ function seconds(ms: number) {
 
 // The emergency exit must outlast the longest hold list, so it grows with the
 // interval. Mirrors the backend rule so the shown number matches behaviour.
-export function escapeHoldMs(bindings: Binding[], holdIntervalMs: number) {
+// Hold actions start once a press counts, so the hold time adds to it.
+export function escapeHoldMs(bindings: Binding[], holdIntervalMs: number, acceptMs = 0) {
   const longest = Math.max(0, ...bindings.map((b) => b.holdActions.length));
-  return longest ? Math.max(4000, (longest + 2) * holdIntervalMs) : 4000;
+  return longest ? Math.max(4000, (longest + 2) * holdIntervalMs + acceptMs) : 4000;
 }
 
 function summary(binding: Binding) {
@@ -88,6 +89,7 @@ function SwitchEditor({
   isNew,
   disabled,
   holdIntervalMs,
+  acceptMs = 0,
   unavailable,
   keyError,
   unavailableReason,
@@ -109,6 +111,8 @@ function SwitchEditor({
   isNew: boolean;
   disabled: boolean;
   holdIntervalMs: number;
+  /** Hold actions start once a press counts. */
+  acceptMs?: number;
   unavailable: boolean;
   keyError: string | null;
   /** Why the saved key cannot be used on this computer, when `unavailable`. */
@@ -272,7 +276,7 @@ function SwitchEditor({
         <p className="setting-note">
           {binding.holdActions.length
             ? `Hold ${binding.holdActions
-                .map((a, i) => `${seconds(holdIntervalMs * (i + 1))} for ${actions[a]}`)
+                .map((a, i) => `${seconds(acceptMs + holdIntervalMs * (i + 1))} for ${actions[a]}`)
                 .join(", ")}. Release to run the action shown.`
             : "Holding pauses the scan highlight. Add actions to offer them one by one while held; Mouse repeat follows the Stop repeating choice under Scanning, Mouse pointer instead."}
         </p>
@@ -648,9 +652,10 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
     setExpanded(null);
     focusAfter.current = newId;
   };
-  const escapeMs = escapeHoldMs(
-    [...settings.bindings, ...remoteRows.map(({ slot, index }) => remoteBinding(slot, index))],
-    settings.holdIntervalMs,
+  // Press timing applies to local switches only.
+  const escapeMs = Math.max(
+    escapeHoldMs(settings.bindings, settings.holdIntervalMs, settings.acceptMs ?? 0),
+    escapeHoldMs(remoteRows.map(({ slot, index }) => remoteBinding(slot, index)), settings.holdIntervalMs),
   );
   const isPreset = (holdIntervalPresets as readonly number[]).includes(
     settings.holdIntervalMs,
@@ -805,6 +810,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                       isNew={false}
                       disabled={disabled}
                       holdIntervalMs={settings.holdIntervalMs}
+                      acceptMs={settings.acceptMs ?? 0}
                       unavailable={unavailable}
                       unavailableReason={unavailable ? unavailableKeyReason(binding.key, platform) : undefined}
                       keyError={errorFor(binding.id)}
@@ -924,6 +930,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                   isNew
                   disabled={draftSlot === null && disabled}
                   holdIntervalMs={settings.holdIntervalMs}
+                  acceptMs={draftSlot === null ? settings.acceptMs ?? 0 : 0}
                   unavailable={false}
                   keyError={errorFor(newId)}
                   onChange={setDraft}
@@ -968,7 +975,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
           value={settings.acceptMs ?? 0}
           onChange={(acceptMs) => controller.update({ ...settings, acceptMs })}
           options={acceptPresets.map((value) => ({ value, label: value ? seconds(value) : "Off" }))}
-          note={{ summary: "A press released sooner than this does nothing. Hold actions are offered once the press counts." }}
+          note={{ summary: "A press released sooner than this does nothing. Hold action timing starts once the press counts, so each hold action, and the hold that resets the scan, take this much longer." }}
         />
         <OptionGroup<number>
           setting="ignore-repeat"
