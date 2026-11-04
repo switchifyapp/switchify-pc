@@ -35,9 +35,9 @@ See [licences, activation and offline access](/licence/) for the full details.
 
 ## The setup guide
 
-The first time Switchify PC opens, a five-step guide walks you through:
+The first time Switchify PC opens, a guide walks you through:
 
-1. **Input access.** On a Mac, Switchify PC needs Accessibility permission to control the pointer and keyboard. Choose *Open Accessibility Settings*, turn on Switchify PC under Privacy & Security, then come back to the app. It checks again by itself when its window regains focus. On Windows this step shows *Ready*.
+1. **Input access.** On a Mac, Switchify PC needs Accessibility permission to control the pointer and keyboard. Choose *Open Accessibility Settings*, turn on Switchify PC under Privacy & Security, then come back to the app. It checks again by itself when its window regains focus. This step appears only on a Mac that still needs permission. After permission is granted, the guide continues to Add your switch.
 
    ![The Input access step of the setup guide on a Mac, with an Open Accessibility Settings button and a Show me how demonstration.](../../../assets/screenshots/setup-input-access-macos.png)
 

@@ -23,7 +23,7 @@ The pages are in a sidebar on the left, with an icon beside each name. **Switche
 
 Press Ctrl+K on Windows or Command+K on Mac to focus **Find a setting**. You can also press `/` when you are not typing in a field. Settings show their names beside an **On** or **Off** control, and saved switches appear as rows with their edit and remove buttons alongside.
 
-Home shows whether switch control is ready, followed by common tasks such as changing the scan rate or adding a switch. **Your setup** below them shows input access, saved switches, scanning and the optional mobile connection. The same switch, scanning, panel and phone symbols appear beside related tasks, status information and device lists throughout the settings window.
+Home shows whether switch control is ready, followed by common tasks such as changing the scan rate or adding a switch. **Your setup** below them shows saved switches, scanning and the optional mobile connection. Input access appears on Home, in Help and in search only when a Mac still needs Accessibility permission. The same switch, scanning, panel and phone symbols appear beside related tasks, status information and device lists throughout the settings window.
 
 Type into **Find a setting** to find a control by name or meaning. While meaning-based search starts, the window shows **Finding settings…** if there are no keyword matches yet. Choose a result to open its setting.
 

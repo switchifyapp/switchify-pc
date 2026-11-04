@@ -9,6 +9,7 @@ import { actions } from "../scanning/useSwitches";
 import { lastModeName, selectOpensHome, type PointScanConfig, type PointScanState } from "../scanning/useScanning";
 import { areaOptions, defaultScanPreferences, itemScanning, itemScanningLabels, sharedOptions, type ScanArea } from "../scanning/preferences";
 import { speedLevelLabel } from "../settings/pointerSpeedScale";
+import { needsInputAccess } from "../inputAccess";
 
 /** The pages of the app. Mouse pointer settings live on Scanning and the account on Settings. */
 export type Page = "home" | "switches" | "scanning" | "panels" | "mobile" | "settings" | "support";
@@ -168,6 +169,7 @@ const catalogue = [
     value: (c) => c.settings ? (c.settings.autoApproveAccountDevices ? "On" : "Off") : null, related: ["account", "pairing"] },
   // Help
   { id: "input-access", label: "Input access", words: ["accessibility", "permission", "allow", "not working", "cannot control", "macos", "system settings"], page: "support", section: "setup", status: true,
+    when: (c) => needsInputAccess(c.state),
     value: (c) => ({ granted: "Ready", required: "Permission required", unavailable: "Unavailable on this system" })[c.state.accessibility], related: ["switch-list", "not-recognised"] },
   { id: "not-recognised", label: "Switch not recognized", words: ["not working", "no response", "interface", "keyboard mode", "reserved key", "switch does nothing", "troubleshooting"], page: "support", section: "fix", status: true,
     value: () => "Use a switch interface in keyboard mode", related: ["switch-list", "practice", "input-access"] },

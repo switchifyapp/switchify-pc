@@ -14,6 +14,16 @@ function context(overrides: Partial<FindContext> = {}): FindContext {
 }
 
 describe("the settings index", () => {
+  it("offers input access only for a Mac needing permission", () => {
+    for (const platform of ["macos", "windows", "linux"] as const) {
+      for (const accessibility of ["required", "granted", "unavailable"] as const) {
+        const ctx = context();
+        ctx.state.capabilities.platform = platform;
+        ctx.state.accessibility = accessibility;
+        expect(available(entry("input-access"), ctx)).toBe(platform === "macos" && accessibility === "required");
+      }
+    }
+  });
   it("gives every entry a page, a section on that page and a value", () => {
     const ctx = context();
     for (const e of index) {
