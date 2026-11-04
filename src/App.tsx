@@ -775,18 +775,31 @@ export function App() {
     });
     return () => { void stop.then((unlisten) => unlisten()); };
   }, [view]);
-  const selectView = (next: View): boolean => {
-    if (next === viewRef.current) return true;
+  // Leaving an editor with unsaved changes asks first; a yes forgets them.
+  const confirmDiscard = (): boolean => {
     if (profileEditorDirty.current && !window.confirm("Discard unsaved profile changes?")) return false;
     if (panelEditorDirty.current && !window.confirm("Discard unsaved panel changes?")) return false;
     profileEditorDirty.current = false;
     panelEditorDirty.current = false;
+    return true;
+  };
+  const selectView = (next: View): boolean => {
+    if (next === viewRef.current) return true;
+    if (!confirmDiscard()) return false;
     viewRef.current = next;
     setView(next);
     return true;
   };
 
   // Finding things: the Find tile's query, and the setting a jump is heading to.
+  // Find's results replace the page, so the first letter typed asks the same
+  // question leaving the page would; a refused question leaves the box empty.
+  const changeQuery = (next: string) => {
+    // Blank input is no query, so a stray space never replaces the page.
+    if (!next.trim()) { setQuery(""); return; }
+    if (!query && !confirmDiscard()) return;
+    setQuery(next);
+  };
   const jump: Jump = (target) => {
     setQuery("");
     if (!selectView(target.page)) return;
@@ -811,10 +824,7 @@ export function App() {
     // Find results replace the page, so leave them before heading to Updates.
     setQuery("");
     if (viewRef.current !== "settings") {
-      if (profileEditorDirty.current && !window.confirm("Discard unsaved profile changes?")) return;
-      if (panelEditorDirty.current && !window.confirm("Discard unsaved panel changes?")) return;
-      profileEditorDirty.current = false;
-      panelEditorDirty.current = false;
+      if (!confirmDiscard()) return;
       viewRef.current = "settings";
       setView("settings");
     }
@@ -853,7 +863,7 @@ export function App() {
     <header className="app-bar" inert={modal}>
       <div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div>
       <nav aria-label="Pages">{pages.map(([id, icon]) => <Button key={id} className="tile tile-nav" data-active={view === id && !query} aria-current={view === id && !query ? "page" : undefined} onClick={() => { setQuery(""); selectView(id); }}><span className="tile-icon" aria-hidden="true">{icon}</span><span>{pageLabels[id]}</span></Button>)}</nav>
-      <FindTile query={query} onChange={setQuery} inputRef={findRef} />
+      <FindTile query={query} onChange={changeQuery} inputRef={findRef} />
     </header>
     <DemonstrationProvider platform={state.capabilities.platform} suspended={modal || switches.capturing || !!switches.state?.capture.active}><main inert={modal}>
       {state.licence?.configured && (state.licence.status !== "licensed" || (state.licence.offlineDaysRemaining != null && state.licence.offlineDaysRemaining <= 7)) && <div className="licence-banner-wrap">
