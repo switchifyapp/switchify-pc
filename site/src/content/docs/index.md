@@ -14,12 +14,14 @@ It is open source under the AGPL-3.0. See [licences, trial and purchase keys](/l
 - **Type.** Switchify PC has its own scanning keyboard with word prediction that runs on the computer. Nothing you type leaves it.
 - **Move the pointer step by step** from a mouse panel, or send it out across the screen with Radar.
 - **Make panels of your own.** A panel is a page of tiles that scans like Home: each tile types a phrase, presses keys, runs an action or opens another panel. Build them in the Panels section and open them from Home. Home and the built-in menus can be rearranged there too, and the mouse panel and keyboard can take rows of your own tiles. See [Panels](/using/panels/).
-- **Find any setting.** Type a word such as *speed* or *colour* into **Find a setting** and go straight to it. Each page lists its sections with their current values at the top, and Home lists common tasks.
+- **Find any setting.** Type a word such as *speed* or *colour* into **Find a setting** and go straight to it. Section buttons at the top of a page take you to its controls, and Home lists common tasks.
 - **Set the pace.** Automatic or manual scanning, the scan rate, how many passes before it stops, highlight colour and thickness, and panel size are all yours to change.
 
 ## Using the settings window
 
-The pages are across the top, beside or below **Find a setting**, depending on the window size. The current page has a red background and a short underline. Scanning choices use your chosen highlight colour.
+The pages are in a sidebar on the left. The sidebar and **Find a setting** at the top stay available as you scroll. Settings and Help sit at the bottom of the sidebar. In a very narrow window, the pages move above the workspace. The current page has a red background and a short marker beside it. Scanning choices use your chosen highlight colour.
+
+Press Ctrl+K on Windows or Command+K on Mac to focus **Find a setting**. You can also press `/` when you are not typing in a field. Settings show their names beside an **On** or **Off** control, and saved switches appear as rows with their edit and remove buttons alongside.
 
 Home shows whether switch control is ready, followed by common tasks such as changing the scan rate or adding a switch. **Your setup** below them shows input access, saved switches, scanning and the optional mobile connection.
 

@@ -58,9 +58,9 @@ You can skip the guide with **Skip setup for now** and reopen it later from Help
 
 Home shows **Ready** when Switchify PC is waiting for your switches. Press and release your Select switch to open the Home menu.
 
-The pages of the app are a row of large tiles across the top of the window: Home, Switches, Scanning, Panels, Mobile, Settings and Help. In a narrow window the tiles wrap onto a second row. The current page, a chosen option and a setting that is on are all outlined in your own scanner colour and thickness, so the window looks the way the scan highlight will.
+The sidebar on the left opens Home, Switches, Scanning, Panels, Mobile, Settings and Help. The current page has a red background and a short marker beside it. The sidebar and search bar stay available while you scroll. In a very narrow window, the page buttons move above the workspace. Scanning choices keep your chosen scanner colour and thickness.
 
-![The Switchify PC Home page showing Ready, with the page tiles and Find a setting box across the top, input access ready, one saved switch with Select assigned, automatic scanning, an optional mobile connection, and Common tasks below.](../../../assets/screenshots/home.png)
+![The Switchify PC Home page with its sidebar, Find a setting at the top, a Ready status panel and shortcuts for common tasks.](../../../assets/screenshots/home.png)
 
 ## Finding a setting
 

@@ -24,7 +24,7 @@ export function JumpTile({ e, ctx, jump, task, raised }: { e: Entry; ctx: FindCo
   </Button>;
 }
 
-/** On this page: one tile per section with its current values, so you can see before you scroll. */
+/** Compact section shortcuts. Accessible names retain the current values. */
 export function SectionStrip({ page, ctx, jump }: { page: Page; ctx: FindContext; jump: Jump }) {
   const list = sections[page].filter((s) => !s.when || s.when(ctx));
   if (!list.length) return null;
@@ -70,12 +70,13 @@ export function RecentlyChanged({ ctx, jump, recent }: { ctx: FindContext; jump:
   </section>;
 }
 
-/** The Find tile: a search box in the nav row. */
-export function FindTile({ query, onChange, inputRef }: { query: string; onChange: (q: string) => void; inputRef: RefObject<HTMLInputElement | null> }) {
+/** Search in the workspace toolbar. */
+export function FindTile({ query, onChange, inputRef, shortcut }: { query: string; onChange: (q: string) => void; inputRef: RefObject<HTMLInputElement | null>; shortcut?: string }) {
   // The whole tile is the target: a press anywhere on it focuses the box.
   return <div className={query ? "tile tile-find tile-chosen" : "tile tile-find"} role="search" onClick={() => inputRef.current?.focus()}>
     <Search size={24} aria-hidden="true" />
-    <input ref={inputRef} type="search" aria-label="Find a setting" value={query} placeholder="Find a setting" onChange={(e) => onChange(e.target.value)} autoComplete="off" />
+    <input ref={inputRef} type="search" aria-label="Find a setting" aria-keyshortcuts="Control+k Meta+k /" value={query} placeholder="Find a setting" onChange={(e) => onChange(e.target.value)} autoComplete="off" />
+    {!query && shortcut && <kbd className="find-shortcut" aria-hidden="true">{shortcut}</kbd>}
     {query && <Button className="find-clear" aria-label="Clear search" onClick={() => { onChange(""); inputRef.current?.focus(); }}><X size={22} aria-hidden="true" /></Button>}
   </div>;
 }

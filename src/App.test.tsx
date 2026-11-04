@@ -962,6 +962,16 @@ describe("Switchify PC shell", () => {
       expect(startup).toHaveFocus();
     });
 
+    it.each(["ctrlKey", "metaKey"])("focuses Find with the desktop shortcut using %s, including from a field", async (modifier) => {
+      render(<App />);
+      await screen.findByRole("heading", { name: "Switchify PC" });
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      const startup = screen.getByRole("checkbox", { name: "Start with system" });
+      startup.focus();
+      fireEvent.keyDown(startup, { key: "k", [modifier]: true });
+      expect(find()).toHaveFocus();
+    });
+
     it("opens the exact setting from a common task on Home", async () => {
       render(<App />);
       await screen.findByRole("heading", { name: "Switchify PC" });

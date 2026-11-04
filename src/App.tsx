@@ -815,8 +815,10 @@ export function App() {
   jumpRef.current = jump;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
-      if ((event.target as HTMLElement | null)?.closest("input, select, textarea, [contenteditable]")) return;
+      const shortcut = event.key.toLowerCase() === "k" && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey;
+      const slash = event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey;
+      if (!shortcut && !slash) return;
+      if (slash && (event.target as HTMLElement | null)?.closest("input, select, textarea, [contenteditable]")) return;
       event.preventDefault();
       findRef.current?.focus();
     };
@@ -865,10 +867,10 @@ export function App() {
   return <DemonstrationProvider platform={state.capabilities.platform} suspended={state.pendingPairings.length > 0 || switches.capturing || !!switches.state?.capture.active}><div ref={rootRef} className="app-shell" data-scan={scanning.config.scannerColor} data-thickness={scanning.config.scanPreferences?.thickness ?? "standard"}>
     <header className="app-bar" inert={modal}>
       <div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div>
-      <nav aria-label="Pages">{pages.map(([id, icon]) => <Button key={id} className="tile tile-nav" data-active={view === id && !query} aria-current={view === id && !query ? "page" : undefined} onClick={() => { setQuery(""); selectView(id); }}><span className="tile-icon" aria-hidden="true">{icon}</span><span>{pageLabels[id]}</span></Button>)}</nav>
-      <FindTile query={query} onChange={changeQuery} inputRef={findRef} />
+      <nav aria-label="Pages">{pages.map(([id, icon]) => <Button key={id} className="tile tile-nav" data-utility={id === "settings" || id === "support" ? id : undefined} data-active={view === id && !query} aria-current={view === id && !query ? "page" : undefined} onClick={() => { setQuery(""); selectView(id); }}><span className="tile-icon" aria-hidden="true">{icon}</span><span>{pageLabels[id]}</span></Button>)}</nav>
     </header>
     <DemonstrationProvider platform={state.capabilities.platform} suspended={modal || switches.capturing || !!switches.state?.capture.active}><main inert={modal}>
+      <div className="workspace-toolbar"><span className="workspace-location">{query ? "Find settings" : pageLabels[view]}</span><FindTile query={query} onChange={changeQuery} inputRef={findRef} shortcut={state.capabilities.platform === "macos" ? "⌘ K" : "Ctrl K"} /></div>
       {state.licence?.configured && (state.licence.status !== "licensed" || (state.licence.offlineDaysRemaining != null && state.licence.offlineDaysRemaining <= 7)) && <div className="licence-banner-wrap">
         <div className="licence-banner" data-locked={state.licence.locked ?? ["expired", "unavailable", "lease_expired", "revoked", "deactivated"].includes(state.licence.status)}>
           <KeyRound size={24} aria-hidden="true" />
