@@ -6,14 +6,14 @@
    scanning panels, menus and overlays are styled elsewhere.
 
    Large targets remain easy to reach. Brand colour identifies navigation
-   and main actions; scanning choices retain the user's scan highlight. */
+   and main actions; settings choices use a neutral fill and tick. */
 
 @layer components {
 
 /* --- Tokens ---------------------------------------------------------------
    Neutral surfaces carry the tiles; the scanner colour (set on the shell by
-   the app from the saved scanning settings) marks scanning choices, focus
-   and a found setting. Brand red marks navigation and primary actions.
+   the app from the saved scanning settings) marks focus and a found setting.
+   Brand red marks navigation and primary actions.
    Status colours carry meaning and are always paired with an icon or words. */
 :root {
   font-family: "Manrope Variable", Manrope, "Segoe UI", system-ui, sans-serif;
@@ -30,7 +30,7 @@
   --on-brand: #ffffff;
   --on-brand-container: #410002;
   --chrome: #d32f2f;
-  --segment-selected: #fff1f1;
+  --segment-selected: #e2dfda;
 
   --app-background: #f4f3f1;
   --surface: #ffffff;
@@ -84,7 +84,7 @@
     --on-brand: #ffffff;
     --on-brand-container: #ffdad6;
     --chrome: #a8231c;
-    --segment-selected: #3b2424;
+    --segment-selected: #454149;
 
     --app-background: #151416;
     --surface: #242326;
@@ -569,9 +569,8 @@ section[data-found], div[data-found]:not(.tile) { padding: 10px; margin: -10px; 
 .teaching-caption { font-size: 18px; }
 
 /* --- Choices -----------------------------------------------------------------
-   An option group is a row of equal tiles. The chosen one is outlined in the
-   scan highlight and carries a drawn tick, so it differs from focus (a ring
-   outside the tile) by shape as well as colour. The tick is an empty
+   An option group is a row of equal tiles. The chosen one has a neutral fill
+   and a drawn tick, distinct from the focus ring outside the tile. The tick is an empty
    pseudo-element, so it never becomes part of the button's name. */
 .scanner-preferences legend, .repeat-options legend, .overlay-options legend, .setting-controls fieldset > legend { margin-bottom: 8px; padding: 0; color: var(--text); font-size: 18px; font-weight: 600; }
 .segmented { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; width: 100%; min-width: 0; margin: 0; }
@@ -580,10 +579,10 @@ section[data-found], div[data-found]:not(.tile) { padding: 10px; margin: -10px; 
 .setup-choices .btn { min-height: 96px; }
 /* The chosen state is drawn, never written: generated text would join the
    button's accessible name. The tick is a rotated empty box. */
-.segmented .btn::after, .setup-choices .btn::after { content: ""; display: block; width: 9px; height: 16px; margin: 4px 0 2px 2px; border: solid transparent; border-width: 0 3px 3px 0; transform: rotate(45deg); }
-.segmented .btn[aria-pressed="true"], .setup-choices .btn[aria-pressed="true"] { box-shadow: inset 0 0 0 var(--scan-width) var(--scan); }
-.segmented .btn[aria-pressed="true"]::after, .setup-choices .btn[aria-pressed="true"]::after { border-color: var(--text); }
-.segmented .btn:enabled:not(fieldset:disabled *):hover, .setup-choices .btn:enabled:hover { background: var(--surface-muted); border-color: var(--border); }
+.segmented .btn::after, .setup-choices .btn::after { content: ""; display: block; visibility: hidden; flex: none; width: 9px; height: 16px; margin: 4px 0 2px 2px; border: solid transparent; border-width: 0 3px 3px 0; transform: rotate(45deg); }
+.segmented .btn[aria-pressed="true"], .setup-choices .btn[aria-pressed="true"] { background: var(--segment-selected); border-color: var(--border-strong); }
+.segmented .btn[aria-pressed="true"]::after, .setup-choices .btn[aria-pressed="true"]::after { visibility: visible; border-color: var(--text); }
+.segmented .btn:enabled:not(fieldset:disabled *):not([aria-pressed="true"]):hover, .setup-choices .btn:enabled:not([aria-pressed="true"]):hover { background: var(--surface-muted); border-color: var(--border); }
 
 /* --- Colour pickers ---------------------------------------------------------
    Each colour is a tile holding a swatch; the native radio stays in the tree
@@ -592,7 +591,9 @@ section[data-found], div[data-found]:not(.tile) { padding: 10px; margin: -10px; 
 .color-options label, .scanner-colours label { position: relative; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 8px; min-height: 120px; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 16px; background: var(--surface); font-size: 20px; font-weight: 600; cursor: pointer; }
 .color-options label:hover, .scanner-colours label:hover { background: var(--surface-muted); }
 .color-options input, .scanner-colours input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
-.color-options label:has(input:checked), .scanner-colours label:has(input:checked) { box-shadow: inset 0 0 0 var(--scan-width) var(--scan); }
+.color-options label:has(input:checked), .scanner-colours label:has(input:checked) { background: var(--segment-selected); border-color: var(--border-strong); }
+.color-options label::after, .scanner-colours label::after { content: ""; visibility: hidden; position: absolute; top: 18px; right: 20px; width: 9px; height: 16px; border: solid transparent; border-width: 0 3px 3px 0; transform: rotate(45deg); }
+.color-options label:has(input:checked)::after, .scanner-colours label:has(input:checked)::after { visibility: visible; border-color: currentColor; }
 .color-options label:has(input:focus-visible), .scanner-colours label:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 3px; }
 /* Inside a disabled group the tiles are inert, so they stop inviting a click. */
 fieldset:disabled :is(.color-options, .scanner-colours) label { cursor: default; }
@@ -837,7 +838,10 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
    chosen state with system colours, and let swatches and the highlight
    sample keep their real colours, since the colour is the choice being made. */
 @media (forced-colors: active) {
-  .btn.tile-nav[data-active="true"], .segmented .btn[aria-pressed="true"], .setup-choices .btn[aria-pressed="true"], .toggle-row:has(input:checked), .color-options label:has(input:checked), .scanner-colours label:has(input:checked), .switch-row[data-open], .tile-find:focus-within, .tile-find.tile-chosen, [data-found] { outline: 3px solid Highlight; outline-offset: -3px; }
+  .segmented .btn[aria-pressed="true"], .setup-choices .btn[aria-pressed="true"], .color-options label:has(input:checked), .scanner-colours label:has(input:checked) { forced-color-adjust: none; color: HighlightText; background: Highlight; border-color: ButtonText; outline: none; }
+  .segmented .btn[aria-pressed="true"]::after, .setup-choices .btn[aria-pressed="true"]::after { border-color: currentColor; }
+  .btn.tile-nav[data-active="true"], .toggle-row:has(input:checked), .switch-row[data-open], .tile-find:focus-within, .tile-find.tile-chosen, [data-found] { outline: 3px solid Highlight; outline-offset: -3px; }
+  .segmented .btn:focus-visible, .setup-choices .btn:focus-visible, .color-options label:has(input:focus-visible), .scanner-colours label:has(input:focus-visible) { outline: 3px solid CanvasText; outline-offset: 3px; }
   /* Focus must still read as focus on the current page's own button. */
   .btn.tile-nav[data-active="true"]:focus-visible { outline: 3px solid CanvasText; outline-offset: 3px; }
   .toggle { forced-color-adjust: none; color: CanvasText; }
